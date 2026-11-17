@@ -17,7 +17,8 @@
   bracket operators only where needed; strict `true`/`false` booleans; enums by string name; a repeated
   scalar key is a `400` (never silent first-value-wins; unknown parameter *names* stay ignored by deliberate
   leniency), see "Repeated keys" below [API-LIST-004].
-- Free text: `q` first, per-column substring only when a UI requires it [API-LIST-005].
+- Free text: `q` first, per-column substring only when a UI requires it [API-LIST-005]. The first `q` consumer is `GET /users/directory?q=` (name OR email on
+  one `containsNormalized` predicate for count and rows; `q` REQUIRED, 2 to 100 code points after trimming; pages capped at 20 via its own `DirectoryPageSize` component; spec parameter component `Q`); `GET /users` still filters per column.
 - Naming: camelCase params; reusable `Page`/`PageSize`/`Sort` under `#/components/parameters`
   `$ref`'d from each list path; one `*Page` envelope schema per resource; sortable/filterable
   whitelists documented per path [API-NAME-001..004].

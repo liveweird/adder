@@ -252,7 +252,7 @@ the full link roundtrip incl. the session revocation), `PasswordResetThrottleTes
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, and the per-USER `telemetry` below): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, and the per-USER `telemetry` and `directory` below): blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
@@ -270,6 +270,25 @@ development mode.
 once INSIDE `authenticate {}` around both reads, so the key is the verified user id (`TelemetryRoutesTest`). The panel polls `current` once a
 minute and fetches a history per expanded section, a handful a minute; each call is a few `ops` aggregations, so the
 bound is for a runaway client. The rejection is the generic `429` problem and the coalesced `rate_limit.exceeded` audit event (bucket `telemetry`, `byUserId`).
+
+**Per-USER directory bucket** (`directory`, a fixed 120/min in every mode, `RateLimits.DIRECTORY`) for `GET /api/v1/users/directory`, the ONE read that lets
+any signed-in user (not just an ADMIN) list accounts. `configureUserRoutes` mounts `rateLimit(RateLimitName(RateLimits.DIRECTORY))` INSIDE
+`authenticate {}` (the telemetry idiom), keyed by the verified user id: a NAT'd office is not one bucket and changing IP buys nothing. A member picker
+makes a debounced lookup per keystroke pause (a handful a minute). The route adds two bounds of its own: `q` is REQUIRED and at least 2 code points after
+trimming (max 100; code points, `codePointCount`, never UTF-16 units), and a page holds at most 20 rows (`400` beyond). **Honest scope: these slow and audit a
+bulk harvest, they do not prevent one.** A signed-in insider can still walk the directory with two-letter queries inside the bucket (up to 120 pages of 20 rows, i.e. 2,400
+rows, a minute), and every rejection is the generic `429` problem plus the coalesced `rate_limit.exceeded` audit event (bucket `directory`, `byUserId`, one per user per
+minute). `UserDirectoryTest` pins the bounds, 120 then `429`, per user, and the audit event.
+
+**What the user directory discloses, and to whom** (a deliberate widening of the ADMIN-only user list, the user's decision D2, 2026-11-17, who accepts name+email
+disclosure to any signed-in user): to every signed-in user, the `id`, `name` and `email` of every ACTIVE account, searchable by name or email
+(case- and accent-insensitive). Never roles (who is an ADMIN), feature flags, language, MFA state, timestamps or the password hash: `UserDirectoryEntry` is a
+three-field projection built in the service, not the `User` row filtered afterwards, and `UserDirectoryTest` pins the exact key set. A soft-deleted account is
+absent (its email is freed for reuse). `%` and `_` in `q` are literal (`containsNormalized` escapes them). **Residual risk:** the email is the login identifier, so
+a signed-in colleague who harvests emails can (a) aim failed sign-ins at a victim's account to trigger the per-account lockout, bounded by the per-IP `login` bucket
+(10/min in production) and the lockout's own window, and (b) request password-reset mail for a victim, bounded by the per-IP `password-reset` bucket and the
+per-email reset throttle (`PasswordResetThrottleTest`). Neither reveals or changes a credential, and the reset link goes only to the account's own mailbox. Collapse
+the projection to `{id, name}` if that trade changes (the user's option 2 of D2).
 
 **Email MFA (opt-in)** (`auth/MfaChallenges.kt` + `auth/MfaEmail.kt`, wired in
 `configureAuthRoutes`): a per-user second factor behind the `MFA` feature flag — **the one

@@ -119,6 +119,15 @@ data class UserFeaturesUpdateRequest(val disabledFeatures: List<Feature>)
 
 typealias UserPageResponse = ch.nokillswit.infra.paging.PageResponse<UserResponse>
 
+/**
+ * The user-directory projection (`GET /api/v1/users/directory`, any signed-in user): exactly these three fields, never roles, feature
+ * flags or language — the picker needs a person to choose, and the email tells namesakes apart.
+ */
+@Serializable
+data class UserDirectoryEntry(val id: UInt, val name: String, val email: String)
+
+typealias UserDirectoryPageResponse = ch.nokillswit.infra.paging.PageResponse<UserDirectoryEntry>
+
 /** The single stored role from a wire roles set: ADMIN present wins, else the baseline. */
 fun rolesToStored(roles: Collection<UserRole>?): UserRole =
     if (roles != null && UserRole.ADMIN in roles) UserRole.ADMIN else UserRole.USER
