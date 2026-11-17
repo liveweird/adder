@@ -59,7 +59,7 @@ export default function Teams() {
   });
 
   const total = data?.total ?? 0;
-  const columnCount = 4;
+  const columnCount = 5;
 
   return (
     <Stack gap="md">
@@ -100,6 +100,7 @@ export default function Teams() {
             <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
             <Table.Th>{t("common.field.description")}</Table.Th>
             <Table.Th>{t("teams.column.manager")}</Table.Th>
+            <Table.Th>{t("teams.column.members")}</Table.Th>
             <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
           </Table.Tr>
         }
@@ -121,6 +122,9 @@ export default function Teams() {
                   <Text size="sm" c={team.managerName ? undefined : "dimmed"}>
                     {team.managerName ?? "—"}
                   </Text>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm">{team.memberCount}</Text>
                 </Table.Td>
                 <Table.Td style={{ width: 1 }} ta="right">
                   {admin && (

@@ -8,6 +8,7 @@ import type { paths } from "./schema";
 export type TeamPage = paths["/api/v1/teams"]["get"]["responses"]["200"]["content"]["application/json"];
 export type TeamListItem = TeamPage["items"][number];
 export type TeamResponse = paths["/api/v1/teams/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
+export type TeamMember = TeamResponse["members"][number];
 export type TeamCreateBody = paths["/api/v1/teams"]["post"]["requestBody"]["content"]["application/json"];
 export type TeamUpdateBody = paths["/api/v1/teams/{id}"]["put"]["requestBody"]["content"]["application/json"];
 
@@ -37,4 +38,13 @@ export async function updateTeam(id: number, body: TeamUpdateBody): Promise<void
 
 export async function deleteTeam(id: number): Promise<void> {
   await voidRequest(`/api/v1/teams/${id}`, { method: "DELETE" });
+}
+
+/** Add a user to the roster (ADMIN or the team's manager). Idempotent: an existing member is a 204 too. */
+export async function addTeamMember(teamId: number, userId: number): Promise<void> {
+  await voidRequest(`/api/v1/teams/${teamId}/members/${userId}`, { method: "PUT" });
+}
+
+export async function removeTeamMember(teamId: number, userId: number): Promise<void> {
+  await voidRequest(`/api/v1/teams/${teamId}/members/${userId}`, { method: "DELETE" });
 }

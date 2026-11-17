@@ -5,17 +5,20 @@ import { Button, Stack, Text } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPencil } from "@tabler/icons-react";
 import { ApiError } from "../api/http";
+import { getUserId } from "../api/session";
 import { useAdmin } from "../auth";
 import { getTeam } from "../api/teams";
 import EditPageLoadState from "../components/EditPageLoadState";
 import PageHeader from "../components/PageHeader";
 import TeamEditorModal from "../components/TeamEditorModal";
+import TeamMembers from "../components/TeamMembers";
 import { loadErrorMessage } from "../utils/saveError";
+import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { teamsPath } from "../utils/teamLinks";
 
 /**
- * One team (`/teams/:id`): its name, description and manager. Everyone reads it, its manager included; an ADMIN
- * edits the team (name, description, manager).
+ * One team (`/teams/:id`): its name, description, manager and roster. Everyone reads it, its manager included; an ADMIN
+ * edits the team (name, description, manager); an ADMIN or the team's manager edits the roster.
  */
 export default function TeamDetails() {
   const { t } = useTranslation();
@@ -28,7 +31,7 @@ export default function TeamDetails() {
   const [editing, setEditing] = useState(false);
 
   async function refresh() {
-    await queryClient.invalidateQueries({ queryKey: ["teams"] });
+    await refreshQueriesAfterMutation(queryClient, ["teams"]);
   }
 
   if (team.isLoading || team.isError || !team.data) {
@@ -44,6 +47,8 @@ export default function TeamDetails() {
     );
   }
   const data = team.data;
+  // UX only: the server's requireTeamManagerOrAdmin decides. The manager is null when unset or soft-deleted.
+  const canManageRoster = admin || (data.managerUserId !== null && data.managerUserId === getUserId());
 
   return (
     <Stack gap="md">
@@ -70,6 +75,8 @@ export default function TeamDetails() {
           )
         }
       />
+
+      <TeamMembers team={data} canManage={canManageRoster} />
 
       {editing && (
         <TeamEditorModal

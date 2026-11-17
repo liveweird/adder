@@ -10,7 +10,8 @@
   "backToTeams": "Wróć do zespołów",
   "openAria": "Otwórz zespół {{name}}",
   "column": {
-    "manager": "Kierownik/czka"
+    "manager": "Kierownik/czka",
+    "members": "Liczba członków/członkiń"
   },
   "manager": "Kierownik/czka",
   "managerLine": "Kierownik/czka: {{name}}",
@@ -35,5 +36,26 @@
     "created": "Zespół utworzony",
     "saved": "Zespół zapisany",
     "deleted": "Zespół usunięty"
+  },
+  "members": {
+    "title": "Członkowie/członkinie",
+    "tableAria": "Członkowie/członkinie zespołu {{name}}",
+    "empty": "Ten zespół nie ma jeszcze członków/członkiń",
+    "addLabel": "Dodaj członka/członkinię",
+    "add": "Dodaj",
+    "addFailed": "Nie udało się dodać członka/członkini",
+    "full": "Ten zespół ma już maksymalną liczbę 200 członków/członkiń.",
+    "forbidden": "Skład zespołu może zmieniać tylko administrator/ka lub kierownik/czka zespołu.",
+    "gone": "Zespół albo użytkownik/czka już nie istnieje — odśwież stronę.",
+    "removeAria": "Usuń {{name}}",
+    "removeTitle": "Usunąć członka/członkinię?",
+    "removeBody": "Usuniemy {{name}} z zespołu „{{team}}”.",
+    "remove": "Usuń",
+    "removeFailed": "Nie udało się usunąć członka/członkini",
+    "toast": {
+      "added": "Dodaliśmy członka/członkinię",
+      "removed": "Usunęliśmy członka/członkinię"
+    },
+    "removeGone": "Ta osoba nie należy już do zespołu."
   }
 }

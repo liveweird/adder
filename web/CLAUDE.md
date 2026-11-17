@@ -207,6 +207,8 @@ description, with `utils/charCount.tsx`'s "123 / 4000" counter) and `RegistryEdi
 parent/target fields stay local. Keep each registry's field limits explicit and mirrored from the
 server's own validation (`infra/validation/Text.kt`'s `requireNameAndDescription`).
 
+**Searchable pickers** (Astrolabe's, ported): `components/SearchPicker.tsx` owns the search-box mechanics (a debounced server-side term, the caller holds the pick so its label survives later searches); thin wrappers own the query and the texts — `TeamSelect` (the teams registry) and `UserDirectorySelect` (`GET /users/directory`, open to every signed-in user; the server REQUIRES a term, so the picker searches only from two characters, page size 20, and shows a hint below that — `minTermLength`/`minTermHint`). `TeamManagerSelect` stays on the ADMIN-only users list. A team's roster (`components/TeamMembers.tsx`, the Members h3 of `/teams/:id`) shows its controls to an ADMIN or the team's manager (`managerUserId === getUserId()`; UX only, the server guards).
+
 ## Forms (the CreateUser/EditUser template)
 
 - Shared vocabulary in `utils/<area>Form.ts`: the `<Area>FormValues` type, length constants

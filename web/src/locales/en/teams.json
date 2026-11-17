@@ -10,7 +10,8 @@
   "backToTeams": "Back to teams",
   "openAria": "Open team {{name}}",
   "column": {
-    "manager": "Manager"
+    "manager": "Manager",
+    "members": "Members"
   },
   "manager": "Manager",
   "managerLine": "Manager: {{name}}",
@@ -35,5 +36,26 @@
     "created": "Team created",
     "saved": "Team saved",
     "deleted": "Team deleted"
+  },
+  "members": {
+    "title": "Members",
+    "tableAria": "Members of {{name}}",
+    "empty": "This team has no members yet",
+    "addLabel": "Add a member",
+    "add": "Add",
+    "addFailed": "Could not add the member",
+    "full": "This team already has the maximum of 200 members.",
+    "forbidden": "Only administrators and the team's manager can change the roster.",
+    "gone": "The team or the user no longer exists — reload the page.",
+    "removeAria": "Remove {{name}}",
+    "removeTitle": "Remove member?",
+    "removeBody": "{{name}} will be removed from the team \"{{team}}\".",
+    "remove": "Remove",
+    "removeFailed": "Could not remove the member",
+    "toast": {
+      "added": "Member added",
+      "removed": "Member removed"
+    },
+    "removeGone": "This member was already removed from the team."
   }
 }

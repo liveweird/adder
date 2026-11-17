@@ -108,7 +108,10 @@ describe("Teams page", () => {
     expect(screen.getByText("Money movers")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Manager" })).toBeInTheDocument();
     expect(screen.getByText("Mia Manager")).toBeInTheDocument();
-    expect(screen.queryByRole("columnheader", { name: "Members" })).not.toBeInTheDocument();
+    // The roster size is public like the roster itself: a Members count column for every session.
+    expect(screen.getByRole("columnheader", { name: "Members" })).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Payments/ })).getByRole("cell", { name: "2" })).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Identity/ })).getByRole("cell", { name: "0" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /new team/i })).not.toBeInTheDocument();
     // The read-only list never offers the users search (GET /users is ADMIN-only).
     expect(mockFetch.mock.calls.some(([url]) => typeof url === "string" && url.startsWith("/api/v1/users"))).toBe(false);
