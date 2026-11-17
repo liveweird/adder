@@ -6,17 +6,17 @@ name: ci
 # (the spec → schema.ts drift check, lint, knip, tests with coverage floors, build), and the
 # Docker-free e2e statics (lint, knip, typecheck, spec↔scenario parity), the Kubernetes manifest
 # validation (`k8s-static`), an `npm audit` of both npm workspaces, and an image build plus a Trivy
-# scan of it (`images`: main pushes and every pull request that changes more than Markdown). The blackbox Playwright suite runs nightly and on demand (e2e.yml).
+# scan of it (`images`: master pushes and every pull request that changes more than Markdown). The blackbox Playwright suite runs nightly and on demand (e2e.yml).
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
-# A newer push to a pull request supersedes its older run; a push to main never cancels
-# (every main commit, and so every release commit, is fully verified — see the `changes` job).
-# A main run gets a group of its own (the run id): within one shared group GitHub keeps a single
+# A newer push to a pull request supersedes its older run; a push to master never cancels
+# (every master commit, and so every release commit, is fully verified — see the `changes` job).
+# A master run gets a group of its own (the run id): within one shared group GitHub keeps a single
 # PENDING run and cancels the older pending one, so `cancel-in-progress: false` alone would still drop
-# queued main commits.
+# queued master commits.
 concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -27,8 +27,8 @@ permissions:
 jobs:
   changes:
     # Decides whether the server and images jobs run. A pull request that changes only Markdown skips
-    # both (the Testcontainers suite and the image build have nothing to verify). Pushes to main always
-    # run both, so every main commit (and so every release commit) is fully verified. Plain git, no
+    # both (the Testcontainers suite and the image build have nothing to verify). Pushes to master always
+    # run both, so every master commit (and so every release commit) is fully verified. Plain git, no
     # third-party action.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -192,7 +192,7 @@ jobs:
       # type-aware (no parserOptions.project), so a file's result depends only on its own bytes plus the
       # config, which ESLint hashes into every entry together with its own and node's version; the key adds the
       # lockfile and the config file, so a plugin/dependency bump starts cold. Keyed per commit with a prefix
-      # restore: a PR run restores the newest main cache (caches written on the default branch are readable
+      # restore: a PR run restores the newest master cache (caches written on the default branch are readable
       # from every PR), lints only the files it changed and saves its own. Measured in the donor project:
       # a fully warm lint 12.1 s -> 0.6 s locally; the CI job's lint was 22-36 s.
       - name: Restore the ESLint cache
@@ -306,9 +306,9 @@ jobs:
   images:
     # Dockerfile drift guard: the image must still build — and, built, must carry no fixable
     # HIGH/CRITICAL vulnerability (the base-image digests are pinned, so this is where a stale digest
-    # or an unpatched OS package surfaces). On main pushes and on every pull request that changes
+    # or an unpatched OS package surfaces). On master pushes and on every pull request that changes
     # more than Markdown (`changes`), so a dependency or base-image bump that brings a fixable
-    # HIGH/CRITICAL is caught before the merge, not by the main run after it. ~3 min of runner time
+    # HIGH/CRITICAL is caught before the merge, not by the master run after it. ~3 min of runner time
     # per PR, in parallel with the longer `server` job, so it does not lengthen a PR's wall time.
     #
     # A plain `docker compose build` on the runner's own Docker, deliberately WITHOUT a BuildKit layer cache
@@ -354,13 +354,13 @@ jobs:
             image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
             --cache-dir /cache --no-progress adder-app
 
-  # A red `images` job on a main push opens (or comments on) the one "main images job is failing" issue
+  # A red `images` job on a master push opens (or comments on) the one "master images job is failing" issue
   # (`ci-alert.yml`; closing it is manual, `.claude/docs/ci.md` "Failure alerting"). Pull requests never reach it.
   images-alert:
     needs: images
-    if: ${{ failure() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ failure() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     permissions:
       issues: write
     uses: ./.github/workflows/ci-alert.yml
     with:
-      title: main images job is failing
+      title: master images job is failing
