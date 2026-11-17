@@ -35,6 +35,22 @@ cyan 189°, Flow blue 209°, Covenant violet 264°, Astrid red 350°). The logo 
 - **Foundation:** Flow, Toadie and Lettuce as the base for stack, conventions, UI approach, app and API design — re-use as much as possible; the UI
   stays coherent with Lettuce, Toadie, Covenant, Flow, Astrolabe and Astrid; a new accent colour; an icon referring to the name.
 
+### 0.2.0 rooms and workflows (the user's, 2026-11-17)
+
+- **Any signed-in user creates a room** and becomes its OWNER. ADMINs manage and read every room; non-members get `404`.
+- **Workflow templates are ADMIN-only** (edited by ADMIN, read by anyone). A room copies statuses and fields at creation; afterwards the OWNER or an
+  ADMIN edits the room's copy **in place only**, with no re-apply from the template.
+- **Tens of rooms:** a flat rail sorted by recent activity, archived rooms behind a toggle, no favourites or grouping.
+- Retiring a status that threads use needs a replacement mapping; the contract is designed in 0.2 and 0.3 plugs in. Members are a person, or a whole
+  team as a snapshot; the last OWNER cannot leave or be demoted (`409`). Archive and unarchive by OWNER or ADMIN; soft delete by ADMIN only. The
+  workflow is a whole-document PUT under `X-Expected-Revision`; keys are immutable slugs; *Default* and *Incident* are seeded by migration.
+- **D1. Team rosters** are edited by an ADMIN or the team's active manager (the first consumer of `requireTeamManagerOrAdmin`). The team record
+  itself stays ADMIN-only.
+- **D2. The user directory:** any signed-in user may look up `{id, name, email}` of active users, behind a per-user rate bucket. This changes a
+  deliberate posture (the user list stays ADMIN-only); roles, feature flags and language are never exposed.
+- **D3. The seed labels** are the ones in `chat-model.md` "Workflows" (Default and Incident, EN and PL), exactly as proposed. An applied migration's
+  bytes are immutable, so afterwards the labels change only through the template editor.
+
 ## Assumptions (taken without asking; change on request)
 
 - ADMIN may read every room (the family's ADMIN-overrides posture); a non-member gets `404`, never `403`.
@@ -44,6 +60,30 @@ cyan 189°, Flow blue 209°, Covenant violet 264°, Astrid red 350°). The logo 
 - Mentions are stored as `<@userId>` tokens and rendered with the current name (rename-safe).
 - Flow's integration service tokens are not ported in 0.1.0: with nothing to serve they would be dead weight (backlog: bots posting into rooms).
 - The coverage floors were re-baselined once after the trim (lines 97, branches 81; Flow's 98/85 relied on tests of the cut features).
+
+### 0.2.0 rooms and workflows
+
+Detail and the rules they became: `chat-model.md` "Rules".
+
+- **Label language.** Template labels are a language map `{en, pl?}` (EN required); a room's copy is single-language, resolved at creation from the
+  request's `language` (default `en`, EN fallback per label) and plain text afterwards. Template name and description are not localised.
+- **A team add is a snapshot**, not a live link. Member add is idempotent and always adds as MEMBER; promotion is a separate audited step.
+- **Keys are reserved for the life of a room:** removing a status or field retires it, re-adding revives it, a field's `type` is immutable per key.
+- **A workflow edit never closes or reopens a thread behind its history:** a replacement status has the same category as the retired one, and a
+  category is editable only while no thread uses the status. Both can be relaxed later. Fields and options need no mapping in 0.2; what a removed
+  option means for stored values is decided in 0.3.
+- **Room names are unique** among non-deleted rooms, case-insensitively (archived rooms keep theirs); a clash discloses only that the name exists
+  (Slack's private-channel rule). No slug; URLs use the numeric id.
+- **Archived means read-only** for name, description, workflow and (0.3) content; membership management stays allowed.
+- Soft delete has no restore API in 0.2. A soft-deleted user's membership rows stay, inert; a room whose owners are all deleted is managed by ADMINs,
+  and deleting a user is not blocked by room ownership.
+- `last_activity_at` equals creation time in 0.2 (0.3 bumps it). The rail shows the caller's member rooms; an ADMIN gets every room on the Rooms page.
+- **Limits:** 2-20 statuses, 0-20 fields, 1-50 options per select; key <= 40 characters, label <= 60; at most 200 status keys and 200 field keys per room
+  (retired included); room name <= 80, descriptions <= 500, template name <= 100; 500 members per room, 200 user ids per add, 200 members per team.
+- `X-Expected-Revision` is required (missing or malformed `400`, stale `409`); every successful PUT bumps the revision. Wire enums are UPPER_CASE.
+- Deleting a template never touches rooms; there is no "last template" rule.
+- Rate buckets: `room-create` 30/min on `POST /rooms` and `directory` 120/min on the user directory, both per signed-in user; everything else is
+  guard-gated and bounded by the caps above. `lockingTransaction` is not ported (one row lock per room instead).
 
 ## Roadmap
 
