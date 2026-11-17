@@ -7,7 +7,7 @@ extends:
 
 rules:
   # API-META-001/002 are registered gaps (API-GUIDELINES.md "known-gaps register"): Adder is an internal tool for one
-  # ~70-developer unit with no published SLA and no legal terms page, so there is nothing true to put in `x-sla` or
+  # organisation with no published SLA and no legal terms page, so there is nothing true to put in `x-sla` or
   # `info.termsOfService`. Revisit (delete these two lines) if Adder ever publishes commitments or terms.
   sla-extension-present: off
   terms-of-service-present: off

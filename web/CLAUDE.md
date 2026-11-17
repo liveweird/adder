@@ -7,7 +7,7 @@ shell is the precedent) — with a placeholder Home (a welcome and a note that r
 arrives in later versions. Routes are lazy.
 
 - Dev server: `cd web && npm run dev` (port **5179** — not Vite's 5173 default, so Adder can run
-  beside Astrolabe's 5178, Flow's 5176 and the sibling stacks' 5173–5175). All backend routes live under the
+  beside the sibling stacks' 5173–5178 and 5180; the port table is in `.claude/docs/ci.md`). All backend routes live under the
   `/api/` namespace and Vite proxies the single `/api` subtree → `http://localhost:8087`. Any
   other path is served as `index.html` so React Router owns the SPA URL space and browser reloads
   don't collide with API routes.
@@ -284,7 +284,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
   is the SUCCESS colour, red the BLOCKING one, orange the warning one (soft findings, waived); the ADMIN role badge is
   `variant="outline" color="gray"`. **Never use stock green or lime for success** — they sit next to the olive brand. The light
   canvas carries a faint olive cast (`#f6f7f1`), pinned equal to `index.css`'s first-paint hex.
-- **Colour tokens are AA-tested** (`themeVariables.ts`: `LIGHT_TOKENS`/`DARK_TOKENS`/`LIGHT_VARIANT_INKS`, wired in through `cssVariablesResolver` in `main.tsx`). Never hand a shade-suffixed colour (`"orange.8"`) to a light Badge/Alert — the tint comes from the hue, the ink from that map. Internals (`--astrolabe-accent-ink`, the first-paint hexes): `.claude/docs/web-internals.md`.
+- **Colour tokens are AA-tested** (`themeVariables.ts`: `LIGHT_TOKENS`/`DARK_TOKENS`/`LIGHT_VARIANT_INKS`, wired in through `cssVariablesResolver` in `main.tsx`). Never hand a shade-suffixed colour (`"orange.8"`) to a light Badge/Alert — the tint comes from the hue, the ink from that map. Internals (`--adder-accent-ink`, the first-paint hexes): `.claude/docs/web-internals.md`.
 - `theme.module.css` is scheme-aware **via `light-dark()`** throughout (tables card-framed on a
   quiet tinted canvas, white header/navbar surfaces, hairline borders) — new surface styling
   follows that pattern, not `[data-mantine-color-scheme]` selectors. Every `Table` inherits the
