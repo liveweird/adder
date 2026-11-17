@@ -42,3 +42,23 @@ suspend fun requireTeamManagerOrAdmin(
     if (caller.isAdmin()) return
     if (!isManager(teamId, caller.userId)) throw ForbiddenException("Team manager or admin role required")
 }
+
+/**
+ * The visibility guard of a room route: a member of the room, or an ADMIN (who reads every room). A missing room ([standing] null) and a
+ * non-member are the SAME `404` (`NotFoundException`), so a room's existence is never disclosed (the third existence idiom,
+ * `authorization.md`: "hidden resource, uniform 404"). DB-free: the caller's standing is read by the route (and re-read under the
+ * room lock for a write) and passed in. The route audits `room.access_denied` for a room that exists; this guard only decides.
+ */
+fun requireRoomReader(caller: CallerPrincipal, standing: RoomStanding?) {
+    if (standing == null || (standing.role == null && !caller.isAdmin())) throw NotFoundException("Room not found")
+}
+
+/**
+ * The management guard of a room route: [requireRoomReader] first (so an outsider's answer is the `404`, never the `403`), then the
+ * room's OWNER or an ADMIN, else a `403`. Run it as the guard of the room write ([RoomStanding] re-read under the room lock), so a caller
+ * demoted while the write waited for the lock is refused.
+ */
+fun requireRoomManager(caller: CallerPrincipal, standing: RoomStanding?) {
+    requireRoomReader(caller, standing)
+    if (standing?.role != RoomRole.OWNER && !caller.isAdmin()) throw ForbiddenException("Room owner or admin role required")
+}

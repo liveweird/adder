@@ -4,9 +4,14 @@ import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.authz.isAdmin
 import ch.nokillswit.authz.requireAdmin
+import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.requireFeatureEnabled
+import ch.nokillswit.authz.requireRoomManager
+import ch.nokillswit.authz.requireRoomReader
 import ch.nokillswit.authz.requireSelfOrAdmin
 import ch.nokillswit.authz.requireTeamManagerOrAdmin
+import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.authz.RoomStanding
 import ch.nokillswit.users.UserRole
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
@@ -80,4 +85,41 @@ class GuardsTest {
             val failure = assertFailsWith<IllegalStateException> { requireTeamManagerOrAdmin(user, teamId = 7u, isManager = broken) }
             assertEquals("database unavailable", failure.message)
         }
+
+    private val owner = RoomStanding(RoomRole.OWNER, archived = false)
+    private val member = RoomStanding(RoomRole.MEMBER, archived = false)
+    private val outside = RoomStanding(role = null, archived = false)
+
+    @Test
+    fun `requireRoomReader admits a member and an admin, and answers a missing room and a non-member with the same 404`() {
+        requireRoomReader(user, member)
+        requireRoomReader(user, owner)
+        requireRoomReader(admin, outside) // an ADMIN reads every room, member or not
+        requireRoomReader(admin, member)
+        val missing = assertFailsWith<NotFoundException> { requireRoomReader(user, null) }
+        val stranger = assertFailsWith<NotFoundException> { requireRoomReader(user, outside) }
+        assertEquals(missing.message, stranger.message, "a missing room and a non-member are indistinguishable")
+        // An ADMIN gets no free pass for a room that does not exist: nothing to read.
+        assertFailsWith<NotFoundException> { requireRoomReader(admin, null) }
+    }
+
+    @Test
+    fun `requireRoomManager admits the OWNER and an admin, refuses a plain member with 403 and an outsider with the 404`() {
+        requireRoomManager(user, owner)
+        requireRoomManager(admin, owner)
+        requireRoomManager(admin, outside) // an ADMIN manages every room
+        requireRoomManager(admin, member)
+        assertFailsWith<ForbiddenException> { requireRoomManager(user, member) }
+        // Visibility comes first: an outsider must never learn the room exists through a 403.
+        assertFailsWith<NotFoundException> { requireRoomManager(user, outside) }
+        assertFailsWith<NotFoundException> { requireRoomManager(user, null) }
+        assertFailsWith<NotFoundException> { requireRoomManager(admin, null) }
+    }
+
+    @Test
+    fun `the room guards ignore the archived flag - archived is a state check made under the lock, not a permission`() {
+        val archivedOwner = RoomStanding(RoomRole.OWNER, archived = true)
+        requireRoomReader(user, archivedOwner)
+        requireRoomManager(user, archivedOwner)
+    }
 }

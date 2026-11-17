@@ -8,7 +8,8 @@ import kotlin.test.assertTrue
 /**
  * The one-way package layering (CLAUDE.md "Package layout", checkup D5): everything under `infra/` is the foundation every feature
  * builds on, so it never references a feature package (`teams`, `users`, `auth`, `authz`, `telemetry`,
- * `workflows`). `audit` (the cross-cutting audit trail) and `plugins` (Ktor wiring: `respondProblem`) are not features and stay open
+ * `workflows`, `rooms`). `audit` (the cross-cutting audit trail) and `plugins` (Ktor wiring: `respondProblem`) are not features and stay
+ * open
  * to `infra`. The composition root is the one
  * documented exception ([infraCompositionRoot]): the DB/bootstrap wiring MUST construct the feature services it publishes on
  * `Application.attributes`, so exactly those two files may name exactly those packages. `telemetry/` is the top layer (an observer of
@@ -25,17 +26,17 @@ class PackageBoundaryTest {
 
     /**
      * Composition-root exceptions to "infra never references a feature": `infra/db/Database.kt` builds and publishes the feature
-     * services (`teams`, `users`, `auth`, `workflows`) and `infra/db/Bootstrap.kt` seeds the admin through `users`/`auth`.
+     * services (`teams`, `users`, `auth`, `workflows`, `rooms`) and `infra/db/Bootstrap.kt` seeds the admin through `users`/`auth`.
      * Keyed by file name, valued by the feature packages that file may import;
      * a listed package the file no longer uses fails the test (a stale exception is dead permission).
      */
     private val infraCompositionRoot: Map<String, Set<String>> = mapOf(
-        "Database.kt" to setOf("auth", "teams", "users", "workflows"),
+        "Database.kt" to setOf("auth", "rooms", "teams", "users", "workflows"),
         "Bootstrap.kt" to setOf("auth", "users"),
     )
 
     private val featurePackages = listOf(
-        "teams", "users", "auth", "authz", "telemetry", "workflows",
+        "teams", "users", "auth", "authz", "telemetry", "workflows", "rooms",
     )
 
     private fun packageOf(text: String): String? =
@@ -80,6 +81,32 @@ class PackageBoundaryTest {
         val violations = infra.flatMap { (file, text) ->
             val allowed = infraCompositionRoot[file.name].orEmpty()
             forbiddenReferences(text, featurePackages - allowed).map { "${file.name} $it" }
+        }
+        assertEquals(emptyList(), violations)
+    }
+
+    @Test
+    fun `workflows never references rooms`() {
+        // rooms/ imports workflows/ (the template read and the shared rules kernel), never the reverse: the workflow vocabulary and
+        // the template registry stay usable without the chat domain. The scan must see both packages, or an empty result proves nothing.
+        assertTrue(mainSources.any { packageOf(it.readText()) == "ch.nokillswit.rooms" }, "no source declares ch.nokillswit.rooms")
+        val workflows = mainSources.filter { packageOf(it.readText()) == "ch.nokillswit.workflows" }
+        assertTrue(workflows.size >= 4, "the scan saw only ${workflows.size} workflows sources")
+        val violations = workflows.flatMap { file ->
+            forbiddenReferences(file.readText(), listOf("rooms")).map { "${file.name} $it" }
+        }
+        assertEquals(emptyList(), violations)
+    }
+
+    @Test
+    fun `authz references no feature package but users`() {
+        // authz is the guard layer every feature imports: it may know the user roles and feature flags (`users`: the caller principal
+        // carries them) and nothing else. In particular it must not name `rooms`, which imports authz: the room guards take plain
+        // values (`RoomStanding`, declared in authz) precisely so this stays one-way.
+        val authz = mainSources.filter { packageOf(it.readText()) == "ch.nokillswit.authz" }
+        assertTrue(authz.size >= 4, "the scan saw only ${authz.size} authz sources")
+        val violations = authz.flatMap { file ->
+            forbiddenReferences(file.readText(), featurePackages - setOf("authz", "users")).map { "${file.name} $it" }
         }
         assertEquals(emptyList(), violations)
     }

@@ -42,6 +42,9 @@ ktor:
       - ch.nokillswit.users.UserRoutesKt.configureUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
       - ch.nokillswit.workflows.WorkflowTemplateRoutesKt.configureWorkflowTemplateRoutes
+      # Rooms (V13): the record and its lifecycle, then the room's own workflow (two modules in one package, the auth/ precedent).
+      - ch.nokillswit.rooms.RoomRoutesKt.configureRoomRoutes
+      - ch.nokillswit.rooms.RoomWorkflowRoutesKt.configureRoomWorkflowRoutes
       - ch.nokillswit.auth.AuthRoutesKt.configureAuthRoutes
       - ch.nokillswit.auth.PasswordResetRoutesKt.configurePasswordResetRoutes
       # The telemetry read API (ADMIN, `.claude/docs/observability.md` "Telemetry"): reads what the sampler wrote.

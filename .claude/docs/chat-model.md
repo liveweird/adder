@@ -2,7 +2,7 @@
 
 Owns: the chat domain model — rooms, membership, workflows (statuses and fields), threads, messages, history, mentions, reactions, pins, unread.
 Not here: the live channel (`live.md`), the roadmap and decisions (`product.md`). **Status:** rooms and workflows (0.2) are binding `## Rules`;
-threads onward (0.3–0.6) are still a sketch, and each version turns its part into rules in its own plan first. No chat package exists yet (0.2.0 adds the first).
+threads onward (0.3–0.6) are still a sketch, and each version turns its part into rules in its own plan first. `workflows/` and `rooms/` (0.2.0) are the first chat packages; the room routes land commit by commit (the record and its read-only workflow in C7, members in C8, the workflow PUT in C9).
 
 ## Rules
 
@@ -50,7 +50,7 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
   S1-S4 SELECT, Component TEXT, Jira link URL, ETA DATE), in English and Polish. Deleting a template never touches rooms; there is no
   "last template" rule.
 - **Copy at creation.** A room copies statuses and fields once, with labels resolved to ONE language from the request's `language` (the SPA sends
-  its UI language; default `en`; EN fallback per label). Room labels are plain text afterwards: a room's statuses are shared vocabulary people name in
+  its UI language; default `en`; EN fallback per label). When per-label resolution would clash within a list, that whole list is copied in EN. Room labels are plain text afterwards: a room's statuses are shared vocabulary people name in
   chat, and two-language rooms breed stale half-translations. There is no re-apply; afterwards OWNER or ADMIN edits the room's copy in place only.
 - **Whole-document PUT under `X-Expected-Revision`** (templates and rooms; Toadie's guard, `infra/revision/ExpectedRevision.kt`). The header is
   REQUIRED: missing or malformed is `400`, stale is `409` (`revision-conflict`); every successful PUT bumps the revision. `infra/` carries it so

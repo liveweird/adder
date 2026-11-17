@@ -1,0 +1,173 @@
+package ch.nokillswit
+
+import ch.nokillswit.rooms.RoomCreateRequest
+import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.rooms.RoomService
+import ch.nokillswit.rooms.RoomWorkflowService
+import ch.nokillswit.rooms.WorkflowUsage
+import ch.nokillswit.users.UserRole
+import ch.nokillswit.workflows.FieldType
+import ch.nokillswit.workflows.StatusCategory
+import ch.nokillswit.workflows.StatusColour
+import ch.nokillswit.workflows.WorkflowFieldDef
+import ch.nokillswit.workflows.WorkflowOptionDef
+import ch.nokillswit.workflows.WorkflowStatusDef
+import ch.nokillswit.workflows.WorkflowTemplateListFilter
+import ch.nokillswit.workflows.WorkflowTemplateRequest
+import ch.nokillswit.workflows.WorkflowTemplateService
+import io.ktor.client.HttpClient
+import io.ktor.server.testing.ApplicationTestBuilder
+import java.util.UUID
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.r2dbc.update
+import org.jetbrains.exposed.v1.core.and
+
+/**
+ * Room fixtures (0.2.0 C7): direct, route-free seeding of workflow templates and rooms past the HTTP guards, plus the usage-port
+ * fake. A room's members are written here by raw insert until the member routes exist (C8). Every test mints UNIQUE names and removes
+ * its own rows ([TestRooms.purge], [TestTemplates.delete]) so the shared container stays small.
+ */
+object TestTemplates {
+    val service: WorkflowTemplateService by lazy { WorkflowTemplateService(sharedDatabaseForTests()) }
+
+    private fun label(en: String, pl: String? = null): Map<String, String> =
+        if (pl == null) mapOf("en" to en) else mapOf("en" to en, "pl" to pl)
+
+    /**
+     * A small bilingual template: `open` (initial, translated), `half` (EN only: the per-label EN fallback), `done` (CLOSED, translated),
+     * a SELECT field `severity` (option `s1` translated, `s2` EN only) and a TEXT field `note` (EN only). [name] must be unique.
+     */
+    fun bilingual(name: String) = WorkflowTemplateRequest(
+        name = name,
+        description = "A fixture template",
+        statuses = listOf(
+            WorkflowStatusDef("open", label("Open", "Otwarte"), StatusColour.GRAY, StatusCategory.OPEN, initial = true),
+            WorkflowStatusDef("half", label("Half only"), StatusColour.BLUE, StatusCategory.OPEN, initial = false),
+            WorkflowStatusDef("done", label("Done", "Zrobione"), StatusColour.TEAL, StatusCategory.CLOSED, initial = false),
+        ),
+        fields = listOf(
+            WorkflowFieldDef(
+                key = "severity",
+                label = label("Severity", "Ważność"),
+                type = FieldType.SELECT,
+                required = true,
+                options = listOf(WorkflowOptionDef("s1", label("Sev one", "Waga jeden")), WorkflowOptionDef("s2", label("Sev two"))),
+            ),
+            WorkflowFieldDef("note", label("Note"), FieldType.TEXT, required = false, options = emptyList()),
+        ),
+    )
+
+    suspend fun seed(prefix: String = "tpl", request: WorkflowTemplateRequest? = null): UInt =
+        service.create(request ?: bilingual("$prefix-${UUID.randomUUID().toString().substring(0, 8)}"))
+
+    /** The id of the active seeded template named [name] (V12: `Default`, `Incident`). */
+    suspend fun seededId(name: String): UInt =
+        service.list(WorkflowTemplateListFilter(name = name), ch.nokillswit.infra.paging.PageRequest(1, 100, emptyList()))
+            .items.first { it.name == name }.id
+
+    suspend fun delete(id: UInt) {
+        service.delete(id)
+    }
+}
+
+object TestRooms {
+    private val workflows: RoomWorkflowService by lazy { RoomWorkflowService(sharedDatabaseForTests()) }
+    val service: RoomService by lazy { RoomService(sharedDatabaseForTests(), TestTemplates.service, workflows) }
+
+    /** Creates a room as [ownerId] through the service (the real create path) and returns its id. */
+    suspend fun seed(ownerId: UInt, templateId: UInt, name: String, language: String? = null): UInt =
+        service.create(ownerId, RoomCreateRequest(name = name, templateId = templateId, language = language))
+
+    /** Adds [userId] to the room by raw insert (the member routes arrive with C8). */
+    suspend fun addMember(roomId: UInt, userId: UInt, role: RoomRole = RoomRole.MEMBER) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            RoomService.RoomMembers.insert {
+                it[RoomService.RoomMembers.roomId] = roomId
+                it[RoomService.RoomMembers.userId] = userId
+                it[RoomService.RoomMembers.role] = role.name
+                it[addedAt] = System.currentTimeMillis()
+            }
+        }
+    }
+
+    suspend fun setRole(roomId: UInt, userId: UInt, role: RoomRole) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            val members = RoomService.RoomMembers
+            members.update({ (members.roomId eq roomId) and (members.userId eq userId) }) { it[members.role] = role.name }
+        }
+    }
+
+    data class RawRoom(val id: UInt, val name: String, val markedAsDeleted: Boolean, val archivedAt: Long?)
+
+    suspend fun rawRooms(): List<RawRoom> = suspendTransaction(sharedDatabaseForTests()) {
+        val r = RoomService.Rooms
+        r.selectAll().map { RawRoom(it[r.id].value, it[r.name], it[r.markedAsDeleted], it[r.archivedAt]) }.toList()
+    }
+
+    suspend fun rawRoom(id: UInt): RawRoom? = rawRooms().firstOrNull { it.id == id }
+
+    /** Archives a room by raw update (a fixture state for the unarchive rows). */
+    suspend fun archive(roomId: UInt) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            RoomService.Rooms.update({ RoomService.Rooms.id eq roomId }) { it[archivedAt] = System.currentTimeMillis() }
+        }
+    }
+
+    /** The raw row counts of a room's `room_members`, `room_statuses` and `room_fields` (soft delete must leave them). */
+    suspend fun rawChildCounts(roomId: UInt): Triple<Int, Int, Int> = PostgresTestSupport.connect().use { connection ->
+        fun count(table: String): Int = connection.prepareStatement("SELECT count(*) FROM $table WHERE room_id = ?").use { st ->
+            st.setInt(1, roomId.toInt())
+            st.executeQuery().use { rs ->
+                rs.next()
+                rs.getInt(1)
+            }
+        }
+        Triple(count("room_members"), count("room_statuses"), count("room_fields"))
+    }
+
+    /** Removes the rooms outright (the cascade takes members, statuses and fields): a test's own cleanup. */
+    suspend fun purge(ids: Collection<UInt>) {
+        if (ids.isEmpty()) return
+        suspendTransaction(sharedDatabaseForTests()) {
+            RoomService.Rooms.deleteWhere { RoomService.Rooms.id inList ids }
+        }
+    }
+}
+
+/** A signed-in test user: the id (for fixtures and audit assertions) and a client carrying their bearer token. */
+class RoomActor(val id: UInt, val client: HttpClient)
+
+/** Seeds a unique user and logs them in; the caller soft-deletes [RoomActor.id] afterwards. */
+suspend fun ApplicationTestBuilder.seedActor(prefix: String, role: UserRole = UserRole.USER, name: String = "Test"): RoomActor {
+    val email = uniqueEmail(prefix)
+    val id = TestUsers.seed(email = email, password = "pw", role = role, name = name)
+    return RoomActor(id, authedClient(email, "pw"))
+}
+
+/**
+ * The [ch.nokillswit.rooms.WorkflowUsage] fake a test registers under `WorkflowUsageKey`: fixed per-status counts, and every move it
+ * is asked for recorded (and applied to the counts, as a real implementation would).
+ */
+class FakeWorkflowUsage(counts: Map<String, Long> = emptyMap()) : WorkflowUsage {
+    private val counts = counts.toMutableMap()
+    val moves = mutableListOf<Move>()
+
+    data class Move(val roomId: UInt, val from: String, val to: String, val byUserId: UInt)
+
+    override suspend fun threadCounts(roomId: UInt, keys: Collection<String>): Map<String, Long> =
+        counts.filterKeys { it in keys }
+
+    override suspend fun moveThreads(roomId: UInt, from: String, to: String, byUserId: UInt): Long {
+        moves += Move(roomId, from, to, byUserId)
+        val moved = counts.remove(from) ?: 0L
+        counts[to] = (counts[to] ?: 0L) + moved
+        return moved
+    }
+}

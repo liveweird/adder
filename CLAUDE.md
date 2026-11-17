@@ -106,7 +106,7 @@ Source files sit flat under `server/src/main/kotlin/<area>/` but declare `packag
 override). One line per package; `ls` gives the files. **Layering is one-way (`PackageBoundaryTest`):** `infra/` imports no feature package
 except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry/` is imported by nothing.
 
-- `plugins/` — cross-cutting Ktor wiring (`configureXxx` that only `install` plugins; Security = JWT, ErrorHandling = RFC 7807). `Routing` (the SPA catch-all) is registered strictly last; `Health` (`/api/v1/health`, `/api/v1/ready`) after Database; `RateLimits` holds every per-IP bucket (and the per-user `telemetry` and `directory` ones); `ResponseValidators` is the `ETag` seam.
+- `plugins/` — cross-cutting Ktor wiring (`configureXxx` that only `install` plugins; Security = JWT, ErrorHandling = RFC 7807). `Routing` (the SPA catch-all) is registered strictly last; `Health` (`/api/v1/health`, `/api/v1/ready`) after Database; `RateLimits` holds every per-IP bucket (and the per-user `telemetry`, `directory` and `room-create` ones); `ResponseValidators` is the `ETag` seam.
 - `infra/mail/` — outbound email (Lettuce's, ported): `MAIL_TRANSPORT` log/smtp/disabled; the `log` transport is refused in production (fail-closed); a null mailer = email features answer 503.
 - `infra/crypto/` — encryption at rest (Lettuce's, ported): `FieldCipher` (AES-256-GCM `enc:v1:` envelopes, current + rotation key), `configureCrypto` (`DATA_ENCRYPTION_KEY`; a burned key fails startup closed). No consumer yet; Flow's `EncryptedAtRest` registry and `Reencrypt` come back with the first encrypted column.
 - `infra/db/` — Flyway bootstrap, the R2DBC composition root, the seed bootstrap (admin rotation, prod fail-closed), `SoftDelete.kt` (`SoftDeletable`: ONE `active()` predicate, `nowMillis()`, `lockActiveForWrite`), `Sql.kt` (`containsNormalized` — the only substring filter), `Jsonb.kt`, `MultiRowInsert.kt`, `StatementTimeoutCache.kt` (only `queryTimeout` may set `STATEMENT_TIMEOUT`), `LeakedSocketGuard.kt`, `DetachingConnectionFactory.kt` (pool hygiene, `persistence.md`).
@@ -118,14 +118,15 @@ except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry
 - `infra/config/` — `requireConfigInt`/`requireConfigLong`, boot-validated numeric config (Lettuce's).
 - `infra/Failures.kt` — `catchingFailures` (keeps the failure without swallowing cancellation).
 - `audit/` — the security audit trail: `audit(event, fields…)` → AUDIT-marked structured logs.
-- `authz/` — `CallerPrincipal`, the guards (`requireAdmin`, `requireSelfOrAdmin`, `requireTeamManagerOrAdmin`) and the typed HTTP exceptions (401/403/404/409/429).
+- `authz/` — `CallerPrincipal`, the guards (`requireAdmin`, `requireSelfOrAdmin`, `requireTeamManagerOrAdmin`, `requireRoomReader`, `requireRoomManager`) and the typed HTTP exceptions (401/403/404/409/429).
 - `auth/` — login (+ the email-MFA second step), refresh, logout, self-service password reset, token minting, password hashing, the revoked-token blocklist; in-memory auth state is capacity-bounded with audited 429 saturation.
 - `users/` — Adder's login accounts (REST `/api/v1/users`): ADMIN-only CRUD (self-delete 403, last-admin 409), per-user feature flags (`Feature` enum, the V5 disabled-set model; MFA is the inverted-default login-scoped flag), the ONE synced per-user UI+email language (`Languages.kt` = `SUPPORTED_LANGUAGES`).
 - `teams/` — flat teams (V6) with an optional manager and a roster (V10): GET any authenticated, record writes ADMIN only, roster PUT/DELETE ADMIN or the manager. **The feature template** (below).
 - `workflows/` — the workflow vocabulary (`StatusColour`, `StatusCategory`, `FieldType`, the limits) and `WorkflowRules.kt`, the pure kernel, and the ADMIN template registry (`WorkflowTemplate*.kt`, V11/V12: a `jsonb` document under `X-Expected-Revision`); a room's workflow shares the kernel (`chat-model.md`); rooms import `workflows`, never the reverse.
+- `rooms/` — rooms (V13, `/api/v1/rooms`): members-only (a non-member gets a uniform 404, audited `room.access_denied`; ADMIN reads and manages every room), created from a workflow template whose statuses and fields the room COPIES; OWNER or ADMIN edits, archives and unarchives, ADMIN deletes (soft). Every room write runs under `withRoomWrite` (`RoomLock.kt`: the room row `FOR NO KEY UPDATE`, the guard re-run on the locked standing). `GET /rooms/{id}/workflow` reads through the `WorkflowUsage` port (`NoThreadsYet` until 0.3). Members and the workflow PUT follow in 0.2.0 C8/C9 (`chat-model.md`).
 - `telemetry/` — per-process JVM/cgroup/request/storage samples in `ops.*` (V9), 90 days, hourly, ADMIN read API (`observability.md`).
 
-The chat domain is arriving: `workflows/` holds the kernel and the template registry so far; `rooms/` follows in v0.2.0, `threads/` and `live/` later (`chat-model.md`).
+The chat domain is arriving: `workflows/` and `rooms/` exist (0.2.0); `threads/` and `live/` come later (`chat-model.md`).
 
 **Feature template — copy `teams/`** (a small ADMIN-curated registry; the only shape the foundation ships). Before adding a feature, route,
 service, migration or page, read `.claude/docs/conventions.md` in full.
@@ -153,7 +154,7 @@ disagree, the doc wins. The always-loaded set (this file plus the two imports) s
 | Doc | Read before you touch |
 |---|---|
 | `.claude/docs/conventions.md` | adding a feature, route, service, migration or page: the `teams/` feature template (DTO + validator, routes, service, migration + checksum pin, spec paths, `gen:api`, lazy page + nav entry, e2e spec + scenario) |
-| `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql`, V1–V12 today — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `ops` schema |
+| `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql`, V1–V13 today — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `ops` schema |
 | `.claude/docs/security.md` | auth/JWT/MFA/password reset, rate limits, headers/CSP, secrets/encryption at rest, production fail-closed startup checks, payload validation |
 | `.claude/docs/authorization.md` | any route: its guard (ADMIN vs any authenticated), 403-before-400/404 ordering, existence disclosure, the error/`ProblemDetail` mapping |
 | `.claude/docs/observability.md` | any mutation or denial path (it needs an `audit(...)` event, listed there), logging, OpenTelemetry, health probes, the telemetry panel's server side |

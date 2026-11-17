@@ -14,15 +14,15 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   makes every long-lived database refuse to boot (a failure no fresh-container CI run can see).
   `MigrationChecksumTest` pins every file's checksum; a new migration adds one manifest line, and
   a red pin means REVERT the edit (clarifications go into this doc), never update the pinned
-  value. The range today is **V1–V12**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
+  value. The range today is **V1–V13**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
   `unaccent` extension, V5 `user_disabled_features` (V1–V5 are Flow's), V6 `teams` (with the optional
   manager), V7 `users.credential_revision`, V8 `password_reset_tokens`, V9 the `ops` telemetry
-  schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows. (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
+  schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows, V13 the room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root: it constructs the
   services and publishes them into `Application.attributes` (`UserServiceKey`, `TeamServiceKey`,
-  `WorkflowTemplateServiceKey`, `TokenBlocklistServiceKey`, `PasswordResetServiceKey` today); each service itself lives next to the feature it serves
-  (`users/UserService.kt`, `teams/TeamService.kt`, `auth/TokenBlocklistService.kt`, `auth/PasswordResetService.kt`). The Exposed
+  `WorkflowTemplateServiceKey`, `RoomServiceKey`, `RoomWorkflowServiceKey`, `TokenBlocklistServiceKey`, `PasswordResetServiceKey` today); each service itself lives next to the feature it serves
+  (`users/UserService.kt`, `teams/TeamService.kt`, `rooms/RoomService.kt`, `auth/TokenBlocklistService.kt`, `auth/PasswordResetService.kt`). The Exposed
   table `object`s (e.g. `UserService.Users`, nested inside their service) are used for queries
   only, not DDL. Ids are `UIntIdTable` — unsigned end-to-end (the spec declares `minimum: 0`, and
   `ErrorHandling.kt` 400s negative path segments before kotlinx's `UInt` decoding can silently
@@ -158,6 +158,13 @@ place:
   and the cap count, all inside the roster write's own transaction, which first locks the active team row (`lockActiveForWrite`).
   `team_members.user_id` references `users` with `ON DELETE CASCADE` like every join here (users are only soft-deleted, so the rule
   never fires today). A room's team add (a later increment) reads `TeamMembers` the same way, through a `TeamService` method.
+- `RoomService` (V13) READS `UserService.Users` for every member count (`RoomMembers` ⋈ `Users`, the inner join keeps ACTIVE users only, one grouped query per list page) and,
+  at creation, reads the template through `WorkflowTemplateService.read` INSIDE the room's own transaction (Exposed reuses the enclosing one), so the room, its
+  OWNER row and the copy of the template's statuses and fields commit or roll back together; it writes only its own tables (`RoomWorkflowService` owns
+  `room_statuses` and `room_fields`, and `RoomService.create` calls its `copyFromTemplate`). `rooms/` imports `workflows/` and `users/`; neither imports `rooms/`
+  (`PackageBoundaryTest`). `room_members.user_id` references `users` with `ON DELETE CASCADE` like every join here (users are only soft-deleted, so it never fires);
+  a future user RESTORE makes a restored user's inert membership rows visible again, so it must re-check the 500-member cap of every room they sit in. The member add (0.2.0 C8)
+  reads `TeamService`'s roster the same way, through a `TeamService` method.
 - `auth/TokenBlocklistService.accessVerdict` (the per-request access-token check, `plugins/Security.kt`) READS
   `users/UserService.Users` (`role`, `credential_revision`, `marked_as_deleted`, by primary key) and its own
   `revoked_tokens` (an `EXISTS` on the `jti`) in ONE uncached statement per authenticated request; it writes nothing.
@@ -178,8 +185,8 @@ List each new cross-feature read/write here as it lands — the list IS the perm
 
 Adder's PostgreSQL database is split across schemas:
 
-- **`public`** — the foundation tables (`users`, `teams`, `team_members`, `workflow_templates`, `revoked_tokens`, `user_disabled_features`, `password_reset_tokens`) and, later,
-  the chat tables (`chat-model.md`). Flyway's own history table also stays here — `flyway.schemas` is left at its default.
+- **`public`** — the foundation tables (`users`, `teams`, `team_members`, `workflow_templates`, `revoked_tokens`, `user_disabled_features`, `password_reset_tokens`), the
+  room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`, V13) and, later, the remaining chat tables (`chat-model.md`). Flyway's own history table also stays here — `flyway.schemas` is left at its default.
 - **`ops`** — Adder's own operational telemetry (V9, "Telemetry (V9)" below): the process registry and the metric samples each
   process writes about itself. Numbers and labels only, never user or chat data.
 
@@ -214,6 +221,32 @@ in the JSONB (and, from V13, in room rows), so renaming or removing one needs a 
 lossy across a definition-shape change:** the read is tolerant (`ignoreUnknownKeys`) but the PUT replaces the WHOLE document from the DTOs, so an older
 build that reads a newer document and saves it drops the members it does not know. The list counts (`statusCount`, `fieldCount`) are computed in SQL
 (`jsonb_array_length`, 0 for a missing or non-array member), so one undecodable document cannot 500 the list.
+
+### Rooms (V13)
+
+The whole room aggregate in ONE migration, so a room never exists without its workflow: `rooms (id, name, description, archived_at, workflow_revision, last_activity_at,
+created_at, updated_at, marked_as_deleted)`, `room_members (room_id, user_id, role, added_at)`, `room_statuses` and `room_fields` (the room's own copy of a template's statuses
+and fields; `position` is the array index, retired rows keep a stale one). Enum-valued columns (`role`, `colour`, `category`, `type`) carry no CHECK: the Kotlin enum is the
+whitelist (the V5 rule), and the enum NAMES are persisted values, frozen like the template document's. Timestamps are epoch-millis `BIGINT`; ids are `SERIAL` (a
+`room_id` is `INTEGER`, referencing `users` through `BIGINT`, the teams wrinkle above).
+
+- **`rooms` is soft-deleted with a partial unique name** (`uq_rooms_name_active`, `LOWER(name)` over non-deleted rooms; an archived room keeps its name, a delete frees it;
+  the 409 wording is in `UNIQUE_CONSTRAINT_DETAILS`). A clash therefore discloses only that a room of that name exists. `archived_at` (null = active) is state, not deletion.
+- **`idx_rooms_last_activity`** (`last_activity_at`, partial over non-deleted rooms) serves the recent-activity sort of the rooms rail and the Rooms page.
+- **`room_members` is a hard-delete join** (the `team_members` class: the audit trail holds adds and removals, a re-add must not collide with a dead row, nothing references
+  a membership row). A soft-deleted user keeps an inert row; every read resolves members through ACTIVE users (the inner join), and the last-OWNER count (C8) will too.
+- **`room_statuses` and `room_fields` are soft-deleted ("retired") with a FULL primary key `(room_id, key)`, deliberately NOT partial**: this is the documented exception to
+  "free a unique field on delete". A retired key stays reserved for the life of the room and is revived, never minted twice, so a later thread's history and its
+  `(room_id, status_key)` foreign key stay unambiguous. `uq_room_statuses_initial` is a partial unique index (`WHERE is_initial`): exactly one initial status per room, checked
+  per row, so a write that moves the initial flag must clear it on every row first (C9).
+- **`workflow_revision`** is the `X-Expected-Revision` token of the room workflow's PUT (C9; `BIGINT`, `CHECK > 0`, starts at 1), separate from the room row's own
+  `updated_at`: a name edit never moves it.
+- **The room lock.** Every write to a room goes through `withRoomWrite` (`rooms/RoomLock.kt`), which selects the ACTIVE room row `FOR NO KEY UPDATE` (the rule of "Row locks vs. FK
+  locks" below: child inserts such as members, statuses and, in 0.3, threads take `FOR KEY SHARE` on the room, which does not conflict), then re-reads the caller's membership
+  and re-runs the route's guard on that locked standing, then runs the write. The role is read AFTER the lock is held (READ COMMITTED gives every statement its own snapshot), so a
+  role change that committed while the caller waited is the verdict. A hard delete of a room (tests only) cascades to members, statuses and fields.
+- A room's labels are plain single-language text in `label` (`VARCHAR(60)`); `room_fields.options` is a `jsonb` array `[{key,label}]` written through `canonicalJson`
+  (`RoomWorkflowService.copyFromTemplate`) and read with a tolerant decoder; `[]` for a kind without options.
 
 ### Credential revision (V7)
 
@@ -252,10 +285,10 @@ transaction under `TELEMETRY_LOCK_KEY`, and a row exactly at its cutoff stays. T
 
 ### Soft delete (convention)
 
-`users`, `teams` and `workflow_templates` are **soft-deleted** — rows are flagged, never physically removed; every
+`users`, `teams`, `workflow_templates` and `rooms` are **soft-deleted** (and a room's `room_statuses`/`room_fields` are retired, never removed: "Rooms (V13)") — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `password_reset_tokens` (V8, expiring single-use credentials, not history), `user_disabled_features`, a pure flag join
-whose PUT is a wholesale replace, `team_members` (V10, the roster join: the audit trail holds the adds and removals, a re-add must not
+whose PUT is a wholesale replace, `room_members` (V13, the room membership join, the same reasoning), `team_members` (V10, the roster join: the audit trail holds the adds and removals, a re-add must not
 collide with a dead row, nothing references a membership row; a soft-deleted user keeps an inert row that reads skip), and the `ops.telemetry_*` samples (the prune above)) hard-delete — a new
 hard-delete table needs a documented justification, exactly like Lettuce's exceptions list. Pure operational history with no reader once
 old (job queues, samples) may be pruned by a fixed documented retention window, the same shape as the JWT blocklist's opportunistic
@@ -287,7 +320,7 @@ clash with an **active** row still raises `23505 → 409` (mapped centrally in
 `plugins/ErrorHandling.kt`, which names WHAT clashed per constraint — extend
 `UNIQUE_CONSTRAINT_DETAILS` when adding a partial unique index). In place today: `users.email`
 (`uq_users_email_active`, `V1`) and the team name (`uq_teams_name_active`, `V6` — an expression
-index over `LOWER(name)`).
+index over `LOWER(name)`), the workflow template name (`uq_workflow_templates_name_active`, V11) and the room name (`uq_rooms_name_active`, V13).
 
 **`infra/db/Sql.kt`** (ported from Lettuce with the first list endpoint): `containsNormalized` —
 the case- AND accent-insensitive substring filter over `public.unaccent` (V4); every per-column
@@ -304,7 +337,7 @@ with its long-running derive job against team rows; the chat writes — threads 
 The rule: **lock a row `FOR NO KEY UPDATE` unless the write changes its key.** That mode conflicts with itself and with
 `UPDATE`/`DELETE` (writers of the row, e.g. a soft delete racing a child insert, still serialize) but
 NOT with `FOR KEY SHARE`, so FK locks never stall it. `lockActiveForWrite` (`infra/db/SoftDelete.kt`,
-`FOR NO KEY UPDATE`), `TeamService.update` and `PasswordResetService.lockUser` (the active `users` row) follow it; none of them touches
+`FOR NO KEY UPDATE`), `withRoomWrite` (the room row, every room-scoped write; the future thread and message inserts reference it), `TeamService.update` and `PasswordResetService.lockUser` (the active `users` row) follow it; none of them touches
 `id`, and the unique indexes on these tables are partial or expression indexes (`uq_teams_name_active`, `uq_users_email_active`), which
 PostgreSQL does not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a
 long transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
@@ -338,7 +371,6 @@ text and sha256 are compared against stored rows.
 
 ### Planned persistence (not yet built)
 
-The chat tables arrive with v0.2–v0.6; their sketch (rooms, `room_members`, workflow statuses and fields, threads, messages, `thread_events`, tags, mentions, reactions, pins,
-unread markers; SERIAL ids, epoch-millis timestamps, `SoftDeletable`, partial unique indexes) is in `chat-model.md`. Nothing in this document changes until a migration lands; then the
-schema list, the soft-delete list and the cross-feature list above grow in the same commit. The ported-later infrastructure is named in `product.md` "Donors" (`infra/db/EventLog.kt`,
-`lockingTransaction`, the `X-Expected-Revision` write).
+The remaining chat tables arrive with v0.3–v0.6; their sketch (threads, messages, `thread_events`, tags, mentions, reactions, pins, unread markers; SERIAL ids, epoch-millis
+timestamps, `SoftDeletable`, partial unique indexes) is in `chat-model.md`. Nothing in this document changes until a migration lands; then the schema list, the soft-delete list
+and the cross-feature list above grow in the same commit. The ported-later infrastructure is named in `product.md` "Donors" (`infra/db/EventLog.kt`).

@@ -112,19 +112,26 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `workflow_template.created` (byUserId/templateId/name/statuses/fields — the last two are counts) / `workflow_template.updated` (byUserId/templateId/name/revision —
   the NEW revision) / `workflow_template.deleted` (byUserId/templateId) — every template mutation (`/api/v1/workflow-templates`, ADMIN only); a refused write (400, 403,
   404, a stale-revision or name 409) emits no `workflow_template.*` event (a 403 still emits `authz.denied`),
+- `room.created` (byUserId/roomId/name/templateId/language — the language the labels were resolved to, `en` when the request named none) / `room.updated` (byUserId/roomId/name) /
+  `room.archived` / `room.unarchived` (byUserId/roomId — only on an ACTUAL change: both are idempotent, so a repeat emits nothing) / `room.deleted` (byUserId/roomId) — the room
+  record events (`/api/v1/rooms`, C7; OWNER or ADMIN, `room.deleted` ADMIN only); a refused write (400, 403, 404, a name or archived 409) emits no `room.*` event of its own (a 403 still
+  emits `authz.denied`). The members and workflow events (`room.member_*`, `room.workflow_updated`) arrive with their routes (0.2.0 C8/C9),
+- `room.access_denied` (byUserId/roomId) — a signed-in caller who is NOT a member (and not an ADMIN) addressed a room that EXISTS, through any room route (GET, PUT, archive, unarchive,
+  DELETE, the workflow read). The response is the uniform `404`, the same as for a room that does not exist, so this line is the only trace of someone probing room ids;
+  it is NOT emitted for an id that matches no active room (nothing was denied), nor for an ADMIN. Emitted by the route preamble (`rooms/RoomAccess.kt`) before the guard answers,
 - `bootstrap.admin_password_rotated` (userId/email — the fixed seed-admin email, never the password or
   its hash; `infra/db/Bootstrap.kt`, only when `ADMIN_INITIAL_PASSWORD` actually replaced the seed
   hash, so an idempotent re-boot emits nothing) — the boot-time credential event, so an admin-password reset leaves a trail beyond a log line
   (Flow's `crypto.reencrypted` boot-backfill event comes back with `EncryptedAtRest`/`Reencrypt`, `security.md` "Encryption at rest"),
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
-- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry` and `directory` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
-  password-reset, password-reset-confirm, mfa, ready; per-user telemetry and directory) rejected the request with a 429, emitted from the 429 status handler in
+- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory` and `room-create` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
+  password-reset, password-reset-confirm, mfa, ready; per-user telemetry, directory and room-create) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
   (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
   since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one
-  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry` and `directory` buckets are keyed by
-  `telemetry:<userId>` / `directory:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
+  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry`, `directory` and `room-create` buckets are keyed by
+  `telemetry:<userId>` / `directory:<userId>` / `room-create:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
   account reaches that key, so the key space is the account count. The client address is deliberately NOT a field
   (it is `X-Forwarded-For`-derived behind a proxy, i.e. attacker-chosen text; the ingress log has it), and neither is the
   query string. The per-account lockout's 429s are their own `login.lockout`/`login.rejected_locked` events and do not

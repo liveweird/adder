@@ -6,6 +6,10 @@ import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.rooms.RoomService
+import ch.nokillswit.rooms.RoomServiceKey
+import ch.nokillswit.rooms.RoomWorkflowService
+import ch.nokillswit.rooms.RoomWorkflowServiceKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.users.UserService
@@ -238,7 +242,12 @@ suspend fun Application.configureDatabase() {
     attributes.put(UserServiceKey, userService)
     val teamService = TeamService(database)
     attributes.put(TeamServiceKey, teamService)
-    attributes.put(WorkflowTemplateServiceKey, WorkflowTemplateService(database))
+    val workflowTemplateService = WorkflowTemplateService(database)
+    attributes.put(WorkflowTemplateServiceKey, workflowTemplateService)
+    // The room aggregate (V13): a room copies a template at creation, so the room service reads the template service.
+    val roomWorkflowService = RoomWorkflowService(database)
+    attributes.put(RoomWorkflowServiceKey, roomWorkflowService)
+    attributes.put(RoomServiceKey, RoomService(database, workflowTemplateService, roomWorkflowService))
     attributes.put(
         TokenBlocklistServiceKey,
         TokenBlocklistService(

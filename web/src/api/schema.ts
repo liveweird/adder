@@ -592,6 +592,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List rooms
+         * @description Any authenticated user: the rooms the caller may read - the ones they are a member of, and for an `ADMIN` every room.
+         *     Deleted rooms never appear.
+         *
+         *     - Sortable fields: `id`, `name`, `lastActivityAt`, `createdAt`. Default `id` ascending.
+         *     - Filters: `name` (case- and accent-insensitive substring, at most 80 characters - `400` beyond); `archived` (strict `true` or
+         *       `false`; omitted = both); `member` (strict `true` or `false`: `true` = only rooms the caller is a member of - the rooms rail
+         *       always sends it; `false` = only readable rooms the caller is NOT in, which is empty for a non-admin; omitted = every readable
+         *       room). A repeated key is a `400`.
+         *     - Each row's `role` is the CALLER's role in that room, `null` for an `ADMIN` who is not a member.
+         */
+        get: operations["listRooms"];
+        put?: never;
+        /**
+         * Create a room from a workflow template
+         * @description Any authenticated user; the creator becomes the room's OWNER. In ONE transaction the room is inserted, its creator is added as
+         *     OWNER, and the template's statuses and fields are COPIED into the room with every label resolved to the request's `language`
+         *     (default `en`; a label the template has no translation for falls back to its `en` text). The copy is single-language plain text
+         *     and has no link back: a later template edit or delete never touches the room. When per-label resolution would clash within a list,
+         *     that whole list is copied in EN.
+         *
+         *     An unknown or deleted `templateId` and an unsupported `language` are `400`. A case-insensitive name clash with a non-deleted
+         *     room is `409` (archived rooms keep their names; a deleted room frees its own). Rides a per-USER rate bucket of 30 per minute
+         *     (`429` beyond it).
+         */
+        post: operations["createRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a room
+         * @description A member of the room or an `ADMIN`. A non-member (and any caller for a room that does not exist or was deleted) gets the same
+         *     `404`, so a room's existence is not disclosed. `role` is the caller's role, `null` for an `ADMIN` outside the room.
+         *     `workflowRevision` is what a workflow PUT names in `X-Expected-Revision`.
+         */
+        get: operations["getRoom"];
+        /**
+         * Replace a room's name and description
+         * @description The room's OWNER or an `ADMIN`. Checked in this order: visibility (`404` for a missing room and for a non-member alike), role
+         *     (`403` for a plain member), the body (`400`), then under the room lock the guard again (a caller demoted while the write waited is
+         *     refused), the archived state (`409` of type `urn:adder:problem:room-archived`: an archived room is read-only) and the name (a
+         *     case-insensitive clash with another non-deleted room is a plain `409`). A full replace: an omitted description clears it.
+         */
+        put: operations["updateRoom"];
+        post?: never;
+        /**
+         * Delete a room (soft)
+         * @description `ADMIN` only, but the visibility check comes first: a non-member who is not an `ADMIN` gets the `404`, a member who is not an
+         *     `ADMIN` (the room's OWNER included) gets `403`. Soft delete - the room stops reading as active and frees its name; there is no
+         *     restore. An archived room can be deleted.
+         */
+        delete: operations["deleteRoom"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive a room
+         * @description The room's OWNER or an `ADMIN` (visibility `404`, then role `403`). Idempotent: archiving an archived room is a `204` that
+         *     changes nothing. An archived room is read-only for its name, description and workflow; its members can still be managed.
+         *     No request body.
+         */
+        post: operations["archiveRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/unarchive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unarchive a room
+         * @description The room's OWNER or an `ADMIN` (visibility `404`, then role `403`). Idempotent: unarchiving an active room is a `204` that
+         *     changes nothing. No request body.
+         */
+        post: operations["unarchiveRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/workflow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a room's workflow
+         * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`). The room's ACTIVE statuses and fields in position order
+         *     (retired ones are not shown), with plain single-language labels and the `revision` a later workflow PUT names in
+         *     `X-Expected-Revision`. Each status carries `threadCount`, the number of threads currently in it (always `0` until threads exist).
+         */
+        get: operations["getRoomWorkflow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/telemetry/current": {
         parameters: {
             query?: never;
@@ -974,6 +1122,132 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        RoomCreateRequest: {
+            name: string;
+            description?: string | null;
+            /**
+             * Format: int32
+             * @description The workflow template to copy; unknown or deleted is a `400`.
+             */
+            templateId: number;
+            language?: components["schemas"]["Language"];
+        };
+        RoomUpdateRequest: {
+            name: string;
+            description?: string | null;
+        };
+        RoomListItem: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            description?: string | null;
+            archived: boolean;
+            /**
+             * @description The CALLER's role in the room; `null` for an `ADMIN` who is not a member.
+             * @enum {string|null}
+             */
+            role: "OWNER" | "MEMBER" | null;
+            /**
+             * Format: int32
+             * @description Active members only
+             */
+            memberCount: number;
+            /**
+             * Format: int64
+             * @description Epoch millis; equals the creation time until threads exist
+             */
+            lastActivityAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+        };
+        RoomResponse: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            description?: string | null;
+            archived: boolean;
+            /**
+             * Format: int64
+             * @description Epoch millis; `null` while the room is active
+             */
+            archivedAt?: number | null;
+            /**
+             * @description The CALLER's role in the room; `null` for an `ADMIN` who is not a member.
+             * @enum {string|null}
+             */
+            role: "OWNER" | "MEMBER" | null;
+            /**
+             * Format: int32
+             * @description Active members only
+             */
+            memberCount: number;
+            /**
+             * Format: int64
+             * @description The room workflow's optimistic-concurrency token (`X-Expected-Revision` of its PUT). Starts at 1.
+             */
+            workflowRevision: number;
+            /**
+             * Format: int64
+             * @description Epoch millis; equals the creation time until threads exist
+             */
+            lastActivityAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            updatedAt: number;
+        };
+        RoomPage: {
+            items: components["schemas"]["RoomListItem"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        RoomWorkflowStatus: {
+            /** @description An immutable lower-case slug, reserved for the life of the room. */
+            key: string;
+            /** @description Plain text in the language the room was created with */
+            label: string;
+            colour: components["schemas"]["StatusColour"];
+            category: components["schemas"]["StatusCategory"];
+            /** @description Exactly one status is the initial one, and it is in the `OPEN` category. */
+            initial: boolean;
+            /**
+             * Format: int64
+             * @description The threads currently in this status
+             */
+            threadCount: number;
+        };
+        RoomWorkflowOption: {
+            key: string;
+            label: string;
+        };
+        RoomWorkflowField: {
+            key: string;
+            label: string;
+            type: components["schemas"]["FieldType"];
+            required: boolean;
+            /** @description 1-50 options for `SELECT` and `MULTI_SELECT`; empty for every other type. */
+            options: components["schemas"]["RoomWorkflowOption"][];
+        };
+        RoomWorkflow: {
+            /**
+             * Format: int64
+             * @description The token a workflow PUT names in `X-Expected-Revision`
+             */
+            revision: number;
+            statuses: components["schemas"]["RoomWorkflowStatus"][];
+            fields: components["schemas"]["RoomWorkflowField"][];
+        };
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
@@ -1291,7 +1565,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating a room (`POST /api/v1/rooms`) the per-USER room-create bucket is exhausted (30/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 [name: string]: unknown;
@@ -2292,6 +2566,235 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listRooms: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                name?: string;
+                archived?: boolean;
+                member?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of rooms */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created; `Location` points at the new room */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The room */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Replaced */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    archiveRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived (or already archived) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    unarchiveRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unarchived (or already active) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getRoomWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The room's workflow */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomWorkflow"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             500: components["responses"]["InternalServerError"];
         };

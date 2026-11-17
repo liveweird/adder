@@ -252,7 +252,7 @@ the full link roundtrip incl. the session revocation), `PasswordResetThrottleTes
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, and the per-USER `telemetry` and `directory` below): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, and the per-USER `telemetry`, `directory` and `room-create` below): blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
@@ -294,6 +294,18 @@ the projection to `{id, name}` if that trade changes (the user's option 2 of D2)
 per-user bucket (a plain read like the rest of `/teams`). So the directory is not the only read of other users' name+email. The honest bound: the harvest is limited by the
 number of teams (a team's roster is one request, the team list pages at most 100 per request), it reveals nothing beyond what D2 already accepts (name+email of an active
 user), and it covers only users who sit on some roster. Not bucketed on purpose; if the directory's projection shrinks to `{id, name}` (D2 option 2), the roster's `email` must shrink with it.
+
+**Per-USER room-create bucket** (`room-create`, a fixed 30/min in every mode, `RateLimits.ROOM_CREATE`) for `POST /api/v1/rooms`, the one endpoint where any signed-in user mints state that
+reserves a name for everyone else (a room name is unique among non-deleted rooms, case-insensitively). `configureRoomRoutes` mounts `rateLimit(RateLimitName(RateLimits.ROOM_CREATE))` INSIDE
+`authenticate {}` around that one route (the telemetry idiom), keyed by the verified user id. The bound is for a runaway client or a script squatting names; a deliberate create is an
+occasional act. The rejection is the generic `429` problem plus the coalesced `rate_limit.exceeded` audit event (bucket `room-create`, `byUserId`); a request refused by validation (`400`) still
+takes a token, because the bucket sits before the handler. `RoomTest` pins 30 then `429`, per user, and the audit event. Every other room route is unbucketed on purpose: guard-gated (a caller
+sees only the rooms they belong to) and bounded by the caps in `chat-model.md`.
+
+**What the room surface discloses.** A room is members-only: a non-member's `GET`, `PUT`, archive, unarchive, `DELETE` and workflow read are the same `404` as for a room that does not exist, so
+a room's existence is not disclosed through any status code (`authorization.md` "Rooms"; `RoomAuthzMatrixTest` pins the whole table); the one probe it cannot hide, the name clash, discloses only
+that a non-deleted room of that name exists (`409` on create or rename; Slack's private-channel rule). The denied probe is audited (`room.access_denied`, `observability.md`), which is the
+detection a quiet `404` would otherwise lack. A room response carries no other user's data (the member list, with names and emails, is C8's `GET /rooms/{id}/members`, a reader-only route).
 
 **Email MFA (opt-in)** (`auth/MfaChallenges.kt` + `auth/MfaEmail.kt`, wired in
 `configureAuthRoutes`): a per-user second factor behind the `MFA` feature flag — **the one
