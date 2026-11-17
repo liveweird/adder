@@ -1,0 +1,114 @@
+{
+  "label": "Label",
+  "labelIn": "Label ({{language}})",
+  "key": "Key",
+  "keyLocked": "The key of a saved item cannot change.",
+  "statuses": {
+    "title": "Statuses",
+    "hint": "The states a thread moves through. Exactly one is the initial status, and at least one closes the thread.",
+    "add": "Add status",
+    "rowAria": "Status {{position}}",
+    "moveUpAria": "Move status {{position}} up",
+    "moveDownAria": "Move status {{position}} down",
+    "removeAria": "Remove status {{position}}",
+    "category": "Category",
+    "categoryOpen": "Open",
+    "categoryClosed": "Closed",
+    "categoryLocked": "Threads use this status, so its category cannot change.",
+    "initial": "Initial status"
+  },
+  "colour": {
+    "label": "Colour",
+    "option": "{{name}} — {{meaning}}",
+    "GRAY": {
+      "name": "Gray",
+      "meaning": "neutral"
+    },
+    "BLUE": {
+      "name": "Blue",
+      "meaning": "in progress"
+    },
+    "GRAPE": {
+      "name": "Grape",
+      "meaning": "waiting"
+    },
+    "TEAL": {
+      "name": "Teal",
+      "meaning": "done"
+    },
+    "ORANGE": {
+      "name": "Orange",
+      "meaning": "warning"
+    },
+    "RED": {
+      "name": "Red",
+      "meaning": "blocking"
+    }
+  },
+  "fields": {
+    "title": "Fields",
+    "hint": "Extra details every thread in this room carries.",
+    "add": "Add field",
+    "empty": "No fields yet",
+    "rowAria": "Field {{position}}",
+    "moveUpAria": "Move field {{position}} up",
+    "moveDownAria": "Move field {{position}} down",
+    "removeAria": "Remove field {{position}}",
+    "type": "Type",
+    "typeLocked": "The type of a saved field cannot change.",
+    "required": "Required"
+  },
+  "fieldType": {
+    "TEXT": "Text",
+    "NUMBER": "Number",
+    "DATE": "Date",
+    "SELECT": "Select",
+    "MULTI_SELECT": "Multi-select",
+    "USER": "User",
+    "URL": "Link"
+  },
+  "options": {
+    "title": "Options",
+    "add": "Add option",
+    "rowAria": "Option {{position}}",
+    "moveUpAria": "Move option {{position}} up",
+    "moveDownAria": "Move option {{position}} down",
+    "removeAria": "Remove option {{position}}"
+  },
+  "retire": {
+    "title": "Move threads before removing",
+    "message_one": "{{count}} thread is in “{{status}}”. Move it to:",
+    "message_other": "{{count}} threads are in “{{status}}”. Move them to:",
+    "messageUnknown": "Threads have joined “{{status}}” since you opened this page. Move them to:",
+    "target": "Move to",
+    "none": "No other status of the same category is left to move them to.",
+    "confirm": "Remove status"
+  },
+  "retired": {
+    "title": "Statuses to be removed",
+    "line": "“{{status}}” will be removed.",
+    "lineMoved_one": "“{{status}}” will be removed; its {{count}} thread moves to “{{target}}”.",
+    "lineMoved_other": "“{{status}}” will be removed; its {{count}} threads move to “{{target}}”.",
+    "undo": "Undo",
+    "undoAria": "Undo removing {{status}}"
+  },
+  "conflict": {
+    "title": "This workflow was changed elsewhere",
+    "message": "Someone saved a newer version while you were editing. Your changes are kept here. Reload to see the latest version, then apply them again.",
+    "reload": "Reload the latest version"
+  },
+  "validation": {
+    "keyInvalid": "The key must be 1–{{max}} characters: lower-case letters and digits, single hyphens between groups, starting with a letter",
+    "keyDuplicate": "This key is already used",
+    "labelRequired": "The label is required",
+    "labelTooLong": "The label must be at most {{max}} characters",
+  "labelControl": "The label must not contain control characters",
+  "labelDuplicate": "Another one already has this label",
+    "statusCount": "A workflow needs {{min}}–{{max}} statuses",
+    "fieldCount": "A workflow has at most {{max}} fields",
+    "optionCount": "A select field needs {{min}}–{{max}} options",
+    "initialCount": "Pick exactly one initial status",
+    "initialOpen": "The initial status must be Open",
+    "closedRequired": "At least one status must be Closed"
+  }
+}

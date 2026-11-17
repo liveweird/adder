@@ -117,6 +117,16 @@ describe("ApiError and helpers", () => {
     expect(new ApiError(500, null).type).toBeUndefined();
   });
 
+  test("keys surfaces the workflow keys of a problem, and nothing else", () => {
+    expect(new ApiError(409, { keys: ["done", "wont-do"] }).keys).toEqual(["done", "wont-do"]);
+    expect(new ApiError(409, { keys: ["done", 7, null] }).keys).toEqual(["done"]);
+    expect(new ApiError(409, { keys: "done" }).keys).toEqual([]);
+    expect(new ApiError(409, {}).keys).toEqual([]);
+    expect(new ApiError(500, null).keys).toEqual([]);
+    const err = new ApiError(409, { keys: ["done"] });
+    expect(err.keys).toBe(err.keys);
+  });
+
   test("shouldRetryQuery never retries a 4xx and caps transient retries at two", () => {
     expect(shouldRetryQuery(0, new ApiError(403, null))).toBe(false);
     expect(shouldRetryQuery(0, new ApiError(500, null))).toBe(true);

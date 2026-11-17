@@ -15,6 +15,7 @@ import enUsers from "./locales/en/users.json";
 import enHome from "./locales/en/home.json";
 import enTeams from "./locales/en/teams.json";
 import enTelemetry from "./locales/en/telemetry.json";
+import enWorkflows from "./locales/en/workflows.json";
 
 /**
  * The build-time supported-language set. Adding a language: a complete `locales/<lang>/`
@@ -59,6 +60,7 @@ export const en = {
   home: enHome,
   teams: enTeams,
   telemetry: enTelemetry,
+  workflows: enWorkflows,
 };
 
 // Every non-EN bundle is assembled from its locales/<lang>/ folder — adding a language never

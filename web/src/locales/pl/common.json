@@ -10,7 +10,9 @@
     "editAria": "Edytuj {{name}}",
     "deleteAria": "Usuń {{name}}",
     "showPassword": "Pokaż hasło",
-    "hidePassword": "Ukryj hasło"
+    "hidePassword": "Ukryj hasło",
+    "keepEditing": "Wróć do edycji",
+    "discard": "Odrzuć"
   },
   "dateFormatHint": "RRRR-MM-DD",
   "field": {
@@ -92,5 +94,9 @@
       "clear": "Wyczyść zespół",
       "noMatch": "Brak pasujących zespołów"
     }
+  },
+  "discard": {
+    "title": "Odrzucić zmiany?",
+    "message": "Masz niezapisane zmiany. Jeśli wyjdziesz teraz, przepadną."
   }
 }

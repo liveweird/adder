@@ -10,7 +10,9 @@
     "editAria": "Edit {{name}}",
     "deleteAria": "Delete {{name}}",
     "showPassword": "Show password",
-    "hidePassword": "Hide password"
+    "hidePassword": "Hide password",
+    "keepEditing": "Keep editing",
+    "discard": "Discard"
   },
   "dateFormatHint": "YYYY-MM-DD",
   "field": {
@@ -90,5 +92,9 @@
       "clear": "Clear the team",
       "noMatch": "No matching teams"
     }
+  },
+  "discard": {
+    "title": "Discard changes?",
+    "message": "You have unsaved changes. If you leave now, they are lost."
   }
 }

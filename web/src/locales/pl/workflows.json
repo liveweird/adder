@@ -1,0 +1,118 @@
+{
+  "label": "Etykieta",
+  "labelIn": "Etykieta ({{language}})",
+  "key": "Klucz",
+  "keyLocked": "Klucza zapisanego elementu nie można zmienić.",
+  "statuses": {
+    "title": "Statusy",
+    "hint": "Stany, przez które przechodzi wątek. Dokładnie jeden jest statusem początkowym, a co najmniej jeden zamyka wątek.",
+    "add": "Dodaj status",
+    "rowAria": "Status {{position}}",
+    "moveUpAria": "Przesuń status {{position}} w górę",
+    "moveDownAria": "Przesuń status {{position}} w dół",
+    "removeAria": "Usuń status {{position}}",
+    "category": "Kategoria",
+    "categoryOpen": "Otwarty",
+    "categoryClosed": "Zamknięty",
+    "categoryLocked": "Wątki używają tego statusu, więc nie można zmienić jego kategorii.",
+    "initial": "Status początkowy"
+  },
+  "colour": {
+    "label": "Kolor",
+    "option": "{{name}} — {{meaning}}",
+    "GRAY": {
+      "name": "Szary",
+      "meaning": "neutralny"
+    },
+    "BLUE": {
+      "name": "Niebieski",
+      "meaning": "w toku"
+    },
+    "GRAPE": {
+      "name": "Fioletowy",
+      "meaning": "oczekuje"
+    },
+    "TEAL": {
+      "name": "Turkusowy",
+      "meaning": "zrobione"
+    },
+    "ORANGE": {
+      "name": "Pomarańczowy",
+      "meaning": "ostrzeżenie"
+    },
+    "RED": {
+      "name": "Czerwony",
+      "meaning": "blokuje"
+    }
+  },
+  "fields": {
+    "title": "Pola",
+    "hint": "Dodatkowe informacje, które niesie każdy wątek w tym pokoju.",
+    "add": "Dodaj pole",
+    "empty": "Brak pól",
+    "rowAria": "Pole {{position}}",
+    "moveUpAria": "Przesuń pole {{position}} w górę",
+    "moveDownAria": "Przesuń pole {{position}} w dół",
+    "removeAria": "Usuń pole {{position}}",
+    "type": "Typ",
+    "typeLocked": "Typu zapisanego pola nie można zmienić.",
+    "required": "Wymagane"
+  },
+  "fieldType": {
+    "TEXT": "Tekst",
+    "NUMBER": "Liczba",
+    "DATE": "Data",
+    "SELECT": "Lista wyboru",
+    "MULTI_SELECT": "Lista wielokrotnego wyboru",
+    "USER": "Użytkownik/czka",
+    "URL": "Link"
+  },
+  "options": {
+    "title": "Opcje",
+    "add": "Dodaj opcję",
+    "rowAria": "Opcja {{position}}",
+    "moveUpAria": "Przesuń opcję {{position}} w górę",
+    "moveDownAria": "Przesuń opcję {{position}} w dół",
+    "removeAria": "Usuń opcję {{position}}"
+  },
+  "retire": {
+    "title": "Przenieś wątki przed usunięciem",
+    "message_one": "{{count}} wątek jest w statusie „{{status}}”. Przenieś go do:",
+    "message_few": "{{count}} wątki są w statusie „{{status}}”. Przenieś je do:",
+    "message_many": "{{count}} wątków jest w statusie „{{status}}”. Przenieś je do:",
+    "message_other": "{{count}} wątku jest w statusie „{{status}}”. Przenieś je do:",
+    "messageUnknown": "Od otwarcia tej strony w statusie „{{status}}” pojawiły się wątki. Przenieś je do:",
+    "target": "Przenieś do",
+    "none": "Nie został żaden inny status tej samej kategorii, do którego można przenieść wątki.",
+    "confirm": "Usuń status"
+  },
+  "retired": {
+    "title": "Statusy do usunięcia",
+    "line": "Status „{{status}}” zostanie usunięty.",
+    "lineMoved_one": "Status „{{status}}” zostanie usunięty, a jego {{count}} wątek trafi do „{{target}}”.",
+    "lineMoved_few": "Status „{{status}}” zostanie usunięty, a jego {{count}} wątki trafią do „{{target}}”.",
+    "lineMoved_many": "Status „{{status}}” zostanie usunięty, a jego {{count}} wątków trafi do „{{target}}”.",
+    "lineMoved_other": "Status „{{status}}” zostanie usunięty, a jego {{count}} wątku trafi do „{{target}}”.",
+    "undo": "Cofnij",
+    "undoAria": "Cofnij usunięcie statusu {{status}}"
+  },
+  "conflict": {
+    "title": "Ten przepływ pracy zmienił się gdzie indziej",
+    "message": "Ktoś zapisał nowszą wersję w trakcie Twojej edycji. Twoje zmiany zostały tu zachowane. Wczytaj najnowszą wersję, aby ją zobaczyć, i zastosuj zmiany jeszcze raz.",
+    "reload": "Wczytaj najnowszą wersję"
+  },
+  "validation": {
+    "keyInvalid": "Klucz musi mieć 1–{{max}} znaków (małe litery i cyfry, pojedyncze myślniki między grupami) i zaczynać się od litery",
+    "keyDuplicate": "Ten klucz jest już użyty",
+    "labelRequired": "Etykieta jest wymagana",
+    "labelTooLong": "Etykieta może mieć najwyżej {{max}} znaków",
+  "labelControl": "Etykieta nie może zawierać znaków sterujących",
+  "labelDuplicate": "Inny element ma już taką etykietę",
+    "statusCount": "Przepływ pracy potrzebuje {{min}}–{{max}} statusów",
+    "fieldCount": "Przepływ pracy ma najwyżej {{max}} pól",
+    "optionCount": "Pole z listą wyboru potrzebuje {{min}}–{{max}} opcji",
+    "initialCount": "Wybierz dokładnie jeden status początkowy",
+    "initialOpen": "Status początkowy musi być otwarty",
+    "closedRequired": "Co najmniej jeden status musi być zamknięty"
+  }
+}

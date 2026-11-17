@@ -225,6 +225,20 @@ export class ApiError extends Error {
     return this.problemField("type");
   }
 
+  private keysCache?: string[];
+
+  /**
+   * The workflow keys a 409 is about (the `keys` extension member); empty when the problem carried none. Computed once per
+   * error, so repeated reads return the same array (a render can read it without handing consumers a fresh identity).
+   */
+  get keys(): string[] {
+    if (!this.keysCache) {
+      const value = (this.body as Record<string, unknown> | null)?.keys;
+      this.keysCache = Array.isArray(value) ? value.filter((k): k is string => typeof k === "string") : [];
+    }
+    return this.keysCache;
+  }
+
   private problemField(field: "detail" | "instance" | "type"): string | undefined {
     const value = (this.body as Record<string, unknown> | null)?.[field];
     return typeof value === "string" ? value : undefined;
