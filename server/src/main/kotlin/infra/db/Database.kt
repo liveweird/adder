@@ -10,6 +10,8 @@ import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.users.UserService
 import ch.nokillswit.users.UserServiceKey
+import ch.nokillswit.workflows.WorkflowTemplateService
+import ch.nokillswit.workflows.WorkflowTemplateServiceKey
 import io.ktor.server.application.*
 import io.ktor.server.config.ApplicationConfig
 import io.ktor.util.AttributeKey
@@ -236,6 +238,7 @@ suspend fun Application.configureDatabase() {
     attributes.put(UserServiceKey, userService)
     val teamService = TeamService(database)
     attributes.put(TeamServiceKey, teamService)
+    attributes.put(WorkflowTemplateServiceKey, WorkflowTemplateService(database))
     attributes.put(
         TokenBlocklistServiceKey,
         TokenBlocklistService(

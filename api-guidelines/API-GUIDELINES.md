@@ -686,11 +686,15 @@ prioritized. Reviewers cite these as "registered gap"; the Spectral ruleset carr
 Per API-CACHE-003, each concurrency-sensitive write documents its defense (current as of the
 v0.1.0 foundation — extend this list as domain features land):
 
-- **Accepted last-write-wins** — full replacements of users, feature flags, language, and teams.
+- **Accepted last-write-wins** — full replacements of users, feature flags, language, and teams, and the DELETE of a workflow template.
   Permissions limit writers but do not prevent one authorized editor from overwriting another
   (e.g. two admins editing the same team). No conditional-write (`If-Match`/`ETag`)
-  mechanism exists yet; adopt one for a specific endpoint only if contention actually
+  mechanism exists for these; adopt one for a specific endpoint only if contention actually
   materializes there.
+- **`X-Expected-Revision` (domain-level guard, REQUIRED header)** — the whole-document `PUT /api/v1/workflow-templates/{id}` names the `revision` it read
+  (`400` when missing, repeated or malformed); under the row lock (`FOR NO KEY UPDATE`) a stale value is `409` of type
+  `urn:adder:problem:revision-conflict`, a current one writes `revision + 1`. This is the documented alternative to `If-Match`/`412` for this write
+  (`WorkflowTemplateTest`, `.claude/docs/conventions.md`); the room workflow PUT follows with the rooms increment.
 - **Credential-revision guard (a narrower case, not `If-Match`)** — a password change/reset
   atomically increments `users.credential_revision`; refresh and MFA acceptance compare it
   against the current row and reject a stale credential rather than silently accepting it. See

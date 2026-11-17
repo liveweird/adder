@@ -18,6 +18,16 @@ spec paths in `openapi/documentation.yaml`, `cd web && npm run gen:api` (same co
 `NAV_SECTIONS` entries (`web/src/utils/navigation.ts`), and an e2e spec + scenario doc +
 coverage-map line. Fuller shapes (sub-collections such as room members, view endpoints, pure kernels) arrive with the chat increments (`chat-model.md`).
 
+**The document-column registry (`workflows/`, V11) — the template's first fuller shape.** Same files as `teams/`, with three differences. (1) The body of
+the registry is one `jsonb definition` column written through `canonicalJson` and read back with a tolerant `Json { ignoreUnknownKeys = true }`; the
+validator is `validateWorkflowTemplate` (name/description limits, then the pure kernel `WorkflowRules.kt` for the structure, then the label maps), the
+sanitiser trims every label of every language, and the route AND the service both run the validator. (2) Label maps are `{en, pl?}` after Lettuce's
+`validateDictionaryUpdate`: `en` required, `pl` optional (a present blank is a 400), no other key (`SUPPORTED_LANGUAGES`), and per language the labels of one list are unique (`requireUniqueLabels`); the kernel sees keys only, so the
+caller runs `requireLabel` over status, field AND option labels. (3) The PUT is a whole-document replace under the REQUIRED `X-Expected-Revision` header:
+`requireAdmin` → `call.expectedRevision()` (400) → sanitise + validate (400) → the service locks the row `FOR NO KEY UPDATE`, `requireRevision` (409
+`revision-conflict`) and writes `revision + 1`; the answer is 204 and the client re-reads for the new revision. Seeds ship as a data migration
+(`ON CONFLICT DO NOTHING`) with a test that decodes them through the kernel. The room workflow (0.2.0 C9) reuses (3) and the kernel.
+
 **Deliberate exceptions to the template.** None in v0.1.0. A new exception is added to this list with its reason in the commit that introduces it.
 Sibling precedents to port rather than reinvent when the chat domain needs them (`product.md` "Donors"): Toadie's `X-Expected-Revision` whole-document
-PUT, Lettuce's `EventLog`, Covenant's 409-on-illegal-move lifecycle.
+PUT (ported: the template registry above), Lettuce's `EventLog`, Covenant's 409-on-illegal-move lifecycle.

@@ -34,8 +34,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * `infra/revision/ExpectedRevision.kt` and its ErrorHandling mappings. No route consumes the guard yet (the template and room
- * workflow PUTs arrive in the next commits), so a test-only route installed on a bare error-handling application stands in:
+ * `infra/revision/ExpectedRevision.kt` and its ErrorHandling mappings. The template PUT is the first consumer (`WorkflowTemplateTest`
+ * covers it over HTTP); this class pins the guard's own edge cases on a test-only route installed on a bare error-handling application:
  * synthetic non-`/api/` paths, called with the default `client` (which bypasses the OpenAPI conformance plugin, as it must for a
  * path the spec does not declare).
  */

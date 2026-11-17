@@ -44,7 +44,8 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
   labels <= 60; options only on SELECT kinds. At most 200 status keys and 200 field keys per room, retired ones included.
 - **Templates.** An ADMIN-curated registry `workflow_templates` (any signed-in user reads; writes are ADMIN with guard-before-read), one JSONB
   `definition` document plus a `revision`. Name (<= 100) and description are plain registry text. Labels are a language map `{en, pl?}` (EN
-  required, PL optional, Lettuce's dictionary shape). Seeds by migration, never edited afterwards: *Default* (Open initial, In progress, Waiting,
+  required, PL optional, Lettuce's dictionary shape; per language, labels are unique among the statuses, among the fields and among a field's options,
+  case-insensitively after trimming, a duplicate being a 400 that names the label; a room's own labels (0.2.0 C9) follow the same rule). Seeds by migration, never edited afterwards: *Default* (Open initial, In progress, Waiting,
   Done CLOSED, Won't do CLOSED) and *Incident* (Triage initial, Investigating, Mitigating, Monitoring, Resolved CLOSED; optional fields Severity
   S1-S4 SELECT, Component TEXT, Jira link URL, ETA DATE), in English and Polish. Deleting a template never touches rooms; there is no
   "last template" rule.

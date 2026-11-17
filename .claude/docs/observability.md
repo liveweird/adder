@@ -109,6 +109,9 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `team.member_added` (byUserId/teamId/targetUserId — only on an ACTUAL add: the PUT is idempotent, so a repeat emits nothing) /
   `team.member_removed` (byUserId/teamId/targetUserId — only when a row was removed) — the roster events (`PUT`/`DELETE /teams/{id}/members/{userId}`,
   ADMIN or the team's manager; the actor is the `byUserId`),
+- `workflow_template.created` (byUserId/templateId/name/statuses/fields — the last two are counts) / `workflow_template.updated` (byUserId/templateId/name/revision —
+  the NEW revision) / `workflow_template.deleted` (byUserId/templateId) — every template mutation (`/api/v1/workflow-templates`, ADMIN only); a refused write (400, 403,
+  404, a stale-revision or name 409) emits no `workflow_template.*` event (a 403 still emits `authz.denied`),
 - `bootstrap.admin_password_rotated` (userId/email — the fixed seed-admin email, never the password or
   its hash; `infra/db/Bootstrap.kt`, only when `ADMIN_INITIAL_PASSWORD` actually replaced the seed
   hash, so an idempotent re-boot emits nothing) — the boot-time credential event, so an admin-password reset leaves a trail beyond a log line

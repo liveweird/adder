@@ -111,8 +111,8 @@ reinvent**: when Adder needs a capability a sibling repo already has, port its i
   migrations, the trimmed telemetry and teams, the bootstrap docs.
 - **Lettuce** (`~/Sources/lettuce`): `infra/mail`, `infra/crypto`, `infra/paging`, the connection pool (through Flow); next: `MarkdownView`,
   `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `NotificationsButton` + `notifications/`, `infra/db/EventLog.kt`, the dictionary whole-document PUT.
-- **Toadie** (`~/Sources/toadie`): next: `X-Expected-Revision` optimistic concurrency, `blueprints/` `PropertyDefinition` as the reference for typed
-  workflow fields, `lockingTransaction`.
+- **Toadie** (`~/Sources/toadie`): `X-Expected-Revision` optimistic concurrency (ported, `infra/revision/`; the workflow-template PUT is its first consumer); next:
+  `blueprints/` `PropertyDefinition` as the reference for typed workflow fields, `lockingTransaction`.
 - **Covenant** (`~/Sources/covenant`): next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
 
 Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `identities/`, `metrics/`, `reports/`, `integration/` (service tokens),

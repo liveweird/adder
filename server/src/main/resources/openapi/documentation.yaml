@@ -11,8 +11,8 @@ info:
     the `roles` array and only ever ADD privileges on top of that baseline. Every operation requires a bearer
     access token except the seven that declare `security: []` (`/login`, `/login/mfa`, `/refresh`, `/password-reset`,
     `/password-reset/confirm` and the two probes). Beyond that each operation states its own rule: user management (`/users`, apart from
-    reading or changing one's own record where noted) and the writes on the team record are `ADMIN` only (a team's roster is edited by an ADMIN or the team's manager); reading teams is open to
-    any authenticated user; telemetry is `ADMIN` only. A caller without the right gets a uniform `403`, whether or not the
+    reading or changing one's own record where noted) and the writes on the team record are `ADMIN` only (a team's roster is edited by an ADMIN or the team's manager); reading teams and workflow templates is open to
+    any authenticated user, and the writes on a workflow template are `ADMIN` only; telemetry is `ADMIN` only. A caller without the right gets a uniform `403`, whether or not the
     addressed resource exists.
 
     List operations page with `page` / `pageSize` / `sort` into an `{items, page, pageSize, total}` envelope.
@@ -35,6 +35,8 @@ tags:
     description: Adder's own login accounts - ADMIN-managed CRUD, per-user feature flags, language and password change, plus the member-picker directory open to any signed-in user.
   - name: teams
     description: Flat teams, the ownership unit chat features scope to - readable by any authenticated user; the team record is written by ADMIN only, the roster by ADMIN or the team's manager.
+  - name: workflows
+    description: The ADMIN-curated workflow-template registry (statuses and fields a room copies at creation) - readable by any authenticated user, written by ADMIN only.
   - name: telemetry
     description: Adder's own vital signs (process memory, JVM, storage, request latency) and their 24h/7d/90d trends - ADMIN only.
 
@@ -773,6 +775,130 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/workflow-templates:
+    get:
+      tags: [workflows]
+      operationId: listWorkflowTemplates
+      summary: List workflow templates
+      description: |
+        Any authenticated user - a room copies a template's statuses and fields when it is created. Active templates only.
+
+        - Sortable fields: `id`, `name`, `updatedAt`. Default `id` ascending.
+        - Filters: `name` (case- and accent-insensitive substring, at most 100 characters - `400` beyond).
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: name
+          in: query
+          required: false
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: A page of workflow templates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTemplatePage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [workflows]
+      operationId: createWorkflowTemplate
+      summary: Create a workflow template
+      description: |
+        ADMIN only (guarded before the body decodes - a non-admin's malformed body is still `403`). The new template starts at
+        `revision` 1. A case-insensitive name clash with an active template is `409`; a deleted template frees its name. The
+        document must satisfy the workflow rules: 2-20 statuses (unique slug keys, exactly one initial and it is `OPEN`, at
+        least one `CLOSED`), 0-20 fields (unique slug keys), options only on the select kinds (1-50, unique slugs), every
+        status, field and option label a language map with an `en` value of 1-60 characters (`400` otherwise), unique per language
+        (case-insensitive, after trimming) among the statuses, among the fields and among one field's options.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowTemplateRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '201':
+          description: Created; `Location` points at the new template
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTemplateResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/workflow-templates/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [workflows]
+      operationId: getWorkflowTemplate
+      summary: Get a workflow template
+      description: Any authenticated user. The `revision` is what a later PUT names in `X-Expected-Revision`.
+      responses:
+        '200':
+          description: The template with its statuses and fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowTemplateResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [workflows]
+      operationId: updateWorkflowTemplate
+      summary: Replace a workflow template
+      description: |
+        ADMIN only. A whole-document replace under optimistic concurrency, checked in this order: the guard (uniform `403`,
+        whether or not the id exists and whatever the body), the `X-Expected-Revision` header (missing, repeated or malformed is
+        `400`), the body (`400`, the rules of the create), then under the row lock the id (`404`) and the revision. A stale
+        revision is `409` of type `urn:adder:problem:revision-conflict`; a case-insensitive name clash with another active
+        template is a plain `409`. Every successful PUT stores `revision + 1`; read the template again for it. A template edit
+        never touches a room that copied it.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedRevision'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowTemplateRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '204':
+          description: Replaced
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [workflows]
+      operationId: deleteWorkflowTemplate
+      summary: Delete a workflow template (soft)
+      description: ADMIN only, guard before the id lookup. Soft delete - the name is freed for reuse; rooms that copied the template are untouched.
+      responses:
+        '204':
+          description: Deleted
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/telemetry/current:
     get:
       tags: [telemetry]
@@ -1297,6 +1423,137 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TeamListItem'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+
+    WorkflowLabel:
+      type: object
+      required: [en]
+      additionalProperties: false
+      description: >-
+        A label per language: `en` is required, `pl` optional (omit it to leave the label untranslated; a present blank value is a
+        `400`); no other language is accepted. Each value is 1-60 characters after trimming.
+      properties:
+        en: { type: string, minLength: 1, maxLength: 60 }
+        pl: { type: string, minLength: 1, maxLength: 60 }
+    WorkflowStatus:
+      type: object
+      required: [key, label, colour, category, initial]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 40
+          pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+          description: An immutable lower-case slug (`in-progress`), unique within the document.
+        label: { $ref: '#/components/schemas/WorkflowLabel' }
+        colour: { $ref: '#/components/schemas/StatusColour' }
+        category: { $ref: '#/components/schemas/StatusCategory' }
+        initial:
+          type: boolean
+          description: Exactly one status of a document is the initial one, and it is in the `OPEN` category.
+    WorkflowOption:
+      type: object
+      required: [key, label]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 40
+          pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+        label: { $ref: '#/components/schemas/WorkflowLabel' }
+    WorkflowField:
+      type: object
+      required: [key, label, type, required, options]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 40
+          pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+          description: An immutable lower-case slug, unique within the document.
+        label: { $ref: '#/components/schemas/WorkflowLabel' }
+        type: { $ref: '#/components/schemas/FieldType' }
+        required: { type: boolean }
+        options:
+          type: array
+          maxItems: 50
+          description: 1-50 options for `SELECT` and `MULTI_SELECT`; empty for every other type.
+          items:
+            $ref: '#/components/schemas/WorkflowOption'
+    StatusColour:
+      type: string
+      enum: [GRAY, RED, ORANGE, BLUE, GRAPE, TEAL]
+      description: The semantic colour of a status; the web app maps it to its hue.
+    StatusCategory:
+      type: string
+      enum: [OPEN, CLOSED]
+      description: A thread in a `CLOSED` status is closed - no further activity until it is reopened.
+    FieldType:
+      type: string
+      enum: [TEXT, NUMBER, DATE, SELECT, MULTI_SELECT, USER, URL]
+    WorkflowTemplateRequest:
+      type: object
+      required: [name, statuses, fields]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 500, nullable: true }
+        statuses:
+          type: array
+          minItems: 2
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/WorkflowStatus'
+        fields:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/WorkflowField'
+    WorkflowTemplateResponse:
+      type: object
+      required: [id, name, statuses, fields, revision, createdAt, updatedAt]
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        statuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowStatus'
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowField'
+        revision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The optimistic-concurrency token; a PUT names it in `X-Expected-Revision`. Starts at 1, every successful PUT bumps it.
+        createdAt: { type: integer, format: int64, description: Epoch millis }
+        updatedAt: { type: integer, format: int64, description: Epoch millis }
+    WorkflowTemplateListItem:
+      type: object
+      required: [id, name, statusCount, fieldCount, revision, updatedAt]
+      properties:
+        id: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        statusCount: { type: integer, format: int32, minimum: 0 }
+        fieldCount: { type: integer, format: int32, minimum: 0 }
+        revision: { type: integer, format: int64, minimum: 1 }
+        updatedAt: { type: integer, format: int64, description: Epoch millis }
+    WorkflowTemplatePage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowTemplateListItem'
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 100 }
         total:

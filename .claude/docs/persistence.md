@@ -14,14 +14,14 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   makes every long-lived database refuse to boot (a failure no fresh-container CI run can see).
   `MigrationChecksumTest` pins every file's checksum; a new migration adds one manifest line, and
   a red pin means REVERT the edit (clarifications go into this doc), never update the pinned
-  value. The range today is **V1–V10**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
+  value. The range today is **V1–V12**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
   `unaccent` extension, V5 `user_disabled_features` (V1–V5 are Flow's), V6 `teams` (with the optional
   manager), V7 `users.credential_revision`, V8 `password_reset_tokens`, V9 the `ops` telemetry
-  schema, V10 `team_members` (the roster). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
+  schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows. (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root: it constructs the
   services and publishes them into `Application.attributes` (`UserServiceKey`, `TeamServiceKey`,
-  `TokenBlocklistServiceKey`, `PasswordResetServiceKey` today); each service itself lives next to the feature it serves
+  `WorkflowTemplateServiceKey`, `TokenBlocklistServiceKey`, `PasswordResetServiceKey` today); each service itself lives next to the feature it serves
   (`users/UserService.kt`, `teams/TeamService.kt`, `auth/TokenBlocklistService.kt`, `auth/PasswordResetService.kt`). The Exposed
   table `object`s (e.g. `UserService.Users`, nested inside their service) are used for queries
   only, not DDL. Ids are `UIntIdTable` — unsigned end-to-end (the spec declares `minimum: 0`, and
@@ -178,7 +178,7 @@ List each new cross-feature read/write here as it lands — the list IS the perm
 
 Adder's PostgreSQL database is split across schemas:
 
-- **`public`** — the foundation tables (`users`, `teams`, `team_members`, `revoked_tokens`, `user_disabled_features`, `password_reset_tokens`) and, later,
+- **`public`** — the foundation tables (`users`, `teams`, `team_members`, `workflow_templates`, `revoked_tokens`, `user_disabled_features`, `password_reset_tokens`) and, later,
   the chat tables (`chat-model.md`). Flyway's own history table also stays here — `flyway.schemas` is left at its default.
 - **`ops`** — Adder's own operational telemetry (V9, "Telemetry (V9)" below): the process registry and the metric samples each
   process writes about itself. Numbers and labels only, never user or chat data.
@@ -196,6 +196,24 @@ standalone "create schemas" migration.
 user; a team's inline roster is bounded at 200 (`MAX_TEAM_MEMBERS`, the add's cap counts active members). Every roster write runs in one
 transaction that locks the active team row `FOR NO KEY UPDATE` first, which serializes roster writes (a race-free cap and idempotent add) and
 a manager change against them. Authorization: `authorization.md`.
+
+### Workflow templates (V11, V12)
+
+`workflow_templates (id, name, description, definition jsonb, revision, created_at, updated_at, marked_as_deleted)`: a registry row plus ONE
+`definition` document `{statuses:[…], fields:[…]}` (Toadie's `blueprints.definition` shape; the statuses and fields are not rows, they are replaced
+with the document). Stored through `canonicalJson` (`WorkflowTemplateService.encode`), decoded with a tolerant `Json { ignoreUnknownKeys = true }`;
+a `CHECK (jsonb_typeof(definition) = 'object')` is the only DB-side shape rule, the Kotlin enums and `workflows/WorkflowRules.kt` are the whitelist
+(the V5 rule). Soft-deleted with the partial unique index `uq_workflow_templates_name_active` (`LOWER(name)`, active rows only; its 409 wording is in
+`UNIQUE_CONSTRAINT_DETAILS`), so a deleted template frees its name. `revision` (`BIGINT`, `CHECK > 0`, starts at 1) is the `X-Expected-Revision` token:
+the PUT locks the active row `FOR NO KEY UPDATE`, THEN compares (`requireRevision`), THEN writes `revision + 1` in the same transaction. A room
+COPIES a template at creation (V13), so a template edit or delete never touches a room. **V12** seeds Default and Incident (decision D3) with
+`ON CONFLICT DO NOTHING`; their labels are an applied migration's bytes, so they change only through the ADMIN template editor, never by editing V12
+(`WorkflowTemplateTest` decodes both seeds through the kernel and pins every label and both languages).
+**The enum names inside the document are persisted values and are frozen:** `StatusColour`, `StatusCategory` and `FieldType` constants live as strings
+in the JSONB (and, from V13, in room rows), so renaming or removing one needs a data migration, exactly like a persisted enum column. **Rolling back is
+lossy across a definition-shape change:** the read is tolerant (`ignoreUnknownKeys`) but the PUT replaces the WHOLE document from the DTOs, so an older
+build that reads a newer document and saves it drops the members it does not know. The list counts (`statusCount`, `fieldCount`) are computed in SQL
+(`jsonb_array_length`, 0 for a missing or non-array member), so one undecodable document cannot 500 the list.
 
 ### Credential revision (V7)
 
@@ -234,7 +252,7 @@ transaction under `TELEMETRY_LOCK_KEY`, and a row exactly at its cutoff stays. T
 
 ### Soft delete (convention)
 
-`users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
+`users`, `teams` and `workflow_templates` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `password_reset_tokens` (V8, expiring single-use credentials, not history), `user_disabled_features`, a pure flag join
 whose PUT is a wholesale replace, `team_members` (V10, the roster join: the audit trail holds the adds and removals, a re-add must not

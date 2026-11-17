@@ -99,6 +99,13 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `managerName`, both null for a soft-deleted manager. Being a team's manager grants NO write on the team
     record itself (still ADMIN only) — any team-scoped right a manager gets later is checked via `requireTeamManagerOrAdmin`. Mutations audit `team.created/updated/deleted` and `team.manager_changed`
     (only on an actual change). Tests: `TeamTest`, `GuardsTest`.
+  - `/api/v1/workflow-templates` (V11) → `GET` list and `GET /{id}` **any authenticated user** (the room-create form picks a template); `POST`, `PUT`/`{id}` and
+    `DELETE /{id}` **ADMIN only**, the teams idiom with `requireAdmin` as the FIRST statement: a non-admin gets a uniform `403` whether or not the id exists, with or
+    without the `X-Expected-Revision` header and whatever the body. The PUT's order is guard `403` → `expectedRevision()` `400` (missing, repeated or malformed) →
+    sanitise + validate the body `400` → under the row lock (`FOR NO KEY UPDATE`) `404` for a missing or deleted id → `requireRevision` `409`
+    (`urn:adder:problem:revision-conflict`) → write with `revision + 1`; an ADMIN therefore sees `400` for a missing header even on an unknown id.
+    A case-insensitive name clash with an active template is a plain `409` (the V11 partial index). Mutations audit `workflow_template.created/updated/deleted`.
+    Tests: `WorkflowTemplateTest`.
   - `PUT` / `DELETE /api/v1/teams/{id}/members/{userId}` (the roster, V10) → **ADMIN or the team's ACTIVE manager** (decision D1): the first consumer of
     `requireTeamManagerOrAdmin`, run as the FIRST statement of the handler, so every other caller (another team's manager, a stranger) gets the uniform `403`
     whether or not the team exists; the ADMIN alone reaches the `404` for an unknown team. Because the grant can be revoked between that check and the

@@ -22,7 +22,7 @@ data class FieldShape(val key: String, val type: FieldType, val optionKeys: List
 
 // A rejected key is echoed back in the message, bounded so a megabyte "key" does not become a megabyte error body. Truncation is
 // by code point (never splits a surrogate pair) and is marked with an ellipsis.
-private fun String.shown(): String =
+internal fun String.shown(): String =
     if (codePointCount(0, length) <= MAX_KEY_LENGTH) this else substring(0, offsetByCodePoints(0, MAX_KEY_LENGTH)) + "\u2026"
 
 /** [what] names the thing for the message ("Status key", "Option key of field 'severity'"). */

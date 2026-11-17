@@ -525,6 +525,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workflow templates
+         * @description Any authenticated user - a room copies a template's statuses and fields when it is created. Active templates only.
+         *
+         *     - Sortable fields: `id`, `name`, `updatedAt`. Default `id` ascending.
+         *     - Filters: `name` (case- and accent-insensitive substring, at most 100 characters - `400` beyond).
+         */
+        get: operations["listWorkflowTemplates"];
+        put?: never;
+        /**
+         * Create a workflow template
+         * @description ADMIN only (guarded before the body decodes - a non-admin's malformed body is still `403`). The new template starts at
+         *     `revision` 1. A case-insensitive name clash with an active template is `409`; a deleted template frees its name. The
+         *     document must satisfy the workflow rules: 2-20 statuses (unique slug keys, exactly one initial and it is `OPEN`, at
+         *     least one `CLOSED`), 0-20 fields (unique slug keys), options only on the select kinds (1-50, unique slugs), every
+         *     status, field and option label a language map with an `en` value of 1-60 characters (`400` otherwise), unique per language
+         *     (case-insensitive, after trimming) among the statuses, among the fields and among one field's options.
+         */
+        post: operations["createWorkflowTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a workflow template
+         * @description Any authenticated user. The `revision` is what a later PUT names in `X-Expected-Revision`.
+         */
+        get: operations["getWorkflowTemplate"];
+        /**
+         * Replace a workflow template
+         * @description ADMIN only. A whole-document replace under optimistic concurrency, checked in this order: the guard (uniform `403`,
+         *     whether or not the id exists and whatever the body), the `X-Expected-Revision` header (missing, repeated or malformed is
+         *     `400`), the body (`400`, the rules of the create), then under the row lock the id (`404`) and the revision. A stale
+         *     revision is `409` of type `urn:adder:problem:revision-conflict`; a case-insensitive name clash with another active
+         *     template is a plain `409`. Every successful PUT stores `revision + 1`; read the template again for it. A template edit
+         *     never touches a room that copied it.
+         */
+        put: operations["updateWorkflowTemplate"];
+        post?: never;
+        /**
+         * Delete a workflow template (soft)
+         * @description ADMIN only, guard before the id lookup. Soft delete - the name is freed for reuse; rooms that copied the template are untouched.
+         */
+        delete: operations["deleteWorkflowTemplate"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/telemetry/current": {
         parameters: {
             query?: never;
@@ -810,6 +877,98 @@ export interface components {
         };
         TeamPage: {
             items: components["schemas"]["TeamListItem"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        /** @description A label per language: `en` is required, `pl` optional (omit it to leave the label untranslated; a present blank value is a `400`); no other language is accepted. Each value is 1-60 characters after trimming. */
+        WorkflowLabel: {
+            en: string;
+            pl?: string;
+        };
+        WorkflowStatus: {
+            /** @description An immutable lower-case slug (`in-progress`), unique within the document. */
+            key: string;
+            label: components["schemas"]["WorkflowLabel"];
+            colour: components["schemas"]["StatusColour"];
+            category: components["schemas"]["StatusCategory"];
+            /** @description Exactly one status of a document is the initial one, and it is in the `OPEN` category. */
+            initial: boolean;
+        };
+        WorkflowOption: {
+            key: string;
+            label: components["schemas"]["WorkflowLabel"];
+        };
+        WorkflowField: {
+            /** @description An immutable lower-case slug, unique within the document. */
+            key: string;
+            label: components["schemas"]["WorkflowLabel"];
+            type: components["schemas"]["FieldType"];
+            required: boolean;
+            /** @description 1-50 options for `SELECT` and `MULTI_SELECT`; empty for every other type. */
+            options: components["schemas"]["WorkflowOption"][];
+        };
+        /**
+         * @description The semantic colour of a status; the web app maps it to its hue.
+         * @enum {string}
+         */
+        StatusColour: "GRAY" | "RED" | "ORANGE" | "BLUE" | "GRAPE" | "TEAL";
+        /**
+         * @description A thread in a `CLOSED` status is closed - no further activity until it is reopened.
+         * @enum {string}
+         */
+        StatusCategory: "OPEN" | "CLOSED";
+        /** @enum {string} */
+        FieldType: "TEXT" | "NUMBER" | "DATE" | "SELECT" | "MULTI_SELECT" | "USER" | "URL";
+        WorkflowTemplateRequest: {
+            name: string;
+            description?: string | null;
+            statuses: components["schemas"]["WorkflowStatus"][];
+            fields: components["schemas"]["WorkflowField"][];
+        };
+        WorkflowTemplateResponse: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            description?: string | null;
+            statuses: components["schemas"]["WorkflowStatus"][];
+            fields: components["schemas"]["WorkflowField"][];
+            /**
+             * Format: int64
+             * @description The optimistic-concurrency token; a PUT names it in `X-Expected-Revision`. Starts at 1, every successful PUT bumps it.
+             */
+            revision: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            updatedAt: number;
+        };
+        WorkflowTemplateListItem: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            description?: string | null;
+            /** Format: int32 */
+            statusCount: number;
+            /** Format: int32 */
+            fieldCount: number;
+            /** Format: int64 */
+            revision: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            updatedAt: number;
+        };
+        WorkflowTemplatePage: {
+            items: components["schemas"]["WorkflowTemplateListItem"][];
             page: number;
             pageSize: number;
             /** Format: int64 */
@@ -1966,6 +2125,164 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listWorkflowTemplates: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of workflow templates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowTemplatePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createWorkflowTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created; `Location` points at the new template */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowTemplateResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getWorkflowTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The template with its statuses and fields */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowTemplateResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateWorkflowTemplate: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
+                 *     malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
+                 *     bumps the revision.
+                 */
+                "X-Expected-Revision": components["parameters"]["ExpectedRevision"];
+            };
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Replaced */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteWorkflowTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
             204: {
                 headers: {
                     [name: string]: unknown;
