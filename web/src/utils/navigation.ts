@@ -1,7 +1,8 @@
 import type { ParseKeys } from "i18next";
-import { IconHistory, IconHome2, IconKey, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
+import { IconHistory, IconHome2, IconKey, IconListCheck, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
 import { teamsPath } from "./teamLinks";
 import { usersPath } from "./userLinks";
+import { workflowTemplatesPath } from "./workflowTemplateLinks";
 
 export type NavLeaf = {
   to: string;
@@ -33,8 +34,8 @@ export const homePath = "/";
  * always-open blocks (never collapsible groups): every leaf is always in the DOM, so tests and
  * deep links address the links directly, and a static label costs less vertical space than a
  * toggle. Home is visible to everyone; the Administration section holds Teams (everyone reads
- * the flat teams list; only its create/edit/delete are ADMIN) alongside the ADMIN-only Users and
- * Feature flags leaves — a non-admin session sees just Teams there.
+ * the flat teams list; only its create/edit/delete are ADMIN) alongside the ADMIN-only Users, Workflow
+ * templates and Feature flags leaves — a non-admin session sees just Teams there.
  */
 const NAV_SECTIONS: ReadonlyArray<NavSection> = [
   {
@@ -46,6 +47,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
     items: [
       { to: teamsPath, label: "appShell.nav.teams", icon: IconUsersGroup },
       { to: usersPath, label: "appShell.nav.users", icon: IconUsers, adminOnly: true },
+      { to: workflowTemplatesPath, label: "appShell.nav.workflowTemplates", icon: IconListCheck, adminOnly: true },
       { to: "/feature-flags", label: "appShell.nav.featureFlags", icon: IconToggleLeft, adminOnly: true },
     ],
   },

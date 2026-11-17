@@ -1,5 +1,7 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import type { components } from "../api/schema";
 import i18n from "../i18n";
+import type { StatusColour } from "./workflowColours";
 import {
   displayName,
   emptyWorkflowDraft,
@@ -27,7 +29,9 @@ import {
   withKey,
   withLabel,
   type FieldDraft,
+  type FieldType,
   type RoomWorkflow,
+  type StatusCategory,
   type StatusDraft,
   type WorkflowDraft,
   type WorkflowTemplateDocument,
@@ -51,7 +55,7 @@ const TEMPLATE: WorkflowTemplateDocument = {
   statuses: [
     { key: "open", label: { en: "Open", pl: "Otwarte" }, colour: "GRAY", category: "OPEN", initial: true },
     { key: "done", label: { en: "Done" }, colour: "TEAL", category: "CLOSED", initial: false },
-    { key: "nope", label: { en: "Nope", pl: null }, colour: "RED", category: "CLOSED", initial: false },
+    { key: "nope", label: { en: "Nope" }, colour: "RED", category: "CLOSED", initial: false },
   ],
   fields: [{ key: "sev", label: { en: "Severity", pl: "Ważność" }, type: "MULTI_SELECT", required: false, options: [{ key: "s1", label: { en: "S1", pl: "P1" } }] }],
 };
@@ -495,5 +499,20 @@ describe("validation (mirrors WorkflowRules.kt)", () => {
       "A workflow needs 2–20 statuses",
     );
     expect(validationText(i18n.t.bind(i18n), undefined)).toBeUndefined();
+  });
+});
+
+describe("the template wire types are the generated API types", () => {
+  // `expectTypeOf` is checked by `tsc -b` (the build and the web gate), so a drift in the spec fails the compile, not a run.
+  test("the vocabularies are equal to the spec's enums, so no value can be added or dropped on one side only", () => {
+    expectTypeOf<StatusColour>().toEqualTypeOf<components["schemas"]["StatusColour"]>();
+    expectTypeOf<StatusCategory>().toEqualTypeOf<components["schemas"]["StatusCategory"]>();
+    expectTypeOf<FieldType>().toEqualTypeOf<components["schemas"]["FieldType"]>();
+  });
+
+  test("a spec response loads as is, and the body is the spec's request", () => {
+    expectTypeOf(toTemplateBody).returns.toEqualTypeOf<components["schemas"]["WorkflowTemplateRequest"]>();
+    const response: components["schemas"]["WorkflowTemplateResponse"] = { id: 1, name: "T", revision: 1, createdAt: 0, updatedAt: 0, ...TEMPLATE };
+    expect(toTemplateBody({ name: "T", description: "" }, toTemplateWorkflowDraft(response)).statuses).toHaveLength(3);
   });
 });

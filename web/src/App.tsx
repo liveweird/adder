@@ -29,6 +29,9 @@ const ConfirmPasswordReset = lazy(() => import("./pages/ConfirmPasswordReset"));
 const Users = lazy(() => import("./pages/Users"));
 const UserFeatures = lazy(() => import("./pages/UserFeatures"));
 const FeatureFlags = lazy(() => import("./pages/FeatureFlags"));
+const WorkflowTemplates = lazy(() => import("./pages/WorkflowTemplates"));
+const CreateWorkflowTemplate = lazy(() => import("./pages/CreateWorkflowTemplate"));
+const EditWorkflowTemplate = lazy(() => import("./pages/EditWorkflowTemplate"));
 const CreateUser = lazy(() => import("./pages/CreateUser"));
 const EditUser = lazy(() => import("./pages/EditUser"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
@@ -235,6 +238,9 @@ export default function App() {
               <Route path="users/:id/edit" element={<EditUser />} />
               <Route path="users/:id/features" element={<UserFeatures />} />
               <Route path="feature-flags" element={<FeatureFlags />} />
+              <Route path="workflow-templates" element={<WorkflowTemplates />} />
+              <Route path="workflow-templates/new" element={<CreateWorkflowTemplate />} />
+              <Route path="workflow-templates/:id/edit" element={<EditWorkflowTemplate />} />
             </Route>
             <Route path="change-password" element={<ChangePassword />} />
             <Route path="changelog" element={<Changelog />} />

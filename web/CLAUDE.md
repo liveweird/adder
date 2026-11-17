@@ -62,7 +62,7 @@ arrives in later versions. Routes are lazy.
 - Pages are **lazy** (`React.lazy` in `App.tsx`); new routes register above the `path="*"`
   NotFound catch-all (LAST child, never feature-gated). **The nav model lives in
   `utils/navigation.ts`**, shared by the sidebar and the command palette: `NAV_SECTIONS` —
-  labelled, always-open sections (currently Overview and Administration: Teams, Users, Feature flags) of `NavLeaf`s (the
+  labelled, always-open sections (currently Overview and Administration: Teams, Users, Workflow templates, Feature flags) of `NavLeaf`s (the
   `label` is a typed i18n key; `adminOnly?` gates admin leaves, `keywords?` adds raw palette search terms for a renamed page's old name, and `visibleSections(isAdmin())`
   drops an emptied section) — plus `ACCOUNT_NAV` (Change password, Changelog), which the header
   `UserMenu` and the palette render and the sidebar never does. Sections are static captions
@@ -206,6 +206,8 @@ description, with `utils/charCount.tsx`'s "123 / 4000" counter) and `RegistryEdi
 (`utils/formRules.ts`'s shared `nameRule`/`descriptionRule`), submit/conflict handling and any
 parent/target fields stay local. Keep each registry's field limits explicit and mirrored from the
 server's own validation (`infra/validation/Text.kt`'s `requireNameAndDescription`).
+
+**The workflow-template pages** (`WorkflowTemplates.tsx`, `CreateWorkflowTemplate.tsx`, `EditWorkflowTemplate.tsx`, all under `RequireAdmin`) are the registry shape with a full-page editor instead of a modal: `components/WorkflowTemplateForm.tsx` owns the draft, the dirty check (`utils/workflowTemplateForm.ts`), the Cancel confirm and the before-unload guard, and the page owns the request. The edit page seeds the form ONCE with the revision it read (a background refetch never rebases the draft; `gcTime: 0` so a visit starts from a fresh read) and sends it as `X-Expected-Revision`; a `409 revision-conflict` keeps the draft and offers Reload, which re-seeds on the user's click. Save is disabled while an edit is clean. The wire types in `utils/workflowForm.ts` ARE the generated `schema.ts` types (`workflowForm.test.ts` pins the vocabularies equal), so a spec change fails the compile.
 
 **Searchable pickers** (Astrolabe's, ported): `components/SearchPicker.tsx` owns the search-box mechanics (a debounced server-side term, the caller holds the pick so its label survives later searches); thin wrappers own the query and the texts — `TeamSelect` (the teams registry) and `UserDirectorySelect` (`GET /users/directory`, open to every signed-in user; the server REQUIRES a term, so the picker searches only from two characters, page size 20, and shows a hint below that — `minTermLength`/`minTermHint`). `TeamManagerSelect` stays on the ADMIN-only users list. A team's roster (`components/TeamMembers.tsx`, the Members h3 of `/teams/:id`) shows its controls to an ADMIN or the team's manager (`managerUserId === getUserId()`; UX only, the server guards).
 

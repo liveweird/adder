@@ -1,11 +1,14 @@
 import type { TFunction } from "i18next";
+import type { components } from "../api/schema";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "../i18n";
 import { MAX_KEY_LENGTH, slugify } from "./slug";
 import type { StatusColour } from "./workflowColours";
 
 // ── Wire shapes ──────────────────────────────────────────────────────────────────────────────────────────────────────
-// Defined locally (plan 4.2); they are aligned with the generated `schema.ts` when the template and room pages arrive
-// (C6, C12). A room's workflow carries ONE plain-text label per item; a template carries a language map `{en, pl?}`.
+// A template's document and body ARE the generated `schema.ts` types, so the compiler checks them against the spec: the
+// loader below takes the spec's statuses and fields, and `toTemplateBody` returns the spec's request. `workflowForm.test.ts`
+// pins the vocabularies (colour, category, field type) equal to the spec's. A room's workflow is still local until the room
+// pages arrive (C12): it carries ONE plain-text label per item, a template a language map `{en, pl?}`.
 
 export type StatusCategory = "OPEN" | "CLOSED";
 
@@ -18,8 +21,10 @@ export function takesOptions(type: FieldType): boolean {
   return type === "SELECT" || type === "MULTI_SELECT";
 }
 
+type Schemas = components["schemas"];
+
 /** A template label: English required, every other language optional (and omitted when blank). */
-type TemplateLabel = { en: string; pl?: string | null };
+type TemplateLabel = Schemas["WorkflowLabel"];
 
 type StatusBody<L> = { key: string; label: L; colour: StatusColour; category: StatusCategory; initial: boolean };
 type FieldBody<L> = {
@@ -45,13 +50,10 @@ export type RoomWorkflowBody = {
 };
 
 /** The document inside a workflow template (`statuses` and `fields` of `GET /workflow-templates/{id}`). */
-export type WorkflowTemplateDocument = {
-  statuses: StatusBody<TemplateLabel>[];
-  fields: FieldBody<TemplateLabel>[];
-};
+export type WorkflowTemplateDocument = Pick<Schemas["WorkflowTemplateResponse"], "statuses" | "fields">;
 
 /** `POST`/`PUT /workflow-templates`: a blank description travels as null. */
-export type WorkflowTemplateBody = WorkflowTemplateDocument & { name: string; description: string | null };
+export type WorkflowTemplateBody = Schemas["WorkflowTemplateRequest"];
 
 // ── Limits (mirror server/src/main/kotlin/workflows/Workflow.kt and WorkflowRules.kt) ────────────────────────────────
 

@@ -18,4 +18,11 @@ describe("ClearableTextInput", () => {
     renderWithProviders(<ClearableTextInput label="Name" value="" onChange={() => {}} clearLabel="Clear name filter" />);
     expect(screen.queryByRole("button", { name: "Clear name filter" })).not.toBeInTheDocument();
   });
+
+  test("maxLength caps the input only when the endpoint caps its filter", () => {
+    const { rerender } = renderWithProviders(<ClearableTextInput label="Name" value="" onChange={() => {}} clearLabel="Clear" maxLength={100} />);
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveAttribute("maxlength", "100");
+    rerender(<ClearableTextInput label="Name" value="" onChange={() => {}} clearLabel="Clear" />);
+    expect(screen.getByRole("textbox", { name: "Name" })).not.toHaveAttribute("maxlength");
+  });
 });

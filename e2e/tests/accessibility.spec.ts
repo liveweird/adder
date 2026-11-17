@@ -26,6 +26,8 @@ const AUTHED_PAGES: { path: string; heading: string }[] = [
   { path: "/teams", heading: "Teams" },
   { path: "/users", heading: "Users" },
   { path: "/users/new", heading: "New user" },
+  { path: "/workflow-templates", heading: "Workflow templates" },
+  { path: "/workflow-templates/new", heading: "New workflow template" },
   { path: "/feature-flags", heading: "Feature flags" },
   { path: "/change-password", heading: "Change password" },
   { path: "/changelog", heading: "Changelog" },

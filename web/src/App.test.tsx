@@ -66,6 +66,7 @@ describe("App shell", () => {
       expect(within(admin).getByRole("link", { name: "Teams" })).toHaveAttribute("href", "/teams");
       expect(within(admin).queryByRole("link", { name: "Users" })).not.toBeInTheDocument();
       expect(within(admin).queryByRole("link", { name: "Feature flags" })).not.toBeInTheDocument();
+      expect(within(admin).queryByRole("link", { name: "Workflow templates" })).not.toBeInTheDocument();
       // Account items live in the header menu, not the sidebar.
       expect(screen.queryByRole("link", { name: "Change password" })).not.toBeInTheDocument();
     });
@@ -113,12 +114,13 @@ describe("App shell", () => {
       expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
     });
 
-    test("an admin session additionally sees Users and Feature flags in Administration", async () => {
+    test("an admin session additionally sees Users, Workflow templates and Feature flags in Administration", async () => {
       localStorage.setItem("adder.auth.roles", JSON.stringify(["ADMIN"]));
       renderApp("/");
       const admin = await screen.findByRole("group", { name: "Administration" });
       expect(within(admin).getByRole("link", { name: "Teams" })).toHaveAttribute("href", "/teams");
       expect(within(admin).getByRole("link", { name: "Users" })).toHaveAttribute("href", "/users");
+      expect(within(admin).getByRole("link", { name: "Workflow templates" })).toHaveAttribute("href", "/workflow-templates");
       expect(within(admin).getByRole("link", { name: "Feature flags" })).toHaveAttribute("href", "/feature-flags");
     });
 

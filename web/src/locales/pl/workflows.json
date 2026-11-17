@@ -106,13 +106,50 @@
     "keyDuplicate": "Ten klucz jest już użyty",
     "labelRequired": "Etykieta jest wymagana",
     "labelTooLong": "Etykieta może mieć najwyżej {{max}} znaków",
-  "labelControl": "Etykieta nie może zawierać znaków sterujących",
-  "labelDuplicate": "Inny element ma już taką etykietę",
+    "labelControl": "Etykieta nie może zawierać znaków sterujących",
+    "labelDuplicate": "Inny element ma już taką etykietę",
     "statusCount": "Przepływ pracy potrzebuje {{min}}–{{max}} statusów",
     "fieldCount": "Przepływ pracy ma najwyżej {{max}} pól",
     "optionCount": "Pole z listą wyboru potrzebuje {{min}}–{{max}} opcji",
     "initialCount": "Wybierz dokładnie jeden status początkowy",
     "initialOpen": "Status początkowy musi być otwarty",
     "closedRequired": "Co najmniej jeden status musi być zamknięty"
+  },
+  "templates": {
+    "title": "Szablony przepływów pracy",
+    "intro": "Przepływy pracy, od których może zacząć nowy pokój. Pokój kopiuje szablon w chwili utworzenia, a potem edytuje własną kopię, więc zmiana lub usunięcie szablonu nigdy nie zmienia istniejącego pokoju. Szablonami zarządzają administratorzy/rki.",
+    "newTemplate": "Nowy szablon",
+    "createTitle": "Nowy szablon przepływu pracy",
+    "editTitle": "Edytuj szablon przepływu pracy",
+    "empty": "Nie ma jeszcze szablonów przepływów pracy",
+    "loadFailed": "Nie udało się wczytać szablonów przepływów pracy",
+    "notFound": "Ten szablon przepływu pracy nie istnieje (albo ktoś go usunął).",
+    "backToList": "Wróć do szablonów przepływów pracy",
+    "openAria": "Otwórz szablon przepływu pracy {{name}}",
+    "column": {
+      "statuses": "Statusy",
+      "fields": "Pola",
+      "updated": "Ostatnia zmiana"
+    },
+    "labelsHint": "Etykiety angielskie są wymagane. Etykiety polskie są opcjonalne: pokój utworzony po polsku użyje etykiety angielskiej tam, gdzie szablon nie ma polskiej.",
+    "deleteTitle": "Usunąć szablon przepływu pracy?",
+    "deleteBody": "Usuniemy szablon „{{name}}”. Pokoje już z niego utworzone zachowają własną kopię.",
+    "deleteFailed": "Nie udało się usunąć szablonu przepływu pracy",
+    "deleteGone": "Ten szablon przepływu pracy został już usunięty.",
+    "invalid": "Popraw wyróżnione pola przed zapisaniem.",
+    "saveForbidden": "Tylko administratorzy/rki mogą edytować szablony przepływów pracy",
+    "saveConflict": "Szablon przepływu pracy o tej nazwie już istnieje",
+    "saveInvalid": "Serwer odrzucił ten szablon. Sprawdź jego zawartość i spróbuj ponownie.",
+    "saveGone": "Ten szablon przepływu pracy już nie istnieje.",
+    "validation": {
+      "nameLength": "Nazwa musi mieć od 1 do 100 znaków",
+      "descriptionLength": "Opis może mieć najwyżej 500 znaków"
+    },
+    "toast": {
+      "created": "Szablon przepływu pracy utworzony",
+      "saved": "Szablon przepływu pracy zapisany",
+      "deleted": "Szablon przepływu pracy usunięty"
+    },
+    "workflowGroup": "Przepływ pracy"
   }
 }

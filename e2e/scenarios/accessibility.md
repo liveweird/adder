@@ -21,7 +21,7 @@ generated from a list, so a single scenario section stands in for each list.
 1. The admin signs in, opens `<path>`, and waits for its heading.
    - *Expected*: an axe scan (same tags) reports zero violations.
 
-The list covers the Home page, the Teams list, the Users list and its create form, the ADMIN feature-flags screen,
+The list covers the Home page, the Teams list, the Users list and its create form, the workflow-template list and its create form, the ADMIN feature-flags screen,
 Change password and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set.
 
 ## Scenario: `<path>` has no WCAG A/AA violations in the dark scheme

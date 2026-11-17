@@ -102,13 +102,50 @@
     "keyDuplicate": "This key is already used",
     "labelRequired": "The label is required",
     "labelTooLong": "The label must be at most {{max}} characters",
-  "labelControl": "The label must not contain control characters",
-  "labelDuplicate": "Another one already has this label",
+    "labelControl": "The label must not contain control characters",
+    "labelDuplicate": "Another one already has this label",
     "statusCount": "A workflow needs {{min}}–{{max}} statuses",
     "fieldCount": "A workflow has at most {{max}} fields",
     "optionCount": "A select field needs {{min}}–{{max}} options",
     "initialCount": "Pick exactly one initial status",
     "initialOpen": "The initial status must be Open",
     "closedRequired": "At least one status must be Closed"
+  },
+  "templates": {
+    "title": "Workflow templates",
+    "intro": "The workflows a new room can start from. A room copies a template when it is created and edits its own copy afterwards, so changing or deleting a template never changes a room that exists. Administrators manage the templates.",
+    "newTemplate": "New template",
+    "createTitle": "New workflow template",
+    "editTitle": "Edit workflow template",
+    "empty": "No workflow templates yet",
+    "loadFailed": "Could not load the workflow templates",
+    "notFound": "This workflow template does not exist (or was deleted).",
+    "backToList": "Back to workflow templates",
+    "openAria": "Open workflow template {{name}}",
+    "column": {
+      "statuses": "Statuses",
+      "fields": "Fields",
+      "updated": "Updated"
+    },
+    "labelsHint": "English labels are required. Polish labels are optional: a room created in Polish uses the English label where a template has no Polish one.",
+    "deleteTitle": "Delete workflow template?",
+    "deleteBody": "\"{{name}}\" will be deleted. Rooms already created from it keep their own copy.",
+    "deleteFailed": "Could not delete the workflow template",
+    "deleteGone": "This workflow template was already deleted.",
+    "invalid": "Fix the highlighted fields before saving.",
+    "saveForbidden": "Only administrators can edit workflow templates",
+    "saveConflict": "A workflow template with this name already exists",
+    "saveInvalid": "The server rejected this template. Review its contents and try again.",
+    "saveGone": "This workflow template no longer exists.",
+    "validation": {
+      "nameLength": "Name must be 1–100 characters",
+      "descriptionLength": "Description must be at most 500 characters"
+    },
+    "toast": {
+      "created": "Workflow template created",
+      "saved": "Workflow template saved",
+      "deleted": "Workflow template deleted"
+    },
+    "workflowGroup": "Workflow"
   }
 }

@@ -9,6 +9,7 @@ export default function ClearableTextInput({
   clearLabel,
   placeholder,
   disabled = false,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -16,6 +17,8 @@ export default function ClearableTextInput({
   clearLabel: string;
   placeholder?: string;
   disabled?: boolean;
+  /** The longest filter the endpoint accepts (a longer one is a 400), when it caps its filter. */
+  maxLength?: number;
 }) {
   const { t } = useTranslation();
   return (
@@ -24,6 +27,7 @@ export default function ClearableTextInput({
       placeholder={placeholder ?? t("common.filter.contains")}
       value={value}
       disabled={disabled}
+      maxLength={maxLength}
       onChange={(e) => onChange(e.currentTarget.value)}
       rightSection={
         value ? (

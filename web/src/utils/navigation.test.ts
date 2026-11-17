@@ -9,9 +9,9 @@ describe("visibleSections", () => {
     expect(paths).toEqual(["/", "/teams"]);
   });
 
-  test("an admin session gets Teams, Users and Feature flags in the Administration section", () => {
+  test("an admin session gets Teams, Users, Workflow templates and Feature flags in the Administration section", () => {
     const admin = visibleSections(true).find((s) => s.label === "appShell.section.administration");
-    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/users", "/feature-flags"]);
+    expect(admin?.items.map((l) => l.to)).toEqual(["/teams", "/users", "/workflow-templates", "/feature-flags"]);
   });
 
   test("the account leaves never sit in a section", () => {
@@ -29,6 +29,8 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/users/3/edit", leaves)).toBe("/users");
     expect(activeNavPath("/feature-flags", leaves)).toBe("/feature-flags");
     expect(activeNavPath("/teams/3", leaves)).toBe("/teams");
+    expect(activeNavPath("/workflow-templates/new", leaves)).toBe("/workflow-templates");
+    expect(activeNavPath("/workflow-templates/3/edit", leaves)).toBe("/workflow-templates");
   });
 
   test("a leaf stays highlighted on every route it lists in activeFor, and still links to its own", () => {
