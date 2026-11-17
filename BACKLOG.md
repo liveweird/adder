@@ -32,4 +32,3 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **Bots posting into rooms.** Port Flow's `integration/` service tokens when an external system should post or update threads.
 - [new] **CI's e2e `npm audit` step is red on GHSA-fc5q-39xc-vjpf.** `picomatch` <= 4.0.7, reached through knip; no patched version exists yet. Per the
   user's choice of 2026-11-17 the step stays red until a fix ships and Dependabot picks it up (no ignore, no pin).
-- [new] **GitHub remote.** Create `liveweird/adder` and push; CI only runs once it exists.

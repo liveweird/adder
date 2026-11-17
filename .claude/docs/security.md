@@ -271,8 +271,8 @@ once INSIDE `authenticate {}` around both reads, so the key is the verified user
 minute and fetches a history per expanded section, a handful a minute; each call is a few `ops` aggregations, so the
 bound is for a runaway client. The rejection is the generic `429` problem and the coalesced `rate_limit.exceeded` audit event (bucket `telemetry`, `byUserId`).
 
-**Per-USER directory bucket** (`directory`, a fixed 120/min in every mode, `RateLimits.DIRECTORY`) for `GET /api/v1/users/directory`, the ONE read that lets
-any signed-in user (not just an ADMIN) list accounts. `configureUserRoutes` mounts `rateLimit(RateLimitName(RateLimits.DIRECTORY))` INSIDE
+**Per-USER directory bucket** (`directory`, a fixed 120/min in every mode, `RateLimits.DIRECTORY`) for `GET /api/v1/users/directory`, the read built to let
+any signed-in user (not just an ADMIN) look accounts up (it is no longer the ONE read that shows other users' names and emails: see "What the user directory discloses"). `configureUserRoutes` mounts `rateLimit(RateLimitName(RateLimits.DIRECTORY))` INSIDE
 `authenticate {}` (the telemetry idiom), keyed by the verified user id: a NAT'd office is not one bucket and changing IP buys nothing. A member picker
 makes a debounced lookup per keystroke pause (a handful a minute). The route adds two bounds of its own: `q` is REQUIRED and at least 2 code points after
 trimming (max 100; code points, `codePointCount`, never UTF-16 units), and a page holds at most 20 rows (`400` beyond). **Honest scope: these slow and audit a
@@ -289,6 +289,11 @@ a signed-in colleague who harvests emails can (a) aim failed sign-ins at a victi
 (10/min in production) and the lockout's own window, and (b) request password-reset mail for a victim, bounded by the per-IP `password-reset` bucket and the
 per-email reset throttle (`PasswordResetThrottleTest`). Neither reveals or changes a credential, and the reset link goes only to the account's own mailbox. Collapse
 the projection to `{id, name}` if that trade changes (the user's option 2 of D2).
+
+**A second surface: the team roster.** `GET /api/v1/teams/{id}` returns `members[]` (`{userId, name, email}` of up to 200 ACTIVE members) to any signed-in user, with NO
+per-user bucket (a plain read like the rest of `/teams`). So the directory is not the only read of other users' name+email. The honest bound: the harvest is limited by the
+number of teams (a team's roster is one request, the team list pages at most 100 per request), it reveals nothing beyond what D2 already accepts (name+email of an active
+user), and it covers only users who sit on some roster. Not bucketed on purpose; if the directory's projection shrinks to `{id, name}` (D2 option 2), the roster's `email` must shrink with it.
 
 **Email MFA (opt-in)** (`auth/MfaChallenges.kt` + `auth/MfaEmail.kt`, wired in
 `configureAuthRoutes`): a per-user second factor behind the `MFA` feature flag — **the one

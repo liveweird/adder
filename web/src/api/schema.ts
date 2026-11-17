@@ -493,6 +493,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/teams/{id}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A user id (int32; ids start at 1). */
+                userId: components["parameters"]["UserIdPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add a user to a team's roster
+         * @description ADMIN or the team's ACTIVE manager (guarded first, before any read: every other caller gets a uniform `403` whether
+         *     or not the team exists; a non-admin's grant is re-checked under the team row lock). Idempotent: `204` for an
+         *     added OR an already-present member, and only an actual add is audited (`team.member_added`). No request body.
+         *     An unknown or soft-deleted team (ADMIN caller) or user is `404`; a roster that already holds 200 active members is `409`.
+         */
+        put: operations["addTeamMember"];
+        post?: never;
+        /**
+         * Remove a user from a team's roster
+         * @description ADMIN or the team's ACTIVE manager, guarded exactly like the add (uniform `403`, re-checked under the team row lock).
+         *     `404` for an unknown team (ADMIN caller) or a user who is not on the roster. Audited `team.member_removed`.
+         */
+        delete: operations["removeTeamMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/telemetry/current": {
         parameters: {
             query?: never;
@@ -723,6 +755,12 @@ export interface components {
              */
             managerUserId?: number | null;
         };
+        TeamMember: {
+            /** Format: int32 */
+            userId: number;
+            name: string;
+            email: string;
+        };
         TeamResponse: {
             /** Format: int32 */
             id: number;
@@ -735,6 +773,8 @@ export interface components {
             managerUserId: number | null;
             /** @description The manager's display name; null with `managerUserId`. */
             managerName: string | null;
+            /** @description The roster - ACTIVE users only (a soft-deleted member is absent), by name then id; a team holds at most 200. */
+            members: components["schemas"]["TeamMember"][];
             /**
              * Format: int64
              * @description Epoch millis
@@ -758,6 +798,11 @@ export interface components {
             managerUserId: number | null;
             /** @description The manager's display name; null with `managerUserId`. */
             managerName: string | null;
+            /**
+             * Format: int32
+             * @description The roster size - ACTIVE users only.
+             */
+            memberCount: number;
             /** Format: int64 */
             createdAt: number;
             /** Format: int64 */
@@ -1115,6 +1160,8 @@ export interface components {
     };
     parameters: {
         ResourceId: number;
+        /** @description A user id (int32; ids start at 1). */
+        UserIdPath: number;
         /** @description 1-based page index. Defaults to 1. */
         Page: number;
         /** @description Rows per page. Defaults to 20, maximum 100. */
@@ -1856,6 +1903,61 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    addTeamMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A user id (int32; ids start at 1). */
+                userId: components["parameters"]["UserIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user is on the roster (added now or already present) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    removeTeamMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A user id (int32; ids start at 1). */
+                userId: components["parameters"]["UserIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
             204: {
                 headers: {
                     [name: string]: unknown;

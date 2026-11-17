@@ -11,7 +11,7 @@ info:
     the `roles` array and only ever ADD privileges on top of that baseline. Every operation requires a bearer
     access token except the seven that declare `security: []` (`/login`, `/login/mfa`, `/refresh`, `/password-reset`,
     `/password-reset/confirm` and the two probes). Beyond that each operation states its own rule: user management (`/users`, apart from
-    reading or changing one's own record where noted) and the writes on teams are `ADMIN` only; reading teams is open to
+    reading or changing one's own record where noted) and the writes on the team record are `ADMIN` only (a team's roster is edited by an ADMIN or the team's manager); reading teams is open to
     any authenticated user; telemetry is `ADMIN` only. A caller without the right gets a uniform `403`, whether or not the
     addressed resource exists.
 
@@ -34,7 +34,7 @@ tags:
   - name: users
     description: Adder's own login accounts - ADMIN-managed CRUD, per-user feature flags, language and password change, plus the member-picker directory open to any signed-in user.
   - name: teams
-    description: Flat teams, the ownership unit chat features scope to - readable by any authenticated user, written by ADMIN only.
+    description: Flat teams, the ownership unit chat features scope to - readable by any authenticated user; the team record is written by ADMIN only, the roster by ADMIN or the team's manager.
   - name: telemetry
     description: Adder's own vital signs (process memory, JVM, storage, request latency) and their 24h/7d/90d trends - ADMIN only.
 
@@ -736,6 +736,43 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/teams/{id}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/UserIdPath'
+    put:
+      tags: [teams]
+      operationId: addTeamMember
+      summary: Add a user to a team's roster
+      description: |
+        ADMIN or the team's ACTIVE manager (guarded first, before any read: every other caller gets a uniform `403` whether
+        or not the team exists; a non-admin's grant is re-checked under the team row lock). Idempotent: `204` for an
+        added OR an already-present member, and only an actual add is audited (`team.member_added`). No request body.
+        An unknown or soft-deleted team (ADMIN caller) or user is `404`; a roster that already holds 200 active members is `409`.
+      responses:
+        '204':
+          description: The user is on the roster (added now or already present)
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [teams]
+      operationId: removeTeamMember
+      summary: Remove a user from a team's roster
+      description: |
+        ADMIN or the team's ACTIVE manager, guarded exactly like the add (uniform `403`, re-checked under the team row lock).
+        `404` for an unknown team (ADMIN caller) or a user who is not on the roster. Audited `team.member_removed`.
+      responses:
+        '204':
+          description: Removed
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/telemetry/current:
     get:
       tags: [telemetry]
@@ -821,6 +858,12 @@ components:
       # int32: ids are 32-bit server-side; a non-numeric or out-of-range id is a 400. Ids are database sequences that
       # start at 1, so 0 never addresses anything (it answers 404, like any unknown id).
       schema: { type: integer, format: int32, minimum: 1 }
+    UserIdPath:
+      name: userId
+      in: path
+      required: true
+      schema: { type: integer, format: int32, minimum: 1 }
+      description: A user id (int32; ids start at 1).
     Page:
       name: page
       in: query
@@ -1191,9 +1234,16 @@ components:
           nullable: true
           description: >-
             The team's manager, a user; must be active (`400` otherwise). Omitted on PUT (a full replace) = no manager.
+    TeamMember:
+      type: object
+      required: [userId, name, email]
+      properties:
+        userId: { type: integer, format: int32, minimum: 0 }
+        name: { type: string }
+        email: { type: string }
     TeamResponse:
       type: object
-      required: [id, name, managerUserId, managerName, createdAt, updatedAt]
+      required: [id, name, managerUserId, managerName, members, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
@@ -1205,11 +1255,17 @@ components:
           nullable: true
           description: The team's manager; null when unset or when the assigned user was soft-deleted.
         managerName: { type: string, nullable: true, description: The manager's display name; null with `managerUserId`. }
+        members:
+          type: array
+          maxItems: 200
+          description: The roster - ACTIVE users only (a soft-deleted member is absent), by name then id; a team holds at most 200.
+          items:
+            $ref: '#/components/schemas/TeamMember'
         createdAt: { type: integer, format: int64, description: Epoch millis }
         updatedAt: { type: integer, format: int64, description: Epoch millis }
     TeamListItem:
       type: object
-      required: [id, name, managerUserId, managerName, createdAt, updatedAt]
+      required: [id, name, managerUserId, managerName, memberCount, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
@@ -1221,6 +1277,7 @@ components:
           nullable: true
           description: The team's manager; null when unset or when the assigned user was soft-deleted.
         managerName: { type: string, nullable: true, description: The manager's display name; null with `managerUserId`. }
+        memberCount: { type: integer, format: int32, minimum: 0, description: The roster size - ACTIVE users only. }
         createdAt: { type: integer, format: int64 }
         updatedAt: { type: integer, format: int64 }
     TeamPage:

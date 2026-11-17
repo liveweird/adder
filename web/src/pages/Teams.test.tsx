@@ -21,8 +21,8 @@ function deferred<T>() {
 
 const PAGE = {
   items: [
-    { id: 1, name: "Payments", description: "Money movers", managerUserId: 7, managerName: "Mia Manager", createdAt: 1, updatedAt: 2 },
-    { id: 2, name: "Identity", description: null, managerUserId: null, managerName: null, createdAt: 1, updatedAt: 2 },
+    { id: 1, name: "Payments", description: "Money movers", managerUserId: 7, managerName: "Mia Manager", memberCount: 2, createdAt: 1, updatedAt: 2 },
+    { id: 2, name: "Identity", description: null, managerUserId: null, managerName: null, memberCount: 0, createdAt: 1, updatedAt: 2 },
   ],
   page: 1,
   pageSize: 20,
@@ -34,6 +34,10 @@ const DETAIL = {
   description: "Money movers",
   managerUserId: 7,
   managerName: "Mia Manager",
+  members: [
+    { userId: 7, name: "Mia Manager", email: "mia@example.test" },
+    { userId: 8, name: "Noa Member", email: "noa@example.test" },
+  ],
   createdAt: 1,
   updatedAt: 2,
 };

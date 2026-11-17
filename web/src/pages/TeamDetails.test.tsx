@@ -17,6 +17,7 @@ const TEAM = {
   description: "Money movers",
   managerUserId: 12,
   managerName: "Cara New",
+  members: [{ userId: 12, name: "Cara New", email: "cara@example.test" }],
   createdAt: 1,
   updatedAt: 2,
 };
@@ -94,7 +95,7 @@ describe("TeamDetails page", () => {
   });
 
   test("a team without a manager says so", async () => {
-    serve(mockFetch, {}, { ...TEAM, managerUserId: null, managerName: null });
+    serve(mockFetch, {}, { ...TEAM, managerUserId: null, managerName: null, members: [] });
     renderPage();
     expect(await screen.findByText("No manager")).toBeInTheDocument();
     expect(screen.queryByText(/^Manager:/)).not.toBeInTheDocument();

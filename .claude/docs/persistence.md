@@ -14,10 +14,10 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   makes every long-lived database refuse to boot (a failure no fresh-container CI run can see).
   `MigrationChecksumTest` pins every file's checksum; a new migration adds one manifest line, and
   a red pin means REVERT the edit (clarifications go into this doc), never update the pinned
-  value. The range today is **V1–V9**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
+  value. The range today is **V1–V10**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
   `unaccent` extension, V5 `user_disabled_features` (V1–V5 are Flow's), V6 `teams` (with the optional
   manager), V7 `users.credential_revision`, V8 `password_reset_tokens`, V9 the `ops` telemetry
-  schema. (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
+  schema, V10 `team_members` (the roster). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root: it constructs the
   services and publishes them into `Application.attributes` (`UserServiceKey`, `TeamServiceKey`,
@@ -152,7 +152,12 @@ place:
   team-manager guard). `teams.manager_user_id` has no `ON DELETE` rule: users are only ever soft-deleted;
   a future hard purge of users must clear it first, and a future user RESTORE must clear or re-audit the
   manager grants the user held (a soft-deleted manager's id stays in the column, inert only while the user
-  is deleted).
+  is deleted). A future user RESTORE must also deal with the roster rows the user kept and the 200 cap: a restored user's inert `team_members`
+  rows become visible again and could push a team's `memberCount` past the 200 inline `members` list (clear them, or re-check the cap). It also owns the roster (V10): `TeamService.TeamMembers` JOINs `UserService.Users` for every roster read (`members`, the page's
+  `memberCount`: the inner join drops a soft-deleted member, so a read never shows an inactive user) and for the add's active-user check
+  and the cap count, all inside the roster write's own transaction, which first locks the active team row (`lockActiveForWrite`).
+  `team_members.user_id` references `users` with `ON DELETE CASCADE` like every join here (users are only soft-deleted, so the rule
+  never fires today). A room's team add (a later increment) reads `TeamMembers` the same way, through a `TeamService` method.
 - `auth/TokenBlocklistService.accessVerdict` (the per-request access-token check, `plugins/Security.kt`) READS
   `users/UserService.Users` (`role`, `credential_revision`, `marked_as_deleted`, by primary key) and its own
   `revoked_tokens` (an `EXISTS` on the `jti`) in ONE uncached statement per authenticated request; it writes nothing.
@@ -173,7 +178,7 @@ List each new cross-feature read/write here as it lands — the list IS the perm
 
 Adder's PostgreSQL database is split across schemas:
 
-- **`public`** — the foundation tables (`users`, `teams`, `revoked_tokens`, `user_disabled_features`, `password_reset_tokens`) and, later,
+- **`public`** — the foundation tables (`users`, `teams`, `team_members`, `revoked_tokens`, `user_disabled_features`, `password_reset_tokens`) and, later,
   the chat tables (`chat-model.md`). Flyway's own history table also stays here — `flyway.schemas` is left at its default.
 - **`ops`** — Adder's own operational telemetry (V9, "Telemetry (V9)" below): the process registry and the metric samples each
   process writes about itself. Numbers and labels only, never user or chat data.
@@ -183,6 +188,14 @@ Adder's PostgreSQL database is split across schemas:
 constructor — e.g. `object Samples : Table("ops.telemetry_samples")` — and Exposed/R2DBC resolve it as-is, including a cross-schema
 FK reference. `CREATE SCHEMA IF NOT EXISTS <schema>` runs in the first migration that needs the schema (V9 for `ops`) — never a
 standalone "create schemas" migration.
+
+### Team roster (V10)
+
+`team_members (team_id, user_id)`: composite primary key, `team_id` → `teams` and `user_id` → `users` both `ON DELETE CASCADE`, an index on `user_id`
+(Covenant's V6 shape). Reads resolve members through ACTIVE users (the inner join), so neither `members` nor `memberCount` ever shows a soft-deleted
+user; a team's inline roster is bounded at 200 (`MAX_TEAM_MEMBERS`, the add's cap counts active members). Every roster write runs in one
+transaction that locks the active team row `FOR NO KEY UPDATE` first, which serializes roster writes (a race-free cap and idempotent add) and
+a manager change against them. Authorization: `authorization.md`.
 
 ### Credential revision (V7)
 
@@ -224,7 +237,8 @@ transaction under `TELEMETRY_LOCK_KEY`, and a row exactly at its cutoff stays. T
 `users` and `teams` are **soft-deleted** — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `password_reset_tokens` (V8, expiring single-use credentials, not history), `user_disabled_features`, a pure flag join
-whose PUT is a wholesale replace, and the `ops.telemetry_*` samples (the prune above)) hard-delete — a new
+whose PUT is a wholesale replace, `team_members` (V10, the roster join: the audit trail holds the adds and removals, a re-add must not
+collide with a dead row, nothing references a membership row; a soft-deleted user keeps an inert row that reads skip), and the `ops.telemetry_*` samples (the prune above)) hard-delete — a new
 hard-delete table needs a documented justification, exactly like Lettuce's exceptions list. Pure operational history with no reader once
 old (job queues, samples) may be pruned by a fixed documented retention window, the same shape as the JWT blocklist's opportunistic
 pruning of expired `revoked_tokens` rows. To add soft-delete to a new entity, follow the established pattern

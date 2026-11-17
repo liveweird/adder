@@ -7,14 +7,17 @@ import ch.nokillswit.infra.validation.sanitizedDescription
 import kotlinx.serialization.Serializable
 
 /**
- * Flat teams (V6): a name and a description — the ownership unit future features scope to; there is no roster — and an
- * optional manager (V6): at most one user per team, assigned by an ADMIN; being a manager grants no
- * write rights on the team yet (a later feature's team writes are what it will gate). No chain:
- * Lettuce's management-chain rule is deliberately NOT ported (see
- * `.claude/docs/authorization.md`). ADMIN curates teams and their manager; everyone reads them.
+ * Flat teams (V6): a name and a description — the ownership unit future features scope to — an optional manager (V6: at most
+ * one user per team, assigned by an ADMIN; being a manager grants no write on the team RECORD) and a roster (V10). ADMIN
+ * curates the record and the manager; ADMIN or the team's active manager edits the roster (`requireTeamManagerOrAdmin`);
+ * everyone reads teams. No chain: Lettuce's management-chain rule is deliberately NOT ported (see
+ * `.claude/docs/authorization.md`).
  */
 const val MAX_TEAM_NAME_LENGTH = 100
 const val MAX_TEAM_DESCRIPTION_LENGTH = 500
+
+/** The roster cap (Covenant's constant): a team of hundreds is a registry smell, and the inline `members` list stays bounded. */
+const val MAX_TEAM_MEMBERS = 200
 
 @Serializable
 data class TeamCreateRequest(
@@ -32,6 +35,14 @@ data class TeamUpdateRequest(
     val managerUserId: UInt? = null,
 )
 
+/** One roster row: an ACTIVE user's display fields (a soft-deleted member is absent, never marked). */
+@Serializable
+data class TeamMemberResponse(
+    val userId: UInt,
+    val name: String,
+    val email: String,
+)
+
 @Serializable
 data class TeamResponse(
     val id: UInt,
@@ -40,6 +51,8 @@ data class TeamResponse(
     /** The manager as an ACTIVE user; null when unset OR when the assigned user was soft-deleted. */
     val managerUserId: UInt?,
     val managerName: String?,
+    /** The roster: ACTIVE users only, at most [MAX_TEAM_MEMBERS], by name then id. */
+    val members: List<TeamMemberResponse>,
     val createdAt: Long,
     val updatedAt: Long,
 )
@@ -52,6 +65,8 @@ data class TeamListItem(
     val description: String?,
     val managerUserId: UInt?,
     val managerName: String?,
+    /** The roster size, ACTIVE users only. */
+    val memberCount: Int,
     val createdAt: Long,
     val updatedAt: Long,
 )

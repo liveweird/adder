@@ -30,8 +30,9 @@ fun requireSelfOrAdmin(caller: CallerPrincipal, targetUserId: UInt) {
 /**
  * ADMIN, or the team's current ACTIVE manager (V6). [isManager] answers false for a missing or deleted team too,
  * so run this as the FIRST guard of a team-scoped write, before any read: every other caller gets a uniform 403
- * whether or not the id exists. The lookup is injected so the guard stays DB-free (`GuardsTest` is pure). No route consumes it
- * yet; a later team-scoped write will, re-checking a non-admin's grant inside its locked write transaction.
+ * whether or not the id exists. The lookup is injected so the guard stays DB-free (`GuardsTest` is pure). Its first consumer is
+ * the team roster (`PUT`/`DELETE /teams/{id}/members/{userId}`): the route runs it first, and `TeamService` re-runs the same guard
+ * inside the write transaction after `lockActiveForWrite`, so a grant revoked while the write waited for the lock is refused.
  */
 suspend fun requireTeamManagerOrAdmin(
     caller: CallerPrincipal,

@@ -106,6 +106,9 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   only when a PUT actually changes the manager; a manager assignment can grant team-scoped rights, so it is its own
   trail line, the `user.roles_changed` precedent) / `team.deleted` (byUserId/teamId) — every team mutation; a rejected save
   emits nothing,
+- `team.member_added` (byUserId/teamId/targetUserId — only on an ACTUAL add: the PUT is idempotent, so a repeat emits nothing) /
+  `team.member_removed` (byUserId/teamId/targetUserId — only when a row was removed) — the roster events (`PUT`/`DELETE /teams/{id}/members/{userId}`,
+  ADMIN or the team's manager; the actor is the `byUserId`),
 - `bootstrap.admin_password_rotated` (userId/email — the fixed seed-admin email, never the password or
   its hash; `infra/db/Bootstrap.kt`, only when `ADMIN_INITIAL_PASSWORD` actually replaced the seed
   hash, so an idempotent re-boot emits nothing) — the boot-time credential event, so an admin-password reset leaves a trail beyond a log line

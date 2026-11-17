@@ -67,7 +67,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   throw `UnauthorizedException`) and then invokes the relevant guard: `isAdmin(caller)`,
   `requireAdmin(caller)`, `requireSelfOrAdmin(caller, targetUserId)`, `requireTeamManagerOrAdmin(caller, teamId,
   isManager)` (ADMIN, or the team's ACTIVE manager via the injected `TeamService.isActiveManager` lookup, which
-  answers false for a missing team so the 403 is uniform — awaiting its first consumer), plus
+  answers false for a missing team so the 403 is uniform — its first consumer is the team roster below), plus
   `requireFeatureEnabled` (awaiting its first area-gating consumer); new guards join this file so the whole policy stays
   in one place.
 - **Resource rules**:
@@ -99,6 +99,16 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     `managerName`, both null for a soft-deleted manager. Being a team's manager grants NO write on the team
     record itself (still ADMIN only) — any team-scoped right a manager gets later is checked via `requireTeamManagerOrAdmin`. Mutations audit `team.created/updated/deleted` and `team.manager_changed`
     (only on an actual change). Tests: `TeamTest`, `GuardsTest`.
+  - `PUT` / `DELETE /api/v1/teams/{id}/members/{userId}` (the roster, V10) → **ADMIN or the team's ACTIVE manager** (decision D1): the first consumer of
+    `requireTeamManagerOrAdmin`, run as the FIRST statement of the handler, so every other caller (another team's manager, a stranger) gets the uniform `403`
+    whether or not the team exists; the ADMIN alone reaches the `404` for an unknown team. Because the grant can be revoked between that check and the
+    write, `TeamService.addMember` / `removeMember` take the same guard as a lambda and re-run it INSIDE the write transaction after
+    `lockActiveForWrite` locks the team row (a manager change, `TeamService.update`, takes the same lock, so the verdict under the lock is the
+    authoritative one; pinned by a lock-wait test). The PUT has no body (nothing to decode) and is idempotent: `204` for an added or an already-present
+    member, and the audit event `team.member_added` fires only on an actual add; an unknown or soft-deleted user is `404`, a roster already holding 200 ACTIVE
+    members `409` (an existing member beats the cap). The DELETE is `404` for a user who is not on the roster and audits `team.member_removed`. Reading the
+    roster (`TeamResponse.members`, `TeamListItem.memberCount`) stays any authenticated user and shows ACTIVE users only. The manager grants nothing on the team
+    RECORD (still ADMIN only). Tests: `TeamMembersTest`.
   - `PUT /api/v1/users/{id}/features` → ADMIN only; **self allowed** (an admin adjusting their own
     flags is a feature, and the users routes are never gated, so a fully self-disabled admin can
     always get back); unknown/soft-deleted target → 404; unknown feature name → 400 (enum
@@ -157,8 +167,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     soft-deleted manager's token is already a `401` at the access check; the ACTIVE-user predicate stays as the second
     line); its ADMIN short-circuit rides the (verified) JWT roles. Never cache the verdict in a claim. A route that merely
     SHAPES its answer by the grant (e.g. whether a block of per-person figures is returned) asks `isActiveManager` the same way, after
-    the ADMIN short-circuit; the `ETag` of such an answer carries the verdict ("Caching" in `security.md`). No route consumes the guard in v0.1.0; it is
-    the Flow-donated seam for the first team-scoped write.
+    the ADMIN short-circuit; the `ETag` of such an answer carries the verdict ("Caching" in `security.md`). The roster writes above are its consumer; any later team-scoped
+    write follows the same two-step (guard first, re-run under the row lock).
   - **Planned (v0.2+), not yet built — the room-scoped matrix** (`product.md` "Decisions" and "Assumptions", `chat-model.md`): a room is members-only; a non-member gets
     `404` (never `403`, so a room's existence is not disclosed) and ADMIN may read every room; a room OWNER or ADMIN manages members, the workflow and archiving; any member
     posts, replies and moves a thread between OPEN statuses; the thread owner, the room OWNER or an ADMIN passes ownership and reopens a closed thread; a closed thread

@@ -4,6 +4,7 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
+import ch.nokillswit.authz.requireTeamManagerOrAdmin
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
@@ -21,6 +22,7 @@ import io.ktor.server.resources.post
 import io.ktor.server.resources.put
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.server.routing.Route
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
 
@@ -29,7 +31,15 @@ import kotlinx.serialization.Serializable
 class TeamsRoute {
     @Serializable
     @Resource("{id}")
-    class Id(val parent: TeamsRoute = TeamsRoute(), val id: UInt)
+    class Id(val parent: TeamsRoute = TeamsRoute(), val id: UInt) {
+        @Serializable
+        @Resource("members")
+        class Members(val parent: Id) {
+            @Serializable
+            @Resource("{userId}")
+            class User(val parent: Members, val userId: UInt)
+        }
+    }
 }
 
 fun Application.configureTeamRoutes() {
@@ -102,6 +112,44 @@ fun Application.configureTeamRoutes() {
                 audit("team.deleted", "byUserId" to caller.userId.toLong(), "teamId" to route.id.toLong())
                 call.respond(HttpStatusCode.NoContent)
             }
+            teamRoster(teamService)
         }
+    }
+}
+
+/**
+ * The roster (V10): ADMIN or the team's active manager, the guard as the FIRST statement (a stranger gets a uniform 403 whether or not
+ * the team exists) and re-run by the service under the team row lock. The PUT has no body, so nothing decodes.
+ */
+private fun Route.teamRoster(teamService: TeamService) {
+    put<TeamsRoute.Id.Members.User> { route ->
+        val caller = call.caller()
+        val teamId = route.parent.parent.id
+        val guard = suspend { requireTeamManagerOrAdmin(caller, teamId, teamService::isActiveManager) }
+        guard()
+        // Idempotent: an existing member is a 204 with no write and no audit line.
+        if (teamService.addMember(teamId, route.userId, guard)) {
+            audit(
+                "team.member_added",
+                "byUserId" to caller.userId.toLong(),
+                "teamId" to teamId.toLong(),
+                "targetUserId" to route.userId.toLong(),
+            )
+        }
+        call.respond(HttpStatusCode.NoContent)
+    }
+    delete<TeamsRoute.Id.Members.User> { route ->
+        val caller = call.caller()
+        val teamId = route.parent.parent.id
+        val guard = suspend { requireTeamManagerOrAdmin(caller, teamId, teamService::isActiveManager) }
+        guard()
+        teamService.removeMember(teamId, route.userId, guard).orNotFound("Team member")
+        audit(
+            "team.member_removed",
+            "byUserId" to caller.userId.toLong(),
+            "teamId" to teamId.toLong(),
+            "targetUserId" to route.userId.toLong(),
+        )
+        call.respond(HttpStatusCode.NoContent)
     }
 }
