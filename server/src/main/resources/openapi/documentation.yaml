@@ -901,6 +901,15 @@ components:
         Free-text search (API-LIST-005), REQUIRED where declared (the user directory). Case- and accent-insensitive
         substring match; the endpoint declares which fields it searches. The value is trimmed before the length limits
         apply, so it needs 2 to 100 characters (code points) after trimming.
+    ExpectedRevision:
+      name: X-Expected-Revision
+      in: header
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+      description: |
+        The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
+        malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
+        bumps the revision.
   responses:
     UnsupportedMediaType:
       description: Request body must use application/json. A missing body or Content-Type remains a 400.
@@ -1304,7 +1313,8 @@ components:
           type: string
           default: about:blank
           description: >-
-            A URI reference identifying the problem type; `about:blank` for every problem today.
+            A URI reference identifying the problem type; `about:blank` unless a conflict is typed
+            (`urn:adder:problem:…`, e.g. `revision-conflict`).
         title:
           type: string
           description: Short, human-readable summary of the problem type.
@@ -1317,6 +1327,12 @@ components:
         instance:
           type: string
           description: URI reference of the specific occurrence (the request path).
+        keys:
+          type: array
+          items: { type: string }
+          description: >-
+            Extension member, present only on a workflow conflict that is about specific keys (the statuses or fields
+            the conflict names).
 
     TelemetryCurrent:
       type: object

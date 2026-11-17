@@ -6,6 +6,8 @@ import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.TooManyRequestsException
 import ch.nokillswit.authz.UnauthorizedException
+import ch.nokillswit.infra.revision.REVISION_CONFLICT_PROBLEM_TYPE
+import ch.nokillswit.infra.revision.RevisionConflictException
 import io.ktor.server.auth.jwt.JWTPrincipal
 import io.ktor.server.auth.principal
 import io.ktor.http.ContentType
@@ -31,7 +33,8 @@ import org.jetbrains.exposed.v1.exceptions.ExposedSQLException
  * RFC 7807 problem detail. Serialized as `application/problem+json`.
  *
  * `type` defaults to `about:blank`, in which case `title` is the standard reason phrase for
- * `status` (per the RFC). `detail` is the occurrence-specific message.
+ * `status` (per the RFC). `detail` is the occurrence-specific message. `keys` is an extension member: the workflow keys a
+ * conflict is about (absent otherwise).
  */
 @Serializable
 data class ProblemDetail(
@@ -40,6 +43,7 @@ data class ProblemDetail(
     val status: Int,
     val detail: String? = null,
     val instance: String? = null,
+    val keys: List<String>? = null,
 )
 
 /** RFC 7807 media type for error bodies. */
@@ -58,6 +62,7 @@ suspend fun ApplicationCall.respondProblem(
     title: String = status.description,
     instance: String? = null,
     type: String = "about:blank",
+    keys: List<String>? = null,
 ) {
     // The occurrence path is useful without reflecting query parameters that may contain secrets.
     val problem = ProblemDetail(
@@ -66,6 +71,7 @@ suspend fun ApplicationCall.respondProblem(
         status = status.value,
         detail = detail ?: status.description,
         instance = instance ?: request.path(),
+        keys = keys,
     )
     respond(
         TextContent(
@@ -253,7 +259,16 @@ fun Application.configureErrorHandling() {
             call.respondProblem(HttpStatusCode.NotFound, cause.message ?: "Resource not found")
         }
         exception<ConflictException> { call, cause ->
-            call.respondProblem(HttpStatusCode.Conflict, cause.message ?: "Conflict", instance = cause.instance, type = cause.problemType)
+            call.respondProblem(
+                HttpStatusCode.Conflict,
+                cause.message ?: "Conflict",
+                instance = cause.instance,
+                type = cause.problemType,
+                keys = cause.keys,
+            )
+        }
+        exception<RevisionConflictException> { call, cause ->
+            call.respondProblem(HttpStatusCode.Conflict, cause.message, type = REVISION_CONFLICT_PROBLEM_TYPE)
         }
         // Non-unique DB failures fall through to a 500 problem (logged) instead of rethrowing,
         // which would escape StatusPages and yield a bodiless default 500.

@@ -113,6 +113,7 @@ except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry
 - `infra/paging/` — the shared list-endpoint machinery (Lettuce's, ported verbatim; `list-endpoints.md`).
 - `infra/validation/` — cross-feature input helpers (`sanitizeSingleLine`: trim + control-char 400).
 - `infra/json/` — `CanonicalJson.kt` (canonical JSON + sha256 for stored payloads), `JsonArrays.kt`.
+- `infra/revision/` — `X-Expected-Revision` for whole-document PUTs (Toadie's, header REQUIRED): `expectedRevision()` (400), `requireRevision` (typed 409 `urn:adder:problem:revision-conflict`).
 - `infra/time/` — `Millis.kt`, `MILLIS_PER_DAY`, the one fixed-24h-day constant.
 - `infra/config/` — `requireConfigInt`/`requireConfigLong`, boot-validated numeric config (Lettuce's).
 - `infra/Failures.kt` — `catchingFailures` (keeps the failure without swallowing cancellation).
@@ -121,9 +122,10 @@ except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry
 - `auth/` — login (+ the email-MFA second step), refresh, logout, self-service password reset, token minting, password hashing, the revoked-token blocklist; in-memory auth state is capacity-bounded with audited 429 saturation.
 - `users/` — Adder's login accounts (REST `/api/v1/users`): ADMIN-only CRUD (self-delete 403, last-admin 409), per-user feature flags (`Feature` enum, the V5 disabled-set model; MFA is the inverted-default login-scoped flag), the ONE synced per-user UI+email language (`Languages.kt` = `SUPPORTED_LANGUAGES`).
 - `teams/` — flat teams (V6) with an optional manager and a roster (V10): GET any authenticated, record writes ADMIN only, roster PUT/DELETE ADMIN or the manager. **The feature template** (below).
+- `workflows/` — the workflow vocabulary (`StatusColour`, `StatusCategory`, `FieldType`, the limits) and `WorkflowRules.kt`, the pure kernel shared by the ADMIN template registry and a room's workflow (`chat-model.md`); rooms import it, never the reverse.
 - `telemetry/` — per-process JVM/cgroup/request/storage samples in `ops.*` (V9), 90 days, hourly, ADMIN read API (`observability.md`).
 
-The chat domain (`rooms/`, `workflows/`, `threads/`, `live/`) has no package yet: v0.2.0 adds the first (`chat-model.md`).
+The chat domain is arriving: `workflows/` holds the rules kernel so far; `rooms/` follows in v0.2.0, `threads/` and `live/` later (`chat-model.md`).
 
 **Feature template — copy `teams/`** (a small ADMIN-curated registry; the only shape the foundation ships). Before adding a feature, route,
 service, migration or page, read `.claude/docs/conventions.md` in full.

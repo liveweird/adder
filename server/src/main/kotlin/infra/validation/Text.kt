@@ -14,6 +14,17 @@ fun sanitizeSingleLine(value: String, field: String): String {
     return trimmed
 }
 
+/**
+ * Rejects a collection carrying a duplicate, optionally folded before comparison (e.g. a case-insensitive check): the one
+ * `size != toSet().size` check the registry validators share. [message] is the caller's exact rejection text. Ported from Toadie.
+ */
+fun requireNoDuplicates(values: Collection<String>, message: String, fold: (String) -> String = { it }) {
+    val folded = values.map(fold)
+    if (folded.size != folded.toSet().size) {
+        throw BadRequestException(message)
+    }
+}
+
 /** The optional description every registry carries: trimmed, control characters a 400, blank = absent. */
 fun sanitizedDescription(raw: String?): String? = raw?.let { sanitizeSingleLine(it, "Description") }?.takeIf { it.isNotBlank() }
 

@@ -818,7 +818,7 @@ export interface components {
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
-             * @description A URI reference identifying the problem type; `about:blank` for every problem today.
+             * @description A URI reference identifying the problem type; `about:blank` unless a conflict is typed (`urn:adder:problem:…`, e.g. `revision-conflict`).
              * @default about:blank
              */
             type: string;
@@ -830,6 +830,8 @@ export interface components {
             detail: string;
             /** @description URI reference of the specific occurrence (the request path). */
             instance: string;
+            /** @description Extension member, present only on a workflow conflict that is about specific keys (the statuses or fields the conflict names). */
+            keys?: string[];
         };
         TelemetryCurrent: {
             /**
@@ -1177,6 +1179,12 @@ export interface components {
         DirectoryPageSize: number;
         /** @description Free-text search (API-LIST-005), REQUIRED where declared (the user directory). Case- and accent-insensitive substring match; the endpoint declares which fields it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
         Q: string;
+        /**
+         * @description The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
+         *     malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
+         *     bumps the revision.
+         */
+        ExpectedRevision: number;
     };
     requestBodies: never;
     headers: never;

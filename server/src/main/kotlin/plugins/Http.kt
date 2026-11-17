@@ -16,6 +16,7 @@ import io.ktor.server.routing.*
 import io.ktor.server.plugins.bodylimit.*
 import io.ktor.server.plugins.mutableOriginConnectionPoint
 import ch.nokillswit.infra.config.requireConfigInt
+import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 
 /**
  * Global request-body ceiling: a memory-DoS backstop, not a business rule — every payload
@@ -90,6 +91,7 @@ fun Application.configureHttp() {
             allowMethod(HttpMethod.Patch)
             allowHeader(HttpHeaders.Authorization)
             allowHeader(HttpHeaders.ContentType)
+            allowHeader(EXPECTED_REVISION_HEADER)
             corsHosts.forEach { allowHost(it, schemes = listOf("http", "https")) }
         }
     }

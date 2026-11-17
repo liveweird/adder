@@ -195,8 +195,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   `NotFoundException` (→ 404), `ConflictException` (→ 409), and `TooManyRequestsException` (→ 429) live
   in `authz/Exceptions.kt` and are mapped in `plugins/ErrorHandling.kt`. **All error bodies are
   RFC 7807 `application/problem+json` (API-ERR-001/002)**
-  (`ProblemDetail{type,title,status,detail,instance}`; `instance` defaults to the request path
-  without query parameters) — emit them via the `ApplicationCall.respondProblem(status, detail)`
+  (`ProblemDetail{type,title,status,detail,instance,keys?}`; `instance` defaults to the request path
+  without query parameters; a stale `X-Expected-Revision` is the typed 409
+  `urn:adder:problem:revision-conflict`, and `keys` lists the workflow keys a conflict is about) — emit them via the `ApplicationCall.respondProblem(status, detail)`
   helper (it uses an explicit `TextContent` so ContentNegotiation does not relabel the media type
   as `application/json`). `StatusPages` routes `BadRequestException`→400 (**with fixed vocabulary
   for converter failures**: a `ContentConvertException` anywhere in the cause chain

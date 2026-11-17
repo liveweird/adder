@@ -22,13 +22,15 @@ fun Int.orNotFound(resource: String): Int =
  * Requested action conflicts with the resource's current state (e.g. an invalid status
  * transition, or the last-admin protections) → 409 with the given detail. A conflict a client
  * must tell apart from the rest names its RFC 7807 [problemType] (a `urn:adder:problem:…` URI) and,
- * optionally, the [instance] it collides with; both default to the plain `about:blank` problem.
+ * optionally, the [instance] it collides with; both default to the plain `about:blank` problem. [keys] are the workflow
+ * keys (statuses, fields) the conflict is about, surfaced as the problem's `keys` extension member; null = none.
  * Open so a feature can subclass it with its own typed payload.
  */
 open class ConflictException(
     message: String = "Conflict",
     val problemType: String = "about:blank",
     val instance: String? = null,
+    val keys: List<String>? = null,
 ) : RuntimeException(message)
 
 /**
