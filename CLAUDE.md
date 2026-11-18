@@ -161,7 +161,7 @@ disagree, the doc wins. The always-loaded set (this file plus the two imports) s
 | `.claude/docs/ci.md` | a CI job (ids and list), Dependabot rule or static-analysis config; the full-stack/Kubernetes notes and the sibling port table |
 | `.claude/docs/product.md` | the per-version roadmap, the user's decisions, assumptions; what each donor repo contributed and what to port next |
 | `.claude/docs/chat-model.md` | the chat domain (rooms, membership, workflows, threads, messages, history, mentions, reactions, pins): the sketch, refined per version |
-| `.claude/docs/live.md` | the WebSocket live-update channel (tickets, protocol, LISTEN/NOTIFY fan-out, bounds): the approach, written in v0.4 |
+| `.claude/docs/live.md` | the WebSocket live-update channel (tickets, protocol, LISTEN/NOTIFY fan-out, bounds): binding since 0.4.0 |
 | `.claude/docs/test-fixtures.md` | any server test fixture, the harness, fork warm-up, OpenAPI conformance internals, e2e scenario files, Schemathesis |
 | `.claude/docs/web-internals.md` | the `web/` transport/session layer, user/feature-flag pages, language switcher, colour tokens/logo, changelog wiring |
 | `.claude/docs/dependencies.md` | any dependency, image or runtime-pin change |

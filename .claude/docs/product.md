@@ -51,6 +51,20 @@ cyan 189°, Flow blue 209°, Covenant violet 264°, Astrid red 350°). The logo 
 - **D3. The seed labels** are the ones in `chat-model.md` "Workflows" (Default and Incident, EN and PL), exactly as proposed. An applied migration's
   bytes are immutable, so afterwards the labels change only through the template editor.
 
+### 0.4.0 live updates (the user's, 2026-11-19)
+
+The architect's plan put three decisions to the user; all three took the recommended option. The rules they became: `live.md`.
+
+- **D1. The ticket travels in the first frame** (`{"type":"auth","ticket":…}` within 5 s of the upgrade), not in `?ticket=` as the 2026-11-17 text said.
+  This honours API-AUTH-002 (no tokens in a URL) and keeps the credential out of proxy logs; the cost is that the WebSocket GET is public at the HTTP layer
+  (an unauthenticated socket lives at most 5 s, under a pending cap and a per-IP bucket). The alternative was `?ticket=` with a written exception to a MUST.
+- **D2. Account changes close a socket by a 60 s sweep, plus a close at the access token's `exp`.** Logout, user deletion, password change and role change
+  are caught within a minute with no change to any `auth/` or `users/` write path; membership removal and room deletion are pushed at once. The alternative was
+  pushing those four account events too (five more call sites and one more reviewed surface), now a `BACKLOG.md` item.
+- **D3. One socket per tab, at most 16 per user, closed after 5 minutes hidden.** The 17th tab shows "Live updates off" and retries every minute. The
+  alternative was one socket per browser through a leader tab (Web Locks plus BroadcastChannel): no cap pressure, but a second state machine and much harder
+  tests; revisit when 0.6.0 unread counts need background tabs.
+
 ## Assumptions (taken without asking; change on request)
 
 - ADMIN may read every room (the family's ADMIN-overrides posture); a non-member gets `404`, never `403`.
@@ -84,6 +98,27 @@ Detail and the rules they became: `chat-model.md` "Rules".
 - Deleting a template never touches rooms; there is no "last template" rule.
 - Rate buckets (all per signed-in user): `room-name` 30/min shared by `POST /rooms` and `PUT /rooms/{id}`, `room-members` 60/min on `POST /rooms/{id}/members`, and `directory` 120/min on the user directory; everything else is
   guard-gated and bounded by the caps above. `lockingTransaction` is not ported (one row lock per room instead).
+
+### 0.4.0 live updates
+
+Taken without asking, in the 0.4.0 plan. Detail and the rules they became: `live.md`.
+
+- **A1. Single replica.** Tickets and the hub live in memory, per process; a second replica is a `BACKLOG.md` item (sticky `/api/v1/live*` or a ticket table).
+- **A2. Hints carry a kind and ids only**, never a title, body, name or field value. Delivery is at-most-once with no replay; the refetch is the backfill and
+  `resync` covers every gap.
+- **A3. Subscriptions** are the active rail (up to 100 rooms, `RAIL_PAGE_SIZE`) plus the open room. The archived rail and All rooms keep refreshing on focus.
+- **A4. "Idle close"** means four mechanisms: the protocol heartbeat (Ktor pings every 25 s, pong timeout 15 s), the 5 s auth deadline, the close at the
+  token's `exp`, and the client closing a socket after 5 minutes hidden. A visible, authenticated socket is never closed just for being quiet.
+- **A5. The CSP is unchanged:** `connect-src 'self'` already matches the same-host socket; scheme sources would open sockets to any host.
+- **A6. The channel is `adder_live`** and the NOTIFY payload format is `v: 1`.
+- **A7. The writer's tab refetches twice** (its own mutation refresh plus the hint). Accepted; skipping the echo is a `BACKLOG.md` item.
+- **A8. The numbers in `live.md` "Bounds" are defaults;** only the ones tests must shrink become config keys.
+- **A9. The ticket POST answers 200, not 201** (an exchange, like login and refresh).
+- **A10. Frames are typed in the OpenAPI spec as components** and generated into `schema.ts`; the Kotlin `LiveKind` enum is pinned equal to the spec enum and
+  to the audit names.
+- **A11. Each socket produces one OTel server span,** and the latency telemetry excludes the live route.
+- **A12. Team, user and auth writes emit no hint.**
+- **A13. An ADMIN may subscribe to any existing room;** a demoted ADMIN keeps those subscriptions until the next sweep (at most 60 s).
 
 ### 0.3.0 threads and messages
 
@@ -127,7 +162,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **0.1.0 Foundation** | Flow trimmed: auth and email MFA, password reset, users and feature flags, teams with a manager, EN/PL, light/dark, changelog, telemetry panel, olive brand and the Strike logo |
 | **0.2.0 Rooms and workflows** | The ADMIN workflow-template registry (seeded Default and Incident); rooms with members (person or whole team), OWNER/MEMBER roles, archive; the room workflow editor (statuses with colour/category/order, typed fields) under `X-Expected-Revision`; the rooms rail |
 | **0.3.0 Threads and messages** | Threads with a per-room number, status, owner, fields and history (`EventLog` port); messages in Markdown with emoji; edit/delete own; close/reopen with the closed-thread `409`; the three-pane room view |
-| **0.4.0 Live updates** | `GET /api/v1/live` WebSocket with single-use tickets, subscribe/unsubscribe per room, `pg_notify` inside the write transaction, one LISTEN connection per process, bounded sockets; targeted query invalidation in the SPA |
+| **0.4.0 Live updates** | `GET /api/v1/live` WebSocket with single-use tickets (sent in the first frame), subscribe/unsubscribe per room, `pg_notify` inside the write transaction, one LISTEN connection per process, bounded sockets, a 60 s account sweep; targeted query invalidation in the SPA (`live.md`) |
 | **0.5.0 Find** | Thread filters and sorts (status, category, owner, fields, tag, mentions me), Postgres full-text search per room and across member rooms, server-parsed #hashtags |
 | **0.6.0 Mentions, reactions, pins, unread** | @mention autocomplete and notifications (Lettuce's model, pushed live; email by preference), reactions, room pins, per-member unread markers |
 | **1.0.0 Checkup** | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |

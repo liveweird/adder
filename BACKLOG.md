@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-11-18. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-11-19. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/` (the roadmap: `.claude/docs/product.md`).
@@ -22,6 +22,16 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **0.4.0 Live updates.** The WebSocket channel (`live.md`).
 - [new] **0.5.0 Find.** Filters, sorts, full-text search, hashtags.
 - [new] **0.6.0 Mentions, reactions, pins, unread.**
+- [new] **Live: a second replica.** The ticket store and the hub are in memory, per process (`live.md`), so tickets work on one replica only. Two replicas need
+  sticky routing of `/api/v1/live*` (the ticket POST and the socket on the same pod) or a shared ticket table; every replica's LISTEN connection already
+  hears every hint.
+- [new] **Live: push account changes.** 0.4.0 closes a socket for a logout, user deletion, password change or role change by a 60 s sweep (the user's decision D2).
+  Pushing those four events (a NOTIFY the hub acts on at once, about five call sites in `auth/` and `users/`) would close the gap to zero; the sweep stays as the
+  safety net.
+- [new] **Live: skip the writer tab's echo.** The tab that made a write refetches twice, once for its own mutation and once for the hint. Tag the hint with the
+  writer's socket (or a client id) so that tab can skip it.
+- [new] **Conversation: arrivals.** With live updates a reader scrolled up gets no sign that messages arrived. Add a "New messages below" affordance and a
+  screen-reader announcement; do it with the 0.6.0 unread markers.
 
 ## Foundation follow-ups
 
