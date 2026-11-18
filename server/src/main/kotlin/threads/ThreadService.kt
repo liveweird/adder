@@ -39,6 +39,11 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
     "createdAt" to ThreadService.Threads.createdAt,
 )
 
+/** The columns of a list row ([ThreadListItem]); `fields` is deliberately absent (`ThreadService.list`). */
+private val LIST_COLUMNS: List<Column<*>> = with(ThreadService.Threads) {
+    listOf(id, number, title, statusKey, closedAt, ownerId, messageCount, lastActivityAt, createdAt)
+}
+
 /** The ONE sortable whitelist of the thread list - derived from the column map so the two can never drift. */
 val THREAD_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
@@ -80,12 +85,16 @@ class ThreadService(
         val updatedAt = long("updated_at")
     }
 
-    /** One page of the room's threads: one predicate for the count and the rows, in one transaction. */
+    /**
+     * One page of the room's threads: one predicate for the count and the rows, in one transaction. The rows select only the columns a
+     * [ThreadListItem] shows: never `fields`, the jsonb document that can be tens of kilobytes per thread (page size 100 would
+     * otherwise load megabytes the list never reads).
+     */
     suspend fun list(roomId: UInt, closed: Boolean?, paging: PageRequest): ThreadListResult = suspendTransaction(database) {
         var predicate: Op<Boolean> = Threads.roomId eq roomId
         closed?.let { predicate = predicate and (if (it) Threads.closedAt.isNotNull() else Threads.closedAt.isNull()) }
         val total = Threads.selectAll().where { predicate }.count()
-        val rows = Threads.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
+        val rows = Threads.select(LIST_COLUMNS).where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
         val names = userNames(rows.map { it[Threads.ownerId].value })
         ThreadListResult(
             items = rows.map {
@@ -166,7 +175,7 @@ class ThreadService(
             if (standing.archived) throw roomArchived()
             val snapshot = workflows.snapshot(roomId)
             val initial = snapshot.statuses.single { it.initial }
-            val write = validatedFields(roomId, snapshot, emptyMap(), request.fields, creating = true).merged
+            val document = storedDocument(validatedFields(roomId, snapshot, emptyMap(), request.fields, creating = true).merged)
             val maxNumber = Threads.number.max()
             val number = (Threads.select(maxNumber).where { Threads.roomId eq roomId }.toList().single()[maxNumber] ?: 0) + 1
             val stamp = nowMillis()
@@ -177,7 +186,7 @@ class ThreadService(
                 it[statusKey] = initial.key
                 it[ownerId] = caller.userId
                 it[createdBy] = caller.userId
-                it[fieldValues] = canonicalJson(JsonObject(write))
+                it[fieldValues] = document
                 it[messageCount] = 1
                 it[lastActivityAt] = stamp
                 it[createdAt] = stamp
@@ -216,11 +225,12 @@ class ThreadService(
             val fieldWrite = validatedFields(roomId, snapshot, thread.fields, request.fields, creating = false)
             val titleChanged = request.title != thread.title
             if (!titleChanged && fieldWrite.changes.isEmpty()) return@withThreadWrite null
+            val document = storedDocument(fieldWrite.merged)
             val stamp = nowMillis()
             val revision = thread.revision + 1
             Threads.update({ Threads.id eq thread.id }) {
                 it[title] = request.title
-                it[fieldValues] = canonicalJson(JsonObject(fieldWrite.merged))
+                it[fieldValues] = document
                 it[Threads.revision] = revision
                 it[lastActivityAt] = stamp
                 it[updatedAt] = stamp
@@ -250,6 +260,10 @@ class ThreadService(
         val memberIds = members.activeMemberIds(roomId, incomingUserIds(definitions, incoming))
         return applyFieldValues(definitions, current, incoming, memberIds, creating)
     }
+
+    /** The canonical text of the merged `fields` document, within [MAX_FIELDS_DOCUMENT_LENGTH] (a fixed-detail `400` beyond it). */
+    private fun storedDocument(merged: Map<String, JsonElement>): String =
+        canonicalJson(JsonObject(merged)).also(::requireFieldsDocumentSize)
 
     private fun storedFields(json: String): Map<String, JsonElement> = (Json.parseToJsonElement(json) as JsonObject)
 }

@@ -185,7 +185,7 @@ Four groups (D1 and D2 are the architect's recommendations, taken as assumptions
   the target resolves. An unknown or retired key is a `400` first (every reader can read the workflow, so it discloses nothing).
 - **The room lock is the thread lock.** Every content write goes through `withRoomWrite` (`rooms/RoomLock.kt`): posting updates `rooms.last_activity_at`,
   i.e. the room row, so a lighter lock upgraded by that UPDATE would deadlock two posters; edits and deletes take the same lock, so the closed and archived
-  checks cannot race a close or an archive. Writes serialise per room (a few ms each, fine at incident scale). **No thread-row or status-row locks.** The
+  checks cannot race a close or an archive. Writes serialise per room (a few ms each, fine at incident scale) and **the wait is bounded**: a writer queued behind a busy room holds a pooled connection, so the lock statement runs under `SET LOCAL lock_timeout` (3 s, `rooms.lockWaitMillis`) and a wait past it is the audited `429 room-busy` with `Retry-After: 1` (`persistence.md` "Rooms (V13)", `security.md`); the five non-POST writes also ride the per-user `chat-write` bucket, so one member cannot queue a room's lock full. **No thread-row or status-row locks.** The
   block receives the fresh caller and standing (`ThreadLock.kt`: `withThreadWrite`, `withMessageWrite`). The lock order is the room row first; the FK
   checks' `FOR KEY SHARE` on `rooms`, `room_statuses`, `threads` and `users` rows does not conflict with `FOR NO KEY UPDATE`.
 - **Single messages live at `/rooms/{id}/messages/{messageId}`** (API-RES-006 bans three path parameters); the route checks the message belongs to that
@@ -205,7 +205,8 @@ Four groups (D1 and D2 are the architect's recommendations, taken as assumptions
   bucket) answers `201` + `Location: /api/v1/rooms/{id}/messages/{messageId}`.
 - `GET|PUT|DELETE /rooms/{id}/messages/{messageId}`: GET is reader (a deleted message is `404`); PUT is author-only and last-writer-wins (`204`, a no-op on an
   unchanged body); DELETE is the author, the room OWNER or an ADMIN. Every write on a deleted message is `404`.
-- **Rate limit:** one per-user bucket, `chat-post` 120/min, on the two POSTs; edits, deletes and metadata writes stay unbucketed (guard-gated, one row each).
+- **Rate limits (per user, fixed in every mode):** `chat-post` 120/min on the two POSTs; `chat-write` 240/min, ONE bucket shared by the thread details, status and owner PUTs, the message edit and the message delete. Those five take the room lock like the POSTs, so leaving them unbucketed (the original reasoning: guard-gated, one row each) let one member queue writers behind a room and hold the DB pool; the audit (M1) bucketed them and bounded the lock wait. Both buckets sit before the guards. A room whose lock stays busy past the wait answers `429 room-busy` (`Retry-After: 1`) on any of them.
+- **Body ceilings:** 64 KiB for a message POST/PUT, 192 KiB for a thread POST and the details PUT (`security.md` "Request body ceilings"); `413` beyond.
 - Limits: title single line <= 200 (`sanitizeSingleLine`); a message body is Markdown, 1 to 8,000 UTF-16 units after CRLF and a lone CR become LF and the leading blank lines and the trailing whitespace are dropped (the first line's indentation stays, so an indented code block survives), `\n` and `\t` allowed,
   other control characters and the hidden direction and separator characters (U+202A-202E, U+2066-2069, U+2028/2029) a `400` (`sanitizeMultiLine`; titles and TEXT values use `sanitizeSingleLine`, the same hidden-character rule; the zero-width joiner of emoji is fine); stored raw, rendered without HTML.
 
@@ -221,10 +222,12 @@ Checked by the pure kernel `threads/ThreadFields.kt` against the room's field de
 | SELECT | one option key |
 | MULTI_SELECT | 1 to 50 distinct option keys; empty means unset; stored in option order, kept removed options last |
 | USER | the id of an active room member |
-| URL | absolute `http`/`https`, trimmed, <= 2,000 |
+| URL | absolute `http`/`https`, trimmed, <= 2,000, no control or hidden direction characters (`sanitizeSingleLine`), **no user info** (`https://trusted.example@evil.example/` is a `400`) |
 
 An unknown key is a `400`, and so is a changed or new value for a retired key (an UNCHANGED retired value, e.g. from a stale form, is ignored); a required field is supplied at create and cannot be cleared once set (one never set may stay unset after create);
 unchanged values skip validation (see "Stored values" under Workflows).
+
+**Shape and size of `fields` (audit M2, M3).** The request's `fields` is shape-checked right after the body decodes and before the room lock (`requireFieldShape`, run by the route and the service through `validateThreadCreate`/`validateThreadUpdate`): at most 20 keys (`MAX_FIELDS`, the live-field maximum), each value a JSON primitive, `null`, or an array of at most 50 (`MAX_OPTIONS`) string primitives; anything else, a nested object or array included, is a `400` with a fixed detail that echoes nothing. The stored document has a ceiling too: `MAX_FIELDS_DOCUMENT_LENGTH` = **439,001** UTF-16 units of canonical JSON, checked on the merged document in the create and in a changing details PUT (`400` "The field values are too large to store"). Why that number: the kernel already bounds every value, so this is a backstop that a legitimate write never meets, and it is sized as the worst legitimate document - a room may use 200 field keys over its life (`MAX_FIELD_KEYS_PER_ROOM`, retired ones keep their last value and stay in the document), each key 40 units and each value at its widest, a 50-option MULTI_SELECT (2,151 units; a 2,000-unit URL and a 500-unit TEXT with every unit escaped are narrower): `2 + 200 x (40 + 3 + 2,151) + 199`. The live 20 alone are under 44,000. The thread list never reads `fields` (it selects the list columns only: a page of 100 would otherwise load megabytes the row never shows).
 
 ### Activity
 
@@ -248,7 +251,7 @@ Edits, deletes and the workflow PUT's `moveThreads` do not bump.
 
 Every mutation calls `audit(...)` with ids, keys and counts, **never a title, body or field value**: `thread.created` (names the opening message; no separate
 `message.posted` for it), `thread.updated` (on a change only, `titleChanged`, `fieldsChanged` = keys), `thread.status_changed` (transition `MOVED`/`CLOSED`/`REOPENED`),
-`thread.owner_changed`, `message.posted`, `message.edited`, `message.deleted` (with `authorId` and `moderated`). The 429 on `chat-post` is audited like the other buckets. The list is
+`thread.owner_changed`, `message.posted`, `message.edited`, `message.deleted` (with `authorId` and `moderated`). The 429 on `chat-post` and `chat-write` is audited like the other buckets, and a `room-busy` 429 is its own `room.busy` line (ids only). The list is
 owned by `observability.md`.
 
 ## Find (0.5)

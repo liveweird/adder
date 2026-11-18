@@ -27,6 +27,14 @@ describe("saveErrorMessage", () => {
     expect(saveErrorMessage(new Error("net"), t, KEYS)).toBe(t(KEYS.failed));
   });
 
+  test("a room-busy 429 has its own words even where the page maps 429 to its bucket copy", () => {
+    const busy = new ApiError(429, { type: "urn:adder:problem:room-busy" });
+    const bucket = { ...KEYS, tooManyRequests: "threads.message.error.tooManyRequests" } as const;
+    expect(saveErrorMessage(busy, t, bucket)).toBe("The room is busy right now — try again in a moment.");
+    expect(saveErrorMessage(busy, t, KEYS)).toBe("The room is busy right now — try again in a moment.");
+    expect(saveErrorMessage(new ApiError(429, null), t, bucket)).toBe(t("threads.message.error.tooManyRequests"));
+  });
+
   test("an unmapped status routes through the generic fallbacks when keys are omitted", () => {
     const minimal = { failed: KEYS.failed } as const;
     expect(saveErrorMessage(new ApiError(404, null), t, minimal)).toBe(t(KEYS.failed));
@@ -37,6 +45,7 @@ describe("loadErrorMessage", () => {
   test("tags ApiErrors with the status and falls back per class", () => {
     expect(loadErrorMessage(new ApiError(502, null), t)).toBe("Load failed (502)");
     expect(loadErrorMessage(new ApiError(429, null), t)).toBe("Too many requests. Wait a minute and try again.");
+    expect(loadErrorMessage(new ApiError(429, { type: "urn:adder:problem:room-busy" }), t)).toBe(t("common.error.roomBusy"));
     expect(loadErrorMessage(timeout, t)).toBe(t("common.error.timeout"));
     expect(loadErrorMessage(new Error("net"), t)).toBe(t("common.error.network"));
   });

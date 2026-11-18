@@ -29,9 +29,32 @@ const val MAX_REQUEST_BODY_BYTES: Long = 512L * 1024
 
 /**
  * The tight ceiling of the routes whose bodies are a handful of short fields: the anonymous auth routes (an unauthenticated caller can
- * reach them, so they must not buffer half a megabyte per request) and the room member add (up to 200 ids, ~2 KiB). Same 413.
+ * reach them, so they must not buffer half a megabyte per request), the room member add (up to 200 ids, ~2 KiB) and the thread status
+ * and owner PUTs (one status key or one user id). Same 413.
  */
 const val MAX_SMALL_REQUEST_BODY_BYTES: Long = 16L * 1024
+
+/**
+ * The ceiling of a message write (`POST .../threads/{n}/messages`, `PUT /rooms/{id}/messages/{messageId}`), sized from its one big field.
+ * `{"body": "..."}` carries at most 8,000 UTF-16 units (`MAX_MESSAGE_BODY_LENGTH`) after normalisation, and the widest wire spelling of a
+ * unit is a JSON `\uXXXX` escape: 6 bytes, so 48,000 (a raw non-ASCII BMP unit is at most 3 bytes in UTF-8, a CRLF pair 4 bytes for the
+ * one line feed it becomes). With the envelope that is about 48 KB; 64 KiB leaves a third of headroom for the leading blank lines and
+ * trailing whitespace that normalisation drops. Same 413 as the other ceilings.
+ */
+const val MAX_MESSAGE_REQUEST_BODY_BYTES: Long = 64L * 1024
+
+/**
+ * The ceiling of a thread write (`POST /rooms/{id}/threads`, `PUT /rooms/{id}/threads/{number}`): a title, a message body and at most 20
+ * field values. Worst legitimate case: the title is 200 units at 6 bytes each (1,200), the body 8,000 units at 6 (48,000), and each of the
+ * 20 live fields (`MAX_FIELDS`) a key of up to 40 bytes with its quotes, colon and comma (44) plus its widest value - a URL of 2,000 units
+ * (6,002 as raw UTF-8 at 3 bytes a unit; 2,002 when ASCII, which the SPA's percent-encoded links are), a 50-key MULTI_SELECT (2,152) or a
+ * 500-unit TEXT (at most 3,002 escaped) - so 6,046 and 120,920 for the 20. That is about 170 KB in all; 192 KiB covers it with margin.
+ * Not covered, on purpose: a client that `\u`-escapes every non-ASCII character of 20 maximal non-ASCII URLs (12,046 each, about 290 KB),
+ * which no real client sends. Likewise not covered: a body whose every line break is a CRLF pair spelled `\u000d\u000a` (12 bytes for the
+ * one line feed it becomes, so up to 96,000 bytes for 8,000 of them), which a message may hold in theory and no client writes. Well
+ * below [MAX_REQUEST_BODY_BYTES] (the body is buffered before it decodes, so the ceiling bounds what a few concurrent writers pin).
+ */
+const val MAX_THREAD_REQUEST_BODY_BYTES: Long = 192L * 1024
 
 private val SMALL_BODY_PATHS = setOf(
     "/api/v1/login",
@@ -41,12 +64,41 @@ private val SMALL_BODY_PATHS = setOf(
     "/api/v1/password-reset/confirm",
 )
 private val ROOM_MEMBERS_PATH = Regex("^/api/v1/rooms/[0-9]+/members$")
+private val THREAD_STATUS_OR_OWNER_PATH = Regex("^/api/v1/rooms/[0-9]+/threads/[0-9]+/(status|owner)$")
+private val THREAD_CREATE_PATH = Regex("^/api/v1/rooms/[0-9]+/threads$")
+private val THREAD_DETAILS_PATH = Regex("^/api/v1/rooms/[0-9]+/threads/[0-9]+$")
+private val MESSAGE_POST_PATH = Regex("^/api/v1/rooms/[0-9]+/threads/[0-9]+/messages$")
+private val MESSAGE_EDIT_PATH = Regex("^/api/v1/rooms/[0-9]+/messages/[0-9]+$")
 
-/** The body ceiling of this call: [MAX_SMALL_REQUEST_BODY_BYTES] for the small-body routes, else [MAX_REQUEST_BODY_BYTES]. */
+/**
+ * The path as ROUTING sees it, which is what the ceilings must match: the raw request path split on `/`, empty segments dropped (routing
+ * ignores a trailing or doubled slash) and every segment percent-decoded (`/api/v1/rooms/%31/threads` is `/api/v1/rooms/1/threads` to
+ * routing). Matching the raw text let an encoded digit or letter slip past every ceiling to the 512 KiB global one. A segment that does not
+ * decode cannot route either, so the raw path is returned and the call keeps the global ceiling.
+ */
+internal fun routedPath(rawPath: String): String = try {
+    rawPath.split('/').filter { it.isNotEmpty() }.joinToString("/", prefix = "/") { it.decodeURLPart() }
+} catch (_: URLDecodeException) {
+    rawPath
+}
+
+/**
+ * The body ceiling of this call: [MAX_SMALL_REQUEST_BODY_BYTES] for the small-body POSTs and the status and owner PUTs,
+ * [MAX_MESSAGE_REQUEST_BODY_BYTES] for a message write, [MAX_THREAD_REQUEST_BODY_BYTES] for a thread create or details write, else
+ * [MAX_REQUEST_BODY_BYTES]. Matched against the [routedPath], so an encoded spelling of the same route gets the same ceiling.
+ */
 internal fun requestBodyLimit(call: ApplicationCall): Long {
-    if (call.request.httpMethod != HttpMethod.Post) return MAX_REQUEST_BODY_BYTES
-    val path = call.request.path()
-    return if (path in SMALL_BODY_PATHS || ROOM_MEMBERS_PATH.matches(path)) MAX_SMALL_REQUEST_BODY_BYTES else MAX_REQUEST_BODY_BYTES
+    val method = call.request.httpMethod
+    val path = routedPath(call.request.path())
+    return when {
+        method == HttpMethod.Post && (path in SMALL_BODY_PATHS || ROOM_MEMBERS_PATH.matches(path)) -> MAX_SMALL_REQUEST_BODY_BYTES
+        method == HttpMethod.Put && THREAD_STATUS_OR_OWNER_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
+        method == HttpMethod.Post && MESSAGE_POST_PATH.matches(path) -> MAX_MESSAGE_REQUEST_BODY_BYTES
+        method == HttpMethod.Put && MESSAGE_EDIT_PATH.matches(path) -> MAX_MESSAGE_REQUEST_BODY_BYTES
+        method == HttpMethod.Post && THREAD_CREATE_PATH.matches(path) -> MAX_THREAD_REQUEST_BODY_BYTES
+        method == HttpMethod.Put && THREAD_DETAILS_PATH.matches(path) -> MAX_THREAD_REQUEST_BODY_BYTES
+        else -> MAX_REQUEST_BODY_BYTES
+    }
 }
 
 /**

@@ -875,7 +875,11 @@ export interface paths {
          *     are a `400`). Every required field must be supplied; an unknown key, or a value for a retired key (an unchanged `null` for a retired key is ignored), is a `400`,
          *     as is a value that breaks its type's rule. The thread, its opening message, its `CREATED` history entry and the activity bump of the thread and the room commit
          *     together. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429` beyond it); the bucket
-         *     is spent before any guard, so a refused or invalid POST costs a token too.
+         *     is spent before any guard, so a refused or invalid POST costs a token too. The request body is at most 192 KiB (`413` beyond it)
+         *     and `fields` holds at most 20 keys whose values are primitives, `null` or a list of at most 50 option keys (anything else, a
+         *     nested object included, is a `400` before any lock); the stored values may not exceed 439,001 characters of JSON (`400`). The write
+         *     waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with
+         *     `Retry-After: 1`.
          */
         post: operations["createThread"];
         delete?: never;
@@ -916,6 +920,9 @@ export interface paths {
          *     When nothing changed the answer is `204` with no revision bump, no history entry and no activity bump. Otherwise the revision
          *     becomes `revision + 1` (read the thread again for it), one `TITLE_CHANGED` and one `FIELD_CHANGED` entry per changed field are
          *     recorded, and the thread and the room are bumped in the activity order.
+         *
+         *     The body is at most 192 KiB (`413` beyond it) and `fields` holds at most 20 keys whose values are primitives, `null` or a list of at most 50 option keys (anything else, a nested object included, is a `400` before any lock); the stored values may not exceed 439,001 characters of JSON (`400`).
+         *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["updateThread"];
         post?: never;
@@ -953,6 +960,7 @@ export interface paths {
          *     (kept across CLOSED to CLOSED moves) and cleared by a move into an OPEN one, a `STATUS_CHANGED`, `CLOSED` or `REOPENED` history entry is recorded and
          *     the thread and the room are bumped in the activity order. A single-value set: the last writer wins, and the history records
          *     each change; the thread's `revision` is not moved.
+         *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["setThreadStatus"];
         post?: never;
@@ -986,6 +994,7 @@ export interface paths {
          *     Naming the current owner again is `204` with no history entry, no activity bump and no audit line. Otherwise an `OWNER_CHANGED`
          *     history entry is recorded and the thread and the room are bumped in the activity order. A single-value set: the last writer
          *     wins, and the history records each change; the thread's `revision` is not moved.
+         *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["setThreadOwner"];
         post?: never;
@@ -1058,7 +1067,9 @@ export interface paths {
          *     are dropped and the first line's indentation stays (`\n` and `\t` allowed, every other control character and the hidden
          *     direction characters are a `400`). It is stored raw and rendered without HTML. The message, `messageCount + 1` and the
          *     activity bump of the thread and the room commit together. Rides the per-USER `chat-post` bucket of 120 per minute shared with
-         *     the thread POST (`429` beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too.
+         *     the thread POST (`429` beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The
+         *     request body is at most 64 KiB (`413` beyond it), and the write waits at most about 3 seconds for the room's write lock before it is
+         *     answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         post: operations["postThreadMessage"];
         delete?: never;
@@ -1095,6 +1106,7 @@ export interface paths {
          *     The body rules are those of the post. Sending the body the message already has (after normalising) is `204` with no write and
          *     no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
          *     order are untouched. Last writer wins: the author alone writes it and the room lock serialises their own requests.
+         *     The body is at most 64 KiB (`413` beyond it). Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["editMessage"];
         post?: never;
@@ -1109,6 +1121,7 @@ export interface paths {
          *     The body is scrubbed, the row is marked deleted and `deleted_by` records the caller. The message stays in the thread's list
          *     as a tombstone (`deletedByModerator` tells an author's own delete from a moderator's); `messageCount` never goes down. A
          *     deleted message is `404` for every further read or write.
+         *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         delete: operations["deleteMessage"];
         options?: never;
@@ -1694,7 +1707,7 @@ export interface components {
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
-             * @description A URI reference identifying the problem type; `about:blank` unless a conflict is typed (`urn:adder:problem:…`, e.g. `revision-conflict`).
+             * @description A URI reference identifying the problem type; `about:blank` unless a conflict is typed (`urn:adder:problem:…`, e.g. `revision-conflict` on a 409 or `room-busy` on a 429).
              * @default about:blank
              */
             type: string;
@@ -1713,7 +1726,8 @@ export interface components {
          * @description Field values by field key. Per type: TEXT a single-line string of at most 500 characters (blank means unset); NUMBER a finite
          *     JSON number whose magnitude is at most 1e15; DATE a real calendar day as a `YYYY-MM-DD` string; SELECT one option key;
          *     MULTI_SELECT 1 to 50 distinct option keys (an empty array means unset); USER the id of an active member of the room;
-         *     URL an absolute `http` or `https` URL of at most 2,000 characters. `null` means unset. A value of the wrong JSON type is a `400`.
+         *     URL an absolute `http` or `https` URL of at most 2,000 characters with no user name or password and no control or hidden direction
+         *     character. `null` means unset. A value of the wrong JSON type is a `400`; so is a nested object, or a request with more than 20 keys (a request carries at most 20 keys, even when one is an unchanged retired key).
          */
         ThreadFieldValues: {
             [key: string]: (string | null) | number | string[];
@@ -2211,16 +2225,18 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429 and the per-bucket 429s, not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
+                /** @description Seconds to wait before retrying; sent with `room-busy` and the rate-limit bucket 429s. */
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Request body exceeds the ceiling — 512 KiB globally, 16 KiB on the anonymous auth routes (login, MFA, refresh, password reset) and the room member add — a memory-DoS backstop shared by every endpoint, so declared on every operation that takes a body (field-level maxLength rules reject oversized values far earlier on ordinary payloads). Cross-cutting for the coverage gate: pinned once by `PayloadValidationTest`, never once per operation. */
+        /** @description Request body exceeds the ceiling — 512 KiB globally, 16 KiB on the anonymous auth routes (login, MFA, refresh, password reset), the room member add and the thread status and owner PUTs, 64 KiB on a message post or edit and 192 KiB on a thread create or details edit — a memory-DoS backstop shared by every endpoint, so declared on every operation that takes a body (field-level maxLength rules reject oversized values far earlier on ordinary payloads). Cross-cutting for the coverage gate: pinned once by `PayloadValidationTest`, never once per operation. */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;
@@ -3373,6 +3389,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -3398,6 +3415,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -3423,6 +3441,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -3488,6 +3507,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -3597,6 +3617,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -3625,6 +3646,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -3768,6 +3790,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -3802,6 +3825,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -3836,6 +3860,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -4018,6 +4043,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -4046,6 +4072,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };

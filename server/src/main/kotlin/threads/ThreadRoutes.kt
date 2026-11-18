@@ -65,8 +65,9 @@ fun Application.configureThreadRoutes() {
     routing {
         authenticate {
             // The guard order of every thread route (chat-model.md "Guard order and locking"): 401 from `authenticate`; the per-user
-            // `chat-post` bucket on the POST; visibility (`visibleStanding`: 404 for a missing room and a non-member alike, audited
-            // `room.access_denied`); the pre-check (member: 403); the body (400); then the service re-runs the guard under the room lock.
+            // `chat-post` bucket on the POST and the per-user `chat-write` bucket on every other write; visibility (`visibleStanding`:
+            // 404 for a missing room and a non-member alike, audited `room.access_denied`); the pre-check (member: 403); the body
+            // (400); then the service re-runs the guard under the room lock.
             threadReads(roomService, threadService, eventService)
             threadCreate(roomService, threadService)
             threadDetails(roomService, threadService)
@@ -127,91 +128,99 @@ private fun Route.threadCreate(roomService: RoomService, threadService: ThreadSe
 }
 
 /**
- * The details PUT, in the documented guard order: visibility (404, audited), the `X-Expected-Revision` header (400), the body (400); the
- * service then re-runs the reader guard and every state check under the room lock (thread 404, archived, closed, revision: 409, the
- * kernel's 400s). Any reader edits the OPEN-side metadata, so there is no 403 here. The audit line is emitted after the commit, only when
- * something changed (a no-op writes and audits nothing), with ids and keys, never the title or a value.
+ * The details PUT (per-USER `chat-write` bucket, 240/min, before every guard), in the documented guard order: visibility (404,
+ * audited), the `X-Expected-Revision` header (400), the body (400); the service then re-runs the reader guard and every state check
+ * under the room lock (thread 404, archived, closed, revision: 409, the kernel's 400s). Any reader edits the OPEN-side metadata, so
+ * there is no 403 here. The audit line is emitted after the commit, only when something changed (a no-op writes and audits nothing),
+ * with ids and keys, never the title or a value.
  */
 private fun Route.threadDetails(roomService: RoomService, threadService: ThreadService) {
-    put<ThreadsRoute.Number> { route ->
-        val caller = call.caller()
-        val roomId = route.parent.parent.id
-        roomService.visibleStanding(caller, roomId)
-        val expected = call.expectedRevision()
-        val request = sanitizedThreadUpdate(call.receive())
-        validateThreadUpdate(request)
-        val number = route.number.toInt()
-        val change = threadService.updateDetails(roomId, number, caller, expected, request)
-        if (change != null) {
-            audit(
-                "thread.updated",
-                "byUserId" to caller.userId.toLong(),
-                "roomId" to roomId.toLong(),
-                "threadId" to change.threadId.toLong(),
-                "number" to number,
-                "revision" to change.revision,
-                "titleChanged" to change.titleChanged,
-                "fieldsChanged" to change.fieldKeys.joinToString(","),
-            )
+    rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
+        put<ThreadsRoute.Number> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.id
+            roomService.visibleStanding(caller, roomId)
+            val expected = call.expectedRevision()
+            val request = sanitizedThreadUpdate(call.receive())
+            validateThreadUpdate(request)
+            val number = route.number.toInt()
+            val change = threadService.updateDetails(roomId, number, caller, expected, request)
+            if (change != null) {
+                audit(
+                    "thread.updated",
+                    "byUserId" to caller.userId.toLong(),
+                    "roomId" to roomId.toLong(),
+                    "threadId" to change.threadId.toLong(),
+                    "number" to number,
+                    "revision" to change.revision,
+                    "titleChanged" to change.titleChanged,
+                    "fieldsChanged" to change.fieldKeys.joinToString(","),
+                )
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
-        call.respond(HttpStatusCode.NoContent)
     }
 }
 
 /**
- * The status PUT: visibility (404), the body (400), then everything else under the room lock - the one body-dependent guard, because
- * whether a steward is needed depends on the target's CATEGORY, so the service resolves the target (400), runs the steward rule (403) and
- * the archived 409 on the fresh rows. Any reader may move a thread between OPEN statuses. The audit line follows the commit, on a change.
+ * The status PUT (`chat-write` bucket): visibility (404), the body (400), then everything else under the room lock - the one
+ * body-dependent guard, because whether a steward is needed depends on the target's CATEGORY, so the service resolves the target
+ * (400), runs the steward rule (403) and the archived 409 on the fresh rows. Any reader may move a thread between OPEN statuses. The
+ * audit line follows the commit, on a change.
  */
 private fun Route.threadStatus(roomService: RoomService, statusService: ThreadStatusService) {
-    put<ThreadsRoute.Number.Status> { route ->
-        val caller = call.caller()
-        val roomId = route.parent.parent.parent.id
-        roomService.visibleStanding(caller, roomId)
-        val request = call.receive<ThreadStatusRequest>()
-        val number = route.parent.number.toInt()
-        val move = statusService.setStatus(roomId, number, caller, request.status)
-        if (move != null) {
-            audit(
-                "thread.status_changed",
-                "byUserId" to caller.userId.toLong(),
-                "roomId" to roomId.toLong(),
-                "threadId" to move.threadId.toLong(),
-                "number" to number,
-                "from" to move.from,
-                "to" to move.to,
-                "transition" to move.transition.name,
-            )
+    rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
+        put<ThreadsRoute.Number.Status> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.parent.id
+            roomService.visibleStanding(caller, roomId)
+            val request = call.receive<ThreadStatusRequest>()
+            val number = route.parent.number.toInt()
+            val move = statusService.setStatus(roomId, number, caller, request.status)
+            if (move != null) {
+                audit(
+                    "thread.status_changed",
+                    "byUserId" to caller.userId.toLong(),
+                    "roomId" to roomId.toLong(),
+                    "threadId" to move.threadId.toLong(),
+                    "number" to number,
+                    "from" to move.from,
+                    "to" to move.to,
+                    "transition" to move.transition.name,
+                )
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
-        call.respond(HttpStatusCode.NoContent)
     }
 }
 
 /**
- * The owner PUT: visibility (404), the steward pre-check on a lock-free read of the owner (a missing thread is `404`, a non-steward
- * `403`), the body (400); the service repeats the steward guard on the fresh row under the room lock, then the archived and closed
- * 409s and the new owner's membership (400). The audit line follows the commit, on a change.
+ * The owner PUT (`chat-write` bucket): visibility (404), the steward pre-check on a lock-free read of the owner (a missing thread is
+ * `404`, a non-steward `403`), the body (400); the service repeats the steward guard on the fresh row under the room lock, then the
+ * archived and closed 409s and the new owner's membership (400). The audit line follows the commit, on a change.
  */
 private fun Route.threadOwner(roomService: RoomService, threadService: ThreadService, statusService: ThreadStatusService) {
-    put<ThreadsRoute.Number.Owner> { route ->
-        val caller = call.caller()
-        val roomId = route.parent.parent.parent.id
-        val standing = roomService.visibleStanding(caller, roomId)
-        val number = route.parent.number.toInt()
-        requireThreadSteward(caller, standing, threadService.ownerOf(roomId, number).orNotFound("Thread"))
-        val request = call.receive<ThreadOwnerRequest>()
-        val move = statusService.setOwner(roomId, number, caller, request.userId)
-        if (move != null) {
-            audit(
-                "thread.owner_changed",
-                "byUserId" to caller.userId.toLong(),
-                "roomId" to roomId.toLong(),
-                "threadId" to move.threadId.toLong(),
-                "number" to number,
-                "fromUserId" to move.fromUserId.toLong(),
-                "toUserId" to move.toUserId.toLong(),
-            )
+    rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
+        put<ThreadsRoute.Number.Owner> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.parent.id
+            val standing = roomService.visibleStanding(caller, roomId)
+            val number = route.parent.number.toInt()
+            requireThreadSteward(caller, standing, threadService.ownerOf(roomId, number).orNotFound("Thread"))
+            val request = call.receive<ThreadOwnerRequest>()
+            val move = statusService.setOwner(roomId, number, caller, request.userId)
+            if (move != null) {
+                audit(
+                    "thread.owner_changed",
+                    "byUserId" to caller.userId.toLong(),
+                    "roomId" to roomId.toLong(),
+                    "threadId" to move.threadId.toLong(),
+                    "number" to number,
+                    "fromUserId" to move.fromUserId.toLong(),
+                    "toUserId" to move.toUserId.toLong(),
+                )
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
-        call.respond(HttpStatusCode.NoContent)
     }
 }

@@ -11,6 +11,7 @@ describe("problems", () => {
       threadClosed: "urn:adder:problem:thread-closed",
       statusInUse: "urn:adder:problem:status-in-use",
       fieldTypeImmutable: "urn:adder:problem:field-type-immutable",
+      roomBusy: "urn:adder:problem:room-busy",
     });
   });
 

@@ -24,6 +24,10 @@ describe("messageErrorMessage", () => {
     expect(messageErrorMessage(problem(400), t)).toBe("threads.message.error.invalid");
   });
 
+  test("a room-busy 429 has its own words, not the posting-too-quickly bucket copy", () => {
+    expect(messageErrorMessage(problem(429, PROBLEM_TYPES.roomBusy), t)).toBe("common.error.roomBusy");
+  });
+
   test("anything else is the generic action failure", () => {
     expect(messageErrorMessage(problem(500), t)).toBe("common.error.actionFailedStatus");
     expect(messageErrorMessage(new Error("offline"), t)).toBe("common.error.actionFailed");

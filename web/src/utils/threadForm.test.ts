@@ -132,6 +132,10 @@ describe("threadFormValidation", () => {
     ["an underscore host", "http://my_host.local/x"],
     ["an underscore in a bare domain", "https://exa_mple.com"],
     ["no host", "http://"],
+    ["a user name in the link", "https://trusted.example@evil.example/"],
+    ["a user name and password in the link", "https://user:secret@example.test/"],
+    ["a bidirectional override", "https://example.test/\u202Efdp.exe"],
+    ["a bidirectional isolate", "https://example.test/\u2066x"],
     ["a normalised form past 2,000 characters", `https://example.test/${"a".repeat(2000)}`],
   ])("a URL field refuses %s, naming the field", (_why, value) => {
     expect(errorsOf(values({}, { link: text(value) }))["fields.link"]).toBe("link must be a valid http(s) address (at most 2000 characters)");

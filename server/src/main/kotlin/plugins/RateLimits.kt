@@ -59,8 +59,8 @@ internal class RateLimitAuditThrottle(
 }
 
 /**
- * Every token bucket the routes ride (per client IP, except [TELEMETRY], [DIRECTORY], [ROOM_NAME], [ROOM_MEMBERS] and [CHAT_POST]: per
- * signed-in user), named in
+ * Every token bucket the routes ride (per client IP, except [TELEMETRY], [DIRECTORY], [ROOM_NAME], [ROOM_MEMBERS], [CHAT_POST] and
+ * [CHAT_WRITE]: per signed-in user), named in
  * one place so a feature module never has to know another's constant (the auth module used to import the try-it bucket's name — a layering
  * inversion the checkup removed). Route files reference these names; only this plugin installs them.
  */
@@ -108,6 +108,15 @@ object RateLimits {
      * (guard-gated, one row each). The bucket sits BEFORE the guards, so a refused or invalid POST spends a token too.
      */
     const val CHAT_POST = "chat-post"
+    /**
+     * The five thread and message writes that are not a POST share ONE bucket per signed-in user: the thread details PUT, the status PUT,
+     * the owner PUT, the message edit (PUT) and the message DELETE. Each takes the room's write lock (`rooms/RoomLock.kt`) and a pooled
+     * connection for as long as it waits, so one member's script could otherwise queue writers behind a room and hold the pool. 240/min
+     * in every mode (the [CHAT_POST] idiom, twice its figure): a person edits, moves and deletes a few times a minute at the very most
+     * (4 a second is a script, not a hand), while the SPA's own bursts (a status move and an owner hand-over together) stay far under.
+     * The bucket sits BEFORE the guards, so a refused or invalid write spends a token too.
+     */
+    const val CHAT_WRITE = "chat-write"
 
     const val DEFAULT_REFRESH_PER_MINUTE = 30
     /**
@@ -122,6 +131,7 @@ object RateLimits {
     private const val ROOM_NAME_PER_MINUTE = 30
     private const val ROOM_MEMBERS_PER_MINUTE = 60
     private const val CHAT_POST_PER_MINUTE = 120
+    private const val CHAT_WRITE_PER_MINUTE = 240
     private const val MFA_PER_MINUTE = 10
     private const val PASSWORD_RESET_CONFIRM_PER_MINUTE = 10
     private const val LOGIN_PER_MINUTE_PRODUCTION = 10
@@ -153,13 +163,14 @@ object RateLimits {
     internal fun roomNameLimit() = ROOM_NAME_PER_MINUTE
     internal fun roomMembersLimit() = ROOM_MEMBERS_PER_MINUTE
     internal fun chatPostLimit() = CHAT_POST_PER_MINUTE
+    internal fun chatWriteLimit() = CHAT_WRITE_PER_MINUTE
     internal fun mfaLimit() = MFA_PER_MINUTE
     internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
 }
 
 /**
  * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER telemetry, directory,
- * room-name, room-members and chat-post buckets.
+ * room-name, room-members, chat-post and chat-write buckets.
  * Login and password-reset follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
  * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before
@@ -183,6 +194,7 @@ fun Application.configureRateLimits() {
             ROOM_NAME to roomNameLimit(),
             ROOM_MEMBERS to roomMembersLimit(),
             CHAT_POST to chatPostLimit(),
+            CHAT_WRITE to chatWriteLimit(),
         )
     }
     install(RateLimit) {
@@ -197,12 +209,10 @@ fun Application.configureRateLimits() {
                 }
             }
         }
-        // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post). The routes mount them INSIDE `authenticate {}`
-        // (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt, threads/ThreadRoutes.kt), so this key runs only for a
-        // verified token: an
-        // anonymous call is a 401 that never reaches it and never creates a limiter. The plugin keeps one limiter per key and drops it
-        // after its refill period, so memory is
-        // bounded by the accounts active within a minute.
+        // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post, chat-write). The routes mount them INSIDE
+        // `authenticate {}` (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt, threads/ThreadRoutes.kt), so this key
+        // runs only for a verified token: an anonymous call is a 401 that never reaches it and never creates a limiter. The plugin keeps
+        // one limiter per key and drops it after its refill period, so memory is bounded by the accounts active within a minute.
         perUserBuckets.forEach { (name, limit) ->
             register(RateLimitName(name)) {
                 rateLimiter(limit = limit, refillPeriod = 60.seconds)

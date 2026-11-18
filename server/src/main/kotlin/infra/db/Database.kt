@@ -12,6 +12,7 @@ import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomServiceKey
 import ch.nokillswit.rooms.RoomWorkflowService
 import ch.nokillswit.rooms.RoomWorkflowServiceKey
+import ch.nokillswit.rooms.useRoomLockWait
 import ch.nokillswit.rooms.WorkflowUsageKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
@@ -249,6 +250,8 @@ private fun connectPooledDatabase(options: ConnectionFactoryOptions, bounds: Poo
  */
 suspend fun Application.configureDatabase() {
     val database = connectPooled()
+    // The bound on a room write's wait for the room lock (rooms/RoomLock.kt), boot-validated like the pool's own bounds.
+    database.useRoomLockWait(requireConfigInt(environment.config, "rooms.lockWaitMillis", min = 100, max = 30_000))
     val userService = UserService(database)
     attributes.put(R2dbcDatabaseKey, database)
     attributes.put(UserServiceKey, userService)

@@ -75,13 +75,15 @@ const JAVA_URI_ILLEGAL = /[|{}^`\\[\] ]/g;
  * a browser takes: so the WHATWG-normalised href is sent (it percent-encodes spaces and non-ASCII, punycodes `münchen.de` and completes
  * `http:example.com` to `http://example.com/`) with `|`, `{`, `}`, `^`, backtick, `\`, `[` and `]` encoded as well, which the WHATWG
  * parser leaves in places. Valid means absolute http(s) with a non-empty host of ASCII letters, digits, `-` and `.` (the server's rule,
- * so an underscore host is a client error here rather than a 400 there).
+ * so an underscore host is a client error here rather than a 400 there), no user name or password (`https://trusted.example@evil.example/`
+ * opens evil.example) and no control or hidden direction character (the server refuses both).
  */
 export function normalizedHttpUrl(text: string): string | null {
+  if (hasControl(text, false)) return null;
   try {
     const url = new URL(text);
     const web = url.protocol === "http:" || url.protocol === "https:";
-    if (!web || !/^[A-Za-z0-9.-]+$/.test(url.hostname)) return null;
+    if (!web || url.username !== "" || url.password !== "" || !/^[A-Za-z0-9.-]+$/.test(url.hostname)) return null;
     return url.href.replace(JAVA_URI_ILLEGAL, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
   } catch {
     return null;

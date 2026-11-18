@@ -1,5 +1,6 @@
 package ch.nokillswit.rooms
 
+import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.RoomRole
@@ -8,14 +9,32 @@ import ch.nokillswit.authz.requireRoomManager
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.authz.requireRoomReader
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.plugins.isLockNotAvailable
 import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService
 import kotlinx.coroutines.flow.toList
+import java.util.Collections
+import java.util.WeakHashMap
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+
+/** The default bound on a room write's wait for the room lock (`rooms.lockWaitMillis`, `ROOM_LOCK_WAIT_MILLIS`): see [withRoomWrite]. */
+const val DEFAULT_ROOM_LOCK_WAIT_MILLIS = 3000
+
+// The configured wait per database (one per application instance: `configureDatabase` records it, a test app may override it). A service
+// holds the `R2dbcDatabase` it was built with, never the application, so the setting travels with the database; weak keys let a stopped
+// test application's database go. A database nobody recorded (the harness's direct one) waits the default.
+private val lockWaitMillisByDatabase: MutableMap<R2dbcDatabase, Int> = Collections.synchronizedMap(WeakHashMap())
+
+/** Records how long a room write of this database waits for the room lock (boot-validated by the caller). */
+fun R2dbcDatabase.useRoomLockWait(millis: Int) {
+    lockWaitMillisByDatabase[this] = millis
+}
+
+private fun R2dbcDatabase.roomLockWaitMillis(): Int = lockWaitMillisByDatabase[this] ?: DEFAULT_ROOM_LOCK_WAIT_MILLIS
 
 /**
  * The caller's [RoomStanding] in an ACTIVE room, or null when the room is missing or deleted. With [lock] the room row is taken
@@ -70,6 +89,15 @@ private suspend fun freshCaller(caller: CallerPrincipal): CallerPrincipal? {
  * caller against the fresh thread row, so it needs both). Every room-scoped write goes through it (metadata, archive, members,
  * roles, workflow), which makes the last-OWNER count, the revision compare and the archived check race-free without locking member rows.
  * A [block] that throws rolls the whole transaction back.
+ *
+ * **The wait for the lock is bounded** (`persistence.md` "Rooms (V13)", "The room lock"): a request queued behind a busy room holds one
+ * of the pool's connections while it waits, so unbounded waiters could take the whole pool (20 connections, a 10 s acquire timeout) and
+ * stall every other request. The lock statement runs under `SET LOCAL lock_timeout` ([roomLockWaitMillis], 3 s by default), and a wait
+ * that outruns it (SQLSTATE `55P03`) is the typed `429 room-busy` with `Retry-After: 1`, audited `room.busy`. `SET LOCAL` is
+ * transaction-scoped, so it ends with the commit or rollback and can leak nothing to the next borrower of the pooled connection
+ * (`lock_timeout` is not `statement_timeout`: the "only `queryTimeout`" rule of `StatementTimeoutCache.kt` is untouched). The setting is
+ * put back to the session default as soon as the lock is held, so no other lock wait of the write (a unique-index wait, an FK key
+ * share) ever runs under it and none can raise `55P03` outside this one place.
  */
 internal suspend fun <T> R2dbcDatabase.withRoomWrite(
     roomId: UInt,
@@ -77,7 +105,15 @@ internal suspend fun <T> R2dbcDatabase.withRoomWrite(
     guard: RoomGuard,
     block: suspend (fresh: CallerPrincipal, standing: RoomStanding) -> T,
 ): T = suspendTransaction(this) {
-    val standing = readStanding(roomId, caller.userId, lock = true)
+    exec("SET LOCAL lock_timeout = ${roomLockWaitMillis()}")
+    val standing = try {
+        readStanding(roomId, caller.userId, lock = true)
+    } catch (failure: Exception) {
+        if (!failure.isLockNotAvailable()) throw failure
+        audit("room.busy", "byUserId" to caller.userId.toLong(), "roomId" to roomId.toLong())
+        throw roomBusy()
+    }
+    exec("SET LOCAL lock_timeout TO DEFAULT")
     val fresh = freshCaller(caller) ?: throw NotFoundException("Room not found")
     guard(fresh, standing)
     block(fresh, standing ?: throw NotFoundException("Room not found"))

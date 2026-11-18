@@ -1,6 +1,7 @@
 package ch.nokillswit.rooms
 
 import ch.nokillswit.authz.ConflictException
+import ch.nokillswit.authz.TooManyRequestsException
 
 /**
  * The typed 409 problems of the room surface (`urn:adder:problem:`, `ProblemDetail.type`): a client tells them apart from the plain
@@ -36,4 +37,19 @@ fun fieldTypeImmutable(keys: List<String>): ConflictException = ConflictExceptio
     "A field's type cannot change once its key exists: ${keys.joinToString()}",
     problemType = FIELD_TYPE_IMMUTABLE_PROBLEM_TYPE,
     keys = keys,
+)
+
+const val ROOM_BUSY_PROBLEM_TYPE = "urn:adder:problem:room-busy"
+
+/** Seconds the `Retry-After` header of a [roomBusy] answer names: the room lock is held for a few milliseconds, so one second is ample. */
+const val ROOM_BUSY_RETRY_AFTER_SECONDS = 1
+
+/**
+ * The room's write lock stayed busy longer than the bounded wait (`rooms/RoomLock.kt`): a `429` with `Retry-After`, typed so a client tells
+ * it apart from a rate-limit bucket by the URI. 429 (not 503/409) because it is already a cross-cutting status on every operation.
+ */
+fun roomBusy(): TooManyRequestsException = TooManyRequestsException(
+    "The room is busy - retry in a moment",
+    problemType = ROOM_BUSY_PROBLEM_TYPE,
+    retryAfterSeconds = ROOM_BUSY_RETRY_AFTER_SECONDS,
 )

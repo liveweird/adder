@@ -225,6 +225,13 @@ mail:
   # or credentials, or startup is refused in any mode; blank leaves the reset answering 503.
   appUrl: "$MAIL_APP_URL:"
 
+rooms:
+  # The longest a room write waits for the room's write lock (rooms/RoomLock.kt, `SET LOCAL lock_timeout`) before it answers
+  # 429 `room-busy` with `Retry-After: 1`. A waiter holds one of the pool's connections while it waits, so the wait is bounded: a
+  # room write holds the lock for a few milliseconds, so 3 s is ~1000x a normal hold and still far below the pool's 10 s acquire
+  # timeout. 100..30000.
+  lockWaitMillis: "$ROOM_LOCK_WAIT_MILLIS:3000"
+
 postgres:
   # Local-dev defaults point at the docker-compose Postgres, which maps host port
   # 5439 (not 5432..5438 — sibling apps may occupy those on the same machine).

@@ -1,6 +1,7 @@
 import type { ParseKeys, TFunction } from "i18next";
 import { ApiError, isTimeoutError } from "../api/http";
 import i18n from "../i18n";
+import { PROBLEM_TYPES, isProblem } from "./problems";
 
 export interface SaveErrorKeys {
   /** 401 — omit to route it through the generic fallbacks (the login page's wrong-credentials). */
@@ -23,8 +24,12 @@ export interface SaveErrorKeys {
   failed: ParseKeys;
 }
 
-/** Maps a mutation failure to the page's fixed vocabulary — never render error.message. */
+/**
+ * Maps a mutation failure to the page's fixed vocabulary — never render error.message. A `room-busy` 429 (the room's write lock stayed busy,
+ * nothing was written) is NOT a rate-limit bucket and has its own words everywhere, whatever the page's `tooManyRequests` says.
+ */
 export function saveErrorMessage(err: unknown, t: TFunction, keys: SaveErrorKeys): string {
+  if (isProblem(err, PROBLEM_TYPES.roomBusy)) return t("common.error.roomBusy");
   if (err instanceof ApiError) {
     if (err.status === 401 && keys.unauthorized) return t(keys.unauthorized);
     if (err.status === 429 && keys.tooManyRequests) return t(keys.tooManyRequests);
@@ -47,6 +52,7 @@ export function isLastAdminConflict(err: unknown): boolean {
 
 /** The list-load counterpart: status-tagged for ApiErrors, generic otherwise. */
 export function loadErrorMessage(err: unknown, t: TFunction): string {
+  if (isProblem(err, PROBLEM_TYPES.roomBusy)) return t("common.error.roomBusy");
   // 429: the per-user rate-limit bucket (security.md) — say what to do, not just the status.
   if (err instanceof ApiError && err.status === 429) return t("common.error.tooManyRequests");
   if (err instanceof ApiError) return t("common.error.loadFailedStatus", { status: err.status });

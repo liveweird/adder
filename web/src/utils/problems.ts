@@ -1,6 +1,6 @@
 import { ApiError } from "../api/http";
 
-/** The RFC 7807 problem `type` URIs the server answers 409 with (`openapi/documentation.yaml`, `chat-model.md`). */
+/** The RFC 7807 problem `type` URIs the server answers 409 (and the 429 `room-busy`) with (`openapi/documentation.yaml`, `chat-model.md`). */
 export const PROBLEM_TYPES = {
   revisionConflict: "urn:adder:problem:revision-conflict",
   lastOwner: "urn:adder:problem:last-owner",
@@ -8,6 +8,7 @@ export const PROBLEM_TYPES = {
   threadClosed: "urn:adder:problem:thread-closed",
   statusInUse: "urn:adder:problem:status-in-use",
   fieldTypeImmutable: "urn:adder:problem:field-type-immutable",
+  roomBusy: "urn:adder:problem:room-busy",
 } as const;
 
 export type ProblemType = (typeof PROBLEM_TYPES)[keyof typeof PROBLEM_TYPES];

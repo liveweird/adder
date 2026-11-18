@@ -110,18 +110,25 @@ fun requireMessageBody(body: String) {
     }
 }
 
-/** The create's own rules; the field values are the kernel's, under the room lock. Run by the route AND the service. */
+/**
+ * The create's own rules plus the SHAPE of `fields` ([requireFieldShape]); the field values are the kernel's, under the room lock. Run by
+ * the route AND the service, before the room lock.
+ */
 fun validateThreadCreate(request: ThreadCreateRequest) {
     requireThreadTitle(request.title)
     requireMessageBody(request.body)
+    requireFieldShape(request.fields)
 }
 
 /** Trims the title (a control or hidden direction character is a 400, `sanitizeSingleLine`); the field values are the kernel's. */
 fun sanitizedThreadUpdate(request: ThreadUpdateRequest): ThreadUpdateRequest =
     request.copy(title = sanitizeSingleLine(request.title, "Title"))
 
-/** The details PUT's own rules; the field values are the kernel's, under the room lock. Run by the route AND the service. */
-fun validateThreadUpdate(request: ThreadUpdateRequest) = requireThreadTitle(request.title)
+/** The details PUT's own rules plus the SHAPE of `fields`; the values are the kernel's. Run by the route AND the service. */
+fun validateThreadUpdate(request: ThreadUpdateRequest) {
+    requireThreadTitle(request.title)
+    requireFieldShape(request.fields)
+}
 
 /** What a details write changed, for the route's audit line: the row id, the NEW [revision], the title flag and the changed field keys. */
 data class ThreadChange(val threadId: UInt, val revision: Long, val titleChanged: Boolean, val fieldKeys: List<String>)

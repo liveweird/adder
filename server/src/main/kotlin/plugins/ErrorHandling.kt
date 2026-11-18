@@ -23,6 +23,7 @@ import io.ktor.server.plugins.CannotTransformContentToTypeException
 import io.ktor.server.plugins.PayloadTooLargeException
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.path
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.r2dbc.spi.R2dbcException
 import kotlinx.serialization.Serializable
@@ -92,6 +93,10 @@ private const val PG_CHARACTER_NOT_IN_REPERTOIRE = "22021"
 // budget maps it to a friendly answer where it is raised; here it only classifies the failure (StatementTimeoutCacheTest).
 private const val PG_QUERY_CANCELED = "57014"
 
+// lock_not_available: raised when a lock wait outruns `lock_timeout`. Only the room lock sets one (`rooms/RoomLock.kt`), and it answers
+// the typed 429 `room-busy` where it is raised; here it only classifies the failure.
+private const val PG_LOCK_NOT_AVAILABLE = "55P03"
+
 /** One cause-chain walk for every predicate below (self included). */
 private inline fun Throwable.anyInChain(predicate: (Throwable) -> Boolean): Boolean {
     var cur: Throwable? = this
@@ -109,6 +114,8 @@ private fun Throwable.hasSqlState(state: String): Boolean =
 internal fun Throwable.isUniqueViolation(): Boolean = hasSqlState(PG_UNIQUE_VIOLATION)
 
 internal fun Throwable.isCharacterNotInRepertoire(): Boolean = hasSqlState(PG_CHARACTER_NOT_IN_REPERTOIRE)
+
+internal fun Throwable.isLockNotAvailable(): Boolean = hasSqlState(PG_LOCK_NOT_AVAILABLE)
 
 internal fun Throwable.isQueryCanceled(): Boolean = hasSqlState(PG_QUERY_CANCELED)
 
@@ -219,7 +226,8 @@ fun Application.configureErrorHandling() {
             call.respondProblem(status, "Method not allowed for this resource")
         }
         exception<TooManyRequestsException> { call, cause ->
-            call.respondProblem(HttpStatusCode.TooManyRequests, cause.message ?: "Too many requests")
+            cause.retryAfterSeconds?.let { call.response.header(HttpHeaders.RetryAfter, it.toString()) }
+            call.respondProblem(HttpStatusCode.TooManyRequests, cause.message ?: "Too many requests", type = cause.problemType)
         }
         // The global RequestBodyLimit plugin (plugins/Http.kt) rejects oversized bodies with
         // this exception; give the 413 the RFC 7807 body every other error carries.

@@ -13,7 +13,6 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
  * Every authenticated endpoint answers a uniform 401 to callers without a valid bearer. The sweep is
@@ -33,7 +32,7 @@ class AnonymousAccessTest {
                 .filter { (_, op) -> op.security?.isEmpty() != true }
                 .map { (method, op) -> Triple(path, method, op) }
         }
-        assertTrue(secured.size >= MIN_SECURED_OPERATIONS, "the sweep covers ${secured.size} operations — the spec shrank?")
+        assertEquals(SECURED_OPERATIONS, secured.size, "the spec has ${secured.size} secured operations: update SECURED_OPERATIONS")
         val leaks = mutableListOf<String>()
         for ((path, method, op) in secured) {
             val url = path.replace(PATH_PARAMETER, "1")
@@ -99,11 +98,11 @@ class AnonymousAccessTest {
         val PATH_PARAMETER = Regex("\\{[^}]+}")
 
         /**
-         * The tripwire floor for the secured surface: 49 of the 56 declared operations as of 0.3.0 S5 (the seven public ones declare
-         * `security: []`), less a margin of 5 - a shrink is worth a look. The sweep itself covers EVERY secured operation whatever this
-         * number says; the floor only catches the spec silently losing operations. When the secured count grows by a dozen or more,
-         * raise it to the new count minus about 5 (read the current figure from `secured.size` in the sweep test).
+         * The EXACT number of secured operations: the 56 the spec declares less the seven public ones (`security: []`), as of 0.3.0. The
+         * sweep derives its list from the spec deterministically, so the count is asserted with `==`: an operation that silently drops out
+         * of the sweep, and one added without being counted, both fail here. When an operation is added or removed, set it to the new count
+         * (the failure message prints it; or count `operationId:` lines less the `security: []` ones).
          */
-        const val MIN_SECURED_OPERATIONS = 44
+        const val SECURED_OPERATIONS = 49
     }
 }

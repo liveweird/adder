@@ -3,6 +3,9 @@ package ch.nokillswit.threads
 import ch.nokillswit.infra.validation.requireNoDuplicates
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.workflows.FieldType
+import ch.nokillswit.workflows.MAX_FIELDS
+import ch.nokillswit.workflows.MAX_FIELD_KEYS_PER_ROOM
+import ch.nokillswit.workflows.MAX_KEY_LENGTH
 import ch.nokillswit.workflows.MAX_OPTIONS
 import ch.nokillswit.workflows.shown
 import io.ktor.server.plugins.BadRequestException
@@ -39,6 +42,9 @@ import kotlin.math.floor
 //   are the same stored `7`), anything else as the double's own text, so precision is that of a double. A USER id is `JsonPrimitive(id)`.
 //   Values compare by that canonical value (numbers numerically; MULTI_SELECT as a set), so a respelling is no change.
 // - MULTI_SELECT is stored in option-definition order, with kept removed options last (in their stored order): a reorder is no change.
+// - The request's `fields` has a SHAPE before it has values ([requireFieldShape], run before the room lock): at most MAX_FIELDS keys, each
+//   value a JSON primitive or null, or an array of at most MAX_OPTIONS string primitives; the stored document has a size ceiling
+//   ([requireFieldsDocumentSize]). Both answer a fixed-detail 400.
 
 /** Longest TEXT field value, in UTF-16 units. */
 const val MAX_TEXT_FIELD_LENGTH = 500
@@ -52,10 +58,47 @@ const val MAX_NUMBER_FIELD_MAGNITUDE = 1e15
 /** Longest accepted NUMBER token, in characters. */
 const val MAX_NUMBER_TOKEN_LENGTH = 32
 
+/**
+ * The ceiling on the canonical JSON text of a thread's stored `fields` document, in UTF-16 units (a backstop: the kernel's per-type limits
+ * already bound it, so a legitimate write never meets it). The worst legitimate document holds every field key the room may ever have used
+ * ([MAX_FIELD_KEYS_PER_ROOM], live and retired ones, a retired field keeps its last value), each at its largest: a key of
+ * [MAX_KEY_LENGTH] units with its quotes and colon, and the widest value of any type - a MULTI_SELECT of [MAX_OPTIONS] option keys (each
+ * [MAX_KEY_LENGTH] units, quoted, comma-separated, in brackets; a 2,000-unit URL and a TEXT of 500 units with every unit escaped are both
+ * narrower), the entries comma-separated in braces. That is 439,001 units, which is the ceiling exactly: a document past it can only come
+ * from a kernel bug, and the write refuses instead of growing the row. (The live fields alone, at most 20, are under 44,000.)
+ */
+val MAX_FIELDS_DOCUMENT_LENGTH: Int = run {
+    val multiSelect = MAX_OPTIONS * (MAX_KEY_LENGTH + 2) + (MAX_OPTIONS - 1) + 2
+    val url = MAX_URL_FIELD_LENGTH + 2
+    val text = 2 * MAX_TEXT_FIELD_LENGTH + 2
+    val entry = MAX_KEY_LENGTH + 3 + maxOf(multiSelect, url, text)
+    2 + MAX_FIELD_KEYS_PER_ROOM * entry + (MAX_FIELD_KEYS_PER_ROOM - 1)
+}
+
+private const val FIELD_SHAPE_DETAIL = "Each field value must be a single value, null or a list of option keys"
+
 private val DATE_SHAPE = Regex("""\d{4}-\d{2}-\d{2}""")
 private val NUMBER_GRAMMAR = Regex("""-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?""")
 private val USER_ID_GRAMMAR = Regex("""\d{1,18}""")
 private val URL_SCHEMES = setOf("http", "https")
+
+/**
+ * The shape of a request's `fields` map, checked right after the body decodes and BEFORE any lock: Ktor's JSON hands over any tree, and a
+ * nested object or a huge array must neither reach the kernel nor wait for the room lock to be refused. At most [MAX_FIELDS] keys (the
+ * live-field maximum); each value a JSON primitive, null, or an array of at most [MAX_OPTIONS] string primitives. Fixed details, no echo.
+ */
+fun requireFieldShape(fields: Map<String, JsonElement>) {
+    if (fields.size > MAX_FIELDS) throw BadRequestException("A request sets at most $MAX_FIELDS fields")
+    val wellFormed = fields.values.all { value ->
+        value is JsonPrimitive || (value is JsonArray && value.size <= MAX_OPTIONS && value.all { it is JsonPrimitive && it.isString })
+    }
+    if (!wellFormed) throw BadRequestException(FIELD_SHAPE_DETAIL)
+}
+
+/** The stored `fields` document must stay within [MAX_FIELDS_DOCUMENT_LENGTH] (its canonical JSON text): a fixed-detail 400. */
+fun requireFieldsDocumentSize(canonical: String) {
+    if (canonical.length > MAX_FIELDS_DOCUMENT_LENGTH) throw BadRequestException("The field values are too large to store")
+}
 
 /** One field of the room workflow as the kernel needs it; [retired] fields are never writable but keep their values. */
 data class FieldDefinition(
@@ -198,13 +241,22 @@ private fun userValue(raw: JsonElement, key: String, activeMemberIds: Set<Long>)
 }
 
 private fun urlValue(raw: String, key: String): JsonElement {
-    val text = raw.trim()
-    val valid = text.length <= MAX_URL_FIELD_LENGTH && try {
-        val uri = URI(text)
-        uri.scheme?.lowercase() in URL_SCHEMES && !uri.host.isNullOrEmpty()
-    } catch (_: URISyntaxException) {
-        false
-    }
-    if (!valid) throw BadRequestException("Field '$key' must be an absolute http or https URL of at most $MAX_URL_FIELD_LENGTH characters")
+    // The same rule as every other single-line text: trimmed, and a control or hidden direction character is a 400 (a bidi override in a
+    // link can make it read as another address).
+    val text = sanitizeSingleLine(raw, "Field '$key'")
+    val uri = parsedWebUri(text)
+        ?: throw BadRequestException("Field '$key' must be an absolute http or https URL of at most $MAX_URL_FIELD_LENGTH characters")
+    // `https://trusted.example@evil.example/` opens evil.example while reading as trusted.example: user info has no place in a link.
+    if (uri.rawUserInfo != null) throw BadRequestException("Field '$key' must not contain a user name or password in the URL")
     return JsonPrimitive(text)
+}
+
+private fun parsedWebUri(text: String): URI? {
+    if (text.length > MAX_URL_FIELD_LENGTH) return null
+    val uri = try {
+        URI(text)
+    } catch (_: URISyntaxException) {
+        return null
+    }
+    return uri.takeIf { it.scheme?.lowercase() in URL_SCHEMES && !it.host.isNullOrEmpty() }
 }

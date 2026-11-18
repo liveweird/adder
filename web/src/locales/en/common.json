@@ -47,6 +47,7 @@
     "network": "Network error. Check your connection and try again.",
     "loadFailedStatus": "Load failed ({{status}})",
     "tooManyRequests": "Too many requests. Wait a minute and try again.",
+    "roomBusy": "The room is busy right now — try again in a moment.",
     "actionFailed": "Action failed. Check your connection and try again.",
     "actionFailedStatus": "Action failed ({{status}})",
     "createFailedStatus": "Create failed ({{status}})",

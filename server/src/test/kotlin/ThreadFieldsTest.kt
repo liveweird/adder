@@ -2,11 +2,18 @@ package ch.nokillswit
 
 import ch.nokillswit.threads.FieldChange
 import ch.nokillswit.threads.FieldDefinition
+import ch.nokillswit.threads.MAX_FIELDS_DOCUMENT_LENGTH
 import ch.nokillswit.threads.MAX_NUMBER_FIELD_MAGNITUDE
 import ch.nokillswit.threads.MAX_TEXT_FIELD_LENGTH
 import ch.nokillswit.threads.MAX_URL_FIELD_LENGTH
 import ch.nokillswit.threads.applyFieldValues
 import ch.nokillswit.threads.incomingUserIds
+import ch.nokillswit.threads.requireFieldShape
+import ch.nokillswit.threads.requireFieldsDocumentSize
+import ch.nokillswit.infra.json.canonicalJson
+import ch.nokillswit.workflows.MAX_FIELDS
+import ch.nokillswit.workflows.MAX_FIELD_KEYS_PER_ROOM
+import ch.nokillswit.workflows.MAX_KEY_LENGTH
 import ch.nokillswit.workflows.FieldType
 import ch.nokillswit.workflows.MAX_OPTIONS
 import io.ktor.serialization.kotlinx.json.DefaultJson
@@ -222,6 +229,65 @@ class ThreadFieldsTest {
             assertInvalid(FieldType.URL, text(bad), "absolute http or https URL")
         }
         assertInvalid(FieldType.URL, JsonPrimitive(1), "must be a string")
+    }
+
+    @Test
+    fun `URL refuses hidden direction and control characters like every single-line text`() {
+        for (hidden in listOf('\u202A', '\u202E', '\u2066', '\u2069', '\u2028', '\u2029', '\u0007')) {
+            assertInvalid(FieldType.URL, text("https://example.com/a${hidden}b"), "control characters")
+        }
+        // The RLO classic: a link whose tail reads backwards ("...exe" shown as "...fdp").
+        assertInvalid(FieldType.URL, text("https://example.com/\u202Efdp.exe"), "control characters")
+    }
+
+    @Test
+    fun `URL refuses user info, the userinfo-spoofed host included`() {
+        val spoofs = listOf(
+            "https://trusted.example@evil.example/",
+            "https://user:secret@example.com/",
+            "http://:pw@example.com/",
+            "https://@example.com/",
+        )
+        for (spoof in spoofs) assertInvalid(FieldType.URL, text(spoof), "user name or password")
+        assertStored(FieldType.URL, text("https://example.com/a@b?x=y@z"))
+    }
+
+    @Test
+    fun `the shape of fields is checked before the values - primitives, null and short string lists only, at most 20 keys`() {
+        val wellFormed = mapOf(
+            "a" to JsonPrimitive("x"), "b" to JsonPrimitive(1), "c" to JsonNull, "d" to many("p", "q"), "e" to JsonArray(emptyList()),
+            "f" to JsonPrimitive(true),
+        )
+        requireFieldShape(wellFormed)
+        requireFieldShape(emptyMap())
+        val largestOk = (1..MAX_FIELDS).associate { "k$it" to JsonPrimitive("v") }
+        requireFieldShape(largestOk)
+        requireFieldShape(mapOf("m" to JsonArray((1..MAX_OPTIONS).map { JsonPrimitive("o$it") })))
+
+        assertRejected("at most $MAX_FIELDS fields") { requireFieldShape(largestOk + ("extra" to JsonPrimitive("v"))) }
+        val detail = "single value, null or a list of option keys"
+        val bad = listOf(
+            JsonObject(mapOf("x" to JsonPrimitive(1))),
+            JsonObject(emptyMap()),
+            JsonArray(listOf(JsonArray(emptyList()))),
+            JsonArray(listOf(JsonObject(emptyMap()))),
+            JsonArray(listOf(JsonPrimitive(1))),
+            JsonArray(listOf(JsonNull)),
+            JsonArray((0..MAX_OPTIONS).map { JsonPrimitive("o$it") }),
+        )
+        for (value in bad) assertRejected(detail) { requireFieldShape(mapOf("f" to value)) }
+    }
+
+    @Test
+    fun `the stored document ceiling is the widest legitimate document - every key a room may ever have, each at its largest`() {
+        assertEquals(439_001, MAX_FIELDS_DOCUMENT_LENGTH)
+        // The widest value is a 50-key MULTI_SELECT of 40-unit keys under a 40-unit field key: 200 of them is the worst a room can hold.
+        val widest = JsonArray((1..MAX_OPTIONS).map { JsonPrimitive("o".repeat(MAX_KEY_LENGTH - 2) + "%02d".format(it)) })
+        val document = JsonObject((1..MAX_FIELD_KEYS_PER_ROOM).associate { "f".repeat(MAX_KEY_LENGTH - 3) + "%03d".format(it) to widest })
+        val canonical = canonicalJson(document)
+        assertEquals(MAX_FIELDS_DOCUMENT_LENGTH, canonical.length, "the ceiling is exactly the worst legitimate document")
+        requireFieldsDocumentSize(canonical)
+        assertRejected("too large") { requireFieldsDocumentSize(canonical + " ") }
     }
 
     @Test

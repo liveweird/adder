@@ -63,10 +63,10 @@ fun Application.configureMessageRoutes() {
     routing {
         authenticate {
             // The guard order of every message route (chat-model.md "Guard order and locking"): 401 from `authenticate`; the per-user
-            // `chat-post` bucket on the POST; visibility (`visibleStanding`: 404 for a missing room and a non-member alike, audited
-            // `room.access_denied`); the pre-check (member for the POST, the author or a remover for the writes: 403, a missing or deleted
-            // message is 404 first); the body (400); then the service re-runs the guards under the room lock. Audit lines carry ids,
-            // never a body.
+            // `chat-post` bucket on the POST and the per-user `chat-write` bucket on every other write; visibility (`visibleStanding`:
+            // 404 for a missing room and a non-member alike, audited `room.access_denied`); the pre-check (member for the POST, the
+            // author or a remover for the writes: 403, a missing or deleted message is 404 first); the body (400); then the service
+            // re-runs the guards under the room lock. Audit lines carry ids, never a body.
             messageReads(roomService, threadService, messageService)
             messagePost(roomService, messageService)
             messageEdit(roomService, messageService)
@@ -122,53 +122,59 @@ private fun Route.messagePost(roomService: RoomService, messageService: MessageS
 }
 
 /**
- * The edit, in the documented guard order: visibility (404, audited), the author pre-check on a lock-free read of the author (a missing,
- * deleted or foreign-room message is `404`, a caller who is not the author `403`), the body (400); the service repeats the author guard
- * on the fresh rows under the room lock, then the archived and closed `409`s. The audit line follows the commit, only on a change.
+ * The edit (per-USER `chat-write` bucket, 240/min, before every guard), in the documented guard order: visibility (404, audited), the
+ * author pre-check on a lock-free read of the author (a missing, deleted or foreign-room message is `404`, a caller who is not the
+ * author `403`), the body (400); the service repeats the author guard on the fresh rows under the room lock, then the archived and
+ * closed `409`s. The audit line follows the commit, only on a change.
  */
 private fun Route.messageEdit(roomService: RoomService, messageService: MessageService) {
-    put<RoomMessagesRoute.Id> { route ->
-        val caller = call.caller()
-        val roomId = route.parent.parent.id
-        val standing = roomService.visibleStanding(caller, roomId)
-        requireMessageAuthor(caller, standing, messageService.authorOf(roomId, route.messageId).orNotFound("Message"))
-        val request = sanitizedMessage(call.receive())
-        validateMessage(request)
-        val edit = messageService.edit(roomId, route.messageId, caller, request)
-        if (edit != null) {
-            audit(
-                "message.edited",
-                "byUserId" to caller.userId.toLong(),
-                "roomId" to roomId.toLong(),
-                "threadId" to edit.threadId.toLong(),
-                "messageId" to edit.messageId.toLong(),
-            )
+    rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
+        put<RoomMessagesRoute.Id> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.id
+            val standing = roomService.visibleStanding(caller, roomId)
+            requireMessageAuthor(caller, standing, messageService.authorOf(roomId, route.messageId).orNotFound("Message"))
+            val request = sanitizedMessage(call.receive())
+            validateMessage(request)
+            val edit = messageService.edit(roomId, route.messageId, caller, request)
+            if (edit != null) {
+                audit(
+                    "message.edited",
+                    "byUserId" to caller.userId.toLong(),
+                    "roomId" to roomId.toLong(),
+                    "threadId" to edit.threadId.toLong(),
+                    "messageId" to edit.messageId.toLong(),
+                )
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
-        call.respond(HttpStatusCode.NoContent)
     }
 }
 
 /**
- * The delete (D2: the author while a member, the room OWNER or an ADMIN): visibility (404), the remover pre-check on a lock-free read of
- * the author (404 when the message is missing, deleted or in another room; `403` otherwise), then the service repeats the guard under
- * the room lock, the archived and closed `409`s, and scrubs the body. The audit line follows the commit and says whether it was moderated.
+ * The delete (`chat-write` bucket; D2: the author while a member, the room OWNER or an ADMIN): visibility (404), the remover pre-check
+ * on a lock-free read of the author (404 when the message is missing, deleted or in another room; `403` otherwise), then the service
+ * repeats the guard under the room lock, the archived and closed `409`s, and scrubs the body. The audit line follows the commit and
+ * says whether it was moderated.
  */
 private fun Route.messageDelete(roomService: RoomService, messageService: MessageService) {
-    delete<RoomMessagesRoute.Id> { route ->
-        val caller = call.caller()
-        val roomId = route.parent.parent.id
-        val standing = roomService.visibleStanding(caller, roomId)
-        requireMessageRemover(caller, standing, messageService.authorOf(roomId, route.messageId).orNotFound("Message"))
-        val removal = messageService.delete(roomId, route.messageId, caller)
-        audit(
-            "message.deleted",
-            "byUserId" to caller.userId.toLong(),
-            "roomId" to roomId.toLong(),
-            "threadId" to removal.threadId.toLong(),
-            "messageId" to removal.messageId.toLong(),
-            "authorId" to removal.authorId.toLong(),
-            "moderated" to removal.moderated,
-        )
-        call.respond(HttpStatusCode.NoContent)
+    rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
+        delete<RoomMessagesRoute.Id> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.id
+            val standing = roomService.visibleStanding(caller, roomId)
+            requireMessageRemover(caller, standing, messageService.authorOf(roomId, route.messageId).orNotFound("Message"))
+            val removal = messageService.delete(roomId, route.messageId, caller)
+            audit(
+                "message.deleted",
+                "byUserId" to caller.userId.toLong(),
+                "roomId" to roomId.toLong(),
+                "threadId" to removal.threadId.toLong(),
+                "messageId" to removal.messageId.toLong(),
+                "authorId" to removal.authorId.toLong(),
+                "moderated" to removal.moderated,
+            )
+            call.respond(HttpStatusCode.NoContent)
+        }
     }
 }
