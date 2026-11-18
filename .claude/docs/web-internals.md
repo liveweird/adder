@@ -152,7 +152,16 @@ Rendering & UI wiring:
   on mount. **Bodies are authored EN+PL only, by policy** — a new shipped UI language does NOT
   add changelog fields; non-authored languages read the English body (`AUTHORED_LANGUAGES` in the
   page). `components/MarkdownView.tsx` (Typography + react-markdown + remark-gfm/gemoji, all
-  lazy-chunk-only deps) is the one markdown renderer — reuse it for future markdown content.
+  lazy-chunk-only deps) is the one markdown renderer — reuse it for future markdown content. **Two variants** (`variant`, default `"document"`): `document` is plain react-markdown output
+  (the changelog; real headings, plain links), `message` is for chat bodies, where many user-written bodies share one page: headings render as BOLD PARAGRAPHS (50 messages cannot flood the heading
+  outline; the room page's h1/h2/h3 outline is the page's own), an image renders as a LINK to its address labelled by its alt text (the CSP is `img-src 'self' data:`, so a remote image would be
+  blocked anyway; an unsafe `src` that react-markdown's default `urlTransform` blanks stays as plain alt text), and every link opens with `target="_blank" rel="noopener noreferrer"`. Neither variant
+  renders raw HTML (no `rehype-raw`; never add it). The CSP is not changed. `MarkdownView.module.css` carries the `message` styling only.
+- **The emoji trio** (Lettuce's, ported in 0.3.0): `EmojiTextarea` (a Mantine `Textarea` taking `value`/`onChange(string)`, with the picker in its right section, the emoji spliced in at the caret
+  and the shared `charCountDescription` counter under it when `maxLength` is set) → `EmojiButton` (a subtle smiley `ActionIcon` in a `Popover`, labelled `common.emoji.insert`; the picker mounts only
+  while open) → `EmojiPicker` (emoji-mart's `Picker`, `React.lazy`'d so the data set never rides the main bundle). `data` and `i18n` are passed explicitly (no CDN; `dependencies.md`), the theme follows the
+  computed colour scheme, and the i18n file follows `asSupportedLanguage(i18n.resolvedLanguage)` — a new shipped language adds its `@emoji-mart/data/i18n/<lang>.json` to `EMOJI_I18N` (a `Record<SupportedLanguage, …>`, so
+  a missed one is a compile error). Tests stub the picker (a shadow-DOM custom element happy-dom cannot drive) and the lazy import.
 - `components/VersionStamp.tsx` shows `v<APP_VERSION> · <sha> · <time>`; its optional `to` prop
   renders it as a router link — the navbar footer instance links to `/changelog` (no dot on it any
   more), the Login/AuthCard instance deliberately stays plain (the route is behind auth). The
@@ -175,9 +184,9 @@ Rendering & UI wiring:
 When a feature needs one of these, port the sibling's `web/` implementation and its
 `web/CLAUDE.md` section wholesale:
 
-- **Lettuce's chat-shaped pieces** (`~/Sources/lettuce/web/src/components/`): `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `NotificationsButton` (0.6 mentions), and
+- **Lettuce's chat-shaped pieces** (`~/Sources/lettuce/web/src/components/`): `NotificationsButton` (0.6 mentions), and
   `safeBackParam` (the open-redirect guard for any future `?back=` param), `MetaStrip`/`FormFooter`/`ListToolbar`, and the in-app half of `DiscardGuard` (the data
-  router's `useBlocker`, which the plain `BrowserRouter` does not have). Ported in 0.2.0: `StatusPill` and the `beforeunload` half (`hooks/useDiscardGuard.ts` over
+  router's `useBlocker`, which the plain `BrowserRouter` does not have). Ported in 0.3.0: `MarkdownView`'s message variant and `EmojiPicker`/`EmojiButton`/`EmojiTextarea`. Ported in 0.2.0: `StatusPill` and the `beforeunload` half (`hooks/useDiscardGuard.ts` over
   `hooks/useBeforeUnloadGuard.ts`, used by the workflow template form, the room workflow form and the room settings/create pages).
 
 **Ported in 0.2.0 (reference).** Toadie's `X-Expected-Revision` handling is in: `api/workflowTemplates.ts` and `api/rooms.ts` send the revision the caller read as the header

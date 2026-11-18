@@ -55,6 +55,9 @@
     "saveFailedNetwork": "Zapis nie powiódł się. Sprawdź połączenie i spróbuj ponownie."
   },
   "charCount": "{{current}} / {{max}}",
+  "emoji": {
+    "insert": "Wstaw emoji"
+  },
   "language": {
     "label": "Język"
   },

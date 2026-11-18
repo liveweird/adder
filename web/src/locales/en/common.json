@@ -55,6 +55,9 @@
     "saveFailedNetwork": "Save failed. Check your connection and try again."
   },
   "charCount": "{{current}} / {{max}}",
+  "emoji": {
+    "insert": "Insert emoji"
+  },
   "language": {
     "label": "Language"
   },

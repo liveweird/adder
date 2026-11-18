@@ -46,6 +46,9 @@ export default defineConfig({
               test: /node_modules[\\/](?:react|react-dom|scheduler)[\\/]/,
               priority: 10,
             },
+            // The emoji-mart data set — the bulk of the (lazy-loaded) picker payload; splitting it keeps every
+            // chunk under Vite's 500 kB warning threshold. Reached only through EmojiButton's React.lazy.
+            { name: 'emoji-data', test: /node_modules[\\/]@emoji-mart[\\/]data[\\/]/, priority: 5 },
           ],
         },
       },
