@@ -5,6 +5,8 @@ import ch.nokillswit.auth.AccessVerdict
 import ch.nokillswit.auth.TOKEN_TYPE_ACCESS
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.auth.strictLongClaim
+import ch.nokillswit.authz.AccessToken
+import ch.nokillswit.authz.AccessTokenKey
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.maskedSecret
@@ -164,7 +166,10 @@ private suspend fun ApplicationCall.accessPrincipal(credential: JWTCredential, j
         attributes.put(BlocklistFailureKey, cause)
         return null
     }
-    return if (verdict == AccessVerdict.LIVE) JWTPrincipal(payload) else reject(verdict.name.lowercase(), userId)
+    if (verdict != AccessVerdict.LIVE) return reject(verdict.name.lowercase(), userId)
+    // The token's own facts for the routes that bind to it (`authz/AccessToken.kt`); only a token the account check accepted gets here.
+    attributes.put(AccessTokenKey, AccessToken(jti, payload.expiresAt?.time ?: 0L, revision))
+    return JWTPrincipal(payload)
 }
 
 /** The bearer token of this call decoded again (signature already verified by Ktor), only when it is the token [jti] names. */

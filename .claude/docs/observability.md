@@ -150,19 +150,20 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `room.access_denied` (byUserId/roomId) — a signed-in caller who is NOT a member (and not an ADMIN) addressed a room that EXISTS, through any room route (GET, PUT, archive, unarchive,
   DELETE, the workflow read, the member list, add, role change and removal). The response is the uniform `404`, the same as for a room that does not exist, so this line is the only trace of someone probing room ids;
   it is NOT emitted for an id that matches no active room (nothing was denied), nor for an ADMIN. Emitted by the route preamble (`rooms/RoomAccess.kt`) before the guard answers,
+- `live.ticket_saturated` (byUserId) - `POST /api/v1/live/tickets` (0.4.0 S3) found the in-memory ticket store at `live.maxTickets` after sweeping the expired ones and answered `429` (`live/LiveRoutes.kt`; no ticket is minted). **Coalesced** per user (`RateLimitAuditThrottle`, key `live.ticket_saturated:<userId>`): at most one line per user per 60 s with a `suppressed` count of the rejections folded in (0 on the first); the answer carries `Retry-After: 30`. A ticket never appears in any log line (`LiveTicketTest`),
 - `bootstrap.admin_password_rotated` (userId/email — the fixed seed-admin email, never the password or
   its hash; `infra/db/Bootstrap.kt`, only when `ADMIN_INITIAL_PASSWORD` actually replaced the seed
   hash, so an idempotent re-boot emits nothing) — the boot-time credential event, so an admin-password reset leaves a trail beyond a log line
   (Flow's `crypto.reencrypted` boot-backfill event comes back with `EncryptedAtRest`/`Reencrypt`, `security.md` "Encryption at rest"),
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
-- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post` and `chat-write` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
-  password-reset, password-reset-confirm, mfa, ready; per-user telemetry, directory, room-name, room-members, chat-post and chat-write) rejected the request with a 429, emitted from the 429 status handler in
+- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write` and `live-ticket` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
+  password-reset, password-reset-confirm, mfa, ready; per-user telemetry, directory, room-name, room-members, chat-post, chat-write and live-ticket) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
   (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
   since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one
-  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post` and `chat-write` buckets are keyed by
-  `telemetry:<userId>` / `directory:<userId>` / `room-name:<userId>` / `room-members:<userId>` / `chat-post:<userId>` / `chat-write:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
+  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write` and `live-ticket` buckets are keyed by
+  `telemetry:<userId>` / `directory:<userId>` / `room-name:<userId>` / `room-members:<userId>` / `chat-post:<userId>` / `chat-write:<userId>` / `live-ticket:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
   account reaches that key, so the key space is the account count. The client address is deliberately NOT a field
   (it is `X-Forwarded-For`-derived behind a proxy, i.e. attacker-chosen text; the ingress log has it), and neither is the
   query string. The per-account lockout's 429s are their own `login.lockout`/`login.rejected_locked` events and do not

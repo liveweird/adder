@@ -48,6 +48,8 @@ tags:
     description: The room's threads - a per-room number, a title, a workflow status, an owner and typed field values - and their append-only history. Members-only like the room; a non-member gets the uniform `404`.
   - name: messages
     description: The messages of a thread - Markdown bodies, edited by their author and deleted by their author, a room owner or an ADMIN (a deleted message stays listed as a tombstone). Members-only like the room; a non-member gets the uniform `404`.
+  - name: live
+    description: Live updates - the single-use ticket a signed-in tab exchanges for its WebSocket (the socket itself comes in a later step). Hints carry ids only; every refetch goes through the ordinary REST reads.
   - name: telemetry
     description: Adder's own vital signs (process memory, JVM, storage, request latency) and their 24h/7d/90d trends - ADMIN only.
 
@@ -1694,6 +1696,31 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/live/tickets:
+    post:
+      tags: [live]
+      operationId: mintLiveTicket
+      summary: Mint a single-use ticket for the live-update WebSocket
+      description: |
+        Any authenticated caller, no further guard: a ticket proves nothing about any room, subscriptions are judged per room when they are
+        made. The ticket (43 base64url characters) is bound to the caller and to the access token that authenticated this call, is valid
+        for 30 seconds and works ONCE: the socket sends it in its FIRST FRAME and never in a URL (API-AUTH-002), so it is not logged by
+        any proxy. The socket closes when that access token expires, and the client mints again. An exchange rather than a creation, so
+        `200`, not `201`. No request body.
+
+        Rides the per-USER `live-ticket` bucket of 60 per minute (`429` beyond it; spent before anything else). The server holds at most
+        `live.maxTickets` (10,000) unexpired tickets in memory; past that the mint is also a `429` with `Retry-After: 30` (audited `live.ticket_saturated`).
+        Tickets are per process: the deployment runs one replica.
+      responses:
+        '200':
+          description: The ticket and its expiry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiveTicketResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/telemetry/current:
     get:
       tags: [telemetry]
@@ -1888,9 +1915,10 @@ components:
         renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min),
         on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message
         (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread
-        and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), or, on /login, the
+        and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min),
+        on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min) or the server already holds its maximum of pending tickets (answered with `Retry-After: 30`), or, on /login, the
         per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other
-        writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429 and the per-bucket 429s, not with the login lockout, so it is
+        writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is
         declared optional. All carry a ProblemDetail body.
       headers:
         Retry-After:
@@ -2040,6 +2068,20 @@ components:
           type: integer
           format: int64
           description: Challenge (and code) expiry as Unix epoch milliseconds.
+
+    LiveTicketResponse:
+      type: object
+      required: [ticket, expiresAt]
+      properties:
+        ticket:
+          type: string
+          minLength: 43
+          maxLength: 43
+          description: Opaque single-use ticket (32 random bytes, base64url). Send it as the socket's first frame; never put it in a URL.
+        expiresAt:
+          type: integer
+          format: int64
+          description: Ticket expiry as Unix epoch milliseconds (30 seconds after the mint).
 
     MfaVerifyRequest:
       type: object

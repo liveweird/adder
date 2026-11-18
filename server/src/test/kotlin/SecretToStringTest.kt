@@ -14,6 +14,8 @@ import ch.nokillswit.users.UserCreateRequest
 import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.PasswordUpdateRequest
 import ch.nokillswit.infra.maskedSecret
+import ch.nokillswit.live.LiveTicketResponse
+import ch.nokillswit.live.LiveTickets
 import ch.nokillswit.plugins.JwtConfig
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -73,6 +75,19 @@ class SecretToStringTest {
         assertFalse(issued.code in rendered, "the MFA code leaked into: $rendered")
         assertFalse(issued.challengeId in rendered, "the challenge id leaked into: $rendered")
         assertTrue("expiresAt=${issued.expiresAt}" in rendered)
+    }
+
+    @Test
+    fun `a live ticket masks itself in every shape that carries it`() {
+        val tickets = LiveTickets(maxTickets = 5)
+        val issued = tickets.issue(
+            1u, isAdmin = false, roles = emptySet(), jti = secret, credentialRevision = 0, tokenExpiresAtMillis = Long.MAX_VALUE,
+        )
+        assertFalse(issued.ticket in issued.toString(), "the ticket leaked into: $issued")
+        assertTrue("expiresAtMillis=${issued.expiresAtMillis}" in issued.toString())
+        assertMasked(LiveTicketResponse(ticket = secret, expiresAt = 42).toString(), "expiresAt=42")
+        val binding = tickets.redeem(issued.ticket)!!
+        assertMasked(binding.toString(), "userId=1")
     }
 
     @Test

@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
 /**
  * The one-way package layering (CLAUDE.md "Package layout", checkup D5): everything under `infra/` is the foundation every feature
  * builds on, so it never references a feature package (`teams`, `users`, `auth`, `authz`, `telemetry`,
- * `workflows`, `rooms`, `threads`). `audit` (the cross-cutting audit trail) and `plugins` (Ktor wiring: `respondProblem`) are not
+ * `workflows`, `rooms`, `threads`, `live`). `audit` (the cross-cutting audit trail) and `plugins` (Ktor wiring: `respondProblem`) are not
  * features and stay open to `infra`. The composition root is the one
  * documented exception ([infraCompositionRoot]): the DB/bootstrap wiring MUST construct the feature services it publishes on
  * `Application.attributes`, so exactly those two files may name exactly those packages. `telemetry/` is the top layer (an observer of
@@ -36,7 +36,7 @@ class PackageBoundaryTest {
     )
 
     private val featurePackages = listOf(
-        "teams", "users", "auth", "authz", "telemetry", "workflows", "rooms", "threads",
+        "teams", "users", "auth", "authz", "telemetry", "workflows", "rooms", "threads", "live",
     )
 
     private fun packageOf(text: String): String? =
@@ -64,6 +64,23 @@ class PackageBoundaryTest {
                 emptyList()
             } else {
                 forbiddenReferences(text, listOf("telemetry")).map { "${file.name} $it" }
+            }
+        }
+        assertEquals(emptyList(), violations)
+    }
+
+    @Test
+    fun `no package outside live references live`() {
+        // live/ is a top layer like telemetry/ (the socket channel observes the chat domain, never the reverse): the chat writes reach it
+        // only through infra/notify (a NOTIFY on the wire), and application.yaml names its module by string. The scan must see the
+        // package, or an empty result proves nothing.
+        assertTrue(mainSources.any { packageOf(it.readText()) == "ch.nokillswit.live" }, "no source declares ch.nokillswit.live")
+        val violations = mainSources.flatMap { file ->
+            val text = file.readText()
+            if (packageOf(text) == "ch.nokillswit.live") {
+                emptyList()
+            } else {
+                forbiddenReferences(text, listOf("live")).map { "${file.name} $it" }
             }
         }
         assertEquals(emptyList(), violations)

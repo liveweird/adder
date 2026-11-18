@@ -49,6 +49,9 @@ ktor:
       # Threads (V14): the room's threads and their history, then their messages (0.3.0 S5). After the room routes, before the catch-all.
       - ch.nokillswit.threads.ThreadRoutesKt.configureThreadRoutes
       - ch.nokillswit.threads.MessageRoutesKt.configureMessageRoutes
+      # The live-update channel (`.claude/docs/live.md`): the single-use socket ticket mint (0.4.0 S3); the socket itself joins it in S4. After the
+      # chat routes (it reads no chat service yet), before the catch-all like every feature module.
+      - ch.nokillswit.live.LiveRoutesKt.configureLive
       - ch.nokillswit.auth.AuthRoutesKt.configureAuthRoutes
       - ch.nokillswit.auth.PasswordResetRoutesKt.configurePasswordResetRoutes
       # The telemetry read API (ADMIN, `.claude/docs/observability.md` "Telemetry"): reads what the sampler wrote.
@@ -188,6 +191,11 @@ monitoring:
   # a main source of idle allocation and log volume (memory deep dive, option K) for a snapshot nobody reads continuously - five
   # minutes still leaves a trail to look back on when diagnosing. Nothing else consumes these lines.
   reporterIntervalSeconds: "$METRICS_REPORT_INTERVAL_SECONDS:300"
+
+live:
+  # The live-update channel (live/, `.claude/docs/live.md` "Bounds"): in-memory and per-instance like the MFA challenges (single replica).
+  # Unexpired socket tickets held at once (1..100000); past it a mint is a 429 and an audited `live.ticket_saturated`.
+  maxTickets: "$LIVE_MAX_TICKETS:10000"
 
 telemetry:
   # The in-app telemetry sampler (telemetry/, `.claude/docs/observability.md` "Telemetry"): every process writes its own memory/JVM
