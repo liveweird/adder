@@ -22,6 +22,19 @@ describe("RowActionsMenu", () => {
     expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
   });
 
+  test("a disabled trigger cannot be opened", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <RowActionsMenu label="Operations for x" disabled>
+        <Menu.Item>Edit</Menu.Item>
+      </RowActionsMenu>,
+    );
+    const trigger = screen.getByRole("button", { name: "Operations for x" });
+    expect(trigger).toBeDisabled();
+    await user.click(trigger);
+    expect(screen.queryByRole("menuitem", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
   test("a loading trigger is disabled", () => {
     renderWithProviders(
       <RowActionsMenu label="Operations for x" loading>

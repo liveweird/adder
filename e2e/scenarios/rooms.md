@@ -2,11 +2,12 @@
 
 - **Spec**: [tests/rooms.spec.ts](../tests/rooms.spec.ts)
 - **Actors**: the seed administrator (`admin@adder.local`); throwaway regular users created through the Users page
-  (a room's creator and owner, an outsider)
-- **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-room-*` names) and users, removed through the
-  API in an `afterEach` (rooms first, so a failing step leaves nothing behind). The seeded Default and Incident templates
+  (a room's creator and owner, an outsider, the people the owner adds)
+- **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-room-*` names), one throwaway team
+  (`e2e-room-team-*`, seeded through the API) and its users, removed through the API in an `afterEach` (rooms first, then
+  the team, then the users, so a failing step leaves nothing behind). The seeded Default and Incident templates
   are shared and read-only: rooms only copy them. Every room is created by a throwaway user, so the seed administrator is
-  never a member of one, and the per-user `room-create` bucket (30 a minute) is far from reached.
+  never a member of one, and the per-user `room-name` bucket (30 a minute, shared by creating and renaming) and the `room-members` bucket (60 a minute, on the member add) are far from reached.
 
 ## Scenario: a user creates a room from the Incident template and finds it in the rooms rail
 
@@ -25,6 +26,33 @@
      **Settings** tab is opened), and **All rooms** is not marked current.
 6. They open **All rooms** again and filter by the room's name.
    - *Expected*: the room's row reads Owner in its role cell and 1 in its members cell.
+
+## Scenario: the owner adds a person and a whole team, hands over ownership and leaves
+
+1. The admin creates three throwaway users (an owner, a person, a teammate) and, through the API, a team holding the person
+   and the teammate; then signs out. The owner signs in, creates a room from the Default template and opens its **Members**
+   tab.
+   - *Expected*: the app is at `/rooms/:id/members`, the **Members** tab is current, and the table lists one row: the owner,
+     with the role Owner and a "You" marker.
+2. They search the **Add a person** picker for the person's name, pick the "name (email)" option and click **Add person**.
+   - *Expected*: the add answers 200; the person's row appears with the role Member and the header reads "2 members".
+3. They search the **Add a whole team** picker for the team, pick it and click **Add team**.
+   - *Expected*: a dialog "Add the team?" says the team has 2 people; confirming answers 200 and closes it. The teammate's
+     row appears as Member (the person, who already belongs, is skipped), the header reads "3 members" and the table holds
+     the three members.
+4. They click **Leave room** and confirm.
+   - *Expected*: the leave answers 409 and an inline alert says "You are the only owner of this room. Make someone else an
+     owner before you leave."; the page stays on the members list.
+5. They open the person's row menu and choose **Make owner**.
+   - *Expected*: the role change answers 204 and the person's row now reads Owner.
+6. They click **Leave room** again and confirm.
+   - *Expected*: the leave answers 204, the app lands on `/rooms`, the room is gone from the rail, and the room's URL now
+     shows "This room does not exist, or you are not a member of it."
+7. The person signs in.
+   - *Expected*: the room is in their rail; its members page lists the person and the teammate but not the former owner,
+     and shows the **Add a person** picker (the new owner has the controls).
+8. The teammate signs in and opens the members page.
+   - *Expected*: the list is read-only: no add pickers and no row menus, and **Leave room** is offered in the **Members** section's header.
 
 ## Scenario: a non-member cannot open a room while an administrator can
 
@@ -60,9 +88,9 @@
 
 ## Not covered here (and why)
 
-- **The owner adds a person and a team, hands over ownership and leaves** — the members journey, `rooms.spec.ts` test 2
-  arrives with the members page.
-- **Name clashes, validation, a template deleted mid-create, the last-owner rule, the room-create bucket (429)** — pinned by
+- **Name clashes, validation, a template deleted mid-create, the `room-name` and `room-members` buckets (429)** — pinned by
   the server's `RoomTest` and the SPA's `CreateRoom.test.tsx` / `RoomSettings.test.tsx`; the journeys drive the happy paths.
+- **Removing someone else, demoting an owner, a full room (409), an empty team, the members filters and sort** — pinned by
+  the server's `RoomMembersTest` and the SPA's `RoomMembers.test.tsx`; the journey covers add, hand-over and leave.
 - **The rail in the icon-rail mode, the "more rooms" link and the command palette's Rooms group** — pinned by `App.test.tsx`
   and `CommandPalette.test.tsx` (a list longer than 100 rooms is not worth minting here).

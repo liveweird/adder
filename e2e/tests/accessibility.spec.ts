@@ -5,7 +5,7 @@
 // (unique `e2e-axe-*` name) and the fixture room (unique `e2e-axe-room-*` name, a copy of the seeded Default template), created and
 // deleted via the API.
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { apiAsAdmin, axeViolations, expect, expectScheme, login, type Scheme, test, uniqueText } from "./helpers";
+import { ADMIN, apiAsAdmin, axeViolations, expect, expectScheme, login, type Scheme, test, uniqueText } from "./helpers";
 
 // No waivers: the theme's text/dimmed/ink tokens are AA-tested in web/src/theme.test.ts, so
 // the color-contrast rule runs for real here (Lettuce's posture, not Toadie's waiver). Fix a
@@ -133,6 +133,8 @@ test.describe("detail pages and overlays", () => {
   const DETAIL_PAGES: { name: string; path: () => string; settled: (page: Page) => Locator }[] = [
     { name: "the team page", path: () => `/teams/${teamId}`, settled: (p) => p.getByRole("heading", { name: teamName }) },
     { name: "the room home page", path: () => `/rooms/${roomId}`, settled: (p) => p.getByRole("heading", { level: 2, name: roomName }) },
+    // Settled once the admin's own row (the fixture room's owner) is in the table: the list has loaded, the controls are drawn.
+    { name: "the room members page", path: () => `/rooms/${roomId}/members`, settled: (p) => p.getByRole("table", { name: "Members", exact: true }).getByText(ADMIN) },
     { name: "the room settings page", path: () => `/rooms/${roomId}/settings`, settled: (p) => p.getByRole("heading", { level: 2, name: roomName }) },
     { name: "the edit-user page", path: () => `/users/${adminId}/edit`, settled: (p) => p.getByRole("heading", { name: "Edit user" }) },
     { name: "the user-features page", path: () => `/users/${adminId}/features`, settled: (p) => p.getByRole("heading", { name: "Feature flags" }) },
@@ -173,6 +175,16 @@ test.describe("detail pages and overlays", () => {
     await expect(dialog).toHaveCSS("opacity", "1");
     return dialog;
   }
+
+  test("the room leave dialog has no WCAG A/AA violations", async ({ page }) => {
+    await login(page);
+    await page.goto(`/rooms/${roomId}/members`);
+    // The fixture room's owner is the seed admin, so the Leave button is there; the dialog is only opened and scanned, never confirmed.
+    await page.getByRole("button", { name: "Leave room", exact: true }).click();
+    const modal = await settledDialog(page);
+    await expect(modal.getByRole("heading", { name: "Leave this room?" })).toBeVisible();
+    await scan(page, '[role="dialog"]');
+  });
 
   test("a team editor modal has no WCAG A/AA violations", async ({ page }) => {
     await login(page);

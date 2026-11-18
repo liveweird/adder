@@ -8,13 +8,14 @@ import { IconDotsVertical } from "@tabler/icons-react";
  * helper locate rows by that name and read the trigger's `aria-expanded`/`aria-controls`,
  * both of which Mantine's Menu.Target wires. The caller owns the items (`Menu.Item`,
  * `Menu.Divider`); this component owns only the trigger's shape, so every table's kebab is
- * the same control. The cell around it is `Table.Td style={{ width: 1 }} ta="right"`.
+ * the same control. The cell around it is `Table.Td style={{ width: 1 }} ta="right"`. `disabled` holds a row's menu shut while another
+ * row's action is in flight.
  */
-export default function RowActionsMenu({ label, loading, children }: { label: string; loading?: boolean; children: ReactNode }) {
+export default function RowActionsMenu({ label, loading, disabled, children }: { label: string; loading?: boolean; disabled?: boolean; children: ReactNode }) {
   return (
     <Menu>
       <Menu.Target>
-        <ActionIcon size="sm" aria-label={label} loading={loading}>
+        <ActionIcon size="sm" aria-label={label} loading={loading} disabled={disabled}>
           <IconDotsVertical size={16} />
         </ActionIcon>
       </Menu.Target>

@@ -32,6 +32,7 @@
   "tabs": {
     "aria": "Strony pokoju",
     "home": "Przegląd",
+    "members": "Członkowie/członkinie",
     "settings": "Ustawienia"
   },
   "rail": {
@@ -100,5 +101,55 @@
     "archived": "Zarchiwizowano pokój",
     "unarchived": "Przywrócono pokój",
     "deleted": "Usunięto pokój"
+  },
+  "members": {
+    "title": "Członkowie/członkinie",
+    "addTitle": "Dodaj osoby",
+    "addPersonLabel": "Dodaj osobę",
+    "addPerson": "Dodaj osobę",
+    "addTeamLabel": "Dodaj cały zespół",
+    "addTeam": "Dodaj zespół",
+    "addTeamHint": "Członkami/członkiniami zostają wszyscy, którzy są dziś w zespole. Późniejsze zmiany w zespole nie są uwzględniane.",
+    "teamTitle": "Dodać zespół?",
+    "teamBody_one": "W zespole „{{team}}” jest {{count}} osoba. Dodać ją do tego pokoju jako członka/członkinię? Osoby, które już są w pokoju, zostaną pominięte.",
+    "teamBody_few": "W zespole „{{team}}” są {{count}} osoby. Dodać je wszystkie do tego pokoju jako członków/członkinie? Osoby, które już są w pokoju, zostaną pominięte.",
+    "teamBody_many": "W zespole „{{team}}” jest {{count}} osób. Dodać je wszystkie do tego pokoju jako członków/członkinie? Osoby, które już są w pokoju, zostaną pominięte.",
+    "teamBody_other": "W zespole „{{team}}” jest {{count}} osoby. Dodać je wszystkie do tego pokoju jako członków/członkinie? Osoby, które już są w pokoju, zostaną pominięte.",
+    "teamEmpty": "Ten zespół nie ma członków/członkiń, więc nie ma kogo dodać.",
+    "teamLoadFailed": "Nie udało się wczytać zespołu",
+    "addFailed": "Nie udało się dodać do pokoju",
+    "addForbidden": "Członków/członkinie mogą dodawać tylko właściciele/ki pokoju i administratorzy/rki.",
+    "addInvalid": "Ta osoba albo ten zespół już nie istnieje.",
+    "addGone": "Ten pokój już nie istnieje albo nie masz do niego dostępu — odśwież stronę",
+    "addFull": "W pokoju może być najwyżej 500 członków/członkiń, więc te osoby się nie zmieszczą. Nikogo nie dodano.",
+    "empty": "Brak pasujących członków/członkiń",
+    "loadFailed": "Nie udało się wczytać członków/członkiń",
+    "column": {
+      "added": "Dodano"
+    },
+    "you": "Ty",
+    "makeOwner": "Ustaw jako właściciela/kę",
+    "makeMember": "Ustaw jako członka/członkinię",
+    "remove": "Usuń",
+    "leave": "Opuść pokój",
+    "roleFailed": "Nie udało się zmienić roli",
+    "removeFailed": "Nie udało się usunąć osoby z pokoju",
+    "leaveFailed": "Nie udało się opuścić pokoju",
+    "forbidden": "Tylko właściciele/ki pokoju i administratorzy/rki mogą to zrobić.",
+    "gone": "Ta osoba nie jest już członkiem/członkinią pokoju.",
+    "lastOwner": "Pokój potrzebuje przynajmniej jednego właściciela/ki. Najpierw ustaw kogoś innego jako właściciela/kę.",
+    "lastOwnerLeave": "Jesteś jedynym właścicielem/jedyną właścicielką tego pokoju. Zanim go opuścisz, ustaw kogoś innego jako właściciela/kę.",
+    "removeTitle": "Usunąć z pokoju?",
+    "removeBody": "{{name}} straci dostęp do pokoju „{{room}}”. Możesz dodać tę osobę ponownie.",
+    "leaveTitle": "Opuścić ten pokój?",
+    "leaveBody": "Stracisz dostęp do pokoju „{{room}}”, dopóki właściciel/ka nie doda Cię ponownie.",
+    "toast": {
+      "added": "Dodano do pokoju",
+      "alreadyMember": "Już jest w pokoju",
+      "teamAdded": "Dodano zespół: {{added}} nowych, {{already}} już w pokoju",
+      "roleChanged": "Zmieniono rolę",
+      "removed": "Usunięto z pokoju",
+      "left": "Opuszczono pokój"
+    }
   }
 }

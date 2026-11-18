@@ -30,6 +30,7 @@
   "tabs": {
     "aria": "Room pages",
     "home": "Overview",
+    "members": "Members",
     "settings": "Settings"
   },
   "rail": {
@@ -98,5 +99,53 @@
     "archived": "Room archived",
     "unarchived": "Room unarchived",
     "deleted": "Room deleted"
+  },
+  "members": {
+    "title": "Members",
+    "addTitle": "Add people",
+    "addPersonLabel": "Add a person",
+    "addPerson": "Add person",
+    "addTeamLabel": "Add a whole team",
+    "addTeam": "Add team",
+    "addTeamHint": "Everyone on the team today becomes a member. Later changes to the team do not follow.",
+    "teamTitle": "Add the team?",
+    "teamBody_one": "“{{team}}” has {{count}} person. Add them to this room as a member? Anyone who is already in the room is skipped.",
+    "teamBody_other": "“{{team}}” has {{count}} people. Add them all to this room as members? Anyone who is already in the room is skipped.",
+    "teamEmpty": "This team has no members, so there is nobody to add.",
+    "teamLoadFailed": "Could not read the team",
+    "addFailed": "Could not add to the room",
+    "addForbidden": "Only the room's owners and administrators can add members.",
+    "addInvalid": "That person or team no longer exists.",
+    "addGone": "This room no longer exists, or you no longer have access to it — reload the page",
+    "addFull": "A room holds at most 500 members, so this would not fit. Nobody was added.",
+    "empty": "No members match",
+    "loadFailed": "Could not load the members",
+    "column": {
+      "added": "Added"
+    },
+    "you": "You",
+    "makeOwner": "Make owner",
+    "makeMember": "Make member",
+    "remove": "Remove",
+    "leave": "Leave room",
+    "roleFailed": "Could not change the role",
+    "removeFailed": "Could not remove the member",
+    "leaveFailed": "Could not leave the room",
+    "forbidden": "Only the room's owners and administrators can do that.",
+    "gone": "This person is no longer a member of the room.",
+    "lastOwner": "A room needs at least one owner. Make someone else an owner first.",
+    "lastOwnerLeave": "You are the only owner of this room. Make someone else an owner before you leave.",
+    "removeTitle": "Remove from the room?",
+    "removeBody": "{{name}} loses access to “{{room}}”. You can add them again later.",
+    "leaveTitle": "Leave this room?",
+    "leaveBody": "You lose access to “{{room}}” until an owner adds you again.",
+    "toast": {
+      "added": "Added to the room",
+      "alreadyMember": "Already in the room",
+      "teamAdded": "Team added: {{added}} new, {{already}} already in the room",
+      "roleChanged": "Role changed",
+      "removed": "Removed from the room",
+      "left": "You left the room"
+    }
   }
 }

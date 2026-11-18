@@ -1,10 +1,11 @@
-// Rooms: a user creates a room from a workflow template and finds it in the sidebar's rooms rail; a non-member cannot open a room
-// while an administrator can; an owner archives and unarchives it and an administrator deletes it. Owns: its throwaway rooms (unique
-// `e2e-room-*` names) and users, removed through the API in an `afterEach` (rooms first). The seeded Default and Incident templates
-// are shared and read-only here: rooms only copy them. Every room is created by a throwaway user (the room-create bucket is
-// per user, 30 a minute: this file creates a handful), so the seed administrator is never a member of any of them.
+// Rooms: a user creates a room from a workflow template and finds it in the sidebar's rooms rail; the owner adds a person and a whole
+// team, hands over ownership and leaves (the last owner cannot); a non-member cannot open a room while an administrator can; an owner
+// archives and unarchives it and an administrator deletes it. Owns: its throwaway rooms (unique `e2e-room-*` names), one throwaway
+// team (`e2e-room-team-*`) and users, removed through the API in an `afterEach` (rooms first, then the team, then the users). The seeded Default and Incident templates
+// are shared and read-only here: rooms only copy them. Every room is created by a throwaway user (the room-name bucket is
+// per user, 30 a minute, and the member add has its own per-user bucket: this file stays far below both), so the seed administrator is never a member of any of them.
 import type { Page } from "@playwright/test";
-import { createUserViaUi, deleteViaApi, expect, login, openFilters, signOut, test, uniqueText } from "./helpers";
+import { apiAsAdmin, createUserViaUi, deleteViaApi, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
 
 // API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
 const cleanup: string[] = [];
@@ -95,6 +96,118 @@ test("a user creates a room from the Incident template and finds it in the rooms
   const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: `Open room ${name}` }) });
   await expect(row.getByRole("cell").nth(1)).toHaveText("Owner");
   await expect(row.getByRole("cell").nth(2)).toHaveText("1");
+});
+
+const MEMBERS_API = /\/api\/v1\/rooms\/\d+\/members(\/\d+)?$/;
+const LAST_OWNER = "You are the only owner of this room. Make someone else an owner before you leave.";
+
+test("the owner adds a person and a whole team, hands over ownership and leaves", async ({ page }) => {
+  await login(page);
+  const owner = await throwawayUser(page, "E2E Room Owner");
+  const person = await throwawayUser(page, "E2E Room Person");
+  const mate = await throwawayUser(page, "E2E Room Teammate");
+  // The fixture team holds the person (who will already belong by then) and a teammate; built through the API, since the journey's
+  // subject is the room. It goes ahead of the users in the teardown (it references them).
+  const teamName = uniqueText("e2e-room-team");
+  const { api } = await apiAsAdmin();
+  try {
+    const created = await api.post("/api/v1/teams", { data: { name: teamName } });
+    expect(created.status(), await created.text()).toBe(201);
+    const teamId = ((await created.json()) as { id: number }).id;
+    cleanup.unshift(`/api/v1/teams/${teamId}`);
+    for (const member of [person, mate]) {
+      const added = await api.put(`/api/v1/teams/${teamId}/members/${member.id}`);
+      expect(added.status(), await added.text()).toBe(204);
+    }
+  } finally {
+    await api.dispose();
+  }
+  await signOut(page);
+
+  await login(page, owner.email, owner.password);
+  const name = uniqueText("e2e-room");
+  const id = await createRoomViaUi(page, name, "Default");
+  await page.getByRole("link", { name: "Members", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${id}/members$`));
+  await expect(page.getByRole("link", { name: "Members", exact: true })).toHaveAttribute("aria-current", "page");
+  const table = page.getByRole("table", { name: "Members", exact: true });
+  const rowOf = (email: string) => table.getByRole("row").filter({ hasText: email });
+  await expect(rowOf(owner.email).getByRole("cell").nth(2)).toHaveText("Owner");
+  await expect(rowOf(owner.email).getByText("You", { exact: true })).toBeVisible();
+
+  // Add a person from the directory: they join as a plain member.
+  const personPicker = page.getByRole("combobox", { name: "Add a person" });
+  await personPicker.click();
+  await personPicker.fill(person.name);
+  await page.getByRole("option", { name: `${person.name} (${person.email})` }).click();
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && MEMBERS_API.test(r.url()) && r.status() === 200),
+    page.getByRole("button", { name: "Add person", exact: true }).click(),
+  ]);
+  await expect(rowOf(person.email).getByRole("cell").nth(2)).toHaveText("Member");
+  await expect(page.getByText("2 members", { exact: true })).toBeVisible();
+
+  // Add a whole team: the confirm states how many people it holds, and the one who already belongs is skipped.
+  const teamPicker = page.getByRole("combobox", { name: "Add a whole team" });
+  await teamPicker.click();
+  await teamPicker.fill(teamName);
+  await page.getByRole("option", { name: teamName, exact: true }).click();
+  await page.getByRole("button", { name: "Add team", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Add the team?" });
+  await expect(dialog).toContainText(`“${teamName}” has 2 people.`);
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && MEMBERS_API.test(r.url()) && r.status() === 200),
+    dialog.getByRole("button", { name: "Add team", exact: true }).click(),
+  ]);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(rowOf(mate.email).getByRole("cell").nth(2)).toHaveText("Member");
+  await expect(page.getByText("3 members", { exact: true })).toBeVisible();
+  await expect(table.getByRole("row")).toHaveCount(4); // the header and three members
+
+  // The only owner cannot leave: the refusal says to hand over first, and nothing changed.
+  await page.getByRole("button", { name: "Leave room", exact: true }).click();
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "DELETE" && MEMBERS_API.test(r.url()) && r.status() === 409),
+    page.getByRole("dialog").getByRole("button", { name: "Leave room", exact: true }).click(),
+  ]);
+  await expect(page.getByRole("alert").filter({ hasText: LAST_OWNER })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${id}/members$`));
+
+  // Hand ownership over, then leave: the room is gone from the owner's rail and from their reach.
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && MEMBERS_API.test(r.url()) && r.status() === 204),
+    rowOperation(page, person.name, "Make owner"),
+  ]);
+  await expect(rowOf(person.email).getByRole("cell").nth(2)).toHaveText("Owner");
+  await page.getByRole("button", { name: "Leave room", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Leave this room?" })).toBeVisible();
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "DELETE" && MEMBERS_API.test(r.url()) && r.status() === 204),
+    page.getByRole("dialog").getByRole("button", { name: "Leave room", exact: true }).click(),
+  ]);
+  await expect(page).toHaveURL(/\/rooms$/);
+  await expect(rail(page).getByRole("link", { name, exact: true })).toHaveCount(0);
+  await page.goto(`/rooms/${id}`);
+  await expect(page.getByText(NOT_A_MEMBER)).toBeVisible();
+  await signOut(page);
+
+  // The new owner sees the room with the original owner gone, and has the controls.
+  await login(page, person.email, person.password);
+  await expect(rail(page).getByRole("link", { name, exact: true })).toBeVisible();
+  await page.goto(`/rooms/${id}/members`);
+  await expect(rowOf(person.email)).toBeVisible();
+  await expect(rowOf(mate.email)).toBeVisible();
+  await expect(rowOf(owner.email)).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Add a person" })).toBeVisible();
+  await signOut(page);
+
+  // A plain member reads the list without the controls, and can still leave from the Members section's header.
+  await login(page, mate.email, mate.password);
+  await page.goto(`/rooms/${id}/members`);
+  await expect(rowOf(person.email)).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Add a person" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Operations for / })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Leave room", exact: true })).toBeVisible();
 });
 
 test("a non-member cannot open a room while an administrator can", async ({ page }) => {

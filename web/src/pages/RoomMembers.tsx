@@ -1,0 +1,298 @@
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useNavigate, useParams } from "react-router-dom";
+import { Badge, Button, Group, Menu, Select, Stack, Table, Text, Title } from "@mantine/core";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { IconLogout, IconShieldCheck, IconUserMinus, IconUsers } from "@tabler/icons-react";
+import type { TFunction } from "i18next";
+import { useAdmin } from "../auth";
+import { ApiError } from "../api/http";
+import { getUserId } from "../api/session";
+import { listRoomMembers, removeRoomMember, setRoomMemberRole, type RoomMember, type RoomResponse, type RoomRole } from "../api/rooms";
+import ClearableTextInput from "../components/ClearableTextInput";
+import ConfirmActionModal from "../components/ConfirmActionModal";
+import FilterPanel from "../components/FilterPanel";
+import FormErrorAlert from "../components/FormErrorAlert";
+import RegistryListTable from "../components/RegistryListTable";
+import RoomMembersAdd from "../components/RoomMembersAdd";
+import RoomPage from "../components/RoomPage";
+import RowActionsMenu from "../components/RowActionsMenu";
+import SortHeader from "../components/SortHeader";
+import { useRegistryListControls } from "../hooks/useRegistryListControls";
+import { isOneOfOrNull, useStoredState } from "../hooks/useStoredState";
+import { formatDate } from "../utils/formatDate";
+import { PROBLEM_TYPES, isProblem } from "../utils/problems";
+import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
+import { roomsPath } from "../utils/roomLinks";
+import { saveErrorMessage } from "../utils/saveError";
+import { showSuccessToast } from "../utils/toast";
+
+const SORT_FIELDS = ["name", "role", "addedAt"] as const;
+type SortField = (typeof SORT_FIELDS)[number];
+
+const ROLES: readonly RoomRole[] = ["OWNER", "MEMBER"];
+/** The view-settings namespace; each room has its own (`roomMembers.<id>`), so one room's filter never hides another's members. */
+const SETTINGS_KEY = "roomMembers";
+/** The server's cap on the name filter (longer is a 400). */
+const MAX_NAME_FILTER_LENGTH = 100;
+
+/** The words for a failed role change, removal or leave: the last-owner refusal says what to do, the rest map by status. */
+function memberErrorMessage(error: unknown, t: TFunction, self: boolean): string {
+  if (isProblem(error, PROBLEM_TYPES.lastOwner)) return t(self ? "rooms.members.lastOwnerLeave" : "rooms.members.lastOwner");
+  return saveErrorMessage(error, t, {
+    forbidden: "rooms.members.forbidden",
+    notFound: "rooms.members.gone",
+    failedStatus: "common.error.actionFailedStatus",
+    failed: "common.error.actionFailed",
+  });
+}
+
+/** Who is leaving or being removed: the row's user (the leave is the caller's own id). */
+type Departing = { userId: number; name: string };
+
+/** The page body of one loaded room: the add controls (its OWNER or an ADMIN), then the members as a paged table. */
+function MembersBody({ room }: { room: RoomResponse }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const admin = useAdmin();
+  const canManage = canManageRoom(room, admin);
+  const me = getUserId();
+  const settingsKey = `${SETTINGS_KEY}.${room.id}`;
+  const refresh = () => refreshQueriesAfterMutation(queryClient, ["rooms"]);
+  const [role, setRole] = useStoredState<RoomRole | null>(`${settingsKey}.filter.role`, null, isOneOfOrNull(ROLES));
+  const { nameFilter, setNameFilter, debouncedName, nameFilterActive, page, setPage, pageSize, setPageSize, sortField, sortDir, sortParam, toggleSort } =
+    useRegistryListControls<SortField>({ settingsKey, sortFields: SORT_FIELDS, initialSortField: "name", extraFilterDeps: [role] });
+  // `removing` outlives the dialog: its text and the failure's wording stay put through the close transition, `confirming` opens it.
+  const [removing, setRemoving] = useState<Departing | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const leaving = removing !== null && removing.userId === me;
+
+  // Under the ["rooms"] prefix: any room refresh (the header's member count included) re-reads the page.
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["rooms", "members", room.id, page, pageSize, sortParam, debouncedName, role],
+    queryFn: () => listRoomMembers(room.id, { page, pageSize, sort: sortParam, name: debouncedName || undefined, role: role ?? undefined }),
+    placeholderData: keepPreviousData,
+  });
+  const memberValues = new Set(data?.items.map((member) => String(member.userId)));
+  // The page was emptied under the reader (the last rows on it were removed): step back to the first.
+  if (data && data.items.length === 0 && page > 1) setPage(1);
+  // The members answering 404 means the room is gone or the caller no longer reads it: re-read the room, which then shows not-found.
+  const membersGone = error instanceof ApiError && error.status === 404;
+  useEffect(() => {
+    if (membersGone) void queryClient.invalidateQueries({ queryKey: ["rooms", "detail", room.id] });
+  }, [membersGone, queryClient, room.id]);
+
+  // After a leave the room's own queries would only answer 404: they are dropped, and the rooms re-read, once the page has gone
+  // (never while it is still mounted, or the invalidation would refetch what was just removed).
+  const left = useRef(false);
+  useEffect(
+    () => () => {
+      if (!left.current) return;
+      for (const part of ["detail", "members", "workflow"]) queryClient.removeQueries({ queryKey: ["rooms", part, room.id] });
+      void refreshQueriesAfterMutation(queryClient, ["rooms"]);
+    },
+    [queryClient, room.id],
+  );
+
+  // A 403, 404 or 409 says the caller's standing or the roster moved (demoted, removed, someone else acted first): show the truth.
+  const refreshOnRefusal = async (failure: unknown) => {
+    if (isAccessRefusal(failure)) await refresh();
+  };
+  const changeRole = useMutation({
+    mutationFn: ({ member, to }: { member: RoomMember; to: RoomRole }) => setRoomMemberRole(room.id, member.userId, to),
+    onSuccess: async () => {
+      showSuccessToast(t("rooms.members.toast.roleChanged"));
+      await refresh();
+    },
+    onError: refreshOnRefusal,
+  });
+  const remove = useMutation({
+    mutationFn: (member: Departing) => removeRoomMember(room.id, member.userId),
+    onSuccess: async (_none, member) => {
+      setConfirming(false);
+      if (member.userId === me) {
+        // A leave: go, and let the unmount clean up (above).
+        showSuccessToast(t("rooms.members.toast.left"));
+        left.current = true;
+        navigate(roomsPath, { replace: true });
+        return;
+      }
+      showSuccessToast(t("rooms.members.toast.removed"));
+      await refresh();
+    },
+    // The failure shows inline above the table, not inside the closed dialog.
+    onError: async (failure) => {
+      setConfirming(false);
+      await refreshOnRefusal(failure);
+    },
+  });
+
+  const columnCount = 5;
+  return (
+    <>
+      {canManage && <RoomMembersAdd room={room} memberValues={memberValues} />}
+      <Stack gap="sm">
+        <Group justify="space-between" align="center">
+          <Title order={3} size="h4">
+            {t("rooms.members.title")}
+          </Title>
+          {/* Everyone in the room can leave it (an ADMIN who is not a member has nothing to leave); the server refuses the last owner. */}
+          {room.role !== null && me !== null && (
+            <Button
+              variant="default"
+              leftSection={<IconLogout size={16} />}
+              onClick={() => {
+                changeRole.reset();
+                remove.reset();
+                setRemoving({ userId: me, name: "" });
+                setConfirming(true);
+              }}
+            >
+              {t("rooms.members.leave")}
+            </Button>
+          )}
+        </Group>
+        <FilterPanel activeFilterCount={(nameFilterActive ? 1 : 0) + (role ? 1 : 0)} storageKey={settingsKey}>
+          <ClearableTextInput
+            label={t("common.field.name")}
+            value={nameFilter}
+            onChange={setNameFilter}
+            clearLabel={t("common.filter.clearName")}
+            maxLength={MAX_NAME_FILTER_LENGTH}
+          />
+          <Select
+            label={t("common.field.role")}
+            value={role}
+            onChange={(next) => setRole(next as RoomRole | null)}
+            clearable
+            placeholder={t("common.state.any")}
+            data={ROLES.map((value) => ({ value, label: t(`rooms.role.${value}`) }))}
+          />
+        </FilterPanel>
+        {changeRole.isError && (
+          <FormErrorAlert title={t("rooms.members.roleFailed")}>{memberErrorMessage(changeRole.error, t, false)}</FormErrorAlert>
+        )}
+        {remove.isError && (
+          <FormErrorAlert title={t(leaving ? "rooms.members.leaveFailed" : "rooms.members.removeFailed")}>
+            {memberErrorMessage(remove.error, t, leaving)}
+          </FormErrorAlert>
+        )}
+        <RegistryListTable
+          label={t("rooms.members.title")}
+          errorTitle={t("rooms.members.loadFailed")}
+          error={error}
+          isError={isError}
+          isLoading={isLoading}
+          hasData={Boolean(data)}
+          rowCount={data?.items.length ?? 0}
+          columnCount={columnCount}
+          emptyIcon={IconUsers}
+          emptyLabel={t("rooms.members.empty")}
+          header={
+            <Table.Tr>
+              <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+              <Table.Th>{t("common.field.email")}</Table.Th>
+              <SortHeader field="role" label={t("common.field.role")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+              <SortHeader field="addedAt" label={t("rooms.members.column.added")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+              <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
+            </Table.Tr>
+          }
+          rows={data?.items.map((member) => {
+            const self = member.userId === me;
+            const promote = member.role === "MEMBER";
+            return (
+              <Table.Tr key={member.userId}>
+                <Table.Td>
+                  <Group gap="xs" wrap="nowrap">
+                    <Text size="sm" fw={500}>
+                      {member.name}
+                    </Text>
+                    {self && <Badge>{t("rooms.members.you")}</Badge>}
+                  </Group>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm">{member.email}</Text>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm">{t(`rooms.role.${member.role}`)}</Text>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm">{formatDate(member.addedAt)}</Text>
+                </Table.Td>
+                <Table.Td style={{ width: 1 }} ta="right">
+                  {/* A manager changes or removes the others (the server guards both); leaving is the section's own button. */}
+                  {canManage && !self && (
+                    <RowActionsMenu
+                      label={t("common.table.operationsAria", { name: member.name })}
+                      loading={changeRole.isPending && changeRole.variables?.member.userId === member.userId}
+                      disabled={changeRole.isPending}
+                    >
+                      <Menu.Item
+                        leftSection={<IconShieldCheck size={14} />}
+                        onClick={() => {
+                          remove.reset();
+                          changeRole.mutate({ member, to: promote ? "OWNER" : "MEMBER" });
+                        }}
+                      >
+                        {t(promote ? "rooms.members.makeOwner" : "rooms.members.makeMember")}
+                      </Menu.Item>
+                      <Menu.Divider />
+                      <Menu.Item
+                        color="red"
+                        leftSection={<IconUserMinus size={14} />}
+                        onClick={() => {
+                          changeRole.reset();
+                          remove.reset();
+                          setRemoving({ userId: member.userId, name: member.name });
+                          setConfirming(true);
+                        }}
+                      >
+                        {t("rooms.members.remove")}
+                      </Menu.Item>
+                    </RowActionsMenu>
+                  )}
+                </Table.Td>
+              </Table.Tr>
+            );
+          })}
+          total={data?.total ?? 0}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
+      </Stack>
+
+      <ConfirmActionModal
+        opened={confirming}
+        onClose={() => setConfirming(false)}
+        title={t(leaving ? "rooms.members.leaveTitle" : "rooms.members.removeTitle")}
+        message={
+          removing
+            ? leaving
+              ? t("rooms.members.leaveBody", { room: room.name })
+              : t("rooms.members.removeBody", { name: removing.name, room: room.name })
+            : null
+        }
+        cancelLabel={t("common.action.cancel")}
+        confirmLabel={t(leaving ? "rooms.members.leave" : "rooms.members.remove")}
+        onConfirm={() => removing && remove.mutate(removing)}
+        loading={remove.isPending}
+      />
+    </>
+  );
+}
+
+/**
+ * `/rooms/:id/members`: who is in the room, as a paged table (name and role filters; sort by name, role or when they joined).
+ * The room's OWNER or an ADMIN adds people (one from the directory, or a whole team after a count-stating confirm) and changes
+ * or removes the others; everyone in the room, a plain member included, reads the list and can leave from the section header. The last owner
+ * cannot leave or be demoted or removed (the server's 409 `last-owner`, worded inline).
+ */
+export default function RoomMembers() {
+  const { id } = useParams();
+  // Keyed by the room: the per-room view settings are read once, on mount.
+  return <RoomPage idParam={id} tab="members">{(room) => <MembersBody key={room.id} room={room} />}</RoomPage>;
+}

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { archiveRoom, createRoom, deleteRoom, getRoom, getRoomWorkflow, listRooms, unarchiveRoom, updateRoom } from "./rooms";
+import { addRoomMembers, archiveRoom, createRoom, deleteRoom, getRoom, getRoomWorkflow, listRoomMembers, listRooms, removeRoomMember, setRoomMemberRole, unarchiveRoom, updateRoom } from "./rooms";
 
 describe("rooms API wrappers", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -53,5 +53,29 @@ describe("rooms API wrappers", () => {
     expect([lastCall()[0], lastCall()[1].method]).toEqual(["/api/v1/rooms/4/unarchive", "POST"]);
     await deleteRoom(4);
     expect([lastCall()[0], lastCall()[1].method]).toEqual(["/api/v1/rooms/4", "DELETE"]);
+  });
+
+  test("listRoomMembers sends paging, sort and the filters, and omits what is unset", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 20, total: 0 })));
+    await listRoomMembers(5, { page: 2, pageSize: 40, sort: "-addedAt", name: "ann", role: "OWNER" });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/members?page=2&pageSize=40&sort=-addedAt&name=ann&role=OWNER");
+    await listRoomMembers(5, { page: 1, pageSize: 20 });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/members?page=1&pageSize=20");
+  });
+
+  test("addRoomMembers POSTs the ids and/or the team and returns the counts", async () => {
+    mockFetch.mockResolvedValue(json(200, { added: 2, alreadyMembers: 1 }));
+    await expect(addRoomMembers(5, { userIds: [3, 4], teamId: 9 })).resolves.toEqual({ added: 2, alreadyMembers: 1 });
+    const [url, init] = lastCall();
+    expect([url, init.method]).toEqual(["/api/v1/rooms/5/members", "POST"]);
+    expect(JSON.parse(init.body as string)).toEqual({ userIds: [3, 4], teamId: 9 });
+  });
+
+  test("setRoomMemberRole PUTs the role and removeRoomMember DELETEs the member", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    await setRoomMemberRole(5, 7, "OWNER");
+    expect([lastCall()[0], lastCall()[1].method, JSON.parse(lastCall()[1].body as string)]).toEqual(["/api/v1/rooms/5/members/7", "PUT", { role: "OWNER" }]);
+    await removeRoomMember(5, 7);
+    expect([lastCall()[0], lastCall()[1].method]).toEqual(["/api/v1/rooms/5/members/7", "DELETE"]);
   });
 });
