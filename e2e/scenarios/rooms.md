@@ -19,8 +19,11 @@
    - *Expected*: the picker previews the template's five statuses (Triage, Investigating, Mitigating, Monitoring, Resolved).
 4. They click **Create**.
    - *Expected*: the create answers 201 and the app opens the room: its h2 is the name, the description and "1 member"
-     show, the placeholder "Threads arrive next" is there, and the workflow summary lists Triage under Open and Resolved
-     under Closed, with the fields Severity, Component, Jira link and ETA.
+     show, the **Threads** tab is current, the thread list is empty ("No open threads") and the pane says "Pick a thread".
+     They click **New thread**: the app is at `/rooms/<id>/threads/new`, the **Threads** tab is still current, and after
+     **More fields** the form offers the copied fields Severity, Component, Jira link and ETA (all optional in Incident).
+     They open the **Workflow** tab: Status 1 is "Triage" with the Open category checked, Status 5 is "Resolved" with the
+     Closed category checked (the copied statuses and their categories).
 5. They look at the sidebar rail.
    - *Expected*: the room is a link in the **Rooms** section, `aria-current="page"` while open (and still after the
      **Settings** tab is opened), and **All rooms** is not marked current.

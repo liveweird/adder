@@ -7,8 +7,8 @@ describe("RoomTabs", () => {
     renderWithProviders(<RoomTabs id={12} active="settings" />);
     const nav = screen.getByRole("navigation", { name: "Room pages" });
     expect(nav).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("href", "/rooms/12");
-    expect(screen.getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Threads" })).toHaveAttribute("href", "/rooms/12");
+    expect(screen.getByRole("link", { name: "Threads" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute("href", "/rooms/12/members");
     expect(screen.getByRole("link", { name: "Members" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Workflow" })).toHaveAttribute("href", "/rooms/12/workflow");

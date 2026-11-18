@@ -12,3 +12,22 @@ export function parseRoomId(param: string | undefined): number | null {
   const id = Number(param);
   return id >= 1 && id <= 2_147_483_647 ? id : null;
 }
+
+/** The threads of a room live under its home route: the list at `/rooms/:id`, the new-thread form and one thread's pane beside it. */
+export const newThreadPath = (roomId: number) => `${roomPath(roomId)}/threads/new`;
+export const threadPath = (roomId: number, number: number) => `${roomPath(roomId)}/threads/${number}`;
+
+/** The per-room number of a `:number` route parameter, or null when it is not a plain positive int32 (`new`, `0`, `1e3`): no such thread exists. */
+export function parseThreadNumber(param: string | undefined): number | null {
+  return parseRoomId(param);
+}
+
+/**
+ * The router state a navigation to a thread's pane carries (a list row, a started thread) so the pane takes focus: it is where a keyboard or
+ * screen-reader user wants to be, and the clicked row stays behind in the list. A deep link, a reload and "Back" carry none and leave focus alone.
+ */
+export const focusThreadPaneState = { focusPane: true } as const;
+
+export function wantsThreadPaneFocus(state: unknown): boolean {
+  return typeof state === "object" && state !== null && "focusPane" in state && state.focusPane === true;
+}

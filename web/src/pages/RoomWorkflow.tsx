@@ -29,7 +29,7 @@ function WorkflowBody({ room }: { room: RoomResponse }) {
   // The words of a failed save or reload: here, not in the form, because a refusal that turns the editor read-only re-seeds it.
   const [error, setError] = useState<string | null>(null);
 
-  // Its own key (not the Overview summary's `["rooms", "workflow", id]`), so that summary's cache never seeds a draft: a visit
+  // Its own key (not the Threads view's shared `["rooms", "workflow", id]`), so that cache never seeds a draft: a visit
   // starts from a fresh read (`gcTime: 0`). Someone who can edit never refetches on focus (it would only be thrown away); a reader
   // does, so what they see follows the room.
   const readQuery = { queryKey: ["rooms", "workflow-edit", room.id], queryFn: () => getRoomWorkflow(room.id), gcTime: 0, refetchOnWindowFocus: !editable };

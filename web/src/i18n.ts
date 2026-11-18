@@ -15,6 +15,7 @@ import enUsers from "./locales/en/users.json";
 import enHome from "./locales/en/home.json";
 import enRooms from "./locales/en/rooms.json";
 import enTeams from "./locales/en/teams.json";
+import enThreads from "./locales/en/threads.json";
 import enTelemetry from "./locales/en/telemetry.json";
 import enWorkflows from "./locales/en/workflows.json";
 
@@ -61,6 +62,7 @@ export const en = {
   home: enHome,
   rooms: enRooms,
   teams: enTeams,
+  threads: enThreads,
   telemetry: enTelemetry,
   workflows: enWorkflows,
 };

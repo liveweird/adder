@@ -1,0 +1,82 @@
+{
+  "listAria": "Wątki",
+  "newThread": "Nowy wątek",
+  "back": "Wróć do wątków",
+  "loadFailed": "Nie udało się wczytać wątków",
+  "scope": {
+    "aria": "Które wątki wyświetlić",
+    "open": "Otwarte",
+    "closed": "Zamknięte",
+    "all": "Wszystkie"
+  },
+  "order": {
+    "aria": "Kolejność wątków",
+    "activity": "Ostatnia aktywność",
+    "newest": "Najnowsze",
+    "number": "Numer"
+  },
+  "empty": {
+    "open": "Brak otwartych wątków",
+    "closed": "Brak zamkniętych wątków",
+    "all": "Brak wątków",
+    "hint": "Rozpocznij pierwszy, żeby zacząć rozmowę.",
+    "hintClosed": "Wątki trafiają tu, gdy osiągną zamknięty status."
+  },
+  "row": {
+    "messages_one": "{{count}} wiadomość",
+    "messages_few": "{{count}} wiadomości",
+    "messages_many": "{{count}} wiadomości",
+    "messages_other": "{{count}} wiadomości"
+  },
+  "pane": {
+    "none": "Wybierz wątek",
+    "noneHint": "Wybierz jeden z listy albo rozpocznij nowy.",
+    "notFound": "Ten wątek nie istnieje.",
+    "loadFailed": "Nie udało się wczytać wątku",
+    "owner": "Właściciel/ka: {{name}}",
+    "started": "Rozpoczęty przez {{name}}, {{when}}",
+    "lastActivity": "Ostatnia aktywność: {{when}}",
+    "workflowFailed": "Nie udało się wczytać statusów pokoju"
+  },
+  "new": {
+    "title": "Nowy wątek",
+    "titleLabel": "Tytuł",
+    "bodyLabel": "Pierwsza wiadomość",
+    "bodyHint": "Możesz używać Markdowna.",
+    "moreFields": "Więcej pól",
+    "submit": "Rozpocznij wątek",
+    "notMember": "Wątki mogą rozpoczynać tylko członkowie/członkinie pokoju. Najpierw dołącz do pokoju na jego stronie Członkowie/członkinie.",
+    "archived": "Ten pokój jest zarchiwizowany, więc nie można rozpoczynać nowych wątków.",
+    "workflowFailed": "Nie udało się wczytać pól pokoju",
+    "forbidden": "Wątki mogą rozpoczynać tylko członkowie/członkinie pokoju",
+    "gone": "Ten pokój już nie istnieje albo nie masz już do niego dostępu — odśwież stronę",
+    "archivedConflict": "W międzyczasie ten pokój został zarchiwizowany, więc nie można rozpoczynać nowych wątków.",
+    "tooManyRequests": "Piszesz zbyt szybko. Poczekaj minutę i spróbuj ponownie.",
+    "invalid": "Nie udało się rozpocząć wątku: co najmniej jedno pole jest nieprawidłowe",
+    "invalidFields": "Pola pokoju mogły się zmienić od otwarcia tego formularza. Wyjdź i otwórz „Nowy wątek” ponownie, żeby zobaczyć aktualne; Twój szkic zostaje."
+  },
+  "field": {
+    "pick": "Wybierz…",
+    "clear": "Wyczyść: {{label}}"
+  },
+  "memberPicker": {
+    "placeholder": "Szukaj członków/członkiń po imieniu i nazwisku…",
+    "clear": "Wyczyść: {{label}}",
+    "noMatch": "Brak pasujących członków/członkiń"
+  },
+  "validation": {
+    "titleLength": "Tytuł musi mieć od 1 do {{max}} znaków",
+    "titleControl": "Tytuł nie może zawierać znaków sterujących ani ukrytych znaków formatowania",
+    "bodyLength": "Wiadomość musi mieć od 1 do {{max}} znaków",
+    "bodyControl": "Wiadomość nie może zawierać znaków sterujących ani ukrytych znaków formatowania",
+    "fieldRequired": "To pole jest wymagane",
+    "fieldControl": "To pole nie może zawierać znaków sterujących ani ukrytych znaków formatowania",
+    "textLength": "Najwyżej {{max}} znaków",
+    "number": "Podaj liczbę o wartości bezwzględnej nie większej niż 10^15",
+    "date": "Podaj prawidłową datę (RRRR-MM-DD)",
+    "url": "Pole „{{field}}” musi zawierać prawidłowy adres http(s) (najwyżej {{max}} znaków)"
+  },
+  "toast": {
+    "started": "Wątek rozpoczęty"
+  }
+}

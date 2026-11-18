@@ -11,9 +11,9 @@ import { renderWithProviders } from "../test/render";
 // real <App/> routes under an ADMIN session with an empty-everything API, so it pins the structure
 // every page keeps whatever it loads (the per-page tests pin the loaded outlines).
 
-/** Route patterns → a concrete path the page renders at. */
+/** Route patterns → a concrete path the page renders at: every `:param` (`/rooms/:id/threads/:number` has two) becomes 1. */
 function concretePath(pattern: string): string {
-  return pattern.replace(":id", "1");
+  return pattern.replace(/:\w+/g, "1");
 }
 
 const ROUTE_PATTERNS = [...appSource.matchAll(/<Route\s+(?:index|path="([^"]+)")/g)]
@@ -23,12 +23,22 @@ const ROUTE_PATTERNS = [...appSource.matchAll(/<Route\s+(?:index|path="([^"]+)")
 // Pages outside the shell (the auth cards) render signed OUT; the rest need a session.
 const SIGNED_OUT = new Set(["/login", "/reset-password", "/reset-password/confirm"]);
 
+// One room (id 1, the caller its owner) with a one-status workflow and one thread, so the room's pages — the thread list, the new-thread
+// form and a thread's pane included — render their loaded outlines rather than the not-found state.
+const ROOM = { id: 1, name: "Night Shift", description: null, archived: false, archivedAt: null, role: "OWNER", memberCount: 1, workflowRevision: 1, lastActivityAt: 1, createdAt: 1, updatedAt: 1 };
+const WORKFLOW = { revision: 1, statuses: [{ key: "open", label: "Open", colour: "BLUE", category: "OPEN", initial: true, threadCount: 1 }, { key: "done", label: "Done", colour: "TEAL", category: "CLOSED", initial: false, threadCount: 0 }], fields: [] };
+const THREAD_ITEM = { id: 1, number: 1, title: "Disk full", status: "open", closed: false, ownerId: 1, ownerName: "Admin", messageCount: 1, lastActivityAt: 1, createdAt: 1 };
+const THREAD = { ...THREAD_ITEM, closedAt: null, createdById: 1, createdByName: "Admin", fields: {}, fieldUserNames: {}, revision: 1, updatedAt: 1 };
+const PAGE = { items: [], page: 1, pageSize: 20, total: 0 };
+
 function emptyApi() {
   return vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
-    if (/\/api\/v1\/(users|teams|workflow-templates|rooms)(\?|$)/.test(url)) {
-      return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 20, total: 0 }));
-    }
+    if (url === "/api/v1/rooms/1") return Promise.resolve(jsonResponse(200, ROOM));
+    if (url === "/api/v1/rooms/1/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+    if (url === "/api/v1/rooms/1/threads/1") return Promise.resolve(jsonResponse(200, THREAD));
+    if (url.startsWith("/api/v1/rooms/1/threads?")) return Promise.resolve(jsonResponse(200, { ...PAGE, items: [THREAD_ITEM], total: 1 }));
+    if (/\/api\/v1\/(users|teams|workflow-templates|rooms)(\?|$)|\/api\/v1\/rooms\/1\/members\?/.test(url)) return Promise.resolve(jsonResponse(200, PAGE));
     return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
   });
 }

@@ -1,0 +1,31 @@
+/* A thread row: a whole-row link in the rail, hairline-separated; the open thread carries the same accent bar as the active nav item. */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row {
+  display: block;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-bottom: 1px solid var(--mantine-color-default-border);
+  border-left: 3px solid transparent;
+  color: inherit;
+  text-decoration: none;
+  /* A title with no break opportunity (a hostname, a path) wraps instead of widening the rail. */
+  overflow-wrap: anywhere;
+}
+
+.row:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.row[aria-current="page"] {
+  background: var(--mantine-color-default-hover);
+  border-left-color: var(--mantine-primary-color-filled);
+}
+
+/* The previous filter's rows while the new one loads. */
+.stale {
+  opacity: 0.5;
+}

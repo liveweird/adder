@@ -114,7 +114,7 @@ export default function RoomWorkflowForm({
       setStaleAfterSave(true);
       setSubmitting(false);
     }
-    // The room's header and the Overview's workflow summary read the old document.
+    // The room's header and the Threads view (its status pills and the new-thread form's fields, under the shared workflow key) read the old document.
     await refreshQueriesAfterMutation(queryClient, ["rooms", "detail", room.id], ["rooms", "workflow", room.id]);
   }
 

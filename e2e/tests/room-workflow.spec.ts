@@ -115,11 +115,12 @@ test("an owner reorders and recolours statuses, adds a closed status and a selec
   await expect(saved.getByRole("textbox", { name: "Label" }).nth(1)).toHaveValue("High");
   await expect(saved.getByRole("textbox", { name: "Label" }).nth(2)).toHaveValue("Low");
 
-  // The Overview's summary follows the saved workflow.
-  await page.getByRole("link", { name: "Overview", exact: true }).click();
+  // The Threads view follows the saved workflow: the new-thread form offers the new field.
+  await page.getByRole("link", { name: "Threads", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}$`));
-  await expect(page.getByRole("group", { name: "Closed", exact: true })).toContainText("Cancelled");
-  await expect(page.getByText("Fields: Impact")).toBeVisible();
+  await page.getByRole("link", { name: "New thread", exact: true }).click();
+  await page.getByRole("button", { name: "More fields" }).click();
+  await expect(page.getByRole("combobox", { name: "Impact", exact: true })).toBeVisible();
 });
 
 test("a stale workflow save is refused and a reload recovers", async ({ page }) => {

@@ -2,7 +2,10 @@ import { useTranslation } from "react-i18next";
 import { Group, Pagination, Select, Text } from "@mantine/core";
 import { PAGE_SIZE_OPTIONS } from "../hooks/usePagedSort";
 
-/** The shared list footer: total count, rows-per-page picker, and the pager. */
+/**
+ * The shared list footer: total count, rows-per-page picker, and the pager. A list whose page size is fixed (the thread rail: 50, which
+ * is none of the picker's sizes, and the rail is too narrow for the picker) omits `onPageSizeChange`, and the picker with it.
+ */
 export default function PaginationBar({
   total,
   page,
@@ -14,7 +17,7 @@ export default function PaginationBar({
   page: number;
   pageSize: number;
   onPageChange: (page: number) => void;
-  onPageSizeChange: (size: number) => void;
+  onPageSizeChange?: (size: number) => void;
 }) {
   const { t } = useTranslation();
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -24,21 +27,23 @@ export default function PaginationBar({
         {t("common.table.total", { count: total })}
       </Text>
       <Group gap="sm" align="center">
-        <Select
-          size="xs"
-          aria-label={t("common.table.rowsPerPage")}
-          data={PAGE_SIZE_OPTIONS.map((n) => ({
-            value: String(n),
-            label: t("common.table.perPage", { count: n }),
-          }))}
-          value={String(pageSize)}
-          onChange={(v) => {
-            if (!v) return;
-            onPageSizeChange(Number(v));
-          }}
-          allowDeselect={false}
-          w={110}
-        />
+        {onPageSizeChange && (
+          <Select
+            size="xs"
+            aria-label={t("common.table.rowsPerPage")}
+            data={PAGE_SIZE_OPTIONS.map((n) => ({
+              value: String(n),
+              label: t("common.table.perPage", { count: n }),
+            }))}
+            value={String(pageSize)}
+            onChange={(v) => {
+              if (!v) return;
+              onPageSizeChange(Number(v));
+            }}
+            allowDeselect={false}
+            w={110}
+          />
+        )}
         <Pagination
           value={page}
           onChange={onPageChange}

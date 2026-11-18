@@ -74,7 +74,7 @@ function Probe() {
   return <p>at {useLocation().pathname}</p>;
 }
 
-/** Stands in for the Overview's workflow summary: the same query key, so a save must refresh it. */
+/** Stands in for the Threads view's use of the workflow: the same query key, so a save must refresh it. */
 function Summary() {
   const { data } = useQuery({ queryKey: ["rooms", "workflow", 12], queryFn: () => getRoomWorkflow(12) });
   return <p data-testid="summary">{data?.statuses.map((status) => status.label).join(", ")}</p>;
@@ -156,7 +156,7 @@ describe("reading and editing", () => {
     expect(await screen.findByTestId("summary")).toHaveTextContent("Triage, Working, Done, Dropped");
     await save(user);
     await waitFor(() => expect(label(3)).toHaveValue("Done (closed)"));
-    // The Overview's summary (the same query key) re-reads the saved workflow.
+    // The Threads view's workflow read (the same query key) re-reads the saved workflow.
     await waitFor(() => expect(screen.getByTestId("summary")).toHaveTextContent("Triage, Working, Done (closed), Dropped"));
     expect(showSuccessToast).toHaveBeenCalledWith("Workflow saved");
     expect(putRevision(mockFetch)).toBe("3");

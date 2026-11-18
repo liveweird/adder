@@ -1,0 +1,80 @@
+{
+  "listAria": "Threads",
+  "newThread": "New thread",
+  "back": "Back to threads",
+  "loadFailed": "Could not load the threads",
+  "scope": {
+    "aria": "Which threads to list",
+    "open": "Open",
+    "closed": "Closed",
+    "all": "All"
+  },
+  "order": {
+    "aria": "Order threads by",
+    "activity": "Recent activity",
+    "newest": "Newest",
+    "number": "Number"
+  },
+  "empty": {
+    "open": "No open threads",
+    "closed": "No closed threads",
+    "all": "No threads yet",
+    "hint": "Start one to get the conversation going.",
+    "hintClosed": "Threads land here when they reach a closed status."
+  },
+  "row": {
+    "messages_one": "{{count}} message",
+    "messages_other": "{{count}} messages"
+  },
+  "pane": {
+    "none": "Pick a thread",
+    "noneHint": "Choose one from the list, or start a new one.",
+    "notFound": "This thread does not exist.",
+    "loadFailed": "Could not load the thread",
+    "owner": "Owner: {{name}}",
+    "started": "Started by {{name}} on {{when}}",
+    "lastActivity": "Last activity {{when}}",
+    "workflowFailed": "Could not load the room's statuses"
+  },
+  "new": {
+    "title": "New thread",
+    "titleLabel": "Title",
+    "bodyLabel": "First message",
+    "bodyHint": "Markdown is supported.",
+    "moreFields": "More fields",
+    "submit": "Start thread",
+    "notMember": "Only members of the room can start threads. Join the room from its Members page first.",
+    "archived": "This room is archived, so no new threads can be started.",
+    "workflowFailed": "Could not load the room's fields",
+    "forbidden": "Only members of the room can start threads",
+    "gone": "This room no longer exists, or you no longer have access to it — reload the page",
+    "archivedConflict": "This room was archived in the meantime, so no new threads can be started.",
+    "tooManyRequests": "You are posting too quickly. Wait a minute and try again.",
+    "invalid": "The thread could not be started: one or more fields are invalid",
+    "invalidFields": "The room's fields may have changed since you opened this form. Leave and reopen New thread to see the current ones; your draft is kept."
+  },
+  "field": {
+    "pick": "Pick…",
+    "clear": "Clear {{label}}"
+  },
+  "memberPicker": {
+    "placeholder": "Search members by name…",
+    "clear": "Clear {{label}}",
+    "noMatch": "No matching members"
+  },
+  "validation": {
+    "titleLength": "Title must be 1–{{max}} characters",
+    "titleControl": "Title must not contain control or hidden formatting characters",
+    "bodyLength": "The message must be 1–{{max}} characters",
+    "bodyControl": "The message must not contain control or hidden formatting characters",
+    "fieldRequired": "This field is required",
+    "fieldControl": "This field must not contain control or hidden formatting characters",
+    "textLength": "At most {{max}} characters",
+    "number": "Enter a number with an absolute value of at most 10^15",
+    "date": "Enter a valid date (YYYY-MM-DD)",
+    "url": "{{field}} must be a valid http(s) address (at most {{max}} characters)"
+  },
+  "toast": {
+    "started": "Thread started"
+  }
+}

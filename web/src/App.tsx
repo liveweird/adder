@@ -9,6 +9,7 @@ import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
 import LoadingBlock from "./components/LoadingBlock";
 import RoomsRail from "./components/RoomsRail";
+import ThreadDraftsProvider from "./components/ThreadDraftsProvider";
 import TelemetryPanelCrash from "./components/TelemetryPanelCrash";
 import UserMenu from "./components/UserMenu";
 import VersionStamp from "./components/VersionStamp";
@@ -206,11 +207,13 @@ function Shell() {
         {/* A page crash stays inside the main area — header/nav keep working, and navigating
             anywhere remounts the boundary (see components/ErrorBoundary.tsx). The inner
             Suspense keeps the shell mounted while a lazy page chunk loads. */}
-        <RouteErrorBoundary>
-          <Suspense fallback={<RouteFallback />}>
-            <Outlet />
-          </Suspense>
-        </RouteErrorBoundary>
+        <ThreadDraftsProvider>
+          <RouteErrorBoundary>
+            <Suspense fallback={<RouteFallback />}>
+              <Outlet />
+            </Suspense>
+          </RouteErrorBoundary>
+        </ThreadDraftsProvider>
       </AppShell.Main>
 
       {showPanel && (
@@ -255,6 +258,8 @@ export default function App() {
             <Route path="rooms" element={<Rooms />} />
             <Route path="rooms/new" element={<CreateRoom />} />
             <Route path="rooms/:id" element={<RoomHome />} />
+            <Route path="rooms/:id/threads/new" element={<RoomHome isNew />} />
+            <Route path="rooms/:id/threads/:number" element={<RoomHome />} />
             <Route path="rooms/:id/members" element={<RoomMembers />} />
             <Route path="rooms/:id/workflow" element={<RoomWorkflow />} />
             <Route path="rooms/:id/settings" element={<RoomSettings />} />

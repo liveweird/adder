@@ -5,8 +5,9 @@
   anonymous visitor for the login screen
 - **Owns** (exclusive server-side state): one fixture team (unique `e2e-axe-*` name), created
   through the API before the detail-page block and deleted after it, and one fixture room
-  (unique `e2e-axe-room-*` name, a copy of the seeded Default template, the admin its owner) and an archived twin of it (for the
-  read-only workflow page), created and deleted the same way;
+  (unique `e2e-axe-room-*` name, a copy of the seeded Default template, the admin its owner) with one thread in it
+  (`e2e-axe-thread-*`, started through the API; threads are never deleted, the room's deletion hides it) and an archived twin of it
+  (for the read-only workflow page), created and deleted the same way;
   the list/form pages and the login screen are read-only
 
 This is the registered template-title exception (see README.md): one `test()` per page is
@@ -24,7 +25,10 @@ generated from a list, so a single scenario section stands in for each list.
    - *Expected*: an axe scan (same tags) reports zero violations.
 
 The list covers the Home page, the Rooms list and its create form, the Teams list, the Users list and its create form, the workflow-template list and its create form, the ADMIN feature-flags screen,
-Change password and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set.
+Change password and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set. The fixture room's own
+pages are scanned by the detail-page block, each as its own test (`the room home page (the thread list)`, `the room's thread view`,
+`the new-thread form`, the members, workflow and settings pages): the thread list and the three-pane thread view are scanned only
+once both the list and the pane have loaded.
 
 ## Scenario: `<path>` has no WCAG A/AA violations in the dark scheme
 

@@ -91,10 +91,35 @@ restructuring: the feature `Select` already lists `FEATURES`. Both queries key u
 semantics: a PUT whose disabled set omits `MFA` ENABLES it. A bulk run with nothing to change is neither
 success nor failure: it shows the inline gray `role="note"` Alert (`users.featureFlags.bulkNoChange`), never a toast.
 
+### The room view (the Threads tab)
+
+`pages/RoomHome.tsx` serves THREE routes (`/rooms/:id`, `/rooms/:id/threads/new` through the `isNew` prop, `/rooms/:id/threads/:number`; the static `new` outranks `:number`),
+and the list stays mounted (the same DOM node, on the page the reader chose) while the pane changes (pinned in `RoomHome.test.tsx`). `RoomHome.module.css` is the layout, and it
+answers to the width of the MAIN AREA through a container query (the sidebar and the ADMIN telemetry aside eat the viewport, so a viewport breakpoint would crush the pane): from 46rem
+two columns `minmax(18rem, 22rem) 1fr`; below it master-detail through `data-pane="list"|"thread"` on the grid (the list at the room's own route, the pane on the thread routes,
+which carry a "Back to threads" link that the wide layout hides); 0.3's side panel adds the `18rem` third column and its "Details" toggle. **Heading outline:** the room name stays the
+`PageHeader` h2 (the repo's h2, not the plan's "h1"), the pane's heading `#42 Title` is the h3 (the pane is a labelled `region`), the side panel's sections will be h4, the list is a
+labelled `nav` with no heading, and message bodies never emit headings; long titles wrap anywhere (`overflow-wrap: anywhere`). **Focus:** a navigation to a thread from a list row or a
+started thread carries `focusThreadPaneState` (`utils/roomLinks.ts`) and the pane `section` (`tabIndex={-1}`) takes focus once the thread has loaded (keyed by the thread's id, so a refetch
+never pulls it back); a deep link or a reload leaves focus alone. **Queries:** `["rooms", "threads", roomId, "list", …]` (the rail: 50 a page, Open by default and `-lastActivityAt`; the scope
+and the order persist per room as `roomThreads.<id>.scope|order`; the page is derived from the (room, scope, order) it was chosen under, so a changed filter's FIRST request is page 1;
+the previous filter's rows stay dimmed and `aria-busy` while the new one loads, and an empty state is only ever the current filter's answer; the page-size picker is left out of
+`PaginationBar` by omitting `onPageSizeChange`) and `["rooms", "threads", roomId, "detail", number]`; the workflow is the ONE shared `["rooms", "workflow", roomId]` read
+(`hooks/useRoomWorkflow.ts`) for the status pills and the form's fields. A write refreshes the whole `["rooms"]` prefix (threads, rail, workflow `threadCount`s, the room's own header).
+**The new-thread draft** is kept per room in memory above the routes (`components/ThreadDraftsProvider.tsx` in the shell, inside the session boundary so a new sign-in starts with none;
+`hooks/useThreadDrafts.ts`), written as the form changes while it holds something, so a list row, a tab or "Back to threads" does not lose it; coming back restores it laid over the
+room's current fields (`reconcileThreadDraft`), and a started thread or a confirmed discard clears it. `NewThreadForm` seeds its field set ONCE from the workflow read (a background
+re-read never adds or drops an input under a draft); a 400 on create also re-reads the workflow, and one about a field says the room's fields may have changed; every 400 shows the server's
+own `detail` after the generic words. `utils/threadForm.ts` holds the limits and rules mirrored from the server, the typed field drafts (`{kind: "text" | "multi" | "user"}`) and the create
+body (only fields that hold something are sent; NUMBER and USER travel as JSON numbers; **a URL travels normalised** — `normalizedHttpUrl`: the WHATWG href plus `|{}^\`[]` percent-encoded
+(the server parses with `java.net.URI`), and the host must be ASCII letters, digits, `-` and `.`, the server's own rule); `ThreadFieldInput` is the per-type switch and `RoomMemberSelect`
+(a `SearchPicker` over `GET /rooms/{id}/members?name=`) its USER input. UX gating only (`utils/threadAccess.ts`): speech is for members of a live room, the server answers 403 and 409.
+Times render in the BROWSER's time zone (`browserTimeZone()` in `utils/formatDate.ts`).
+
 ### Heading outline guard
 
 `pages/headingOutline.test.tsx` renders every route read from `App.tsx` (via `?raw`, so a new route is covered
-the moment it registers) under an ADMIN session with an empty API and asserts the outline starts at h2 and never
+the moment it registers; every `:param` becomes `1`) under an ADMIN session with an empty API plus one room, workflow and thread and asserts the outline starts at h2 and never
 skips a level going down. A page whose real title needs loaded data passes a static `title` to
 `EditPageLoadState`, so its load/failure state still opens with an h2 (TeamDetails).
 

@@ -71,15 +71,31 @@ test("a user creates a room from the Incident template and finds it in the rooms
   const id = ((await created.json()) as { id: number }).id;
   cleanup.unshift(`/api/v1/rooms/${id}`);
 
-  // The creator lands on the room: its header, the placeholder and the copied workflow as pills.
+  // The creator lands on the room: its header, the Threads tab open, the (still empty) thread list and the pane's prompt.
   await expect(page).toHaveURL(new RegExp(`/rooms/${id}$`));
   await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
   await expect(page.getByText("Playwright's own room")).toBeVisible();
   await expect(page.getByText("1 member", { exact: true })).toBeVisible();
-  await expect(page.getByText("Threads arrive next")).toBeVisible();
-  await expect(page.getByRole("group", { name: "Open", exact: true })).toContainText("Triage");
-  await expect(page.getByRole("group", { name: "Closed", exact: true })).toContainText("Resolved");
-  await expect(page.getByText("Fields: Severity, Component, Jira link, ETA")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Threads", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByText("No open threads")).toBeVisible();
+  await expect(page.getByText("Pick a thread")).toBeVisible();
+  // The copied workflow reaches the new-thread form: Incident's four fields are all optional, so they sit behind "More fields".
+  await page.getByRole("link", { name: "New thread", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${id}/threads/new$`));
+  await expect(page.getByRole("link", { name: "Threads", exact: true })).toHaveAttribute("aria-current", "page");
+  await page.getByRole("button", { name: "More fields" }).click();
+  await expect(page.getByRole("combobox", { name: "Severity", exact: true })).toBeVisible();
+  for (const label of ["Component", "Jira link", "ETA"]) await expect(page.getByLabel(label, { exact: true })).toBeVisible();
+
+  // The copied statuses and their categories, on the Workflow tab: Triage is the open initial status, Resolved the one closed status.
+  await page.getByRole("link", { name: "Workflow", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${id}/workflow$`));
+  const triage = page.getByRole("group", { name: "Status 1", exact: true });
+  await expect(triage.getByRole("textbox", { name: "Label" })).toHaveValue("Triage");
+  await expect(triage.getByRole("radio", { name: "Open" })).toBeChecked();
+  const resolved = page.getByRole("group", { name: "Status 5", exact: true });
+  await expect(resolved.getByRole("textbox", { name: "Label" })).toHaveValue("Resolved");
+  await expect(resolved.getByRole("radio", { name: "Closed" })).toBeChecked();
 
   // The rail lists the room and marks it current; the room's other pages keep it highlighted.
   const link = rail(page).getByRole("link", { name, exact: true });

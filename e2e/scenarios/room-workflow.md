@@ -27,8 +27,8 @@
 6. They reload the page.
    - *Expected*: Waiting is the second status, still Orange; In progress is third; "Cancelled" is the sixth, Closed; Field 1 is
      "Impact" of type Select with the options "High" and "Low".
-7. They open the **Overview** tab.
-   - *Expected*: the workflow summary lists "Cancelled" under Closed and reads "Fields: Impact".
+7. They open the **Threads** tab, click **New thread** and open **More fields**.
+   - *Expected*: the form offers the saved field "Impact" (a Select).
 
 ## Scenario: a stale workflow save is refused and a reload recovers
 

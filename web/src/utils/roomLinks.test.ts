@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { newRoomPath, parseRoomId, roomMembersPath, roomPath, roomSettingsPath, roomWorkflowPath, roomsPath } from "./roomLinks";
+import { newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSettingsPath, roomWorkflowPath, roomsPath, threadPath, focusThreadPaneState, wantsThreadPaneFocus } from "./roomLinks";
 
 describe("roomLinks", () => {
   test("builds the list, create, room, members, workflow and settings paths", () => {
@@ -15,5 +15,17 @@ describe("roomLinks", () => {
     expect(parseRoomId("12")).toBe(12);
     expect(parseRoomId("2147483647")).toBe(2147483647);
     for (const bad of [undefined, "", "0", "-1", "1e3", "12abc", " 5", "1.5", "2147483648"]) expect(parseRoomId(bad)).toBeNull();
+  });
+
+  test("the thread paths hang under the room's home route, and a thread number parses like a room id", () => {
+    expect(newThreadPath(7)).toBe("/rooms/7/threads/new");
+    expect(threadPath(7, 42)).toBe("/rooms/7/threads/42");
+    expect(parseThreadNumber("42")).toBe(42);
+    for (const bad of [undefined, "new", "0", "-1", "4.2"]) expect(parseThreadNumber(bad)).toBeNull();
+  });
+
+  test("the pane-focus state is recognised, and nothing else is", () => {
+    expect(wantsThreadPaneFocus(focusThreadPaneState)).toBe(true);
+    for (const other of [null, undefined, "focusPane", {}, { focusPane: false }, { focusPane: "yes" }]) expect(wantsThreadPaneFocus(other)).toBe(false);
   });
 });

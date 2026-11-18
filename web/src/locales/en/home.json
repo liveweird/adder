@@ -2,6 +2,6 @@
   "title": "Adder",
   "empty": {
     "label": "Welcome to Adder",
-    "hint": "Open a room from the sidebar or create a new one. Threads and messages are coming next; meanwhile you can manage users, teams, workflow templates and feature flags, and try the language and theme switches."
+    "hint": "Open a room from the sidebar or create a new one. You can also manage users, teams, workflow templates and feature flags, and try the language and theme switches."
   }
 }

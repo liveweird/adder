@@ -30,3 +30,11 @@ export function formatDateTime(epochMillis: number, timeZone = "UTC"): string {
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
 }
+
+/**
+ * The browser's own IANA time zone (the thread pane's times — a message is read where its reader is, unlike the reports' configured
+ * zone).
+ */
+export function browserTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}

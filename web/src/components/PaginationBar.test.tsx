@@ -18,4 +18,11 @@ describe("PaginationBar", () => {
     await user.click(await screen.findByRole("option", { name: "40 / page" }));
     expect(onPageSizeChange).toHaveBeenCalledWith(40);
   });
+
+  test("without a page-size handler there is no rows-per-page picker (a fixed-size list)", () => {
+    renderWithProviders(<PaginationBar total={95} page={1} pageSize={50} onPageChange={vi.fn()} />);
+    expect(screen.getByText("95 total")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Rows per page", { selector: "input" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
+  });
 });

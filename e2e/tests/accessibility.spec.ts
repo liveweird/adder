@@ -2,8 +2,8 @@
 // and form pages, the detail pages of one API-seeded fixture team, and the overlays (a registry editor
 // modal) — where focus traps, aria-modal and labels actually live, and the app shell at a phone width
 // (the burger); the page sets run in the light scheme and again in the dark one. Owns: the fixture team
-// (unique `e2e-axe-*` name) and the fixture room (unique `e2e-axe-room-*` name, a copy of the seeded Default template) and an archived twin of it, created and
-// deleted via the API.
+// (unique `e2e-axe-*` name) and the fixture room (unique `e2e-axe-room-*` name, a copy of the seeded Default template, with one thread
+// in it) and an archived twin of it, created and deleted via the API.
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { ADMIN, apiAsAdmin, axeViolations, expect, expectScheme, login, type Scheme, test, uniqueText } from "./helpers";
 
@@ -92,6 +92,9 @@ test.describe("detail pages and overlays", () => {
   let teamName: string;
   let roomId: number | undefined;
   let roomName: string;
+  // The fixture room's one thread (threads are never deleted; the room's deletion hides it).
+  let threadNumber: number;
+  let threadTitle: string;
   // A second fixture room, archived: its workflow page is the read-only view (plain text, not the editor).
   let archivedRoomId: number | undefined;
 
@@ -110,6 +113,11 @@ test.describe("detail pages and overlays", () => {
     const room = await api.post("/api/v1/rooms", { data: { name: roomName, templateId: defaultTemplate!.id } });
     expect(room.status(), await room.text()).toBe(201);
     roomId = (await room.json() as { id: number }).id;
+    // The thread view and the thread list need a thread to show: the admin owns the fixture room, so it may start one.
+    threadTitle = uniqueText("e2e-axe-thread");
+    const thread = await api.post(`/api/v1/rooms/${roomId}/threads`, { data: { title: threadTitle, body: "Seeded for the accessibility sweep." } });
+    expect(thread.status(), await thread.text()).toBe(201);
+    threadNumber = (await thread.json() as { number: number }).number;
     const archived = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-axe-room"), templateId: defaultTemplate!.id } });
     expect(archived.status(), await archived.text()).toBe(201);
     archivedRoomId = (await archived.json() as { id: number }).id;
@@ -137,9 +145,18 @@ test.describe("detail pages and overlays", () => {
     expect(failures, "fixture teardown").toEqual([]);
   });
 
-  const DETAIL_PAGES: { name: string; path: () => string; settled: (page: Page) => Locator }[] = [
+  const DETAIL_PAGES: { name: string; path: () => string; settled: (page: Page) => Locator; alsoSettled?: (page: Page) => Locator }[] = [
     { name: "the team page", path: () => `/teams/${teamId}`, settled: (p) => p.getByRole("heading", { name: teamName }) },
-    { name: "the room home page", path: () => `/rooms/${roomId}`, settled: (p) => p.getByRole("heading", { level: 2, name: roomName }) },
+    // Settled once the thread list has loaded: the seeded thread is a link in the labelled Threads nav.
+    { name: "the room home page (the thread list)", path: () => `/rooms/${roomId}`, settled: (p) => p.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(threadTitle) }) },
+    // The three-pane view with a thread open: the pane's heading is `#<number> <title>`; the list beside it is loaded too.
+    {
+      name: "the room's thread view",
+      path: () => `/rooms/${roomId}/threads/${threadNumber}`,
+      settled: (p) => p.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(threadTitle) }),
+      alsoSettled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
+    },
+    { name: "the new-thread form", path: () => `/rooms/${roomId}/threads/new`, settled: (p) => p.getByRole("textbox", { name: /Title/ }) },
     // Settled once the admin's own row (the fixture room's owner) is in the table: the list has loaded, the controls are drawn.
     { name: "the room members page", path: () => `/rooms/${roomId}/members`, settled: (p) => p.getByRole("table", { name: "Members", exact: true }).getByText(ADMIN) },
     // Settled once the editor has loaded: the first status row's label is in (the fixture room is a copy of Default, the admin its owner).
@@ -150,11 +167,12 @@ test.describe("detail pages and overlays", () => {
     { name: "the edit-user page", path: () => `/users/${adminId}/edit`, settled: (p) => p.getByRole("heading", { name: "Edit user" }) },
     { name: "the user-features page", path: () => `/users/${adminId}/features`, settled: (p) => p.getByRole("heading", { name: "Feature flags" }) },
   ];
-  for (const { name, path, settled } of DETAIL_PAGES) {
+  for (const { name, path, settled, alsoSettled } of DETAIL_PAGES) {
     test(`${name} has no WCAG A/AA violations`, async ({ page }) => {
       await login(page);
       await page.goto(path());
       await expect(settled(page)).toBeVisible();
+      if (alsoSettled) await expect(alsoSettled(page)).toBeVisible();
       await scan(page);
     });
   }

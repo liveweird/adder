@@ -31,7 +31,7 @@
   },
   "tabs": {
     "aria": "Strony pokoju",
-    "home": "Przegląd",
+    "home": "Wątki",
     "members": "Członkowie/członkinie",
     "workflow": "Przepływ pracy",
     "settings": "Ustawienia"
@@ -42,17 +42,6 @@
     "archivedGroup": "Zarchiwizowane pokoje",
     "more": "Więcej pokoi…",
     "showArchived": "Pokaż zarchiwizowane"
-  },
-  "home": {
-    "threadsLabel": "Wątki pojawią się wkrótce",
-    "threadsHint": "Wkrótce tu będą rozmowy pokoju, każda ze statusem z poniższego przepływu pracy.",
-    "workflowTitle": "Przepływ pracy",
-    "workflowLink": "Otwórz przepływ pracy",
-    "workflowLoadFailed": "Nie udało się wczytać przepływu pracy",
-    "open": "Otwarte",
-    "closed": "Zamknięte",
-    "noFields": "Brak dodatkowych pól",
-    "fields": "Pola: {{fields}}"
   },
   "create": {
     "template": "Szablon przepływu pracy",

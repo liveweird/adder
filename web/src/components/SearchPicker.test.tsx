@@ -20,6 +20,7 @@ function Harness({
   compact?: boolean;
   clearable?: boolean;
   disabled?: boolean;
+  required?: boolean;
   error?: string;
 }) {
   const [picked, setPicked] = useState<PickedOption | null>(initial);
@@ -48,6 +49,12 @@ describe("SearchPicker", () => {
     renderWithProviders(<Harness compact />);
     expect(screen.getByRole("combobox", { name: "Thing" })).toBeInTheDocument();
     expect(screen.queryByText("Thing")).not.toBeInTheDocument();
+  });
+
+  test("a required picker marks its label with the asterisk", () => {
+    renderWithProviders(<Harness required />);
+    expect(screen.getByText("*")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /Thing/ })).toBeRequired();
   });
 
   test("a compact picker marks a failed search with the red border instead of an alert", async () => {
