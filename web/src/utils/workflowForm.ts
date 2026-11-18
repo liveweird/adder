@@ -5,10 +5,10 @@ import { MAX_KEY_LENGTH, slugify } from "./slug";
 import type { StatusColour } from "./workflowColours";
 
 // ── Wire shapes ──────────────────────────────────────────────────────────────────────────────────────────────────────
-// A template's document and body ARE the generated `schema.ts` types, so the compiler checks them against the spec: the
-// loader below takes the spec's statuses and fields, and `toTemplateBody` returns the spec's request. `workflowForm.test.ts`
-// pins the vocabularies (colour, category, field type) equal to the spec's. A room's workflow is still local until the room
-// pages arrive (C12): it carries ONE plain-text label per item, a template a language map `{en, pl?}`.
+// Both documents and both bodies ARE the generated `schema.ts` types, so the compiler checks them against the spec: the loaders
+// below take the spec's statuses and fields, and `toTemplateBody` / `toRoomWorkflowBody` return the spec's requests.
+// `workflowForm.test.ts` pins the vocabularies (colour, category, field type) equal to the spec's. A room's workflow carries ONE
+// plain-text label per item, a template a language map `{en, pl?}`.
 
 export type StatusCategory = "OPEN" | "CLOSED";
 
@@ -36,18 +36,10 @@ type FieldBody<L> = {
 };
 
 /** `GET /rooms/{id}/workflow`: `threadCount` is how many threads sit in the status (always 0 until 0.3). */
-export type RoomWorkflow = {
-  revision: number;
-  statuses: (StatusBody<string> & { threadCount: number })[];
-  fields: FieldBody<string>[];
-};
+export type RoomWorkflow = Schemas["RoomWorkflow"];
 
 /** `PUT /rooms/{id}/workflow` (with `X-Expected-Revision`); `replacements` is `{retiredKey: replacementKey}`. */
-export type RoomWorkflowBody = {
-  statuses: StatusBody<string>[];
-  fields: FieldBody<string>[];
-  replacements?: Record<string, string>;
-};
+export type RoomWorkflowBody = Schemas["RoomWorkflowUpdate"];
 
 /** The document inside a workflow template (`statuses` and `fields` of `GET /workflow-templates/{id}`). */
 export type WorkflowTemplateDocument = Pick<Schemas["WorkflowTemplateResponse"], "statuses" | "fields">;

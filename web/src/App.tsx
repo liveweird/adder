@@ -30,6 +30,7 @@ const CreateRoom = lazy(() => import("./pages/CreateRoom"));
 const RoomHome = lazy(() => import("./pages/RoomHome"));
 const RoomMembers = lazy(() => import("./pages/RoomMembers"));
 const RoomSettings = lazy(() => import("./pages/RoomSettings"));
+const RoomWorkflow = lazy(() => import("./pages/RoomWorkflow"));
 const Teams = lazy(() => import("./pages/Teams"));
 const TeamDetails = lazy(() => import("./pages/TeamDetails"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
@@ -255,6 +256,7 @@ export default function App() {
             <Route path="rooms/new" element={<CreateRoom />} />
             <Route path="rooms/:id" element={<RoomHome />} />
             <Route path="rooms/:id/members" element={<RoomMembers />} />
+            <Route path="rooms/:id/workflow" element={<RoomWorkflow />} />
             <Route path="rooms/:id/settings" element={<RoomSettings />} />
             <Route path="teams" element={<Teams />} />
             <Route path="teams/:id" element={<TeamDetails />} />

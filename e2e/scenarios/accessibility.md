@@ -5,7 +5,8 @@
   anonymous visitor for the login screen
 - **Owns** (exclusive server-side state): one fixture team (unique `e2e-axe-*` name), created
   through the API before the detail-page block and deleted after it, and one fixture room
-  (unique `e2e-axe-room-*` name, a copy of the seeded Default template, the admin its owner), created and deleted the same way;
+  (unique `e2e-axe-room-*` name, a copy of the seeded Default template, the admin its owner) and an archived twin of it (for the
+  read-only workflow page), created and deleted the same way;
   the list/form pages and the login screen are read-only
 
 This is the registered template-title exception (see README.md): one `test()` per page is

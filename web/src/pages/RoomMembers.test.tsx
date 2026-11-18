@@ -526,6 +526,8 @@ describe("RoomMembers page: the roster moves under the reader", () => {
       // The list stays, read-only, and leaving is still possible.
       expect(screen.getByText("max@example.test")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Leave room" })).toBeInTheDocument();
+      // The refusal's words outlive the controls it took away.
+      expect(screen.getByRole("alert")).toHaveTextContent("Only the room's owners and administrators can add members.");
     });
 
     test("demoted behind the page: a 403 on a role change takes the row menus away", async () => {

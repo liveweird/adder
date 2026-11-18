@@ -11,6 +11,8 @@ describe("RoomTabs", () => {
     expect(screen.getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute("href", "/rooms/12/members");
     expect(screen.getByRole("link", { name: "Members" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Workflow" })).toHaveAttribute("href", "/rooms/12/workflow");
+    expect(screen.getByRole("link", { name: "Workflow" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/rooms/12/settings");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
   });

@@ -3,6 +3,7 @@ export const roomsPath = "/rooms";
 export const newRoomPath = `${roomsPath}/new`;
 export const roomPath = (id: number) => `${roomsPath}/${id}`;
 export const roomMembersPath = (id: number) => `${roomPath(id)}/members`;
+export const roomWorkflowPath = (id: number) => `${roomPath(id)}/workflow`;
 export const roomSettingsPath = (id: number) => `${roomPath(id)}/settings`;
 
 /** The numeric id of a `:id` route parameter, or null when it is not a plain positive int32 (`12abc`, `1e3`, `0`, `-1`): such a room cannot exist. */

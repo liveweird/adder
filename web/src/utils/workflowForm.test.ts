@@ -31,6 +31,7 @@ import {
   type FieldDraft,
   type FieldType,
   type RoomWorkflow,
+  type RoomWorkflowBody,
   type StatusCategory,
   type StatusDraft,
   type WorkflowDraft,
@@ -502,7 +503,7 @@ describe("validation (mirrors WorkflowRules.kt)", () => {
   });
 });
 
-describe("the template wire types are the generated API types", () => {
+describe("the wire types are the generated API types", () => {
   // `expectTypeOf` is checked by `tsc -b` (the build and the web gate), so a drift in the spec fails the compile, not a run.
   test("the vocabularies are equal to the spec's enums, so no value can be added or dropped on one side only", () => {
     expectTypeOf<StatusColour>().toEqualTypeOf<components["schemas"]["StatusColour"]>();
@@ -514,5 +515,13 @@ describe("the template wire types are the generated API types", () => {
     expectTypeOf(toTemplateBody).returns.toEqualTypeOf<components["schemas"]["WorkflowTemplateRequest"]>();
     const response: components["schemas"]["WorkflowTemplateResponse"] = { id: 1, name: "T", revision: 1, createdAt: 0, updatedAt: 0, ...TEMPLATE };
     expect(toTemplateBody({ name: "T", description: "" }, toTemplateWorkflowDraft(response)).statuses).toHaveLength(3);
+  });
+
+  test("a room's document is the spec's, and its PUT body is the spec's request", () => {
+    expectTypeOf<RoomWorkflow>().toEqualTypeOf<components["schemas"]["RoomWorkflow"]>();
+    expectTypeOf<RoomWorkflowBody>().toEqualTypeOf<components["schemas"]["RoomWorkflowUpdate"]>();
+    expectTypeOf(toRoomWorkflowBody).returns.toEqualTypeOf<components["schemas"]["RoomWorkflowUpdate"]>();
+    const body: components["schemas"]["RoomWorkflowUpdate"] = toRoomWorkflowBody(toRoomWorkflowDraft(ROOM));
+    expect(body.statuses).toHaveLength(ROOM.statuses.length);
   });
 });

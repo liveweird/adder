@@ -1,6 +1,6 @@
-import { useParams } from "react-router-dom";
+import { Link as RouterLink, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { Anchor, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { IconMessages } from "@tabler/icons-react";
 import { getRoomWorkflow, type RoomWorkflow } from "../api/rooms";
@@ -9,6 +9,7 @@ import ErrorAlert from "../components/ErrorAlert";
 import LoadingBlock from "../components/LoadingBlock";
 import RoomPage from "../components/RoomPage";
 import StatusPill from "../components/StatusPill";
+import { roomWorkflowPath } from "../utils/roomLinks";
 import { statusHue } from "../utils/workflowColours";
 
 /** One row of the summary: the statuses of a category, as pills (the dot and the label carry the meaning, never the colour alone). */
@@ -48,7 +49,7 @@ function WorkflowSummary({ roomId }: { roomId: number }) {
 
 /**
  * `/rooms/:id`: the room's header and tabs, and — until threads arrive — a placeholder with the workflow the room copied from its
- * template, as pills. (The three-pane thread view replaces the body.)
+ * template, as pills (linking to the workflow page, where its owner edits it). (The three-pane thread view replaces the body.)
  */
 export default function RoomHome() {
   const { t } = useTranslation();
@@ -60,9 +61,14 @@ export default function RoomHome() {
           <EmptyState icon={IconMessages} label={t("rooms.home.threadsLabel")} hint={t("rooms.home.threadsHint")} />
           <Paper withBorder p="md" maw={720}>
             <Stack gap="sm">
-              <Title order={3} size="h4">
-                {t("rooms.home.workflowTitle")}
-              </Title>
+              <Group justify="space-between" align="baseline">
+                <Title order={3} size="h4">
+                  {t("rooms.home.workflowTitle")}
+                </Title>
+                <Anchor component={RouterLink} to={roomWorkflowPath(room.id)} size="sm">
+                  {t("rooms.home.workflowLink")}
+                </Anchor>
+              </Group>
               <WorkflowSummary roomId={room.id} />
             </Stack>
           </Paper>

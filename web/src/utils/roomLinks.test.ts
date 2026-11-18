@@ -1,12 +1,13 @@
 import { describe, expect, test } from "vitest";
-import { newRoomPath, parseRoomId, roomMembersPath, roomPath, roomSettingsPath, roomsPath } from "./roomLinks";
+import { newRoomPath, parseRoomId, roomMembersPath, roomPath, roomSettingsPath, roomWorkflowPath, roomsPath } from "./roomLinks";
 
 describe("roomLinks", () => {
-  test("builds the list, create, room, members and settings paths", () => {
+  test("builds the list, create, room, members, workflow and settings paths", () => {
     expect(roomsPath).toBe("/rooms");
     expect(newRoomPath).toBe("/rooms/new");
     expect(roomPath(7)).toBe("/rooms/7");
     expect(roomMembersPath(7)).toBe("/rooms/7/members");
+    expect(roomWorkflowPath(7)).toBe("/rooms/7/workflow");
     expect(roomSettingsPath(7)).toBe("/rooms/7/settings");
   });
 

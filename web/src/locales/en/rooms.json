@@ -31,6 +31,7 @@
     "aria": "Room pages",
     "home": "Overview",
     "members": "Members",
+    "workflow": "Workflow",
     "settings": "Settings"
   },
   "rail": {
@@ -44,6 +45,7 @@
     "threadsLabel": "Threads arrive next",
     "threadsHint": "Soon this is where the room's conversations live, each with a status from the workflow below.",
     "workflowTitle": "Workflow",
+    "workflowLink": "Open the workflow",
     "workflowLoadFailed": "Could not load the workflow",
     "open": "Open",
     "closed": "Closed",
@@ -92,6 +94,30 @@
     "deleteTitle": "Delete room?",
     "deleteBody": "“{{name}}” will be deleted for everyone.",
     "deleteFailed": "Could not delete the room"
+  },
+  "workflow": {
+    "hint": "This is the room's own copy of its workflow: the statuses and the extra fields every thread carries. Saving changes it for everyone in the room.",
+    "groupAria": "Room workflow",
+    "loadFailed": "Could not load the workflow",
+    "archivedNote": "This room is archived, so its workflow is read-only. Unarchive it to edit it.",
+    "readOnlyNote": "Only the room's owners and administrators can change the workflow.",
+    "invalid": "Fix the highlighted fields before saving.",
+    "saveForbidden": "Only the room's owners and administrators can change the workflow",
+    "saveGone": "This room no longer exists, or you no longer have access to it — reload the page",
+    "saveInvalid": "The server rejected this workflow. Review its contents and try again.",
+    "saveArchived": "This room was archived in the meantime, so its workflow can no longer be edited.",
+    "saveStatusInUse": "Threads still use a status you removed or re-categorised. Choose where they move, or undo the change.",
+    "saveFieldType": "A field with the key {{keys}} already existed with another type, and a field's type cannot change. Use the original type or pick another key.",
+    "saveKeyBudget": "This room has used up the keys it may reserve (200 statuses and 200 fields, removed ones included). Re-use the key of a removed item instead of adding new ones.",
+    "staleTitle": "Saved, but the latest version could not be loaded",
+    "stale": "Your changes were saved. Reload the latest version before editing again, so nothing is saved twice.",
+    "toast": {
+      "saved": "Workflow saved"
+    },
+    "view": {
+      "options": "Options: {{options}}"
+    },
+    "saveStatusRecategorised": "Threads now use {{statuses}}. The category of a status that threads use cannot change: set it back and save again."
   },
   "toast": {
     "created": "Room created",

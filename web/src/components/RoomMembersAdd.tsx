@@ -40,7 +40,16 @@ type TeamPlan = { id: number; name: string; count: number };
  * already on the current page are left out of the picker (at render); the server's add is idempotent for everyone else and counts
  * them as already members.
  */
-export default function RoomMembersAdd({ room, memberValues }: { room: RoomResponse; memberValues: ReadonlySet<string> }) {
+export default function RoomMembersAdd({
+  room,
+  memberValues,
+  onAddFailure,
+}: {
+  room: RoomResponse;
+  memberValues: ReadonlySet<string>;
+  /** The words of a failed add, or null when the failure is cleared. The page shows them, so they outlive these controls (a 403 removes them). */
+  onAddFailure: (message: string | null) => void;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const refresh = () => refreshQueriesAfterMutation(queryClient, ["rooms"]);
@@ -60,6 +69,7 @@ export default function RoomMembersAdd({ room, memberValues }: { room: RoomRespo
     },
     // A 403, 404 or 409 says the caller's standing moved (demoted, removed): re-read the room so the controls follow.
     onError: async (failure) => {
+      onAddFailure(saveErrorMessage(failure, t, ADD_ERRORS));
       if (isAccessRefusal(failure)) await refresh();
     },
   });
@@ -86,6 +96,7 @@ export default function RoomMembersAdd({ room, memberValues }: { room: RoomRespo
     // The failure shows inline under the controls, not inside the closed dialog.
     onError: async (failure) => {
       setConfirming(false);
+      onAddFailure(saveErrorMessage(failure, t, ADD_ERRORS));
       if (isAccessRefusal(failure)) await refresh();
     },
   });
@@ -94,6 +105,7 @@ export default function RoomMembersAdd({ room, memberValues }: { room: RoomRespo
     addPerson.reset();
     inspectTeam.reset();
     addTeam.reset();
+    onAddFailure(null);
     setEmptyTeam(false);
   }
 
@@ -152,8 +164,6 @@ export default function RoomMembersAdd({ room, memberValues }: { room: RoomRespo
           </Button>
         </Group>
       </Group>
-      {addPerson.isError && <FormErrorAlert title={t("rooms.members.addFailed")}>{saveErrorMessage(addPerson.error, t, ADD_ERRORS)}</FormErrorAlert>}
-      {addTeam.isError && <FormErrorAlert title={t("rooms.members.addFailed")}>{saveErrorMessage(addTeam.error, t, ADD_ERRORS)}</FormErrorAlert>}
       {inspectTeam.isError && <FormErrorAlert title={t("rooms.members.teamLoadFailed")}>{saveErrorMessage(inspectTeam.error, t, TEAM_READ_ERRORS)}</FormErrorAlert>}
       {emptyTeam && <FormErrorAlert title={t("rooms.members.addFailed")}>{t("rooms.members.teamEmpty")}</FormErrorAlert>}
 

@@ -33,6 +33,7 @@
     "aria": "Strony pokoju",
     "home": "Przegląd",
     "members": "Członkowie/członkinie",
+    "workflow": "Przepływ pracy",
     "settings": "Ustawienia"
   },
   "rail": {
@@ -46,6 +47,7 @@
     "threadsLabel": "Wątki pojawią się wkrótce",
     "threadsHint": "Wkrótce tu będą rozmowy pokoju, każda ze statusem z poniższego przepływu pracy.",
     "workflowTitle": "Przepływ pracy",
+    "workflowLink": "Otwórz przepływ pracy",
     "workflowLoadFailed": "Nie udało się wczytać przepływu pracy",
     "open": "Otwarte",
     "closed": "Zamknięte",
@@ -94,6 +96,30 @@
     "deleteTitle": "Usunąć pokój?",
     "deleteBody": "Usuniemy pokój „{{name}}” dla wszystkich.",
     "deleteFailed": "Nie udało się usunąć pokoju"
+  },
+  "workflow": {
+    "hint": "To własna kopia przepływu pracy pokoju: statusy i dodatkowe pola każdego wątku. Zapisanie zmienia ją dla wszystkich w pokoju.",
+    "groupAria": "Przepływ pracy pokoju",
+    "loadFailed": "Nie udało się wczytać przepływu pracy",
+    "archivedNote": "Ten pokój jest zarchiwizowany, więc jego przepływ pracy jest tylko do odczytu. Przywróć pokój, aby go edytować.",
+    "readOnlyNote": "Przepływ pracy mogą zmieniać tylko właściciele/ki pokoju i administratorzy/rki.",
+    "invalid": "Popraw wyróżnione pola przed zapisaniem.",
+    "saveForbidden": "Przepływ pracy mogą zmieniać tylko właściciele/ki pokoju i administratorzy/rki",
+    "saveGone": "Ten pokój już nie istnieje albo nie masz do niego dostępu — odśwież stronę",
+    "saveInvalid": "Serwer odrzucił ten przepływ pracy. Sprawdź jego zawartość i spróbuj ponownie.",
+    "saveArchived": "Ten pokój został w międzyczasie zarchiwizowany, więc nie można już edytować jego przepływu pracy.",
+    "saveStatusInUse": "Wątki nadal używają statusu, który usuwasz lub którego kategorię zmieniasz. Wybierz, dokąd je przenieść, albo cofnij zmianę.",
+    "saveFieldType": "Pole z kluczem {{keys}} istniało już z innym typem, a typu pola nie można zmienić. Wybierz pierwotny typ albo inny klucz.",
+    "saveKeyBudget": "W tym pokoju wykorzystano wszystkie klucze, które można zarezerwować (200 statusów i 200 pól, wraz z usuniętymi). Użyj ponownie klucza usuniętego elementu zamiast dodawać nowe.",
+    "staleTitle": "Zapisano, ale nie udało się wczytać najnowszej wersji",
+    "stale": "Twoje zmiany zostały zapisane. Wczytaj najnowszą wersję przed dalszą edycją, aby nic nie zapisało się dwa razy.",
+    "toast": {
+      "saved": "Zapisano przepływ pracy"
+    },
+    "view": {
+      "options": "Opcje: {{options}}"
+    },
+    "saveStatusRecategorised": "Wątki używają już: {{statuses}}. Kategorii statusu, którego używają wątki, nie można zmienić — przywróć poprzednią i zapisz ponownie."
   },
   "toast": {
     "created": "Utworzono pokój",

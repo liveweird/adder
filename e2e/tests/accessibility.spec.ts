@@ -2,7 +2,7 @@
 // and form pages, the detail pages of one API-seeded fixture team, and the overlays (a registry editor
 // modal) — where focus traps, aria-modal and labels actually live, and the app shell at a phone width
 // (the burger); the page sets run in the light scheme and again in the dark one. Owns: the fixture team
-// (unique `e2e-axe-*` name) and the fixture room (unique `e2e-axe-room-*` name, a copy of the seeded Default template), created and
+// (unique `e2e-axe-*` name) and the fixture room (unique `e2e-axe-room-*` name, a copy of the seeded Default template) and an archived twin of it, created and
 // deleted via the API.
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { ADMIN, apiAsAdmin, axeViolations, expect, expectScheme, login, type Scheme, test, uniqueText } from "./helpers";
@@ -92,6 +92,8 @@ test.describe("detail pages and overlays", () => {
   let teamName: string;
   let roomId: number | undefined;
   let roomName: string;
+  // A second fixture room, archived: its workflow page is the read-only view (plain text, not the editor).
+  let archivedRoomId: number | undefined;
 
   test.beforeAll(async () => {
     ({ api, userId: adminId } = await apiAsAdmin());
@@ -108,11 +110,16 @@ test.describe("detail pages and overlays", () => {
     const room = await api.post("/api/v1/rooms", { data: { name: roomName, templateId: defaultTemplate!.id } });
     expect(room.status(), await room.text()).toBe(201);
     roomId = (await room.json() as { id: number }).id;
+    const archived = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-axe-room"), templateId: defaultTemplate!.id } });
+    expect(archived.status(), await archived.text()).toBe(201);
+    archivedRoomId = (await archived.json() as { id: number }).id;
+    const archive = await api.post(`/api/v1/rooms/${archivedRoomId}/archive`);
+    expect(archive.status(), await archive.text()).toBe(204);
   });
   test.afterAll(async () => {
     // A fixture whose creation failed has no id: skip it. Every delete is attempted whatever the others do, and the context is always disposed.
     const failures: string[] = [];
-    const paths = [roomId === undefined ? null : `/api/v1/rooms/${roomId}`, teamId === undefined ? null : `/api/v1/teams/${teamId}`];
+    const paths = [roomId === undefined ? null : `/api/v1/rooms/${roomId}`, archivedRoomId === undefined ? null : `/api/v1/rooms/${archivedRoomId}`, teamId === undefined ? null : `/api/v1/teams/${teamId}`];
     try {
       for (const path of paths) {
         if (path === null) continue;
@@ -135,6 +142,10 @@ test.describe("detail pages and overlays", () => {
     { name: "the room home page", path: () => `/rooms/${roomId}`, settled: (p) => p.getByRole("heading", { level: 2, name: roomName }) },
     // Settled once the admin's own row (the fixture room's owner) is in the table: the list has loaded, the controls are drawn.
     { name: "the room members page", path: () => `/rooms/${roomId}/members`, settled: (p) => p.getByRole("table", { name: "Members", exact: true }).getByText(ADMIN) },
+    // Settled once the editor has loaded: the first status row's label is in (the fixture room is a copy of Default, the admin its owner).
+    { name: "the room workflow page", path: () => `/rooms/${roomId}/workflow`, settled: (p) => p.getByRole("group", { name: "Status 1", exact: true }).getByRole("textbox", { name: "Label" }) },
+    // The read-only view: an archived room's workflow is plain text under a note.
+    { name: "the archived room's read-only workflow page", path: () => `/rooms/${archivedRoomId}/workflow`, settled: (p) => p.getByRole("heading", { level: 3, name: "Statuses" }) },
     { name: "the room settings page", path: () => `/rooms/${roomId}/settings`, settled: (p) => p.getByRole("heading", { level: 2, name: roomName }) },
     { name: "the edit-user page", path: () => `/users/${adminId}/edit`, settled: (p) => p.getByRole("heading", { name: "Edit user" }) },
     { name: "the user-features page", path: () => `/users/${adminId}/features`, settled: (p) => p.getByRole("heading", { name: "Feature flags" }) },

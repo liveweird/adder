@@ -1,6 +1,6 @@
 // Rooms API (`/api/v1/rooms`) — a room is members-only: a non-member (and an unknown id) gets the same 404, an ADMIN reads every room.
-// Thin endpoint wrappers: transport (authedFetch/ApiError) in ./http, types from ./schema. The room's members live here too; the
-// workflow's write has its wrapper when its page arrives.
+// Thin endpoint wrappers: transport (authedFetch/ApiError) in ./http, types from ./schema. The room's members and its workflow
+// (a whole-document replace under `X-Expected-Revision`) live here too.
 
 import { buildQuery, jsonRequest, voidRequest } from "./http";
 import type { paths } from "./schema";
@@ -9,6 +9,7 @@ export type RoomPage = paths["/api/v1/rooms"]["get"]["responses"]["200"]["conten
 export type RoomListItem = RoomPage["items"][number];
 export type RoomResponse = paths["/api/v1/rooms/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
 export type RoomWorkflow = paths["/api/v1/rooms/{id}/workflow"]["get"]["responses"]["200"]["content"]["application/json"];
+export type RoomWorkflowUpdateBody = paths["/api/v1/rooms/{id}/workflow"]["put"]["requestBody"]["content"]["application/json"];
 export type RoomCreateBody = paths["/api/v1/rooms"]["post"]["requestBody"]["content"]["application/json"];
 export type RoomUpdateBody = paths["/api/v1/rooms/{id}"]["put"]["requestBody"]["content"]["application/json"];
 
@@ -40,6 +41,18 @@ export async function getRoom(id: number): Promise<RoomResponse> {
 
 export async function getRoomWorkflow(id: number): Promise<RoomWorkflow> {
   return jsonRequest<RoomWorkflow>(`/api/v1/rooms/${id}/workflow`);
+}
+
+/**
+ * Replaces the room's workflow (204; read it again for the new revision). `expectedRevision` is the revision the caller read: a
+ * stale one is a 409 `revision-conflict`; a retired status that threads use without a replacement is a 409 `status-in-use`.
+ */
+export async function updateRoomWorkflow(id: number, body: RoomWorkflowUpdateBody, expectedRevision: number): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${id}/workflow`, {
+    method: "PUT",
+    headers: { "X-Expected-Revision": String(expectedRevision) },
+    body: JSON.stringify(body),
+  });
 }
 
 export async function createRoom(body: RoomCreateBody): Promise<RoomResponse> {

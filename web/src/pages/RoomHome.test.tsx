@@ -75,6 +75,8 @@ describe("RoomHome page", () => {
     expect(screen.getByRole("link", { name: "Back to rooms" })).toHaveAttribute("href", "/rooms");
     expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Threads arrive next")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Workflow" })).toHaveAttribute("href", "/rooms/12/workflow");
+    expect(screen.getByRole("link", { name: "Open the workflow" })).toHaveAttribute("href", "/rooms/12/workflow");
     const open = await screen.findByRole("group", { name: "Open" });
     expect(within(open).getByText("Triage")).toBeInTheDocument();
     expect(within(open).getByText("Waiting")).toBeInTheDocument();

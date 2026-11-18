@@ -68,6 +68,8 @@ function MembersBody({ room }: { room: RoomResponse }) {
   const [removing, setRemoving] = useState<Departing | null>(null);
   const [confirming, setConfirming] = useState(false);
   const leaving = removing !== null && removing.userId === me;
+  // A failed add's words live here, not in the add controls: a 403 takes those away and the user must still see why.
+  const [addFailure, setAddFailure] = useState<string | null>(null);
 
   // Under the ["rooms"] prefix: any room refresh (the header's member count included) re-reads the page.
   const { data, isLoading, isError, error } = useQuery({
@@ -132,7 +134,8 @@ function MembersBody({ room }: { room: RoomResponse }) {
   const columnCount = 5;
   return (
     <>
-      {canManage && <RoomMembersAdd room={room} memberValues={memberValues} />}
+      {canManage && <RoomMembersAdd room={room} memberValues={memberValues} onAddFailure={setAddFailure} />}
+      {addFailure && <FormErrorAlert title={t("rooms.members.addFailed")}>{addFailure}</FormErrorAlert>}
       <Stack gap="sm">
         <Group justify="space-between" align="center">
           <Title order={3} size="h4">
