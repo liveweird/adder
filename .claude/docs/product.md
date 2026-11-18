@@ -120,7 +120,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 0.2.0.**
+Each increment gets its own plan (architect) before implementation. **Current version: 0.3.0.**
 
 | Ver | Scope |
 |---|---|
@@ -142,8 +142,8 @@ reinvent**: when Adder needs a capability a sibling repo already has, port its i
   telemetry panel.
 - **Astrolabe** (`~/Sources/astrolabe`): the trim recipe — the single-process deployment, `users/` (not `flowusers/`), the V1–V9 foundation
   migrations, the trimmed telemetry and teams, the bootstrap docs.
-- **Lettuce** (`~/Sources/lettuce`): `infra/mail`, `infra/crypto`, `infra/paging`, the connection pool (through Flow); next: `MarkdownView`,
-  `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `NotificationsButton` + `notifications/`, `infra/db/EventLog.kt`, the dictionary whole-document PUT.
+- **Lettuce** (`~/Sources/lettuce`): `infra/mail`, `infra/crypto`, `infra/paging`, the connection pool (through Flow); ported in 0.3.0: `MarkdownView` (the message variant),
+  `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `infra/db/EventLog.kt`; next: `NotificationsButton` + `notifications/`, the dictionary whole-document PUT.
 - **Toadie** (`~/Sources/toadie`): `X-Expected-Revision` optimistic concurrency (ported in 0.2.0, `infra/revision/` and its `web/` half; the workflow-template and room-workflow PUTs consume it);
   `lockingTransaction` deliberately NOT ported (a room write takes one `FOR NO KEY UPDATE` row lock on the room instead, `rooms/RoomLock.kt`); next:
   `blueprints/` `PropertyDefinition` as the reference for typed workflow fields.
@@ -154,6 +154,17 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing, reactions, Postgres full-text search.
 
 ## Release history
+
+### v0.3.0 — threads and messages (2026-11-18)
+
+Threads and messages on `feat/0.3.0-threads`. Migration V14 (threads, messages and the per-thread history in one migration). Shipped: a room's threads with a
+per-room number, a title, an opening message, a status, an owner and the workflow's metadata fields (typed values, stored values survive a workflow edit); messages in
+Markdown with emoji (author edit; author, room OWNER or ADMIN delete, leaving a tombstone); status moves with the steward rule for close, reopen and hand-over (the
+thread owner while a member, the room OWNER, or an ADMIN; any reader moves a thread between OPEN statuses) and the closed-thread and archived-room `409`s; the per-thread
+history over the ported `EventLog`; the `WorkflowUsage` port, so retiring a status that threads use moves them to a replacement (the retire-dialog e2e scenario); the
+three-pane room view and the thread side panel. New per-user rate buckets `chat-post` (120/min, the two POSTs) and `chat-write` (240/min, the five other thread and message writes). Security hardening from the pre-release audit: the room-lock wait is bounded (`rooms.lockWaitMillis`, 3 s, then the audited `429 room-busy`), route-sized body ceilings (64 KiB messages, 192 KiB threads, 16 KiB status/owner) matched on the decoded path, the `fields` shape and document-size checks before any lock, the thread list never reads `fields`, URL values refuse hidden characters and userinfo, and an application-log hygiene test. History redaction (audit M4) is a `BACKLOG.md` item. Decisions D1 (who closes) and D2 (moderating messages) are
+the architect's recommended defaults, taken while the user was away (see "0.3.0 threads and messages" above). Donors: `MarkdownView`, the emoji trio and `EventLog`
+ported from Lettuce. No live refresh until 0.4.0. Open follow-ups: `BACKLOG.md`.
 
 ### v0.2.0 — rooms and workflows (2026-11-18)
 

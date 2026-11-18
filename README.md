@@ -5,10 +5,18 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (0.2.0 — rooms and workflows, on the 0.1.0 foundation)
+## What's here today (0.3.0 — threads and messages, on the 0.2.0 rooms and the 0.1.0 foundation)
 
-Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. **Threads and messages are not here yet** —
-0.2.0 adds the rooms they will live in, on the 0.1.0 platform:
+Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. **Updates are not live yet** (0.4.0 adds the WebSocket
+channel; until then a page refreshes on focus, on navigation and after your own actions). 0.3.0 puts the conversation into the rooms of 0.2.0:
+
+- **Threads** (`/api/v1/rooms/{id}/threads`) — started in a room with a title and an opening message, numbered per room (#1, #2, ...), each with a **workflow status**, an **owner** (the creator at first, passable)
+  and the room's typed **metadata fields**. A thread in a CLOSED-category status is frozen (409) until reopened; the thread owner while a member, the room OWNER or an ADMIN closes, reopens and hands over, and any
+  reader may move a thread between open statuses. Every change lands in the thread's **history**, shown in the side panel.
+- **Messages** — Markdown and emoji; the author edits, the author, a room OWNER or an ADMIN deletes, leaving a tombstone. Retiring a workflow status that threads use moves them to a replacement.
+- The three-pane **room view** (rooms rail, thread list, the open conversation with its side panel).
+
+0.2.0 added the rooms they live in, on the 0.1.0 platform:
 
 - **Rooms** (`/api/v1/rooms`) — members-only, created from a **workflow template** whose statuses (colour, open/closed category, order) and typed fields the room copies. People or a whole
   team (a snapshot) are added as members; OWNER or ADMIN manages the room, a room always keeps one active OWNER, and a room can be archived (read-only) and unarchived. A non-member sees a uniform 404.
@@ -27,7 +35,7 @@ The 0.1.0 foundation:
 
 ## Roadmap
 
-0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages · 0.4.0 live updates (WebSockets) · 0.5.0 filters, sort, search, hashtags · 0.6.0 mentions, reactions, pins, unread · 1.0.0 checkup.
+0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (WebSockets) · 0.5.0 filters, sort, search, hashtags · 0.6.0 mentions, reactions, pins, unread · 1.0.0 checkup.
 The scope of each version and the decisions behind it: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`; open items: `BACKLOG.md`. `CLAUDE.md`'s "Product" and
 "Donors" sections say which sibling project each capability ports from.
 
@@ -201,6 +209,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `POSTGRES_POOL_MAX_ACQUIRE_SECONDS` | `10` | How long a caller waits for a free pooled connection before failing (1..600). |
 | `POSTGRES_POOL_MAX_IDLE_SECONDS` | `600` | How long an idle pooled connection may sit before recycling (1..86400). |
 | `POSTGRES_POOL_IDLE_IN_TRANSACTION_TIMEOUT_SECONDS` | `300` | PostgreSQL's `idle_in_transaction_session_timeout` on every pooled connection: a session left idle inside an open transaction is ended and its locks released (0 = off, else up to 86400; `.claude/docs/persistence.md` "Connection pool"). |
+| `ROOM_LOCK_WAIT_MILLIS` | `3000` | The longest a room write waits for the room's write lock before it answers `429 room-busy` with `Retry-After: 1` (100..30000; `.claude/docs/persistence.md` "Rooms (V13)"). |
 
 ## Useful Gradle tasks
 

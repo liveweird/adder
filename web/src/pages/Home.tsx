@@ -5,8 +5,8 @@ import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 
 /**
- * The landing page: a placeholder pointing at the rooms rail (0.2.0). Threads and messages (the chat and its workflow
- * threads) arrive in a later version and replace the empty state.
+ * The landing page: a placeholder pointing at the rooms rail. The threads and messages live in a room (0.3.0); this
+ * page stays an empty state until a later version gives it content (e.g. an unread overview).
  */
 export default function Home() {
   const { t } = useTranslation();

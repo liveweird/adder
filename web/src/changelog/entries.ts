@@ -17,6 +17,28 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.3.0",
+    date: "2026-11-18",
+    en: `**Adder 0.3.0: threads and messages.**
+
+- Start a thread in a room: a title, an opening message and the room's metadata fields. Threads are numbered per room (#1, #2, ...), and each has a status and an owner.
+- Messages support Markdown and emoji. Authors can edit their own messages; an author, a room owner or an administrator can delete one, which leaves a "removed" note in its place.
+- Move a thread through the room's statuses. A closed status freezes the thread: no new messages or edits until it is reopened. The thread's owner, a room owner or an administrator can close, reopen and hand a thread over; any room member can move it between open statuses.
+- Each thread keeps a history of what changed and who changed it, in the side panel next to the conversation.
+- Removing a status that threads still use now asks where to move those threads.
+- The room view has three panes: the rooms, the thread list and the open conversation with its side panel.
+- Live updates arrive in the next version: until then the page refreshes when you return to it and after your own actions.`,
+    pl: `**Adder 0.3.0: wątki i wiadomości.**
+
+- Rozpocznij wątek w pokoju: tytuł, wiadomość otwierająca i pola metadanych pokoju. Wątki są numerowane w obrębie pokoju (#1, #2, ...), a każdy ma status i właściciela/kę.
+- Wiadomości obsługują Markdown i emoji. Autor/ka może edytować własne wiadomości, a autor/ka, właściciel/ka pokoju lub administrator/ka może ją usunąć — w jej miejscu zostaje wtedy adnotacja o usunięciu.
+- Przenoś wątek między statusami pokoju. Status zamknięty zamraża wątek: żadnych nowych wiadomości ani zmian, dopóki wątek nie zostanie otwarty ponownie. Właściciel/ka wątku, właściciel/ka pokoju lub administrator/ka może zamknąć, otworzyć ponownie i przekazać wątek, a każda osoba z pokoju może przenosić go między statusami otwartymi.
+- Każdy wątek ma historię zmian z informacją, kto ich dokonał, w panelu bocznym obok rozmowy.
+- Usuwając status, którego używają jeszcze wątki, wskazujesz teraz, dokąd je przenieść.
+- Widok pokoju ma trzy panele: pokoje, listę wątków i otwartą rozmowę z panelem bocznym.
+- Aktualizacje na żywo pojawią się w kolejnej wersji: do tego czasu strona odświeża się po powrocie do niej i po Twoich własnych działaniach.`,
+  },
+  {
     version: "0.2.0",
     date: "2026-11-18",
     en: `**Adder 0.2.0: rooms and workflows.**
