@@ -31,7 +31,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **Message edit history.** An edit overwrites the body and sets `edited_at`; no versions are kept. Decide whether to keep them (who may see them, and how a moderator delete scrubs them).
 - [new] **Thread delete or merge.** Threads are never deleted in 0.3 (close one as *Won't do*); decide whether an owner or ADMIN may delete a thread, or merge a duplicate into another.
 - [new] **Relax the same-category replacement rule.** Retiring a status in use requires a replacement in the SAME category (so a thread never silently opens or closes). Consider allowing a cross-category move with an explicit confirmation once threads exist.
-- [new] **The retire-dialog e2e (0.3).** `RetireStatusModal` and the `409 status-in-use` flow are unit-tested only, because no thread can use a status in 0.2.0; add the Playwright scenario with threads in 0.3.
 
 - [new] **Room squatting: a creator column, a per-creator cap and an ADMIN clean-up path.** A room has no creator record (V13 is committed), so an ADMIN
   can only find the creator of a squatted name through the `room.created` audit line. Add a creator (a later migration), a cap on the active rooms one

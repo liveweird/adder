@@ -2,7 +2,7 @@
 
 - **Spec**: [tests/room-workflow.spec.ts](../tests/room-workflow.spec.ts)
 - **Actors**: the seed administrator (`admin@adder.local`); throwaway regular users created through the Users page (a room's creator
-  and owner, a Polish-speaking creator)
+  and owner, a Polish-speaking creator); the room's owner, through the API, seeds the retire scenario's threads
 - **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-room-*` names) and its users, removed through the API in
   an `afterEach` (rooms first, then the users, so a failing step leaves nothing behind). The seeded Default and Incident templates are
   shared and read-only: rooms only copy them. Every room is created by a throwaway user, so the seed administrator is never a member
@@ -59,8 +59,27 @@
    - *Expected*: the five statuses' labels (**Etykieta**) are the template's Polish ones: Triaż, Analiza, Mitygacja, Monitorowanie,
      Rozwiązane; the first field (**Pole 1**) is "Ważność".
 
+## Scenario: retiring a status that threads use asks for a replacement and moves the threads
+
+1. A throwaway owner creates a room from the **Default** template. Through the API (signed in as that owner) two threads are
+   started and each is moved to **Waiting**, an OPEN status; the owner opens the room's **Workflow** tab and reloads it.
+   - *Expected*: the thread POSTs answer 201 and the moves 204; Waiting is the third status.
+2. They click **Remove status 3** on Waiting.
+   - *Expected*: the dialog "Move threads before removing" reads "2 threads are in “Waiting”. Move them to:"; **Remove status** is
+     disabled until a target is picked; the **Move to** select offers only the other OPEN statuses (Done is not offered).
+3. They pick **In progress** and click **Remove status**.
+   - *Expected*: the dialog closes and a "Statuses to be removed" group says "“Waiting” will be removed; its 2 threads move to
+     “In progress”." Nothing is saved yet.
+4. They click **Save**.
+   - *Expected*: the PUT answers 204, the pending-removal group is gone and the form re-seeded with four statuses (Done is third).
+5. They open the **Threads** tab.
+   - *Expected*: both threads' rows in the thread list show **In progress** and no longer Waiting.
+6. They open each thread (and its **Details** panel where it is folded) and read its **History**.
+   - *Expected*: three entries each; the newest reads "Waiting was retired; the thread moved to In progress", the one before it
+     "Moved the thread from Open to Waiting".
+
 ## Not covered here (and why)
 
-- **The retire dialog** (removing a status that threads use, and the `status-in-use` follow-up): there are no threads in 0.2, so no
-  status has a count; the dialog is covered by the web unit tests and its e2e arrives with the threads (0.3).
+- **The `409 status-in-use` follow-up** (threads joining a status after the page was opened, so the dialog re-opens on save): a race
+  that needs a second writer between two clicks; it is covered by the web unit tests.
 - **A plain member's and an archived room's read-only editor** are covered by the web unit tests; the axe sweep scans the editable page and an archived room's read-only view (a plain text list, not disabled controls).

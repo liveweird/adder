@@ -3,9 +3,11 @@
 // carries the template's Polish labels. Owns: its throwaway `e2e-room-*` rooms and users, removed through the API in an `afterEach`
 // (rooms first, then the users). The seeded Default and Incident templates are shared and read-only: rooms only copy them. Every
 // room is created by a throwaway user, so the seed administrator is never a member of one; the per-user `room-name` bucket (30 a
-// minute) is far from reached. The retire dialog (a status with threads) needs threads, so its e2e arrives with them (0.3).
-import type { Page } from "@playwright/test";
-import { accountMenu, apiAsAdmin, createUserViaUi, deleteViaApi, expect, login, loginViaForm, signOut, test, uniqueText } from "./helpers";
+// minute) is far from reached. Retiring a status that threads use opens the retire dialog; the owner seeds those threads through the API
+// (the thread POSTs share a per-user `chat-post` bucket of 120 a minute, far from reached).
+import { type Page, request as playwrightRequest } from "@playwright/test";
+import { BASE_URL } from "../playwright.config";
+import { accountMenu, apiAsAdmin, deleteViaApi, expect, login, loginViaForm, signOut, test, throwawayUser, uniqueText } from "./helpers";
 
 // API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
 const cleanup: string[] = [];
@@ -16,13 +18,6 @@ test.afterEach(async () => {
 const ROOMS_API = /\/api\/v1\/rooms(\/\d+)?$/;
 const WORKFLOW_API = /\/api\/v1\/rooms\/\d+\/workflow$/;
 const statusRow = (page: Page, n: number) => page.getByRole("group", { name: `Status ${n}`, exact: true });
-
-/** Create a throwaway user through the admin UI and register its cleanup. */
-async function throwawayUser(page: Page, name: string) {
-  const user = await createUserViaUi(page, name);
-  cleanup.push(`/api/v1/users/${user.id}`);
-  return user;
-}
 
 /** The create form as the signed-in user (in whatever language its UI speaks): `labels` are the form's own words. */
 async function createRoomViaUi(page: Page, name: string, template: string, labels = { name: "Name", template: "Workflow template", create: "Create" }): Promise<number> {
@@ -41,9 +36,9 @@ async function createRoomViaUi(page: Page, name: string, template: string, label
 }
 
 /** Sign in as the owner of a fresh room made from `template`, and land on its Workflow tab. */
-async function ownerOnWorkflowTab(page: Page, template: string): Promise<{ roomId: number; roomName: string }> {
+async function ownerOnWorkflowTab(page: Page, template: string): Promise<{ roomId: number; roomName: string; owner: { email: string; password: string } }> {
   await login(page);
-  const owner = await throwawayUser(page, "E2E Workflow Owner");
+  const owner = await throwawayUser(page, "E2E Workflow Owner", cleanup);
   await signOut(page);
   await login(page, owner.email, owner.password);
   const roomName = uniqueText("e2e-room");
@@ -52,7 +47,37 @@ async function ownerOnWorkflowTab(page: Page, template: string): Promise<{ roomI
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/workflow$`));
   await expect(page.getByRole("heading", { level: 2, name: roomName })).toBeVisible();
   await expect(page.getByRole("link", { name: "Workflow", exact: true })).toHaveAttribute("aria-current", "page");
-  return { roomId, roomName };
+  return { roomId, roomName, owner };
+}
+
+/** The thread POSTs and moves the seeding makes for the room's owner, who may start and move threads; the context is the caller's to dispose. */
+async function seedThreadsInWaiting(roomId: number, owner: { email: string; password: string }, titles: string[]): Promise<void> {
+  const anonymous = await playwrightRequest.newContext({ baseURL: BASE_URL });
+  const signedIn = await anonymous.post("/api/v1/login", { data: { email: owner.email, password: owner.password } });
+  expect(signedIn.ok(), await signedIn.text()).toBeTruthy();
+  const { token } = (await signedIn.json()) as { token: string };
+  await anonymous.dispose();
+  const api = await playwrightRequest.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
+  try {
+    for (const title of titles) {
+      const started = await api.post(`/api/v1/rooms/${roomId}/threads`, { data: { title, body: "Seeded for the retire dialog." } });
+      expect(started.status(), await started.text()).toBe(201);
+      const { number } = (await started.json()) as { number: number };
+      // Waiting is an OPEN status of the Default template, so any reader may move a thread into it.
+      const moved = await api.put(`/api/v1/rooms/${roomId}/threads/${number}/status`, { data: { status: "waiting" } });
+      expect(moved.status(), await moved.text()).toBe(204);
+    }
+  } finally {
+    await api.dispose();
+  }
+}
+
+/** Opens a thread's side panel: a third column in a wide main area, otherwise folded behind the "Details" toggle (hidden by CSS when wide, so visibility decides). */
+async function openDetails(page: Page): Promise<void> {
+  const toggle = page.getByRole("button", { name: "Details", exact: true });
+  if (!(await toggle.isVisible())) return;
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }
 
 const save = (page: Page) =>
@@ -171,7 +196,7 @@ test("a stale workflow save is refused and a reload recovers", async ({ page }) 
 
 test("a room created by a Polish-speaking user gets the Polish labels of the template", async ({ page }) => {
   await login(page);
-  const user = await throwawayUser(page, "E2E Workflow Polish");
+  const user = await throwawayUser(page, "E2E Workflow Polish", cleanup);
   await signOut(page);
 
   // The throwaway signs in and switches to Polish (the choice saves server-side; the UI follows).
@@ -195,4 +220,55 @@ test("a room created by a Polish-speaking user gets the Polish labels of the tem
     await expect(statusRow(page, index + 1).getByRole("textbox", { name: "Etykieta" })).toHaveValue(label);
   }
   await expect(page.getByRole("group", { name: "Pole 1", exact: true }).getByRole("textbox", { name: "Etykieta" }).first()).toHaveValue("Ważność");
+});
+
+test("retiring a status that threads use asks for a replacement and moves the threads", async ({ page }) => {
+  const { roomId, owner } = await ownerOnWorkflowTab(page, "Default");
+  const titles = [uniqueText("e2e-retire-a"), uniqueText("e2e-retire-b")];
+  await seedThreadsInWaiting(roomId, owner, titles);
+
+  // A reload reads the workflow with the thread counts: the status the threads sit in can no longer simply be removed.
+  await page.reload();
+  await expect(statusRow(page, 3).getByRole("textbox", { name: "Label" })).toHaveValue("Waiting");
+  await statusRow(page, 3).getByRole("button", { name: "Remove status 3", exact: true }).click();
+
+  // The dialog counts the threads and asks for a replacement of the same category (Open): Done and Won't do are not offered.
+  const dialog = page.getByRole("dialog", { name: "Move threads before removing" });
+  await expect(dialog).toContainText("2 threads are in “Waiting”. Move them to:");
+  await expect(dialog.getByRole("button", { name: "Remove status", exact: true })).toBeDisabled();
+  await dialog.getByRole("combobox", { name: "Move to" }).click();
+  await expect(page.getByRole("option", { name: "Done", exact: true })).toHaveCount(0);
+  await page.getByRole("option", { name: "In progress", exact: true }).click();
+  await dialog.getByRole("button", { name: "Remove status", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // The editor lists the pending removal with the move, and nothing is saved until Save.
+  const pending = page.getByRole("group", { name: "Statuses to be removed", exact: true });
+  await expect(pending).toContainText("“Waiting” will be removed; its 2 threads move to “In progress”.");
+  await save(page);
+  await expect(page.getByRole("group", { name: "Statuses to be removed", exact: true })).toHaveCount(0);
+  // Re-seeded from the saved revision: Waiting is gone, so Done is now the third status and there are four.
+  await expect(statusRow(page, 3).getByRole("textbox", { name: "Label" })).toHaveValue("Done");
+  await expect(statusRow(page, 5)).toHaveCount(0);
+
+  // The thread list shows the replacement on both threads.
+  await page.getByRole("link", { name: "Threads", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}$`));
+  const list = page.getByRole("navigation", { name: "Threads", exact: true });
+  for (const title of titles) {
+    const row = list.getByRole("link", { name: new RegExp(title) });
+    await expect(row).toContainText("In progress");
+    await expect(row).not.toContainText("Waiting");
+  }
+
+  // Each thread's history lists the move as the newest entry (after its start and its move into Waiting).
+  for (const [index, title] of titles.entries()) {
+    await page.goto(`/rooms/${roomId}/threads/${index + 1}`);
+    await expect(page.getByRole("heading", { level: 3, name: `#${index + 1} ${title}` })).toBeVisible();
+    await openDetails(page);
+    const entries = page.getByRole("group", { name: "History", exact: true }).locator(".mantine-Timeline-item");
+    await expect(entries).toHaveCount(3);
+    await expect(entries.nth(0)).toContainText("Waiting was retired; the thread moved to In progress");
+    await expect(entries.nth(1)).toContainText("Moved the thread from Open to Waiting");
+  }
 });
