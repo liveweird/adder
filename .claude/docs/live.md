@@ -136,7 +136,7 @@ per process.
 - **Why unbounded demand:** in r2dbc-postgresql 1.1.3 the notifications flux is best-effort multicast, so a subscriber without demand silently loses them.
   And the listener must never stop reading: a stalled listening connection fills the cluster's notification queue and then every notifying commit fails.
 - **Health:** a `SELECT 1` heartbeat every 30 s with a 5 s timeout (a half-open TCP connection leaves the listener "up" but deaf). On a flux error or
-  completion or a failed heartbeat: close, reconnect with jittered backoff (1, 2, 4 ... 30 s). After every reconnect and every gap, `onGap` makes the hub
+  completion or a failed heartbeat: close, reconnect with jittered backoff (1, 2, 4 ... 30 s). After every successful LISTEN (the first included) and every gap, `onGap` makes the hub
   broadcast `resync`.
 - **Logs:** WARN once per outage, INFO on recovery, nothing per notification, no audit. `ApplicationStopped` closes the connection.
 
@@ -199,7 +199,7 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
 | hidden tab | 5 min | client | close 1000; reopen when shown |
 | indicator delay | 5 s down | client | badge |
 
-Only the keys tests must shrink are config (`requireConfigInt`/`requireConfigLong`, each pinned in `NumericConfigBoundsTest`): `live.maxTickets` 1..1,000,000,
+Only the keys tests must shrink are config (`requireConfigInt`/`requireConfigLong`, each pinned in `NumericConfigBoundsTest`): `live.maxTickets` 1..100,000,
 `live.maxSockets` 1..10,000, `live.maxSocketsPerUser` 1..64, `live.maxPendingAuth` 1..10,000, `live.authTimeoutMillis` 100..30,000.
 
 **"Idle close"** is four mechanisms, not one timer: the protocol heartbeat, the 5 s auth deadline, the close at the token's `exp`, and the client closing a

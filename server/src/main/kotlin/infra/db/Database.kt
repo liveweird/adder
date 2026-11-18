@@ -36,6 +36,7 @@ import io.r2dbc.pool.ConnectionPool
 import io.r2dbc.pool.ConnectionPoolConfiguration
 import io.r2dbc.postgresql.PostgresqlConnectionFactoryProvider
 import io.r2dbc.spi.ConnectionFactories
+import io.r2dbc.spi.ConnectionFactory
 import io.r2dbc.spi.ConnectionFactoryOptions
 import io.r2dbc.spi.Option
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -46,6 +47,13 @@ import java.time.Duration
  *  it injected, and `ConnectionPoolTest` opens transactions directly against the SAME pool the
  *  app's services use to observe `pg_stat_activity` bounded by `postgres.pool.maxSize`. */
 val R2dbcDatabaseKey = AttributeKey<R2dbcDatabase>("R2dbcDatabase")
+
+/**
+ * The factory of the ONE non-pooled connection the live listener holds (`infra/notify/NotifyListener.kt`, `.claude/docs/persistence.md`
+ * "The LISTEN connection"): the pool's own options under the application name `<applicationName>-live`, wrapped only in the
+ * leaked-socket guard. It opens nothing by itself (a connection is made by whoever calls `create()`), so there is nothing to dispose.
+ */
+val NotifyConnectionFactoryKey = AttributeKey<ConnectionFactory>("NotifyConnectionFactory")
 
 /** One reading of the pooled connections (r2dbc-pool's `PoolMetrics`); see [PoolStatsKey]. */
 data class PoolSnapshot(val acquired: Int, val idle: Int, val pendingAcquire: Int, val allocated: Int, val maxAllocated: Int)
@@ -111,17 +119,35 @@ private fun readPoolBounds(config: ApplicationConfig): PoolBounds {
 private fun Application.connectPooled(): R2dbcDatabase {
     val config = environment.config
     val bounds = readPoolBounds(config)
-    val options = ConnectionFactoryOptions.parse(config.property("postgres.r2dbcUrl").getString())
-        .mutate()
-        .option(ConnectionFactoryOptions.USER, config.property("postgres.user").getString())
-        .option(ConnectionFactoryOptions.PASSWORD, config.property("postgres.password").getString())
-        .option(PostgresqlConnectionFactoryProvider.APPLICATION_NAME, bounds.applicationName)
-        .build()
+    val options = config.r2dbcOptions(bounds.applicationName)
     val (database, pool) = connectPooledDatabase(options, bounds)
     monitor.subscribe(ApplicationStopped) { pool.dispose() }
     attributes.put(PoolStatsKey) { pool.snapshot() }
+    val liveOptions = config.r2dbcOptions("${bounds.applicationName}$LIVE_APPLICATION_SUFFIX")
+    attributes.put(NotifyConnectionFactoryKey, notifyConnectionFactory(liveOptions))
     return database
 }
+
+/** The `postgres.*` connection options (URL, user, password) under [applicationName]; the pool's and the listener's share them. */
+private fun ApplicationConfig.r2dbcOptions(applicationName: String): ConnectionFactoryOptions =
+    ConnectionFactoryOptions.parse(property("postgres.r2dbcUrl").getString())
+        .mutate()
+        .option(ConnectionFactoryOptions.USER, property("postgres.user").getString())
+        .option(ConnectionFactoryOptions.PASSWORD, property("postgres.password").getString())
+        .option(PostgresqlConnectionFactoryProvider.APPLICATION_NAME, applicationName)
+        .build()
+
+/** Appended to the pool's `application_name` for the listener's connection (`ConnectionPoolTest` counts the pool's own name exactly). */
+internal const val LIVE_APPLICATION_SUFFIX = "-live"
+
+/**
+ * A plain, unpooled factory over [options] for the listener: it bypasses the pool, [StatementTimeoutCachingConnectionFactory] (the
+ * listener sets no statement timeout, and a remembered one would be wrong for a session that outlives every request) and
+ * [DetachingConnectionFactory] (there is no borrowing frame to detach from), and keeps the leaked-socket guard so a broken
+ * connection's socket is really closed. Nothing is set on the session: it is not in a transaction.
+ */
+internal fun notifyConnectionFactory(options: ConnectionFactoryOptions): ConnectionFactory =
+    LeakedSocketClosingConnectionFactory(ConnectionFactories.get(options))
 
 internal fun ConnectionPool.snapshot(): PoolSnapshot? =
     metrics.orElse(null)?.let {

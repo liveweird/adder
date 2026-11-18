@@ -83,7 +83,7 @@ go through R2DBC.
   from the backend. Deployment assumption: one client connection is one server session — a transaction-mode PgBouncer in front of
   Postgres would break the cache (none today). `StatementTimeoutCacheTest` (own one-connection pool) pins convergence, the
   rolled-back SET, the aborted-transaction canary, a budget enforced again after a cancelled statement, and the skip with its limit.
-- **Sizing.** Size it as `maxSize × replicas + 1` (Flyway's short-lived JDBC connection, `infra/db/Flyway.kt`) well under
+- **Sizing.** Size it as `(maxSize + 1) × replicas + 1` (the `+ 1` per replica is the live listener's connection, "The LISTEN connection" below; the last is Flyway's short-lived JDBC connection, `infra/db/Flyway.kt`) well under
   the server's `max_connections`. `maxAcquireTimeSeconds` is a per-attempt deadline, and the effective
   bound is about 2× the setting. r2dbc-pool 1.0.2's `ConnectionPool` builds `create()` as
   `Mono.defer { acquire.flatMap(…).timeout(maxAcquireTime) }.retry(acquireRetry)` and the builder default is
@@ -425,3 +425,24 @@ the `MultiRowInsert.kt` `exec` precedent), so it needs a current transaction, an
   cluster-wide cost, accepted at chat-write rates); the cluster's notification queue fills only if a LISTENing connection stops reading, after which EVERY notifying commit fails. That last hazard is why
   the listener (S2) drains with unbounded demand and never stops reading.
 - **Tests read the channel through a plain JDBC `LISTEN`** (`NotifyCapture`), bracketed by a sentinel hint of its own, so "emits nothing" is proven by commit order, not by sleeping.
+
+### The LISTEN connection (live, 0.4.0)
+
+`infra/notify/NotifyListener.kt` is the **one documented exception to the bounded pool**: ONE dedicated, non-pooled R2DBC connection per process that `LISTEN`s on `adder_live` for the life of the process
+(a pooled connection is borrowed and returned, a listening session must be neither). `configureDatabase` publishes its factory as `NotifyConnectionFactoryKey` (`infra/db/Database.kt`, `notifyConnectionFactory`); the
+listener itself is built and started by the live feature (`live.md` "The listener"), lazily, on the first ticket mint. It adds ONE backend per replica, hence the sizing formula above.
+
+- **Built differently on purpose.** Same `postgres.*` URL, user and password as the pool (`ApplicationConfig.r2dbcOptions`, extracted so the two cannot drift), but its `application_name` is
+  `<postgres.pool.applicationName>-live` (`adder-live`; `ConnectionPoolTest` counts the pool's own name exactly, and `pg_stat_activity` shows the listener apart). The factory is the raw driver factory wrapped ONLY in
+  `LeakedSocketClosingConnectionFactory`: no pool, no `StatementTimeoutCachingConnectionFactory` (the listener sets no statement timeout; a remembered one would be wrong for a session that outlives every request) and no
+  `DetachingConnectionFactory` (nothing borrows it, so no frame to detach from). The session is never in a transaction, so `idle_in_transaction_session_timeout` has nothing to end.
+- **It never stops reading.** r2dbc-postgresql 1.1.3 publishes notifications through a best-effort multicast sink: a subscriber without demand silently LOSES them. The listener subscribes to `getNotifications()` with
+  unbounded demand (before `LISTEN`, so none falls between) and copies each payload into a `Channel<String>(1024)` with `trySend`; a payload that finds it full is dropped and reported as a gap. A listening connection that
+  stopped reading would fill the cluster's notification queue and make EVERY notifying commit fail ("NOTIFY" above), which is why a slow consumer must cost `resync`s, never backpressure on the socket.
+- **It heals itself.** A `SELECT 1` heartbeat every 30 s (5 s timeout; a half-open TCP connection leaves the session "up" but deaf, and only a statement notices), a flux error or completion, or a failed step closes the
+  session (the close is bounded and reaches the leaked-socket guard) and reconnects with jittered backoff (1, 2, 4 ... 30 s, each wait 50 to 100 %). After EVERY successful LISTEN (the first included, and BEFORE
+  the listener reports itself up) and for every dropped payload, `onGap` fires: hints committed while no session was listening (the first connect's own window, an outage) are gone (at-most-once, `live.md`), and the hub
+  answers a gap with `resync`. `onGap` can be called from the driver's event loop and from the listener's coroutine, possibly at once, so the consumer's callback must be thread-safe, cheap, non-blocking and
+  non-throwing (S4: an atomic flag or a conflated channel `trySend`).
+- **Not config.** The capacity, heartbeat, step timeout and backoff are `NotifyListenerTimings` defaults, constructor parameters only so `NotifyListenerTest` (no app, shared container: committed vs rolled-back, a terminated
+  backend, a full channel, a stalled heartbeat, the `-live` name and close on stop) can shrink them. Logs: `observability.md`.

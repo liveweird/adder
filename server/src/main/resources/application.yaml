@@ -246,7 +246,8 @@ postgres:
   # Bounded R2DBC connection pool (infra/db/Database.kt, `.claude/docs/persistence.md`
   # "Connection pool") — a plain r2dbc:postgresql:// connect opens one PostgreSQL backend
   # per suspendTransaction with nothing capping how many run at once. Sizing assumes a
-  # SINGLE replica: `maxSize × replicas` must stay well under PostgreSQL's default
+  # SINGLE replica: `(maxSize + 1) × replicas` (the +1 is the live listener's own non-pooled
+  # connection, infra/notify/NotifyListener.kt) must stay well under PostgreSQL's default
   # `max_connections = 100`, with room left for Flyway's one short-lived JDBC connection
   # (infra/db/Flyway.kt) and any other client.
   pool:

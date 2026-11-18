@@ -52,6 +52,10 @@ r2dbc-postgresql internals not found` once at boot (pool setup), if a driver upg
 the server ends under `idle_in_transaction_session_timeout` surfaces in Adder only as a generic connection-closed error on its next
 statement (in its own request or job); the `FATAL 25P03` naming the idle timeout is in the PostgreSQL log alone.
 
+**The live listener (WARN/INFO logs, no audit event; `persistence.md` "The LISTEN connection").** Logger `ch.nokillswit.infra.notify.NotifyListener`, never one line per notification: INFO `live listener started` (the first
+successful LISTEN) and INFO `live listener recovered` (the first LISTEN after an outage); WARN `live listener could not connect (<exception class names>); retrying with backoff` (it never came up) or `live listener lost its database connection (<exception class names>); reconnecting with backoff` (it had) ONCE per outage (the class names only,
+never a message: a driver message can carry the host or the URL), repeated only if a session that had come up drops again. A gap (a reconnect, a full channel) is the hub's `resync` (DEBUG, `live.md`), not a log line of the listener.
+
 **Audit trail.** Security-relevant events are structured INFO logs on the dedicated
 `ch.nokillswit.audit` logger with the `AUDIT` marker, emitted via `audit("area.event", "key" to value, …)`
 (`audit/Audit.kt`) — they ride the same Logback→OTel pipeline, so shipping them to a
