@@ -4,6 +4,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import { renderWithProviders, screen } from "../test/render";
 import CommandPalette from "./CommandPalette";
 import { palette } from "../utils/commandPalette";
+import { jsonResponse } from "../test/http";
 
 function Probe() {
   const { pathname } = useLocation();
@@ -94,5 +95,38 @@ describe("CommandPalette", () => {
     await user.type(await screen.findByRole("textbox"), "team");
     expect(await screen.findByRole("button", { name: /Teams/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Change password/ })).not.toBeInTheDocument();
+  });
+
+  describe("the Rooms group", () => {
+    const ROOMS = {
+      items: [
+        { id: 12, name: "Night Shift", description: null, archived: false, role: "OWNER", memberCount: 3, lastActivityAt: 5, createdAt: 1 },
+        { id: 13, name: "Billing", description: null, archived: false, role: "MEMBER", memberCount: 9, lastActivityAt: 4, createdAt: 1 },
+      ],
+      page: 1,
+      pageSize: 100,
+      total: 2,
+    };
+
+    test("lists the caller's rooms beside the pages; a pick opens the room, and typing finds one by name", async () => {
+      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(200, ROOMS))));
+      const user = userEvent.setup();
+      renderPalette();
+      palette.open();
+      expect(await screen.findByRole("button", { name: /Night Shift/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^Home/ })).toBeInTheDocument();
+      await user.type(screen.getByRole("textbox"), "bill");
+      expect(screen.queryByRole("button", { name: /Night Shift/ })).not.toBeInTheDocument();
+      await user.click(await screen.findByRole("button", { name: /Billing/ }));
+      expect(await screen.findByText("at /rooms/13")).toBeInTheDocument();
+    });
+
+    test("without rooms there is no Rooms group", async () => {
+      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: 0 }))));
+      renderPalette();
+      palette.open();
+      await screen.findByRole("button", { name: /^Home/ });
+      expect(screen.queryByText("Rooms")).not.toBeInTheDocument();
+    });
   });
 });

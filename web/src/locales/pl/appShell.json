@@ -10,10 +10,12 @@
     "featureFlags": "Flagi funkcji",
     "changelog": "Historia zmian",
     "teams": "Zespoły",
-    "workflowTemplates": "Szablony przepływów pracy"
+    "workflowTemplates": "Szablony przepływów pracy",
+    "allRooms": "Wszystkie pokoje"
   },
   "section": {
     "overview": "Przegląd",
+    "rooms": "Pokoje",
     "administration": "Administracja"
   },
   "userMenu": {
@@ -29,6 +31,7 @@
     "open": "Szukaj i przejdź do…",
     "placeholder": "Szukaj lub przejdź do strony…",
     "groupPages": "Strony",
+    "groupRooms": "Pokoje",
     "nothingFound": "Nic nie znaleziono",
     "groupActions": "Akcje"
   }

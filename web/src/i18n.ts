@@ -13,6 +13,7 @@ import enAuth from "./locales/en/auth.json";
 import enChangelog from "./locales/en/changelog.json";
 import enUsers from "./locales/en/users.json";
 import enHome from "./locales/en/home.json";
+import enRooms from "./locales/en/rooms.json";
 import enTeams from "./locales/en/teams.json";
 import enTelemetry from "./locales/en/telemetry.json";
 import enWorkflows from "./locales/en/workflows.json";
@@ -58,6 +59,7 @@ export const en = {
   changelog: enChangelog,
   users: enUsers,
   home: enHome,
+  rooms: enRooms,
   teams: enTeams,
   telemetry: enTelemetry,
   workflows: enWorkflows,

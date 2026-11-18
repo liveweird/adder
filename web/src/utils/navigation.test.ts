@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { ACCOUNT_NAV, activeNavPath, homePath, visibleSections } from "./navigation";
+import { ACCOUNT_NAV, activeNavPath, homePath, ROOMS_SECTION, visibleSections } from "./navigation";
 
 describe("visibleSections", () => {
-  test("a regular session sees Overview and Administration — Teams stays, the admin-only leaves drop", () => {
+  test("a regular session sees Overview, Rooms and Administration — Teams stays, the admin-only leaves drop", () => {
     const sections = visibleSections(false);
-    expect(sections.map((s) => s.label)).toEqual(["appShell.section.overview", "appShell.section.administration"]);
+    expect(sections.map((s) => s.label)).toEqual(["appShell.section.overview", ROOMS_SECTION, "appShell.section.administration"]);
     const paths = sections.flatMap((s) => s.items.map((l) => l.to));
-    expect(paths).toEqual(["/", "/teams"]);
+    expect(paths).toEqual(["/", "/rooms", "/teams"]);
   });
 
   test("an admin session gets Teams, Users, Workflow templates and Feature flags in the Administration section", () => {
@@ -31,6 +31,19 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/teams/3", leaves)).toBe("/teams");
     expect(activeNavPath("/workflow-templates/new", leaves)).toBe("/workflow-templates");
     expect(activeNavPath("/workflow-templates/3/edit", leaves)).toBe("/workflow-templates");
+    expect(activeNavPath("/rooms", leaves)).toBe("/rooms");
+    expect(activeNavPath("/rooms/new", leaves)).toBe("/rooms");
+  });
+
+  test("a room of the rail lights up on every page of that room, and the static leaf on the rest", () => {
+    // Only the routing part of a leaf is read, so the shell's dynamic entries join the same resolution.
+    const withRooms = [...leaves, { to: "/rooms/12" }, { to: "/rooms/120" }];
+    expect(activeNavPath("/rooms/12", withRooms)).toBe("/rooms/12");
+    expect(activeNavPath("/rooms/12/members", withRooms)).toBe("/rooms/12");
+    expect(activeNavPath("/rooms/12/settings", withRooms)).toBe("/rooms/12");
+    expect(activeNavPath("/rooms/120/workflow", withRooms)).toBe("/rooms/120");
+    expect(activeNavPath("/rooms/13", withRooms)).toBe("/rooms");
+    expect(activeNavPath("/rooms", withRooms)).toBe("/rooms");
   });
 
   test("a leaf stays highlighted on every route it lists in activeFor, and still links to its own", () => {

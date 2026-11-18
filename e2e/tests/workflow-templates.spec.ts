@@ -1,5 +1,5 @@
 // The ADMIN workflow-template registry: an administrator creates a template, edits its labels in both languages and deletes it; a
-// regular user has no template pages. Owns: its throwaway templates (unique `e2e-tpl-*` names) and user, removed through the API in an
+// regular user picks a template when creating a room but has no template pages. Owns: its throwaway templates (unique `e2e-tpl-*` names) and user, removed through the API in an
 // `afterEach`. The seeded Default and Incident templates are shared and read-only: no spec edits or deletes them.
 import type { Page } from "@playwright/test";
 import { createUserViaUi, deleteViaApi, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
@@ -81,8 +81,7 @@ test("an administrator creates a workflow template, edits its labels in both lan
   await expect(page.getByRole("link", { name: `Open workflow template ${name}` })).toHaveCount(0);
 });
 
-// C10 (room creation) extends this test with the other half: the regular user picks a template when creating a room.
-test("a regular user has no workflow template pages", async ({ page }) => {
+test("a regular user picks a template when creating a room but has no template pages", async ({ page }) => {
   await login(page);
   const user = await createUserViaUi(page, "E2E Template Reader");
   cleanup.push(`/api/v1/users/${user.id}`);
@@ -104,4 +103,16 @@ test("a regular user has no workflow template pages", async ({ page }) => {
     await expect(page.getByRole("link", { name: "Workflow templates" })).toHaveCount(0);
   }
   expect(requests).toEqual([]);
+
+  // The other half: the room-create form reads the same list for any signed-in user and previews what a pick would copy.
+  await page.getByRole("group", { name: "Rooms", exact: true }).getByRole("link", { name: "All rooms" }).click();
+  await page.getByRole("link", { name: "New room" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "New room" })).toBeVisible();
+  await page.getByRole("combobox", { name: "Workflow template" }).click();
+  await expect(page.getByRole("option", { name: "Default", exact: true })).toBeVisible();
+  await page.getByRole("option", { name: "Incident", exact: true }).click();
+  await expect(page.getByRole("group", { name: "Statuses" })).toContainText("Triage");
+  expect(requests.length).toBeGreaterThan(0);
+  // Nothing is created: the form is left as it is, and the template pages stay out of reach.
+  await expect(page.getByRole("link", { name: "Workflow templates" })).toHaveCount(0);
 });

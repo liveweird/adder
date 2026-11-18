@@ -60,6 +60,9 @@ describe("App shell", () => {
       // Sections are labelled groups, never toggles — every leaf is in the DOM immediately.
       const overview = await screen.findByRole("group", { name: "Overview" });
       expect(within(overview).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+      // Rooms: the static "All rooms" leaf (the caller's own rooms hang under it, see "the rooms rail").
+      const rooms = screen.getByRole("group", { name: "Rooms" });
+      expect(within(rooms).getByRole("link", { name: "All rooms" })).toHaveAttribute("href", "/rooms");
       // A non-admin session still sees Administration — Teams are everyone's, only Users and
       // Feature flags are admin-only and drop out.
       const admin = screen.getByRole("group", { name: "Administration" });
@@ -83,6 +86,7 @@ describe("App shell", () => {
       expect(screen.queryByText("Overview")).not.toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
       expect(screen.getByRole("link", { name: "Teams" })).toHaveAttribute("href", "/teams");
+      expect(screen.getByRole("link", { name: "All rooms" })).toHaveAttribute("href", "/rooms");
       expect(localStorage.getItem("adder.viewSettings.appShell.navCollapsed")).toBe("true");
     });
 
@@ -122,6 +126,146 @@ describe("App shell", () => {
       expect(within(admin).getByRole("link", { name: "Users" })).toHaveAttribute("href", "/users");
       expect(within(admin).getByRole("link", { name: "Workflow templates" })).toHaveAttribute("href", "/workflow-templates");
       expect(within(admin).getByRole("link", { name: "Feature flags" })).toHaveAttribute("href", "/feature-flags");
+    });
+
+    describe("the rooms rail", () => {
+      const ROOM = { description: null, role: "OWNER", memberCount: 3, lastActivityAt: 5, createdAt: 1 };
+      const ACTIVE = {
+        items: [
+          { id: 12, name: "Night Shift", archived: false, ...ROOM },
+          { id: 13, name: "Billing", archived: false, ...ROOM },
+        ],
+        page: 1,
+        pageSize: 100,
+        total: 2,
+      };
+      const ARCHIVED = { items: [{ id: 20, name: "Old Incident", archived: true, ...ROOM }], page: 1, pageSize: 100, total: 1 };
+
+      /** Answers the rail's two list queries; every other request is a 404 (the page behind it is not the subject). */
+      function stubRooms(active: unknown = ACTIVE, archived: unknown = ARCHIVED) {
+        const fetchMock = vi.fn((url: string) => {
+          if (url.startsWith("/api/v1/rooms?")) return Promise.resolve(jsonResponse(200, url.includes("archived=true") ? archived : active));
+          return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        return fetchMock;
+      }
+
+      test("lists the caller's active rooms under All rooms, newest activity first, one request", async () => {
+        const fetchMock = stubRooms();
+        renderApp("/");
+        const rooms = await screen.findByRole("group", { name: "Rooms" });
+        expect(await within(rooms).findByRole("link", { name: "Night Shift" })).toHaveAttribute("href", "/rooms/12");
+        expect(within(rooms).getByRole("link", { name: "Billing" })).toHaveAttribute("href", "/rooms/13");
+        expect(within(rooms).queryByRole("link", { name: "Old Incident" })).not.toBeInTheDocument();
+        const railCalls = fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/v1/rooms?"));
+        // The rail and the command palette share ONE query.
+        expect(railCalls.map(([url]) => url)).toEqual(["/api/v1/rooms?page=1&pageSize=100&sort=-lastActivityAt&archived=false&member=true"]);
+      });
+
+      test("a room's own pages highlight that room (not All rooms), including pages the app has no route for yet", async () => {
+        stubRooms();
+        renderApp("/rooms/12/members");
+        const rooms = await screen.findByRole("group", { name: "Rooms" });
+        const night = await within(rooms).findByRole("link", { name: "Night Shift" });
+        expect(night).toHaveAttribute("aria-current", "page");
+        expect(within(rooms).getByRole("link", { name: "Billing" })).not.toHaveAttribute("aria-current");
+        expect(within(rooms).getByRole("link", { name: "All rooms" })).not.toHaveAttribute("aria-current");
+      });
+
+      test("Show archived adds the archived rooms, dimmed under their own group, and the choice persists", async () => {
+        const user = userEvent.setup();
+        const fetchMock = stubRooms();
+        renderApp("/");
+        const rooms = await screen.findByRole("group", { name: "Rooms" });
+        await within(rooms).findByRole("link", { name: "Night Shift" });
+        expect(fetchMock.mock.calls.some(([url]) => String(url).includes("archived=true"))).toBe(false);
+        await user.click(within(rooms).getByRole("switch", { name: "Show archived" }));
+        const archived = await within(rooms).findByRole("group", { name: "Archived rooms" });
+        expect(within(archived).getByRole("link", { name: "Old Incident" })).toHaveAttribute("href", "/rooms/20");
+        expect(localStorage.getItem("adder.viewSettings.rooms.rail.showArchived")).toBe("true");
+      });
+
+      test("the stored archived toggle is honoured on a fresh render", async () => {
+        localStorage.setItem("adder.viewSettings.rooms.rail.showArchived", "true");
+        stubRooms();
+        renderApp("/rooms/20/settings");
+        const archived = await screen.findByRole("group", { name: "Archived rooms" });
+        expect(await within(archived).findByRole("link", { name: "Old Incident" })).toHaveAttribute("aria-current", "page");
+      });
+
+      test("creating a room refreshes the rail: the new room is listed and current without a reload", async () => {
+        let created = false;
+        const NEW_ROOM = { id: 30, name: "Fresh Room", archived: false, ...ROOM };
+        vi.stubGlobal(
+          "fetch",
+          vi.fn((url: string, init?: RequestInit) => {
+            if (init?.method === "POST" && url === "/api/v1/rooms") {
+              created = true;
+              return Promise.resolve(jsonResponse(201, NEW_ROOM));
+            }
+            if (url.startsWith("/api/v1/rooms?")) {
+              return Promise.resolve(jsonResponse(200, { ...ACTIVE, items: created ? [NEW_ROOM, ...ACTIVE.items] : ACTIVE.items }));
+            }
+            if (url.startsWith("/api/v1/workflow-templates?")) {
+              return Promise.resolve(jsonResponse(200, { items: [{ id: 1, name: "Default", description: null, statusCount: 2, fieldCount: 0, revision: 1, updatedAt: 1 }], page: 1, pageSize: 100, total: 1 }));
+            }
+            if (url === "/api/v1/workflow-templates/1") {
+              return Promise.resolve(jsonResponse(200, { id: 1, name: "Default", description: null, statuses: [], fields: [], revision: 1, createdAt: 1, updatedAt: 1 }));
+            }
+            return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+          }),
+        );
+        const user = userEvent.setup();
+        renderApp("/rooms/new");
+        const rooms = await screen.findByRole("group", { name: "Rooms" });
+        await within(rooms).findByRole("link", { name: "Night Shift" });
+        expect(within(rooms).queryByRole("link", { name: "Fresh Room" })).not.toBeInTheDocument();
+        await user.type(await screen.findByRole("textbox", { name: "Name" }), "Fresh Room");
+        await user.click(screen.getByRole("combobox", { name: /Workflow template/ }));
+        await user.click(await screen.findByRole("option", { name: "Default" }));
+        await user.click(screen.getByRole("button", { name: "Create" }));
+        const fresh = await within(rooms).findByRole("link", { name: "Fresh Room" });
+        expect(fresh).toHaveAttribute("href", "/rooms/30");
+        await waitFor(() => expect(fresh).toHaveAttribute("aria-current", "page"));
+      });
+
+      test("the icon rail shows each room as an initials avatar named by the room", async () => {
+        localStorage.setItem("adder.viewSettings.appShell.navCollapsed", "true");
+        stubRooms();
+        renderApp("/");
+        const night = await screen.findByRole("link", { name: "Night Shift" });
+        expect(night).toHaveTextContent("NS");
+        expect(night).toHaveAttribute("href", "/rooms/12");
+        // The toggle and the captions only exist in the full-width rail.
+        expect(screen.queryByRole("switch", { name: "Show archived" })).not.toBeInTheDocument();
+      });
+
+      test("an empty list says so, compactly", async () => {
+        stubRooms({ items: [], page: 1, pageSize: 100, total: 0 });
+        renderApp("/");
+        expect(await screen.findByText("You are not in any room yet")).toBeInTheDocument();
+      });
+
+      test("a list longer than the rail offers a link to the Rooms page", async () => {
+        stubRooms({ ...ACTIVE, total: 150 });
+        renderApp("/");
+        expect(await screen.findByRole("link", { name: "More rooms…" })).toHaveAttribute("href", "/rooms");
+      });
+
+      test("a failed load shows a compact alert and the rest of the shell keeps working", async () => {
+        vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(500, { title: "Boom", status: 500 }))));
+        renderApp("/");
+        expect(await screen.findByText("Could not load your rooms")).toBeInTheDocument();
+        expect(screen.getByRole("link", { name: "All rooms" })).toBeInTheDocument();
+      });
+
+      test("a failed load in the icon rail is a labelled icon", async () => {
+        localStorage.setItem("adder.viewSettings.appShell.navCollapsed", "true");
+        vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(500, { title: "Boom", status: 500 }))));
+        renderApp("/");
+        expect(await screen.findByRole("img", { name: "Could not load your rooms" })).toBeInTheDocument();
+      });
     });
 
     describe("the telemetry panel", () => {

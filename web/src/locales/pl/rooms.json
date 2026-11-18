@@ -1,0 +1,104 @@
+{
+  "title": "Pokoje",
+  "intro": "W pokojach toczy się praca. Widzisz pokoje, do których należysz; administratorzy/rki widzą wszystkie pokoje.",
+  "newRoom": "Nowy pokój",
+  "createTitle": "Nowy pokój",
+  "empty": "Nie ma jeszcze pokoi",
+  "loadFailed": "Nie udało się wczytać pokoi",
+  "notFound": "Ten pokój nie istnieje albo do niego nie należysz.",
+  "backToRooms": "Wróć do pokoi",
+  "openAria": "Otwórz pokój {{name}}",
+  "showArchived": "Uwzględnij zarchiwizowane pokoje",
+  "archivedBadge": "Zarchiwizowany",
+  "memberCount_one": "{{count}} członek/członkini",
+  "memberCount_few": "{{count}} członków/członkiń",
+  "memberCount_many": "{{count}} członków/członkiń",
+  "memberCount_other": "{{count}} członka/członkini",
+  "scope": {
+    "aria": "Które pokoje wyświetlić",
+    "mine": "Moje",
+    "all": "Wszystkie"
+  },
+  "column": {
+    "role": "Twoja rola",
+    "members": "Liczba członków/członkiń",
+    "lastActivity": "Ostatnia aktywność",
+    "created": "Utworzono"
+  },
+  "role": {
+    "OWNER": "Właściciel/ka",
+    "MEMBER": "Członek/członkini"
+  },
+  "tabs": {
+    "aria": "Strony pokoju",
+    "home": "Przegląd",
+    "settings": "Ustawienia"
+  },
+  "rail": {
+    "loadFailed": "Nie udało się wczytać Twoich pokoi",
+    "empty": "Nie należysz jeszcze do żadnego pokoju",
+    "archivedGroup": "Zarchiwizowane pokoje",
+    "more": "Więcej pokoi…",
+    "showArchived": "Pokaż zarchiwizowane"
+  },
+  "home": {
+    "threadsLabel": "Wątki pojawią się wkrótce",
+    "threadsHint": "Wkrótce tu będą rozmowy pokoju, każda ze statusem z poniższego przepływu pracy.",
+    "workflowTitle": "Przepływ pracy",
+    "workflowLoadFailed": "Nie udało się wczytać przepływu pracy",
+    "open": "Otwarte",
+    "closed": "Zamknięte",
+    "noFields": "Brak dodatkowych pól",
+    "fields": "Pola: {{fields}}"
+  },
+  "create": {
+    "template": "Szablon przepływu pracy",
+    "templateHint": "Pokój kopiuje z niego statusy i pola; późniejsze zmiany szablonu nie dotyczą pokoju.",
+    "templatePlaceholder": "Wybierz szablon",
+    "previewTitle": "Statusy",
+    "previewFailed": "Nie udało się wczytać szablonu",
+    "templatesFailed": "Nie udało się wczytać szablonów przepływów pracy",
+    "noTemplates": "Nie ma jeszcze szablonów przepływów pracy. Poproś administratora/rkę o utworzenie szablonu.",
+    "nameTaken": "Pokój o tej nazwie już istnieje",
+    "templateGone": "Ten szablon już nie istnieje. Wybierz inny.",
+    "invalid": "Nie udało się utworzyć pokoju: jedno lub więcej pól jest nieprawidłowe",
+    "tooManyRequests": "Tworzysz pokoje zbyt szybko. Odczekaj minutę i spróbuj ponownie."
+  },
+  "validation": {
+    "nameLength": "Nazwa musi mieć 1–80 znaków",
+    "nameControl": "Nazwa nie może zawierać znaków sterujących",
+    "descriptionLength": "Opis może mieć co najwyżej 500 znaków",
+    "templateRequired": "Wybierz szablon przepływu pracy"
+  },
+  "settings": {
+    "detailsTitle": "Szczegóły",
+    "archivedNote": "Ten pokój jest zarchiwizowany, więc jego szczegóły są tylko do odczytu. Przywróć go, aby je edytować.",
+    "readOnlyNote": "Te ustawienia mogą zmieniać tylko właściciele/ki pokoju i administratorzy/rki.",
+    "saveForbidden": "Szczegóły pokoju mogą zmieniać tylko jego właściciele/ki i administratorzy/rki",
+    "saveConflict": "Pokój o tej nazwie już istnieje",
+    "saveArchived": "Ten pokój został w międzyczasie zarchiwizowany, więc nie można go już edytować.",
+    "saveInvalid": "Jedno lub więcej pól jest nieprawidłowe",
+    "saveGone": "Ten pokój już nie istnieje albo nie masz do niego dostępu — odśwież stronę",
+    "lifecycleTitle": "Archiwizacja i usuwanie",
+    "archiveHint": "Zarchiwizowany pokój jest tylko do odczytu. Jego członkowie/członkinie i historia zostają, a pokój możesz przywrócić w dowolnej chwili.",
+    "archiveAction": "Archiwizuj pokój",
+    "archiveTitle": "Zarchiwizować ten pokój?",
+    "archiveBody": "Pokój „{{name}}” będzie tylko do odczytu, dopóki ktoś go nie przywróci.",
+    "unarchiveHint": "Ten pokój jest zarchiwizowany. Przywróć go, aby znów go edytować.",
+    "unarchiveAction": "Cofnij archiwizację",
+    "unarchiveTitle": "Przywrócić ten pokój?",
+    "unarchiveBody": "Pokój „{{name}}” znów będzie można edytować.",
+    "deleteHint": "Usunięcie pokoju usuwa go dla wszystkich i zwalnia jego nazwę. Nie można tego cofnąć.",
+    "deleteAction": "Usuń pokój",
+    "deleteTitle": "Usunąć pokój?",
+    "deleteBody": "Usuniemy pokój „{{name}}” dla wszystkich.",
+    "deleteFailed": "Nie udało się usunąć pokoju"
+  },
+  "toast": {
+    "created": "Utworzono pokój",
+    "saved": "Zapisano pokój",
+    "archived": "Zarchiwizowano pokój",
+    "unarchived": "Przywrócono pokój",
+    "deleted": "Usunięto pokój"
+  }
+}

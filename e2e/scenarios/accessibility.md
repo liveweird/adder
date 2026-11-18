@@ -4,8 +4,9 @@
 - **Actors**: the seed administrator (`admin@adder.local`) for the authenticated pages; an
   anonymous visitor for the login screen
 - **Owns** (exclusive server-side state): one fixture team (unique `e2e-axe-*` name), created
-  through the API before the detail-page block and deleted after it; the list/form pages and
-  the login screen are read-only
+  through the API before the detail-page block and deleted after it, and one fixture room
+  (unique `e2e-axe-room-*` name, a copy of the seeded Default template, the admin its owner), created and deleted the same way;
+  the list/form pages and the login screen are read-only
 
 This is the registered template-title exception (see README.md): one `test()` per page is
 generated from a list, so a single scenario section stands in for each list.
@@ -21,7 +22,7 @@ generated from a list, so a single scenario section stands in for each list.
 1. The admin signs in, opens `<path>`, and waits for its heading.
    - *Expected*: an axe scan (same tags) reports zero violations.
 
-The list covers the Home page, the Teams list, the Users list and its create form, the workflow-template list and its create form, the ADMIN feature-flags screen,
+The list covers the Home page, the Rooms list and its create form, the Teams list, the Users list and its create form, the workflow-template list and its create form, the ADMIN feature-flags screen,
 Change password and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set.
 
 ## Scenario: `<path>` has no WCAG A/AA violations in the dark scheme
@@ -58,6 +59,6 @@ Change password and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHE
 - **The opened mobile nav drawer** — only the closed shell (header + page) is scanned at the phone
   width; the drawer's slide-in transition makes contrast measurement racy.
 - **Modals and detail pages in the dark scheme** — the dark pass covers the page sets above, not the
-  overlay or the fixture team's detail pages.
+  overlay or the fixture team's and room's detail pages.
 - **Colour tokens themselves** — the ratios are pinned in `web/src/theme.test.ts`; axe here
   verifies the rendered pages honour them.

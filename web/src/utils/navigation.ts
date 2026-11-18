@@ -1,5 +1,6 @@
 import type { ParseKeys } from "i18next";
-import { IconHistory, IconHome2, IconKey, IconListCheck, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
+import { IconDoor, IconHistory, IconHome2, IconKey, IconListCheck, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
+import { roomsPath } from "./roomLinks";
 import { teamsPath } from "./teamLinks";
 import { usersPath } from "./userLinks";
 import { workflowTemplatesPath } from "./workflowTemplateLinks";
@@ -33,14 +34,22 @@ export const homePath = "/";
  * The navigation model, shared by the sidebar and the command palette. Sections are labelled,
  * always-open blocks (never collapsible groups): every leaf is always in the DOM, so tests and
  * deep links address the links directly, and a static label costs less vertical space than a
- * toggle. Home is visible to everyone; the Administration section holds Teams (everyone reads
+ * toggle. Home is visible to everyone; the Rooms section holds the static "All rooms" leaf (the shell renders the caller's
+ * rooms rail under it, and those dynamic entries join `activeNavPath`); the Administration section holds Teams (everyone reads
  * the flat teams list; only its create/edit/delete are ADMIN) alongside the ADMIN-only Users, Workflow
  * templates and Feature flags leaves — a non-admin session sees just Teams there.
  */
+/** The section the shell renders the rooms rail in. */
+export const ROOMS_SECTION: ParseKeys = "appShell.section.rooms";
+
 const NAV_SECTIONS: ReadonlyArray<NavSection> = [
   {
     label: "appShell.section.overview",
     items: [{ to: homePath, label: "appShell.nav.home", icon: IconHome2 }],
+  },
+  {
+    label: "appShell.section.rooms",
+    items: [{ to: roomsPath, label: "appShell.nav.allRooms", icon: IconDoor }],
   },
   {
     label: "appShell.section.administration",
@@ -69,9 +78,10 @@ export function visibleSections(admin: boolean): NavSection[] {
 
 /**
  * Longest-matching-prefix active-link resolution — "/" only matches exactly. A leaf matches on its
- * own `to` and on every `activeFor` route; the answer is always the leaf's `to`.
+ * own `to` and on every `activeFor` route; the answer is always the leaf's `to`. Only the routing part of a leaf is read, so
+ * the shell's dynamic entries (a room of the rail) join the same resolution: `/rooms/12/members` lights room 12, not "All rooms".
  */
-export function activeNavPath(pathname: string, leaves: ReadonlyArray<NavLeaf>): string | null {
+export function activeNavPath(pathname: string, leaves: ReadonlyArray<Pick<NavLeaf, "to" | "activeFor">>): string | null {
   const matches = (path: string) =>
     path === "/" ? pathname === "/" : pathname === path || pathname.startsWith(`${path}/`);
   return (

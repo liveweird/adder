@@ -30,7 +30,7 @@
 7. Back on the list, filtered by the name, they delete the template from its row menu and confirm.
    - *Expected*: the delete answers 204 and the row is gone.
 
-## Scenario: a regular user has no workflow template pages
+## Scenario: a regular user picks a template when creating a room but has no template pages
 
 1. The admin creates a throwaway regular user and signs out; the user signs in.
    - *Expected*: the sidebar's Administration section shows Teams and no **Workflow templates** link.
@@ -38,11 +38,15 @@
    - *Expected*: each lands on Home (`/`, h2 "Adder") and the link is still absent.
    - *Expected*: no request to `/api/v1/workflow-templates` was made by the browser (the pages' queries stay
      disabled for a regular user).
+3. They open **All rooms** in the sidebar's Rooms section, click **New room** and open the **Workflow template** picker.
+   - *Expected*: the h2 reads "New room"; the picker lists the seeded **Default** template; picking **Incident** previews
+     its statuses (the group "Statuses" contains Triage). The picker's reads are the only template requests the browser made,
+     and the **Workflow templates** nav link is still absent. Nothing is created.
 
 ## Not covered here (and why)
 
-- **The room-create template picker** — rooms arrive with the next steps of 0.2.0; the second test grows the
-  "a regular user picks a template when creating a room" half then.
+- **Creating the room, a name clash or a template deleted mid-create** — `rooms.spec.ts` creates rooms (from the Incident
+  template); the clash and the 400 are pinned by the server's `RoomTest` and the SPA's `CreateRoom.test.tsx`.
 - **A stale save (409 `revision-conflict`), the name clash and every validation message** — pinned by the
   server's `WorkflowTemplateTest` and the SPA's `EditWorkflowTemplate.test.tsx` / `WorkflowTemplateForm.test.tsx`;
   the journey drives the happy path only.

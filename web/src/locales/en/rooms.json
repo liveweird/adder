@@ -1,0 +1,102 @@
+{
+  "title": "Rooms",
+  "intro": "Rooms are where the work happens. You see the rooms you are a member of; administrators can see every room.",
+  "newRoom": "New room",
+  "createTitle": "New room",
+  "empty": "No rooms yet",
+  "loadFailed": "Could not load the rooms",
+  "notFound": "This room does not exist, or you are not a member of it.",
+  "backToRooms": "Back to rooms",
+  "openAria": "Open room {{name}}",
+  "showArchived": "Include archived rooms",
+  "archivedBadge": "Archived",
+  "memberCount_one": "{{count}} member",
+  "memberCount_other": "{{count}} members",
+  "scope": {
+    "aria": "Which rooms to list",
+    "mine": "Mine",
+    "all": "All"
+  },
+  "column": {
+    "role": "Your role",
+    "members": "Members",
+    "lastActivity": "Last activity",
+    "created": "Created"
+  },
+  "role": {
+    "OWNER": "Owner",
+    "MEMBER": "Member"
+  },
+  "tabs": {
+    "aria": "Room pages",
+    "home": "Overview",
+    "settings": "Settings"
+  },
+  "rail": {
+    "loadFailed": "Could not load your rooms",
+    "empty": "You are not in any room yet",
+    "archivedGroup": "Archived rooms",
+    "more": "More rooms…",
+    "showArchived": "Show archived"
+  },
+  "home": {
+    "threadsLabel": "Threads arrive next",
+    "threadsHint": "Soon this is where the room's conversations live, each with a status from the workflow below.",
+    "workflowTitle": "Workflow",
+    "workflowLoadFailed": "Could not load the workflow",
+    "open": "Open",
+    "closed": "Closed",
+    "noFields": "No extra fields",
+    "fields": "Fields: {{fields}}"
+  },
+  "create": {
+    "template": "Workflow template",
+    "templateHint": "The room copies its statuses and fields from it; later changes to the template do not touch the room.",
+    "templatePlaceholder": "Pick a template",
+    "previewTitle": "Statuses",
+    "previewFailed": "Could not load the template",
+    "templatesFailed": "Could not load the workflow templates",
+    "noTemplates": "There are no workflow templates yet. Ask an administrator to create one.",
+    "nameTaken": "A room with this name already exists",
+    "templateGone": "That template no longer exists. Pick another one.",
+    "invalid": "The room could not be created: one or more fields are invalid",
+    "tooManyRequests": "You are creating rooms too quickly. Wait a minute and try again."
+  },
+  "validation": {
+    "nameLength": "Name must be 1–80 characters",
+    "nameControl": "Name must not contain control characters",
+    "descriptionLength": "Description must be at most 500 characters",
+    "templateRequired": "Pick a workflow template"
+  },
+  "settings": {
+    "detailsTitle": "Details",
+    "archivedNote": "This room is archived, so its details are read-only. Unarchive it to edit them.",
+    "readOnlyNote": "Only the room's owners and administrators can change these settings.",
+    "saveForbidden": "Only the room's owners and administrators can change its details",
+    "saveConflict": "A room with this name already exists",
+    "saveArchived": "This room was archived in the meantime, so it can no longer be edited.",
+    "saveInvalid": "One or more fields are invalid",
+    "saveGone": "This room no longer exists, or you no longer have access to it — reload the page",
+    "lifecycleTitle": "Archive and delete",
+    "archiveHint": "An archived room is read-only. Its members and history stay, and you can unarchive it at any time.",
+    "archiveAction": "Archive room",
+    "archiveTitle": "Archive this room?",
+    "archiveBody": "“{{name}}” becomes read-only until someone unarchives it.",
+    "unarchiveHint": "This room is archived. Unarchive it to edit it again.",
+    "unarchiveAction": "Unarchive room",
+    "unarchiveTitle": "Unarchive this room?",
+    "unarchiveBody": "“{{name}}” becomes editable again.",
+    "deleteHint": "Deleting a room removes it for everyone and frees its name. There is no undo.",
+    "deleteAction": "Delete room",
+    "deleteTitle": "Delete room?",
+    "deleteBody": "“{{name}}” will be deleted for everyone.",
+    "deleteFailed": "Could not delete the room"
+  },
+  "toast": {
+    "created": "Room created",
+    "saved": "Room saved",
+    "archived": "Room archived",
+    "unarchived": "Room unarchived",
+    "deleted": "Room deleted"
+  }
+}

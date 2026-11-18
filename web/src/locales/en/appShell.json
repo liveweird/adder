@@ -10,10 +10,12 @@
     "featureFlags": "Feature flags",
     "changelog": "Changelog",
     "teams": "Teams",
-    "workflowTemplates": "Workflow templates"
+    "workflowTemplates": "Workflow templates",
+    "allRooms": "All rooms"
   },
   "section": {
     "overview": "Overview",
+    "rooms": "Rooms",
     "administration": "Administration"
   },
   "userMenu": {
@@ -29,6 +31,7 @@
     "open": "Search and jump to…",
     "placeholder": "Search or jump to a page…",
     "groupPages": "Pages",
+    "groupRooms": "Rooms",
     "nothingFound": "Nothing found",
     "groupActions": "Actions"
   }

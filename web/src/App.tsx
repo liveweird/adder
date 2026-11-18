@@ -8,12 +8,15 @@ import { RedirectIfAuthed, RequireAdmin, RequireAuth, useAdmin } from "./auth";
 import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
 import LoadingBlock from "./components/LoadingBlock";
+import RoomsRail from "./components/RoomsRail";
 import TelemetryPanelCrash from "./components/TelemetryPanelCrash";
 import UserMenu from "./components/UserMenu";
 import VersionStamp from "./components/VersionStamp";
 import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
-import { activeNavPath, visibleSections, type NavLeaf } from "./utils/navigation";
+import { activeNavPath, ROOMS_SECTION, visibleSections, type NavLeaf } from "./utils/navigation";
+import { roomPath } from "./utils/roomLinks";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
+import { useRailRooms } from "./hooks/useRailRooms";
 import { isBoolean, useStoredState } from "./hooks/useStoredState";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "./hooks/useTelemetryPanel";
 import classes from "./theme.module.css";
@@ -22,6 +25,10 @@ import classes from "./theme.module.css";
 const TelemetryPanel = lazy(() => import("./components/TelemetryPanel"));
 const Login = lazy(() => import("./pages/Login"));
 const Home = lazy(() => import("./pages/Home"));
+const Rooms = lazy(() => import("./pages/Rooms"));
+const CreateRoom = lazy(() => import("./pages/CreateRoom"));
+const RoomHome = lazy(() => import("./pages/RoomHome"));
+const RoomSettings = lazy(() => import("./pages/RoomSettings"));
 const Teams = lazy(() => import("./pages/Teams"));
 const TeamDetails = lazy(() => import("./pages/TeamDetails"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
@@ -64,10 +71,14 @@ function Shell() {
   // of always-present leaves, admin-only ones filtered per session (the routes are guarded
   // too), an empty section disappearing with them.
   const sections = visibleSections(admin);
-  const activeTo = activeNavPath(
-    pathname,
-    sections.flatMap((section) => section.items),
-  );
+  // The caller's rooms (the rail under "All rooms"): the toggle for the archived ones is device-level, like the other view settings.
+  const [showArchived, setShowArchived] = useStoredState("rooms.rail.showArchived", false, isBoolean);
+  const railRooms = useRailRooms(showArchived);
+  // The rooms join the leaves in ONE longest-prefix resolution, so /rooms/12/members lights room 12, not "All rooms".
+  const roomLeaves = [...(railRooms.active.data?.items ?? []), ...(showArchived ? (railRooms.archived.data?.items ?? []) : [])].map((room) => ({
+    to: roomPath(room.id),
+  }));
+  const activeTo = activeNavPath(pathname, [...sections.flatMap((section) => section.items), ...roomLeaves]);
 
   const renderLeaf = (leaf: NavLeaf) => {
     const active = leaf.to === activeTo;
@@ -171,6 +182,16 @@ function Shell() {
                 </Text>
               )}
               {section.items.map(renderLeaf)}
+              {section.label === ROOMS_SECTION && (
+                <RoomsRail
+                  rooms={railRooms}
+                  showArchived={showArchived}
+                  onShowArchivedChange={setShowArchived}
+                  collapsed={rail}
+                  activeTo={activeTo}
+                  onNavigate={close}
+                />
+              )}
             </Box>
           ))}
         </AppShell.Section>
@@ -229,6 +250,10 @@ export default function App() {
         <Route element={<RequireAuth />}>
           <Route element={<Shell />}>
             <Route index element={<Home />} />
+            <Route path="rooms" element={<Rooms />} />
+            <Route path="rooms/new" element={<CreateRoom />} />
+            <Route path="rooms/:id" element={<RoomHome />} />
+            <Route path="rooms/:id/settings" element={<RoomSettings />} />
             <Route path="teams" element={<Teams />} />
             <Route path="teams/:id" element={<TeamDetails />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}

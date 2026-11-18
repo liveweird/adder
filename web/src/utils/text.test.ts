@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ComboboxItem } from "@mantine/core";
-import { foldDiacritics, foldedOptionsFilter } from "./text";
+import { foldDiacritics, foldedOptionsFilter, initialsOf } from "./text";
 
 describe("foldDiacritics", () => {
   test("lowercases and strips combining diacritics", () => {
@@ -42,5 +42,18 @@ describe("foldedOptionsFilter", () => {
     expect(foldedOptionsFilter({ options: grouped, search: "zolw", limit: 10 })).toEqual([
       { group: "Turtles", items: [options[0], options[1]] },
     ]);
+  });
+});
+
+describe("initialsOf", () => {
+  test("takes the first letters of the first two words, upper-cased", () => {
+    expect(initialsOf("Night Shift")).toBe("NS");
+    expect(initialsOf("  ops   handover   team ")).toBe("OH");
+    expect(initialsOf("billing")).toBe("B");
+    expect(initialsOf("łódź")).toBe("Ł");
+  });
+
+  test("is empty for a blank name", () => {
+    expect(initialsOf("   ")).toBe("");
   });
 });

@@ -3,7 +3,7 @@
 Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA, password reset,
 the changelog, the flat-teams registry and the ADMIN telemetry panel — the v0.1.0 foundation, trimmed from Flow
 (`~/Sources/flow` @ 4e43e480, 1.57.1, the donor: port building blocks from there, don't reinvent; Astrolabe's trim of the same
-shell is the precedent) — with a placeholder Home (a welcome and a note that rooms and threads are coming); the chat itself
+shell is the precedent) — with rooms (the Rooms page, the sidebar rooms rail, room settings; 0.2.0) and a placeholder Home; the threads and messages
 arrives in later versions. Routes are lazy.
 
 - Dev server: `cd web && npm run dev` (port **5179** — not Vite's 5173 default, so Adder can run
@@ -62,19 +62,20 @@ arrives in later versions. Routes are lazy.
 - Pages are **lazy** (`React.lazy` in `App.tsx`); new routes register above the `path="*"`
   NotFound catch-all (LAST child, never feature-gated). **The nav model lives in
   `utils/navigation.ts`**, shared by the sidebar and the command palette: `NAV_SECTIONS` —
-  labelled, always-open sections (currently Overview and Administration: Teams, Users, Workflow templates, Feature flags) of `NavLeaf`s (the
+  labelled, always-open sections (currently Overview, Rooms — the static "All rooms" leaf — and Administration: Teams, Users, Workflow templates, Feature flags) of `NavLeaf`s (the
   `label` is a typed i18n key; `adminOnly?` gates admin leaves, `keywords?` adds raw palette search terms for a renamed page's old name, and `visibleSections(isAdmin())`
   drops an emptied section) — plus `ACCOUNT_NAV` (Change password, Changelog), which the header
   `UserMenu` and the palette render and the sidebar never does. Sections are static captions
   (`role="group"` + `aria-label`), never toggles: every leaf is always in the DOM, so tests and
   e2e address the links directly; leaf clicks close the mobile drawer; `activeNavPath` is the
-  longest-prefix matcher over the leaves. **The icon rail (Lettuce's):** a header `ActionIcon`
+  longest-prefix matcher over the leaves and the rail's rooms (it reads only `to`/`activeFor`, so `/rooms/12/members` lights room 12, not "All rooms"). **The icon rail (Lettuce's):** a header `ActionIcon`
   beside the Burger (`appShell.toggleNav`, `data-expanded` while expanded) narrows the desktop
   navbar from 240 to 64px — `rail = navCollapsed && !opened`, remembered under
   `adder.viewSettings.appShell.navCollapsed`; in rail mode each leaf is an icon-only `NavLink`
   (`classes.railLink`) whose `aria-label` IS the label (so every by-name locator keeps working)
   inside a right-hand `Tooltip`, section captions become hairline `Divider`s. The mobile overlay
   always shows full labels.
+- **The rooms rail** (`components/RoomsRail.tsx`, drawn by `Shell` inside the Rooms section; the queries live in `hooks/useRailRooms.ts` under `["rooms", "rail", …]`, so any `["rooms"]` refresh updates it): one link per room of the caller (`GET /rooms?member=true&archived=false&sort=-lastActivityAt&pageSize=100`), an initials avatar named by the room in the icon rail, a "Show archived" toggle (`rooms.rail.showArchived`, a second `archived=true` query, dimmed under a divider) and a "More rooms…" link past 100; the command palette's Rooms group reads the same active query. A room's pages share `components/RoomPage.tsx` (load triage — a missing room and a non-member are one 404 — header, `RoomTabs`); `utils/roomLinks.ts` spells the route family out and `utils/roomAccess.ts` is the UX-only owner/ADMIN check (the server guards). The room's Members and Workflow tabs join `RoomTabs` with their pages.
 - **The shell header** is 48px: brand, the `CommandPalette` trigger, and the `UserMenu` (avatar →
   identity from `GET /users/{id}` under the `["user", id]` key, language, theme as a three-state
   SegmentedControl, Change password, Changelog with the what's-new badge, for an ADMIN a "Telemetry panel" toggle, Sign out). The version

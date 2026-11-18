@@ -39,3 +39,8 @@ export const foldedOptionsFilter: OptionsFilter = ({ options, search }) => {
       "group" in option ? option.items.length > 0 : matches(option as ComboboxItem, query),
     );
 };
+
+/** Up to two upper-case initials of a name ("Night Shift" → "NS", "ops" → "O"): the avatar of a room in the icon rail. */
+export function initialsOf(name: string): string {
+  return Array.from(name.trim().split(/\s+/).filter(Boolean).slice(0, 2), (word) => Array.from(word)[0].toUpperCase()).join("");
+}

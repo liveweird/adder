@@ -4,18 +4,20 @@ import { useTranslation } from "react-i18next";
 import { ActionIcon, Kbd, Text, UnstyledButton } from "@mantine/core";
 import { useOs } from "@mantine/hooks";
 import { Spotlight, type SpotlightActionData, type SpotlightActionGroupData, type SpotlightFilterFunction } from "@mantine/spotlight";
-import { IconActivity, IconSearch } from "@tabler/icons-react";
+import { IconActivity, IconHash, IconSearch } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import { ACCOUNT_NAV, visibleSections } from "../utils/navigation";
+import { useRailRooms } from "../hooks/useRailRooms";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "../hooks/useTelemetryPanel";
+import { roomPath } from "../utils/roomLinks";
 import { palette, paletteStore } from "../utils/commandPalette";
 import { foldDiacritics } from "../utils/text";
 import classes from "../theme.module.css";
 
 /**
- * The command palette: ⌘K / Ctrl K, or the search-looking trigger in the header. One group —
- * every page the session may see (the same nav model as the sidebar plus the account leaves),
- * matched client-side by folded label. Renders BOTH the trigger and the Spotlight, mounted
+ * The command palette: ⌘K / Ctrl K, or the search-looking trigger in the header. Pages — every page the
+ * session may see (the same nav model as the sidebar plus the account leaves) — and Rooms, the caller's active
+ * rooms from the rail's own query; an ADMIN also gets Actions. Matched client-side by folded label. Renders BOTH the trigger and the Spotlight, mounted
  * once in the shell header. No `highlightQuery`: it splits a label into `<mark>` + text
  * fragments, and tests/e2e locate results by their full name.
  */
@@ -26,6 +28,8 @@ export default function CommandPalette() {
   const os = useOs();
   const [query, setQuery] = useState("");
   const telemetryOpen = useTelemetryPanelOpen();
+  // The rail's query (same key, so one request): the caller's active rooms.
+  const roomItems = useRailRooms(false).active.data?.items ?? [];
 
   const go = (to: string) => {
     palette.close();
@@ -44,6 +48,15 @@ export default function CommandPalette() {
         onClick: () => go(leaf.to),
       };
     }),
+  };
+  const roomGroup: SpotlightActionGroupData = {
+    group: t("appShell.palette.groupRooms"),
+    actions: roomItems.map((room) => ({
+      id: `room:${room.id}`,
+      label: room.name,
+      leftSection: <IconHash size={18} stroke={1.5} />,
+      onClick: () => go(roomPath(room.id)),
+    })),
   };
   // Actions: the ADMIN-only toggle of the telemetry panel (the same flag as the account menu's item).
   const actions: SpotlightActionGroupData = {
@@ -92,7 +105,7 @@ export default function CommandPalette() {
         shortcut="mod + K"
         query={query}
         onQueryChange={setQuery}
-        actions={admin ? [pages, actions] : [pages]}
+        actions={[pages, ...(roomItems.length > 0 ? [roomGroup] : []), ...(admin ? [actions] : [])]}
         filter={filter}
         nothingFound={t("appShell.palette.nothingFound")}
         scrollable
