@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Center, Loader, Stack } from "@mantine/core";
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -17,12 +17,16 @@ import classes from "./MessageList.module.css";
 /** A load reads 50 messages (the server's cap is 100). */
 const MESSAGE_PAGE_SIZE = 50;
 
+/** A reader within this many pixels of the end of the conversation counts as being at the bottom. */
+const AT_BOTTOM_TOLERANCE_PX = 48;
+
 /**
  * A thread's conversation: the newest message at the bottom, scrolled to on open, and "Load older messages" at the top (Lettuce's
  * `useInfiniteQuery` timeline, turned upside down). The pages are keyset pages: the server lists newest first and `id[lt]` keeps the ones
  * older than a cursor, so the next cursor is the oldest id loaded, offered while a page's `total` exceeds what it returned (`total` counts after
  * the filter). A refetch re-reads every loaded page, each cursor taken from the page just read, so a new message shifts nothing out of view.
- * No polling and no live refresh (0.4): the conversation re-reads on focus, on navigation and after the caller's own writes.
+ * It re-reads on focus, on navigation, after the caller's own writes and on a live hint. A reader at the bottom (within 48 px, tracked on scroll)
+ * stays there when the list grows, so others' messages arrive in view; a reader who scrolled up is never moved.
  *
  * `scrollToId` is the id of the caller's own just-posted message: once the list shows it (or something newer), the scroller goes to the
  * bottom and `onScrolled` clears the request. Loading older messages keeps the reader where they were.
@@ -51,9 +55,16 @@ export default function MessageList({
   // The pages read newest first; the conversation reads oldest first.
   const messages = (data?.pages.flatMap((page) => page.items) ?? []).reverse();
   const newestId = messages.at(-1)?.id;
+  const newestEditedAt = messages.at(-1)?.editedAt;
 
   const scroller = useRef<HTMLDivElement>(null);
   const opened = useRef(false);
+  // Whether the reader was within reach of the newest message the last time they (or an anchor) moved the scroller.
+  const atBottom = useRef(true);
+  const trackBottom = useCallback(() => {
+    const el = scroller.current;
+    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_TOLERANCE_PX;
+  }, []);
   // Where the reader was before older messages were prepended, so they are not thrown to the top of a longer list.
   const anchor = useRef<{ top: number; height: number } | null>(null);
   useLayoutEffect(() => {
@@ -62,15 +73,27 @@ export default function MessageList({
     if (!opened.current) {
       opened.current = true;
       el.scrollTop = el.scrollHeight;
+      atBottom.current = true;
     } else if (anchor.current !== null) {
       el.scrollTop = anchor.current.top + (el.scrollHeight - anchor.current.height);
       anchor.current = null;
+      trackBottom();
+    } else if (atBottom.current) {
+      // The list grew under a reader at the bottom (a message from someone else): keep them there.
+      el.scrollTop = el.scrollHeight;
     }
-  }, [messages.length]);
+  }, [messages.length, trackBottom]);
+  // The newest message was replaced or edited (it may be taller now) under a reader at the bottom: keep them there. Only a change of the
+  // newest message fires this, so loading older messages (which anchors the reader) never does.
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && opened.current && anchor.current === null && atBottom.current) el.scrollTop = el.scrollHeight;
+  }, [newestId, newestEditedAt]);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el || scrollToId === null || newestId === undefined || newestId < scrollToId) return;
     el.scrollTop = el.scrollHeight;
+    atBottom.current = true;
     onScrolled();
   }, [scrollToId, newestId, onScrolled]);
 
@@ -100,7 +123,7 @@ export default function MessageList({
 
   if (isLoading) return <LoadingBlock />;
   return (
-    <div ref={scroller} className={classes.scroller} role="region" aria-label={t("threads.messages.aria")} tabIndex={0}>
+    <div ref={scroller} className={classes.scroller} role="region" aria-label={t("threads.messages.aria")} tabIndex={0} onScroll={trackBottom}>
       {isError && (
         <Stack gap="xs" align="flex-start" pb="xs">
           <ErrorAlert error={error} title={t("threads.messages.loadFailed")} />

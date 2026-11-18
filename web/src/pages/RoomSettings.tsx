@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
@@ -13,6 +13,7 @@ import ConfirmDeleteModal from "../components/ConfirmDeleteModal";
 import FormErrorAlert from "../components/FormErrorAlert";
 import RegistryEditorActions from "../components/RegistryEditorActions";
 import RegistryMetadataFields from "../components/RegistryMetadataFields";
+import RevisionConflictAlert from "../components/RevisionConflictAlert";
 import RoomPage from "../components/RoomPage";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
@@ -34,23 +35,45 @@ import { roomsPath } from "../utils/roomLinks";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 
-/** The details form of one room. Seeded ONCE from the room it is mounted with; the page re-mounts it (`key`) when the room changes under it. */
+/**
+ * The details form of one room. Seeded from the room it is mounted with and keyed by the room alone, so a change of the room's data
+ * under it (a live update, the caller's own save, an archive) never re-mounts it. The seed rule is the thread details form's: when the
+ * server's values move, the draft follows silently while the form is clean, while it already equals them (the caller's own save) and while
+ * the form is read-only (nothing to protect); otherwise the draft is kept and a "changed meanwhile" notice offers Reload.
+ */
 function DetailsForm({ room, canManage, error, onError }: { room: RoomResponse; canManage: boolean; error: string | null; onError: (message: string | null) => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const seed = toRoomDetails(room);
+  const server = toRoomDetails(room);
+  const [seed, setSeed] = useState(server);
   const form = useForm<RoomDetails>({ initialValues: seed, validate: roomDetailsValidation(t) });
   const [submitting, setSubmitting] = useState(false);
-  // Archived or not the caller's to change: the details are shown, not editable.
+  const formRef = useRef<HTMLFormElement>(null);
+  // Archived or not the caller's to change: the details are shown, not editable. (A save in flight makes the fields read-only too, below.)
   const readOnly = room.archived || !canManage;
   const dirty = isRoomDetailsDirty(form.values, seed);
+  const moved = isRoomDetailsDirty(server, seed);
+  const draftIsServer = !isRoomDetailsDirty(form.values, server);
   useBeforeUnloadGuard(dirty);
+
+  /** Makes `values` (the server's by default) both the seed and the draft; Cancel resets to them. */
+  function adopt(values: RoomDetails = server) {
+    setSeed(values);
+    form.setInitialValues(values);
+    form.setValues(values);
+  }
+  if (!(draftIsServer && !moved) && (readOnly || !dirty || draftIsServer)) adopt();
+  // Not while the save is in flight: its own refetch moves the room before the save ends.
+  const showMoved = !submitting && !readOnly && moved && dirty && !draftIsServer;
 
   async function save(values: RoomDetails) {
     onError(null);
     setSubmitting(true);
     try {
-      await updateRoom(room.id, toRoomUpdateBody(values));
+      const body = toRoomUpdateBody(values);
+      await updateRoom(room.id, body);
+      // What was sent IS the room now: the seed, so the refetch of the caller's own save never counts as the room having moved.
+      adopt({ name: body.name, description: body.description ?? "" });
       showSuccessToast(t("rooms.toast.saved"));
       await refreshQueriesAfterMutation(queryClient, ["rooms"]);
     } catch (err) {
@@ -69,7 +92,7 @@ function DetailsForm({ room, canManage, error, onError }: { room: RoomResponse; 
   }
 
   return (
-    <form onSubmit={form.onSubmit(save)} noValidate>
+    <form ref={formRef} onSubmit={form.onSubmit(save)} noValidate>
       <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
         <Stack>
           <Title order={3} size="h4">
@@ -89,11 +112,25 @@ function DetailsForm({ room, canManage, error, onError }: { room: RoomResponse; 
             nameMaxLength={MAX_ROOM_NAME_LENGTH}
             descriptionMaxLength={MAX_ROOM_DESCRIPTION_LENGTH}
             descriptionLength={form.values.description.length}
-            nameInputProps={{ ...form.getInputProps("name"), readOnly }}
-            descriptionInputProps={{ ...form.getInputProps("description"), readOnly }}
+            nameInputProps={{ ...form.getInputProps("name"), readOnly: readOnly || submitting }}
+            descriptionInputProps={{ ...form.getInputProps("description"), readOnly: readOnly || submitting }}
           />
-          {!readOnly && <RegistryEditorActions error={error} submitting={submitting} isEdit onClose={() => form.reset()} gap="sm" submitDisabled={!dirty} />}
-          {/* A refusal that turns the form read-only (the room was archived behind the page) outlives the form's re-mount, so it shows here. */}
+          {showMoved && (
+            <RevisionConflictAlert
+              title={t("rooms.settings.moved.title")}
+              message={t("rooms.settings.moved.message")}
+              onReload={() => {
+                onError(null);
+                adopt();
+                formRef.current?.querySelector("input")?.focus();
+              }}
+            />
+          )}
+          {!readOnly && <RegistryEditorActions error={error} submitting={submitting} isEdit onClose={() => {
+              form.reset();
+              onError(null);
+            }} gap="sm" submitDisabled={!dirty} />}
+          {/* A refusal that turns the form read-only (the room was archived behind the page) has no action row to show it in, so it shows here. */}
           {readOnly && error && <FormErrorAlert>{error}</FormErrorAlert>}
         </Stack>
       </Paper>
@@ -191,7 +228,7 @@ function Lifecycle({ room, admin }: { room: RoomResponse; admin: boolean }) {
   );
 }
 
-/** The page body of one loaded room. It owns the save error, which must survive the details form's re-mount (see `DetailsForm`). */
+/** The page body of one loaded room. It owns the save error, which must outlive the action row that shows it (see `DetailsForm`). */
 function SettingsBody({ room }: { room: RoomResponse }) {
   const admin = useAdmin();
   const [error, setError] = useState<string | null>(null);
@@ -199,7 +236,7 @@ function SettingsBody({ room }: { room: RoomResponse }) {
   return (
     <>
       <DetailsForm
-        key={`${room.name}\u0000${room.description ?? ""}\u0000${room.archived}\u0000${canManage}`}
+        key={room.id}
         room={room}
         canManage={canManage}
         error={error}
@@ -213,7 +250,7 @@ function SettingsBody({ room }: { room: RoomResponse }) {
 /**
  * `/rooms/:id/settings`: the room's name and description (its OWNER or an ADMIN edits them; everyone else reads them), then the
  * lifecycle: archive or unarchive (the same two), and an ADMIN's delete. An archived room's details are read-only until it is
- * unarchived. The details form re-mounts when the room changes, so it always starts from what the server has.
+ * unarchived. The details form follows the room's values while it is clean and keeps a dirty draft (with a notice) when they change under it.
  */
 export default function RoomSettings() {
   const { id } = useParams();

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import MessageList from "./MessageList";
 import { jsonResponse } from "../test/http";
 import { makeMessage, makeRoom, makeThread, messagePage } from "../test/messageFixtures";
@@ -214,5 +215,70 @@ describe("MessageList", () => {
     expect(listUrls().filter((url) => url.includes("id[lt]="))).toHaveLength(1);
     answer(jsonResponse(200, messagePage([makeMessage({ id: 10, body: "older" })], 1)));
     await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(3));
+  });
+
+  describe("when others' messages arrive (a refetch that lists a newer message)", () => {
+    const ARRIVED = [makeMessage({ id: 40, authorId: 8, authorName: "Di Other", body: "fourth, just in" }), ...NEWEST_FIRST];
+    const MESSAGES_KEY = ["rooms", "threads", 12, "messages", 42];
+
+    /** Opens the list at a 500px scroll height, then serves the arrival and grows the scroll height to 800. */
+    async function openThenArrive(scrollTo: number | null) {
+      const heights = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(500);
+      let arrived = false;
+      serve(() => jsonResponse(200, messagePage(arrived ? ARRIVED : NEWEST_FIRST)));
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      renderWithProviders(<MessageList room={makeRoom()} thread={makeThread()} scrollToId={null} onScrolled={vi.fn()} />, { queryClient });
+      const region = await screen.findByRole("region", { name: "Messages" });
+      expect(region.scrollTop).toBe(500);
+      if (scrollTo !== null) {
+        region.scrollTop = scrollTo;
+        fireEvent.scroll(region);
+      }
+      arrived = true;
+      heights.mockReturnValue(800);
+      await queryClient.invalidateQueries({ queryKey: MESSAGES_KEY });
+      await waitFor(() => expect(within(region).getAllByRole("listitem")).toHaveLength(3));
+      return region;
+    }
+
+    test("a reader at the bottom stays at the bottom", async () => {
+      const region = await openThenArrive(null);
+      expect(region.scrollTop).toBe(800);
+    });
+
+    test("a reader within 48px of the bottom counts as at the bottom", async () => {
+      const region = await openThenArrive(460);
+      expect(region.scrollTop).toBe(800);
+    });
+
+    test("the tolerance edge: 48px from the end is at the bottom, 49px is not", async () => {
+      expect((await openThenArrive(452)).scrollTop).toBe(800);
+    });
+
+    test("49px from the end keeps the reader's place", async () => {
+      expect((await openThenArrive(451)).scrollTop).toBe(451);
+    });
+
+    test("an edit of the newest message re-sticks a reader at the bottom", async () => {
+      const heights = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(500);
+      let edited = false;
+      serve(() =>
+        jsonResponse(200, messagePage(edited ? [makeMessage({ ...NEWEST_FIRST[0], editedAt: 99, body: "third, mine, edited and longer" }), NEWEST_FIRST[1]] : NEWEST_FIRST)),
+      );
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      renderWithProviders(<MessageList room={makeRoom()} thread={makeThread()} scrollToId={null} onScrolled={vi.fn()} />, { queryClient });
+      const region = await screen.findByRole("region", { name: "Messages" });
+      expect(region.scrollTop).toBe(500);
+      edited = true;
+      heights.mockReturnValue(650);
+      await queryClient.invalidateQueries({ queryKey: MESSAGES_KEY });
+      await waitFor(() => expect(within(region).getByText("third, mine, edited and longer")).toBeInTheDocument());
+      expect(region.scrollTop).toBe(650);
+    });
+
+    test("a reader who scrolled up keeps their place", async () => {
+      const region = await openThenArrive(100);
+      expect(region.scrollTop).toBe(100);
+    });
   });
 });

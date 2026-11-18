@@ -84,7 +84,11 @@
     "deleteAction": "Usuń pokój",
     "deleteTitle": "Usunąć pokój?",
     "deleteBody": "Usuniemy pokój „{{name}}” dla wszystkich.",
-    "deleteFailed": "Nie udało się usunąć pokoju"
+    "deleteFailed": "Nie udało się usunąć pokoju",
+    "moved": {
+      "title": "Ten pokój zmienił się podczas Twojej edycji",
+      "message": "Zapisanie zachowa Twoją wersję. Wczytaj ponownie, aby zacząć od bieżącej."
+    }
   },
   "workflow": {
     "hint": "To własna kopia przepływu pracy pokoju: statusy i dodatkowe pola każdego wątku. Zapisanie zmienia ją dla wszystkich w pokoju.",

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { screen, waitFor, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import { Route, Routes } from "react-router-dom";
 import RoomSettings from "./RoomSettings";
 import { headingOutline } from "../test/headings";
@@ -23,18 +24,18 @@ const ROOM = {
   updatedAt: 1,
 };
 
-function renderSettings() {
+function renderSettings(queryClient?: QueryClient) {
   return renderWithProviders(
     <Routes>
       <Route path="/rooms/:id/settings" element={<RoomSettings />} />
       <Route path="/rooms" element={<p>the rooms list</p>} />
     </Routes>,
-    { route: "/rooms/12/settings" },
+    { route: "/rooms/12/settings", queryClient },
   );
 }
 
 /** A room that follows the writes: a PUT renames it, archive/unarchive flip it; `fail` answers a write instead. */
-function serve(mockFetch: FetchMock, initial: Record<string, unknown> = ROOM, fail: Record<string, Response> = {}) {
+function serve(mockFetch: FetchMock, initial: Record<string, unknown> = ROOM, fail: Record<string, Response> = {}): (changes: Record<string, unknown>) => void {
   let room = initial;
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -53,6 +54,10 @@ function serve(mockFetch: FetchMock, initial: Record<string, unknown> = ROOM, fa
     if (key === "DELETE /api/v1/rooms/12") return Promise.resolve(new Response(null, { status: 204 }));
     return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
   });
+  // Someone else's write: the room as the next read answers it.
+  return (changes) => {
+    room = { ...room, ...changes };
+  };
 }
 
 const calls = (mockFetch: FetchMock, method: string) => mockFetch.mock.calls.filter(([, init]) => ((init as RequestInit | undefined)?.method ?? "GET") === method);
@@ -242,5 +247,164 @@ describe("RoomSettings page", () => {
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete" }));
     expect(await screen.findByText("Could not delete the room")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Night Shift" })).toBeInTheDocument();
+  });
+
+  describe("when the room changes under the page (a live update re-reads it)", () => {
+    const newClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    test("a clean form follows the room, without a notice", async () => {
+      const change = serve(mockFetch);
+      const queryClient = newClient();
+      renderSettings(queryClient);
+      const name = await screen.findByRole("textbox", { name: "Name" });
+      change({ name: "Late Shift", description: "New notes" });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Late Shift"));
+      expect(screen.getByRole("textbox", { name: "Description" })).toHaveValue("New notes");
+      expect(screen.getByRole("textbox", { name: "Name" })).toBe(name);
+      expect(screen.queryByText("This room changed while you were editing")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    });
+
+    test("a dirty form keeps its draft and offers Reload, which starts again from the current room", async () => {
+      const change = serve(mockFetch);
+      const user = userEvent.setup();
+      const queryClient = newClient();
+      renderSettings(queryClient);
+      const name = await screen.findByRole("textbox", { name: "Name" });
+      await user.type(name, " (mine)");
+      change({ name: "Late Shift" });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      expect(await screen.findByText("This room changed while you were editing")).toBeInTheDocument();
+      expect(screen.getByText("Saving keeps your version. Reload to start again from the current one.")).toBeInTheDocument();
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Night Shift (mine)");
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+      await user.click(screen.getByRole("button", { name: "Reload the latest version" }));
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Late Shift");
+      expect(screen.queryByText("This room changed while you were editing")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveFocus();
+    });
+
+    test("Cancel after the room moved puts back the room's current values", async () => {
+      const change = serve(mockFetch);
+      const user = userEvent.setup();
+      const queryClient = newClient();
+      renderSettings(queryClient);
+      await user.type(await screen.findByRole("textbox", { name: "Name" }), " (mine)");
+      change({ name: "Late Shift" });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      await screen.findByText("This room changed while you were editing");
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Late Shift"));
+      expect(screen.queryByText("This room changed while you were editing")).not.toBeInTheDocument();
+    });
+
+    test("a draft that already equals the room's new values (the caller's own save) shows no notice", async () => {
+      const change = serve(mockFetch);
+      const user = userEvent.setup();
+      const queryClient = newClient();
+      renderSettings(queryClient);
+      const name = await screen.findByRole("textbox", { name: "Name" });
+      await user.type(name, " 2");
+      // Another tab of the same caller saved the same text: the read answers what the draft already says.
+      change({ name: "Night Shift 2" });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Night Shift 2");
+      expect(screen.queryByText("This room changed while you were editing")).not.toBeInTheDocument();
+    });
+
+    test("a room archived behind a dirty draft: the form follows the server, read-only, with no notice", async () => {
+      const change = serve(mockFetch);
+      const user = userEvent.setup();
+      const queryClient = newClient();
+      renderSettings(queryClient);
+      await user.type(await screen.findByRole("textbox", { name: "Name" }), " (mine)");
+      change({ archived: true, name: "Late Shift" });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Name" })).toHaveAttribute("readonly"));
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Late Shift");
+      expect(screen.queryByText("This room changed while you were editing")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    });
+
+    test("Reload, then type, then Cancel: the fields go back to the reloaded values", async () => {
+      const change = serve(mockFetch);
+      const user = userEvent.setup();
+      const queryClient = newClient();
+      renderSettings(queryClient);
+      await user.type(await screen.findByRole("textbox", { name: "Name" }), " (mine)");
+      change({ name: "Late Shift" });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      await user.click(await screen.findByRole("button", { name: "Reload the latest version" }));
+      await user.type(screen.getByRole("textbox", { name: "Name" }), " again");
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Late Shift again");
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Late Shift");
+      expect(screen.queryByText("This room changed while you were editing")).not.toBeInTheDocument();
+    });
+
+    test("while a save is in flight the fields are read-only and no notice shows, before or after it ends", async () => {
+      let release!: () => void;
+      let room: Record<string, unknown> = ROOM;
+      mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+        if (init?.method === "PUT") {
+          const body = JSON.parse(init.body as string) as { name: string };
+          return new Promise<Response>((resolve) => {
+            release = () => {
+              room = { ...room, name: body.name };
+              resolve(new Response(null, { status: 204 }));
+            };
+          });
+        }
+        return Promise.resolve(url === "/api/v1/rooms/12" ? jsonResponse(200, room) : jsonResponse(404, { title: "x", status: 404 }));
+      });
+      const user = userEvent.setup();
+      renderSettings();
+      await user.type(await screen.findByRole("textbox", { name: "Name" }), "!");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Name" })).toHaveAttribute("readonly"));
+      expect(screen.getByRole("textbox", { name: "Description" })).toHaveAttribute("readonly");
+      await user.type(screen.getByRole("textbox", { name: "Name" }), "??");
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Night Shift!");
+      release();
+      await waitFor(() => expect(screen.getByRole("heading", { level: 2, name: "Night Shift!" })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole("textbox", { name: "Name" })).not.toHaveAttribute("readonly"));
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Night Shift!");
+      expect(screen.queryByText("This room changed while you were editing")).not.toBeInTheDocument();
+    });
+
+    test("Reload and Cancel clear the page's save error", async () => {
+      const change = serve(mockFetch, ROOM, { "PUT /api/v1/rooms/12": jsonResponse(403, { title: "Forbidden", status: 403 }) });
+      const user = userEvent.setup();
+      const queryClient = newClient();
+      renderSettings(queryClient);
+      await user.type(await screen.findByRole("textbox", { name: "Name" }), "!");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      const refusal = "Only the room's owners and administrators can change its details";
+      expect(await screen.findByText(refusal)).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByText(refusal)).not.toBeInTheDocument();
+      await user.type(screen.getByRole("textbox", { name: "Name" }), "?");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(await screen.findByText(refusal)).toBeInTheDocument();
+      change({ name: "Late Shift" });
+      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+      await user.click(await screen.findByRole("button", { name: "Reload the latest version" }));
+      expect(screen.queryByText(refusal)).not.toBeInTheDocument();
+    });
+
+    test("one's own save shows no notice at any point", async () => {
+      serve(mockFetch);
+      const user = userEvent.setup();
+      renderSettings();
+      await user.type(await screen.findByRole("textbox", { name: "Name" }), "!");
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(screen.getByRole("heading", { level: 2, name: "Night Shift!" })).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
+      expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Night Shift!");
+      expect(screen.queryByText("This room changed while you were editing")).not.toBeInTheDocument();
+    });
   });
 });

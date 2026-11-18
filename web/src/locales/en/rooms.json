@@ -82,7 +82,11 @@
     "deleteAction": "Delete room",
     "deleteTitle": "Delete room?",
     "deleteBody": "“{{name}}” will be deleted for everyone.",
-    "deleteFailed": "Could not delete the room"
+    "deleteFailed": "Could not delete the room",
+    "moved": {
+      "title": "This room changed while you were editing",
+      "message": "Saving keeps your version. Reload to start again from the current one."
+    }
   },
   "workflow": {
     "hint": "This is the room's own copy of its workflow: the statuses and the extra fields every thread carries. Saving changes it for everyone in the room.",
