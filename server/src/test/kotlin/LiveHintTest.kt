@@ -1,0 +1,71 @@
+package ch.nokillswit
+
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.MAX_NOTIFY_PAYLOAD_BYTES
+import ch.nokillswit.infra.notify.notifyLive
+import ch.nokillswit.infra.notify.toPayload
+import java.io.File
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+
+/** The live hint's wire (`live.md` "The NOTIFY wire"): its JSON shape, its size bound and its names, with no database. */
+class LiveHintTest {
+    private val serialNames: Map<LiveKind, String> = LiveKind.entries.associateWith {
+        Json.encodeToString(LiveKind.serializer(), it).trim('"')
+    }
+
+    @Test
+    fun `the JSON shape is flat, omits what is absent and always carries the version`() {
+        assertEquals(
+            """{"kind":"message.posted","roomId":12,"threadNumber":7,"messageId":991,"v":1}""",
+            LiveHint(LiveKind.MESSAGE_POSTED, 12u, threadNumber = 7, messageId = 991u).toPayload(),
+        )
+        assertEquals("""{"kind":"room.updated","roomId":12,"v":1}""", LiveHint(LiveKind.ROOM_UPDATED, 12u).toPayload())
+        assertEquals(
+            """{"kind":"room.member_added","roomId":3,"targetUserIds":[5,6],"v":1}""",
+            LiveHint(LiveKind.ROOM_MEMBER_ADDED, 3u, targetUserIds = listOf(5u, 6u)).toPayload(),
+        )
+    }
+
+    @Test
+    fun `a hint round trips through its payload`() {
+        val hint = LiveHint(LiveKind.ROOM_DELETED, 9u, targetUserIds = listOf(1u, 2u))
+        assertEquals(hint, Json.decodeFromString(LiveHint.serializer(), hint.toPayload()))
+    }
+
+    @Test
+    fun `500 ten-digit targets stay under the NOTIFY payload limit`() {
+        val worst = LiveHint(LiveKind.ROOM_MEMBER_ADDED, UInt.MAX_VALUE, targetUserIds = List(500) { UInt.MAX_VALUE - it.toUInt() })
+        val bytes = worst.toPayload().toByteArray(Charsets.UTF_8).size
+        assertTrue(bytes in 5_000 until MAX_NOTIFY_PAYLOAD_BYTES, "the worst case is $bytes bytes")
+    }
+
+    @Test
+    fun `a hint over the limit is refused before the database sees it`() {
+        val tooBig = LiveHint(LiveKind.ROOM_MEMBER_ADDED, 1u, targetUserIds = List(800) { UInt.MAX_VALUE - it.toUInt() })
+        // No transaction is needed: the size check comes first.
+        val failure = assertFailsWith<IllegalStateException> { runBlocking { notifyLive(tooBig) } }
+        assertTrue("exceeds" in failure.message.orEmpty())
+    }
+
+    @Test
+    fun `there are sixteen kinds and their wire names are the dotted audit names`() {
+        assertEquals(16, LiveKind.entries.size)
+        assertEquals(16, serialNames.values.toSet().size)
+        assertTrue(serialNames.values.all { Regex("(room|thread|message)\\.[a-z_]+").matches(it) }, "$serialNames")
+    }
+
+    @Test
+    fun `every kind is the audit event name of the write that emits it`() {
+        val root = File(System.getProperty("repo.root") ?: "..", "server/src/main/kotlin")
+        val routeSources = root.walkTopDown().filter { it.isFile && it.name.endsWith("Routes.kt") }.joinToString("\n") { it.readText() }
+        serialNames.values.forEach { name ->
+            assertTrue(Regex("""audit\(\s*"${Regex.escape(name)}"""").containsMatchIn(routeSources), "no route audits '$name'")
+        }
+    }
+}

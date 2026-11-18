@@ -95,6 +95,10 @@ All timestamps are epoch-millis `BIGINT`; no CHECK on enum-valued columns (the K
 - **409 problem types** (`urn:adder:problem:`): `revision-conflict`, `last-owner`, `room-archived`, `status-in-use` and `field-type-immutable`
   (both carrying `keys`, the `ProblemDetail` extension member), plus the plain key-budget conflict.
 
+### Live hints (0.4.0)
+
+Every write above that changes something emits one id-only `adder_live` NOTIFY hint from its own transaction (`notifyLive`, `infra/notify/`): a no-op, a refused or a rolled-back write emits none. The catalog is `live.md` "Hints"; the Postgres facts are `persistence.md` "NOTIFY".
+
 ### The mapping contract 0.3 plugs into
 
 > **Revised for 0.3** by two plan findings, **as built (0.3.0 S6)**: `moveThreads` runs **after** the status upsert (a replacement the same PUT adds would otherwise hit

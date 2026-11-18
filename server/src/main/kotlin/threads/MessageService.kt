@@ -6,6 +6,9 @@ import ch.nokillswit.authz.requireMessageRemover
 import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.rooms.RoomService
@@ -116,6 +119,7 @@ class MessageService(private val database: R2dbcDatabase, private val rooms: Roo
                 it[lastActivityAt] = stamp
             }
             rooms.touchActivity(roomId, stamp)
+            notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
             val name = userNames(listOf(authorId)).getValue(authorId)
             PostedMessage(write.thread.id, MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp))
         }
@@ -140,6 +144,7 @@ class MessageService(private val database: R2dbcDatabase, private val rooms: Roo
                 it[body] = request.body
                 it[editedAt] = nowMillis()
             }
+            notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
             MessageEdit(write.thread.id, messageId)
         }
     }
@@ -163,6 +168,7 @@ class MessageService(private val database: R2dbcDatabase, private val rooms: Roo
                 it[markedAsDeleted] = true
                 it[deletedBy] = remover
             }
+            notifyLive(LiveHint(LiveKind.MESSAGE_DELETED, roomId, threadNumber = write.thread.number, messageId = messageId))
             MessageRemoval(write.thread.id, messageId, write.message.authorId, moderated = remover != write.message.authorId)
         }
 

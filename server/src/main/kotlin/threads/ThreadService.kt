@@ -4,6 +4,9 @@ import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.infra.revision.requireRevision
@@ -195,6 +198,8 @@ class ThreadService(
             val messageId = messages.insertInTransaction(threadId, caller.userId, request.body, stamp)
             events.record(threadId, caller.userId, threadCreatedEvent(request.title, initial.key, initial.label), stamp)
             rooms.touchActivity(roomId, stamp)
+            // The opening message is part of this hint, never a `message.posted` of its own.
+            notifyLive(LiveHint(LiveKind.THREAD_CREATED, roomId, threadNumber = number))
             CreatedThread(threadId, number, messageId)
         }
     }
@@ -242,6 +247,7 @@ class ThreadService(
                 events.record(thread.id, caller.userId, threadFieldChangedEvent(field, change, names), stamp)
             }
             rooms.touchActivity(roomId, stamp)
+            notifyLive(LiveHint(LiveKind.THREAD_UPDATED, roomId, threadNumber = number))
             ThreadChange(thread.id, revision, titleChanged, fieldWrite.changes.map { it.key })
         }
     }

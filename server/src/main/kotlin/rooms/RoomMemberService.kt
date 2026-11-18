@@ -8,6 +8,9 @@ import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.teams.TeamService
@@ -120,6 +123,8 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
                 this[members.role] = RoomRole.MEMBER.name
                 this[members.addedAt] = stamp
             }
+            // Only when someone joined: an add of people who all belong already is a no-op and announces nothing.
+            if (toAdd.isNotEmpty()) notifyLive(LiveHint(LiveKind.ROOM_MEMBER_ADDED, roomId, targetUserIds = toAdd))
             RoomMembersAddOutcome(
                 addedUserIds = toAdd,
                 viaTeamUserIds = viaTeam.filter { it in toAdd }.toSet(),
@@ -139,6 +144,7 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
             if (current == role) return@withRoomWrite null
             if (current == RoomRole.OWNER) requireOtherActiveOwner(roomId, userId)
             members.update({ (members.roomId eq roomId) and (members.userId eq userId) }) { it[members.role] = role.name }
+            notifyLive(LiveHint(LiveKind.ROOM_MEMBER_ROLE_CHANGED, roomId, targetUserIds = listOf(userId)))
             current
         }
 
@@ -151,6 +157,7 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
             val current = activeRole(roomId, userId) ?: throw NotFoundException("Member not found")
             if (current == RoomRole.OWNER) requireOtherActiveOwner(roomId, userId)
             members.deleteWhere { (RoomService.RoomMembers.roomId eq roomId) and (RoomService.RoomMembers.userId eq userId) }
+            notifyLive(LiveHint(LiveKind.ROOM_MEMBER_REMOVED, roomId, targetUserIds = listOf(userId)))
         }
     }
 

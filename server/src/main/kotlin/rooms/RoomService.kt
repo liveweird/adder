@@ -7,6 +7,9 @@ import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.users.DEFAULT_LANGUAGE
@@ -149,6 +152,7 @@ class RoomService(
             it[addedAt] = stamp
         }
         workflows.copyFromTemplate(id, WorkflowDefinition(template.statuses, template.fields), request.language ?: DEFAULT_LANGUAGE)
+        notifyLive(LiveHint(LiveKind.ROOM_CREATED, id, targetUserIds = listOf(callerUserId)))
         id
     }
 
@@ -165,6 +169,7 @@ class RoomService(
                 it[description] = request.description
                 it[updatedAt] = nowMillis()
             }
+            notifyLive(LiveHint(LiveKind.ROOM_UPDATED, roomId))
         }
     }
 
@@ -177,16 +182,20 @@ class RoomService(
                 it[archivedAt] = if (archived) stamp else null
                 it[updatedAt] = stamp
             }
+            notifyLive(LiveHint(if (archived) LiveKind.ROOM_ARCHIVED else LiveKind.ROOM_UNARCHIVED, roomId))
             true
         }
 
     /** Soft delete under the room lock: the room stops reading as active and frees its name; members and workflow rows stay with it. */
     suspend fun delete(roomId: UInt, caller: CallerPrincipal, guard: RoomGuard) {
         database.withRoomWrite(roomId, caller, guard) { _, _ ->
+            // The members are read BEFORE the delete: they get the personal `revoked` frame (`live.md` "Hints").
+            val memberIds = activeMemberIds(roomId)
             Rooms.update({ Rooms.id eq roomId }) {
                 it[markedAsDeleted] = true
                 it[updatedAt] = nowMillis()
             }
+            notifyLive(LiveHint(LiveKind.ROOM_DELETED, roomId, targetUserIds = memberIds))
         }
     }
 
@@ -198,6 +207,13 @@ class RoomService(
     suspend fun touchActivity(roomId: UInt, at: Long) {
         Rooms.update({ Rooms.id eq roomId }) { it[lastActivityAt] = at }
     }
+
+    /** Every ACTIVE member of [roomId] (at most 500, the cap), one query, inside the caller's transaction. */
+    private suspend fun activeMemberIds(roomId: UInt): List<UInt> =
+        RoomMembers.innerJoin(UserService.Users).select(RoomMembers.userId)
+            .where { (RoomMembers.roomId eq roomId) and UserService.Users.active() }
+            .map { it[RoomMembers.userId].value }
+            .toList()
 
     /** One grouped query for a page's member counts (ACTIVE users only; the inner join drops a soft-deleted member). */
     private suspend fun activeMemberCounts(roomIds: List<UInt>): Map<UInt, Int> {

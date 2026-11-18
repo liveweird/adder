@@ -4,6 +4,9 @@ import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.isThreadSteward
 import ch.nokillswit.authz.requireThreadSteward
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomWorkflowService
@@ -64,6 +67,7 @@ class ThreadStatusService(
                 stamp,
             )
             rooms.touchActivity(roomId, stamp)
+            notifyLive(LiveHint(LiveKind.THREAD_STATUS_CHANGED, roomId, threadNumber = number))
             StatusMove(thread.id, current.key, target.key, transition)
         }
 
@@ -101,6 +105,7 @@ class ThreadStatusService(
                 stamp,
             )
             rooms.touchActivity(roomId, stamp)
+            notifyLive(LiveHint(LiveKind.THREAD_OWNER_CHANGED, roomId, threadNumber = number))
             OwnerMove(thread.id, thread.ownerId, newOwnerId)
         }
 }

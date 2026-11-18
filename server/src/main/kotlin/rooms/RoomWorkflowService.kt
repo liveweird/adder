@@ -5,6 +5,9 @@ import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.revision.requireRevision
 import ch.nokillswit.workflows.FieldShape
 import ch.nokillswit.workflows.FieldType
@@ -172,6 +175,8 @@ class RoomWorkflowService(private val database: R2dbcDatabase) {
                 it[rooms.workflowRevision] = current + 1
                 it[rooms.updatedAt] = nowMillis()
             }
+            // ONE hint however many threads moved: the moves are part of the workflow change (`live.md` "Hints").
+            notifyLive(LiveHint(LiveKind.ROOM_WORKFLOW_UPDATED, roomId))
             RoomWorkflowChange(
                 revision = current + 1,
                 statusesAdded = plan.statusesBecomingLive,

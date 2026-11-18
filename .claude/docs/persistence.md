@@ -410,3 +410,18 @@ marked_as_deleted, deleted_by)` and `thread_events (id, thread_id, user_id, crea
   (the keyset list), `idx_thread_events_thread (thread_id, created_at, id)` (the history's `-createdAt,-id` page).
 - The Exposed tables are nested in their services (`ThreadService.Threads`, `MessageService.Messages`, `ThreadEventService.ThreadEvents`); S2 ships the thread list, read and create and the history read; S5 adds `MessageService`'s list (tombstones included, `id[lt]` keyset), single read, post, edit and delete.
 - **`MessageService` (S5)** reads `UserService.Users` for author names (soft-deleted accounts included) and writes only `messages` and its own thread's `message_count`/`last_activity_at`; every write is ONE `withThreadWrite` / `withMessageWrite` under the room lock (`ThreadLock.kt`), the message read joined to its thread with `threads.room_id` = the path's room, so a message of another room is a `404`. A post updates `messages`, `threads` (`message_count + 1`, `last_activity_at`) and, through `RoomService.touchActivity`, `rooms.last_activity_at` on ONE stamp; an edit sets `body` and `edited_at` only; a delete scrubs the body and sets `marked_as_deleted` and `deleted_by`, and neither bumps the count or the activity.
+
+### NOTIFY (live hints, 0.4.0)
+
+Every chat write that changes something emits ONE `pg_notify('adder_live', <LiveHint JSON>)` from `infra/notify/Notify.kt` (`notifyLive`), inside the write's own transaction, right before
+its change branch returns (the 15 sites, the catalog and the delivery rules are in `live.md` "Hints"). There is deliberately no hook in `withRoomWrite`: `RoomService.create` is not under
+it and several writes return early on a no-op, which must emit nothing. It is a `SELECT 1 FROM pg_notify(...)` whose result is consumed (an R2DBC statement nobody subscribes to never runs;
+the `MultiRowInsert.kt` `exec` precedent), so it needs a current transaction, and it holds NO table and writes NO row (no migration).
+
+- **A hint is ids only** (the `LiveHint` type has no text field) and the payload is checked under 8000 bytes before the database sees it (`MAX_NOTIFY_PAYLOAD_BYTES`; PostgreSQL rejects 8000 or more).
+  The worst case is a 500-id `room.member_added`, about 5.6 KB, so there is no chunking; `LiveHintTest` and `NotifyHintsTest` pin it.
+- **PostgreSQL facts the design leans on:** a NOTIFY is delivered only when its transaction commits, in commit order, and is dropped on rollback (so a refused or rolled-back write cannot announce
+  itself); identical payloads within ONE transaction collapse into one delivery (a write emits one hint, so this never bites); notifying transactions serialize on ONE global lock during commit (a
+  cluster-wide cost, accepted at chat-write rates); the cluster's notification queue fills only if a LISTENing connection stops reading, after which EVERY notifying commit fails. That last hazard is why
+  the listener (S2) drains with unbounded demand and never stops reading.
+- **Tests read the channel through a plain JDBC `LISTEN`** (`NotifyCapture`), bracketed by a sentinel hint of its own, so "emits nothing" is proven by commit order, not by sleeping.

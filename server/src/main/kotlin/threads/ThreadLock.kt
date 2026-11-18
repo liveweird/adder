@@ -24,6 +24,8 @@ import org.jetbrains.exposed.v1.r2dbc.selectAll
 /** The thread row as a write under the room lock sees it (the stored `fields` include the retired fields' hidden values). */
 internal data class ThreadRow(
     val id: UInt,
+    /** The per-room number (`#42`): the key the SPA and the live hints name a thread by. */
+    val number: Int,
     val title: String,
     val statusKey: String,
     val ownerId: UInt,
@@ -124,6 +126,7 @@ private fun ResultRow.toThreadRow(): ThreadRow {
     val threads = ThreadService.Threads
     return ThreadRow(
         id = this[threads.id].value,
+        number = this[threads.number],
         title = this[threads.title],
         statusKey = this[threads.statusKey],
         ownerId = this[threads.ownerId].value,
