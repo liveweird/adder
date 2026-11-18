@@ -20,7 +20,10 @@ import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import kotlin.test.AfterTest
@@ -367,7 +370,7 @@ class RoomTest {
         }
 
     @Test
-    fun `creating rooms rides a per-user bucket of 30 a minute, answers 429 beyond it and audits the rejection`() = testApplication {
+    fun `creating rooms rides the per-user room-name bucket of 30 a minute, 429 beyond it, audited`() = testApplication {
         usePostgresTestcontainer()
         val limited = actor("room-bucket")
         val other = actor("room-bucket-other")
@@ -380,7 +383,7 @@ class RoomTest {
             val rejected = limited.client.postJson(rooms, body)
             assertEquals(HttpStatusCode.TooManyRequests, rejected.status)
             assertEquals(429, rejected.body<ProblemDetail>().status)
-            val event = capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "room-create") }
+            val event = capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "room-name") }
             assertNotNull(event)
             assertTrue(event.hasKeyValue("byUserId", limited.id.toLong()))
             // The bucket is per USER: another account is untouched, and reads are not bucketed at all.
@@ -482,5 +485,142 @@ class RoomTest {
             }
         }
         assertEquals(room.name, admin.client.get("$rooms/${room.id}").body<RoomResponse>().name, "the refused write changed nothing")
+    }
+
+    @Test
+    fun `renaming shares the create bucket - 30 a minute per user across both`() = testApplication {
+        usePostgresTestcontainer()
+        val limited = actor("room-rename-bucket")
+        val other = actor("room-rename-bucket-other")
+        val templateId = template()
+        val room = limited.client.create("Rename bucket ${marker()}", templateId) // token 1
+        val unknownTemplate = RoomCreateRequest("Bucket ${marker()}", 999_999u)
+
+        repeat(19) { n ->
+            val renamed = limited.client.putJson("$rooms/${room.id}", RoomUpdateRequest(room.name))
+            assertEquals(HttpStatusCode.NoContent, renamed.status, "rename ${n + 1}")
+        }
+        repeat(10) { assertEquals(HttpStatusCode.BadRequest, limited.client.postJson(rooms, unknownTemplate).status) }
+        // 30 tokens are spent: the next rename is refused by the bucket, not by the room.
+        assertEquals(HttpStatusCode.TooManyRequests, limited.client.putJson("$rooms/${room.id}", RoomUpdateRequest(room.name)).status)
+        assertEquals(HttpStatusCode.TooManyRequests, limited.client.postJson(rooms, unknownTemplate).status, "the one bucket covers both")
+        assertEquals(HttpStatusCode.OK, limited.client.get("$rooms/${room.id}").status, "reads are not bucketed")
+        // A stranger's rename of a room they cannot see still takes THEIR tokens (the bucket sits before the guards), and is a 404.
+        assertEquals(HttpStatusCode.NotFound, other.client.putJson("$rooms/${room.id}", RoomUpdateRequest("Nope ${marker()}")).status)
+    }
+
+    @Test
+    fun `a name clash on create or rename is audited as room name_conflict, with the room id for a rename`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("room-clash")
+        val rival = actor("room-clash-rival")
+        val templateId = template()
+        val taken = owner.client.create("Taken ${marker()}", templateId)
+        val mine = rival.client.create("Mine ${marker()}", templateId)
+
+        withAuditCapture { capture ->
+            val clash = rival.client.putJson("$rooms/${mine.id}", RoomUpdateRequest(taken.name.uppercase()))
+            assertEquals(HttpStatusCode.Conflict, clash.status)
+            val rename = capture.awaitEvent { it.message == "room.name_conflict" && it.hasKeyValue("roomId", mine.id.toLong()) }
+            assertNotNull(rename)
+            assertTrue(rename.hasKeyValue("byUserId", rival.id.toLong()))
+
+            assertEquals(HttpStatusCode.Conflict, rival.client.postJson(rooms, RoomCreateRequest(taken.name, templateId)).status)
+            val create = capture.awaitEvent {
+                it.message == "room.name_conflict" && it.hasKeyValue("roomId", null) && it.hasKeyValue("byUserId", rival.id.toLong())
+            }
+            assertNotNull(create)
+            // A refused rename that is not a clash audits nothing of the kind.
+            assertEquals(HttpStatusCode.NoContent, rival.client.putJson("$rooms/${mine.id}", RoomUpdateRequest("Fresh ${marker()}")).status)
+            assertEquals(2, capture.events.count { it.message == "room.name_conflict" })
+        }
+    }
+
+    @Test
+    fun `a room name with invisible formatting characters is a 400 on create and rename, ordinary Unicode passes`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("room-invisible")
+        val templateId = template()
+        val room = owner.client.create("Visible ${marker()}", templateId)
+        val hidden = listOf(
+            "zero\u200Bwidth", "joiner\u200D", "bidi\u202Eoverride", "bom\uFEFF",
+            "soft\u00ADhyphen", "line\u2028separator", "para\u2029separator",
+        )
+        for (name in hidden) {
+            val created = owner.client.postJson(rooms, RoomCreateRequest("$name ${marker()}", templateId))
+            assertEquals(HttpStatusCode.BadRequest, created.status, "create ${name.length}")
+            val renamed = owner.client.putJson("$rooms/${room.id}", RoomUpdateRequest(name))
+            assertEquals(HttpStatusCode.BadRequest, renamed.status, "rename ${name.length}")
+        }
+        val fine = owner.client.create("Zażółć gęślą \uD83D\uDEA8 ${marker()}", templateId)
+        assertTrue(fine.name.startsWith("Zażółć"))
+    }
+
+    @Test
+    fun `a negative template id in the body is a 400`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("room-negative")
+        val response = owner.client.post(rooms) {
+            contentType(ContentType.Application.Json)
+            setBody("""{"name":"Negative ${marker()}","templateId":-1}""")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+    }
+
+    @Test
+    fun `a caller whose account is deleted while their write waits for the room lock gets 404 and nothing is written`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("room-gone")
+        val room = owner.client.create("Gone ${marker()}", template())
+        val admin = actor("room-gone-admin", UserRole.ADMIN)
+
+        holdingRoomLock(room.id, "UPDATE users SET marked_as_deleted = TRUE WHERE id = ?", owner.id) {
+            coroutineScope {
+                val putting = async { owner.client.putJson("$rooms/${room.id}", RoomUpdateRequest("Raced ${marker()}")) }
+                awaitLockWait("FOR NO KEY UPDATE")
+                it.commit()
+                assertEquals(HttpStatusCode.NotFound, putting.await().status)
+            }
+        }
+        assertEquals(room.name, admin.client.get("$rooms/${room.id}").body<RoomResponse>().name)
+    }
+
+    @Test
+    fun `an administrator demoted while their write waits for the room lock is judged as a plain user`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("room-demote")
+        val room = owner.client.create("Demote ${marker()}", template())
+        val admin = actor("room-demote-admin", UserRole.ADMIN)
+
+        holdingRoomLock(room.id, "UPDATE users SET \"role\" = 'USER' WHERE id = ?", admin.id) {
+            coroutineScope {
+                // The token still says ADMIN and the route's own checks pass; the locked re-read of the users row does not.
+                val putting = async { admin.client.putJson("$rooms/${room.id}", RoomUpdateRequest("Raced ${marker()}")) }
+                awaitLockWait("FOR NO KEY UPDATE")
+                it.commit()
+                assertEquals(HttpStatusCode.NotFound, putting.await().status)
+            }
+        }
+        assertEquals(room.name, owner.client.get("$rooms/${room.id}").body<RoomResponse>().name, "the refused write changed nothing")
+    }
+
+    /** Holds the room lock on a raw transaction that also runs [statement] (bound to [userId]) until [body] commits it. */
+    private suspend fun holdingRoomLock(roomId: UInt, statement: String, userId: UInt, body: suspend (java.sql.Connection) -> Unit) {
+        PostgresTestSupport.connect().use { raw ->
+            raw.autoCommit = false
+            raw.prepareStatement("SELECT id FROM rooms WHERE id = ? FOR NO KEY UPDATE").use { st ->
+                st.setInt(1, roomId.toInt())
+                st.executeQuery().close()
+            }
+            raw.prepareStatement(statement).use { st ->
+                st.setLong(1, userId.toLong())
+                st.executeUpdate()
+            }
+            try {
+                body(raw)
+            } finally {
+                raw.rollback() // a no-op after the commit; releases the lock if an assertion failed first
+            }
+        }
     }
 }

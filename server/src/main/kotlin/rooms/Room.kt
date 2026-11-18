@@ -6,6 +6,7 @@ import ch.nokillswit.infra.validation.requireNameAndDescription
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.infra.validation.sanitizedDescription
 import ch.nokillswit.users.validateLanguage
+import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
 
 /**
@@ -85,12 +86,31 @@ fun sanitizedRoomUpdate(request: RoomUpdateRequest): RoomUpdateRequest = RoomUpd
     description = sanitizedDescription(request.description),
 )
 
+/**
+ * A room name is shared vocabulary that people look up and that must be unique case-insensitively, so it may not hold characters
+ * that render as nothing: Unicode format characters (category Cf - zero-width space/joiner, bidi marks and overrides, the BOM) and the
+ * line and paragraph separators U+2028/U+2029. Otherwise "Incident" and "Incident" + U+200B are two rooms that look identical
+ * (impersonation), and a bidi override reorders the name on screen. Applies to room names only (not `sanitizeSingleLine`, which every
+ * other feature shares). Ordinary letters, digits, punctuation, emoji and spaces pass.
+ */
+private fun requireVisibleName(name: String) {
+    val hidden = name.codePoints().anyMatch {
+        Character.getType(it) == Character.FORMAT.toInt() || it == LINE_SEPARATOR || it == PARAGRAPH_SEPARATOR
+    }
+    if (hidden) throw BadRequestException("Name must not contain invisible formatting characters")
+}
+
+private const val LINE_SEPARATOR = 0x2028
+private const val PARAGRAPH_SEPARATOR = 0x2029
+
 /** The room rules - enforced by the route AND re-checked by the service. */
 fun validateRoomCreate(request: RoomCreateRequest) {
     requireNameAndDescription(request.name, request.description, MAX_ROOM_NAME_LENGTH, MAX_ROOM_DESCRIPTION_LENGTH)
+    requireVisibleName(request.name)
     validateLanguage(request.language)
 }
 
 fun validateRoomUpdate(request: RoomUpdateRequest) {
     requireNameAndDescription(request.name, request.description, MAX_ROOM_NAME_LENGTH, MAX_ROOM_DESCRIPTION_LENGTH)
+    requireVisibleName(request.name)
 }

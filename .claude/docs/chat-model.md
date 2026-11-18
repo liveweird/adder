@@ -26,6 +26,7 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
   own membership; an OWNER or ADMIN removes others.
 - **Deleted users.** Their membership rows stay, inert: lists and the last-OWNER count resolve through active users, a room whose owners are all
   deleted is managed by ADMINs, and deleting a user is never blocked by room ownership.
+- **Room names** may not contain invisible formatting characters (Unicode category Cf, U+2028/U+2029): a `400`, applied to room names only (`rooms/Room.kt`), so two rooms never look identical and a bidi override cannot reorder a name.
 - **Archived = read-only** for name, description, workflow and (0.3) content (`409`, `room-archived`); membership management stays allowed, so
   access to the record stays manageable. Archive and unarchive are no-ops (and unaudited) when already in that state.
 - **Names** are unique among non-deleted rooms, case-insensitively (a partial unique index; archived rooms keep theirs; a delete frees the name).

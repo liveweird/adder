@@ -1,5 +1,6 @@
 package ch.nokillswit.rooms
 
+import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.RoomStanding
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.db.SoftDeletable
@@ -155,9 +156,9 @@ class RoomService(
      * The metadata replace under the room lock: [guard] re-runs on the locked standing, an archived room is the typed `409`
      * (`room-archived`), then name and description are written (a name clash is the central 409).
      */
-    suspend fun update(roomId: UInt, callerUserId: UInt, guard: (RoomStanding?) -> Unit, request: RoomUpdateRequest) {
+    suspend fun update(roomId: UInt, caller: CallerPrincipal, guard: RoomGuard, request: RoomUpdateRequest) {
         validateRoomUpdate(request)
-        database.withRoomWrite(roomId, callerUserId, guard) { standing ->
+        database.withRoomWrite(roomId, caller, guard) { standing ->
             if (standing.archived) throw roomArchived()
             Rooms.update({ Rooms.id eq roomId }) {
                 it[name] = request.name
@@ -168,8 +169,8 @@ class RoomService(
     }
 
     /** Archives or unarchives under the room lock; true on an actual change, false when the room already was in that state (no write). */
-    suspend fun setArchived(roomId: UInt, callerUserId: UInt, guard: (RoomStanding?) -> Unit, archived: Boolean): Boolean =
-        database.withRoomWrite(roomId, callerUserId, guard) { standing ->
+    suspend fun setArchived(roomId: UInt, caller: CallerPrincipal, guard: RoomGuard, archived: Boolean): Boolean =
+        database.withRoomWrite(roomId, caller, guard) { standing ->
             if (standing.archived == archived) return@withRoomWrite false
             val stamp = nowMillis()
             Rooms.update({ Rooms.id eq roomId }) {
@@ -180,8 +181,8 @@ class RoomService(
         }
 
     /** Soft delete under the room lock: the room stops reading as active and frees its name; members and workflow rows stay with it. */
-    suspend fun delete(roomId: UInt, callerUserId: UInt, guard: (RoomStanding?) -> Unit) {
-        database.withRoomWrite(roomId, callerUserId, guard) {
+    suspend fun delete(roomId: UInt, caller: CallerPrincipal, guard: RoomGuard) {
+        database.withRoomWrite(roomId, caller, guard) {
             Rooms.update({ Rooms.id eq roomId }) {
                 it[markedAsDeleted] = true
                 it[updatedAt] = nowMillis()

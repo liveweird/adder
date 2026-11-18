@@ -1,20 +1,20 @@
 package ch.nokillswit.rooms
 
-import ch.nokillswit.authz.RoomStanding
 import ch.nokillswit.audit.audit
-import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.isAdmin
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.authz.requireRoomManager
 import ch.nokillswit.authz.requireRoomReader
+import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoolean
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.plugins.RateLimits
+import ch.nokillswit.plugins.isUniqueViolation
 import ch.nokillswit.users.DEFAULT_LANGUAGE
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -53,6 +53,14 @@ class RoomsRoute {
         @Serializable
         @Resource("workflow")
         class Workflow(val parent: Id)
+
+        @Serializable
+        @Resource("members")
+        class Members(val parent: Id) {
+            @Serializable
+            @Resource("{userId}")
+            class User(val parent: Members, val userId: UInt)
+        }
     }
 }
 
@@ -92,14 +100,14 @@ private fun Route.roomReads(roomService: RoomService) {
     }
 }
 
-/** The one endpoint where any user mints name-reserving state: a per-USER bucket (`room-create`, 30/min), mounted inside `authenticate`. */
+/** A write into the room-name namespace: the per-USER `room-name` bucket (30/min, shared by create and rename), inside `authenticate`. */
 private fun Route.roomCreate(roomService: RoomService) {
-    rateLimit(RateLimitName(RateLimits.ROOM_CREATE)) {
+    rateLimit(RateLimitName(RateLimits.ROOM_NAME)) {
         post<RoomsRoute> {
             val caller = call.caller()
             val request = sanitizedRoomCreate(call.receive())
             validateRoomCreate(request)
-            val id = roomService.create(caller.userId, request)
+            val id = auditingNameConflict(caller.userId, roomId = null) { roomService.create(caller.userId, request) }
             audit(
                 "room.created",
                 "byUserId" to caller.userId.toLong(),
@@ -115,21 +123,25 @@ private fun Route.roomCreate(roomService: RoomService) {
 }
 
 private fun Route.roomWrites(roomService: RoomService) {
-    put<RoomsRoute.Id> { route ->
-        val caller = call.caller()
-        requireRoomManager(caller, roomService.visibleStanding(caller, route.id))
-        val request = sanitizedRoomUpdate(call.receive())
-        validateRoomUpdate(request)
-        roomService.update(route.id, caller.userId, managerGuard(caller), request)
-        audit("room.updated", "byUserId" to caller.userId.toLong(), "roomId" to route.id.toLong(), "name" to request.name)
-        call.respond(HttpStatusCode.NoContent)
+    // The rename is the second write into the room-name namespace: it rides the SAME per-user bucket as the create (a free 409 on
+    // a clash would otherwise be an unbounded "does a room with this name exist" probe).
+    rateLimit(RateLimitName(RateLimits.ROOM_NAME)) {
+        put<RoomsRoute.Id> { route ->
+            val caller = call.caller()
+            requireRoomManager(caller, roomService.visibleStanding(caller, route.id))
+            val request = sanitizedRoomUpdate(call.receive())
+            validateRoomUpdate(request)
+            auditingNameConflict(caller.userId, route.id) { roomService.update(route.id, caller, managerGuard, request) }
+            audit("room.updated", "byUserId" to caller.userId.toLong(), "roomId" to route.id.toLong(), "name" to request.name)
+            call.respond(HttpStatusCode.NoContent)
+        }
     }
     post<RoomsRoute.Id.Archive> { route ->
         val caller = call.caller()
         val roomId = route.parent.id
         requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
         // Idempotent: archiving an archived room is a 204 with no write and no audit line.
-        if (roomService.setArchived(roomId, caller.userId, managerGuard(caller), archived = true)) {
+        if (roomService.setArchived(roomId, caller, managerGuard, archived = true)) {
             audit("room.archived", "byUserId" to caller.userId.toLong(), "roomId" to roomId.toLong())
         }
         call.respond(HttpStatusCode.NoContent)
@@ -138,7 +150,7 @@ private fun Route.roomWrites(roomService: RoomService) {
         val caller = call.caller()
         val roomId = route.parent.id
         requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
-        if (roomService.setArchived(roomId, caller.userId, managerGuard(caller), archived = false)) {
+        if (roomService.setArchived(roomId, caller, managerGuard, archived = false)) {
             audit("room.unarchived", "byUserId" to caller.userId.toLong(), "roomId" to roomId.toLong())
         }
         call.respond(HttpStatusCode.NoContent)
@@ -148,14 +160,26 @@ private fun Route.roomWrites(roomService: RoomService) {
         // Reader first (a non-member gets the 404 and cannot learn that the room exists), THEN the ADMIN-only 403.
         roomService.visibleStanding(caller, route.id)
         requireAdmin(caller)
-        roomService.delete(route.id, caller.userId) { standing ->
-            requireRoomReader(caller, standing)
-            requireAdmin(caller)
+        roomService.delete(route.id, caller) { fresh, standing ->
+            requireRoomReader(fresh, standing)
+            requireAdmin(fresh)
         }
         audit("room.deleted", "byUserId" to caller.userId.toLong(), "roomId" to route.id.toLong())
         call.respond(HttpStatusCode.NoContent)
     }
 }
 
-/** The guard a room write re-runs on the standing it re-reads under the room lock. */
-private fun managerGuard(caller: CallerPrincipal): (RoomStanding?) -> Unit = { standing -> requireRoomManager(caller, standing) }
+/**
+ * Runs [block] (a write that can clash on the room name) and audits a name clash as `room.name_conflict` (who, and which room for a
+ * rename; null for a create) before the central 23505 -> 409 mapping answers. The line is the trace of someone using the 409 as a
+ * "does a room with this name exist" oracle; the per-user `room-name` bucket bounds how often it can happen.
+ */
+private suspend fun <T> auditingNameConflict(byUserId: UInt, roomId: UInt?, block: suspend () -> T): T = catchingFailures(
+    { block() },
+    {
+        if (it.isUniqueViolation()) {
+            audit("room.name_conflict", "byUserId" to byUserId.toLong(), "roomId" to roomId?.toLong())
+        }
+        throw it
+    },
+)

@@ -157,14 +157,18 @@ place:
   `memberCount`: the inner join drops a soft-deleted member, so a read never shows an inactive user) and for the add's active-user check
   and the cap count, all inside the roster write's own transaction, which first locks the active team row (`lockActiveForWrite`).
   `team_members.user_id` references `users` with `ON DELETE CASCADE` like every join here (users are only soft-deleted, so the rule
-  never fires today). A room's team add (a later increment) reads `TeamMembers` the same way, through a `TeamService` method.
+  never fires today). A room's team add reads the roster through `TeamService.activeRosterIds` (ACTIVE users only, null for a missing or deleted team), inside the room write's transaction.
 - `RoomService` (V13) READS `UserService.Users` for every member count (`RoomMembers` ⋈ `Users`, the inner join keeps ACTIVE users only, one grouped query per list page) and,
   at creation, reads the template through `WorkflowTemplateService.read` INSIDE the room's own transaction (Exposed reuses the enclosing one), so the room, its
   OWNER row and the copy of the template's statuses and fields commit or roll back together; it writes only its own tables (`RoomWorkflowService` owns
   `room_statuses` and `room_fields`, and `RoomService.create` calls its `copyFromTemplate`). `rooms/` imports `workflows/` and `users/`; neither imports `rooms/`
   (`PackageBoundaryTest`). `room_members.user_id` references `users` with `ON DELETE CASCADE` like every join here (users are only soft-deleted, so it never fires);
-  a future user RESTORE makes a restored user's inert membership rows visible again, so it must re-check the 500-member cap of every room they sit in. The member add (0.2.0 C8)
-  reads `TeamService`'s roster the same way, through a `TeamService` method.
+  a future user RESTORE makes a restored user's inert membership rows visible again, so it must re-check the 500-member cap of every room they sit in AND treat the OWNER roles they bring back (a restored user may suddenly be the active OWNER of a room that had none, or one of several): clear or re-audit those roles instead of letting the restore silently re-grant ownership. `RoomMemberService` (0.2.0 C8) owns the membership writes (the only writer of
+  `room_members` after `RoomService.create`'s OWNER row): every one runs inside `withRoomWrite`, so the room lock makes the 500-member cap (counted over ACTIVE users) and the last-OWNER
+  count race-free. It READS `UserService.Users` (the active-user check of every named id, and the join under the member list, the cap count and the last-OWNER count) and, for a team add,
+  `TeamService.activeRosterIds` (a `TeamService` method called inside the room's own transaction, Exposed reusing the enclosing one), so the roster SNAPSHOT and the rows it becomes
+  commit together. The add is ONE multi-row `insertRows` after the existing members are subtracted (so the primary key is never hit), the last-OWNER rule is the last-admin check's shape
+  (`UserService.updateGuarded`) without its row locks: "another `OWNER` joined to an active user exists" under the room lock. A member's removal is a hard `DELETE` of the row.
 - `auth/TokenBlocklistService.accessVerdict` (the per-request access-token check, `plugins/Security.kt`) READS
   `users/UserService.Users` (`role`, `credential_revision`, `marked_as_deleted`, by primary key) and its own
   `revoked_tokens` (an `EXISTS` on the `jti`) in ONE uncached statement per authenticated request; it writes nothing.
@@ -234,7 +238,7 @@ whitelist (the V5 rule), and the enum NAMES are persisted values, frozen like th
   the 409 wording is in `UNIQUE_CONSTRAINT_DETAILS`). A clash therefore discloses only that a room of that name exists. `archived_at` (null = active) is state, not deletion.
 - **`idx_rooms_last_activity`** (`last_activity_at`, partial over non-deleted rooms) serves the recent-activity sort of the rooms rail and the Rooms page.
 - **`room_members` is a hard-delete join** (the `team_members` class: the audit trail holds adds and removals, a re-add must not collide with a dead row, nothing references
-  a membership row). A soft-deleted user keeps an inert row; every read resolves members through ACTIVE users (the inner join), and the last-OWNER count (C8) will too.
+  a membership row). A soft-deleted user keeps an inert row; every read resolves members through ACTIVE users (the inner join), and the last-OWNER count (C8) does too (a role change or removal of a soft-deleted user's row is a `404`: it is not an active member).
 - **`room_statuses` and `room_fields` are soft-deleted ("retired") with a FULL primary key `(room_id, key)`, deliberately NOT partial**: this is the documented exception to
   "free a unique field on delete". A retired key stays reserved for the life of the room and is revived, never minted twice, so a later thread's history and its
   `(room_id, status_key)` foreign key stay unambiguous. `uq_room_statuses_initial` is a partial unique index (`WHERE is_initial`): exactly one initial status per room, checked
@@ -244,7 +248,7 @@ whitelist (the V5 rule), and the enum NAMES are persisted values, frozen like th
 - **The room lock.** Every write to a room goes through `withRoomWrite` (`rooms/RoomLock.kt`), which selects the ACTIVE room row `FOR NO KEY UPDATE` (the rule of "Row locks vs. FK
   locks" below: child inserts such as members, statuses and, in 0.3, threads take `FOR KEY SHARE` on the room, which does not conflict), then re-reads the caller's membership
   and re-runs the route's guard on that locked standing, then runs the write. The role is read AFTER the lock is held (READ COMMITTED gives every statement its own snapshot), so a
-  role change that committed while the caller waited is the verdict. A hard delete of a room (tests only) cascades to members, statuses and fields.
+  role change that committed while the caller waited is the verdict. The lock transaction also re-reads the CALLER's `users` row (active flag and role): a caller deleted while the write waited is the `404`, an ADMIN demoted meanwhile is judged as a plain user (the token's roles are only a hint); the membership role read joins ACTIVE users. A hard delete of a room (tests only) cascades to members, statuses and fields.
 - A room's labels are plain single-language text in `label` (`VARCHAR(60)`); `room_fields.options` is a `jsonb` array `[{key,label}]` written through `canonicalJson`
   (`RoomWorkflowService.copyFromTemplate`) and read with a tolerant decoder; `[]` for a kind without options.
 

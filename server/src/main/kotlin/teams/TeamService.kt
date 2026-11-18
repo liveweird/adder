@@ -198,6 +198,24 @@ class TeamService(private val database: R2dbcDatabase) {
         if (!locked) throw NotFoundException("Team not found")
     }
 
+    /**
+     * The ids of the team's ACTIVE roster at this moment (at most [MAX_TEAM_MEMBERS]), or null when the team is missing or deleted: the
+     * SNAPSHOT a room's team add copies (`rooms/RoomMemberService`, `chat-model.md` "Membership"). Joins through ACTIVE users, so a
+     * soft-deleted roster member is skipped. Runs in the caller's transaction when there is one (the room write's), so the roster and the
+     * membership rows it becomes commit together.
+     */
+    suspend fun activeRosterIds(teamId: UInt): List<UInt>? = suspendTransaction(database) {
+        val exists = Teams.select(Teams.id).where { (Teams.id eq teamId) and Teams.active() }.count() > 0
+        if (!exists) return@suspendTransaction null
+        TeamMembers.innerJoin(UserService.Users)
+            .select(UserService.Users.id)
+            .where { (TeamMembers.teamId eq teamId) and UserService.Users.active() }
+            .orderBy(UserService.Users.id to SortOrder.ASC)
+            .limit(MAX_TEAM_MEMBERS)
+            .map { it[UserService.Users.id].value }
+            .toList()
+    }
+
     /** The roster: ACTIVE users only (the inner join drops a soft-deleted member), by name then id, bounded by [MAX_TEAM_MEMBERS]. */
     private suspend fun activeMembersOf(teamId: UInt): List<TeamMemberResponse> =
         TeamMembers.innerJoin(UserService.Users)

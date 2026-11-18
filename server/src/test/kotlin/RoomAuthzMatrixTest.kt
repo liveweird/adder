@@ -1,16 +1,21 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.rooms.RoomMemberRoleRequest
+import ch.nokillswit.rooms.RoomMembersAddRequest
 import ch.nokillswit.rooms.RoomUpdateRequest
 import ch.nokillswit.users.UserRole
+import ch.nokillswit.plugins.ProblemDetail
 import io.ktor.client.HttpClient
+import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
-import io.ktor.client.request.put
+import io.ktor.client.request.request
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
@@ -26,7 +31,8 @@ import kotlinx.coroutines.runBlocking
  * The room authorization matrix (`authorization.md` "Rooms"): for every implemented room operation, what an outsider, a plain member, the
  * room's OWNER and an ADMIN who is not a member each get. A non-member (an ADMIN excepted) always sees the uniform `404`, so the room's
  * existence is never disclosed; a plain member is `403` on every write; ADMIN reads and manages every room. Each cell gets a FRESH room
- * (a delete or an archive would poison the next), seeded through the service. The member and workflow-write rows join as C8 and C9 land.
+ * (a delete or an archive would poison the next), seeded through the service. The member rows landed with C8; the workflow-write
+ * row joins with C9.
  */
 class RoomAuthzMatrixTest {
     private val rooms = "/api/v1/rooms"
@@ -47,40 +53,61 @@ class RoomAuthzMatrixTest {
         val member: HttpStatusCode,
         val owner: HttpStatusCode,
         val admin: HttpStatusCode,
-        val call: suspend HttpClient.(UInt) -> HttpResponse,
+        val call: suspend (Call) -> HttpResponse,
     )
+
+    /** What an operation is called with: the caller's client and id, the cast (for a target) and the room. */
+    private class Call(val client: HttpClient, val caller: RoomActor, val cast: Cast, val room: UInt)
 
     private val ok = HttpStatusCode.OK
     private val noContent = HttpStatusCode.NoContent
     private val notFound = HttpStatusCode.NotFound
     private val forbidden = HttpStatusCode.Forbidden
+    private val conflict = HttpStatusCode.Conflict
 
     private fun update() = RoomUpdateRequest("Renamed ${UUID.randomUUID()}".take(60))
 
     private val operations = listOf(
-        Operation("GET room", notFound, ok, ok, ok) { get("$rooms/$it") },
-        Operation("GET workflow", notFound, ok, ok, ok) { get("$rooms/$it/workflow") },
-        Operation("PUT room", notFound, forbidden, noContent, noContent) { putJson("$rooms/$it", update()) },
-        Operation("POST archive", notFound, forbidden, noContent, noContent) { post("$rooms/$it/archive") },
+        Operation("GET room", notFound, ok, ok, ok) { it.client.get("$rooms/${it.room}") },
+        Operation("GET workflow", notFound, ok, ok, ok) { it.client.get("$rooms/${it.room}/workflow") },
+        Operation("GET members", notFound, ok, ok, ok) { it.client.get("$rooms/${it.room}/members") },
+        Operation("PUT room", notFound, forbidden, noContent, noContent) { it.client.putJson("$rooms/${it.room}", update()) },
+        Operation("POST archive", notFound, forbidden, noContent, noContent) { it.client.post("$rooms/${it.room}/archive") },
         // The room is archived first, so the 204s are real unarchives, not no-ops.
         Operation("POST unarchive", notFound, forbidden, noContent, noContent) {
-            TestRooms.archive(it)
-            post("$rooms/$it/unarchive")
+            TestRooms.archive(it.room)
+            it.client.post("$rooms/${it.room}/unarchive")
         },
-        Operation("DELETE room", notFound, forbidden, forbidden, noContent) { delete("$rooms/$it") },
+        Operation("DELETE room", notFound, forbidden, forbidden, noContent) { it.client.delete("$rooms/${it.room}") },
+        // Members (C8): the manager rows. The add's target is the outsider (not in the fresh room); the role and removal
+        // target a second plain member.
+        Operation("POST members", notFound, forbidden, ok, ok) {
+            it.client.postJson("$rooms/${it.room}/members", RoomMembersAddRequest(userIds = listOf(it.cast.outsider.id)))
+        },
+        Operation("PUT member role", notFound, forbidden, noContent, noContent) {
+            it.client.putJson("$rooms/${it.room}/members/${it.cast.other.id}", RoomMemberRoleRequest(RoomRole.OWNER))
+        },
+        Operation("DELETE other member", notFound, forbidden, noContent, noContent) {
+            it.client.delete("$rooms/${it.room}/members/${it.cast.other.id}")
+        },
+        // Leaving: a member may; the sole OWNER may not (last-owner 409); an ADMIN outside the room is not a member (404).
+        Operation("DELETE own membership", notFound, noContent, conflict, notFound) {
+            it.client.delete("$rooms/${it.room}/members/${it.caller.id}")
+        },
     )
 
-    private class Cast(val owner: RoomActor, val member: RoomActor, val outsider: RoomActor, val admin: RoomActor)
+    private class Cast(val owner: RoomActor, val member: RoomActor, val outsider: RoomActor, val admin: RoomActor, val other: RoomActor)
 
     private suspend fun io.ktor.server.testing.ApplicationTestBuilder.cast(): Cast {
         suspend fun actor(prefix: String, role: UserRole = UserRole.USER) = seedActor("mx-$prefix", role).also { mintedUsers += it.id }
-        return Cast(actor("owner"), actor("member"), actor("outsider"), actor("admin", UserRole.ADMIN))
+        return Cast(actor("owner"), actor("member"), actor("outsider"), actor("admin", UserRole.ADMIN), actor("other"))
     }
 
     private suspend fun freshRoom(cast: Cast): UInt {
         val template = templateId ?: TestTemplates.seed("mx").also { templateId = it }
         return TestRooms.seed(cast.owner.id, template, "Matrix ${UUID.randomUUID()}").also {
             TestRooms.addMember(it, cast.member.id, RoomRole.MEMBER)
+            TestRooms.addMember(it, cast.other.id, RoomRole.MEMBER)
             mintedRooms += it
         }
     }
@@ -97,7 +124,7 @@ class RoomAuthzMatrixTest {
                 Triple("admin", cast.admin, operation.admin),
             )
             for ((who, actor, expected) in callers) {
-                val response = operation.call(actor.client, freshRoom(cast))
+                val response = operation.call(Call(actor.client, actor, cast, freshRoom(cast)))
                 assertEquals(expected, response.status, "${operation.name} as $who")
             }
         }
@@ -112,7 +139,7 @@ class RoomAuthzMatrixTest {
         for (operation in operations) {
             for (room in listOf(999_999u, deleted)) {
                 for (actor in listOf(cast.outsider, cast.member, cast.owner, cast.admin)) {
-                    assertEquals(notFound, operation.call(actor.client, room).status, "${operation.name} on $room")
+                    assertEquals(notFound, operation.call(Call(actor.client, actor, cast, room)).status, "${operation.name} on $room")
                 }
             }
         }
@@ -123,14 +150,24 @@ class RoomAuthzMatrixTest {
         usePostgresTestcontainer()
         val cast = cast()
         val room = freshRoom(cast)
-        suspend fun HttpClient.malformedPut() = put("$rooms/$room") {
-            contentType(ContentType.Application.Json)
-            setBody("{ not json")
+        // The metadata PUT, the member add and the role PUT all decode a body: the same guard-before-body order on each.
+        val bodyRoutes = listOf(
+            Triple("PUT room", HttpMethod.Put, "$rooms/$room"),
+            Triple("POST members", HttpMethod.Post, "$rooms/$room/members"),
+            Triple("PUT member role", HttpMethod.Put, "$rooms/$room/members/${cast.other.id}"),
+        )
+        for ((name, method, path) in bodyRoutes) {
+            assertEquals(notFound, cast.outsider.client.malformed(method, path).status, "$name as outsider")
+            assertEquals(forbidden, cast.member.client.malformed(method, path).status, "$name as member")
+            assertEquals(HttpStatusCode.BadRequest, cast.owner.client.malformed(method, path).status, "$name as owner")
+            assertEquals(HttpStatusCode.BadRequest, cast.admin.client.malformed(method, path).status, "$name as admin")
         }
-        assertEquals(notFound, cast.outsider.client.malformedPut().status)
-        assertEquals(forbidden, cast.member.client.malformedPut().status)
-        assertEquals(HttpStatusCode.BadRequest, cast.owner.client.malformedPut().status)
-        assertEquals(HttpStatusCode.BadRequest, cast.admin.client.malformedPut().status)
+    }
+
+    private suspend fun HttpClient.malformed(method: HttpMethod, path: String): HttpResponse = request(path) {
+        this.method = method
+        contentType(ContentType.Application.Json)
+        setBody("{ not json")
     }
 
     @Test
@@ -172,4 +209,37 @@ class RoomAuthzMatrixTest {
         assertEquals(forbidden, cast.owner.client.delete("$rooms/$room").status)
         assertEquals(ok, cast.owner.client.get("$rooms/$room").status, "the room is still there")
     }
+
+    @Test
+    fun `an OWNER of one room is a plain outsider to another - 404 on every operation`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast()
+        val other = freshRoom(cast) // owned by cast.owner
+        val rival = actor("mx-rival")
+        val rivalRoom = TestRooms.seed(rival.id, templateId!!, "Rival ${UUID.randomUUID()}").also { mintedRooms += it }
+        assertEquals(ok, rival.client.get("$rooms/$rivalRoom").status, "the rival owns their own room")
+        for (operation in operations) {
+            val response = operation.call(Call(rival.client, rival, cast, other))
+            assertEquals(notFound, response.status, "${operation.name} as an owner of another room")
+        }
+    }
+
+    @Test
+    fun `a non-member and a missing room get the identical problem body on every operation`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast()
+        val real = freshRoom(cast)
+        for (operation in operations) {
+            val hidden = operation.call(Call(cast.outsider.client, cast.outsider, cast, real))
+            val missing = operation.call(Call(cast.outsider.client, cast.outsider, cast, 999_999u))
+            assertEquals(notFound, hidden.status, operation.name)
+            assertEquals(notFound, missing.status, operation.name)
+            // Only `instance` (the request path, which carries the id) may differ.
+            val expected = missing.body<ProblemDetail>().copy(instance = null)
+            assertEquals(expected, hidden.body<ProblemDetail>().copy(instance = null), operation.name)
+        }
+    }
+
+    private suspend fun io.ktor.server.testing.ApplicationTestBuilder.actor(prefix: String) =
+        seedActor(prefix).also { mintedUsers += it.id }
 }

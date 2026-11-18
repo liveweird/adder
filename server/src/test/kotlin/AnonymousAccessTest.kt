@@ -99,13 +99,11 @@ class AnonymousAccessTest {
         val PATH_PARAMETER = Regex("\\{[^}]+}")
 
         /**
-         * The tripwire floor for the secured surface: 85 of the 92 declared operations as of the reset confirm step, 2D3 (the
-         * seven public ones declare `security: []`; it was 85 of 91 with six at checkup 3), less a small margin - a shrink is
-         * worth a look. The sweep itself covers EVERY secured operation whatever this number says; the floor only catches the
-         * spec silently losing operations. When the
-         * secured count grows by a dozen or more, raise it to the new count minus about 5 (read the current figure from
-         * `secured.size` in the sweep test).
+         * The tripwire floor for the secured surface: 36 of the 43 declared operations as of 0.2.0 C8 (the seven public ones declare
+         * `security: []`), less a margin of 5 - a shrink is worth a look. The sweep itself covers EVERY secured operation whatever this
+         * number says; the floor only catches the spec silently losing operations. When the secured count grows by a dozen or more,
+         * raise it to the new count minus about 5 (read the current figure from `secured.size` in the sweep test).
          */
-        const val MIN_SECURED_OPERATIONS = 11
+        const val MIN_SECURED_OPERATIONS = 31
     }
 }

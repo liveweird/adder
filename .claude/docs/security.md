@@ -252,7 +252,7 @@ the full link roundtrip incl. the session revocation), `PasswordResetThrottleTes
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, and the per-USER `telemetry`, `directory` and `room-create` below): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, and the per-USER `telemetry`, `directory`, `room-name` and `room-members` below): blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
@@ -286,7 +286,7 @@ disclosure to any signed-in user): to every signed-in user, the `id`, `name` and
 three-field projection built in the service, not the `User` row filtered afterwards, and `UserDirectoryTest` pins the exact key set. A soft-deleted account is
 absent (its email is freed for reuse). `%` and `_` in `q` are literal (`containsNormalized` escapes them). **Residual risk:** the email is the login identifier, so
 a signed-in colleague who harvests emails can (a) aim failed sign-ins at a victim's account to trigger the per-account lockout, bounded by the per-IP `login` bucket
-(10/min in production) and the lockout's own window, and (b) request password-reset mail for a victim, bounded by the per-IP `password-reset` bucket and the
+(10/min in production) and the lockout's own window (**one IP can nonetheless keep about 30 accounts locked at once, ADMINs included**: 10 failures a minute locks two accounts at the threshold of 5, each for 15 minutes, using ids and emails harvested from the directory; an administrator locked out this way is only freed by the window or a restart), and (b) request password-reset mail for a victim, bounded by the per-IP `password-reset` bucket and the
 per-email reset throttle (`PasswordResetThrottleTest`). Neither reveals or changes a credential, and the reset link goes only to the account's own mailbox. Collapse
 the projection to `{id, name}` if that trade changes (the user's option 2 of D2).
 
@@ -295,17 +295,30 @@ per-user bucket (a plain read like the rest of `/teams`). So the directory is no
 number of teams (a team's roster is one request, the team list pages at most 100 per request), it reveals nothing beyond what D2 already accepts (name+email of an active
 user), and it covers only users who sit on some roster. Not bucketed on purpose; if the directory's projection shrinks to `{id, name}` (D2 option 2), the roster's `email` must shrink with it.
 
-**Per-USER room-create bucket** (`room-create`, a fixed 30/min in every mode, `RateLimits.ROOM_CREATE`) for `POST /api/v1/rooms`, the one endpoint where any signed-in user mints state that
-reserves a name for everyone else (a room name is unique among non-deleted rooms, case-insensitively). `configureRoomRoutes` mounts `rateLimit(RateLimitName(RateLimits.ROOM_CREATE))` INSIDE
-`authenticate {}` around that one route (the telemetry idiom), keyed by the verified user id. The bound is for a runaway client or a script squatting names; a deliberate create is an
-occasional act. The rejection is the generic `429` problem plus the coalesced `rate_limit.exceeded` audit event (bucket `room-create`, `byUserId`); a request refused by validation (`400`) still
-takes a token, because the bucket sits before the handler. `RoomTest` pins 30 then `429`, per user, and the audit event. Every other room route is unbucketed on purpose: guard-gated (a caller
-sees only the rooms they belong to) and bounded by the caps in `chat-model.md`.
+**A third surface: room members.** A room OWNER (any user who creates a room) can enrol ANY active user id through `POST /api/v1/rooms/{id}/members` and then read that user's `name` and `email` in
+`GET /rooms/{id}/members` (a reader-only list of up to 500 members); and the add's `400` ("Unknown or deleted user ids: ...") tells the caller which of up to 200 submitted ids are inactive, an
+active/inactive oracle over the id space. So the directory and the team roster are not the only reads of other users' name+email, and a user who owns a room can walk ids without typing a query.
+The bound: the `room-members` bucket (60 adds/min per user, so at most 12,000 ids a minute, each add enrolling the person visibly in a room they did not choose, which is itself noticed, and
+audited per person as `room.member_added`), the 200-ids-per-add and 500-members-per-room caps, and the 16 KiB body limit. It reveals nothing beyond what D2 accepts (name+email of an active user); the
+inactive-id oracle reveals only that an id is not an active account. Collapse the member list's `email` with the directory's if D2 option 2 is ever taken.
 
-**What the room surface discloses.** A room is members-only: a non-member's `GET`, `PUT`, archive, unarchive, `DELETE` and workflow read are the same `404` as for a room that does not exist, so
+**Per-USER room buckets** (`RateLimits.ROOM_NAME` and `RateLimits.ROOM_MEMBERS`, fixed in every mode; the telemetry idiom: `configureRoomRoutes` and `configureRoomMemberRoutes` mount
+`rateLimit(RateLimitName(...))` INSIDE `authenticate {}` around the routes, keyed by the verified user id). **`room-name`, 30/min,** is ONE bucket shared by `POST /api/v1/rooms` and
+`PUT /api/v1/rooms/{id}`: the two writes that put a name into the room-name namespace (a room name is unique among non-deleted rooms, case-insensitively, and reserves it for everyone
+else). The rename shares it because its `409` on a clash is exactly the create's, so an unbucketed rename would be a free "does a room with this name exist" probe; a clash on either is
+also audited as `room.name_conflict` (byUserId, roomId for a rename, null for a create). **`room-members`, 60/min,** on `POST /api/v1/rooms/{id}/members`: the add's `400` names the inactive
+ids it refused, so a manager could sweep ids through it; the bucket slows that to a trickle (S4 below). The rejection is the generic `429` problem plus the coalesced `rate_limit.exceeded`
+audit event (bucket name, `byUserId`); a request refused by validation (`400`) or a guard still takes a token, because the bucket sits before the handler. `RoomTest` pins 30 then `429`
+across create and rename, `RoomMembersTest` 60 then `429`. Every other room route is unbucketed on purpose: guard-gated (a caller sees only the rooms they belong to) and bounded by the caps in `chat-model.md`.
+
+**The ADMIN clean-up path of a squatted name (today).** The room record has no creator column (V13 is committed). An ADMIN who finds a room squatting a name uses the audit trail:
+`room.created` (byUserId, roomId, name) names the creator, `room.name_conflict` shows who probed, and `DELETE /rooms/{id}` (ADMIN, soft) frees the name. A per-creator cap on active rooms and an
+owner/creator filter for ADMINs are a backlog item (`BACKLOG.md`).
+
+**What the room surface discloses (names).** A room is members-only: a non-member's `GET`, `PUT`, archive, unarchive, `DELETE` and workflow read are the same `404` as for a room that does not exist, so
 a room's existence is not disclosed through any status code (`authorization.md` "Rooms"; `RoomAuthzMatrixTest` pins the whole table); the one probe it cannot hide, the name clash, discloses only
 that a non-deleted room of that name exists (`409` on create or rename; Slack's private-channel rule). The denied probe is audited (`room.access_denied`, `observability.md`), which is the
-detection a quiet `404` would otherwise lack. A room response carries no other user's data (the member list, with names and emails, is C8's `GET /rooms/{id}/members`, a reader-only route).
+detection a quiet `404` would otherwise lack. A room response carries no other user's data (the member list, with names and emails, is `GET /rooms/{id}/members`, a reader-only route; see the third surface below).
 
 **Email MFA (opt-in)** (`auth/MfaChallenges.kt` + `auth/MfaEmail.kt`, wired in
 `configureAuthRoutes`): a per-user second factor behind the `MFA` feature flag — **the one
@@ -357,12 +370,13 @@ depth) today, and every future create/update/import — so one mailbox is one ac
 padded/case-variant login matches (and shares one lockout bucket). The V1 partial unique index
 stays byte-wise (all writes are canonical).
 
-**Request body ceiling.** `RequestBodyLimit` (installed in `plugins/Http.kt`,
-`MAX_REQUEST_BODY_BYTES` = 10 MiB) rejects oversized bodies with a 413 problem (mapped in
-`plugins/ErrorHandling.kt`) before any receive/validation work — a memory-DoS backstop, not a
-business rule; field-level `maxLength` validation rejects oversized values far earlier on ordinary
-payloads. Declared in the spec on every body-taking operation (13 today; the spec is the source of the count) and covered by the one
-`PayloadValidationTest` case.
+**Request body ceilings.** `RequestBodyLimit` (installed in `plugins/Http.kt`; the limit is chosen per call by `requestBodyLimit`) rejects oversized bodies with a `413` problem (mapped in
+`plugins/ErrorHandling.kt`) from the declared `Content-Length` before any guard and any receive/validation work (a chunked body is cut off while it is read), so it answers for an anonymous or non-member caller too: a
+memory-DoS backstop, not a business rule (the body is buffered before it decodes, so a few concurrent big bodies would otherwise pin real heap). **`MAX_REQUEST_BODY_BYTES` = 512 KiB** is
+the global ceiling (the largest legitimate body, a whole-document workflow PUT, is well under 150 KiB); **`MAX_SMALL_REQUEST_BODY_BYTES` = 16 KiB** applies to `POST` on the anonymous
+auth routes (`/login`, `/login/mfa`, `/refresh`, `/password-reset`, `/password-reset/confirm`) and on `POST /rooms/{id}/members` (up to 200 ids is about 2 KiB): bodies a handful of
+short fields long. Field-level `maxLength` validation rejects oversized values far earlier on ordinary payloads. `413` is declared in the spec on every body-taking operation (the spec is the
+source of the count); `PayloadValidationTest` pins the global limit and the five auth routes, `RoomMembersTest` the member add (a 1 MiB `userIds` body is refused without decoding).
 
 **Request payload validation (convention — API-SEC-003/API-ERR-005).** Mutating routes validate
 payloads up-front and throw `BadRequestException` (→ `400` + `ProblemDetail`) instead of letting

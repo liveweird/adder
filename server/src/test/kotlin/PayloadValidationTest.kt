@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.plugins.MAX_REQUEST_BODY_BYTES
 import ch.nokillswit.users.UserRole
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -57,12 +58,31 @@ class PayloadValidationTest {
         val email = uniqueEmail("bodycap")
         TestUsers.seed(email = email, password = "pw", role = UserRole.ADMIN)
         val client = authedClient(email, "pw")
-        // 1 byte over MAX_REQUEST_BODY_BYTES (10 MiB): the RequestBodyLimit backstop rejects
+        // A body over MAX_REQUEST_BODY_BYTES (512 KiB): the RequestBodyLimit backstop rejects
         // it before any receive/validation work, with the RFC 7807 body like every error.
-        val oversized = """{"name":"""" + "x".repeat(10 * 1024 * 1024) + "\"}"
+        val oversized = """{"name":"""" + "x".repeat(MAX_REQUEST_BODY_BYTES.toInt()) + "\"}"
         val response = client.postJson("/api/v1/users", oversized)
         assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
         assertContains(response.bodyAsText(), "size limit")
+    }
+
+    @Test
+    fun `the anonymous auth routes refuse a body over 16 KiB with 413 while a normal body still reaches them`() = testApplication {
+        usePostgresTestcontainer()
+        val client = jsonClient()
+        // 20 KiB: far under the global ceiling, over the small-body one. Refused before the body is decoded (a password this long would
+        // otherwise be a 400/401 after the work).
+        val padding = "x".repeat(20 * 1024)
+        for (path in listOf("login", "login/mfa", "refresh", "password-reset", "password-reset/confirm")) {
+            val response = client.postJson("/api/v1/$path", """{"email":"a@b.test","password":"$padding"}""")
+            assertEquals(HttpStatusCode.PayloadTooLarge, response.status, path)
+            assertContains(response.bodyAsText(), "size limit")
+        }
+        assertEquals(
+            HttpStatusCode.Unauthorized,
+            client.postJson("/api/v1/login", """{"email":"nobody@example.test","password":"unused"}""").status,
+            "a normal body is not caught by the small limit",
+        )
     }
 
     @Test

@@ -287,8 +287,9 @@ export interface paths {
          *     a picker needs: `{id, name, email}` of ACTIVE users (soft-deleted accounts are absent). Roles,
          *     feature flags and language are never exposed; the email tells namesakes apart.
          *
-         *     It is the one read that lets a regular user list accounts. The bounds slow and audit a bulk
-         *     harvest; they do not prevent one by a signed-in insider (the disclosure is accepted):
+         *     It is the broadest read of accounts open to a regular user (a team roster and a room's member
+         *     list show name and email too, `security.md` "What the user directory discloses"). The bounds slow and
+         *     audit a bulk harvest; they do not prevent one by a signed-in insider (the disclosure is accepted):
          *     `q` is REQUIRED and needs at least 2 characters, a page holds at most 20 rows, and the
          *     endpoint rides a per-USER rate bucket of 120 per minute (`429` beyond it).
          *
@@ -623,7 +624,7 @@ export interface paths {
          *
          *     An unknown or deleted `templateId` and an unsupported `language` are `400`. A case-insensitive name clash with a non-deleted
          *     room is `409` (archived rooms keep their names; a deleted room frees its own). Rides a per-USER rate bucket of 30 per minute
-         *     (`429` beyond it).
+         *     shared with the rename (`429` beyond it). The name may not contain invisible formatting characters (`400`).
          */
         post: operations["createRoom"];
         delete?: never;
@@ -653,7 +654,9 @@ export interface paths {
          * @description The room's OWNER or an `ADMIN`. Checked in this order: visibility (`404` for a missing room and for a non-member alike), role
          *     (`403` for a plain member), the body (`400`), then under the room lock the guard again (a caller demoted while the write waited is
          *     refused), the archived state (`409` of type `urn:adder:problem:room-archived`: an archived room is read-only) and the name (a
-         *     case-insensitive clash with another non-deleted room is a plain `409`). A full replace: an omitted description clears it.
+         *     case-insensitive clash with another non-deleted room is a plain `409`, audited `room.name_conflict`). A full replace: an omitted description clears it.
+         *     The name may not contain invisible formatting characters (Unicode category Cf, U+2028, U+2029: `400`). Rides the per-USER `room-name`
+         *     bucket shared with the room create (30 per minute, `429` beyond it), because a rename's `409` would otherwise be a free probe for a room's name.
          */
         put: operations["updateRoom"];
         post?: never;
@@ -735,6 +738,81 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a room's members
+         * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`). Members are ACTIVE users only: a soft-deleted user's
+         *     membership is inert and never listed.
+         *
+         *     - Sortable fields: `id` (the user id), `name`, `role`, `addedAt`. Default `id` ascending.
+         *     - Filters: `role` (`OWNER` or `MEMBER`; any other value is a `400`); `name` (case- and accent-insensitive substring of the display
+         *       name, at most 100 characters - `400` beyond). A repeated key is a `400`.
+         */
+        get: operations["listRoomMembers"];
+        put?: never;
+        /**
+         * Add people to a room, one by one and/or a whole team
+         * @description The room's OWNER or an `ADMIN` (visibility `404`, role `403`, then the body `400`, then under the room lock the guard again).
+         *     Allowed on an archived room. At least one of `userIds` (at most 200) and `teamId` is required. A team is a SNAPSHOT: its
+         *     ACTIVE roster at this moment becomes members, and a later roster edit never follows. Everyone is added as `MEMBER`; promotion
+         *     is a separate step (`PUT .../members/{userId}`).
+         *
+         *     Idempotent: a person who already belongs is skipped and counted in `alreadyMembers` (and beats the cap). An unknown or
+         *     soft-deleted user id or team id is a `400` and nothing is added. A room holds at most 500 active members: an add that would
+         *     exceed it is a plain `409` and nothing is added. A team whose roster holds no active member adds nobody: `200` with
+         *     `{added: 0, alreadyMembers: 0}`. One `room.member_added` audit line per person actually added. The body is limited to 16 KiB (`413`
+         *     beyond it, before it is decoded) and the call rides a per-USER `room-members` bucket of 60 per minute (`429` beyond it).
+         */
+        post: operations["addRoomMembers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A user id (int32; ids start at 1). */
+                userId: components["parameters"]["UserIdPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a member's role
+         * @description The room's OWNER or an `ADMIN` (visibility `404`, role `403`, the body `400`, then under the room lock the guard again). Allowed
+         *     on an archived room. Idempotent: the role the member already has is a `204` that changes nothing and is not audited
+         *     (`room.member_role_changed` fires on a change only). A user who is not an active member is `404`. Demoting the room's last
+         *     `OWNER` whose user is active is a `409` of type `urn:adder:problem:last-owner`: promote someone else first.
+         */
+        put: operations["setRoomMemberRole"];
+        post?: never;
+        /**
+         * Leave a room, or remove a member
+         * @description A member removes THEMSELVES (a leave: visibility `404` for a non-member, so an `ADMIN` who is not in the room gets `404` too) or
+         *     the room's OWNER or an `ADMIN` removes someone else (a plain member removing another is `403`). Allowed on an archived room.
+         *     `404` for a user who is not an active member. Removing the room's last `OWNER` whose user is active - a leave included - is a
+         *     `409` of type `urn:adder:problem:last-owner`. Audited `room.member_removed` (with `self`). A hard delete: the person can be added
+         *     again.
+         */
+        delete: operations["removeRoomMember"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1212,6 +1290,55 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        /**
+         * @description A member's role in a room.
+         * @enum {string}
+         */
+        RoomRole: "OWNER" | "MEMBER";
+        RoomMember: {
+            /** Format: int32 */
+            userId: number;
+            name: string;
+            email: string;
+            role: components["schemas"]["RoomRole"];
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            addedAt: number;
+        };
+        RoomMemberPage: {
+            items: components["schemas"]["RoomMember"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        /** @description At least one of `userIds` and `teamId` is required (`400` otherwise). */
+        RoomMembersAddRequest: {
+            /** @description Active users to add; an unknown or deleted id is a `400`. Duplicates collapse. */
+            userIds?: number[];
+            /**
+             * Format: int32
+             * @description A team whose ACTIVE roster is added as a snapshot; an unknown or deleted team is a `400`.
+             */
+            teamId?: number;
+        };
+        RoomMembersAddResult: {
+            /**
+             * Format: int32
+             * @description People who became members now
+             */
+            added: number;
+            /**
+             * Format: int32
+             * @description Requested people (and team roster members) who already belonged
+             */
+            alreadyMembers: number;
+        };
+        RoomMemberRoleRequest: {
+            role: components["schemas"]["RoomRole"];
+        };
         RoomWorkflowStatus: {
             /** @description An immutable lower-case slug, reserved for the life of the room. */
             key: string;
@@ -1565,7 +1692,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating a room (`POST /api/v1/rooms`) the per-USER room-create bucket is exhausted (30/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 [name: string]: unknown;
@@ -1574,7 +1701,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Request body exceeds the global 10 MiB ceiling — a memory-DoS backstop shared by every endpoint, so declared on every operation that takes a body (field-level maxLength rules reject oversized values far earlier on ordinary payloads). Cross-cutting for the coverage gate: pinned once by `PayloadValidationTest`, never once per operation. */
+        /** @description Request body exceeds the ceiling — 512 KiB globally, 16 KiB on the anonymous auth routes (login, MFA, refresh, password reset) and the room member add — a memory-DoS backstop shared by every endpoint, so declared on every operation that takes a body (field-level maxLength rules reject oversized values far earlier on ordinary payloads). Cross-cutting for the coverage gate: pinned once by `PayloadValidationTest`, never once per operation. */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;
@@ -2695,6 +2822,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -2796,6 +2924,143 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listRoomMembers: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                role?: components["schemas"]["RoomRole"];
+                name?: string;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of members */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomMemberPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    addRoomMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomMembersAddRequest"];
+            };
+        };
+        responses: {
+            /** @description Added (the counts say how many people were new) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomMembersAddResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setRoomMemberRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A user id (int32; ids start at 1). */
+                userId: components["parameters"]["UserIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomMemberRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description The member has the role (set now or already) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    removeRoomMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A user id (int32; ids start at 1). */
+                userId: components["parameters"]["UserIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalServerError"];
         };
     };

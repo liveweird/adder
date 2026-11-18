@@ -422,8 +422,9 @@ paths:
         a picker needs: `{id, name, email}` of ACTIVE users (soft-deleted accounts are absent). Roles,
         feature flags and language are never exposed; the email tells namesakes apart.
 
-        It is the one read that lets a regular user list accounts. The bounds slow and audit a bulk
-        harvest; they do not prevent one by a signed-in insider (the disclosure is accepted):
+        It is the broadest read of accounts open to a regular user (a team roster and a room's member
+        list show name and email too, `security.md` "What the user directory discloses"). The bounds slow and
+        audit a bulk harvest; they do not prevent one by a signed-in insider (the disclosure is accepted):
         `q` is REQUIRED and needs at least 2 characters, a page holds at most 20 rows, and the
         endpoint rides a per-USER rate bucket of 120 per minute (`429` beyond it).
 
@@ -960,7 +961,7 @@ paths:
 
         An unknown or deleted `templateId` and an unsupported `language` are `400`. A case-insensitive name clash with a non-deleted
         room is `409` (archived rooms keep their names; a deleted room frees its own). Rides a per-USER rate bucket of 30 per minute
-        (`429` beyond it).
+        shared with the rename (`429` beyond it). The name may not contain invisible formatting characters (`400`).
       requestBody:
         required: true
         content:
@@ -1014,7 +1015,9 @@ paths:
         The room's OWNER or an `ADMIN`. Checked in this order: visibility (`404` for a missing room and for a non-member alike), role
         (`403` for a plain member), the body (`400`), then under the room lock the guard again (a caller demoted while the write waited is
         refused), the archived state (`409` of type `urn:adder:problem:room-archived`: an archived room is read-only) and the name (a
-        case-insensitive clash with another non-deleted room is a plain `409`). A full replace: an omitted description clears it.
+        case-insensitive clash with another non-deleted room is a plain `409`, audited `room.name_conflict`). A full replace: an omitted description clears it.
+        The name may not contain invisible formatting characters (Unicode category Cf, U+2028, U+2029: `400`). Rides the per-USER `room-name`
+        bucket shared with the room create (30 per minute, `429` beyond it), because a rename's `409` would otherwise be a free probe for a room's name.
       requestBody:
         required: true
         content:
@@ -1031,6 +1034,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
     delete:
       tags: [rooms]
@@ -1106,6 +1110,129 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/members:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [rooms]
+      operationId: listRoomMembers
+      summary: List a room's members
+      description: |
+        A member of the room or an `ADMIN` (a non-member gets the uniform `404`). Members are ACTIVE users only: a soft-deleted user's
+        membership is inert and never listed.
+
+        - Sortable fields: `id` (the user id), `name`, `role`, `addedAt`. Default `id` ascending.
+        - Filters: `role` (`OWNER` or `MEMBER`; any other value is a `400`); `name` (case- and accent-insensitive substring of the display
+          name, at most 100 characters - `400` beyond). A repeated key is a `400`.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: role
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/RoomRole' }
+        - name: name
+          in: query
+          required: false
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: A page of members
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomMemberPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [rooms]
+      operationId: addRoomMembers
+      summary: Add people to a room, one by one and/or a whole team
+      description: |
+        The room's OWNER or an `ADMIN` (visibility `404`, role `403`, then the body `400`, then under the room lock the guard again).
+        Allowed on an archived room. At least one of `userIds` (at most 200) and `teamId` is required. A team is a SNAPSHOT: its
+        ACTIVE roster at this moment becomes members, and a later roster edit never follows. Everyone is added as `MEMBER`; promotion
+        is a separate step (`PUT .../members/{userId}`).
+
+        Idempotent: a person who already belongs is skipped and counted in `alreadyMembers` (and beats the cap). An unknown or
+        soft-deleted user id or team id is a `400` and nothing is added. A room holds at most 500 active members: an add that would
+        exceed it is a plain `409` and nothing is added. A team whose roster holds no active member adds nobody: `200` with
+        `{added: 0, alreadyMembers: 0}`. One `room.member_added` audit line per person actually added. The body is limited to 16 KiB (`413`
+        beyond it, before it is decoded) and the call rides a per-USER `room-members` bucket of 60 per minute (`429` beyond it).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomMembersAddRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '200':
+          description: Added (the counts say how many people were new)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomMembersAddResult'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/UserIdPath'
+    put:
+      tags: [rooms]
+      operationId: setRoomMemberRole
+      summary: Set a member's role
+      description: |
+        The room's OWNER or an `ADMIN` (visibility `404`, role `403`, the body `400`, then under the room lock the guard again). Allowed
+        on an archived room. Idempotent: the role the member already has is a `204` that changes nothing and is not audited
+        (`room.member_role_changed` fires on a change only). A user who is not an active member is `404`. Demoting the room's last
+        `OWNER` whose user is active is a `409` of type `urn:adder:problem:last-owner`: promote someone else first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomMemberRoleRequest'
+      responses:
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '204':
+          description: The member has the role (set now or already)
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [rooms]
+      operationId: removeRoomMember
+      summary: Leave a room, or remove a member
+      description: |
+        A member removes THEMSELVES (a leave: visibility `404` for a non-member, so an `ADMIN` who is not in the room gets `404` too) or
+        the room's OWNER or an `ADMIN` removes someone else (a plain member removing another is `403`). Allowed on an archived room.
+        `404` for a user who is not an active member. Removing the room's last `OWNER` whose user is active - a leave included - is a
+        `409` of type `urn:adder:problem:last-owner`. Audited `room.member_removed` (with `self`). A hard delete: the person can be added
+        again.
+      responses:
+        '204':
+          description: Removed
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/telemetry/current:
     get:
@@ -1279,15 +1406,17 @@ components:
       description: >-
         Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read
         (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory
-        (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating a room
-        (`POST /api/v1/rooms`) the per-USER room-create bucket is exhausted (30/min), or, on /login, the
+        (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or
+        renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min),
+        on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), or, on /login, the
         per-account lockout is active (account-specific detail). All carry a ProblemDetail body.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetail' }
     PayloadTooLarge:
       description: >-
-        Request body exceeds the global 10 MiB ceiling — a memory-DoS backstop shared by
+        Request body exceeds the ceiling — 512 KiB globally, 16 KiB on the anonymous auth routes
+        (login, MFA, refresh, password reset) and the room member add — a memory-DoS backstop shared by
         every endpoint, so declared on every operation that takes a body (field-level maxLength
         rules reject oversized values far earlier on ordinary payloads). Cross-cutting for the
         coverage gate: pinned once by `PayloadValidationTest`, never once per operation.
@@ -1842,6 +1971,58 @@ components:
           type: integer
           format: int64
           minimum: 0
+    RoomRole:
+      type: string
+      enum: [OWNER, MEMBER]
+      description: A member's role in a room.
+    RoomMember:
+      type: object
+      required: [userId, name, email, role, addedAt]
+      properties:
+        userId: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        email: { type: string }
+        role: { $ref: '#/components/schemas/RoomRole' }
+        addedAt: { type: integer, format: int64, description: Epoch millis }
+    RoomMemberPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoomMember'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+    RoomMembersAddRequest:
+      type: object
+      description: At least one of `userIds` and `teamId` is required (`400` otherwise).
+      properties:
+        userIds:
+          type: array
+          maxItems: 200
+          items: { type: integer, format: int32, minimum: 1 }
+          description: Active users to add; an unknown or deleted id is a `400`. Duplicates collapse.
+        teamId:
+          type: integer
+          format: int32
+          minimum: 1
+          description: A team whose ACTIVE roster is added as a snapshot; an unknown or deleted team is a `400`.
+    RoomMembersAddResult:
+      type: object
+      required: [added, alreadyMembers]
+      properties:
+        added: { type: integer, format: int32, minimum: 0, description: People who became members now }
+        alreadyMembers: { type: integer, format: int32, minimum: 0, description: Requested people (and team roster members) who already belonged }
+    RoomMemberRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role: { $ref: '#/components/schemas/RoomRole' }
     RoomWorkflowStatus:
       type: object
       required: [key, label, colour, category, initial, threadCount]

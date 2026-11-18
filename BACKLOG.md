@@ -27,6 +27,10 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 
 ## Foundation follow-ups
 
+- [new] **Room squatting: a creator column, a per-creator cap and an ADMIN clean-up path.** A room has no creator record (V13 is committed), so an ADMIN
+  can only find the creator of a squatted name through the `room.created` audit line. Add a creator (a later migration), a cap on the active rooms one
+  user may create, an owner/creator filter on `GET /rooms` for ADMINs and an ADMIN reassign/delete path; the `room-name` bucket only slows it (`security.md`).
+
 - [new] **Raise the coverage floors back.** The trim re-baselined them to lines 97 / branches 81 (Flow had 98 / 85 with its cut features' tests);
   raise them as the chat features add tests.
 - [new] **Bots posting into rooms.** Port Flow's `integration/` service tokens when an external system should post or update threads.

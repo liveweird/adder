@@ -4,6 +4,7 @@ import io.ktor.server.application.*
 import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.server.plugins.cachingheaders.*
+import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
 import io.ktor.server.response.*
 import io.ktor.server.plugins.cors.routing.*
@@ -19,12 +20,34 @@ import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 
 /**
- * Global request-body ceiling: a memory-DoS backstop, not a business rule — every payload
- * field already carries its own maxLength, and the largest legitimate body (a bulk
- * catalog-file import) sits orders of magnitude below this. Exceeding it answers 413
- * (problem body via ErrorHandling.kt).
+ * Global request-body ceiling: a memory-DoS backstop, not a business rule. 512 KiB is far above the largest legitimate body
+ * (a whole-document workflow PUT: at most 20 statuses and 20 fields with up to 50 bilingual options each is well under 150 KiB) and
+ * far below what lets a few concurrent callers pin real heap, since the body is buffered before it decodes. Every payload field
+ * already carries its own maxLength. Exceeding it answers 413 (problem body via ErrorHandling.kt).
  */
-const val MAX_REQUEST_BODY_BYTES: Long = 10L * 1024 * 1024
+const val MAX_REQUEST_BODY_BYTES: Long = 512L * 1024
+
+/**
+ * The tight ceiling of the routes whose bodies are a handful of short fields: the anonymous auth routes (an unauthenticated caller can
+ * reach them, so they must not buffer half a megabyte per request) and the room member add (up to 200 ids, ~2 KiB). Same 413.
+ */
+const val MAX_SMALL_REQUEST_BODY_BYTES: Long = 16L * 1024
+
+private val SMALL_BODY_PATHS = setOf(
+    "/api/v1/login",
+    "/api/v1/login/mfa",
+    "/api/v1/refresh",
+    "/api/v1/password-reset",
+    "/api/v1/password-reset/confirm",
+)
+private val ROOM_MEMBERS_PATH = Regex("^/api/v1/rooms/[0-9]+/members$")
+
+/** The body ceiling of this call: [MAX_SMALL_REQUEST_BODY_BYTES] for the small-body routes, else [MAX_REQUEST_BODY_BYTES]. */
+internal fun requestBodyLimit(call: ApplicationCall): Long {
+    if (call.request.httpMethod != HttpMethod.Post) return MAX_REQUEST_BODY_BYTES
+    val path = call.request.path()
+    return if (path in SMALL_BODY_PATHS || ROOM_MEMBERS_PATH.matches(path)) MAX_SMALL_REQUEST_BODY_BYTES else MAX_REQUEST_BODY_BYTES
+}
 
 /**
  * Whether Swagger UI + the spec are served: `http.exposeOpenApi` when set, else development mode. ONE
@@ -38,7 +61,7 @@ internal fun Application.exposesOpenApi(): Boolean =
 
 fun Application.configureHttp() {
     install(RequestBodyLimit) {
-        bodyLimit { MAX_REQUEST_BODY_BYTES }
+        bodyLimit(::requestBodyLimit)
     }
     install(ResponseValidators)
     install(CachingHeaders) {

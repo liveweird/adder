@@ -6,6 +6,8 @@ import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.rooms.RoomMemberService
+import ch.nokillswit.rooms.RoomMemberServiceKey
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomServiceKey
 import ch.nokillswit.rooms.RoomWorkflowService
@@ -248,6 +250,7 @@ suspend fun Application.configureDatabase() {
     val roomWorkflowService = RoomWorkflowService(database)
     attributes.put(RoomWorkflowServiceKey, roomWorkflowService)
     attributes.put(RoomServiceKey, RoomService(database, workflowTemplateService, roomWorkflowService))
+    attributes.put(RoomMemberServiceKey, RoomMemberService(database, teamService))
     attributes.put(
         TokenBlocklistServiceKey,
         TokenBlocklistService(

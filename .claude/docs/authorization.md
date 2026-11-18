@@ -176,28 +176,35 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     SHAPES its answer by the grant (e.g. whether a block of per-person figures is returned) asks `isActiveManager` the same way, after
     the ADMIN short-circuit; the `ETag` of such an answer carries the verdict ("Caching" in `security.md`). The roster writes above are its consumer; any later team-scoped
     write follows the same two-step (guard first, re-run under the row lock).
-  - **Rooms (V13): the room-scoped matrix** (`/api/v1/rooms…`, `rooms/RoomRoutes.kt`, `RoomWorkflowRoutes.kt`; `chat-model.md` "Rooms"). A room is **members-only**. The guards are DB-free and
+  - **Rooms (V13): the room-scoped matrix** (`/api/v1/rooms…`, `rooms/RoomRoutes.kt`, `RoomWorkflowRoutes.kt`, `RoomMemberRoutes.kt`; `chat-model.md` "Rooms"). A room is **members-only**. The guards are DB-free and
     take the caller's `RoomStanding(role?, archived)` (`rooms/RoomAccess.kt`), read by the route (and re-read under the room lock): `requireRoomReader` (null standing = no such room, or no
     role and not an ADMIN, is `NotFoundException("Room not found")`) and `requireRoomManager` (the reader check first, then OWNER or ADMIN, else `403`). **Guard order, every room route:**
     (1) `401` from `authenticate`; (2) visibility: `404` for a missing or deleted room and for a non-member alike (the route preamble `visibleStanding` also audits `room.access_denied` when
     the room EXISTS and the caller is neither a member nor an ADMIN; the response is still the uniform `404`); (3) role: `403`; (4) the `X-Expected-Revision` header, then the body: `400`;
-    (5) under the room lock (`withRoomWrite`), the guard AGAIN on the re-read standing, then the state checks (`409`), then the write. A non-member's malformed body is therefore `404`, a plain
+    (5) under the room lock (`withRoomWrite`), the guard AGAIN on the re-read standing AND the re-read `users` row of the caller (a deleted account is the uniform `404`; an ADMIN demoted since the token was minted is judged as a plain user), then the state checks (`409`), then the write. A non-member's malformed body is therefore `404`, a plain
     member's `403`, and only someone who may write sees the `400`.
 
     | Operation | outsider | member | owner | admin (non-member) |
     |---|---|---|---|---|
-    | `GET /rooms/{id}`, `GET /rooms/{id}/workflow` | 404 | 200 | 200 | 200 |
+    | `GET /rooms/{id}`, `GET /rooms/{id}/workflow`, `GET /rooms/{id}/members` | 404 | 200 | 200 | 200 |
     | `PUT /rooms/{id}`, `POST /rooms/{id}/archive`, `POST /rooms/{id}/unarchive` | 404 | 403 | 204 | 204 |
+    | `POST /rooms/{id}/members` (200 `{added, alreadyMembers}`) | 404 | 403 | 200 | 200 |
+    | `PUT /rooms/{id}/members/{userId}` (role), `DELETE /rooms/{id}/members/{userId}` of ANOTHER member | 404 | 403 | 204 | 204 |
+    | `DELETE /rooms/{id}/members/{callerId}` (leave) | 404 | 204 | 204, or `409 last-owner` for the last one | 404 (not a member) |
     | `DELETE /rooms/{id}` (reader `404`, THEN `requireAdmin` `403`) | 404 | 403 | 403 | 204 |
     | an unknown or deleted id, any operation | 404 | 404 | 404 | 404 |
 
     `GET /rooms` and `POST /rooms` have no per-room guard: any authenticated user lists the rooms they may read (their own; an ADMIN's is every room; `member=true|false` narrows) and creates one
-    (becoming its OWNER; a per-USER `room-create` bucket, 30/min, `security.md`). The room's OWNER is NOT an ADMIN: delete stays `403` for them, even on an archived room. A name clash on create or
+    (becoming its OWNER; the per-USER `room-name` bucket, 30/min, shared with the rename `PUT /rooms/{id}`, and a per-USER `room-members` bucket, 60/min, on the member add, `security.md`). The room's OWNER is NOT an ADMIN: delete stays `403` for them, even on an archived room. A name clash on create or
     rename is `409`, an archived room refuses `PUT` with the typed `409` `urn:adder:problem:room-archived`; archive and unarchive are idempotent `204`s (audited only on a change). **A caller
-    demoted or removed while their write waited for the room lock** is refused by the re-run guard (`403`, or `404` once they are no longer a member): pinned with a lock-wait test in `RoomTest`.
-    A soft-deleted user's membership rows stay inert (never read as a role: a deleted user's token is already a `401` at the access check). The rest of the matrix lands with its routes:
-    members, roles and leave/remove (0.2.0 C8), the workflow PUT (C9); and from 0.3 on any member posts, replies and moves a thread between OPEN statuses, the thread owner, the room OWNER or an
-    ADMIN passes ownership and reopens a closed thread, and a closed thread refuses further activity with `409`. Tests: `RoomTest`, `RoomAuthzMatrixTest`, `GuardsTest`.
+    demoted or removed while their write waited for the room lock** is refused by the re-run guard (`403`, or `404` once they are no longer a member): pinned with a lock-wait test in `RoomTest` (the last-OWNER race, with the OTHER owner demoted while a leave waits, in `RoomMembersTest`).
+    A soft-deleted user's membership rows stay inert (never read as a role: a deleted user's token is already a `401` at the access check). **Members (0.2.0 C8):** the manager guard covers the add, the role change and the removal of someone else; a **leave** (deleting
+    your own membership) needs only the reader standing, so a plain member may leave and an ADMIN who is not a member gets the `404` (nothing to leave); the leave re-runs `requireRoomReader`
+    under the lock. A plain member who tries to remove ANOTHER member is `403`. Membership management stays allowed on an ARCHIVED room. The add always adds `MEMBER`; promotion is
+    `PUT .../members/{userId}`. **The last-OWNER rule:** after the write at least one `OWNER` whose user is active must remain, else `409` typed `urn:adder:problem:last-owner`
+    (leave, demotion and removal, an ADMIN's included), counted under the room lock (`RoomMemberService`); a target who is not an ACTIVE member is `404`. A room whose owners are all deleted
+    is managed by ADMINs (promote someone, then the rule holds). The workflow PUT arrives with C9; from 0.3 on any member posts, replies and moves a thread between OPEN statuses, the thread owner, the room OWNER or an
+    ADMIN passes ownership and reopens a closed thread, and a closed thread refuses further activity with `409`. Tests: `RoomTest`, `RoomMembersTest`, `RoomAuthzMatrixTest`, `GuardsTest`.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: three sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it

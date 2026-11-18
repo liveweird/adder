@@ -82,7 +82,7 @@ Detail and the rules they became: `chat-model.md` "Rules".
   (retired included); room name <= 80, descriptions <= 500, template name <= 100; 500 members per room, 200 user ids per add, 200 members per team.
 - `X-Expected-Revision` is required (missing or malformed `400`, stale `409`); every successful PUT bumps the revision. Wire enums are UPPER_CASE.
 - Deleting a template never touches rooms; there is no "last template" rule.
-- Rate buckets: `room-create` 30/min on `POST /rooms` and `directory` 120/min on the user directory, both per signed-in user; everything else is
+- Rate buckets (all per signed-in user): `room-name` 30/min shared by `POST /rooms` and `PUT /rooms/{id}`, `room-members` 60/min on `POST /rooms/{id}/members`, and `directory` 120/min on the user directory; everything else is
   guard-gated and bounded by the caps above. `lockingTransaction` is not ported (one row lock per room instead).
 
 ## Roadmap

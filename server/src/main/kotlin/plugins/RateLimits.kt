@@ -59,7 +59,8 @@ internal class RateLimitAuditThrottle(
 }
 
 /**
- * Every token bucket the routes ride (per client IP, except [TELEMETRY], [DIRECTORY] and [ROOM_CREATE]: per signed-in user), named in
+ * Every token bucket the routes ride (per client IP, except [TELEMETRY], [DIRECTORY], [ROOM_NAME] and [ROOM_MEMBERS]: per signed-in
+ * user), named in
  * one place so a feature module never has to know another's constant (the auth module used to import the try-it bucket's name — a layering
  * inversion the checkup removed). Route files reference these names; only this plugin installs them.
  */
@@ -87,12 +88,19 @@ object RateLimits {
      */
     const val DIRECTORY = "directory"
     /**
-     * `POST /api/v1/rooms` - the one endpoint where any signed-in user mints name-reserving state (a room reserves its name for every
-     * other user), so it rides a per-USER bucket (the [TELEMETRY] idiom): 30/min in every mode. Creating a room is a deliberate,
-     * occasional act; the bound is for a runaway client or a script squatting names. Everything else on the room surface is
-     * guard-gated and bounded by the caps instead, so it has no bucket.
+     * `POST /api/v1/rooms` and `PUT /api/v1/rooms/{id}` share ONE bucket per signed-in user: they are the two writes that put a name
+     * into the room-name namespace (a room reserves its name for every other user), and a rename answers 409 on a clash exactly as a
+     * create does, so a separate or absent bucket on the rename would be a free name-probing oracle for a room's existence. 30/min in
+     * every mode (the [TELEMETRY] idiom). Creating or renaming a room is a deliberate, occasional act; the bound is for a runaway client
+     * or a script squatting or probing names. A name clash is also audited (`room.name_conflict`).
      */
-    const val ROOM_CREATE = "room-create"
+    const val ROOM_NAME = "room-name"
+    /**
+     * `POST /api/v1/rooms/{id}/members` - the add reveals which ids are inactive (the 400 names them) and lets a manager enrol any
+     * active user id, so it rides a per-USER bucket: 60/min in every mode. A deliberate add is a handful a minute (a person, a team);
+     * the bound slows an id-sweep through a room the caller owns.
+     */
+    const val ROOM_MEMBERS = "room-members"
 
     const val DEFAULT_REFRESH_PER_MINUTE = 30
     /**
@@ -104,7 +112,8 @@ object RateLimits {
     private const val MAX_LIMIT_PER_MINUTE = 1_000_000
     private const val TELEMETRY_PER_MINUTE = 30
     private const val DIRECTORY_PER_MINUTE = 120
-    private const val ROOM_CREATE_PER_MINUTE = 30
+    private const val ROOM_NAME_PER_MINUTE = 30
+    private const val ROOM_MEMBERS_PER_MINUTE = 60
     private const val MFA_PER_MINUTE = 10
     private const val PASSWORD_RESET_CONFIRM_PER_MINUTE = 10
     private const val LOGIN_PER_MINUTE_PRODUCTION = 10
@@ -133,14 +142,15 @@ object RateLimits {
     )
     internal fun telemetryLimit() = TELEMETRY_PER_MINUTE
     internal fun directoryLimit() = DIRECTORY_PER_MINUTE
-    internal fun roomCreateLimit() = ROOM_CREATE_PER_MINUTE
+    internal fun roomNameLimit() = ROOM_NAME_PER_MINUTE
+    internal fun roomMembersLimit() = ROOM_MEMBERS_PER_MINUTE
     internal fun mfaLimit() = MFA_PER_MINUTE
     internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
 }
 
 /**
- * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER telemetry, directory and
- * room-create buckets.
+ * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER telemetry, directory,
+ * room-name and room-members buckets.
  * Login and password-reset follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
  * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before
@@ -158,7 +168,12 @@ fun Application.configureRateLimits() {
         )
     }
     val perUserBuckets = with(RateLimits) {
-        mapOf(TELEMETRY to telemetryLimit(), DIRECTORY to directoryLimit(), ROOM_CREATE to roomCreateLimit())
+        mapOf(
+            TELEMETRY to telemetryLimit(),
+            DIRECTORY to directoryLimit(),
+            ROOM_NAME to roomNameLimit(),
+            ROOM_MEMBERS to roomMembersLimit(),
+        )
     }
     install(RateLimit) {
         buckets.forEach { (name, limit) ->
@@ -172,7 +187,7 @@ fun Application.configureRateLimits() {
                 }
             }
         }
-        // The per-USER buckets (telemetry, directory, room-create). The routes mount them INSIDE `authenticate {}`
+        // The per-USER buckets (telemetry, directory, room-name, room-members). The routes mount them INSIDE `authenticate {}`
         // (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt), so this key runs only for a verified token: an
         // anonymous call is a 401 that never reaches it and never creates a limiter. The plugin keeps one limiter per key and drops it
         // after its refill period, so memory is

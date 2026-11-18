@@ -18,12 +18,14 @@ import ch.nokillswit.workflows.WorkflowTemplateService
 import io.ktor.client.HttpClient
 import io.ktor.server.testing.ApplicationTestBuilder
 import java.util.UUID
+import kotlin.test.assertEquals
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
@@ -31,8 +33,8 @@ import org.jetbrains.exposed.v1.core.and
 
 /**
  * Room fixtures (0.2.0 C7): direct, route-free seeding of workflow templates and rooms past the HTTP guards, plus the usage-port
- * fake. A room's members are written here by raw insert until the member routes exist (C8). Every test mints UNIQUE names and removes
- * its own rows ([TestRooms.purge], [TestTemplates.delete]) so the shared container stays small.
+ * fake. A room's members are written here by raw insert (past the member routes' guards and the 500 cap). Every test mints UNIQUE names
+ * and removes its own rows ([TestRooms.purge], [TestTemplates.delete]) so the shared container stays small.
  */
 object TestTemplates {
     val service: WorkflowTemplateService by lazy { WorkflowTemplateService(sharedDatabaseForTests()) }
@@ -85,7 +87,7 @@ object TestRooms {
     suspend fun seed(ownerId: UInt, templateId: UInt, name: String, language: String? = null): UInt =
         service.create(ownerId, RoomCreateRequest(name = name, templateId = templateId, language = language))
 
-    /** Adds [userId] to the room by raw insert (the member routes arrive with C8). */
+    /** Adds [userId] to the room by raw insert, past the member routes' guards. */
     suspend fun addMember(roomId: UInt, userId: UInt, role: RoomRole = RoomRole.MEMBER) {
         suspendTransaction(sharedDatabaseForTests()) {
             RoomService.RoomMembers.insert {
@@ -95,6 +97,48 @@ object TestRooms {
                 it[addedAt] = System.currentTimeMillis()
             }
         }
+    }
+
+    /**
+     * Mints [count] fresh ACTIVE users (emails `<marker>-<n>@test`) and adds them to [roomId] as MEMBER, by raw SQL (a cap test needs
+     * hundreds). Returns their ids so the test can soft-delete them afterwards (`TestUsers.softDelete`).
+     */
+    suspend fun seedMembers(roomId: UInt, count: Int, marker: String): List<UInt> = PostgresTestSupport.connect().use { connection ->
+        val ids = connection.prepareStatement(
+            "INSERT INTO users (\"name\", email, password_hash) " +
+                "SELECT 'Seed ' || g, ? || '-' || g || '@test', 'x' FROM generate_series(1, ?) g RETURNING id",
+        ).use { st ->
+            st.setString(1, marker)
+            st.setInt(2, count)
+            st.executeQuery().use { rs -> generateSequence { if (rs.next()) rs.getLong(1).toUInt() else null }.toList() }
+        }
+        connection.prepareStatement(
+            "INSERT INTO room_members (room_id, user_id, \"role\", added_at) SELECT ?, id, 'MEMBER', ? FROM users WHERE id = ANY (?)",
+        ).use { st ->
+            st.setInt(1, roomId.toInt())
+            st.setLong(2, System.currentTimeMillis())
+            st.setArray(3, connection.createArrayOf("bigint", ids.map { it.toLong() }.toTypedArray()))
+            assertEquals(count, st.executeUpdate())
+        }
+        ids
+    }
+
+    /** Soft-deletes many users in one statement (the cleanup of [seedMembers]; `TestUsers.softDelete` is one transaction each). */
+    fun softDeleteUsers(ids: Collection<UInt>) {
+        if (ids.isEmpty()) return
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement("UPDATE users SET marked_as_deleted = TRUE WHERE id = ANY (?)").use { st ->
+                st.setArray(1, connection.createArrayOf("bigint", ids.map { it.toLong() }.toTypedArray()))
+                st.executeUpdate()
+            }
+        }
+    }
+
+    /** The raw role of a membership row, or null when the user has none (an inert row of a deleted user included). */
+    suspend fun rawRole(roomId: UInt, userId: UInt): RoomRole? = suspendTransaction(sharedDatabaseForTests()) {
+        val members = RoomService.RoomMembers
+        members.select(members.role).where { (members.roomId eq roomId) and (members.userId eq userId) }
+            .map { RoomRole.valueOf(it[members.role]) }.toList().singleOrNull()
     }
 
     suspend fun setRole(roomId: UInt, userId: UInt, role: RoomRole) {
