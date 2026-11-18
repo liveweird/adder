@@ -1111,6 +1111,48 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [rooms]
+      operationId: updateRoomWorkflow
+      summary: Replace a room's workflow
+      description: |
+        The room's OWNER or an `ADMIN`. A whole-document replace of the room's own copy under optimistic concurrency, checked in
+        this order: the room (a missing room or a non-member is the uniform `404`), the role (`403`), the `X-Expected-Revision`
+        header (missing, repeated or malformed is `400`), the body (`400`: the workflow rules - 2-20 statuses with unique slug keys,
+        exactly one initial and it is `OPEN`, at least one `CLOSED`, 0-20 fields with unique slug keys, 1-50 options on the select
+        kinds only, labels of 1-60 characters unique per list, case-insensitively), then under the room lock, in this order: an
+        archived room is `409` of type `urn:adder:problem:room-archived`; a stale revision is `409` of type
+        `urn:adder:problem:revision-conflict`; a field whose key exists (retired ones included) with another `type` is `409` of type
+        `urn:adder:problem:field-type-immutable` with `keys`; a room may reserve at most 200 status keys and 200 field keys
+        (retired ones included), beyond that a plain `409`; an invalid `replacements` mapping is `400`; a status that would be retired
+        or re-categorised while threads use it, without a valid replacement, is `409` of type `urn:adder:problem:status-in-use` with
+        `keys`.
+
+        `statuses` and `fields` are the ACTIVE ones in the new order (position is the array index). A key the document no longer
+        names is retired (its key stays reserved); a retired key it names again is revived. `replacements` is
+        `{retiredKey: replacementKey}`: where the threads of each status THIS change retires move; the key must be a status this
+        change retires and the target a status of the new document in the same category as the retired one (else `400`). A
+        status's category can only change while no thread uses it. Every successful PUT stores `workflowRevision + 1`; read the
+        workflow again for it.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedRevision'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomWorkflowUpdate'
+      responses:
+        '204':
+          description: Replaced
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/members:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -2040,6 +2082,45 @@ components:
           type: boolean
           description: Exactly one status is the initial one, and it is in the `OPEN` category.
         threadCount: { type: integer, format: int64, minimum: 0, description: The threads currently in this status }
+    RoomWorkflowStatusDef:
+      type: object
+      required: [key, label, colour, category, initial]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 40
+          pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+        label: { type: string, minLength: 1, maxLength: 60 }
+        colour: { $ref: '#/components/schemas/StatusColour' }
+        category: { $ref: '#/components/schemas/StatusCategory' }
+        initial:
+          type: boolean
+          description: Exactly one status is the initial one, and it is in the `OPEN` category.
+    RoomWorkflowUpdate:
+      type: object
+      required: [statuses, fields]
+      properties:
+        statuses:
+          type: array
+          minItems: 2
+          maxItems: 20
+          description: The ACTIVE statuses in the new order.
+          items:
+            $ref: '#/components/schemas/RoomWorkflowStatusDef'
+        fields:
+          type: array
+          maxItems: 20
+          description: The ACTIVE fields in the new order.
+          items:
+            $ref: '#/components/schemas/RoomWorkflowField'
+        replacements:
+          type: object
+          maxProperties: 20
+          additionalProperties: { type: string }
+          description: >-
+            `{retiredKey: replacementKey}`: where the threads of each status this change retires move. The target must be a
+            status of the new document in the same category. Omit it when no status that threads use is retired.
     RoomWorkflowOption:
       type: object
       required: [key, label]

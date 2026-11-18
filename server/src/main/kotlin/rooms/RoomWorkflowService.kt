@@ -1,19 +1,28 @@
 package ch.nokillswit.rooms
 
+import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.jsonb
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
+import ch.nokillswit.infra.revision.requireRevision
+import ch.nokillswit.workflows.FieldShape
 import ch.nokillswit.workflows.FieldType
+import ch.nokillswit.workflows.MAX_FIELD_KEYS_PER_ROOM
 import ch.nokillswit.workflows.MAX_KEY_LENGTH
 import ch.nokillswit.workflows.MAX_LABEL_LENGTH
+import ch.nokillswit.workflows.MAX_STATUS_KEYS_PER_ROOM
 import ch.nokillswit.workflows.StatusCategory
 import ch.nokillswit.workflows.StatusColour
+import ch.nokillswit.workflows.StatusShape
 import ch.nokillswit.workflows.WorkflowDefinition
+import ch.nokillswit.workflows.requireKeyBudget
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.*
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
@@ -21,6 +30,18 @@ val RoomWorkflowServiceKey = AttributeKey<RoomWorkflowService>("RoomWorkflowServ
 
 private val storedJson = Json { ignoreUnknownKeys = true }
 private val optionsSerializer = ListSerializer(RoomOptionDef.serializer())
+
+/** What a successful workflow PUT did: the new [revision] and the counts the route audits (`room.workflow_updated`). */
+data class RoomWorkflowChange(
+    val revision: Long,
+    /** Statuses that became live: new keys and revived ones. */
+    val statusesAdded: Int,
+    val statusesRetired: Int,
+    val fieldsAdded: Int,
+    val fieldsRetired: Int,
+    /** Threads moved to a replacement status (always 0 until 0.3 brings threads). */
+    val threadsMoved: Long,
+)
 
 /**
  * The room's own workflow rows (V13): [RoomStatuses] and [RoomFields], soft-deleted with a FULL `(room_id, key)` primary key (a retired
@@ -86,6 +107,139 @@ class RoomWorkflowService(private val database: R2dbcDatabase) {
                 it[optionsJson] = canonicalJson(Json.encodeToString(optionsSerializer, options))
                 it[required] = field.required
                 it[position] = index
+            }
+        }
+    }
+
+    /**
+     * The whole-document PUT under the room lock (`chat-model.md` "Workflow PUT inside the block"), in this order: an archived room is
+     * the typed `409`; [expectedRevision] against the stored one (`revision-conflict`); the status rows are locked `FOR NO KEY UPDATE`
+     * (0.3 thread writes run under the same room lock, so none can land on a status being retired; the `(room_id, status_key)` FK
+     * is the backstop); the pure plan; a field
+     * retyped is `409 field-type-immutable`; the key budget (retired keys included) is the plain `409`; the replacement mapping (`400`)
+     * and the thread usage from [usage] (`409 status-in-use`); then `is_initial` is cleared on EVERY row first (the partial unique index
+     * is checked per row), absent keys retire, the document is upserted by key with `position` = index (retired keys revive); THEN the
+     * moves (a replacement can be a status this PUT just added), and the revision is bumped. Any throw rolls the whole transaction
+     * back, moves included.
+     */
+    suspend fun replace(
+        roomId: UInt,
+        caller: CallerPrincipal,
+        guard: RoomGuard,
+        expectedRevision: Long,
+        request: RoomWorkflowRequest,
+        usage: WorkflowUsage,
+    ): RoomWorkflowChange {
+        validateRoomWorkflow(request) // re-checked service-side so direct callers stay guarded
+        return database.withRoomWrite(roomId, caller, guard) { standing ->
+            if (standing.archived) throw roomArchived()
+            val rooms = RoomService.Rooms
+            val current = rooms.select(rooms.workflowRevision).where { rooms.id eq roomId }.toList().single()[rooms.workflowRevision]
+            requireRevision(expectedRevision, current)
+            val statusRows = RoomStatuses.selectAll()
+                .where { RoomStatuses.roomId eq roomId }
+                .orderBy(RoomStatuses.position to SortOrder.ASC, RoomStatuses.key to SortOrder.ASC)
+                .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate)
+                .toList()
+            val fieldRows = RoomFields.selectAll().where { RoomFields.roomId eq roomId }.toList()
+            val plan = planRoomWorkflow(
+                storedStatuses = statusRows.map {
+                    StoredStatus(it[RoomStatuses.key], StatusCategory.valueOf(it[RoomStatuses.category]), it[RoomStatuses.markedAsDeleted])
+                },
+                storedFields = fieldRows.map {
+                    StoredField(it[RoomFields.key], FieldType.valueOf(it[RoomFields.type]), it[RoomFields.markedAsDeleted])
+                },
+                statuses = request.statuses.map { StatusShape(it.key, it.category, it.initial) },
+                fields = request.fields.map { FieldShape(it.key, it.type, it.options.map { option -> option.key }) },
+            )
+            if (plan.fieldsRetyped.isNotEmpty()) throw fieldTypeImmutable(plan.fieldsRetyped)
+            val storedStatusKeys = statusRows.mapTo(HashSet()) { it[RoomStatuses.key] }
+            val storedFieldKeys = fieldRows.mapTo(HashSet()) { it[RoomFields.key] }
+            requireKeyBudget(storedStatusKeys, request.statuses.map { it.key }, MAX_STATUS_KEYS_PER_ROOM, "status")
+            requireKeyBudget(storedFieldKeys, request.fields.map { it.key }, MAX_FIELD_KEYS_PER_ROOM, "field")
+            plan.requireValidReplacements(request.replacements)
+            val counts = usage.threadCounts(roomId, plan.statusesToCount)
+            val inUse = plan.statusesInUse(counts, request.replacements)
+            if (inUse.isNotEmpty()) throw statusInUse(inUse)
+            writeStatuses(roomId, request.statuses, storedStatusKeys, plan.statusesRetired)
+            writeFields(roomId, request.fields, storedFieldKeys, plan.fieldsRetired)
+            // AFTER the upsert: a replacement may be a status this very PUT adds or revives, and 0.3's thread rows reference
+            // `room_statuses(room_id, key)`, so the target row must exist (and be live) when the threads move.
+            val moved = plan.movesFor(counts, request.replacements)
+                .sumOf { (from, to) -> usage.moveThreads(roomId, from, to, caller.userId) }
+            rooms.update({ rooms.id eq roomId }) {
+                it[rooms.workflowRevision] = current + 1
+                it[rooms.updatedAt] = nowMillis()
+            }
+            RoomWorkflowChange(
+                revision = current + 1,
+                statusesAdded = plan.statusesBecomingLive,
+                statusesRetired = plan.statusesRetired.size,
+                fieldsAdded = plan.fieldsBecomingLive,
+                fieldsRetired = plan.fieldsRetired.size,
+                threadsMoved = moved,
+            )
+        }
+    }
+
+    private suspend fun writeStatuses(roomId: UInt, statuses: List<RoomStatusDef>, stored: Set<String>, retired: List<String>) {
+        // The partial unique index uq_room_statuses_initial is checked per row: every flag (retired rows included) goes down first.
+        RoomStatuses.update({ RoomStatuses.roomId eq roomId }) { it[RoomStatuses.isInitial] = false }
+        if (retired.isNotEmpty()) {
+            RoomStatuses.update({ (RoomStatuses.roomId eq roomId) and (RoomStatuses.key inList retired) }) {
+                it[RoomStatuses.markedAsDeleted] = true
+            }
+        }
+        statuses.forEachIndexed { index, status ->
+            if (status.key in stored) {
+                RoomStatuses.update({ (RoomStatuses.roomId eq roomId) and (RoomStatuses.key eq status.key) }) {
+                    it[RoomStatuses.label] = status.label
+                    it[RoomStatuses.colour] = status.colour.name
+                    it[RoomStatuses.category] = status.category.name
+                    it[RoomStatuses.isInitial] = status.initial
+                    it[RoomStatuses.position] = index
+                    it[RoomStatuses.markedAsDeleted] = false
+                }
+            } else {
+                RoomStatuses.insert {
+                    it[RoomStatuses.roomId] = roomId
+                    it[RoomStatuses.key] = status.key
+                    it[RoomStatuses.label] = status.label
+                    it[RoomStatuses.colour] = status.colour.name
+                    it[RoomStatuses.category] = status.category.name
+                    it[RoomStatuses.isInitial] = status.initial
+                    it[RoomStatuses.position] = index
+                }
+            }
+        }
+    }
+
+    private suspend fun writeFields(roomId: UInt, fields: List<RoomFieldDef>, stored: Set<String>, retired: List<String>) {
+        if (retired.isNotEmpty()) {
+            RoomFields.update({ (RoomFields.roomId eq roomId) and (RoomFields.key inList retired) }) {
+                it[RoomFields.markedAsDeleted] = true
+            }
+        }
+        fields.forEachIndexed { index, field ->
+            val options = canonicalJson(Json.encodeToString(optionsSerializer, field.options))
+            if (field.key in stored) {
+                RoomFields.update({ (RoomFields.roomId eq roomId) and (RoomFields.key eq field.key) }) {
+                    it[RoomFields.label] = field.label
+                    it[RoomFields.optionsJson] = options
+                    it[RoomFields.required] = field.required
+                    it[RoomFields.position] = index
+                    it[RoomFields.markedAsDeleted] = false
+                }
+            } else {
+                RoomFields.insert {
+                    it[RoomFields.roomId] = roomId
+                    it[RoomFields.key] = field.key
+                    it[RoomFields.label] = field.label
+                    it[RoomFields.type] = field.type.name
+                    it[RoomFields.optionsJson] = options
+                    it[RoomFields.required] = field.required
+                    it[RoomFields.position] = index
+                }
             }
         }
     }

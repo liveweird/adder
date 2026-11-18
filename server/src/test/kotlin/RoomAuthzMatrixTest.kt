@@ -1,15 +1,25 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
+import ch.nokillswit.rooms.RoomFieldDef
 import ch.nokillswit.rooms.RoomMemberRoleRequest
 import ch.nokillswit.rooms.RoomMembersAddRequest
+import ch.nokillswit.rooms.RoomOptionDef
+import ch.nokillswit.rooms.RoomStatusDef
 import ch.nokillswit.rooms.RoomUpdateRequest
+import ch.nokillswit.rooms.RoomWorkflowRequest
+import ch.nokillswit.workflows.FieldType
+import ch.nokillswit.workflows.StatusCategory
+import ch.nokillswit.workflows.StatusColour
 import ch.nokillswit.users.UserRole
 import ch.nokillswit.plugins.ProblemDetail
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.put
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.request.request
@@ -31,8 +41,8 @@ import kotlinx.coroutines.runBlocking
  * The room authorization matrix (`authorization.md` "Rooms"): for every implemented room operation, what an outsider, a plain member, the
  * room's OWNER and an ADMIN who is not a member each get. A non-member (an ADMIN excepted) always sees the uniform `404`, so the room's
  * existence is never disclosed; a plain member is `403` on every write; ADMIN reads and manages every room. Each cell gets a FRESH room
- * (a delete or an archive would poison the next), seeded through the service. The member rows landed with C8; the workflow-write
- * row joins with C9.
+ * (a delete or an archive would poison the next), seeded through the service. The member rows are C8's, the workflow-write row
+ * C9's.
  */
 class RoomAuthzMatrixTest {
     private val rooms = "/api/v1/rooms"
@@ -67,6 +77,22 @@ class RoomAuthzMatrixTest {
 
     private fun update() = RoomUpdateRequest("Renamed ${UUID.randomUUID()}".take(60))
 
+    /** The fixture template's own workflow (`TestTemplates.bilingual`, in English), a PUT of it is valid. */
+    private fun workflowBody() = RoomWorkflowRequest(
+        statuses = listOf(
+            RoomStatusDef("open", "Open", StatusColour.GRAY, StatusCategory.OPEN, initial = true),
+            RoomStatusDef("half", "Half only", StatusColour.BLUE, StatusCategory.OPEN, initial = false),
+            RoomStatusDef("done", "Done", StatusColour.TEAL, StatusCategory.CLOSED, initial = false),
+        ),
+        fields = listOf(
+            RoomFieldDef(
+                "severity", "Severity", FieldType.SELECT, true,
+                listOf(RoomOptionDef("s1", "Sev one"), RoomOptionDef("s2", "Sev two")),
+            ),
+            RoomFieldDef("note", "Note", FieldType.TEXT, false, emptyList()),
+        ),
+    )
+
     private val operations = listOf(
         Operation("GET room", notFound, ok, ok, ok) { it.client.get("$rooms/${it.room}") },
         Operation("GET workflow", notFound, ok, ok, ok) { it.client.get("$rooms/${it.room}/workflow") },
@@ -77,6 +103,14 @@ class RoomAuthzMatrixTest {
         Operation("POST unarchive", notFound, forbidden, noContent, noContent) {
             TestRooms.archive(it.room)
             it.client.post("$rooms/${it.room}/unarchive")
+        },
+        // A fresh room is at workflow revision 1.
+        Operation("PUT workflow", notFound, forbidden, noContent, noContent) {
+            it.client.put("$rooms/${it.room}/workflow") {
+                header(EXPECTED_REVISION_HEADER, "1")
+                contentType(ContentType.Application.Json)
+                setBody(workflowBody())
+            }
         },
         Operation("DELETE room", notFound, forbidden, forbidden, noContent) { it.client.delete("$rooms/${it.room}") },
         // Members (C8): the manager rows. The add's target is the outsider (not in the fresh room); the role and removal
@@ -150,9 +184,10 @@ class RoomAuthzMatrixTest {
         usePostgresTestcontainer()
         val cast = cast()
         val room = freshRoom(cast)
-        // The metadata PUT, the member add and the role PUT all decode a body: the same guard-before-body order on each.
+        // The metadata PUT, the workflow PUT, the member add and the role PUT all decode a body: the same guard-before-body order on each.
         val bodyRoutes = listOf(
             Triple("PUT room", HttpMethod.Put, "$rooms/$room"),
+            Triple("PUT workflow", HttpMethod.Put, "$rooms/$room/workflow"),
             Triple("POST members", HttpMethod.Post, "$rooms/$room/members"),
             Triple("PUT member role", HttpMethod.Put, "$rooms/$room/members/${cast.other.id}"),
         )

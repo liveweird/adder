@@ -2,7 +2,7 @@
 
 Owns: the chat domain model — rooms, membership, workflows (statuses and fields), threads, messages, history, mentions, reactions, pins, unread.
 Not here: the live channel (`live.md`), the roadmap and decisions (`product.md`). **Status:** rooms and workflows (0.2) are binding `## Rules`;
-threads onward (0.3–0.6) are still a sketch, and each version turns its part into rules in its own plan first. `workflows/` and `rooms/` (0.2.0) are the first chat packages; the room routes land commit by commit (the record and its read-only workflow in C7, members in C8, the workflow PUT in C9).
+threads onward (0.3–0.6) are still a sketch, and each version turns its part into rules in its own plan first. `workflows/` and `rooms/` (0.2.0) are the first chat packages; the room routes landed commit by commit (the record and its read-only workflow in C7, members in C8, the workflow PUT in C9).
 
 ## Rules
 
@@ -46,7 +46,7 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
 - **Templates.** An ADMIN-curated registry `workflow_templates` (any signed-in user reads; writes are ADMIN with guard-before-read), one JSONB
   `definition` document plus a `revision`. Name (<= 100) and description are plain registry text. Labels are a language map `{en, pl?}` (EN
   required, PL optional, Lettuce's dictionary shape; per language, labels are unique among the statuses, among the fields and among a field's options,
-  case-insensitively after trimming, a duplicate being a 400 that names the label; a room's own labels (0.2.0 C9) follow the same rule). Seeds by migration, never edited afterwards: *Default* (Open initial, In progress, Waiting,
+  case-insensitively after trimming, a duplicate being a 400 that names the label; a room's own labels follow the same rule in its ONE language, `rooms/RoomWorkflow.kt`). Seeds by migration, never edited afterwards: *Default* (Open initial, In progress, Waiting,
   Done CLOSED, Won't do CLOSED) and *Incident* (Triage initial, Investigating, Mitigating, Monitoring, Resolved CLOSED; optional fields Severity
   S1-S4 SELECT, Component TEXT, Jira link URL, ETA DATE), in English and Polish. Deleting a template never touches rooms; there is no
   "last template" rule.
@@ -84,9 +84,11 @@ All timestamps are epoch-millis `BIGINT`; no CHECK on enum-valued columns (the K
   locking member rows. Toadie's table-level `lockingTransaction` is deliberately NOT ported: the invariants are per room, and a table lock would
   serialise every room.
 - **Workflow PUT inside the block:** archived -> 409; `requireRevision`; select the room's status rows `FOR NO KEY UPDATE`; plan the change with
-  the pure kernel (`RoomWorkflowPlan.kt`: retired, revived, added, re-categorised); field-type and key-budget checks; usage counts, then the
-  replacement checks; `usage.moveThreads`; clear `is_initial` on every row (first: the partial unique index is checked per row); retire absent
-  keys; upsert payload rows by key with `position = index`; bump `workflow_revision`. Per-row Exposed statements (<= 20 rows each).
+  the pure kernel (`RoomWorkflowPlan.kt`: retired, revived, added, re-categorised); field-type and key-budget checks; the replacement checks (400), then the
+  usage counts (409 `status-in-use`); clear `is_initial` on every row (first: the partial unique index is checked per row); retire absent keys; upsert payload
+  rows by key with `position = index` (reviving retired keys); THEN `usage.moveThreads` (after the upsert: a replacement may be a status this
+  very PUT adds or revives, and 0.3's thread rows reference `room_statuses`, so the target row must exist and be live when the threads move);
+  bump `workflow_revision`. Per-row Exposed statements (<= 20 rows each).
 - **409 problem types** (`urn:adder:problem:`): `revision-conflict`, `last-owner`, `room-archived`, `status-in-use` and `field-type-immutable`
   (both carrying `keys`, the `ProblemDetail` extension member), plus the plain key-budget conflict.
 
@@ -106,10 +108,17 @@ val WorkflowUsageKey = AttributeKey<WorkflowUsage>("WorkflowUsage")
 ```
 
 Routes resolve it per request with `attributes.getOrNull(WorkflowUsageKey) ?: NoThreadsYet` (the telemetry seam idiom), so a test can put a fake;
-server tests cover the retire path through a fake and the web through a mocked `threadCount`. 0.3 does four things and changes nothing else:
-thread rows reference `(room_id, status_key)` with an FK to `room_statuses(room_id, key)`; a thread write that sets a status takes `FOR SHARE`
-on that status row and requires it active (a thread can then never land on a status a PUT is retiring); it implements `WorkflowUsage` (the move also
-writes one `thread_events` row per thread) and registers it under the key; it adds the e2e for the retire dialog.
+server tests cover the retire path through a fake and the web through a mocked `threadCount`. **As built (0.2.0 C9)**, the contract 0.3 implements is exactly this:
+`GET` calls `threadCounts` with every live status key; the `PUT` calls it with the keys it retires or re-categorises (`RoomWorkflowPlan.statusesToCount`), after the
+`FOR NO KEY UPDATE` lock on the status rows and the mapping's `400` checks, and answers `409 status-in-use` (`keys` = the offending statuses) for a counted status that is re-categorised
+(no mapping can help: only retired statuses take one) or retired without an entry in `replacements`; `moveThreads(roomId, from, to, byUserId)` is called once per retired status that has
+threads AND a mapping (in the order retired; never for a status with no threads), inside the same transaction, AFTER the status upsert (so the target may be a status this PUT adds or revives; pinned by `FakeWorkflowUsage`'s `targetLiveAtMove`) and
+before the revision bump, so any later failure rolls the moves back;
+the sum is the audited `threadsMoved`. A revived status may change category freely (a retired status has no threads: they were moved when it retired). The only absent-threads
+behaviour 0.2 pins is `NoThreadsYet` (no counts, no moves). 0.3 does four things and changes nothing else:
+thread rows reference `(room_id, status_key)` with an FK to `room_statuses(room_id, key)`; every thread write runs under `withRoomWrite`, the same room lock as
+the workflow PUT, so the status read inside the lock is current (a thread can then never land on a status a PUT is retiring), and the FK stays as a backstop; it implements `WorkflowUsage` (the move also
+writes one `thread_events` row per thread; when `moveThreads` runs the SOURCE status is already retired, so it must not require the source live) and registers it under the key; it adds the e2e for the retire dialog.
 
 ## Threads and messages (0.3)
 

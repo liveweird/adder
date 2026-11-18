@@ -246,7 +246,7 @@ whitelist (the V5 rule), and the enum NAMES are persisted values, frozen like th
 - **`workflow_revision`** is the `X-Expected-Revision` token of the room workflow's PUT (C9; `BIGINT`, `CHECK > 0`, starts at 1), separate from the room row's own
   `updated_at`: a name edit never moves it.
 - **The room lock.** Every write to a room goes through `withRoomWrite` (`rooms/RoomLock.kt`), which selects the ACTIVE room row `FOR NO KEY UPDATE` (the rule of "Row locks vs. FK
-  locks" below: child inserts such as members, statuses and, in 0.3, threads take `FOR KEY SHARE` on the room, which does not conflict), then re-reads the caller's membership
+  locks" below: child inserts such as members and statuses take `FOR KEY SHARE` on the room, which does not conflict; 0.3 thread and message writes run under `withRoomWrite` themselves, because posting bumps `rooms.last_activity_at` and a lighter lock upgraded by that UPDATE would deadlock two concurrent posters), then re-reads the caller's membership
   and re-runs the route's guard on that locked standing, then runs the write. The role is read AFTER the lock is held (READ COMMITTED gives every statement its own snapshot), so a
   role change that committed while the caller waited is the verdict. The lock transaction also re-reads the CALLER's `users` row (active flag and role): a caller deleted while the write waited is the `404`, an ADMIN demoted meanwhile is judged as a plain user (the token's roles are only a hint); the membership role read joins ACTIVE users. A hard delete of a room (tests only) cascades to members, statuses and fields.
 - A room's labels are plain single-language text in `label` (`VARCHAR(60)`); `room_fields.options` is a `jsonb` array `[{key,label}]` written through `canonicalJson`

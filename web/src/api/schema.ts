@@ -735,7 +735,28 @@ export interface paths {
          *     `X-Expected-Revision`. Each status carries `threadCount`, the number of threads currently in it (always `0` until threads exist).
          */
         get: operations["getRoomWorkflow"];
-        put?: never;
+        /**
+         * Replace a room's workflow
+         * @description The room's OWNER or an `ADMIN`. A whole-document replace of the room's own copy under optimistic concurrency, checked in
+         *     this order: the room (a missing room or a non-member is the uniform `404`), the role (`403`), the `X-Expected-Revision`
+         *     header (missing, repeated or malformed is `400`), the body (`400`: the workflow rules - 2-20 statuses with unique slug keys,
+         *     exactly one initial and it is `OPEN`, at least one `CLOSED`, 0-20 fields with unique slug keys, 1-50 options on the select
+         *     kinds only, labels of 1-60 characters unique per list, case-insensitively), then under the room lock, in this order: an
+         *     archived room is `409` of type `urn:adder:problem:room-archived`; a stale revision is `409` of type
+         *     `urn:adder:problem:revision-conflict`; a field whose key exists (retired ones included) with another `type` is `409` of type
+         *     `urn:adder:problem:field-type-immutable` with `keys`; a room may reserve at most 200 status keys and 200 field keys
+         *     (retired ones included), beyond that a plain `409`; an invalid `replacements` mapping is `400`; a status that would be retired
+         *     or re-categorised while threads use it, without a valid replacement, is `409` of type `urn:adder:problem:status-in-use` with
+         *     `keys`.
+         *
+         *     `statuses` and `fields` are the ACTIVE ones in the new order (position is the array index). A key the document no longer
+         *     names is retired (its key stays reserved); a retired key it names again is revived. `replacements` is
+         *     `{retiredKey: replacementKey}`: where the threads of each status THIS change retires move; the key must be a status this
+         *     change retires and the target a status of the new document in the same category as the retired one (else `400`). A
+         *     status's category can only change while no thread uses it. Every successful PUT stores `workflowRevision + 1`; read the
+         *     workflow again for it.
+         */
+        put: operations["updateRoomWorkflow"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1353,6 +1374,24 @@ export interface components {
              * @description The threads currently in this status
              */
             threadCount: number;
+        };
+        RoomWorkflowStatusDef: {
+            key: string;
+            label: string;
+            colour: components["schemas"]["StatusColour"];
+            category: components["schemas"]["StatusCategory"];
+            /** @description Exactly one status is the initial one, and it is in the `OPEN` category. */
+            initial: boolean;
+        };
+        RoomWorkflowUpdate: {
+            /** @description The ACTIVE statuses in the new order. */
+            statuses: components["schemas"]["RoomWorkflowStatusDef"][];
+            /** @description The ACTIVE fields in the new order. */
+            fields: components["schemas"]["RoomWorkflowField"][];
+            /** @description `{retiredKey: replacementKey}`: where the threads of each status this change retires move. The target must be a status of the new document in the same category. Omit it when no status that threads use is retired. */
+            replacements?: {
+                [key: string]: string;
+            };
         };
         RoomWorkflowOption: {
             key: string;
@@ -2924,6 +2963,45 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateRoomWorkflow: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
+                 *     malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
+                 *     bumps the revision.
+                 */
+                "X-Expected-Revision": components["parameters"]["ExpectedRevision"];
+            };
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomWorkflowUpdate"];
+            };
+        };
+        responses: {
+            /** @description Replaced */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
     };

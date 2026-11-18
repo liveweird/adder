@@ -187,7 +187,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     | Operation | outsider | member | owner | admin (non-member) |
     |---|---|---|---|---|
     | `GET /rooms/{id}`, `GET /rooms/{id}/workflow`, `GET /rooms/{id}/members` | 404 | 200 | 200 | 200 |
-    | `PUT /rooms/{id}`, `POST /rooms/{id}/archive`, `POST /rooms/{id}/unarchive` | 404 | 403 | 204 | 204 |
+    | `PUT /rooms/{id}`, `PUT /rooms/{id}/workflow` (+ `X-Expected-Revision`), `POST /rooms/{id}/archive`, `POST /rooms/{id}/unarchive` | 404 | 403 | 204 | 204 |
     | `POST /rooms/{id}/members` (200 `{added, alreadyMembers}`) | 404 | 403 | 200 | 200 |
     | `PUT /rooms/{id}/members/{userId}` (role), `DELETE /rooms/{id}/members/{userId}` of ANOTHER member | 404 | 403 | 204 | 204 |
     | `DELETE /rooms/{id}/members/{callerId}` (leave) | 404 | 204 | 204, or `409 last-owner` for the last one | 404 (not a member) |
@@ -203,7 +203,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     under the lock. A plain member who tries to remove ANOTHER member is `403`. Membership management stays allowed on an ARCHIVED room. The add always adds `MEMBER`; promotion is
     `PUT .../members/{userId}`. **The last-OWNER rule:** after the write at least one `OWNER` whose user is active must remain, else `409` typed `urn:adder:problem:last-owner`
     (leave, demotion and removal, an ADMIN's included), counted under the room lock (`RoomMemberService`); a target who is not an ACTIVE member is `404`. A room whose owners are all deleted
-    is managed by ADMINs (promote someone, then the rule holds). The workflow PUT arrives with C9; from 0.3 on any member posts, replies and moves a thread between OPEN statuses, the thread owner, the room OWNER or an
+    is managed by ADMINs (promote someone, then the rule holds). The workflow PUT (C9) follows the same order: visibility, role, the header, the body, then the lock; from 0.3 on any member posts, replies and moves a thread between OPEN statuses, the thread owner, the room OWNER or an
     ADMIN passes ownership and reopens a closed thread, and a closed thread refuses further activity with `409`. Tests: `RoomTest`, `RoomMembersTest`, `RoomAuthzMatrixTest`, `GuardsTest`.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: three sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**

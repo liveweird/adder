@@ -115,7 +115,11 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `room.created` (byUserId/roomId/name/templateId/language — the language the labels were resolved to, `en` when the request named none) / `room.updated` (byUserId/roomId/name) /
   `room.archived` / `room.unarchived` (byUserId/roomId — only on an ACTUAL change: both are idempotent, so a repeat emits nothing) / `room.deleted` (byUserId/roomId) — the room
   record events (`/api/v1/rooms`, C7; OWNER or ADMIN, `room.deleted` ADMIN only); a refused write (400, 403, 404, a name or archived 409) emits no `room.*` event of its own (a 403 still
-  emits `authz.denied`). The workflow event (`room.workflow_updated`) arrives with its route (0.2.0 C9),
+  emits `authz.denied`),
+- `room.workflow_updated` (byUserId/roomId/revision/statusesAdded/statusesRetired/fieldsAdded/fieldsRetired/threadsMoved) — `PUT /api/v1/rooms/{id}/workflow` (C9; OWNER or ADMIN), once per
+  successful PUT, after the transaction commits. `revision` is the NEW workflow revision; the four status/field counts are Ints (`Added` counts a key that became live, new or revived, `Retired`
+  a live key the document dropped); `threadsMoved` is a Long, the threads moved to a replacement status (always 0 until 0.3). A refused PUT (400, 403, 404, a stale-revision, archived,
+  `field-type-immutable`, key-budget or `status-in-use` 409) emits no `room.workflow_updated` (a 403 still emits `authz.denied`),
 - `room.member_added` (byUserId/roomId/targetUserId/viaTeamId) — ONE line per person actually added (`POST /api/v1/rooms/{id}/members`, C8; OWNER or ADMIN); `viaTeamId` is the team whose roster
   snapshot brought the person in, null for a person named directly (a person named AND on the roster counts as named); a person who already belonged emits nothing (the response counts them).
   `room.member_role_changed` (byUserId/roomId/targetUserId/roleFrom/roleTo) — `PUT .../members/{userId}`, on an ACTUAL change only (the same role again is a `204` that emits nothing).

@@ -201,6 +201,15 @@ above any legitimate statement (a lock wait behind another transaction) and belo
   the API hides (`TestTeams.rawRows`, `TestUsers.stampPasswordChangedAt`). Shared
   suite state (the seed admin) is never mutated destructively — tests mint UNIQUE rows and remove
   their own.
+- **Room fixtures** (`RoomFixtures.kt`, 0.2.0): `TestTemplates.seed(prefix)` mints a unique bilingual template (statuses `open` initial, `half` OPEN, `done` CLOSED; fields `severity`
+  SELECT s1/s2, `note` TEXT) and `TestTemplates.seededId(name)` finds a V12 seed; `TestRooms.seed(ownerId, templateId, name, language)` creates a room through the real service path, with
+  raw helpers beside it (`addMember`, `setRole`, `archive`, `seedMembers(room, count, marker)` for the 500 cap, `seedRetiredKeys(room, count)` for the 200-key budget, `rawRooms`,
+  `rawStatuses`/`rawFields` for the retired rows the API hides, `purge`, `softDeleteUsers`); `seedActor(prefix, role)` seeds a user and logs them in (a `RoomActor`: id + client). Every test
+  mints UNIQUE rows and removes them in an `@AfterTest`.
+- **The usage seam** (`WorkflowUsage`, `rooms/WorkflowUsage.kt`): the production code resolves the port per request with `attributes.getOrNull(WorkflowUsageKey) ?: NoThreadsYet`, so a test
+  registers `FakeWorkflowUsage(counts)` (fixed per-status counts, every move recorded in `moves` and applied to the counts) BEFORE the app starts: `configureApp()`,
+  `application { attributes.put(WorkflowUsageKey, fake) }`, `startApplication()` (`RoomWorkflowTest`). That is how 0.2 covers `status-in-use`, the replacement mapping and
+  `threadsMoved` without threads; 0.3 implements the port over its thread rows and keeps these tests.
 - `TestSeedState.restoreSeedAccounts()` — bootstrap/production-mode tests rotate the seed admin's
   password in the SHARED container; call this afterwards so later tests (and re-runs) see the
   pristine V3 state. Production-mode boots must also override `"mail.transport" to "disabled"` —

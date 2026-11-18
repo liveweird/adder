@@ -176,6 +176,54 @@ object TestRooms {
         Triple(count("room_members"), count("room_statuses"), count("room_fields"))
     }
 
+    data class RawStatus(
+        val key: String,
+        val label: String,
+        val category: String,
+        val initial: Boolean,
+        val position: Int,
+        val retired: Boolean,
+    )
+
+    data class RawField(val key: String, val label: String, val type: String, val position: Int, val retired: Boolean)
+
+    /** Every status row of a room, retired ones included, by key (the workflow GET shows the live ones only). */
+    suspend fun rawStatuses(roomId: UInt): List<RawStatus> = suspendTransaction(sharedDatabaseForTests()) {
+        val t = RoomWorkflowService.RoomStatuses
+        t.selectAll().where { t.roomId eq roomId }.orderBy(t.key to org.jetbrains.exposed.v1.core.SortOrder.ASC).map {
+            RawStatus(it[t.key], it[t.label], it[t.category], it[t.isInitial], it[t.position], it[t.markedAsDeleted])
+        }.toList()
+    }
+
+    suspend fun rawFields(roomId: UInt): List<RawField> = suspendTransaction(sharedDatabaseForTests()) {
+        val t = RoomWorkflowService.RoomFields
+        t.selectAll().where { t.roomId eq roomId }.orderBy(t.key to org.jetbrains.exposed.v1.core.SortOrder.ASC).map {
+            RawField(it[t.key], it[t.label], it[t.type], it[t.position], it[t.markedAsDeleted])
+        }.toList()
+    }
+
+    /** Reserves [count] retired keys `r1..rN` in the room's statuses and fields by raw SQL (a key-budget test needs hundreds). */
+    fun seedRetiredKeys(roomId: UInt, count: Int) {
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement(
+                "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position, marked_as_deleted) " +
+                    "SELECT ?, 'r' || g, 'Retired ' || g, 'GRAY', 'OPEN', FALSE, 0, TRUE FROM generate_series(1, ?) g",
+            ).use { st ->
+                st.setInt(1, roomId.toInt())
+                st.setInt(2, count)
+                assertEquals(count, st.executeUpdate())
+            }
+            connection.prepareStatement(
+                "INSERT INTO room_fields (room_id, \"key\", label, \"type\", options, required, position, marked_as_deleted) " +
+                    "SELECT ?, 'r' || g, 'Retired ' || g, 'TEXT', '[]'::jsonb, FALSE, 0, TRUE FROM generate_series(1, ?) g",
+            ).use { st ->
+                st.setInt(1, roomId.toInt())
+                st.setInt(2, count)
+                assertEquals(count, st.executeUpdate())
+            }
+        }
+    }
+
     /** Removes the rooms outright (the cascade takes members, statuses and fields): a test's own cleanup. */
     suspend fun purge(ids: Collection<UInt>) {
         if (ids.isEmpty()) return
@@ -197,19 +245,26 @@ suspend fun ApplicationTestBuilder.seedActor(prefix: String, role: UserRole = Us
 
 /**
  * The [ch.nokillswit.rooms.WorkflowUsage] fake a test registers under `WorkflowUsageKey`: fixed per-status counts, and every move it
- * is asked for recorded (and applied to the counts, as a real implementation would).
+ * is asked for recorded (and applied to the counts, as a real implementation would). Each move also records whether its target status
+ * row was live at that moment, which pins the PUT's order: the upsert comes BEFORE the moves.
  */
 class FakeWorkflowUsage(counts: Map<String, Long> = emptyMap()) : WorkflowUsage {
     private val counts = counts.toMutableMap()
     val moves = mutableListOf<Move>()
 
-    data class Move(val roomId: UInt, val from: String, val to: String, val byUserId: UInt)
+    /** [targetLiveAtMove]: the target status row existed and was not retired when the move ran (inside the PUT's own transaction). */
+    data class Move(val roomId: UInt, val from: String, val to: String, val byUserId: UInt, val targetLiveAtMove: Boolean)
 
     override suspend fun threadCounts(roomId: UInt, keys: Collection<String>): Map<String, Long> =
         counts.filterKeys { it in keys }
 
     override suspend fun moveThreads(roomId: UInt, from: String, to: String, byUserId: UInt): Long {
-        moves += Move(roomId, from, to, byUserId)
+        // Read through the ambient transaction (Exposed reuses it), so it sees the PUT's own uncommitted upsert - or the lack of it.
+        val statuses = RoomWorkflowService.RoomStatuses
+        val live = statuses.select(statuses.key)
+            .where { (statuses.roomId eq roomId) and (statuses.key eq to) and (statuses.markedAsDeleted eq false) }
+            .toList().isNotEmpty()
+        moves += Move(roomId, from, to, byUserId, live)
         val moved = counts.remove(from) ?: 0L
         counts[to] = (counts[to] ?: 0L) + moved
         return moved
