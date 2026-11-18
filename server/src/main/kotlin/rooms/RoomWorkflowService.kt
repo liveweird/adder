@@ -132,7 +132,7 @@ class RoomWorkflowService(private val database: R2dbcDatabase) {
         usage: WorkflowUsage,
     ): RoomWorkflowChange {
         validateRoomWorkflow(request) // re-checked service-side so direct callers stay guarded
-        return database.withRoomWrite(roomId, caller, guard) { standing ->
+        return database.withRoomWrite(roomId, caller, guard) { _, standing ->
             if (standing.archived) throw roomArchived()
             val rooms = RoomService.Rooms
             val current = rooms.select(rooms.workflowRevision).where { rooms.id eq roomId }.toList().single()[rooms.workflowRevision]

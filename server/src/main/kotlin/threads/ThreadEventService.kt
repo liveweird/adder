@@ -52,6 +52,32 @@ data class ThreadEventDescriptor(val type: ThreadEventType, val params: Map<Stri
 fun threadCreatedEvent(title: String, statusKey: String, statusLabel: String) =
     ThreadEventDescriptor(ThreadEventType.CREATED, mapOf("title" to title, "status" to statusKey, "statusLabel" to statusLabel))
 
+/** The title changed from [from] to [to] (both recorded: nothing is encrypted at rest). */
+fun threadTitleChangedEvent(from: String, to: String) =
+    ThreadEventDescriptor(ThreadEventType.TITLE_CHANGED, mapOf("from" to from, "to" to to))
+
+/** The thread moved from status [fromKey] to [toKey]; [transition] picks `STATUS_CHANGED`, `CLOSED` or `REOPENED` (labels as now). */
+fun threadStatusEvent(
+    transition: StatusTransition,
+    fromKey: String,
+    fromLabel: String,
+    toKey: String,
+    toLabel: String,
+): ThreadEventDescriptor {
+    val type = when (transition) {
+        StatusTransition.MOVED -> ThreadEventType.STATUS_CHANGED
+        StatusTransition.CLOSED -> ThreadEventType.CLOSED
+        StatusTransition.REOPENED -> ThreadEventType.REOPENED
+    }
+    return ThreadEventDescriptor(type, mapOf("from" to fromKey, "to" to toKey, "fromLabel" to fromLabel, "toLabel" to toLabel))
+}
+
+/** The thread passed from user [fromId] to [toId] (the names as they are now; a soft-deleted user's recorded name is still the name). */
+fun threadOwnerChangedEvent(fromId: UInt, toId: UInt, fromName: String, toName: String) = ThreadEventDescriptor(
+    ThreadEventType.OWNER_CHANGED,
+    mapOf("fromId" to fromId.toString(), "toId" to toId.toString(), "fromName" to fromName, "toName" to toName),
+)
+
 /** One history entry: `userDeleted` marks an actor whose account has since been soft-deleted (the recorded name stays). */
 @Serializable
 data class ThreadEventResponse(

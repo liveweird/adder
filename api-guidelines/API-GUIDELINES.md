@@ -120,6 +120,10 @@ A documented exception applies to a write-only secret field on a resource that s
 credential encrypted at rest (for example a future integration's API token): omission preserves
 the existing encrypted value, because a read cannot supply it for a replacement. An explicit
 non-empty string replaces it. Other editable fields retain full-replacement semantics.
+
+A second documented exception: a thread's field values (`PUT /rooms/{id}/threads/{number}`, `fields`) are MERGED, not replaced. A retired field's
+value is kept but hidden on read, so a client can never send it back, and a full replace would silently erase it. An omitted key keeps its stored
+value; `null` clears it (the title stays a full replace, and `X-Expected-Revision` still guards the write).
 **Check (spectral):** `GET`/`DELETE` declare no `requestBody`.
 
 ### API-RES-005 — Path ids are constrained `[spectral]`
@@ -694,7 +698,11 @@ v0.1.0 foundation — extend this list as domain features land):
 - **`X-Expected-Revision` (domain-level guard, REQUIRED header)** — the whole-document `PUT /api/v1/workflow-templates/{id}` names the `revision` it read
   (`400` when missing, repeated or malformed); under the row lock (`FOR NO KEY UPDATE`) a stale value is `409` of type
   `urn:adder:problem:revision-conflict`, a current one writes `revision + 1`. This is the documented alternative to `If-Match`/`412` for this write
-  (`WorkflowTemplateTest`, `.claude/docs/conventions.md`); the room workflow PUT follows with the rooms increment.
+  (`WorkflowTemplateTest`, `.claude/docs/conventions.md`); the room workflow PUT (`PUT /api/v1/rooms/{id}/workflow`) and the thread details PUT (`PUT /api/v1/rooms/{id}/threads/{number}`, 0.3.0: the title and
+  the field values, merged: the API-RES-004 exception) follow the same rule; the thread's `revision` is its OWN token (a status or owner change does not move it, a message never does), and the compare runs
+  under the room lock after the archived and closed `409`s (`ThreadDetailsTest`, race 3). Nothing changed is a `204` with no bump.
+  The status PUT (`.../threads/{number}/status`) and owner PUT (`.../owner`) are single-value sets: **last writer wins by design** (no token: the body names the whole new value, the room lock serialises the
+  writers and a repeat is an idempotent `204`), and the append-only thread history records each change, so an overwritten value is never lost (`ThreadStatusTest`, `ThreadOwnerTest`).
 - **Credential-revision guard (a narrower case, not `If-Match`)** — a password change/reset
   atomically increments `users.credential_revision`; refresh and MFA acceptance compare it
   against the current row and reject a stale credential rather than silently accepting it. See

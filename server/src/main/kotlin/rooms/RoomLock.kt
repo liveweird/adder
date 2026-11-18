@@ -66,7 +66,8 @@ private suspend fun freshCaller(caller: CallerPrincipal): CallerPrincipal? {
  * caller whose account was deleted while the write waited is the uniform `404`, an ADMIN demoted meanwhile is judged as a plain user,
  * a caller demoted or removed from the room is refused (a missing room is a null standing, which the guards turn into the `404`): only
  * THIS verdict
- * authorises the write, and (3) runs [block] with that standing. Every room-scoped write goes through it (metadata, archive, members,
+ * authorises the write, and (3) runs [block] with the re-read caller and that standing (a thread write's own guard judges the fresh
+ * caller against the fresh thread row, so it needs both). Every room-scoped write goes through it (metadata, archive, members,
  * roles, workflow), which makes the last-OWNER count, the revision compare and the archived check race-free without locking member rows.
  * A [block] that throws rolls the whole transaction back.
  */
@@ -74,10 +75,10 @@ internal suspend fun <T> R2dbcDatabase.withRoomWrite(
     roomId: UInt,
     caller: CallerPrincipal,
     guard: RoomGuard,
-    block: suspend (RoomStanding) -> T,
+    block: suspend (fresh: CallerPrincipal, standing: RoomStanding) -> T,
 ): T = suspendTransaction(this) {
     val standing = readStanding(roomId, caller.userId, lock = true)
     val fresh = freshCaller(caller) ?: throw NotFoundException("Room not found")
     guard(fresh, standing)
-    block(standing ?: throw NotFoundException("Room not found"))
+    block(fresh, standing ?: throw NotFoundException("Room not found"))
 }

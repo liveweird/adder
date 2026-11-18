@@ -900,7 +900,92 @@ export interface paths {
          *     maps the user ids held by USER fields to display names. `revision` is what the details PUT names in `X-Expected-Revision`.
          */
         get: operations["getThread"];
-        put?: never;
+        /**
+         * Edit a thread's title and fields
+         * @description A member of the room or an `ADMIN` (any reader edits the open-side metadata; a non-member is the uniform `404`). Checked in this
+         *     order: visibility (`404`), the `X-Expected-Revision` header (missing, repeated or malformed is `400`), the body (`400`), then
+         *     under the room lock: the guard again (a caller removed while the write waited is refused), the thread (`404`), an archived room
+         *     (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type `urn:adder:problem:thread-closed`: reopen it
+         *     first), a stale revision (`409` of type `urn:adder:problem:revision-conflict`), then the field values (`400`).
+         *
+         *     `title` is a single line of 1 to 200 characters. `fields` MERGES over the stored values: a key left out is untouched and `null`
+         *     clears the field; a value equal to the stored one is not re-validated, so a stale value (a removed option, a user who left)
+         *     never blocks a save. A required field cannot be cleared once set; an unknown key, or a changed value for a retired key, is a `400`.
+         *     When nothing changed the answer is `204` with no revision bump, no history entry and no activity bump. Otherwise the revision
+         *     becomes `revision + 1` (read the thread again for it), one `TITLE_CHANGED` and one `FIELD_CHANGED` entry per changed field are
+         *     recorded, and the thread and the room are bumped in the activity order.
+         */
+        put: operations["updateThread"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Move a thread to a status (close, reopen)
+         * @description A member of the room or an `ADMIN` (a non-member is the uniform `404`). A move between two OPEN statuses is open to every reader;
+         *     a move that enters or leaves a CLOSED status - closing, reopening, or CLOSED to CLOSED - needs a STEWARD: the thread's owner
+         *     while a member, the room's OWNER or an `ADMIN` (`403` otherwise). Which of the two applies depends on the target's category, so
+         *     the answer is decided under the room lock after the target resolves: checked in this order visibility (`404`), the body (`400`),
+         *     then under the lock the guard again, the thread (`404`), the target (`400` for a status key that is unknown or retired - every
+         *     reader can read the workflow, so it discloses nothing), the steward rule (`403`), an archived room (`409` of type
+         *     `urn:adder:problem:room-archived`, the no-op included). A closed thread is NOT refused here: reopening it, or moving it between
+         *     CLOSED statuses, is the point.
+         *
+         *     Setting the status the thread already has is `204` with no history entry, no activity bump and no audit line (a plain member
+         *     is still `403` when that status is CLOSED). Otherwise the status changes, `closedAt` is set to the instant the thread closed
+         *     (kept across CLOSED to CLOSED moves) and cleared by a move into an OPEN one, a `STATUS_CHANGED`, `CLOSED` or `REOPENED` history entry is recorded and
+         *     the thread and the room are bumped in the activity order. A single-value set: the last writer wins, and the history records
+         *     each change; the thread's `revision` is not moved.
+         */
+        put: operations["setThreadStatus"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pass a thread on to another member
+         * @description A STEWARD: the thread's owner while a member, the room's OWNER or an `ADMIN` (a non-member is the uniform `404`, a member who is
+         *     not a steward `403`). Checked in this order: visibility (`404`), the thread (`404`) and the steward rule (`403`) on a lock-free
+         *     read of its owner, the body (`400`), then under the room lock the guard, the thread and the steward rule again on the fresh
+         *     rows, an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
+         *     `urn:adder:problem:thread-closed`: reopen it first), and the new owner (`400` unless `userId` is an ACTIVE member of the room).
+         *     A removed or deleted owner keeps the thread, inert, until a steward passes it on.
+         *
+         *     Naming the current owner again is `204` with no history entry, no activity bump and no audit line. Otherwise an `OWNER_CHANGED`
+         *     history entry is recorded and the thread and the room are bumped in the activity order. A single-value set: the last writer
+         *     wins, and the history records each change; the thread's `revision` is not moved.
+         */
+        put: operations["setThreadOwner"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1546,6 +1631,26 @@ export interface components {
             body: string;
             fields?: components["schemas"]["ThreadFieldValues"];
         };
+        ThreadUpdateRequest: {
+            /** @description A single line; trimmed. */
+            title: string;
+            /**
+             * @description MERGED over the stored values, not a full replace (a documented exception to API-RES-004): a retired field's value is hidden
+             *     on read and cannot be sent back, so replacing would erase it. An omitted key keeps its value; send `null` to clear it.
+             */
+            fields?: components["schemas"]["ThreadFieldValues"];
+        };
+        ThreadStatusRequest: {
+            /** @description The KEY of an active status of the room's workflow. */
+            status: string;
+        };
+        ThreadOwnerRequest: {
+            /**
+             * Format: int32
+             * @description The id of an active member of the room.
+             */
+            userId: number;
+        };
         ThreadResponse: {
             /** Format: int32 */
             id: number;
@@ -1561,7 +1666,7 @@ export interface components {
             closed: boolean;
             /**
              * Format: int64
-             * @description Epoch millis of the move into a CLOSED status; `null` while open.
+             * @description Epoch millis of the instant the thread closed (kept across CLOSED to CLOSED moves); `null` while open.
              */
             closedAt: number | null;
             /** Format: int32 */
@@ -3481,6 +3586,114 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    updateThread: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
+                 *     malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
+                 *     bumps the revision.
+                 */
+                "X-Expected-Revision": components["parameters"]["ExpectedRevision"];
+            };
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved, or nothing changed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setThreadStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Moved, or already in that status */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setThreadOwner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description Passed on, or already the owner */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
     };

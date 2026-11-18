@@ -6,17 +6,18 @@ import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
+import ch.nokillswit.infra.revision.requireRevision
 import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomWorkflowService
 import ch.nokillswit.rooms.RoomWorkflowSnapshot
 import ch.nokillswit.rooms.memberGuard
+import ch.nokillswit.rooms.readerGuard
 import ch.nokillswit.rooms.roomArchived
 import ch.nokillswit.rooms.withRoomWrite
 import ch.nokillswit.users.UserService
 import ch.nokillswit.workflows.FieldType
 import io.ktor.util.AttributeKey
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -42,8 +43,9 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
 val THREAD_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
 /**
- * The thread aggregate's record (V14 `threads`, never deleted in 0.3): list, read and create (with its opening message and its
- * `CREATED` event). Every write goes through `withRoomWrite` (`rooms/RoomLock.kt`): the room row lock is the thread lock
+ * The thread aggregate's record (V14 `threads`, never deleted in 0.3): list, read, create (with its opening message and its
+ * `CREATED` event) and the details edit; the status and owner writes are `ThreadStatusService`. Every write goes through `withRoomWrite`
+ * (`rooms/RoomLock.kt`, via `withThreadWrite`): the room row lock is the thread lock
  * (`chat-model.md` "Guard order and locking"). Cross-feature reads: names come straight from `users`, and room data only through the
  * `rooms/` services ([RoomWorkflowService.snapshot], [RoomMemberService.activeMemberIds], [RoomService.touchActivity]); the list is in
  * `persistence.md`.
@@ -160,11 +162,11 @@ class ThreadService(
         // Sanitised AND validated service-side (both idempotent after the route): a direct caller can never hand a control character on.
         val request = sanitizedThreadCreate(raw)
         validateThreadCreate(request)
-        return database.withRoomWrite(roomId, caller, memberGuard) { standing ->
+        return database.withRoomWrite(roomId, caller, memberGuard) { _, standing ->
             if (standing.archived) throw roomArchived()
             val snapshot = workflows.snapshot(roomId)
             val initial = snapshot.statuses.single { it.initial }
-            val write = validatedFields(roomId, snapshot, request.fields)
+            val write = validatedFields(roomId, snapshot, emptyMap(), request.fields, creating = true).merged
             val maxNumber = Threads.number.max()
             val number = (Threads.select(maxNumber).where { Threads.roomId eq roomId }.toList().single()[maxNumber] ?: 0) + 1
             val stamp = nowMillis()
@@ -188,25 +190,65 @@ class ThreadService(
         }
     }
 
-    /** The kernel's verdict on a create's field values, against the definitions and the members of [roomId] as they are NOW. */
+    /**
+     * Edits the title and the field values under `X-Expected-Revision` in ONE thread write ([withThreadWrite], the room guard is the
+     * reader's): an archived room is `409 room-archived`, a closed thread `409 thread-closed`, a stale [expectedRevision] `409
+     * revision-conflict` (the thread row is read under the room lock, so the compare is race-free), then the kernel judges the
+     * values against the workflow and members as they are NOW (`400`). Nothing changed answers null and writes nothing (no revision
+     * bump, no event, no activity). Otherwise the revision is bumped, one `TITLE_CHANGED` and one `FIELD_CHANGED` per changed field
+     * are recorded and the thread and the room are bumped, all stamped with ONE instant.
+     */
+    suspend fun updateDetails(
+        roomId: UInt,
+        number: Int,
+        caller: CallerPrincipal,
+        expectedRevision: Long,
+        raw: ThreadUpdateRequest,
+    ): ThreadChange? {
+        val request = sanitizedThreadUpdate(raw)
+        validateThreadUpdate(request)
+        return database.withThreadWrite(roomId, number, caller, readerGuard) { write ->
+            write.requireRoomActive()
+            write.requireThreadOpen()
+            val thread = write.thread
+            requireRevision(expectedRevision, thread.revision)
+            val snapshot = workflows.snapshot(roomId)
+            val fieldWrite = validatedFields(roomId, snapshot, thread.fields, request.fields, creating = false)
+            val titleChanged = request.title != thread.title
+            if (!titleChanged && fieldWrite.changes.isEmpty()) return@withThreadWrite null
+            val stamp = nowMillis()
+            val revision = thread.revision + 1
+            Threads.update({ Threads.id eq thread.id }) {
+                it[title] = request.title
+                it[fieldValues] = canonicalJson(JsonObject(fieldWrite.merged))
+                it[Threads.revision] = revision
+                it[lastActivityAt] = stamp
+                it[updatedAt] = stamp
+            }
+            if (titleChanged) events.record(thread.id, caller.userId, threadTitleChangedEvent(thread.title, request.title), stamp)
+            val names = userNames(userIdsOfChanges(snapshot.fields, fieldWrite.changes))
+            fieldWrite.changes.forEach { change ->
+                val field = snapshot.fields.single { it.key == change.key }
+                events.record(thread.id, caller.userId, threadFieldChangedEvent(field, change, names), stamp)
+            }
+            rooms.touchActivity(roomId, stamp)
+            ThreadChange(thread.id, revision, titleChanged, fieldWrite.changes.map { it.key })
+        }
+    }
+
+    /** The kernel's verdict on [incoming] over the [current] values, against the definitions and members of [roomId] as they are NOW. */
     private suspend fun validatedFields(
         roomId: UInt,
         snapshot: RoomWorkflowSnapshot,
+        current: Map<String, JsonElement>,
         incoming: Map<String, JsonElement>,
-    ): Map<String, JsonElement> {
+        creating: Boolean,
+    ): FieldWrite {
         val definitions = snapshot.fields.map {
             FieldDefinition(it.key, it.type, it.required, it.options.map { option -> option.key }, it.retired)
         }
         val memberIds = members.activeMemberIds(roomId, incomingUserIds(definitions, incoming))
-        return applyFieldValues(definitions, emptyMap(), incoming, memberIds, creating = true).merged
-    }
-
-    /** Display names by user id, soft-deleted accounts included (their recorded name is still the name). One query, empty in, no query. */
-    private suspend fun userNames(ids: Collection<UInt>): Map<UInt, String> {
-        if (ids.isEmpty()) return emptyMap()
-        val users = UserService.Users
-        return users.select(users.id, users.name).where { users.id inList ids.toSet() }
-            .map { it[users.id].value to it[users.name] }.toList().toMap()
+        return applyFieldValues(definitions, current, incoming, memberIds, creating)
     }
 
     private fun storedFields(json: String): Map<String, JsonElement> = (Json.parseToJsonElement(json) as JsonObject)

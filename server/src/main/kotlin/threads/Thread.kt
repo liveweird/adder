@@ -28,6 +28,17 @@ data class ThreadCreateRequest(
     val fields: Map<String, JsonElement> = emptyMap(),
 )
 
+/**
+ * `PUT /rooms/{id}/threads/{number}` under `X-Expected-Revision`: the title and the field values to MERGE over the stored ones (a key
+ * left out is untouched, a `null` value clears the field; the kernel, `ThreadFields.kt`, judges them). Nothing changed is a `204`
+ * with no revision bump, no history entry and no activity bump.
+ */
+@Serializable
+data class ThreadUpdateRequest(
+    val title: String,
+    val fields: Map<String, JsonElement> = emptyMap(),
+)
+
 /** One list row. The status label and colour come from the room workflow the SPA already holds. */
 @Serializable
 data class ThreadListItem(
@@ -104,3 +115,21 @@ fun validateThreadCreate(request: ThreadCreateRequest) {
     requireThreadTitle(request.title)
     requireMessageBody(request.body)
 }
+
+/** Trims the title (a control or hidden direction character is a 400, `sanitizeSingleLine`); the field values are the kernel's. */
+fun sanitizedThreadUpdate(request: ThreadUpdateRequest): ThreadUpdateRequest =
+    request.copy(title = sanitizeSingleLine(request.title, "Title"))
+
+/** The details PUT's own rules; the field values are the kernel's, under the room lock. Run by the route AND the service. */
+fun validateThreadUpdate(request: ThreadUpdateRequest) = requireThreadTitle(request.title)
+
+/** What a details write changed, for the route's audit line: the row id, the NEW [revision], the title flag and the changed field keys. */
+data class ThreadChange(val threadId: UInt, val revision: Long, val titleChanged: Boolean, val fieldKeys: List<String>)
+
+/** `PUT .../threads/{number}/status`: the KEY of an ACTIVE status of the room (an unknown or retired one is a `400`). */
+@Serializable
+data class ThreadStatusRequest(val status: String)
+
+/** `PUT .../threads/{number}/owner`: the id of an ACTIVE member of the room (anyone else is a `400`, under the room lock). */
+@Serializable
+data class ThreadOwnerRequest(val userId: UInt)

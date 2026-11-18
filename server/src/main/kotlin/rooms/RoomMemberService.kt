@@ -99,7 +99,7 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
         request: RoomMembersAddRequest,
     ): RoomMembersAddOutcome {
         validateRoomMembersAdd(request) // re-checked service-side so direct callers stay guarded
-        return database.withRoomWrite(roomId, caller, guard) {
+        return database.withRoomWrite(roomId, caller, guard) { _, _ ->
             val named = request.userIds.orEmpty().distinct()
             val roster = request.teamId?.let { teamId ->
                 teams.activeRosterIds(teamId) ?: throw BadRequestException("Unknown or deleted team id: $teamId")
@@ -134,7 +134,7 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
      * is the typed `409` `last-owner`.
      */
     suspend fun setRole(roomId: UInt, userId: UInt, caller: CallerPrincipal, guard: RoomGuard, role: RoomRole): RoomRole? =
-        database.withRoomWrite(roomId, caller, guard) {
+        database.withRoomWrite(roomId, caller, guard) { _, _ ->
             val current = activeRole(roomId, userId) ?: throw NotFoundException("Member not found")
             if (current == role) return@withRoomWrite null
             if (current == RoomRole.OWNER) requireOtherActiveOwner(roomId, userId)
@@ -147,7 +147,7 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
      * non-member, `409` `last-owner` for the last active OWNER.
      */
     suspend fun remove(roomId: UInt, userId: UInt, caller: CallerPrincipal, guard: RoomGuard) {
-        database.withRoomWrite(roomId, caller, guard) {
+        database.withRoomWrite(roomId, caller, guard) { _, _ ->
             val current = activeRole(roomId, userId) ?: throw NotFoundException("Member not found")
             if (current == RoomRole.OWNER) requireOtherActiveOwner(roomId, userId)
             members.deleteWhere { (RoomService.RoomMembers.roomId eq roomId) and (RoomService.RoomMembers.userId eq userId) }

@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.authz.isAdmin
+import ch.nokillswit.authz.isThreadSteward
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.requireFeatureEnabled
@@ -11,6 +12,7 @@ import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.authz.requireRoomReader
 import ch.nokillswit.authz.requireSelfOrAdmin
 import ch.nokillswit.authz.requireTeamManagerOrAdmin
+import ch.nokillswit.authz.requireThreadSteward
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.authz.RoomStanding
 import ch.nokillswit.users.UserRole
@@ -136,5 +138,29 @@ class GuardsTest {
         requireRoomReader(user, archivedOwner)
         requireRoomManager(user, archivedOwner)
         requireRoomMember(user, archivedOwner)
+    }
+
+    @Test
+    fun `requireThreadSteward admits the thread owner, the room owner and an admin, and refuses any other member with 403`() {
+        val threadOwner = CallerPrincipal(userId = 5u, email = "to@test", roles = emptySet())
+        requireThreadSteward(threadOwner, member, 5u)
+        requireThreadSteward(threadOwner, owner, 5u)
+        requireThreadSteward(user, owner, 5u) // the room OWNER, whoever owns the thread
+        requireThreadSteward(admin, member, 5u)
+        requireThreadSteward(admin, outside, 5u) // an ADMIN outside the room
+        assertFailsWith<ForbiddenException> { requireThreadSteward(user, member, 5u) }
+        assertFalse(isThreadSteward(user, member, 5u))
+        assertTrue(isThreadSteward(threadOwner, member, 5u))
+    }
+
+    @Test
+    fun `requireThreadSteward answers the 404 first - an outsider or a missing room, even for the thread's own owner`() {
+        val threadOwner = CallerPrincipal(userId = 5u, email = "to@test", roles = emptySet())
+        assertFailsWith<NotFoundException> { requireThreadSteward(threadOwner, outside, 5u) }
+        assertFailsWith<NotFoundException> { requireThreadSteward(user, null, 5u) }
+        assertFailsWith<NotFoundException> { requireThreadSteward(admin, null, 5u) }
+        // A removed owner is no steward by that title alone: the verdict needs a role in the room.
+        assertFalse(isThreadSteward(threadOwner, outside, 5u))
+        assertFalse(isThreadSteward(threadOwner, null, 5u))
     }
 }

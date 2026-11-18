@@ -1377,6 +1377,117 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [threads]
+      operationId: updateThread
+      summary: Edit a thread's title and fields
+      description: |
+        A member of the room or an `ADMIN` (any reader edits the open-side metadata; a non-member is the uniform `404`). Checked in this
+        order: visibility (`404`), the `X-Expected-Revision` header (missing, repeated or malformed is `400`), the body (`400`), then
+        under the room lock: the guard again (a caller removed while the write waited is refused), the thread (`404`), an archived room
+        (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type `urn:adder:problem:thread-closed`: reopen it
+        first), a stale revision (`409` of type `urn:adder:problem:revision-conflict`), then the field values (`400`).
+
+        `title` is a single line of 1 to 200 characters. `fields` MERGES over the stored values: a key left out is untouched and `null`
+        clears the field; a value equal to the stored one is not re-validated, so a stale value (a removed option, a user who left)
+        never blocks a save. A required field cannot be cleared once set; an unknown key, or a changed value for a retired key, is a `400`.
+        When nothing changed the answer is `204` with no revision bump, no history entry and no activity bump. Otherwise the revision
+        becomes `revision + 1` (read the thread again for it), one `TITLE_CHANGED` and one `FIELD_CHANGED` entry per changed field are
+        recorded, and the thread and the room are bumped in the activity order.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedRevision'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadUpdateRequest'
+      responses:
+        '204':
+          description: Saved, or nothing changed
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/threads/{number}/status:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/ThreadNumberPath'
+    put:
+      tags: [threads]
+      operationId: setThreadStatus
+      summary: Move a thread to a status (close, reopen)
+      description: |
+        A member of the room or an `ADMIN` (a non-member is the uniform `404`). A move between two OPEN statuses is open to every reader;
+        a move that enters or leaves a CLOSED status - closing, reopening, or CLOSED to CLOSED - needs a STEWARD: the thread's owner
+        while a member, the room's OWNER or an `ADMIN` (`403` otherwise). Which of the two applies depends on the target's category, so
+        the answer is decided under the room lock after the target resolves: checked in this order visibility (`404`), the body (`400`),
+        then under the lock the guard again, the thread (`404`), the target (`400` for a status key that is unknown or retired - every
+        reader can read the workflow, so it discloses nothing), the steward rule (`403`), an archived room (`409` of type
+        `urn:adder:problem:room-archived`, the no-op included). A closed thread is NOT refused here: reopening it, or moving it between
+        CLOSED statuses, is the point.
+
+        Setting the status the thread already has is `204` with no history entry, no activity bump and no audit line (a plain member
+        is still `403` when that status is CLOSED). Otherwise the status changes, `closedAt` is set to the instant the thread closed
+        (kept across CLOSED to CLOSED moves) and cleared by a move into an OPEN one, a `STATUS_CHANGED`, `CLOSED` or `REOPENED` history entry is recorded and
+        the thread and the room are bumped in the activity order. A single-value set: the last writer wins, and the history records
+        each change; the thread's `revision` is not moved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadStatusRequest'
+      responses:
+        '204':
+          description: Moved, or already in that status
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/threads/{number}/owner:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/ThreadNumberPath'
+    put:
+      tags: [threads]
+      operationId: setThreadOwner
+      summary: Pass a thread on to another member
+      description: |
+        A STEWARD: the thread's owner while a member, the room's OWNER or an `ADMIN` (a non-member is the uniform `404`, a member who is
+        not a steward `403`). Checked in this order: visibility (`404`), the thread (`404`) and the steward rule (`403`) on a lock-free
+        read of its owner, the body (`400`), then under the room lock the guard, the thread and the steward rule again on the fresh
+        rows, an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
+        `urn:adder:problem:thread-closed`: reopen it first), and the new owner (`400` unless `userId` is an ACTIVE member of the room).
+        A removed or deleted owner keeps the thread, inert, until a steward passes it on.
+
+        Naming the current owner again is `204` with no history entry, no activity bump and no audit line. Otherwise an `OWNER_CHANGED`
+        history entry is recorded and the thread and the room are bumped in the activity order. A single-value set: the last writer
+        wins, and the history records each change; the thread's `revision` is not moved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadOwnerRequest'
+      responses:
+        '204':
+          description: Passed on, or already the owner
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/threads/{number}/events:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -2356,6 +2467,27 @@ components:
           description: The opening message, Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays.
         fields:
           $ref: '#/components/schemas/ThreadFieldValues'
+    ThreadUpdateRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200, description: A single line; trimmed. }
+        fields:
+          description: |
+            MERGED over the stored values, not a full replace (a documented exception to API-RES-004): a retired field's value is hidden
+            on read and cannot be sent back, so replacing would erase it. An omitted key keeps its value; send `null` to clear it.
+          allOf:
+            - $ref: '#/components/schemas/ThreadFieldValues'
+    ThreadStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, minLength: 1, maxLength: 40, description: The KEY of an active status of the room's workflow. }
+    ThreadOwnerRequest:
+      type: object
+      required: [userId]
+      properties:
+        userId: { type: integer, format: int32, minimum: 1, description: The id of an active member of the room. }
     ThreadResponse:
       type: object
       required:
@@ -2382,7 +2514,7 @@ components:
         title: { type: string }
         status: { type: string, description: The status KEY; its label and colour are in the room's workflow. }
         closed: { type: boolean, description: The status is in a CLOSED category; the thread takes no further activity until it is reopened. }
-        closedAt: { type: integer, format: int64, nullable: true, description: Epoch millis of the move into a CLOSED status; `null` while open. }
+        closedAt: { type: integer, format: int64, nullable: true, description: Epoch millis of the instant the thread closed (kept across CLOSED to CLOSED moves); `null` while open. }
         ownerId: { type: integer, format: int32, minimum: 1 }
         ownerName: { type: string }
         createdById: { type: integer, format: int32, minimum: 1 }

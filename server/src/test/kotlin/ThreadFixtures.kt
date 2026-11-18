@@ -42,7 +42,8 @@ object TestThreads {
     }
 
     /**
-     * A small workflow template: `open` (initial) and `done` (CLOSED); a REQUIRED SELECT `severity` (`s1`, `s2`), and the optional TEXT
+     * A small workflow template: `open` (initial) and `monitoring` (OPEN), `done` and `wontdo` (CLOSED);
+     * a REQUIRED SELECT `severity` (`s1`, `s2`), and the optional TEXT
      * `note`, USER `lead`, DATE `due` and MULTI_SELECT `tags` (`a`, `b`). [name] must be unique.
      */
     private fun template(name: String) = WorkflowTemplateRequest(
@@ -50,7 +51,9 @@ object TestThreads {
         description = "A thread fixture template",
         statuses = listOf(
             WorkflowStatusDef("open", mapOf("en" to "Open"), StatusColour.GRAY, StatusCategory.OPEN, initial = true),
+            WorkflowStatusDef("monitoring", mapOf("en" to "Monitoring"), StatusColour.BLUE, StatusCategory.OPEN, initial = false),
             WorkflowStatusDef("done", mapOf("en" to "Done"), StatusColour.TEAL, StatusCategory.CLOSED, initial = false),
+            WorkflowStatusDef("wontdo", mapOf("en" to "Won't do"), StatusColour.GRAY, StatusCategory.CLOSED, initial = false),
         ),
         fields = listOf(
             WorkflowFieldDef(
@@ -120,13 +123,13 @@ object TestThreads {
         t.selectAll().where { t.roomId eq roomId }.orderBy(t.number to SortOrder.ASC).map { it.toRaw() }.toList()
     }
 
-    /** Closes a thread by raw update (moves it to [statusKey], a CLOSED status of its room, and stamps `closed_at`). */
-    suspend fun closeRaw(roomId: UInt, number: Int, statusKey: String = "done") {
+    /** Closes a thread by raw update (moves it to [statusKey], a CLOSED status of its room, and stamps `closed_at` with [closedAt]). */
+    suspend fun closeRaw(roomId: UInt, number: Int, statusKey: String = "done", closedAt: Long = System.currentTimeMillis()) {
         suspendTransaction(sharedDatabaseForTests()) {
             val t = ThreadService.Threads
             t.update({ (t.roomId eq roomId) and (t.number eq number) }) {
                 it[t.statusKey] = statusKey
-                it[t.closedAt] = System.currentTimeMillis()
+                it[t.closedAt] = closedAt
             }
         }
     }
@@ -164,5 +167,35 @@ object TestThreads {
     suspend fun roomActivity(roomId: UInt): Long = suspendTransaction(sharedDatabaseForTests()) {
         val r = RoomService.Rooms
         r.selectAll().where { r.id eq roomId }.map { it[r.lastActivityAt] }.toList().single()
+    }
+
+    /**
+     * Holds the room lock (`FOR NO KEY UPDATE`) on a raw transaction that also runs [statement], when given, bound to [ids] (neither is
+     * visible until [body] commits it): the lock-wait race shape. The transaction is rolled back at the end, a no-op after the commit.
+     */
+    suspend fun holdingRoomLock(
+        roomId: UInt,
+        statement: String? = null,
+        vararg ids: UInt,
+        body: suspend (java.sql.Connection) -> Unit,
+    ) {
+        PostgresTestSupport.connect().use { raw ->
+            raw.autoCommit = false
+            raw.prepareStatement("SELECT id FROM rooms WHERE id = ? FOR NO KEY UPDATE").use { st ->
+                st.setInt(1, roomId.toInt())
+                st.executeQuery().close()
+            }
+            statement?.let {
+                raw.prepareStatement(it).use { st ->
+                    ids.forEachIndexed { index, id -> st.setLong(index + 1, id.toLong()) }
+                    st.executeUpdate()
+                }
+            }
+            try {
+                body(raw)
+            } finally {
+                raw.rollback() // a no-op after the commit; releases the lock if an assertion failed first
+            }
+        }
     }
 }

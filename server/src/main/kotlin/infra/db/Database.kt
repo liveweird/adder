@@ -19,6 +19,8 @@ import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadEventServiceKey
 import ch.nokillswit.threads.ThreadService
 import ch.nokillswit.threads.ThreadServiceKey
+import ch.nokillswit.threads.ThreadStatusService
+import ch.nokillswit.threads.ThreadStatusServiceKey
 import ch.nokillswit.users.UserService
 import ch.nokillswit.users.UserServiceKey
 import ch.nokillswit.workflows.WorkflowTemplateService
@@ -264,6 +266,10 @@ suspend fun Application.configureDatabase() {
     attributes.put(
         ThreadServiceKey,
         ThreadService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, MessageService()),
+    )
+    attributes.put(
+        ThreadStatusServiceKey,
+        ThreadStatusService(database, roomService, roomWorkflowService, roomMemberService, threadEventService),
     )
     attributes.put(
         TokenBlocklistServiceKey,

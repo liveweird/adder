@@ -131,6 +131,14 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   it names the opening message (`messageId`), and there is no separate `message.posted` for it. **Thread and message audit lines carry ids, keys and counts only, never a title, a message body or a
   field value** (`ThreadWriteBoundsTest` pins that no title or body reaches the trail); the user-facing history is `thread_events`, not the audit log. A refused create (400, including every field-value
   rule, 403, 404, or the archived-room 409, the only 409 a create has) emits no `thread.*` event (a 403 still emits `authz.denied`; a non-member's 404 emits `room.access_denied`),
+- `thread.updated` (byUserId/roomId/threadId/number/revision/titleChanged/fieldsChanged) - `PUT /api/v1/rooms/{id}/threads/{number}` (0.3.0 S3; any reader): one line per CHANGE, emitted by the route after
+  the transaction commits; `revision` is the NEW one, `titleChanged` a boolean and `fieldsChanged` the comma-joined field KEYS, never the title or a value. A no-op PUT (`204`, nothing changed) and a refused one
+  (400, 404, the archived, closed or stale-revision 409) emit no `thread.*` line,
+- `thread.status_changed` (byUserId/roomId/threadId/number/from/to/transition) - `PUT .../threads/{number}/status` (0.3.0 S4; any reader for an OPEN to OPEN move, a steward for every move that enters or leaves
+  CLOSED): `from` and `to` are status KEYS and `transition` is `MOVED`, `CLOSED` or `REOPENED` (the reopen is audited and recorded in the history). Setting the status the thread already has is a `204` with no line,
+  and so is every refusal (400, 403, 404, the archived 409),
+- `thread.owner_changed` (byUserId/roomId/threadId/number/fromUserId/toUserId) - `PUT .../threads/{number}/owner` (0.3.0 S4; a steward): user ids only. Naming the current owner is a `204` with no line; a refusal
+  (400, 403, 404, the archived or closed 409) emits no `thread.*` line (a 403 still emits `authz.denied`),
 - `room.access_denied` (byUserId/roomId) — a signed-in caller who is NOT a member (and not an ADMIN) addressed a room that EXISTS, through any room route (GET, PUT, archive, unarchive,
   DELETE, the workflow read, the member list, add, role change and removal). The response is the uniform `404`, the same as for a room that does not exist, so this line is the only trace of someone probing room ids;
   it is NOT emitted for an id that matches no active room (nothing was denied), nor for an ADMIN. Emitted by the route preamble (`rooms/RoomAccess.kt`) before the guard answers,

@@ -216,8 +216,19 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     |---|---|---|---|---|---|
     | `GET /rooms/{id}/threads`, `GET .../threads/{number}`, `GET .../threads/{number}/events` | 404 | 200 | 200 | 200 | 200 |
     | `POST /rooms/{id}/threads` (201 + `Location`) | 404 | 201 | 201 | 201 | 403 |
-    | an unknown number, any read | 404 | 404 | 404 | 404 | 404 |
+    | `PUT .../threads/{number}` (details, `X-Expected-Revision`) | 404 | 204 | 204 | 204 | 204 |
+    | `PUT .../threads/{number}/status`, OPEN to OPEN (`monitoring`) | 404 | 204 | 204 | 204 | 204 |
+    | `PUT .../threads/{number}/status`, close, reopen or CLOSED to CLOSED (a STEWARD) | 404 | 403 | 204 | 204 | 204 |
+    | `PUT .../threads/{number}/owner` (a STEWARD) | 404 | 403 | 204 | 204 | 204 |
+    | an unknown number, any read or write | 404 | 404 | 404 | 404 | 404 |
 
+    **The steward rule (D1, S4):** closing, reopening, a CLOSED to CLOSED move and passing ownership belong to a STEWARD - the thread owner while a member, the room OWNER or an ADMIN, i.e. whoever can undo a close. `isThreadSteward` /
+    **`requireThreadSteward(caller, standing, threadOwnerId)`** (`authz/Guards.kt`, DB-free: `requireRoomReader` first, then the rule, else `403`; a thread owner who has left the room is no steward and sees the `404`). The owner PUT
+    runs it as the pre-check on a lock-free `ownerOf` read (a missing thread is `404`, a non-steward `403`, both before the body) and again under the room lock on the fresh caller, standing and row (a thread handed over while
+    the call waited is refused with the `403`). The status PUT is the one BODY-dependent guard (whether a steward is needed follows the target's category), so it runs under the lock after the target resolves: an unknown or
+    retired key is a `400` first (a reader can read the workflow, so it discloses nothing), then the steward `403` (even for the status the thread already has: a no-op must not bypass the steward rule), then the archived `409`
+    (the no-op included), then the write. Race 4 (`ThreadStatusTest`): a thread closed while a member's OPEN to OPEN move waits for the lock is a `403`. A closed thread refuses the owner hand-over with `409 thread-closed` but not a
+    status move.
     A malformed create body is `404` for an outsider, `403` for an ADMIN outside the room and `400` only for a member. A thread is addressed by `(room id, number)`, so another room's number is
     never reachable: the lookup is scoped to the room the visibility check admitted. An archived room refuses the POST with the typed `409` `urn:adder:problem:room-archived`. Tests:
     `ThreadAuthzMatrixTest` (a fresh room per cell), `ThreadTest`, `ThreadWriteBoundsTest`, `GuardsTest`.

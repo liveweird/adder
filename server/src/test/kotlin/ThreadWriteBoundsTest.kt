@@ -125,7 +125,7 @@ class ThreadWriteBoundsTest {
         val member = actor("thr-race1-mem")
         val room = room(owner, member)
 
-        holdingRoomLock(room) { raw ->
+        TestThreads.holdingRoomLock(room) { raw ->
             coroutineScope {
                 val creates = listOf(owner, member).map { who ->
                     async { who.client.postJson("$rooms/$room/threads", ThreadCreateRequest("Raced", "B", severity)) }
@@ -154,7 +154,7 @@ class ThreadWriteBoundsTest {
         val room = room(owner, member)
         val activityBefore = TestThreads.roomActivity(room)
 
-        holdingRoomLock(room, "DELETE FROM room_members WHERE room_id = ? AND user_id = ?", room, member.id) { raw ->
+        TestThreads.holdingRoomLock(room, "DELETE FROM room_members WHERE room_id = ? AND user_id = ?", room, member.id) { raw ->
             coroutineScope {
                 // The route's own pre-check passes (the removal is uncommitted); the create then waits for the room lock.
                 val creating = async { member.client.postJson("$rooms/$room/threads", ThreadCreateRequest("Raced", "B", severity)) }
@@ -166,32 +166,5 @@ class ThreadWriteBoundsTest {
         assertEquals(emptyList(), TestThreads.rawAll(room), "the refused create wrote nothing")
         assertEquals(activityBefore, TestThreads.roomActivity(room))
         assertNull(TestRooms.rawRole(room, member.id))
-    }
-
-    /** Holds the room lock on a raw transaction (that also runs [statement] bound to [ids], when given) until [body] commits it. */
-    private suspend fun holdingRoomLock(
-        roomId: UInt,
-        statement: String? = null,
-        vararg ids: UInt,
-        body: suspend (java.sql.Connection) -> Unit,
-    ) {
-        PostgresTestSupport.connect().use { raw ->
-            raw.autoCommit = false
-            raw.prepareStatement("SELECT id FROM rooms WHERE id = ? FOR NO KEY UPDATE").use { st ->
-                st.setInt(1, roomId.toInt())
-                st.executeQuery().close()
-            }
-            statement?.let {
-                raw.prepareStatement(it).use { st ->
-                    ids.forEachIndexed { index, id -> st.setLong(index + 1, id.toLong()) }
-                    st.executeUpdate()
-                }
-            }
-            try {
-                body(raw)
-            } finally {
-                raw.rollback() // a no-op after the commit; releases the lock if an assertion failed first
-            }
-        }
     }
 }

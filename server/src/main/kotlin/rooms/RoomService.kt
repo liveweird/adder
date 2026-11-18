@@ -158,7 +158,7 @@ class RoomService(
      */
     suspend fun update(roomId: UInt, caller: CallerPrincipal, guard: RoomGuard, request: RoomUpdateRequest) {
         validateRoomUpdate(request)
-        database.withRoomWrite(roomId, caller, guard) { standing ->
+        database.withRoomWrite(roomId, caller, guard) { _, standing ->
             if (standing.archived) throw roomArchived()
             Rooms.update({ Rooms.id eq roomId }) {
                 it[name] = request.name
@@ -170,7 +170,7 @@ class RoomService(
 
     /** Archives or unarchives under the room lock; true on an actual change, false when the room already was in that state (no write). */
     suspend fun setArchived(roomId: UInt, caller: CallerPrincipal, guard: RoomGuard, archived: Boolean): Boolean =
-        database.withRoomWrite(roomId, caller, guard) { standing ->
+        database.withRoomWrite(roomId, caller, guard) { _, standing ->
             if (standing.archived == archived) return@withRoomWrite false
             val stamp = nowMillis()
             Rooms.update({ Rooms.id eq roomId }) {
@@ -182,7 +182,7 @@ class RoomService(
 
     /** Soft delete under the room lock: the room stops reading as active and frees its name; members and workflow rows stay with it. */
     suspend fun delete(roomId: UInt, caller: CallerPrincipal, guard: RoomGuard) {
-        database.withRoomWrite(roomId, caller, guard) {
+        database.withRoomWrite(roomId, caller, guard) { _, _ ->
             Rooms.update({ Rooms.id eq roomId }) {
                 it[markedAsDeleted] = true
                 it[updatedAt] = nowMillis()

@@ -64,6 +64,26 @@ fun requireRoomManager(caller: CallerPrincipal, standing: RoomStanding?) {
 }
 
 /**
+ * Whether [caller] is a STEWARD of a thread owned by [threadOwnerId] (D1, `chat-model.md` "Who may do what"): the thread owner while
+ * a member, the room's OWNER or an ADMIN, i.e. whoever can undo a close. A thread owner who has left the room is no steward (a removed
+ * owner keeps the thread, inert). DB-free; the pure status rules take the verdict as a flag.
+ */
+fun isThreadSteward(caller: CallerPrincipal, standing: RoomStanding?, threadOwnerId: UInt): Boolean =
+    caller.isAdmin() || standing?.role == RoomRole.OWNER || (standing?.role != null && caller.userId == threadOwnerId)
+
+/**
+ * The stewardship guard of a thread route (close, reopen, CLOSED to CLOSED, passing ownership): [requireRoomReader] first (an outsider's
+ * answer is the `404`, never the `403`), then [isThreadSteward], else a `403`. The route runs it on a lock-free read of the owner
+ * (a missing thread is `404` there) and the write runs it again on the fresh caller, standing and thread row under the room lock.
+ */
+fun requireThreadSteward(caller: CallerPrincipal, standing: RoomStanding?, threadOwnerId: UInt) {
+    requireRoomReader(caller, standing)
+    if (!isThreadSteward(caller, standing, threadOwnerId)) {
+        throw ForbiddenException("Thread owner, room owner or admin role required")
+    }
+}
+
+/**
  * The speech guard of a room (start a thread, post a message): [requireRoomReader] first (an outsider's answer is the `404`, never the
  * `403`), then an actual MEMBER, else a `403`. An ADMIN reads and manages every room but only members speak, so an ADMIN who is not a
  * member is refused here and joins through the Members page first (`chat-model.md` "Who may do what"). Run it as the guard of the
