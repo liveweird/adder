@@ -70,8 +70,8 @@ Detail and the rules they became: `chat-model.md` "Rules".
 - **A team add is a snapshot**, not a live link. Member add is idempotent and always adds as MEMBER; promotion is a separate audited step.
 - **Keys are reserved for the life of a room:** removing a status or field retires it, re-adding revives it, a field's `type` is immutable per key.
 - **A workflow edit never closes or reopens a thread behind its history:** a replacement status has the same category as the retired one, and a
-  category is editable only while no thread uses the status. Both can be relaxed later. Fields and options need no mapping in 0.2; what a removed
-  option means for stored values is decided in 0.3.
+  category is editable only while no thread uses the status. Both can be relaxed later. Fields and options need no mapping; what a removed
+  option means for stored values was decided in 0.3 (`chat-model.md` "Workflows": stored values survive).
 - **Room names are unique** among non-deleted rooms, case-insensitively (archived rooms keep theirs); a clash discloses only that the name exists
   (Slack's private-channel rule). No slug; URLs use the numeric id.
 - **Archived means read-only** for name, description, workflow and (0.3) content; membership management stays allowed.
@@ -84,6 +84,39 @@ Detail and the rules they became: `chat-model.md` "Rules".
 - Deleting a template never touches rooms; there is no "last template" rule.
 - Rate buckets (all per signed-in user): `room-name` 30/min shared by `POST /rooms` and `PUT /rooms/{id}`, `room-members` 60/min on `POST /rooms/{id}/members`, and `directory` 120/min on the user directory; everything else is
   guard-gated and bounded by the caps above. `lockingTransaction` is not ported (one row lock per room instead).
+
+### 0.3.0 threads and messages
+
+Taken without asking: the user was away (2026-11-18) and said to take the architect's recommended defaults. **D1 and D2 are the architect's recommended
+options, not the user's decisions**, and can be changed on request. Detail and the rules they became: `chat-model.md` "Threads and messages (0.3)".
+
+- **D1. Who closes a thread:** the thread owner, the room OWNER or an ADMIN (the people who can reopen). Closing stops everyone, so it belongs to whoever
+  can undo it; a member who thinks a thread is done says so or moves it to an OPEN status such as *Monitoring*. The alternative was any member closing
+  (faster, but one member could freeze a thread its owner is still working on); it changes one predicate in the status rules and two matrix cells.
+- **D2. Moderating messages:** the room OWNER or an ADMIN may delete, never edit, someone else's message (incident chat leaks credentials and the author may be
+  asleep). It becomes a tombstone ("Removed by a room owner or an administrator"), `messages.deleted_by` records who, and the audit line is
+  `message.deleted` with `moderated`. The alternative was authors only (a later migration would add the column).
+- **Who does what.** Speech (start a thread, post): members only, so a non-member ADMIN gets 403 and joins first. OPEN-side metadata (OPEN->OPEN moves, title,
+  fields): any reader. Stewardship (close, reopen, CLOSED->CLOSED, passing ownership): thread owner while a member, room OWNER, ADMIN. Own messages: edited and
+  deleted by their author while a member.
+- **Closed and archived.** A closed thread refuses posts, edits and deletes (moderator ones included), the details PUT and the owner hand-over (409
+  `thread-closed`); stewards can still move it. An archived room refuses every content write (409 `room-archived`); reads work.
+- **Ownership.** The new owner must be an active member (400); a removed or deleted owner keeps the thread, inert, until a steward passes it on; setting the
+  current status or owner again is a no-op (204, no event, no audit).
+- **Starting a thread** takes a title (single line, <= 200) and an opening message, in the initial status with the creator as owner; required fields must be supplied.
+- **Numbers and counts.** `#N` is `MAX+1` per room and never reused; threads are never deleted in 0.3 (close as *Won't do*). `message_count` includes the
+  opener and tombstones and never goes down.
+- **Messages.** Markdown, 1 to 8,000 UTF-16 units; stored raw, rendered without HTML (headings as bold paragraphs, images as links, links in a new tab with
+  `rel="noopener noreferrer"`; the CSP is unchanged). An edit overwrites (no versions) and sets `edited_at`; a delete scrubs the body and lists a tombstone.
+- **Field values** by type (TEXT <= 500, NUMBER, DATE, SELECT, MULTI_SELECT <= 50, USER an active member, URL http/https); `null` clears; a required field cannot be
+  cleared once set. Stored values survive a workflow edit.
+- **Activity.** New threads and messages, and status, owner, title and field changes, bump the rail order; edits, deletes and workflow moves do not.
+- **History** is the side panel, newest first, 10 per page; message edits and deletes are audited, not in the history; audit lines never carry a title,
+  body or field value.
+- **UI.** Enter inserts a newline, Ctrl/Cmd+Enter or Send posts; no polling or live refresh until 0.4 (refetch on focus, navigation and the caller's own
+  writes); the thread list shows open threads, most recently active first, 50 per page, and the message list loads 50 at a time with "Load older messages";
+  times render in the browser's zone as `YYYY-MM-DD HH:mm`.
+- **Rate bucket:** `chat-post`, 120/min per user, on the two POSTs.
 
 ## Roadmap
 

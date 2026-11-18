@@ -27,7 +27,9 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 ## Foundation follow-ups
 
 - [new] **Room restore.** Soft delete (ADMIN `DELETE /rooms/{id}`) has no restore API; an ADMIN cannot bring a deleted room back except through the database. Decide the shape (a restore route, or a trash list) and the name-reuse rule.
-- [new] **What a removed option means for stored values (decided in 0.3).** A room's select field can retire an option, but until threads store field values there is nothing to migrate; 0.3 decides whether existing values keep the retired option (shown as "removed"), are cleared, or block the retire.
+- [new] **History interleaved in the conversation.** 0.3 shows a thread's history in the side panel only; consider interleaving the events with the messages in one timeline.
+- [new] **Message edit history.** An edit overwrites the body and sets `edited_at`; no versions are kept. Decide whether to keep them (who may see them, and how a moderator delete scrubs them).
+- [new] **Thread delete or merge.** Threads are never deleted in 0.3 (close one as *Won't do*); decide whether an owner or ADMIN may delete a thread, or merge a duplicate into another.
 - [new] **Relax the same-category replacement rule.** Retiring a status in use requires a replacement in the SAME category (so a thread never silently opens or closes). Consider allowing a cross-category move with an explicit confirmation once threads exist.
 - [new] **The retire-dialog e2e (0.3).** `RetireStatusModal` and the `409 status-in-use` flow are unit-tested only, because no thread can use a status in 0.2.0; add the Playwright scenario with threads in 0.3.
 
