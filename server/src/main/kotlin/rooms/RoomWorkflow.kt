@@ -57,6 +57,31 @@ data class RoomWorkflowResponse(
     val fields: List<RoomFieldResponse>,
 )
 
+/** One status of a room's workflow as a thread write sees it ([retired] ones keep their key and their row, `V13`). */
+data class SnapshotStatus(
+    val key: String,
+    val label: String,
+    val category: StatusCategory,
+    val initial: Boolean,
+    val retired: Boolean,
+)
+
+/** One field of a room's workflow as a thread write sees it. */
+data class SnapshotField(
+    val key: String,
+    val label: String,
+    val type: FieldType,
+    val required: Boolean,
+    val options: List<RoomOptionDef>,
+    val retired: Boolean,
+)
+
+/**
+ * A room's whole workflow, active AND retired rows, in position order (`RoomWorkflowService.snapshot`): what `threads/` validates a
+ * thread write against and takes the label snapshots of its history events from. Plain data, so `threads/` never touches the rows.
+ */
+data class RoomWorkflowSnapshot(val statuses: List<SnapshotStatus>, val fields: List<SnapshotField>)
+
 /**
  * The room label for one template label map: the [language] label, else the EN one (the fallback is per label, so a half-translated
  * template still copies completely). A template always carries `en` (`requireLabelMap`), so a miss is a corrupt document.

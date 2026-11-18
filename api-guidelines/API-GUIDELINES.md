@@ -700,7 +700,7 @@ v0.1.0 foundation — extend this list as domain features land):
   against the current row and reject a stale credential rather than silently accepting it. See
   `.claude/docs/persistence.md` "Credential revision".
 - **Parent-existence guards** — a mutation under a parent row re-checks the parent is still active inside its own transaction (`lockActiveForWrite`); a
-  concurrently soft-deleted parent is a `404`, not a silent no-op. The first consumers arrive with the chat increments (a thread under a room).
+  concurrently soft-deleted parent is a `404`, not a silent no-op. The first consumer is the thread create (0.3.0): `POST /rooms/{id}/threads` runs under `withRoomWrite`, which selects the ACTIVE room row `FOR NO KEY UPDATE` and re-runs the guard, so a room deleted (or a caller removed) while the write waited for the lock is the uniform `404`, never an orphan thread (`ThreadWriteBoundsTest` pins the removed-caller race).
 
 A future domain feature that introduces its own document-save or multi-step write (e.g. the
 room workflow's whole-document PUT under `X-Expected-Revision`, `chat-model.md`) should add its own row here, following Covenant's

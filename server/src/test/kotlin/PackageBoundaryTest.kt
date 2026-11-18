@@ -25,12 +25,13 @@ class PackageBoundaryTest {
 
     /**
      * Composition-root exceptions to "infra never references a feature": `infra/db/Database.kt` builds and publishes the feature
-     * services (`teams`, `users`, `auth`, `workflows`, `rooms`) and `infra/db/Bootstrap.kt` seeds the admin through `users`/`auth`.
+     * services (`teams`, `users`, `auth`, `workflows`, `rooms`, `threads`) and `infra/db/Bootstrap.kt` seeds the admin through
+     * `users`/`auth`.
      * Keyed by file name, valued by the feature packages that file may import;
      * a listed package the file no longer uses fails the test (a stale exception is dead permission).
      */
     private val infraCompositionRoot: Map<String, Set<String>> = mapOf(
-        "Database.kt" to setOf("auth", "rooms", "teams", "users", "workflows"),
+        "Database.kt" to setOf("auth", "rooms", "teams", "threads", "users", "workflows"),
         "Bootstrap.kt" to setOf("auth", "users"),
     )
 

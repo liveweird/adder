@@ -190,6 +190,15 @@ class RoomService(
         }
     }
 
+    /**
+     * Bumps the room's `last_activity_at` (the rail order) to [at]: a new thread or message, a status, owner, title or field change
+     * (`chat-model.md` "Activity"). Runs INSIDE the caller's transaction - the thread write, under the room lock `withRoomWrite` took -
+     * and never opens one of its own (the `readStanding` idiom).
+     */
+    suspend fun touchActivity(roomId: UInt, at: Long) {
+        Rooms.update({ Rooms.id eq roomId }) { it[lastActivityAt] = at }
+    }
+
     /** One grouped query for a page's member counts (ACTIVE users only; the inner join drops a soft-deleted member). */
     private suspend fun activeMemberCounts(roomIds: List<UInt>): Map<UInt, Int> {
         if (roomIds.isEmpty()) return emptyMap()

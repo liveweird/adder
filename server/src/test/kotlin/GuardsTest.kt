@@ -7,6 +7,7 @@ import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.requireFeatureEnabled
 import ch.nokillswit.authz.requireRoomManager
+import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.authz.requireRoomReader
 import ch.nokillswit.authz.requireSelfOrAdmin
 import ch.nokillswit.authz.requireTeamManagerOrAdmin
@@ -117,9 +118,23 @@ class GuardsTest {
     }
 
     @Test
+    fun `requireRoomMember admits a member, refuses an administrator outside the room with 403 and an outsider with the 404`() {
+        requireRoomMember(user, member)
+        requireRoomMember(user, owner)
+        requireRoomMember(admin, member) // an ADMIN who IS a member speaks like any member
+        // Only members speak: an ADMIN reads every room but is refused here, after the reader check passed.
+        assertFailsWith<ForbiddenException> { requireRoomMember(admin, outside) }
+        // Visibility comes first: an outsider must never learn the room exists through a 403.
+        assertFailsWith<NotFoundException> { requireRoomMember(user, outside) }
+        assertFailsWith<NotFoundException> { requireRoomMember(user, null) }
+        assertFailsWith<NotFoundException> { requireRoomMember(admin, null) }
+    }
+
+    @Test
     fun `the room guards ignore the archived flag - archived is a state check made under the lock, not a permission`() {
         val archivedOwner = RoomStanding(RoomRole.OWNER, archived = true)
         requireRoomReader(user, archivedOwner)
         requireRoomManager(user, archivedOwner)
+        requireRoomMember(user, archivedOwner)
     }
 }

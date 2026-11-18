@@ -59,8 +59,8 @@ internal class RateLimitAuditThrottle(
 }
 
 /**
- * Every token bucket the routes ride (per client IP, except [TELEMETRY], [DIRECTORY], [ROOM_NAME] and [ROOM_MEMBERS]: per signed-in
- * user), named in
+ * Every token bucket the routes ride (per client IP, except [TELEMETRY], [DIRECTORY], [ROOM_NAME], [ROOM_MEMBERS] and [CHAT_POST]: per
+ * signed-in user), named in
  * one place so a feature module never has to know another's constant (the auth module used to import the try-it bucket's name — a layering
  * inversion the checkup removed). Route files reference these names; only this plugin installs them.
  */
@@ -101,6 +101,13 @@ object RateLimits {
      * the bound slows an id-sweep through a room the caller owns.
      */
     const val ROOM_MEMBERS = "room-members"
+    /**
+     * `POST /api/v1/rooms/{id}/threads` and `POST /api/v1/rooms/{id}/threads/{number}/messages` share ONE bucket per signed-in user:
+     * the two writes that put speech into a room. 120/min in every mode (the [DIRECTORY] idiom): a person types a few messages a
+     * minute, so the bound is for a runaway client or a script flooding a room. Edits, deletes and metadata writes stay unbucketed
+     * (guard-gated, one row each). The bucket sits BEFORE the guards, so a refused or invalid POST spends a token too.
+     */
+    const val CHAT_POST = "chat-post"
 
     const val DEFAULT_REFRESH_PER_MINUTE = 30
     /**
@@ -114,6 +121,7 @@ object RateLimits {
     private const val DIRECTORY_PER_MINUTE = 120
     private const val ROOM_NAME_PER_MINUTE = 30
     private const val ROOM_MEMBERS_PER_MINUTE = 60
+    private const val CHAT_POST_PER_MINUTE = 120
     private const val MFA_PER_MINUTE = 10
     private const val PASSWORD_RESET_CONFIRM_PER_MINUTE = 10
     private const val LOGIN_PER_MINUTE_PRODUCTION = 10
@@ -144,13 +152,14 @@ object RateLimits {
     internal fun directoryLimit() = DIRECTORY_PER_MINUTE
     internal fun roomNameLimit() = ROOM_NAME_PER_MINUTE
     internal fun roomMembersLimit() = ROOM_MEMBERS_PER_MINUTE
+    internal fun chatPostLimit() = CHAT_POST_PER_MINUTE
     internal fun mfaLimit() = MFA_PER_MINUTE
     internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
 }
 
 /**
  * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER telemetry, directory,
- * room-name and room-members buckets.
+ * room-name, room-members and chat-post buckets.
  * Login and password-reset follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
  * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before
@@ -173,6 +182,7 @@ fun Application.configureRateLimits() {
             DIRECTORY to directoryLimit(),
             ROOM_NAME to roomNameLimit(),
             ROOM_MEMBERS to roomMembersLimit(),
+            CHAT_POST to chatPostLimit(),
         )
     }
     install(RateLimit) {
@@ -187,8 +197,9 @@ fun Application.configureRateLimits() {
                 }
             }
         }
-        // The per-USER buckets (telemetry, directory, room-name, room-members). The routes mount them INSIDE `authenticate {}`
-        // (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt), so this key runs only for a verified token: an
+        // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post). The routes mount them INSIDE `authenticate {}`
+        // (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt, threads/ThreadRoutes.kt), so this key runs only for a
+        // verified token: an
         // anonymous call is a 401 that never reaches it and never creates a limiter. The plugin keeps one limiter per key and drops it
         // after its refill period, so memory is
         // bounded by the accounts active within a minute.

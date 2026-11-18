@@ -71,6 +71,21 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
         }
 
     /**
+     * The ids among [candidates] that belong to an ACTIVE member of room [roomId] (a soft-deleted user's membership row is inert), one
+     * query. Runs INSIDE the caller's transaction (a thread write, under the room lock), so a USER field value is judged against the
+     * very membership the write commits with. The pure field kernel gets this set (`threads/ThreadFields.kt`).
+     */
+    suspend fun activeMemberIds(roomId: UInt, candidates: Collection<Long>): Set<Long> {
+        if (candidates.isEmpty()) return emptySet()
+        val ids = candidates.filter { it in 1..UInt.MAX_VALUE.toLong() }.map { it.toUInt() } // a wider id is no user (and must not wrap)
+        return members.innerJoin(users).select(members.userId)
+            .where { (members.roomId eq roomId) and (members.userId inList ids) and users.active() }
+            .map { it[members.userId].value.toLong() }
+            .toList()
+            .toSet()
+    }
+
+    /**
      * Adds the named people and, when asked, the team's ACTIVE roster as it is NOW (a snapshot: a later roster edit never follows), always
      * as MEMBER. Under the room lock: the team (missing or deleted is a 400) and every named id (unknown or soft-deleted is a 400) are
      * resolved first, the people who already belong are subtracted (idempotent: they are counted, not re-added, and beat the cap), then

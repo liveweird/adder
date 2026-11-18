@@ -62,3 +62,14 @@ fun requireRoomManager(caller: CallerPrincipal, standing: RoomStanding?) {
     requireRoomReader(caller, standing)
     if (standing?.role != RoomRole.OWNER && !caller.isAdmin()) throw ForbiddenException("Room owner or admin role required")
 }
+
+/**
+ * The speech guard of a room (start a thread, post a message): [requireRoomReader] first (an outsider's answer is the `404`, never the
+ * `403`), then an actual MEMBER, else a `403`. An ADMIN reads and manages every room but only members speak, so an ADMIN who is not a
+ * member is refused here and joins through the Members page first (`chat-model.md` "Who may do what"). Run it as the guard of the
+ * write ([RoomStanding] re-read under the room lock), so a caller removed while the write waited is refused with the `404`.
+ */
+fun requireRoomMember(caller: CallerPrincipal, standing: RoomStanding?) {
+    requireRoomReader(caller, standing)
+    if (standing?.role == null) throw ForbiddenException("Room membership required")
+}

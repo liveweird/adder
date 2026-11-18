@@ -169,6 +169,13 @@ place:
   `TeamService.activeRosterIds` (a `TeamService` method called inside the room's own transaction, Exposed reusing the enclosing one), so the roster SNAPSHOT and the rows it becomes
   commit together. The add is ONE multi-row `insertRows` after the existing members are subtracted (so the primary key is never hit), the last-OWNER rule is the last-admin check's shape
   (`UserService.updateGuarded`) without its row locks: "another `OWNER` joined to an active user exists" under the room lock. A member's removal is a hard `DELETE` of the row.
+- `ThreadService` (V14, 0.3.0 S2) reads `UserService.Users` directly for display names (one batched `id IN (...)` lookup per list page or read: the owner, the creator and the users held by USER fields,
+  soft-deleted accounts included, since a name outlives the account) and writes only its own `threads` and, through `MessageService.insertInTransaction` and `ThreadEventService.record`, `messages`
+  and `thread_events`, all inside the create's ONE transaction under `withRoomWrite`, so a thread, its opening message and its `CREATED` event commit or roll back together. **Room data comes
+  only through the `rooms/` services, never their tables:** `RoomWorkflowService.snapshot` (the room's statuses and fields, retired included), `RoomMemberService.activeMemberIds`
+  (the active members among a set of ids) and `RoomService.touchActivity` (the room's `last_activity_at`), each running INSIDE the caller's transaction (Exposed reuses it). The history reads
+  `UserService.Users` through the shared `infra/db/EventLog.kt` (the actor's name and deleted flag, joined in the rows' own transaction): `infra/` may not name `users/`, so `threads/` passes the
+  table and its two columns in as an `EventLogActor`. `threads/` imports `rooms/`, `users/` and `workflows/`; `rooms/` never imports `threads/` (`PackageBoundaryTest`).
 - `auth/TokenBlocklistService.accessVerdict` (the per-request access-token check, `plugins/Security.kt`) READS
   `users/UserService.Users` (`role`, `credential_revision`, `marked_as_deleted`, by primary key) and its own
   `revoked_tokens` (an `EXISTS` on the `jti`) in ONE uncached statement per authenticated request; it writes nothing.
@@ -396,4 +403,4 @@ marked_as_deleted, deleted_by)` and `thread_events (id, thread_id, user_id, crea
   "Row locks vs. FK locks".
 - **Indexes:** `idx_threads_room_activity (room_id, last_activity_at)` (the list order), `idx_threads_room_status (room_id, status_key)` (the usage counts), `idx_messages_thread (thread_id, id)`
   (the keyset list), `idx_thread_events_thread (thread_id, created_at, id)` (the history's `-createdAt,-id` page).
-- The Exposed tables arrive nested in their services (`ThreadService.Threads`, `MessageService.Messages`, `ThreadEventService.ThreadEvents`) with the services; V14 ships no service yet.
+- The Exposed tables are nested in their services (`ThreadService.Threads`, `MessageService.Messages`, `ThreadEventService.ThreadEvents`); S2 ships the thread list, read and create, the history read, and `MessageService`'s table and its opening-message insert (the message routes arrive in S5).

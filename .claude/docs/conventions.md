@@ -29,6 +29,6 @@ caller runs `requireLabel` over status, field AND option labels. (3) The PUT is 
 (`ON CONFLICT DO NOTHING`) with a test that decodes them through the kernel. The room workflow (0.2.0 C9) reuses (3) and the kernel.
 
 **Deliberate exceptions to the template.** None in v0.1.0. A new exception is added to this list with its reason in the commit that introduces it.
-- `rooms/` (0.2.0): a member-scoped resource with the hidden-resource uniform `404`, a per-room write lock (`withRoomWrite`) and guards that take a `RoomStanding` instead of an ADMIN check: see `authorization.md` "Rooms" and `persistence.md` "Rooms (V13)".
+- `rooms/` (0.2.0) and `threads/` (0.3.0): member-scoped resources with the hidden-resource uniform `404`, a per-room write lock (`withRoomWrite`, which a thread or message write also runs under) and guards that take a `RoomStanding` instead of an ADMIN check: see `authorization.md` "Rooms" and "Threads" and `persistence.md` "Rooms (V13)" and "Threads (V14)".
 Sibling precedents to port rather than reinvent when the chat domain needs them (`product.md` "Donors"): Toadie's `X-Expected-Revision` whole-document
-PUT (ported: the template registry above), Lettuce's `EventLog`, Covenant's 409-on-illegal-move lifecycle.
+PUT (ported: the template registry above; Toadie's `EventLog` too, ported for `thread_events`), Covenant's 409-on-illegal-move lifecycle.

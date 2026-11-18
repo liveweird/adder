@@ -127,6 +127,10 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `room.member_*` event (a 403 still emits `authz.denied`); the events are emitted by the route after the transaction commits,
 - `room.name_conflict` (byUserId/roomId — roomId null for a create) — a room create or rename answered `409` because a non-deleted room already holds the name (case-insensitively): the trace of someone using the clash as
   a "does a room with this name exist" probe (`security.md`). Emitted by the route when the unique-index violation passes through it, before the central 409 answers; bounded by the shared `room-name` bucket (30/min),
+- `thread.created` (byUserId/roomId/threadId/number/messageId) - `POST /api/v1/rooms/{id}/threads` (0.3.0 S2; a MEMBER): one line per thread, emitted by the route after the transaction commits;
+  it names the opening message (`messageId`), and there is no separate `message.posted` for it. **Thread and message audit lines carry ids, keys and counts only, never a title, a message body or a
+  field value** (`ThreadWriteBoundsTest` pins that no title or body reaches the trail); the user-facing history is `thread_events`, not the audit log. A refused create (400, including every field-value
+  rule, 403, 404, or the archived-room 409, the only 409 a create has) emits no `thread.*` event (a 403 still emits `authz.denied`; a non-member's 404 emits `room.access_denied`),
 - `room.access_denied` (byUserId/roomId) — a signed-in caller who is NOT a member (and not an ADMIN) addressed a room that EXISTS, through any room route (GET, PUT, archive, unarchive,
   DELETE, the workflow read, the member list, add, role change and removal). The response is the uniform `404`, the same as for a room that does not exist, so this line is the only trace of someone probing room ids;
   it is NOT emitted for an id that matches no active room (nothing was denied), nor for an ADMIN. Emitted by the route preamble (`rooms/RoomAccess.kt`) before the guard answers,
@@ -136,13 +140,13 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (Flow's `crypto.reencrypted` boot-backfill event comes back with `EncryptedAtRest`/`Reencrypt`, `security.md` "Encryption at rest"),
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
-- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory`, `room-name` and `room-members` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
-  password-reset, password-reset-confirm, mfa, ready; per-user telemetry, directory, room-name and room-members) rejected the request with a 429, emitted from the 429 status handler in
+- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory`, `room-name`, `room-members` and `chat-post` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
+  password-reset, password-reset-confirm, mfa, ready; per-user telemetry, directory, room-name, room-members and chat-post) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
   (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
   since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one
-  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry`, `directory`, `room-name` and `room-members` buckets are keyed by
-  `telemetry:<userId>` / `directory:<userId>` / `room-name:<userId>` / `room-members:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
+  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry`, `directory`, `room-name`, `room-members` and `chat-post` buckets are keyed by
+  `telemetry:<userId>` / `directory:<userId>` / `room-name:<userId>` / `room-members:<userId>` / `chat-post:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
   account reaches that key, so the key space is the account count. The client address is deliberately NOT a field
   (it is `X-Forwarded-For`-derived behind a proxy, i.e. attacker-chosen text; the ingress log has it), and neither is the
   query string. The per-account lockout's 429s are their own `login.lockout`/`login.rejected_locked` events and do not

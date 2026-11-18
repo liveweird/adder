@@ -80,7 +80,7 @@ object TestTemplates {
 }
 
 object TestRooms {
-    private val workflows: RoomWorkflowService by lazy { RoomWorkflowService(sharedDatabaseForTests()) }
+    val workflows: RoomWorkflowService by lazy { RoomWorkflowService(sharedDatabaseForTests()) }
     val service: RoomService by lazy { RoomService(sharedDatabaseForTests(), TestTemplates.service, workflows) }
 
     /** Creates a room as [ownerId] through the service (the real create path) and returns its id. */

@@ -5,6 +5,7 @@ import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.authz.RoomStanding
 import ch.nokillswit.authz.requireRoomManager
+import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.authz.requireRoomReader
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.users.UserRole
@@ -42,6 +43,9 @@ internal val managerGuard: RoomGuard = { caller, standing -> requireRoomManager(
 
 /** The guard of a self-leave: the reader standing only (a caller removed meanwhile is the uniform `404`). */
 internal val readerGuard: RoomGuard = { caller, standing -> requireRoomReader(caller, standing) }
+
+/** The guard of a speech write (start a thread, post a message): a MEMBER of the room; an ADMIN outside it is `403`, not `404`. */
+internal val memberGuard: RoomGuard = { caller, standing -> requireRoomMember(caller, standing) }
 
 /**
  * The caller as the database knows them NOW: their roles from the `users` row (an ADMIN demoted since the token was minted is a plain

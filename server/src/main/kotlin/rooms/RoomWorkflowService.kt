@@ -18,6 +18,7 @@ import ch.nokillswit.workflows.StatusShape
 import ch.nokillswit.workflows.WorkflowDefinition
 import ch.nokillswit.workflows.requireKeyBudget
 import io.ktor.util.AttributeKey
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -243,6 +244,43 @@ class RoomWorkflowService(private val database: R2dbcDatabase) {
             }
         }
     }
+
+    /**
+     * The room's statuses and fields, retired ones included, in position order. Runs inside the caller's transaction (a thread write,
+     * under the room lock), so the snapshot is the very state the write is validated against: no workflow PUT can interleave.
+     */
+    suspend fun snapshot(roomId: UInt): RoomWorkflowSnapshot = RoomWorkflowSnapshot(
+        statuses = RoomStatuses.selectAll().where { RoomStatuses.roomId eq roomId }.orderBy(RoomStatuses.position to SortOrder.ASC).map {
+            SnapshotStatus(
+                key = it[RoomStatuses.key],
+                label = it[RoomStatuses.label],
+                category = StatusCategory.valueOf(it[RoomStatuses.category]),
+                initial = it[RoomStatuses.isInitial],
+                retired = it[RoomStatuses.markedAsDeleted],
+            )
+        }.toList(),
+        fields = RoomFields.selectAll().where { RoomFields.roomId eq roomId }.orderBy(RoomFields.position to SortOrder.ASC).map {
+            SnapshotField(
+                key = it[RoomFields.key],
+                label = it[RoomFields.label],
+                type = FieldType.valueOf(it[RoomFields.type]),
+                required = it[RoomFields.required],
+                options = storedJson.decodeFromString(optionsSerializer, it[RoomFields.optionsJson]),
+                retired = it[RoomFields.markedAsDeleted],
+            )
+        }.toList(),
+    )
+
+    /**
+     * The type of every ACTIVE field of the room by key: the light read of a thread read (which fields to show, which hold users), one
+     * narrow query instead of the whole [snapshot]. Runs inside the caller's transaction.
+     */
+    suspend fun activeFieldTypes(roomId: UInt): Map<String, FieldType> =
+        RoomFields.select(RoomFields.key, RoomFields.type)
+            .where { (RoomFields.roomId eq roomId) and (RoomFields.markedAsDeleted eq false) }
+            .map { it[RoomFields.key] to FieldType.valueOf(it[RoomFields.type]) }
+            .toList()
+            .toMap()
 
     /**
      * The room's ACTIVE statuses and fields in position order with the workflow revision, or null when the room is missing or deleted

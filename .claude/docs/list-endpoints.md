@@ -52,3 +52,5 @@ wrapper is reserved for genuinely bounded, admin-curated sets. Facet counts (`GE
 pattern with the first filterable list that needs them.
 
 A room's members are the first paged sub-collection: `GET /rooms/{id}/members` (reader; `{userId,name,email,role,addedAt}` rows; sortable `id` = the user id, `name`, `role`, `addedAt`; filters `role` (enum, `400` on an unknown name) and `name` (`containsNormalized` on the display name, at most 100 characters); ACTIVE users only, count and rows over ONE predicate in one transaction, in `rooms/RoomMemberService`). A room holds at most 500 members, so the page envelope is bounded by that cap, never unbounded.
+
+A room's threads and a thread's history are the next two: `GET /rooms/{id}/threads` (reader; sortable `id`, `number`, `title`, `lastActivityAt`, `createdAt`; the strict boolean filter `closed`; in `threads/ThreadService`) and `GET .../threads/{number}/events` (sortable `id`, `createdAt`, default `-createdAt,-id`, the shared `EVENT_LOG_*` of `infra/db/EventLog.kt`, so an old sort name such as `timestamp` is a `400`).

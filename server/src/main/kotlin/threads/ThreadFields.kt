@@ -109,6 +109,16 @@ fun applyFieldValues(
     return FieldWrite(merged, changes)
 }
 
+/**
+ * The ids among the [incoming] values of active USER fields that parse as a user id (the same grammar [applyFieldValues] judges):
+ * what the caller looks up with `RoomMemberService.activeMemberIds` before it hands the member set to the kernel. A value that is not
+ * an id is skipped here and refused by the kernel with its 400.
+ */
+fun incomingUserIds(definitions: List<FieldDefinition>, incoming: Map<String, JsonElement>): Set<Long> =
+    definitions.filter { it.type == FieldType.USER && !it.retired }.mapNotNullTo(HashSet()) { definition ->
+        (incoming[definition.key] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.takeIf { USER_ID_GRAMMAR.matches(it) }?.toLong()
+    }
+
 // Numbers compare by value (1 and 1.0 are the same stored number) and a MULTI_SELECT as a set (its order is the definition's, which
 // may have been reordered since); everything else by its JSON form.
 private fun sameValue(type: FieldType, a: JsonElement?, b: JsonElement?): Boolean = when {

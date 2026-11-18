@@ -205,6 +205,22 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     (leave, demotion and removal, an ADMIN's included), counted under the room lock (`RoomMemberService`); a target who is not an ACTIVE member is `404`. A room whose owners are all deleted
     is managed by ADMINs (promote someone, then the rule holds). The workflow PUT (C9) follows the same order: visibility, role, the header, the body, then the lock; from 0.3 on any member posts, replies and moves a thread between OPEN statuses, the thread owner, the room OWNER or an
     ADMIN passes ownership and reopens a closed thread, and a closed thread refuses further activity with `409`. Tests: `RoomTest`, `RoomMembersTest`, `RoomAuthzMatrixTest`, `GuardsTest`.
+  - **Threads (V14, 0.3.0 S2): the thread matrix** (`/api/v1/rooms/{id}/threads…`, `threads/ThreadRoutes.kt`; `chat-model.md` "Who may do what", "Guard order and locking"). A thread route
+    runs the room's order: `401`; the per-USER `chat-post` bucket (the POST only, `security.md`); visibility (`visibleStanding`: the uniform `404`, `room.access_denied` audited); the pre-check
+    before the body (`403`); the body (`400`); then, under the room lock, the guard AGAIN on the fresh caller and standing, the archived `409`, the field-value `400`s (the kernel, against the workflow read under the lock), and the write. **`requireRoomMember(caller, standing)`**
+    (`authz/Guards.kt`, DB-free) is the speech guard: `requireRoomReader` first, then an actual member, else `403` - an ADMIN reads every room but only members speak, so an ADMIN outside the
+    room is `403` on a POST and joins through the Members page first; `rooms/RoomLock.kt` wraps it as `memberGuard` for `withRoomWrite`. A creator removed while the create waits for the lock is
+    refused by the re-run guard with the `404` (`ThreadWriteBoundsTest`, race 2); two creates waiting at once take consecutive numbers (race 1). The S2 rows (the later steps add the writes'):
+
+    | Operation | outsider | member | thread owner (plain member) | room owner | admin (non-member) |
+    |---|---|---|---|---|---|
+    | `GET /rooms/{id}/threads`, `GET .../threads/{number}`, `GET .../threads/{number}/events` | 404 | 200 | 200 | 200 | 200 |
+    | `POST /rooms/{id}/threads` (201 + `Location`) | 404 | 201 | 201 | 201 | 403 |
+    | an unknown number, any read | 404 | 404 | 404 | 404 | 404 |
+
+    A malformed create body is `404` for an outsider, `403` for an ADMIN outside the room and `400` only for a member. A thread is addressed by `(room id, number)`, so another room's number is
+    never reachable: the lookup is scoped to the room the visibility check admitted. An archived room refuses the POST with the typed `409` `urn:adder:problem:room-archived`. Tests:
+    `ThreadAuthzMatrixTest` (a fresh room per cell), `ThreadTest`, `ThreadWriteBoundsTest`, `GuardsTest`.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: three sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it

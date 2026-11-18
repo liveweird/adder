@@ -14,6 +14,11 @@ import ch.nokillswit.rooms.RoomWorkflowService
 import ch.nokillswit.rooms.RoomWorkflowServiceKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
+import ch.nokillswit.threads.MessageService
+import ch.nokillswit.threads.ThreadEventService
+import ch.nokillswit.threads.ThreadEventServiceKey
+import ch.nokillswit.threads.ThreadService
+import ch.nokillswit.threads.ThreadServiceKey
 import ch.nokillswit.users.UserService
 import ch.nokillswit.users.UserServiceKey
 import ch.nokillswit.workflows.WorkflowTemplateService
@@ -249,8 +254,17 @@ suspend fun Application.configureDatabase() {
     // The room aggregate (V13): a room copies a template at creation, so the room service reads the template service.
     val roomWorkflowService = RoomWorkflowService(database)
     attributes.put(RoomWorkflowServiceKey, roomWorkflowService)
-    attributes.put(RoomServiceKey, RoomService(database, workflowTemplateService, roomWorkflowService))
-    attributes.put(RoomMemberServiceKey, RoomMemberService(database, teamService))
+    val roomService = RoomService(database, workflowTemplateService, roomWorkflowService)
+    attributes.put(RoomServiceKey, roomService)
+    val roomMemberService = RoomMemberService(database, teamService)
+    attributes.put(RoomMemberServiceKey, roomMemberService)
+    // The thread aggregate (V14): a thread write runs under the room lock and reads the room through the rooms/ services only.
+    val threadEventService = ThreadEventService(database)
+    attributes.put(ThreadEventServiceKey, threadEventService)
+    attributes.put(
+        ThreadServiceKey,
+        ThreadService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, MessageService()),
+    )
     attributes.put(
         TokenBlocklistServiceKey,
         TokenBlocklistService(

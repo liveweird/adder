@@ -839,6 +839,104 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/threads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a room's threads
+         * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`).
+         *
+         *     - Sortable fields: `id`, `number`, `title`, `lastActivityAt`, `createdAt`. Default `id` ascending (the SPA sends `-lastActivityAt`).
+         *     - Filters: `closed` (strict `true` or `false`, on the status category: `true` = only closed threads, `false` = only open ones;
+         *       omitted = both). A repeated key is a `400`.
+         *     - A row carries the status KEY; labels and colours come from the room's workflow (`GET /rooms/{id}/workflow`).
+         */
+        get: operations["listThreads"];
+        put?: never;
+        /**
+         * Start a thread
+         * @description A MEMBER of the room (an `ADMIN` who is not a member is `403` and joins through the Members page first; a non-member is the
+         *     uniform `404`). Checked in this order: visibility (`404`), membership (`403`), the body (`400`), then under the room lock the
+         *     guard again (a caller removed while the write waited is refused), an archived room (`409` of type `urn:adder:problem:room-archived`)
+         *     and the field values (`400`).
+         *
+         *     The thread starts in the room's initial status with the caller as its owner and the number `MAX + 1` of the room; `body`
+         *     becomes its opening message. `title` is a single line of 1 to 200 characters; `body` is Markdown of 1 to 8,000 UTF-16 units
+         *     after line endings are normalised, leading blank lines and trailing whitespace are dropped and the first line's indentation stays
+         *     (`\n` and `\t` allowed, every other control character and the hidden direction characters
+         *     are a `400`). Every required field must be supplied; an unknown key, or a value for a retired key (an unchanged `null` for a retired key is ignored), is a `400`,
+         *     as is a value that breaks its type's rule. The thread, its opening message, its `CREATED` history entry and the activity bump of the thread and the room commit
+         *     together. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429` beyond it); the bucket
+         *     is spent before any guard, so a refused or invalid POST costs a token too.
+         */
+        post: operations["createThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a thread
+         * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`, as does an unknown number). `fields` holds the ACTIVE
+         *     fields' stored values only (a retired field keeps its value, hidden, and it returns if the field is revived); `fieldUserNames`
+         *     maps the user ids held by USER fields to display names. `revision` is what the details PUT names in `X-Expected-Revision`.
+         */
+        get: operations["getThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a thread's history
+         * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`, as does an unknown number). The thread's append-only
+         *     history: structured entries (`type` plus string-map `params`: keys and ids with snapshots of labels and names) that the client
+         *     renders in the viewer's language. Message edits and deletes are not history.
+         *
+         *     - Sortable fields: `id`, `createdAt`. Default `-createdAt,-id` (newest first).
+         *     - `userDeleted` marks an actor whose account has since been deleted (the recorded name stays).
+         */
+        get: operations["listThreadEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/telemetry/current": {
         parameters: {
             query?: never;
@@ -1432,6 +1530,145 @@ export interface components {
             /** @description Extension member, present only on a workflow conflict that is about specific keys (the statuses or fields the conflict names). */
             keys?: string[];
         };
+        /**
+         * @description Field values by field key. Per type: TEXT a single-line string of at most 500 characters (blank means unset); NUMBER a finite
+         *     JSON number whose magnitude is at most 1e15; DATE a real calendar day as a `YYYY-MM-DD` string; SELECT one option key;
+         *     MULTI_SELECT 1 to 50 distinct option keys (an empty array means unset); USER the id of an active member of the room;
+         *     URL an absolute `http` or `https` URL of at most 2,000 characters. `null` means unset. A value of the wrong JSON type is a `400`.
+         */
+        ThreadFieldValues: {
+            [key: string]: (string | null) | number | string[];
+        };
+        ThreadCreateRequest: {
+            /** @description A single line; trimmed. */
+            title: string;
+            /** @description The opening message, Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays. */
+            body: string;
+            fields?: components["schemas"]["ThreadFieldValues"];
+        };
+        ThreadResponse: {
+            /** Format: int32 */
+            id: number;
+            /**
+             * Format: int32
+             * @description The per-room number (`#42`); never reused.
+             */
+            number: number;
+            title: string;
+            /** @description The status KEY; its label and colour are in the room's workflow. */
+            status: string;
+            /** @description The status is in a CLOSED category; the thread takes no further activity until it is reopened. */
+            closed: boolean;
+            /**
+             * Format: int64
+             * @description Epoch millis of the move into a CLOSED status; `null` while open.
+             */
+            closedAt: number | null;
+            /** Format: int32 */
+            ownerId: number;
+            ownerName: string;
+            /** Format: int32 */
+            createdById: number;
+            createdByName: string;
+            fields: components["schemas"]["ThreadFieldValues"];
+            /** @description Display names of the users held by USER fields, by user id. */
+            readonly fieldUserNames: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int32
+             * @description Every message: the opener and deleted ones included; it never goes down.
+             */
+            messageCount: number;
+            /**
+             * Format: int64
+             * @description The token the details PUT names in `X-Expected-Revision`. Starts at 1.
+             */
+            revision: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastActivityAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            updatedAt: number;
+        };
+        ThreadListItem: {
+            /** Format: int32 */
+            id: number;
+            /** Format: int32 */
+            number: number;
+            title: string;
+            /** @description The status KEY. */
+            status: string;
+            closed: boolean;
+            /** Format: int32 */
+            ownerId: number;
+            ownerName: string;
+            /** Format: int32 */
+            messageCount: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastActivityAt: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+        };
+        ThreadPage: {
+            items: components["schemas"]["ThreadListItem"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        /**
+         * @description The kind of a history entry (persisted, never renamed). The `params` of each: `CREATED` `{title, status, statusLabel}`;
+         *     `TITLE_CHANGED` `{from, to}`; `STATUS_CHANGED`, `CLOSED`, `REOPENED` and `STATUS_REPLACED` `{from, to, fromLabel, toLabel}`
+         *     (status keys and the labels at that moment); `OWNER_CHANGED` `{fromId, toId, fromName, toName}`; `FIELD_CHANGED`
+         *     `{field, fieldLabel, from?, to?}` (display text; an absent side means unset).
+         * @enum {string}
+         */
+        ThreadEventType: "CREATED" | "TITLE_CHANGED" | "STATUS_CHANGED" | "CLOSED" | "REOPENED" | "OWNER_CHANGED" | "FIELD_CHANGED" | "STATUS_REPLACED";
+        ThreadEvent: {
+            /** Format: int32 */
+            id: number;
+            /**
+             * Format: int32
+             * @description The acting user.
+             */
+            userId: number;
+            userName: string;
+            /** @description The acting account has since been deleted. */
+            userDeleted: boolean;
+            type: components["schemas"]["ThreadEventType"];
+            params: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+        };
+        ThreadEventPage: {
+            items: components["schemas"]["ThreadEvent"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
         TelemetryCurrent: {
             /**
              * Format: int64
@@ -1731,7 +1968,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread (`POST /api/v1/rooms/{id}/threads`) the per-USER chat-post bucket (shared with the message POST) is exhausted (120/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 [name: string]: unknown;
@@ -1763,6 +2000,8 @@ export interface components {
         ResourceId: number;
         /** @description A user id (int32; ids start at 1). */
         UserIdPath: number;
+        /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+        ThreadNumberPath: number;
         /** @description 1-based page index. Defaults to 1. */
         Page: number;
         /** @description Rows per page. Defaults to 20, maximum 100. */
@@ -3139,6 +3378,149 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listThreads: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                closed?: boolean;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of threads */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    createThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created; `Location` points at the new thread */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The thread */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listThreadEvents: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of history entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadEventPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalServerError"];
         };
     };

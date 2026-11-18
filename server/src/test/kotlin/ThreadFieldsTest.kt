@@ -6,6 +6,7 @@ import ch.nokillswit.threads.MAX_NUMBER_FIELD_MAGNITUDE
 import ch.nokillswit.threads.MAX_TEXT_FIELD_LENGTH
 import ch.nokillswit.threads.MAX_URL_FIELD_LENGTH
 import ch.nokillswit.threads.applyFieldValues
+import ch.nokillswit.threads.incomingUserIds
 import ch.nokillswit.workflows.FieldType
 import ch.nokillswit.workflows.MAX_OPTIONS
 import io.ktor.serialization.kotlinx.json.DefaultJson
@@ -344,5 +345,27 @@ class ThreadFieldsTest {
         assertEquals(emptyList(), apply(definitions, emptyMap(), current).changes)
         assertEquals(emptyList(), apply(definitions, mapOf("tags" to JsonNull), current).changes)
         assertEquals(text("high"), apply(definitions, mapOf("severity" to text("high")), current).merged["severity"])
+    }
+
+    @Test
+    fun `incomingUserIds collects the ids of active USER values and leaves everything else to the kernel`() {
+        val definitions = listOf(
+            def("lead", FieldType.USER),
+            def("deputy", FieldType.USER),
+            def("gone", FieldType.USER, retired = true),
+            def("note", FieldType.TEXT),
+        )
+        val incoming = mapOf(
+            "lead" to JsonPrimitive(7),
+            "deputy" to JsonNull,
+            "gone" to JsonPrimitive(9),
+            "note" to JsonPrimitive(11),
+        )
+        assertEquals(setOf(7L), incomingUserIds(definitions, incoming), "a retired or non-USER field's value is not a lookup candidate")
+        for (notAnId in listOf(JsonPrimitive("7"), JsonPrimitive(7.5), JsonPrimitive(-7), JsonPrimitive(1e30), many("7"))) {
+            assertEquals(emptySet(), incomingUserIds(definitions, mapOf("lead" to notAnId)), "$notAnId")
+        }
+        assertEquals(setOf(7L, 8L), incomingUserIds(definitions, mapOf("lead" to JsonPrimitive(7), "deputy" to JsonPrimitive(8))))
+        assertEquals(emptySet(), incomingUserIds(definitions, emptyMap()))
     }
 }

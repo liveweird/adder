@@ -206,6 +206,12 @@ above any legitimate statement (a lock wait behind another transaction) and belo
   raw helpers beside it (`addMember`, `setRole`, `archive`, `seedMembers(room, count, marker)` for the 500 cap, `seedRetiredKeys(room, count)` for the 200-key budget, `rawRooms`,
   `rawStatuses`/`rawFields` for the retired rows the API hides, `purge`, `softDeleteUsers`); `seedActor(prefix, role)` seeds a user and logs them in (a `RoomActor`: id + client). Every test
   mints UNIQUE rows and removes them in an `@AfterTest`.
+- **Thread fixtures** (`ThreadFixtures.kt`, 0.3.0 S2): `TestThreads.seedTemplate(prefix)` mints a unique template (statuses `open` initial and `done` CLOSED; fields `severity` SELECT REQUIRED, `note` TEXT,
+  `lead` USER, `due` DATE, `tags` MULTI_SELECT) and `TestThreads.seed(roomId, userId, title, body, fields)` starts a thread through the REAL create (service, so the opening message, the `CREATED` event
+  and the activity bump exist; `severity` is supplied unless `fields` says otherwise). Raw helpers beside it: `raw(roomId, number)` / `rawAll(roomId)` (the thread rows), `rawMessages(threadId)`,
+  `rawEvents(threadId)`, `roomActivity(roomId)`, `closeRaw(roomId, number, statusKey)` (a closed thread for the closed filter, before the status route exists) and `setStamps` (distinct
+  `created_at`/`last_activity_at` for a sort test: a seed loop shares a millisecond). `TestThreads.events.record(...)` appends a history event (inside a `suspendTransaction`). `TestRooms.purge` cascades
+  into threads, messages and events, so a test only purges its rooms. `awaitLockWait(fragment, waiters = n)` waits for `n` sessions blocked on a lock (race 1: two creates at once).
 - **The usage seam** (`WorkflowUsage`, `rooms/WorkflowUsage.kt`): the production code resolves the port per request with `attributes.getOrNull(WorkflowUsageKey) ?: NoThreadsYet`, so a test
   registers `FakeWorkflowUsage(counts)` (fixed per-status counts, every move recorded in `moves` and applied to the counts) BEFORE the app starts: `configureApp()`,
   `application { attributes.put(WorkflowUsageKey, fake) }`, `startApplication()` (`RoomWorkflowTest`). That is how 0.2 covers `status-in-use`, the replacement mapping and

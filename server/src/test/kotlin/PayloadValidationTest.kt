@@ -124,4 +124,35 @@ class PayloadValidationTest {
         assertEquals(HttpStatusCode.MethodNotAllowed, response.status)
         assertContains(response.bodyAsText(), "Method not allowed")
     }
+
+    @Test
+    fun `the thread POST refuses a body over the global ceiling and a non-JSON content type, and a path number must be non-negative`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val owner = seedActor("thread-payload")
+            val template = TestThreads.seedTemplate("payload")
+            val room = TestRooms.seed(owner.id, template, "Payload ${uniqueEmail("room")}".take(60))
+            try {
+                val path = "/api/v1/rooms/$room/threads"
+                val oversized = """{"title":"T","body":"""" + "x".repeat(MAX_REQUEST_BODY_BYTES.toInt()) + "\"}"
+                val tooLarge = owner.client.postJson(path, oversized)
+                assertEquals(HttpStatusCode.PayloadTooLarge, tooLarge.status)
+                assertContains(tooLarge.bodyAsText(), "size limit")
+
+                // The content type is judged where the body is decoded, i.e. for a member who passed the guards.
+                val plain = owner.client.post(path) {
+                    header("Content-Type", "text/plain")
+                    setBody("""{"title":"T","body":"B"}""")
+                }
+                assertEquals(HttpStatusCode.UnsupportedMediaType, plain.status)
+
+                // kotlinx UInt decoding would silently wrap -1; the pre-routing interceptor refuses every negative path segment.
+                assertEquals(HttpStatusCode.BadRequest, owner.client.get("$path/-1").status)
+                assertEquals(HttpStatusCode.BadRequest, owner.client.get("/api/v1/rooms/-1/threads").status)
+            } finally {
+                TestRooms.purge(listOf(room))
+                TestTemplates.delete(template)
+                TestUsers.softDelete(owner.id)
+            }
+        }
 }
