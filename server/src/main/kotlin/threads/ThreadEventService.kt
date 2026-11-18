@@ -72,6 +72,12 @@ fun threadStatusEvent(
     return ThreadEventDescriptor(type, mapOf("from" to fromKey, "to" to toKey, "fromLabel" to fromLabel, "toLabel" to toLabel))
 }
 
+/** The workflow PUT retired status [fromKey] and moved the thread to its replacement [toKey] (both labels as they are at that moment). */
+fun threadStatusReplacedEvent(fromKey: String, fromLabel: String, toKey: String, toLabel: String) = ThreadEventDescriptor(
+    ThreadEventType.STATUS_REPLACED,
+    mapOf("from" to fromKey, "to" to toKey, "fromLabel" to fromLabel, "toLabel" to toLabel),
+)
+
 /** The thread passed from user [fromId] to [toId] (the names as they are now; a soft-deleted user's recorded name is still the name). */
 fun threadOwnerChangedEvent(fromId: UInt, toId: UInt, fromName: String, toName: String) = ThreadEventDescriptor(
     ThreadEventType.OWNER_CHANGED,
@@ -114,6 +120,10 @@ class ThreadEventService(database: R2dbcDatabase) {
     /** Appends one event inside the caller's transaction (a thread write, under the room lock), stamped [at] (the write's own instant). */
     suspend fun record(threadId: UInt, byUserId: UInt, event: ThreadEventDescriptor, at: Long = nowMillis()): UInt =
         log.createInTransaction(threadId, byUserId, event.type.name, event.params, at)
+
+    /** Appends the same [event] to every thread in [threadIds] inside the caller's transaction (the workflow PUT's moves), at [at]. */
+    suspend fun recordAll(threadIds: List<UInt>, byUserId: UInt, event: ThreadEventDescriptor, at: Long) =
+        log.createAllInTransaction(threadIds, byUserId, event.type.name, event.params, at)
 
     /** The thread's history, newest first by default (the id descending as the same-instant tiebreaker). */
     suspend fun list(threadId: UInt, paging: PageRequest): ThreadEventListResult {

@@ -7,6 +7,8 @@ import ch.nokillswit.authz.isThreadSteward
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.requireFeatureEnabled
+import ch.nokillswit.authz.requireMessageAuthor
+import ch.nokillswit.authz.requireMessageRemover
 import ch.nokillswit.authz.requireRoomManager
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.authz.requireRoomReader
@@ -162,5 +164,40 @@ class GuardsTest {
         // A removed owner is no steward by that title alone: the verdict needs a role in the room.
         assertFalse(isThreadSteward(threadOwner, outside, 5u))
         assertFalse(isThreadSteward(threadOwner, null, 5u))
+    }
+
+    @Test
+    fun `requireMessageAuthor admits only the author while a member - the room owner and an admin may not edit someone else's message`() {
+        val author = CallerPrincipal(userId = 5u, email = "author@test", roles = emptySet())
+        requireMessageAuthor(author, member, 5u)
+        requireMessageAuthor(author, owner, 5u) // an OWNER edits their OWN message
+        val adminAuthor = CallerPrincipal(userId = 6u, email = "admin-author@test", roles = setOf(UserRole.ADMIN))
+        requireMessageAuthor(adminAuthor, member, 6u) // an ADMIN who is a member and wrote it
+        assertFailsWith<ForbiddenException> { requireMessageAuthor(user, member, 5u) }
+        assertFailsWith<ForbiddenException> { requireMessageAuthor(user, owner, 5u) } // the room OWNER: delete, never edit (D2)
+        assertFailsWith<ForbiddenException> { requireMessageAuthor(admin, member, 5u) }
+        assertFailsWith<ForbiddenException> { requireMessageAuthor(admin, outside, 1u) } // an ADMIN who is no member no longer speaks
+    }
+
+    @Test
+    fun `requireMessageAuthor answers the 404 first - an outsider or a missing room, even for the author`() {
+        val author = CallerPrincipal(userId = 5u, email = "author@test", roles = emptySet())
+        assertFailsWith<NotFoundException> { requireMessageAuthor(author, outside, 5u) }
+        assertFailsWith<NotFoundException> { requireMessageAuthor(user, null, 5u) }
+        assertFailsWith<NotFoundException> { requireMessageAuthor(admin, null, 5u) }
+    }
+
+    @Test
+    fun `requireMessageRemover admits the author while a member, the room owner and an admin, and refuses any other member with 403`() {
+        val author = CallerPrincipal(userId = 5u, email = "author@test", roles = emptySet())
+        requireMessageRemover(author, member, 5u)
+        requireMessageRemover(user, owner, 5u) // the room OWNER removes anyone's message (D2)
+        requireMessageRemover(admin, member, 5u)
+        requireMessageRemover(admin, outside, 5u) // an ADMIN outside the room
+        assertFailsWith<ForbiddenException> { requireMessageRemover(user, member, 5u) }
+        // An author who left the room is no remover by that title alone: the verdict needs a role in the room, and the outsider sees 404.
+        assertFailsWith<NotFoundException> { requireMessageRemover(author, outside, 5u) }
+        assertFailsWith<NotFoundException> { requireMessageRemover(user, null, 5u) }
+        assertFailsWith<NotFoundException> { requireMessageRemover(admin, null, 5u) }
     }
 }

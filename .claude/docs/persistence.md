@@ -176,6 +176,9 @@ place:
   (the active members among a set of ids) and `RoomService.touchActivity` (the room's `last_activity_at`), each running INSIDE the caller's transaction (Exposed reuses it). The history reads
   `UserService.Users` through the shared `infra/db/EventLog.kt` (the actor's name and deleted flag, joined in the rows' own transaction): `infra/` may not name `users/`, so `threads/` passes the
   table and its two columns in as an `EventLogActor`. `threads/` imports `rooms/`, `users/` and `workflows/`; `rooms/` never imports `threads/` (`PackageBoundaryTest`).
+- **`rooms/` reaches threads only through the `WorkflowUsage` port** (`rooms/WorkflowUsage.kt`); `threads/ThreadWorkflowUsage` implements it and writes `threads` (`status_key`, `updated_at`) and `thread_events` ON `rooms`' BEHALF
+  inside the workflow PUT's own transaction, under the room lock (`threadCounts` is one grouped read of `threads`; `moveThreads` one `UPDATE` plus a multi-row `STATUS_REPLACED` insert). It reads the status labels through `RoomWorkflowService.snapshot`,
+  never `room_statuses` directly. `Database.kt` (the composition root) registers it, the one place both packages are named.
 - `auth/TokenBlocklistService.accessVerdict` (the per-request access-token check, `plugins/Security.kt`) READS
   `users/UserService.Users` (`role`, `credential_revision`, `marked_as_deleted`, by primary key) and its own
   `revoked_tokens` (an `EXISTS` on the `jti`) in ONE uncached statement per authenticated request; it writes nothing.
@@ -315,6 +318,7 @@ pruning of expired `revoked_tokens` rows. To add soft-delete to a new entity, fo
 3. **Filter every read** — `read`, `list`, `count`, and any lookup (e.g. `findWithIdByEmail`) get
    `… and active()`. Apply it in the shared list predicate so the `count()` (total) and the row
    select stay consistent.
+   **The one tombstone exception (`messages`, V14):** a deleted message is still LISTED (`MessageService.list` does not apply `active()`: the body is scrubbed to `''`, `deleted_by` is set, the row answers `body: null, deleted: true`), so the conversation keeps its shape and `message_count` never goes down. Everything else skips it: the single read, the edit and the delete (`MessageService.read`, `authorOf`, `withMessageWrite`) filter on `active()` and a deleted message is `404` there.
 4. **`delete` flips the flag** — `update({ (id eq id) and (markedAsDeleted eq false) }) { it[markedAsDeleted] = true }`,
    returning the affected-row `Int`; guard `update` mutations the same way. The route maps
    `0 → 404` (the `orNotFound` helper), so a missing-or-already-deleted row is `404` (not `204`)
@@ -403,4 +407,5 @@ marked_as_deleted, deleted_by)` and `thread_events (id, thread_id, user_id, crea
   "Row locks vs. FK locks".
 - **Indexes:** `idx_threads_room_activity (room_id, last_activity_at)` (the list order), `idx_threads_room_status (room_id, status_key)` (the usage counts), `idx_messages_thread (thread_id, id)`
   (the keyset list), `idx_thread_events_thread (thread_id, created_at, id)` (the history's `-createdAt,-id` page).
-- The Exposed tables are nested in their services (`ThreadService.Threads`, `MessageService.Messages`, `ThreadEventService.ThreadEvents`); S2 ships the thread list, read and create, the history read, and `MessageService`'s table and its opening-message insert (the message routes arrive in S5).
+- The Exposed tables are nested in their services (`ThreadService.Threads`, `MessageService.Messages`, `ThreadEventService.ThreadEvents`); S2 ships the thread list, read and create and the history read; S5 adds `MessageService`'s list (tombstones included, `id[lt]` keyset), single read, post, edit and delete.
+- **`MessageService` (S5)** reads `UserService.Users` for author names (soft-deleted accounts included) and writes only `messages` and its own thread's `message_count`/`last_activity_at`; every write is ONE `withThreadWrite` / `withMessageWrite` under the room lock (`ThreadLock.kt`), the message read joined to its thread with `threads.room_id` = the path's room, so a message of another room is a `404`. A post updates `messages`, `threads` (`message_count + 1`, `last_activity_at`) and, through `RoomService.touchActivity`, `rooms.last_activity_at` on ONE stamp; an edit sets `body` and `edited_at` only; a delete scrubs the body and sets `marked_as_deleted` and `deleted_by`, and neither bumps the count or the activity.

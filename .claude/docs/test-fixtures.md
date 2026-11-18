@@ -212,10 +212,10 @@ above any legitimate statement (a lock wait behind another transaction) and belo
   `rawEvents(threadId)`, `roomActivity(roomId)`, `closeRaw(roomId, number, statusKey)` (a closed thread by raw update, past the status route's guards) and `setStamps` (distinct
   `created_at`/`last_activity_at` for a sort test: a seed loop shares a millisecond). `TestThreads.events.record(...)` appends a history event (inside a `suspendTransaction`). `TestRooms.purge` cascades
   into threads, messages and events, so a test only purges its rooms. `awaitLockWait(fragment, waiters = n)` waits for `n` sessions blocked on a lock (race 1: two creates at once), and `TestThreads.holdingRoomLock(roomId, statement?, ids…) { raw -> }` is the shared race shape: a raw transaction holding the room lock (and running `statement`, e.g. a revision bump or a membership delete) until the body commits it (races 2-4).
-- **The usage seam** (`WorkflowUsage`, `rooms/WorkflowUsage.kt`): the production code resolves the port per request with `attributes.getOrNull(WorkflowUsageKey) ?: NoThreadsYet`, so a test
-  registers `FakeWorkflowUsage(counts)` (fixed per-status counts, every move recorded in `moves` and applied to the counts) BEFORE the app starts: `configureApp()`,
-  `application { attributes.put(WorkflowUsageKey, fake) }`, `startApplication()` (`RoomWorkflowTest`). That is how 0.2 covers `status-in-use`, the replacement mapping and
-  `threadsMoved` without threads; 0.3 implements the port over its thread rows and keeps these tests.
+- **The usage seam** (`WorkflowUsage`, `rooms/WorkflowUsage.kt`): `Database.kt` registers the real `ThreadWorkflowUsage` under `WorkflowUsageKey` and the routes read `attributes[WorkflowUsageKey]` per request (`NoThreadsYet` is gone),
+  so an ordinary room test counts and moves real threads (`ThreadWorkflowUsageTest`). A test that needs counts without threads overwrites the key with `FakeWorkflowUsage(counts)` (fixed per-status counts, every move recorded in `moves`
+  and applied to the counts) BEFORE the app starts: `configureApp()`, `application { attributes.put(WorkflowUsageKey, fake) }`, `startApplication()` (`RoomWorkflowTest`). Ktor runs the `application.yaml` modules (so `configureDatabase`'s
+  `put`) BEFORE the test's `application { }` block, hence the fake wins; `RoomTest`'s override test would fail otherwise. `RoomWorkflowTest` keeps covering the retire paths (`status-in-use`, the mapping, `threadsMoved`) through the fake.
 - `TestSeedState.restoreSeedAccounts()` — bootstrap/production-mode tests rotate the seed admin's
   password in the SHARED container; call this afterwards so later tests (and re-runs) see the
   pristine V3 state. Production-mode boots must also override `"mail.transport" to "disabled"` —

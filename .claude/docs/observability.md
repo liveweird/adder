@@ -118,7 +118,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   emits `authz.denied`),
 - `room.workflow_updated` (byUserId/roomId/revision/statusesAdded/statusesRetired/fieldsAdded/fieldsRetired/threadsMoved) — `PUT /api/v1/rooms/{id}/workflow` (C9; OWNER or ADMIN), once per
   successful PUT, after the transaction commits. `revision` is the NEW workflow revision; the four status/field counts are Ints (`Added` counts a key that became live, new or revived, `Retired`
-  a live key the document dropped); `threadsMoved` is a Long, the threads moved to a replacement status (always 0 until 0.3). A refused PUT (400, 403, 404, a stale-revision, archived,
+  a live key the document dropped); `threadsMoved` is a Long, the threads moved to a replacement status. A refused PUT (400, 403, 404, a stale-revision, archived,
   `field-type-immutable`, key-budget or `status-in-use` 409) emits no `room.workflow_updated` (a 403 still emits `authz.denied`),
 - `room.member_added` (byUserId/roomId/targetUserId/viaTeamId) — ONE line per person actually added (`POST /api/v1/rooms/{id}/members`, C8; OWNER or ADMIN); `viaTeamId` is the team whose roster
   snapshot brought the person in, null for a person named directly (a person named AND on the roster counts as named); a person who already belonged emits nothing (the response counts them).
@@ -139,6 +139,9 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   and so is every refusal (400, 403, 404, the archived 409),
 - `thread.owner_changed` (byUserId/roomId/threadId/number/fromUserId/toUserId) - `PUT .../threads/{number}/owner` (0.3.0 S4; a steward): user ids only. Naming the current owner is a `204` with no line; a refusal
   (400, 403, 404, the archived or closed 409) emits no `thread.*` line (a 403 still emits `authz.denied`),
+- `message.posted` (byUserId/roomId/threadId/number/messageId) - `POST .../threads/{number}/messages` (0.3.0 S5; a MEMBER): one line per post, emitted by the route after the transaction commits. The opening message of a thread is `thread.created`'s, never a `message.posted`. A refusal (400, 403, 404, the archived or closed 409, 429) emits no `message.*` line,
+- `message.edited` (byUserId/roomId/threadId/messageId) - `PUT /api/v1/rooms/{id}/messages/{messageId}` (0.3.0 S5; the author): one line per CHANGE; an unchanged body (`204`) and every refusal emit none. Edits are audit-only (they are not in the thread history),
+- `message.deleted` (byUserId/roomId/threadId/messageId/authorId/moderated) - `DELETE /api/v1/rooms/{id}/messages/{messageId}` (0.3.0 S5; the author, a room OWNER or an ADMIN): `authorId` is whose message it was and `moderated` is true when the caller is not the author (a boolean, `deleted_by <> author_id`). A refusal (403, 404, the archived or closed 409) emits none. **Never a body**: `MessageTest` pins that no message text reaches the trail,
 - `room.access_denied` (byUserId/roomId) — a signed-in caller who is NOT a member (and not an ADMIN) addressed a room that EXISTS, through any room route (GET, PUT, archive, unarchive,
   DELETE, the workflow read, the member list, add, role change and removal). The response is the uniform `404`, the same as for a room that does not exist, so this line is the only trace of someone probing room ids;
   it is NOT emitted for an id that matches no active room (nothing was denied), nor for an ADMIN. Emitted by the route preamble (`rooms/RoomAccess.kt`) before the guard answers,

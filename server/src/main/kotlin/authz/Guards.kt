@@ -93,3 +93,28 @@ fun requireRoomMember(caller: CallerPrincipal, standing: RoomStanding?) {
     requireRoomReader(caller, standing)
     if (standing?.role == null) throw ForbiddenException("Room membership required")
 }
+
+/**
+ * The edit guard of a message (`PUT /rooms/{id}/messages/{messageId}`): [requireRoomReader] first (an outsider's answer is the `404`,
+ * never the `403`), then the message's own AUTHOR while still a member, else a `403`. Nobody edits someone else's words, a room
+ * OWNER and an ADMIN included (D2: they may delete, never edit), and an author who has left the room (or an ADMIN author who never
+ * was a member) no longer speaks. The route runs it on a lock-free read of the author (a missing or deleted message is `404`
+ * there) and the write runs it again on the fresh caller, standing and row under the room lock.
+ */
+fun requireMessageAuthor(caller: CallerPrincipal, standing: RoomStanding?, authorId: UInt) {
+    requireRoomReader(caller, standing)
+    if (standing?.role == null || caller.userId != authorId) throw ForbiddenException("Only the author may edit a message")
+}
+
+/**
+ * The delete guard of a message (`DELETE /rooms/{id}/messages/{messageId}`, D2): [requireRoomReader] first, then the AUTHOR while still a
+ * member, the room's OWNER or an ADMIN (a moderator removal: incident chat leaks credentials and the author may be asleep), else a
+ * `403`. Run like [requireMessageAuthor]: on a lock-free read at the route, again on the fresh rows under the room lock.
+ */
+fun requireMessageRemover(caller: CallerPrincipal, standing: RoomStanding?, authorId: UInt) {
+    requireRoomReader(caller, standing)
+    val isAuthorMember = standing?.role != null && caller.userId == authorId
+    if (!caller.isAdmin() && standing?.role != RoomRole.OWNER && !isAuthorMember) {
+        throw ForbiddenException("Message author, room owner or admin role required")
+    }
+}

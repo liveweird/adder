@@ -732,7 +732,7 @@ export interface paths {
          * Get a room's workflow
          * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`). The room's ACTIVE statuses and fields in position order
          *     (retired ones are not shown), with plain single-language labels and the `revision` a later workflow PUT names in
-         *     `X-Expected-Revision`. Each status carries `threadCount`, the number of threads currently in it (always `0` until threads exist).
+         *     `X-Expected-Revision`. Each status carries `threadCount`, the number of threads currently in it.
          */
         get: operations["getRoomWorkflow"];
         /**
@@ -753,8 +753,10 @@ export interface paths {
          *     names is retired (its key stays reserved); a retired key it names again is revived. `replacements` is
          *     `{retiredKey: replacementKey}`: where the threads of each status THIS change retires move; the key must be a status this
          *     change retires and the target a status of the new document in the same category as the retired one (else `400`). A
-         *     status's category can only change while no thread uses it. Every successful PUT stores `workflowRevision + 1`; read the
-         *     workflow again for it.
+         *     status's category can only change while no thread uses it. A replacement moves each of those threads and writes one
+         *     `STATUS_REPLACED` event to its history; the thread keeps its `closedAt` (the replacement has the same category), its
+         *     `lastActivityAt` and its details `revision` are not bumped, and only its `updatedAt` moves. Every successful PUT stores
+         *     `workflowRevision + 1`; read the workflow again for it.
          */
         put: operations["updateRoomWorkflow"];
         post?: never;
@@ -1017,6 +1019,98 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a thread's messages
+         * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`, as does an unknown number). Deleted messages are
+         *     LISTED as tombstones (`body: null`, `deleted: true`); a single `GET` of one answers `404`.
+         *
+         *     - Sortable field: `id` only (ascending is time). Default `-id` (newest first), so the keyset is right without a `sort` parameter.
+         *     - Keyset paging inside the standard envelope: `id[lt]` keeps only the messages OLDER than that id, so the next page of a
+         *       newest-first list is `id[lt]=<smallest id loaded>&page=1`. `total` is counted AFTER the `id[lt]` filter: `total > items.length`
+         *       means older messages exist. A repeated `id[lt]` is a `400`.
+         */
+        get: operations["listThreadMessages"];
+        put?: never;
+        /**
+         * Post a message to a thread
+         * @description A MEMBER of the room (an `ADMIN` who is not a member is `403` and joins through the Members page first; a non-member is the
+         *     uniform `404`). Checked in this order: visibility (`404`), membership (`403`), the body (`400`), then under the room lock the
+         *     guard again (a caller removed while the write waited is refused), the thread (`404`), an archived room (`409` of type
+         *     `urn:adder:problem:room-archived`) and a closed thread (`409` of type `urn:adder:problem:thread-closed`: a steward reopens it first).
+         *
+         *     `body` is Markdown of 1 to 8,000 UTF-16 units after line endings are normalised, leading blank lines and trailing whitespace
+         *     are dropped and the first line's indentation stays (`\n` and `\t` allowed, every other control character and the hidden
+         *     direction characters are a `400`). It is stored raw and rendered without HTML. The message, `messageCount + 1` and the
+         *     activity bump of the thread and the room commit together. Rides the per-USER `chat-post` bucket of 120 per minute shared with
+         *     the thread POST (`429` beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too.
+         */
+        post: operations["postThreadMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/messages/{messageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a message
+         * @description A member of the room or an `ADMIN`. A message is addressed through its room (API-RES-006 allows two path parameters at most):
+         *     an unknown message, a DELETED one and a message of another room are the same `404`, as is a non-member's.
+         */
+        get: operations["getMessage"];
+        /**
+         * Edit a message
+         * @description The message's AUTHOR while still a member of the room; nobody else edits it, a room owner and an `ADMIN` included (they may
+         *     delete, never edit). Checked in this order: visibility (`404`), the message (`404` when it is unknown, deleted or of another
+         *     room) and the author rule (`403`) on a lock-free read of the author, the body (`400`), then under the room lock the guard, the
+         *     message and the author rule again on the fresh rows, an archived room (`409` of type `urn:adder:problem:room-archived`) and a
+         *     closed thread (`409` of type `urn:adder:problem:thread-closed`).
+         *
+         *     The body rules are those of the post. Sending the body the message already has (after normalising) is `204` with no write and
+         *     no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
+         *     order are untouched. Last writer wins: the author alone writes it and the room lock serialises their own requests.
+         */
+        put: operations["editMessage"];
+        post?: never;
+        /**
+         * Delete a message
+         * @description The message's AUTHOR while a member, the room's OWNER or an `ADMIN` (a non-member is the uniform `404`, any other member `403`).
+         *     A moderator removal exists because incident chat leaks credentials and the author may be asleep. Checked like the edit
+         *     (visibility, the message and the remover rule on a lock-free read, then again under the room lock), then an archived room
+         *     (`409` of type `urn:adder:problem:room-archived`) and a closed thread (`409` of type `urn:adder:problem:thread-closed`: a
+         *     moderator's delete included; a steward reopens the thread, deletes and closes it again).
+         *
+         *     The body is scrubbed, the row is marked deleted and `deleted_by` records the caller. The message stays in the thread's list
+         *     as a tombstone (`deletedByModerator` tells an author's own delete from a moderator's); `messageCount` never goes down. A
+         *     deleted message is `404` for every further read or write.
+         */
+        delete: operations["deleteMessage"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1436,7 +1530,7 @@ export interface components {
             memberCount: number;
             /**
              * Format: int64
-             * @description Epoch millis; equals the creation time until threads exist
+             * @description Epoch millis of the room's latest thread or message activity; the creation time until there is any
              */
             lastActivityAt: number;
             /**
@@ -1473,7 +1567,7 @@ export interface components {
             workflowRevision: number;
             /**
              * Format: int64
-             * @description Epoch millis; equals the creation time until threads exist
+             * @description Epoch millis of the room's latest thread or message activity; the creation time until there is any
              */
             lastActivityAt: number;
             /**
@@ -1772,6 +1866,50 @@ export interface components {
             page: number;
             pageSize: number;
             /** Format: int64 */
+            total: number;
+        };
+        MessageRequest: {
+            /** @description Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays. */
+            body: string;
+        };
+        MessageResponse: {
+            /**
+             * Format: int32
+             * @description Ascending in time; the keyset a list pages by.
+             */
+            id: number;
+            /**
+             * Format: int32
+             * @description The per-room number of the message's thread.
+             */
+            threadNumber: number;
+            /** Format: int32 */
+            authorId: number;
+            authorName: string;
+            /** @description Markdown; `null` on a tombstone (a deleted message in a list), whose `editedAt` is `null` too. */
+            body: string | null;
+            deleted: boolean;
+            /** @description A room owner or an ADMIN removed it (an author's own delete is `false`); always `false` while not deleted. */
+            deletedByModerator: boolean;
+            /**
+             * Format: int64
+             * @description Epoch millis of the last edit; `null` while the body is as posted and on a tombstone.
+             */
+            editedAt: number | null;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+        };
+        MessagePage: {
+            items: components["schemas"]["MessageResponse"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description The rows matching the filters, `id[lt]` included - so `total` greater than the items loaded means older messages exist.
+             */
             total: number;
         };
         TelemetryCurrent: {
@@ -2073,7 +2211,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread (`POST /api/v1/rooms/{id}/threads`) the per-USER chat-post bucket (shared with the message POST) is exhausted (120/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), or, on /login, the per-account lockout is active (account-specific detail). All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 [name: string]: unknown;
@@ -2107,6 +2245,10 @@ export interface components {
         UserIdPath: number;
         /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
         ThreadNumberPath: number;
+        /** @description A message id (int32; ids start at 1). */
+        MessageIdPath: number;
+        /** @description Keyset filter of a message list - only rows whose `id` is below this value (the older messages). A repeated key is a `400`. */
+        IdLt: number;
         /** @description 1-based page index. Defaults to 1. */
         Page: number;
         /** @description Rows per page. Defaults to 20, maximum 100. */
@@ -3734,6 +3876,176 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listThreadMessages: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                /** @description Keyset filter of a message list - only rows whose `id` is below this value (the older messages). A repeated key is a `400`. */
+                "id[lt]"?: components["parameters"]["IdLt"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of messages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessagePage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    postThreadMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Posted; `Location` points at the new message (`/api/v1/rooms/{id}/messages/{messageId}`) */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The message */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    editMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved, or nothing changed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             500: components["responses"]["InternalServerError"];
         };
     };

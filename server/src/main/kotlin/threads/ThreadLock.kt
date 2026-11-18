@@ -3,6 +3,7 @@ package ch.nokillswit.threads
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.RoomStanding
+import ch.nokillswit.infra.db.active
 import ch.nokillswit.rooms.RoomGuard
 import ch.nokillswit.rooms.roomArchived
 import ch.nokillswit.rooms.withRoomWrite
@@ -61,6 +62,41 @@ internal suspend fun <T> R2dbcDatabase.withThreadWrite(
     val thread = row.toThreadRow()
     actGuard?.invoke(fresh, standing, thread)
     block(ThreadWrite(fresh, standing, thread))
+}
+
+/** The message row as a write under the room lock sees it: who wrote it and what it says now (a deleted message is never read here). */
+internal data class MessageRow(val authorId: UInt, val body: String)
+
+/** What a message write's block is handed: the thread write (caller, standing and thread row, as under the lock) and the message row. */
+internal class MessageWrite(val threadWrite: ThreadWrite, val message: MessageRow) {
+    val caller: CallerPrincipal get() = threadWrite.caller
+    val thread: ThreadRow get() = threadWrite.thread
+}
+
+/** The act guard of a message write: it judges the FRESH caller against the FRESH standing and message row (a `403`). */
+internal typealias MessageGuard = (CallerPrincipal, RoomStanding, MessageRow) -> Unit
+
+/**
+ * Runs [block] as ONE message write: [withRoomWrite] takes the room lock and re-runs [roomGuard], then the message is read under it,
+ * joined to its thread with the thread's room being [roomId] - a message of another room, an unknown one and a DELETED one are the same
+ * `404` - [actGuard] re-runs on the fresh row (`403`), and [block] gets the lot. The state checks (archived, closed) are the block's.
+ */
+internal suspend fun <T> R2dbcDatabase.withMessageWrite(
+    roomId: UInt,
+    messageId: UInt,
+    caller: CallerPrincipal,
+    roomGuard: RoomGuard,
+    actGuard: MessageGuard,
+    block: suspend (MessageWrite) -> T,
+): T = withRoomWrite(roomId, caller, roomGuard) { fresh, standing ->
+    val messages = MessageService.Messages
+    val threads = ThreadService.Threads
+    val row = messages.innerJoin(threads).selectAll()
+        .where { (messages.id eq messageId) and (threads.roomId eq roomId) and messages.active() }
+        .toList().singleOrNull() ?: throw NotFoundException("Message not found")
+    val message = MessageRow(row[messages.authorId].value, row[messages.body])
+    actGuard(fresh, standing, message)
+    block(MessageWrite(ThreadWrite(fresh, standing, row.toThreadRow()), message))
 }
 
 /** An archived room refuses every content write (`409 room-archived`). */

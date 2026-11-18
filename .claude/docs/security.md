@@ -311,11 +311,12 @@ audit event (bucket name, `byUserId`); a request refused by validation (`400`) o
 across create and rename, `RoomMembersTest` 60 then `429`. Every other room route is unbucketed on purpose: guard-gated (a caller sees only the rooms they belong to) and bounded by the caps in `chat-model.md`.
 
 **`chat-post`, 120/min (`RateLimits.CHAT_POST`, 0.3.0 S2),** per signed-in user, fixed in every mode: ONE bucket shared by the two writes that put speech into a room, `POST /api/v1/rooms/{id}/threads`
-and (0.3.0 S5) `POST .../threads/{number}/messages`; `configureThreadRoutes` mounts it INSIDE `authenticate {}` around the POST, the room-bucket idiom. A person types a few messages a minute, so
+and `POST .../threads/{number}/messages` (0.3.0 S5); `configureThreadRoutes` and `configureMessageRoutes` mount it INSIDE `authenticate {}` around the POST, the room-bucket idiom. A person types a few messages a minute, so
 120 only stops a runaway client or a script flooding a room. Edits, deletes and the metadata writes stay unbucketed: each is guard-gated and touches one row. The bucket sits BEFORE the guards, so
 a refused or invalid POST (a `400`, a `403`, an outsider's `404`) takes a token too; the rejection is the generic `429` problem plus the coalesced `rate_limit.exceeded` audit event (bucket
-`chat-post`, `byUserId`). `ThreadWriteBoundsTest` pins 120 invalid POSTs, then the `429` and its audit line, with another account and the reads untouched. A thread title and body are stored raw and
-rendered without HTML by the SPA; their bounds (title 200, body 8,000 UTF-16 units, no control or hidden direction characters) are `chat-model.md` "API".
+`chat-post`, `byUserId`). `ThreadWriteBoundsTest` pins 120 invalid thread POSTs, then the `429` and its audit line, with another account and the reads untouched; `MessageTest` pins that thread creation and message posts spend the SAME tokens. A thread title and a message body are stored raw and
+rendered without HTML by the SPA (Markdown without raw HTML, images as links, headings as bold paragraphs, links `noopener noreferrer`; the CSP is unchanged); their bounds (title 200, body 8,000 UTF-16 units, no control or hidden direction characters) are `chat-model.md` "API", enforced by the route and again by the service (`sanitizeMultiLine`).
+**Moderator delete (D2, `messages`):** a room OWNER or an ADMIN may delete, never edit, someone else's message (incident chat leaks credentials and the author may be asleep); the body is scrubbed, not just hidden, `deleted_by` records the remover and the `message.deleted` audit line says `moderated` (`observability.md`). A closed thread refuses even that (`409 thread-closed`): a steward reopens, deletes and closes it again, and the history shows it.
 
 **The ADMIN clean-up path of a squatted name (today).** The room record has no creator column (V13 is committed). An ADMIN who finds a room squatting a name uses the audit trail:
 `room.created` (byUserId, roomId, name) names the creator, `room.name_conflict` shows who probed, and `DELETE /rooms/{id}` (ADMIN, soft) frees the name. A per-creator cap on active rooms and an

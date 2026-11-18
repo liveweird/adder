@@ -9,7 +9,6 @@ import ch.nokillswit.rooms.RoomResponse
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.rooms.RoomUpdateRequest
 import ch.nokillswit.rooms.RoomWorkflowResponse
-import ch.nokillswit.rooms.NoThreadsYet
 import ch.nokillswit.rooms.WorkflowUsageKey
 import ch.nokillswit.rooms.resolvedLabels
 import ch.nokillswit.users.UserRole
@@ -434,13 +433,15 @@ class RoomTest {
     }
 
     @Test
-    fun `without a registered usage port every status has zero threads`() = testApplication {
+    fun `a new room counts no threads and starting one counts it - the real usage port`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("room-nousage")
         val room = owner.client.create("NoUsage ${marker()}", template())
-        assertTrue(owner.client.workflow(room.id).statuses.all { it.threadCount == 0L }, "no port registered: NoThreadsYet")
-        assertEquals(emptyMap(), NoThreadsYet.threadCounts(room.id, listOf("open")))
-        assertEquals(0L, NoThreadsYet.moveThreads(room.id, "open", "done", owner.id))
+        assertTrue(owner.client.workflow(room.id).statuses.all { it.threadCount == 0L }, "a new room has no threads")
+        TestThreads.seed(room.id, owner.id)
+        val counts = owner.client.workflow(room.id).statuses.associate { it.key to it.threadCount }
+        assertEquals(1L, counts["open"], "the thread starts in the initial status")
+        assertEquals(1L, counts.values.sum())
     }
 
     @Test

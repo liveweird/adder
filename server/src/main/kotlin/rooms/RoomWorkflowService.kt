@@ -40,7 +40,7 @@ data class RoomWorkflowChange(
     val statusesRetired: Int,
     val fieldsAdded: Int,
     val fieldsRetired: Int,
-    /** Threads moved to a replacement status (always 0 until 0.3 brings threads). */
+    /** Threads moved to a replacement status. */
     val threadsMoved: Long,
 )
 
@@ -284,8 +284,9 @@ class RoomWorkflowService(private val database: R2dbcDatabase) {
 
     /**
      * The room's ACTIVE statuses and fields in position order with the workflow revision, or null when the room is missing or deleted
-     * (the route runs its visibility guard first). One transaction: the revision, the rows and the usage counts are one consistent read.
-     * The per-status thread counts come from [usage] (0.2: always 0).
+     * (the route runs its visibility guard first). One transaction with statement-level snapshots (a concurrent PUT may show a
+     * momentarily mixed count).
+     * The per-status thread counts come from [usage].
      */
     suspend fun read(roomId: UInt, usage: WorkflowUsage): RoomWorkflowResponse? = suspendTransaction(database) {
         val revision = RoomService.Rooms.select(RoomService.Rooms.workflowRevision)

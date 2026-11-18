@@ -35,7 +35,7 @@ data class RoomStatusResponse(
     val colour: StatusColour,
     val category: StatusCategory,
     val initial: Boolean,
-    /** The threads currently in this status, from the usage port (always 0 until 0.3 brings threads). */
+    /** The threads currently in this status, from the usage port. */
     val threadCount: Long,
 )
 

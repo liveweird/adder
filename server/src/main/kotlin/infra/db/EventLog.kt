@@ -110,6 +110,27 @@ class EventLog(private val database: R2dbcDatabase, private val table: EventLogT
             it[table.params] = encodeParams(eventParams)
         }[table.id].value
 
+    /**
+     * Appends the SAME event to every record in [ownerIds] (one multi-row `INSERT` per chunk, [insertRows]) using the caller's current
+     * transaction, all stamped [at]: the bulk form of [createInTransaction], for a change that touches many records at once.
+     */
+    internal suspend fun createAllInTransaction(
+        ownerIds: List<UInt>,
+        actingUserId: UInt,
+        type: String,
+        eventParams: Map<String, String>,
+        at: Long,
+    ) {
+        val encoded = encodeParams(eventParams)
+        table.insertRows(ownerIds) { id ->
+            this[table.ownerId] = id
+            this[table.userId] = actingUserId
+            this[table.createdAt] = at
+            this[table.eventType] = type
+            this[table.params] = encoded
+        }
+    }
+
     /** The record's history page with acting user names; count + rows on one predicate, one transaction. */
     suspend fun listFor(ownerId: UInt, paging: PageRequest): EventLogPage = suspendTransaction(database) {
         val total = joined().selectAll().where { table.ownerId eq ownerId }.count()

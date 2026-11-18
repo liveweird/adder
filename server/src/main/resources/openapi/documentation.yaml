@@ -46,6 +46,8 @@ tags:
     description: Members-only rooms created from a workflow template, each with its own copy of the template's statuses and fields - a non-member gets a uniform `404`, an `ADMIN` reads and manages every room.
   - name: threads
     description: The room's threads - a per-room number, a title, a workflow status, an owner and typed field values - and their append-only history. Members-only like the room; a non-member gets the uniform `404`.
+  - name: messages
+    description: The messages of a thread - Markdown bodies, edited by their author and deleted by their author, a room owner or an ADMIN (a deleted message stays listed as a tombstone). Members-only like the room; a non-member gets the uniform `404`.
   - name: telemetry
     description: Adder's own vital signs (process memory, JVM, storage, request latency) and their 24h/7d/90d trends - ADMIN only.
 
@@ -1101,7 +1103,7 @@ paths:
       description: |
         A member of the room or an `ADMIN` (a non-member gets the uniform `404`). The room's ACTIVE statuses and fields in position order
         (retired ones are not shown), with plain single-language labels and the `revision` a later workflow PUT names in
-        `X-Expected-Revision`. Each status carries `threadCount`, the number of threads currently in it (always `0` until threads exist).
+        `X-Expected-Revision`. Each status carries `threadCount`, the number of threads currently in it.
       responses:
         '200':
           description: The room's workflow
@@ -1134,8 +1136,10 @@ paths:
         names is retired (its key stays reserved); a retired key it names again is revived. `replacements` is
         `{retiredKey: replacementKey}`: where the threads of each status THIS change retires move; the key must be a status this
         change retires and the target a status of the new document in the same category as the retired one (else `400`). A
-        status's category can only change while no thread uses it. Every successful PUT stores `workflowRevision + 1`; read the
-        workflow again for it.
+        status's category can only change while no thread uses it. A replacement moves each of those threads and writes one
+        `STATUS_REPLACED` event to its history; the thread keeps its `closedAt` (the replacement has the same category), its
+        `lastActivityAt` and its details `revision` are not bumped, and only its `updatedAt` moves. Every successful PUT stores
+        `workflowRevision + 1`; read the workflow again for it.
       parameters:
         - $ref: '#/components/parameters/ExpectedRevision'
       requestBody:
@@ -1518,6 +1522,154 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/threads/{number}/messages:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/ThreadNumberPath'
+    get:
+      tags: [messages]
+      operationId: listThreadMessages
+      summary: List a thread's messages
+      description: |
+        A member of the room or an `ADMIN` (a non-member gets the uniform `404`, as does an unknown number). Deleted messages are
+        LISTED as tombstones (`body: null`, `deleted: true`); a single `GET` of one answers `404`.
+
+        - Sortable field: `id` only (ascending is time). Default `-id` (newest first), so the keyset is right without a `sort` parameter.
+        - Keyset paging inside the standard envelope: `id[lt]` keeps only the messages OLDER than that id, so the next page of a
+          newest-first list is `id[lt]=<smallest id loaded>&page=1`. `total` is counted AFTER the `id[lt]` filter: `total > items.length`
+          means older messages exist. A repeated `id[lt]` is a `400`.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IdLt'
+      responses:
+        '200':
+          description: A page of messages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [messages]
+      operationId: postThreadMessage
+      summary: Post a message to a thread
+      description: |
+        A MEMBER of the room (an `ADMIN` who is not a member is `403` and joins through the Members page first; a non-member is the
+        uniform `404`). Checked in this order: visibility (`404`), membership (`403`), the body (`400`), then under the room lock the
+        guard again (a caller removed while the write waited is refused), the thread (`404`), an archived room (`409` of type
+        `urn:adder:problem:room-archived`) and a closed thread (`409` of type `urn:adder:problem:thread-closed`: a steward reopens it first).
+
+        `body` is Markdown of 1 to 8,000 UTF-16 units after line endings are normalised, leading blank lines and trailing whitespace
+        are dropped and the first line's indentation stays (`\n` and `\t` allowed, every other control character and the hidden
+        direction characters are a `400`). It is stored raw and rendered without HTML. The message, `messageCount + 1` and the
+        activity bump of the thread and the room commit together. Rides the per-USER `chat-post` bucket of 120 per minute shared with
+        the thread POST (`429` beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageRequest'
+      responses:
+        '201':
+          description: Posted; `Location` points at the new message (`/api/v1/rooms/{id}/messages/{messageId}`)
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/messages/{messageId}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/MessageIdPath'
+    get:
+      tags: [messages]
+      operationId: getMessage
+      summary: Get a message
+      description: |
+        A member of the room or an `ADMIN`. A message is addressed through its room (API-RES-006 allows two path parameters at most):
+        an unknown message, a DELETED one and a message of another room are the same `404`, as is a non-member's.
+      responses:
+        '200':
+          description: The message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [messages]
+      operationId: editMessage
+      summary: Edit a message
+      description: |
+        The message's AUTHOR while still a member of the room; nobody else edits it, a room owner and an `ADMIN` included (they may
+        delete, never edit). Checked in this order: visibility (`404`), the message (`404` when it is unknown, deleted or of another
+        room) and the author rule (`403`) on a lock-free read of the author, the body (`400`), then under the room lock the guard, the
+        message and the author rule again on the fresh rows, an archived room (`409` of type `urn:adder:problem:room-archived`) and a
+        closed thread (`409` of type `urn:adder:problem:thread-closed`).
+
+        The body rules are those of the post. Sending the body the message already has (after normalising) is `204` with no write and
+        no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
+        order are untouched. Last writer wins: the author alone writes it and the room lock serialises their own requests.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageRequest'
+      responses:
+        '204':
+          description: Saved, or nothing changed
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    delete:
+      tags: [messages]
+      operationId: deleteMessage
+      summary: Delete a message
+      description: |
+        The message's AUTHOR while a member, the room's OWNER or an `ADMIN` (a non-member is the uniform `404`, any other member `403`).
+        A moderator removal exists because incident chat leaks credentials and the author may be asleep. Checked like the edit
+        (visibility, the message and the remover rule on a lock-free read, then again under the room lock), then an archived room
+        (`409` of type `urn:adder:problem:room-archived`) and a closed thread (`409` of type `urn:adder:problem:thread-closed`: a
+        moderator's delete included; a steward reopens the thread, deletes and closes it again).
+
+        The body is scrubbed, the row is marked deleted and `deleted_by` records the caller. The message stays in the thread's list
+        as a tombstone (`deletedByModerator` tells an author's own delete from a moderator's); `messageCount` never goes down. A
+        deleted message is `404` for every further read or write.
+      responses:
+        '204':
+          description: Deleted
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/telemetry/current:
     get:
       tags: [telemetry]
@@ -1615,6 +1767,18 @@ components:
       required: true
       schema: { type: integer, format: int32, minimum: 1 }
       description: A thread's per-room number (`#42`; int32, numbering starts at 1 in every room).
+    MessageIdPath:
+      name: messageId
+      in: path
+      required: true
+      schema: { type: integer, format: int32, minimum: 1 }
+      description: A message id (int32; ids start at 1).
+    IdLt:
+      name: id[lt]
+      in: query
+      required: false
+      schema: { type: integer, format: int32, minimum: 1 }
+      description: Keyset filter of a message list - only rows whose `id` is below this value (the older messages). A repeated key is a `400`.
     Page:
       name: page
       in: query
@@ -1698,8 +1862,8 @@ components:
         (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory
         (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or
         renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min),
-        on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread
-        (`POST /api/v1/rooms/{id}/threads`) the per-USER chat-post bucket (shared with the message POST) is exhausted (120/min), or, on /login, the
+        on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message
+        (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), or, on /login, the
         per-account lockout is active (account-specific detail). All carry a ProblemDetail body.
       content:
         application/problem+json:
@@ -2223,7 +2387,7 @@ components:
           nullable: true
           description: The CALLER's role in the room; `null` for an `ADMIN` who is not a member.
         memberCount: { type: integer, format: int32, minimum: 0, description: Active members only }
-        lastActivityAt: { type: integer, format: int64, description: Epoch millis; equals the creation time until threads exist }
+        lastActivityAt: { type: integer, format: int64, description: Epoch millis of the room's latest thread or message activity; the creation time until there is any }
         createdAt: { type: integer, format: int64, description: Epoch millis }
     RoomResponse:
       type: object
@@ -2245,7 +2409,7 @@ components:
           format: int64
           minimum: 1
           description: The room workflow's optimistic-concurrency token (`X-Expected-Revision` of its PUT). Starts at 1.
-        lastActivityAt: { type: integer, format: int64, description: Epoch millis; equals the creation time until threads exist }
+        lastActivityAt: { type: integer, format: int64, description: Epoch millis of the room's latest thread or message activity; the creation time until there is any }
         createdAt: { type: integer, format: int64, description: Epoch millis }
         updatedAt: { type: integer, format: int64, description: Epoch millis }
     RoomPage:
@@ -2594,6 +2758,43 @@ components:
           type: integer
           format: int64
           minimum: 0
+    MessageRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 8000
+          description: Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays.
+    MessageResponse:
+      type: object
+      required: [id, threadNumber, authorId, authorName, body, deleted, deletedByModerator, editedAt, createdAt]
+      properties:
+        id: { type: integer, format: int32, minimum: 1, description: Ascending in time; the keyset a list pages by. }
+        threadNumber: { type: integer, format: int32, minimum: 1, description: The per-room number of the message's thread. }
+        authorId: { type: integer, format: int32, minimum: 1 }
+        authorName: { type: string }
+        body: { type: string, nullable: true, description: 'Markdown; `null` on a tombstone (a deleted message in a list), whose `editedAt` is `null` too.' }
+        deleted: { type: boolean }
+        deletedByModerator: { type: boolean, description: 'A room owner or an ADMIN removed it (an author''s own delete is `false`); always `false` while not deleted.' }
+        editedAt: { type: integer, format: int64, nullable: true, description: Epoch millis of the last edit; `null` while the body is as posted and on a tombstone. }
+        createdAt: { type: integer, format: int64, description: Epoch millis }
+    MessagePage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResponse'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: The rows matching the filters, `id[lt]` included - so `total` greater than the items loaded means older messages exist.
     TelemetryCurrent:
       type: object
       required: [generatedAt, sampleIntervalSeconds, processes, storage, requests]

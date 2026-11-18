@@ -5,6 +5,7 @@ import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.threads.CreatedThread
+import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadEventService
@@ -29,16 +30,17 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.r2dbc.update
 
 /**
- * Thread fixtures (0.3.0 S2): direct, route-free seeding and raw reads of the thread aggregate, past the HTTP guards. A thread is
- * seeded through the REAL create (the service, so its opening message, `CREATED` event and activity bump exist); a state the routes
- * cannot reach yet (a closed thread, for the closed filter) is a raw update ([closeRaw]). Rooms own the cleanup: [TestRooms.purge]
+ * Thread fixtures (0.3.0 S2, messages S5): direct, route-free seeding and raw reads of the thread aggregate, past the HTTP guards.
+ * A thread is seeded through the REAL create (the service, so its opening message, `CREATED` event and activity bump exist); a state
+ * the routes cannot reach yet (a closed thread, for the closed filter) is a raw update ([closeRaw]). Rooms own the cleanup: [TestRooms.purge]
  * cascades into threads, messages and events, and users are soft-deleted, so nothing here deletes.
  */
 object TestThreads {
     val events: ThreadEventService by lazy { ThreadEventService(sharedDatabaseForTests()) }
     private val members: RoomMemberService by lazy { RoomMemberService(sharedDatabaseForTests(), TeamService(sharedDatabaseForTests())) }
+    val messages: MessageService by lazy { MessageService(sharedDatabaseForTests(), TestRooms.service) }
     val service: ThreadService by lazy {
-        ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, MessageService())
+        ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, messages)
     }
 
     /**
@@ -134,25 +136,45 @@ object TestThreads {
         }
     }
 
-    /** Sets a thread's `created_at` and `last_activity_at` by raw update (distinct stamps for a sort test: a loop shares a millisecond). */
-    suspend fun setStamps(roomId: UInt, number: Int, createdAt: Long, lastActivityAt: Long) {
+    /**
+     * Sets a thread's `created_at` and `last_activity_at` (and `updated_at`, when given) by raw update (distinct stamps for a sort test:
+     * a loop shares a millisecond).
+     */
+    suspend fun setStamps(roomId: UInt, number: Int, createdAt: Long, lastActivityAt: Long, updatedAt: Long? = null) {
         suspendTransaction(sharedDatabaseForTests()) {
             val t = ThreadService.Threads
             t.update({ (t.roomId eq roomId) and (t.number eq number) }) {
                 it[t.createdAt] = createdAt
                 it[t.lastActivityAt] = lastActivityAt
+                updatedAt?.let { stamp -> it[t.updatedAt] = stamp }
             }
         }
     }
 
-    data class RawMessage(val id: UInt, val authorId: UInt, val body: String, val createdAt: Long, val deleted: Boolean)
+    data class RawMessage(
+        val id: UInt,
+        val authorId: UInt,
+        val body: String,
+        val createdAt: Long,
+        val deleted: Boolean,
+        val editedAt: Long? = null,
+        val deletedBy: UInt? = null,
+    )
 
+    /** Every message row of a thread, tombstones included, by id. */
     suspend fun rawMessages(threadId: UInt): List<RawMessage> = suspendTransaction(sharedDatabaseForTests()) {
         val m = MessageService.Messages
-        m.selectAll().where { m.threadId eq threadId }.map {
-            RawMessage(it[m.id].value, it[m.authorId].value, it[m.body], it[m.createdAt], it[m.markedAsDeleted])
+        m.selectAll().where { m.threadId eq threadId }.orderBy(m.id to SortOrder.ASC).map {
+            RawMessage(
+                it[m.id].value, it[m.authorId].value, it[m.body], it[m.createdAt], it[m.markedAsDeleted],
+                it[m.editedAt], it[m.deletedBy]?.value,
+            )
         }.toList()
     }
+
+    /** Posts [body] to thread [number] of [roomId] as [userId] (a member) through the real post; returns the message id. */
+    suspend fun post(roomId: UInt, number: Int, userId: UInt, body: String = "A reply"): UInt =
+        messages.post(roomId, number, CallerPrincipal(userId, "fixture@test", emptySet()), MessageRequest(body)).message.id
 
     data class RawEvent(val id: UInt, val userId: UInt, val type: String, val params: String, val createdAt: Long)
 

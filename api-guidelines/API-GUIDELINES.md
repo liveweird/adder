@@ -703,6 +703,7 @@ v0.1.0 foundation — extend this list as domain features land):
   under the room lock after the archived and closed `409`s (`ThreadDetailsTest`, race 3). Nothing changed is a `204` with no bump.
   The status PUT (`.../threads/{number}/status`) and owner PUT (`.../owner`) are single-value sets: **last writer wins by design** (no token: the body names the whole new value, the room lock serialises the
   writers and a repeat is an idempotent `204`), and the append-only thread history records each change, so an overwritten value is never lost (`ThreadStatusTest`, `ThreadOwnerTest`).
+  The message PUT (`PUT /rooms/{id}/messages/{messageId}`, 0.3.0) is **author-only and last-writer-wins by design** (no token: only the author writes it, the room lock serialises their own requests, an unchanged body is an idempotent `204`; an edit keeps no versions and goes to the audit trail, not the thread history) (`MessageTest`).
 - **Credential-revision guard (a narrower case, not `If-Match`)** — a password change/reset
   atomically increments `users.credential_revision`; refresh and MFA acceptance compare it
   against the current row and reject a stale credential rather than silently accepting it. See

@@ -220,7 +220,12 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     | `PUT .../threads/{number}/status`, OPEN to OPEN (`monitoring`) | 404 | 204 | 204 | 204 | 204 |
     | `PUT .../threads/{number}/status`, close, reopen or CLOSED to CLOSED (a STEWARD) | 404 | 403 | 204 | 204 | 204 |
     | `PUT .../threads/{number}/owner` (a STEWARD) | 404 | 403 | 204 | 204 | 204 |
-    | an unknown number, any read or write | 404 | 404 | 404 | 404 | 404 |
+    | `GET .../threads/{number}/messages`, `GET /rooms/{id}/messages/{messageId}` | 404 | 200 | 200 | 200 | 200 |
+    | `POST .../threads/{number}/messages` (201 + `Location`) | 404 | 201 | 201 | 201 | 403 |
+    | `PUT /rooms/{id}/messages/{messageId}`, someone else's message (author only) | 404 | 403 | 403 | 403 | 403 |
+    | `DELETE /rooms/{id}/messages/{messageId}`, someone else's message (the room OWNER or an ADMIN, D2) | 404 | 403 | 403 | 204 | 204 |
+    | `PUT` or `DELETE` the caller's OWN message (while a member) | - | 204 | 204 | 204 | - |
+    | an unknown number, an unknown message id or a message of another room, any read or write | 404 | 404 | 404 | 404 | 404 (a POST: 403 for the ADMIN) |
 
     **The steward rule (D1, S4):** closing, reopening, a CLOSED to CLOSED move and passing ownership belong to a STEWARD - the thread owner while a member, the room OWNER or an ADMIN, i.e. whoever can undo a close. `isThreadSteward` /
     **`requireThreadSteward(caller, standing, threadOwnerId)`** (`authz/Guards.kt`, DB-free: `requireRoomReader` first, then the rule, else `403`; a thread owner who has left the room is no steward and sees the `404`). The owner PUT
@@ -229,9 +234,11 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     retired key is a `400` first (a reader can read the workflow, so it discloses nothing), then the steward `403` (even for the status the thread already has: a no-op must not bypass the steward rule), then the archived `409`
     (the no-op included), then the write. Race 4 (`ThreadStatusTest`): a thread closed while a member's OPEN to OPEN move waits for the lock is a `403`. A closed thread refuses the owner hand-over with `409 thread-closed` but not a
     status move.
+    **Messages (S5):** a message is addressed through its room (`/rooms/{id}/messages/{messageId}`, API-RES-006), and the lookup joins the thread with `threads.room_id` = the path's room, so a message of another room, an unknown one and a DELETED one are the same `404`. **`requireMessageAuthor(caller, standing, authorId)`** (the edit; `requireRoomReader` first, then the author while a member, else `403`: the room OWNER and an ADMIN do NOT edit someone else's words) and
+    **`requireMessageRemover`** (the delete: the author while a member, the room OWNER or an ADMIN) are DB-free; the routes run them as the pre-check on a lock-free `authorOf` read (a missing message is `404`, before the body) and the write runs them again on the fresh caller, standing and row under the room lock. Under the lock the order is: guard, message `404`, act guard `403`, archived `409`, closed `409` (a moderator's delete included), the no-op, the write. Race 5 (`MessageTest`): a thread closed while a post waits for the lock is `409 thread-closed` with nothing written.
     A malformed create body is `404` for an outsider, `403` for an ADMIN outside the room and `400` only for a member. A thread is addressed by `(room id, number)`, so another room's number is
     never reachable: the lookup is scoped to the room the visibility check admitted. An archived room refuses the POST with the typed `409` `urn:adder:problem:room-archived`. Tests:
-    `ThreadAuthzMatrixTest` (a fresh room per cell), `ThreadTest`, `ThreadWriteBoundsTest`, `GuardsTest`.
+    `ThreadAuthzMatrixTest` (a fresh room per cell), `ThreadTest`, `ThreadWriteBoundsTest`, `MessageTest`, `GuardsTest`.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: three sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it

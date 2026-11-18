@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.plugins.ProblemDetail
+import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadStatusRequest
@@ -33,9 +34,9 @@ import kotlinx.serialization.json.JsonPrimitive
  * The thread authorization matrix (`authorization.md` "Threads"): for every implemented thread operation, what an outsider, a plain
  * member, the THREAD owner (a plain member who started the thread), the room's OWNER and an ADMIN who is not a member each get. A
  * non-member (an ADMIN excepted) always sees the uniform `404`; every reader reads; only members speak, so an ADMIN outside the room is
- * `403` on the POST. The rows: the three reads and the create (S2) and the details PUT (S3) and the status and owner PUTs (S4);
- * the message steps add theirs. Each cell gets a FRESH room,
- * seeded through the services.
+ * `403` on the POST. The rows: the three reads and the create (S2) and the details PUT (S3) and the status and owner PUTs (S4), and the
+ * message operations (S5: the list, the post, the single read, someone else's message edited and deleted; a caller's OWN message is
+ * [own messages] below). Each cell gets a FRESH room, seeded through the services.
  */
 class ThreadAuthzMatrixTest {
     private val rooms = "/api/v1/rooms"
@@ -56,7 +57,15 @@ class ThreadAuthzMatrixTest {
         val threadOwner: RoomActor,
         val outsider: RoomActor,
         val admin: RoomActor,
-    )
+        /** A plain member of every fresh room who wrote [other], so that "someone else's message" is nobody in the columns. */
+        val author: RoomActor,
+    ) {
+        /** The id of the message `author` wrote in the CURRENT fresh room (set by `freshRoom`). */
+        var other: UInt = 0u
+
+        /** The id of a message in a DIFFERENT room, where every actor but the outsider and the admin is a member (set by `freshRoom`). */
+        var foreign: UInt = 0u
+    }
 
     /** One matrix row: the status each kind of caller gets and the call that makes it (the room's base path in, the response out). */
     private class Operation(
@@ -107,6 +116,45 @@ class ThreadAuthzMatrixTest {
         Operation("PUT owner", notFound, forbidden, noContent, noContent, noContent) { client, base, cast ->
             client.putOwner("$base/threads/1/owner", cast.member.id)
         },
+        // Messages (S5): the reads are for every reader; only members speak (an ADMIN outside the room is 403, joins first).
+        Operation("GET messages", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/threads/1/messages") },
+        Operation("GET message", notFound, ok, ok, ok, ok) { client, base, cast -> client.get("$base/messages/${cast.other}") },
+        Operation("POST message", notFound, created, created, created, forbidden) { client, base, _ ->
+            client.postJson("$base/threads/1/messages", MessageRequest("Matrix reply"))
+        },
+        // Nobody edits someone else's words, a room owner and an ADMIN included; they may delete (D2).
+        Operation("PUT someone else's message", notFound, forbidden, forbidden, forbidden, forbidden) { client, base, cast ->
+            client.putJson("$base/messages/${cast.other}", MessageRequest("Edited by the matrix"))
+        },
+        Operation("DELETE someone else's message", notFound, forbidden, forbidden, noContent, noContent) { client, base, cast ->
+            client.delete("$base/messages/${cast.other}")
+        },
+        // A message id of ANOTHER room, an unknown one, and an unknown thread's list are 404 for every caller who may read the room.
+        Operation("GET another room's message", notFound, notFound, notFound, notFound, notFound) { client, base, cast ->
+            client.get("$base/messages/${cast.foreign}")
+        },
+        Operation("PUT another room's message", notFound, notFound, notFound, notFound, notFound) { client, base, cast ->
+            client.putJson("$base/messages/${cast.foreign}", MessageRequest("Edited"))
+        },
+        Operation("DELETE another room's message", notFound, notFound, notFound, notFound, notFound) { client, base, cast ->
+            client.delete("$base/messages/${cast.foreign}")
+        },
+        Operation("GET unknown message", notFound, notFound, notFound, notFound, notFound) { client, base, _ ->
+            client.get("$base/messages/999999")
+        },
+        Operation("PUT unknown message", notFound, notFound, notFound, notFound, notFound) { client, base, _ ->
+            client.putJson("$base/messages/999999", MessageRequest("Edited"))
+        },
+        Operation("DELETE unknown message", notFound, notFound, notFound, notFound, notFound) { client, base, _ ->
+            client.delete("$base/messages/999999")
+        },
+        Operation("GET unknown thread messages", notFound, notFound, notFound, notFound, notFound) { client, base, _ ->
+            client.get("$base/threads/99/messages")
+        },
+        // Only members speak, so the ADMIN outside the room is refused (403) before the thread is looked up.
+        Operation("POST unknown thread message", notFound, notFound, notFound, notFound, forbidden) { client, base, _ ->
+            client.postJson("$base/threads/99/messages", MessageRequest("Hello"))
+        },
         // An unknown number is 404 for every caller who may read the room.
         Operation("GET unknown thread", notFound, notFound, notFound, notFound, notFound) { client, base, _ ->
             client.get("$base/threads/99")
@@ -146,18 +194,33 @@ class ThreadAuthzMatrixTest {
 
     private suspend fun ApplicationTestBuilder.cast(): Cast {
         suspend fun actor(prefix: String, role: UserRole = UserRole.USER) = seedActor("tx-$prefix", role).also { mintedUsers += it.id }
-        return Cast(actor("owner"), actor("member"), actor("thread-owner"), actor("outsider"), actor("admin", UserRole.ADMIN))
+        return Cast(
+            actor("owner"), actor("member"), actor("thread-owner"), actor("outsider"), actor("admin", UserRole.ADMIN), actor("author"),
+        )
     }
 
-    /** A fresh room with the fixture thread #1 started by the thread owner. */
+    /** A fresh room with the fixture thread #1 started by the thread owner, and `author`'s reply as [Cast.other]. */
     private suspend fun freshRoom(cast: Cast): UInt {
         val template = templateId ?: TestThreads.seedTemplate("tx").also { templateId = it }
+        if (cast.foreign == 0u) cast.foreign = foreignMessage(cast, template)
         return TestRooms.seed(cast.owner.id, template, "Matrix ${UUID.randomUUID()}").also { room ->
             TestRooms.addMember(room, cast.member.id)
             TestRooms.addMember(room, cast.threadOwner.id)
+            TestRooms.addMember(room, cast.author.id)
             mintedRooms += room
             TestThreads.seed(room, cast.threadOwner.id)
+            cast.other = TestThreads.post(room, 1, cast.author.id, "Someone else's words")
         }
+    }
+
+    /** A message in another room (where the room owner and the author are members too), so only the room match can refuse it. */
+    private suspend fun foreignMessage(cast: Cast, template: UInt): UInt {
+        val room = TestRooms.seed(cast.owner.id, template, "Foreign ${UUID.randomUUID()}").also { mintedRooms += it }
+        TestRooms.addMember(room, cast.member.id)
+        TestRooms.addMember(room, cast.threadOwner.id)
+        TestRooms.addMember(room, cast.author.id)
+        TestThreads.seed(room, cast.author.id)
+        return TestThreads.post(room, 1, cast.author.id, "Words of another room")
     }
 
     @Test
@@ -239,5 +302,18 @@ class ThreadAuthzMatrixTest {
         assertEquals(notFound, rival.client.get("$rooms/$room/threads/1").status)
         assertEquals(notFound, rival.client.get("$rooms/$rivalRoom/threads/1").status, "no thread #1 in the rival's own room")
         assertEquals(ok, rival.client.get("$rooms/$rivalRoom/threads").status)
+    }
+
+    @Test
+    fun `own messages - a member, the thread owner and the room owner each edit and delete their own, 204`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast()
+        for ((who, actor) in listOf("member" to cast.member, "thread owner" to cast.threadOwner, "room owner" to cast.owner)) {
+            val room = freshRoom(cast)
+            val own = TestThreads.post(room, 1, actor.id, "My own words")
+            val edit = actor.client.putJson("$rooms/$room/messages/$own", MessageRequest("Still mine"))
+            assertEquals(noContent, edit.status, "PUT own as $who")
+            assertEquals(noContent, actor.client.delete("$rooms/$room/messages/$own").status, "DELETE own as $who")
+        }
     }
 }

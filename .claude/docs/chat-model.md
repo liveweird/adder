@@ -97,39 +97,38 @@ All timestamps are epoch-millis `BIGINT`; no CHECK on enum-valued columns (the K
 
 ### The mapping contract 0.3 plugs into
 
-> **Revised for 0.3** by two plan findings; both are already applied in 0.2.0 C9 (the text below is as built): `moveThreads` runs **after** the status upsert
-> (a replacement the same PUT adds would otherwise hit the FK, a SQLSTATE 23503 that `ErrorHandling.kt` would answer as a 500), and the status-row `FOR SHARE` is
-> **dropped** (every thread write and the workflow PUT hold the same room lock, so the status read inside the lock is current; the FK stays as a backstop).
-> **Still to build in S6** (`threads/ThreadWorkflowUsage.kt`): the real port; `Database.kt` registers it and `NoThreadsYet` and the `?: NoThreadsYet`
-> fallback are deleted, routes reading `attributes[WorkflowUsageKey]` per request (a test still overrides it, as `FakeWorkflowUsage` does);
-> `threadCounts` is one `GROUP BY status_key`; `moveThreads` selects the ids, runs one `UPDATE`, and writes one `STATUS_REPLACED` event per thread (labels from
-> `RoomWorkflowService.snapshot`), with no activity bump and `closed_at` untouched (same category). S6 rewrites this section as built.
+> **Revised for 0.3** by two plan findings, **as built (0.3.0 S6)**: `moveThreads` runs **after** the status upsert (a replacement the same PUT adds would otherwise hit
+> the FK, a SQLSTATE 23503 that `ErrorHandling.kt` would answer as a 500), and the status-row `FOR SHARE` is **dropped** (every thread write and the workflow PUT hold
+> the same room lock, so the status read inside the lock is current; the FK stays as a backstop). `threads/ThreadWorkflowUsage.kt` is the real port, registered by
+> `Database.kt` under `WorkflowUsageKey`; `NoThreadsYet` and the `?: NoThreadsYet` fallback are gone, and the routes read `attributes[WorkflowUsageKey]` per request.
 
 Retiring a status that threads use needs a replacement mapping `replacements: {retiredKey: replacementKey}` in the PUT body. `400` when a key is
 not a status this PUT retires, or the target is absent from the new document or has another category; `409 status-in-use` with `keys` when a retired
-or re-categorised status has threads and no valid replacement. 0.2 has no threads, so the seam is a port:
+or re-categorised status has threads and no valid replacement. `rooms/` never imports `threads/`, so the seam is a port:
 
 ```kotlin
 interface WorkflowUsage {   // rooms/WorkflowUsage.kt; both run inside the caller's transaction
     suspend fun threadCounts(roomId: UInt, keys: Collection<String>): Map<String, Long>
     suspend fun moveThreads(roomId: UInt, from: String, to: String, byUserId: UInt): Long
 }
-object NoThreadsYet : WorkflowUsage            // 0.2: no counts, moves nothing
-val WorkflowUsageKey = AttributeKey<WorkflowUsage>("WorkflowUsage")
+val WorkflowUsageKey = AttributeKey<WorkflowUsage>("WorkflowUsage")   // Database.kt registers ThreadWorkflowUsage under it
 ```
 
-Routes resolve it per request with `attributes.getOrNull(WorkflowUsageKey) ?: NoThreadsYet` (the telemetry seam idiom), so a test can put a fake;
-server tests cover the retire path through a fake and the web through a mocked `threadCount`. **As built (0.2.0 C9)**, the contract 0.3 implements is exactly this:
+Routes read `attributes[WorkflowUsageKey]` per request, so a test's `application { }` block can overwrite the real port with a fake (`FakeWorkflowUsage`; Ktor runs the
+`application.yaml` modules, `configureDatabase` included, before that block; `test-fixtures.md`). **As built**, the contract is:
 `GET` calls `threadCounts` with every live status key; the `PUT` calls it with the keys it retires or re-categorises (`RoomWorkflowPlan.statusesToCount`), after the
 `FOR NO KEY UPDATE` lock on the status rows and the mapping's `400` checks, and answers `409 status-in-use` (`keys` = the offending statuses) for a counted status that is re-categorised
 (no mapping can help: only retired statuses take one) or retired without an entry in `replacements`; `moveThreads(roomId, from, to, byUserId)` is called once per retired status that has
-threads AND a mapping (in the order retired; never for a status with no threads), inside the same transaction, AFTER the status upsert (so the target may be a status this PUT adds or revives; pinned by `FakeWorkflowUsage`'s `targetLiveAtMove`) and
-before the revision bump, so any later failure rolls the moves back;
-the sum is the audited `threadsMoved`. A revived status may change category freely (a retired status has no threads: they were moved when it retired). The only absent-threads
-behaviour 0.2 pins is `NoThreadsYet` (no counts, no moves). 0.3 does four things and changes nothing else:
-thread rows reference `(room_id, status_key)` with an FK to `room_statuses(room_id, key)`; every thread write runs under `withRoomWrite`, the same room lock as
-the workflow PUT, so the status read inside the lock is current (a thread can then never land on a status a PUT is retiring), and the FK stays as a backstop; it implements `WorkflowUsage` (the move also
-writes one `thread_events` row per thread; when `moveThreads` runs the SOURCE status is already retired, so it must not require the source live) and registers it under the key; it adds the e2e for the retire dialog.
+threads AND a mapping (in the order retired; never for a status with no threads), inside the same transaction, AFTER the status upsert (so the target may be a status this PUT adds or revives; pinned by `FakeWorkflowUsage`'s `targetLiveAtMove` and, with real threads, by `ThreadWorkflowUsageTest`) and
+before the revision bump, so any later failure rolls the moves back; the sum is the audited `threadsMoved`. A revived status may change category freely (a retired status has no threads: they were moved when it retired).
+
+`ThreadWorkflowUsage`: `threadCounts` is ONE `SELECT status_key, count(*) ... GROUP BY status_key` over `idx_threads_room_status`, for the keys asked (a status with no thread is absent).
+`moveThreads` selects the ids of the room's threads in `from`, runs one `UPDATE threads SET status_key = to, updated_at = now` over them and appends one `STATUS_REPLACED`
+event per thread (`{from, to, fromLabel, toLabel}`, one multi-row insert, by `byUserId`, on the move's own instant), then returns the count. The labels come from `RoomWorkflowService.snapshot`
+(retired rows included: the source is already retired when this runs). A workflow move is **not activity**: `last_activity_at` (the thread's and the room's rail order), `message_count` and
+the thread `revision` (the details token) stay; `closed_at` is untouched because the replacement has the source's category (so a CLOSED to CLOSED replacement keeps the original close time, as the status route's does).
+Thread rows reference `(room_id, status_key)` with an FK to `room_statuses(room_id, key)` (`fk_threads_status`): a backstop, since every thread write runs under `withRoomWrite`, the same room lock as the workflow PUT (race 6: a status move waiting
+on the lock while a PUT retires its target re-reads the status inside the lock and answers `400`).
 
 ## Threads and messages (0.3)
 

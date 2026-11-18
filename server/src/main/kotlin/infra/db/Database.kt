@@ -12,15 +12,18 @@ import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomServiceKey
 import ch.nokillswit.rooms.RoomWorkflowService
 import ch.nokillswit.rooms.RoomWorkflowServiceKey
+import ch.nokillswit.rooms.WorkflowUsageKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.threads.MessageService
+import ch.nokillswit.threads.MessageServiceKey
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadEventServiceKey
 import ch.nokillswit.threads.ThreadService
 import ch.nokillswit.threads.ThreadServiceKey
 import ch.nokillswit.threads.ThreadStatusService
 import ch.nokillswit.threads.ThreadStatusServiceKey
+import ch.nokillswit.threads.ThreadWorkflowUsage
 import ch.nokillswit.users.UserService
 import ch.nokillswit.users.UserServiceKey
 import ch.nokillswit.workflows.WorkflowTemplateService
@@ -263,14 +266,18 @@ suspend fun Application.configureDatabase() {
     // The thread aggregate (V14): a thread write runs under the room lock and reads the room through the rooms/ services only.
     val threadEventService = ThreadEventService(database)
     attributes.put(ThreadEventServiceKey, threadEventService)
+    val messageService = MessageService(database, roomService)
+    attributes.put(MessageServiceKey, messageService)
     attributes.put(
         ThreadServiceKey,
-        ThreadService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, MessageService()),
+        ThreadService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, messageService),
     )
     attributes.put(
         ThreadStatusServiceKey,
         ThreadStatusService(database, roomService, roomWorkflowService, roomMemberService, threadEventService),
     )
+    // The workflow's thread-usage port (S6): rooms/ declares it and never imports threads/, so this root registers the implementation.
+    attributes.put(WorkflowUsageKey, ThreadWorkflowUsage(roomWorkflowService, threadEventService))
     attributes.put(
         TokenBlocklistServiceKey,
         TokenBlocklistService(

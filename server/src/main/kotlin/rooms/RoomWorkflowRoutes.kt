@@ -54,5 +54,5 @@ fun Application.configureRoomWorkflowRoutes() {
     }
 }
 
-/** Resolved per request, so a test (and 0.3) can register its own port; absent = no threads yet (`WorkflowUsage.kt`). */
-private fun ApplicationCall.workflowUsage(): WorkflowUsage = application.attributes.getOrNull(WorkflowUsageKey) ?: NoThreadsYet
+/** Resolved per request, so a test's `application { }` block can overwrite the registered port with a fake (`WorkflowUsage.kt`). */
+private fun ApplicationCall.workflowUsage(): WorkflowUsage = application.attributes[WorkflowUsageKey]
