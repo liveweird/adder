@@ -1,0 +1,29 @@
+/*
+ * The conversation's scroller: it holds at most about two thirds of the viewport (the header above and the composer below stay in reach
+ * while the messages scroll), and is itself a focusable, labelled region so the keyboard can scroll it (axe: scrollable-region-focusable).
+ * The list inside carries no bullets; a hairline separates the messages.
+ */
+.scroller {
+  max-height: min(65dvh, 44rem);
+  min-height: 6rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+
+.scroller:focus-visible {
+  outline: 2px solid var(--adder-accent-ink);
+  outline-offset: 2px;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list > li + li {
+  border-top: 1px solid var(--mantine-color-default-border);
+}

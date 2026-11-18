@@ -114,8 +114,9 @@ export default function RoomWorkflowForm({
       setStaleAfterSave(true);
       setSubmitting(false);
     }
-    // The room's header and the Threads view (its status pills and the new-thread form's fields, under the shared workflow key) read the old document.
-    await refreshQueriesAfterMutation(queryClient, ["rooms", "detail", room.id], ["rooms", "workflow", room.id]);
+    // The room's header and the Threads view (its status pills and the new-thread form's fields, under the shared workflow key) read the old document,
+    // and a save can MOVE threads (a retired status's replacement), so the thread list and the open thread's status are stale too.
+    await refreshQueriesAfterMutation(queryClient, ["rooms", "detail", room.id], ["rooms", "workflow", room.id], ["rooms", "threads", room.id]);
   }
 
   async function reload() {

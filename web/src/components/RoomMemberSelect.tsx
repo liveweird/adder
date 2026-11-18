@@ -19,6 +19,7 @@ export default function RoomMemberSelect({
   picked,
   onPick,
   disabled,
+  readOnly,
   error,
   required,
 }: {
@@ -28,6 +29,7 @@ export default function RoomMemberSelect({
   picked: PickedOption | null;
   onPick: (picked: PickedOption | null) => void;
   disabled?: boolean;
+  readOnly?: boolean;
   error?: ReactNode;
   required?: boolean;
 }) {
@@ -50,6 +52,7 @@ export default function RoomMemberSelect({
       picked={picked}
       onPick={onPick}
       disabled={disabled}
+      readOnly={readOnly}
       error={error}
     />
   );

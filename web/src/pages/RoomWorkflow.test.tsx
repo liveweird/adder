@@ -181,6 +181,17 @@ describe("reading and editing", () => {
     expect(calls(mockFetch, "GET", "/api/v1/rooms/12").length).toBeGreaterThan(1);
   });
 
+  test("a save also re-reads the room's threads (it can move them to a replacement status)", async () => {
+    const user = userEvent.setup();
+    serve(mockFetch);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    renderWorkflow(queryClient);
+    await editLabel(user, 3, " (closed)");
+    await save(user);
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12] }));
+  });
+
   test("an administrator who is not a member edits too", async () => {
     signIn(1, ["ADMIN"]);
     serve(mockFetch, { room: { ...ROOM, role: null } });

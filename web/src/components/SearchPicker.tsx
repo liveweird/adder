@@ -23,6 +23,7 @@ export default function SearchPicker({
   search,
   enabled = true,
   disabled,
+  readOnly,
   required,
   error,
   picked,
@@ -47,6 +48,8 @@ export default function SearchPicker({
   enabled?: boolean;
   /** The control is read-only for this session (a plan editor the caller may only look at). */
   disabled?: boolean;
+  /** Locked without losing the caret (a save in flight): the box cannot be changed, but it stays focusable. */
+  readOnly?: boolean;
   /** The field is mandatory: Mantine's asterisk beside the label. */
   required?: boolean;
   /** A field error (a server conflict the form maps onto this control). */
@@ -119,6 +122,7 @@ export default function SearchPicker({
         onChange={(value, option) => onPick(value !== null && option ? { value: option.value, label: option.label } : null)}
         nothingFoundMessage={nothingFound}
         disabled={disabled}
+        readOnly={readOnly}
         required={required}
         // A compact cell has a fixed height: a failed search is the red border (no message under it, no alert after it).
         error={error ?? (compact && results.isError ? true : undefined)}

@@ -101,5 +101,12 @@
   "discard": {
     "title": "Odrzucić zmiany?",
     "message": "Masz niezapisane zmiany. Jeśli wyjdziesz teraz, przepadną."
+  },
+  "history": {
+    "change": {
+      "fromTo": "{{label}}: {{from}} → {{to}}",
+      "set": "{{label}}: ustawiono {{to}}",
+      "cleared": "{{label}}: wyczyszczono"
+    }
   }
 }

@@ -4,7 +4,7 @@ import type { RoomWorkflow } from "../api/rooms";
 import type { ThreadCreateBody, ThreadFieldValues } from "../api/threads";
 import type { PickedOption } from "../components/SearchPicker";
 import { ApiError } from "../api/http";
-import { saveErrorMessage } from "./saveError";
+import { saveErrorMessage, withServerDetail } from "./saveError";
 import { isValidIsoDate } from "./isoDate";
 
 // Server limits (threads/Thread.kt, threads/ThreadFields.kt) mirrored client-side; the rules below are identical to the server's.
@@ -114,22 +114,39 @@ function textFieldError(field: Pick<WorkflowField, "type" | "label">, value: str
   }
 }
 
+/** The sentence for a message body (an opening message or a reply) the server would refuse after its own normalisation, or null when it is valid. */
+export function messageBodyError(text: string, t: TFunction): string | null {
+  const body = normalizeBody(text);
+  if (body.length < 1 || body.length > MAX_MESSAGE_BODY_LENGTH) return t("threads.validation.bodyLength", { max: MAX_MESSAGE_BODY_LENGTH });
+  return hasControl(body, true) ? t("threads.validation.bodyControl") : null;
+}
+
+/** The sentence for a title the server would refuse (1 to 200 characters, a single line without control or hidden formatting characters), or null. */
+export function titleError(title: string, t: TFunction): string | null {
+  const trimmed = title.trim();
+  if (trimmed.length < 1 || trimmed.length > MAX_THREAD_TITLE_LENGTH) return t("threads.validation.titleLength", { max: MAX_THREAD_TITLE_LENGTH });
+  return hasControl(trimmed, false) ? t("threads.validation.titleControl") : null;
+}
+
+/** The sentence for a field draft that IS set and breaks its type's rules (only the text-kind drafts can), or null. */
+export function setFieldDraftError(field: Pick<WorkflowField, "type" | "label">, draft: FieldDraft, t: TFunction): string | null {
+  return draft.kind === "text" ? textFieldError(field, draft.value, t) : null;
+}
+
 /** The form's rules, one function over all values (the field drafts are keyed by the workflow's own keys). */
 export function threadFormValidation(t: TFunction, fields: readonly WorkflowField[]) {
   return (values: ThreadFormValues): FormErrors => {
     const errors: FormErrors = {};
-    const title = values.title.trim();
-    if (title.length < 1 || title.length > MAX_THREAD_TITLE_LENGTH) errors.title = t("threads.validation.titleLength", { max: MAX_THREAD_TITLE_LENGTH });
-    else if (hasControl(title, false)) errors.title = t("threads.validation.titleControl");
-    const body = normalizeBody(values.body);
-    if (body.length < 1 || body.length > MAX_MESSAGE_BODY_LENGTH) errors.body = t("threads.validation.bodyLength", { max: MAX_MESSAGE_BODY_LENGTH });
-    else if (hasControl(body, true)) errors.body = t("threads.validation.bodyControl");
+    const titleMessage = titleError(values.title, t);
+    if (titleMessage) errors.title = titleMessage;
+    const bodyError = messageBodyError(values.body, t);
+    if (bodyError) errors.body = bodyError;
     for (const field of fields) {
       const draft = values.fields[field.key];
       if (isUnsetDraft(draft)) {
         if (field.required) errors[`fields.${field.key}`] = t("threads.validation.fieldRequired");
-      } else if (draft.kind === "text") {
-        const message = textFieldError(field, draft.value, t);
+      } else {
+        const message = setFieldDraftError(field, draft, t);
         if (message) errors[`fields.${field.key}`] = message;
       }
     }
@@ -138,7 +155,7 @@ export function threadFormValidation(t: TFunction, fields: readonly WorkflowFiel
 }
 
 /** The wire value of a set draft (NUMBER and USER travel as JSON numbers, MULTI_SELECT as its keys). */
-function draftValue(field: WorkflowField, draft: FieldDraft): ThreadFieldValues[string] {
+export function draftValue(field: WorkflowField, draft: FieldDraft): ThreadFieldValues[string] {
   if (draft.kind === "multi") return draft.value;
   if (draft.kind === "user") return Number(draft.value?.value);
   const text = draft.value.trim();
@@ -177,7 +194,7 @@ export function threadCreateErrorMessage(err: unknown, t: TFunction): string {
     failedStatus: "common.error.createFailedStatus",
     failed: "common.error.createFailedNetwork",
   });
-  return err instanceof ApiError && err.status === 400 && err.detail ? `${message} (${err.detail})` : message;
+  return withServerDetail(message, err);
 }
 
 /** Whether the draft holds nothing at all (no title, no message, no field): such a form is clean, and nothing is kept for it. */

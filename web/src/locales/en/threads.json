@@ -55,7 +55,8 @@
   },
   "field": {
     "pick": "Pick…",
-    "clear": "Clear {{label}}"
+    "clear": "Clear {{label}}",
+    "removedOption": "(removed option)"
   },
   "memberPicker": {
     "placeholder": "Search members by name…",
@@ -75,6 +76,124 @@
     "url": "{{field}} must be a valid http(s) address (at most {{max}} characters)"
   },
   "toast": {
-    "started": "Thread started"
+    "started": "Thread started",
+    "statusChanged": "Status changed",
+    "ownerChanged": "Owner changed",
+    "detailsSaved": "Details saved"
+  },
+  "messages": {
+    "aria": "Messages",
+    "loadOlder": "Load older messages",
+    "loadFailed": "Could not load the messages"
+  },
+  "message": {
+    "name": "message by {{author}} on {{when}}",
+    "edited": "edited {{when}}",
+    "deletedOwn": "This message was deleted.",
+    "deletedModerated": "Removed by a room owner or an administrator.",
+    "remove": "Remove",
+    "editLabel": "Edit message",
+    "deleteTitle": "Delete this message?",
+    "deleteBody": "It is replaced by a note that it was deleted. This cannot be undone.",
+    "removeTitle": "Remove this message?",
+    "removeBody": "It is replaced by a note that a room owner or an administrator removed it. This cannot be undone.",
+    "error": {
+      "forbidden": "You do not have permission to do that in this room",
+      "gone": "This message no longer exists, or you no longer have access to its room — reload the page",
+      "closed": "This thread was closed in the meantime, so its messages can no longer be changed.",
+      "archived": "This room was archived in the meantime, so its messages can no longer be changed.",
+      "conflict": "The thread or the room changed in the meantime. Reload the page and try again.",
+      "tooManyRequests": "You are posting too quickly. Wait a minute and try again.",
+      "invalid": "The message is not valid. Check its length and that it has no control characters."
+    }
+  },
+  "composer": {
+    "label": "Reply",
+    "hint": "Markdown is supported. Ctrl+Enter or Cmd+Enter sends; Enter adds a line.",
+    "send": "Send",
+    "closed": "This thread is closed, so it takes no new messages. Its owner, a room owner or an administrator can reopen it.",
+    "archived": "This room is archived, so no new messages can be posted.",
+    "notMember": "Only members of the room can post. Join the room first.",
+    "membersLink": "Open the Members page"
+  },
+  "side": {
+    "toggle": "Details",
+    "status": "Status",
+    "owner": "Owner",
+    "details": "Details",
+    "history": "History",
+    "unavailable": "Not available until the room's statuses have loaded."
+  },
+  "status": {
+    "label": "Thread status",
+    "open": "Open",
+    "closed": "Closed",
+    "hintSteward": "Needs the thread owner, a room owner or an administrator",
+    "hintArchived": "This room is archived",
+    "stewardNote": "Closing, reopening and moving between closed statuses is for the thread owner, a room owner or an administrator.",
+    "archivedNote": "This room is archived, so the status can no longer change.",
+    "closeTitle": "Close this thread?",
+    "closeMessage": "Moving #{{number}} to {{status}} closes it: no new messages, edits or detail changes until its owner, a room owner or an administrator reopens it.",
+    "closeConfirm": "Close thread",
+    "error": {
+      "forbidden": "Only the thread owner, a room owner or an administrator can close or reopen a thread",
+      "gone": "This thread no longer exists, or you no longer have access to its room — reload the page",
+      "archived": "This room was archived in the meantime, so the status can no longer change.",
+      "unavailable": "That status is no longer available in this room. Pick another one."
+    }
+  },
+  "owner": {
+    "label": "Owner",
+    "hint": "Search the room's members to pass the thread on.",
+    "passOn": "Pass on",
+    "stewardNote": "Only the thread owner, a room owner or an administrator can pass the thread on.",
+    "closedNote": "A closed thread cannot be passed on. Reopen it first.",
+    "archivedNote": "This room is archived, so the thread cannot be passed on.",
+    "error": {
+      "forbidden": "Only the thread owner, a room owner or an administrator can pass the thread on",
+      "gone": "This thread no longer exists, or you no longer have access to its room — reload the page",
+      "closed": "This thread was closed in the meantime, so it cannot be passed on. Reopen it first.",
+      "archived": "This room was archived in the meantime, so the thread cannot be passed on.",
+      "conflict": "The thread or the room changed in the meantime. Reload the page and try again.",
+      "invalid": "That person is not an active member of this room. Pick another member."
+    }
+  },
+  "details": {
+    "edit": "Edit details",
+    "notSet": "Not set",
+    "noFields": "This room's workflow has no extra fields.",
+    "closedNote": "This thread is closed, so its details can no longer change. Reopen it to edit them.",
+    "archivedNote": "This room is archived, so the details can no longer change.",
+    "conflict": {
+      "title": "This thread was changed elsewhere",
+      "message": "Someone saved a newer version while you were editing. Your changes are kept here. Reload to see the latest version, then apply them again.",
+      "reload": "Reload the latest version"
+    },
+    "error": {
+      "gone": "This thread no longer exists, or you no longer have access to its room — reload the page",
+      "closed": "This thread was closed in the meantime, so its details can no longer change. Your changes are kept here.",
+      "archived": "This room was archived in the meantime, so the details can no longer change. Your changes are kept here.",
+      "conflict": "The thread or the room changed in the meantime. Reload the page and try again.",
+      "invalid": "The details could not be saved: one or more values are invalid"
+    },
+    "fieldsMoved": {
+      "title": "The room's fields were changed",
+      "message": "The fields of this room changed while you were editing. Your changes are kept here. Reload to see the current fields, then apply them again."
+    }
+  },
+  "history": {
+    "empty": "No history yet.",
+    "userDeleted": "{{name}} (deleted account)"
+  },
+  "event": {
+    "created": "Started the thread in {{status}}",
+    "titleChanged": "Renamed the thread",
+    "titleLabel": "Title",
+    "statusChanged": "Moved the thread from {{from}} to {{to}}",
+    "closed": "Closed the thread: {{from}} → {{to}}",
+    "reopened": "Reopened the thread: {{from}} → {{to}}",
+    "statusReplaced": "{{from}} was retired; the thread moved to {{to}}",
+    "ownerChanged": "Passed the thread from {{from}} to {{to}}",
+    "fieldChanged": "Changed {{field}}"
   }
 }

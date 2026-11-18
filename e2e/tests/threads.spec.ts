@@ -1,0 +1,432 @@
+// Threads and messages: a member starts a thread from the room view and another member replies to it; an author edits and deletes their own
+// message and a room owner removes another member's; a member moves a thread between open statuses but cannot close it, its owner closes it
+// and the closed thread refuses replies until it is reopened; the owner passes the thread on, the new owner edits its details and the history
+// lists every change. Owns: its throwaway `e2e-thr-*` rooms and users, removed through the API in an
+// `afterEach` (rooms first, then the users). The seeded Default and Incident templates are shared and read-only: rooms only copy them. Every room is created
+// by a throwaway user, so the seed administrator is never a member of one; the per-user `room-name` (30 a minute), `room-members` (60) and
+// `chat-post` (120) buckets are far from reached. Threads are never deleted: a room's removal hides its threads with it.
+import type { Page } from "@playwright/test";
+import { deleteViaApi, expect, login, signOut, test, throwawayUser, uniqueText } from "./helpers";
+
+// API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
+const cleanup: string[] = [];
+test.afterEach(async () => {
+  await deleteViaApi(cleanup.splice(0));
+});
+
+const ROOMS_API = /\/api\/v1\/rooms(\/\d+)?$/;
+const MEMBERS_API = /\/api\/v1\/rooms\/\d+\/members(\/\d+)?$/;
+const THREADS_API = /\/api\/v1\/rooms\/\d+\/threads$/;
+const MESSAGES_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/messages$/;
+const MESSAGE_API = /\/api\/v1\/rooms\/\d+\/messages\/\d+$/;
+const THREAD_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+$/;
+const STATUS_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/status$/;
+const OWNER_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/owner$/;
+/** The "edited" marker carries the edit time as visible text. */
+const EDITED_MARKER = /^edited \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+
+/** The sidebar's Rooms section (the rail lists the caller's rooms). */
+const rail = (page: Page) => page.getByRole("group", { name: "Rooms", exact: true });
+/** The conversation's scroller: its messages are the list items inside it. */
+const conversation = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
+const messageNamed = (page: Page, text: string) => conversation(page).getByRole("listitem").filter({ hasText: text });
+const kebab = (item: ReturnType<typeof messageNamed>) => item.getByRole("button", { name: /^Operations for message by / });
+
+/** Create a room from a seeded template (Default unless told) as the signed-in user and register its cleanup; leaves the browser on the new room. */
+async function createRoomViaUi(page: Page, name: string, template: "Default" | "Incident" = "Default"): Promise<number> {
+  await page.goto("/rooms/new");
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill(name);
+  await page.getByRole("combobox", { name: "Workflow template" }).click();
+  await page.getByRole("option", { name: template, exact: true }).click();
+  const [created] = await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && ROOMS_API.test(r.url()) && r.status() === 201),
+    page.getByRole("button", { name: "Create", exact: true }).click(),
+  ]);
+  const id = ((await created.json()) as { id: number }).id;
+  cleanup.unshift(`/api/v1/rooms/${id}`);
+  await expect(page).toHaveURL(new RegExp(`/rooms/${id}$`));
+  await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
+  return id;
+}
+
+/** The room owner adds one person from the directory on the Members tab; leaves the browser there. */
+async function addMemberViaUi(page: Page, roomId: number, person: { name: string; email: string }): Promise<void> {
+  await page.goto(`/rooms/${roomId}/members`);
+  const picker = page.getByRole("combobox", { name: "Add a person" });
+  await picker.click();
+  await picker.fill(person.name);
+  await page.getByRole("option", { name: `${person.name} (${person.email})` }).click();
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && MEMBERS_API.test(r.url()) && r.status() === 200),
+    page.getByRole("button", { name: "Add person", exact: true }).click(),
+  ]);
+  await expect(page.getByRole("table", { name: "Members", exact: true }).getByRole("row").filter({ hasText: person.email })).toBeVisible();
+}
+
+/** Start a thread from the room view's "New thread" form; lands on the new thread's pane. */
+async function startThreadViaUi(page: Page, roomId: number, title: string, body: string): Promise<void> {
+  await page.goto(`/rooms/${roomId}`);
+  await page.getByRole("link", { name: "New thread", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/new$`));
+  await page.getByRole("textbox", { name: "Title", exact: true }).fill(title);
+  await page.getByRole("textbox", { name: "First message", exact: true }).fill(body);
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && THREADS_API.test(r.url()) && r.status() === 201),
+    page.getByRole("button", { name: "Start thread", exact: true }).click(),
+  ]);
+  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/\\d+$`));
+}
+
+/** Post a reply with Ctrl+Enter from the composer (the key is the subject of the first journey; here it is the quickest way). */
+async function reply(page: Page, text: string): Promise<void> {
+  const box = page.getByRole("textbox", { name: "Reply", exact: true });
+  await box.fill(text);
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && MESSAGES_API.test(r.url()) && r.status() === 201),
+    box.press("Control+Enter"),
+  ]);
+  await expect(box).toHaveValue("");
+}
+
+/**
+ * Open a thread from the room's thread list (the labelled `nav`). The list shows OPEN threads by default, so a CLOSED thread is not in it:
+ * pass `closed` to open it by its own address instead (every thread here is `#1`).
+ */
+async function openThread(page: Page, roomId: number, title: string, { closed = false }: { closed?: boolean } = {}): Promise<void> {
+  if (closed) {
+    await page.goto(`/rooms/${roomId}/threads/1`);
+  } else {
+    await page.goto(`/rooms/${roomId}`);
+    await page.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(title) }).click();
+  }
+  await expect(page.getByRole("heading", { level: 3, name: `#1 ${title}` })).toBeVisible();
+}
+
+/**
+ * Opens the thread's side panel. In a wide main area it is a third column that is always there (and the toggle is hidden); below that it
+ * is folded behind the "Details" toggle, which is the way in. `isVisible` does not wait, so the pane is awaited FIRST (the toggle renders with
+ * it; a toggle looked for before the pane has loaded reads as "hidden" and the panel would stay folded), and the panel is awaited settled at
+ * the end: its Status section is the first thing drawn once it shows.
+ */
+async function openDetails(page: Page): Promise<void> {
+  await expect(page.getByRole("region", { name: /^#\d+ / })).toBeVisible();
+  const toggle = page.getByRole("button", { name: "Details", exact: true });
+  // Hidden (`display: none`) in the wide layout, so visibility is the test, not presence.
+  if (await toggle.isVisible()) {
+    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  }
+  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
+}
+
+/** The side panel's status select; a plain `getByRole("combobox")` would also match the owner picker. */
+const statusSelect = (page: Page) => page.getByRole("combobox", { name: "Thread status", exact: true });
+const ownerPicker = (page: Page) => page.getByRole("combobox", { name: "Owner", exact: true });
+
+/** Pick an enabled status from the select; the move is a PUT that answers 204. */
+async function moveTo(page: Page, label: string): Promise<void> {
+  await statusSelect(page).click();
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && STATUS_API.test(r.url()) && r.status() === 204),
+    page.getByRole("option", { name: label, exact: true }).click(),
+  ]);
+}
+
+test("a member starts a thread from the room view and another member replies to it", async ({ page }) => {
+  await login(page);
+  const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
+  const mate = await throwawayUser(page, "E2E Thread Mate", cleanup);
+  await signOut(page);
+
+  // The owner makes the room, adds the teammate and starts a thread: the first message is the thread's opener, and the pane opens on it.
+  await login(page, owner.email, owner.password);
+  const roomName = uniqueText("e2e-thr");
+  const roomId = await createRoomViaUi(page, roomName);
+  await addMemberViaUi(page, roomId, mate);
+  const title = uniqueText("Disk full");
+  await startThreadViaUi(page, roomId, title, "The **replica** is out of space.");
+  await expect(page.getByRole("heading", { level: 3, name: `#1 ${title}` })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/1$`));
+  const opener = messageNamed(page, "is out of space");
+  await expect(opener).toHaveCount(1);
+  await expect(opener).toContainText(owner.name);
+  await expect(opener.locator("strong")).toHaveText("replica");
+  await expect(page.getByRole("region", { name: `#1 ${title}` })).toContainText("1 message");
+  await expect(page.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(title) })).toBeVisible();
+  await signOut(page);
+
+  // The teammate finds the room in their rail, opens the thread from the list and replies: Enter adds a line, Ctrl+Enter sends.
+  await login(page, mate.email, mate.password);
+  await rail(page).getByRole("link", { name: roomName, exact: true }).click();
+  await page.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(title) }).click();
+  await expect(page.getByRole("heading", { level: 3, name: `#1 ${title}` })).toBeVisible();
+  await expect(messageNamed(page, "is out of space")).toBeVisible();
+  const box = page.getByRole("textbox", { name: "Reply", exact: true });
+  await expect(page.getByText("0 / 8000", { exact: true })).toBeVisible();
+  let posts = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && MESSAGES_API.test(request.url())) posts += 1;
+  });
+  await box.click();
+  await page.keyboard.type("Freed the **old logs**.");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("Watching the disk.");
+  await expect(box).toHaveValue("Freed the **old logs**.\nWatching the disk.");
+  expect(posts, "Enter alone does not post").toBe(0);
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && MESSAGES_API.test(r.url()) && r.status() === 201),
+    page.keyboard.press("Control+Enter"),
+  ]);
+  await expect(box).toHaveValue("");
+  const mine = messageNamed(page, "Watching the disk.");
+  await expect(mine).toHaveCount(1);
+  await expect(mine).toContainText(mate.name);
+  await expect(mine.locator("strong")).toHaveText("old logs");
+  await expect(page.getByRole("region", { name: `#1 ${title}` })).toContainText("2 messages");
+  // The newest message is the last in the conversation, and the reply stays after a reload.
+  await expect(conversation(page).getByRole("listitem").last()).toContainText("Watching the disk.");
+  await page.reload();
+  await expect(messageNamed(page, "Watching the disk.")).toBeVisible();
+  await signOut(page);
+
+  // The owner opens the thread again and sees the teammate's reply under their own opening message.
+  await login(page, owner.email, owner.password);
+  await openThread(page, roomId, title);
+  await expect(conversation(page).getByRole("listitem")).toHaveCount(2);
+  await expect(conversation(page).getByRole("listitem").last()).toContainText(mate.name);
+  await expect(conversation(page).getByRole("listitem").last()).toContainText("Watching the disk.");
+});
+
+test("an author edits and deletes their own message and a room owner removes another member's message", async ({ page }) => {
+  await login(page);
+  const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
+  const mate = await throwawayUser(page, "E2E Thread Mate", cleanup);
+  await signOut(page);
+
+  await login(page, owner.email, owner.password);
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"));
+  await addMemberViaUi(page, roomId, mate);
+  const title = uniqueText("Pager storm");
+  await startThreadViaUi(page, roomId, title, "Opening note from the owner.");
+  await signOut(page);
+
+  // The teammate posts three messages; they have a menu on their own and none on the owner's opener.
+  await login(page, mate.email, mate.password);
+  await openThread(page, roomId, title);
+  for (const text of ["first draft", "oops wrong thread", "token is hunter2"]) await reply(page, text);
+  await expect(kebab(messageNamed(page, "Opening note"))).toHaveCount(0);
+  await expect(kebab(messageNamed(page, "first draft"))).toBeVisible();
+
+  // Edit: the editor takes the place of the body; saving puts the new body back, marked "edited".
+  const edited = messageNamed(page, "first draft");
+  await kebab(edited).click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  const editor = page.getByRole("textbox", { name: "Edit message", exact: true });
+  await editor.fill("final draft");
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && MESSAGE_API.test(r.url()) && r.status() === 204),
+    page.getByRole("button", { name: "Save", exact: true }).click(),
+  ]);
+  await expect(editor).toHaveCount(0);
+  const final = messageNamed(page, "final draft");
+  await expect(final).toHaveCount(1);
+  await expect(final.getByText(EDITED_MARKER)).toBeVisible();
+  await expect(messageNamed(page, "first draft")).toHaveCount(0);
+
+  // Delete: the confirm asks, and the message becomes a tombstone that still names its author.
+  const wrong = messageNamed(page, "oops wrong thread");
+  await kebab(wrong).click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "Delete this message?" });
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "DELETE" && MESSAGE_API.test(r.url()) && r.status() === 204),
+    confirm.getByRole("button", { name: "Delete", exact: true }).click(),
+  ]);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(messageNamed(page, "oops wrong thread")).toHaveCount(0);
+  const tombstone = messageNamed(page, "This message was deleted.");
+  await expect(tombstone).toHaveCount(1);
+  await expect(tombstone).toContainText(mate.name);
+  await expect(kebab(tombstone)).toHaveCount(0);
+  await signOut(page);
+
+  // The room owner sees the teammate's messages with Remove only (never Edit or Delete), and their own opener with Edit and Delete.
+  await login(page, owner.email, owner.password);
+  await openThread(page, roomId, title);
+  await kebab(messageNamed(page, "Opening note")).click();
+  await expect(page.getByRole("menuitem", { name: "Edit", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menuitem")).toHaveCount(0);
+  await kebab(messageNamed(page, "token is hunter2")).click();
+  await expect(page.getByRole("menuitem", { name: "Remove", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Edit", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Delete", exact: true })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: "Remove", exact: true }).click();
+  const removeDialog = page.getByRole("dialog", { name: "Remove this message?" });
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "DELETE" && MESSAGE_API.test(r.url()) && r.status() === 204),
+    removeDialog.getByRole("button", { name: "Remove", exact: true }).click(),
+  ]);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(messageNamed(page, "token is hunter2")).toHaveCount(0);
+  await expect(messageNamed(page, "Removed by a room owner or an administrator.")).toHaveCount(1);
+  // The earlier own-delete tombstone is still the author's own wording.
+  await expect(messageNamed(page, "This message was deleted.")).toHaveCount(1);
+  await signOut(page);
+
+  // The teammate finds both tombstones, each in its own words, and their edited message intact.
+  await login(page, mate.email, mate.password);
+  await openThread(page, roomId, title);
+  await expect(messageNamed(page, "Removed by a room owner or an administrator.")).toContainText(mate.name);
+  await expect(messageNamed(page, "This message was deleted.")).toContainText(mate.name);
+  await expect(messageNamed(page, "final draft").getByText(EDITED_MARKER)).toBeVisible();
+});
+
+test("a member moves a thread between open statuses but cannot close it, its owner closes it, and the closed thread refuses replies until the room owner reopens it", async ({ page }) => {
+  await login(page);
+  const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
+  const mate = await throwawayUser(page, "E2E Thread Mate", cleanup);
+  await signOut(page);
+
+  await login(page, owner.email, owner.password);
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"));
+  await addMemberViaUi(page, roomId, mate);
+  const title = uniqueText("Latency spike");
+  await startThreadViaUi(page, roomId, title, "p99 doubled after the deploy.");
+  await signOut(page);
+
+  // The teammate (a plain member, not the thread's owner) moves it between two OPEN statuses; the CLOSED ones are disabled, with the reason.
+  await login(page, mate.email, mate.password);
+  await openThread(page, roomId, title);
+  await openDetails(page);
+  const region = page.getByRole("region", { name: `#1 ${title}` });
+  await expect(statusSelect(page)).toHaveValue("Open");
+  await expect(ownerPicker(page)).toHaveCount(0);
+  await moveTo(page, "In progress");
+  await expect(statusSelect(page)).toHaveValue("In progress");
+  await expect(region).toContainText("In progress");
+  await statusSelect(page).click();
+  const done = page.getByRole("option", { name: /^Done/ });
+  await expect(done).toHaveAttribute("data-combobox-disabled", "true");
+  await expect(done).toContainText("Needs the thread owner, a room owner or an administrator");
+  await expect(page.getByRole("option", { name: /^Won't do/ })).toHaveAttribute("data-combobox-disabled", "true");
+  await page.keyboard.press("Escape");
+  await signOut(page);
+
+  // The owner closes it: the select asks first, and the closed thread swaps the reply box for the note.
+  await login(page, owner.email, owner.password);
+  await openThread(page, roomId, title);
+  await openDetails(page);
+  await statusSelect(page).click();
+  await page.getByRole("option", { name: "Done", exact: true }).click();
+  const confirm = page.getByRole("dialog", { name: "Close this thread?" });
+  await expect(confirm).toContainText("Moving #1 to Done closes it");
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && STATUS_API.test(r.url()) && r.status() === 204),
+    confirm.getByRole("button", { name: "Close thread", exact: true }).click(),
+  ]);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(statusSelect(page)).toHaveValue("Done");
+  await expect(page.getByText(/^This thread is closed, so it takes no new messages/)).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Reply", exact: true })).toHaveCount(0);
+  await signOut(page);
+
+  // The teammate finds it closed: no reply box, and no status but the current one can be picked.
+  await login(page, mate.email, mate.password);
+  await openThread(page, roomId, title, { closed: true });
+  await expect(page.getByText(/^This thread is closed, so it takes no new messages/)).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Reply", exact: true })).toHaveCount(0);
+  await openDetails(page);
+  await statusSelect(page).click();
+  await expect(page.getByRole("option", { name: /^Open/ })).toHaveAttribute("data-combobox-disabled", "true");
+  await page.keyboard.press("Escape");
+  await signOut(page);
+
+  // The room owner reopens it (no confirm), and the teammate can reply again.
+  await login(page, owner.email, owner.password);
+  await openThread(page, roomId, title, { closed: true });
+  await openDetails(page);
+  await moveTo(page, "Open");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Reply", exact: true })).toBeVisible();
+  await signOut(page);
+  await login(page, mate.email, mate.password);
+  await openThread(page, roomId, title);
+  await reply(page, "Back in business.");
+  await expect(messageNamed(page, "Back in business.")).toHaveCount(1);
+});
+
+test("the owner passes the thread on, the new owner edits its details, and the history lists every change", async ({ page }) => {
+  await login(page);
+  const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
+  const mate = await throwawayUser(page, "E2E Thread Mate", cleanup);
+  await signOut(page);
+
+  // The Incident template carries the optional fields (Severity, Component, Jira link, ETA) the new owner will fill in.
+  await login(page, owner.email, owner.password);
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"), "Incident");
+  await addMemberViaUi(page, roomId, mate);
+  const title = uniqueText("Queue backlog");
+  await startThreadViaUi(page, roomId, title, "The ingest queue is growing.");
+
+  // The owner passes it on: choosing a member does not move it, "Pass on" does.
+  await openDetails(page);
+  const picker = ownerPicker(page);
+  await expect(picker).toHaveValue(owner.name);
+  await picker.click();
+  await picker.fill(mate.name);
+  await page.getByRole("option", { name: `${mate.name} (${mate.email})` }).click();
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && OWNER_API.test(r.url()) && r.status() === 204),
+    page.getByRole("button", { name: "Pass on", exact: true }).click(),
+  ]);
+  const region = page.getByRole("region", { name: `#1 ${title}` });
+  await expect(region).toContainText(`Owner: ${mate.name}`);
+  await signOut(page);
+
+  // The new owner (a plain member, now a steward of this thread) moves the status and fills in the details.
+  await login(page, mate.email, mate.password);
+  await openThread(page, roomId, title);
+  await openDetails(page);
+  await expect(ownerPicker(page)).toHaveValue(mate.name);
+  await moveTo(page, "Investigating");
+  await page.getByRole("button", { name: "Edit details", exact: true }).click();
+  const newTitle = `${title} (updated)`;
+  await page.getByRole("textbox", { name: /^Title/ }).fill(newTitle);
+  await page.getByRole("combobox", { name: "Severity", exact: true }).click();
+  await page.getByRole("option", { name: "S1", exact: true }).click();
+  await page.getByRole("textbox", { name: "Component", exact: true }).fill("ingest-api");
+  await page.getByRole("textbox", { name: "Jira link", exact: true }).fill("https://example.test/INC-1");
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && THREAD_API.test(r.url()) && r.status() === 204),
+    page.getByRole("button", { name: "Save", exact: true }).click(),
+  ]);
+  // The editor ends, the pane heading carries the new title and the read view shows the values (the link opens in a new tab).
+  await expect(page.getByRole("heading", { level: 3, name: `#1 ${newTitle}` })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Component", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Severity", { exact: true }).locator("xpath=following-sibling::dd[1]")).toHaveText("S1");
+  await expect(page.getByText("Component", { exact: true }).locator("xpath=following-sibling::dd[1]")).toHaveText("ingest-api");
+  const link = page.getByRole("link", { name: "https://example.test/INC-1", exact: true });
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+  // The history lists every change, newest first: the title and three fields, the move, the hand-over and the start.
+  const entries = page.getByRole("group", { name: "History", exact: true }).locator(".mantine-Timeline-item");
+  await expect(entries).toHaveCount(7);
+  await expect(entries.nth(6)).toContainText("Started the thread in Triage");
+  await expect(entries.nth(6)).toContainText(owner.name);
+  await expect(entries.nth(5)).toContainText(`Passed the thread from ${owner.name} to ${mate.name}`);
+  await expect(entries.nth(4)).toContainText("Moved the thread from Triage to Investigating");
+  await expect(entries.nth(4)).toContainText(mate.name);
+  const newest = page.getByRole("group", { name: "History", exact: true });
+  for (const text of ["Renamed the thread", "Changed Severity", "Changed Component", "Changed Jira link"]) await expect(newest).toContainText(text);
+  await expect(newest).toContainText(`Title: ${title} → ${newTitle}`);
+  await expect(newest).toContainText("Severity: set to S1");
+
+  // The changes outlive a reload.
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 3, name: `#1 ${newTitle}` })).toBeVisible();
+  await openDetails(page);
+  await expect(page.getByRole("group", { name: "History", exact: true }).locator(".mantine-Timeline-item")).toHaveCount(7);
+});

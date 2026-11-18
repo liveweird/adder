@@ -99,5 +99,12 @@
   "discard": {
     "title": "Discard changes?",
     "message": "You have unsaved changes. If you leave now, they are lost."
+  },
+  "history": {
+    "change": {
+      "fromTo": "{{label}}: {{from}} → {{to}}",
+      "set": "{{label}}: set to {{to}}",
+      "cleared": "{{label}}: cleared"
+    }
   }
 }

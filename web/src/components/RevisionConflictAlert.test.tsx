@@ -17,4 +17,12 @@ describe("RevisionConflictAlert", () => {
     renderWithProviders(<RevisionConflictAlert onReload={() => {}} reloading />);
     expect(screen.getByRole("button", { name: "Reload the latest version" })).toBeDisabled();
   });
+
+  test("takes its own words (a thread's details editor)", () => {
+    renderWithProviders(<RevisionConflictAlert onReload={() => {}} title="Elsewhere" message="Newer version saved." reloadLabel="Reload it" />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Elsewhere");
+    expect(screen.getByText("Newer version saved.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reload it" })).toBeInTheDocument();
+    expect(screen.queryByText("This workflow was changed elsewhere")).not.toBeInTheDocument();
+  });
 });

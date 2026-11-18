@@ -35,7 +35,7 @@ type FieldBody<L> = {
   options: { key: string; label: L }[];
 };
 
-/** `GET /rooms/{id}/workflow`: `threadCount` is how many threads sit in the status (always 0 until 0.3). */
+/** `GET /rooms/{id}/workflow`: `threadCount` is how many threads currently sit in the status. */
 export type RoomWorkflow = Schemas["RoomWorkflow"];
 
 /** `PUT /rooms/{id}/workflow` (with `X-Expected-Revision`); `replacements` is `{retiredKey: replacementKey}`. */

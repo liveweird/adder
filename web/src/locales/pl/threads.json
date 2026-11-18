@@ -57,7 +57,8 @@
   },
   "field": {
     "pick": "Wybierz…",
-    "clear": "Wyczyść: {{label}}"
+    "clear": "Wyczyść: {{label}}",
+    "removedOption": "(usunięta opcja)"
   },
   "memberPicker": {
     "placeholder": "Szukaj członków/członkiń po imieniu i nazwisku…",
@@ -77,6 +78,124 @@
     "url": "Pole „{{field}}” musi zawierać prawidłowy adres http(s) (najwyżej {{max}} znaków)"
   },
   "toast": {
-    "started": "Wątek rozpoczęty"
+    "started": "Wątek rozpoczęty",
+    "statusChanged": "Zmieniono status",
+    "ownerChanged": "Zmieniono właściciela/kę",
+    "detailsSaved": "Zapisano szczegóły"
+  },
+  "messages": {
+    "aria": "Wiadomości",
+    "loadOlder": "Wczytaj starsze wiadomości",
+    "loadFailed": "Nie udało się wczytać wiadomości"
+  },
+  "message": {
+    "name": "wiadomości: {{author}}, {{when}}",
+    "edited": "edytowana {{when}}",
+    "deletedOwn": "Ta wiadomość została usunięta.",
+    "deletedModerated": "Usunięta przez właściciela/kę pokoju lub administratora/kę.",
+    "remove": "Usuń z pokoju",
+    "editLabel": "Edytuj wiadomość",
+    "deleteTitle": "Usunąć tę wiadomość?",
+    "deleteBody": "Zastąpi ją informacja, że została usunięta. Tej operacji nie można cofnąć.",
+    "removeTitle": "Usunąć tę wiadomość z pokoju?",
+    "removeBody": "Zastąpi ją informacja, że usunął ją właściciel/ka pokoju lub administrator/ka. Tej operacji nie można cofnąć.",
+    "error": {
+      "forbidden": "Nie masz uprawnień, żeby to zrobić w tym pokoju",
+      "gone": "Ta wiadomość już nie istnieje albo nie masz już dostępu do jej pokoju — odśwież stronę",
+      "closed": "W międzyczasie ten wątek został zamknięty, więc jego wiadomości nie można już zmieniać.",
+      "archived": "W międzyczasie ten pokój został zarchiwizowany, więc jego wiadomości nie można już zmieniać.",
+      "conflict": "W międzyczasie wątek lub pokój się zmienił. Odśwież stronę i spróbuj ponownie.",
+      "tooManyRequests": "Piszesz zbyt szybko. Poczekaj minutę i spróbuj ponownie.",
+      "invalid": "Wiadomość jest nieprawidłowa. Sprawdź jej długość i czy nie zawiera znaków sterujących."
+    }
+  },
+  "composer": {
+    "label": "Odpowiedź",
+    "hint": "Możesz używać Markdowna. Ctrl+Enter lub Cmd+Enter wysyła, Enter dodaje wiersz.",
+    "send": "Wyślij",
+    "closed": "Ten wątek jest zamknięty, więc nie przyjmuje nowych wiadomości. Może go otworzyć ponownie jego właściciel/ka, właściciel/ka pokoju lub administrator/ka.",
+    "archived": "Ten pokój jest zarchiwizowany, więc nie można w nim publikować nowych wiadomości.",
+    "notMember": "Wiadomości mogą publikować tylko członkowie/członkinie pokoju. Najpierw dołącz do pokoju.",
+    "membersLink": "Otwórz stronę Członkowie/członkinie"
+  },
+  "side": {
+    "toggle": "Szczegóły",
+    "status": "Status",
+    "owner": "Właściciel/ka",
+    "details": "Szczegóły",
+    "history": "Historia",
+    "unavailable": "Niedostępne, dopóki nie wczytają się statusy pokoju."
+  },
+  "status": {
+    "label": "Status wątku",
+    "open": "Otwarte",
+    "closed": "Zamknięte",
+    "hintSteward": "Wymaga właściciela/ki wątku, właściciela/ki pokoju lub administratora/ki",
+    "hintArchived": "Ten pokój jest zarchiwizowany",
+    "stewardNote": "Zamykanie, ponowne otwieranie i przenoszenie między statusami zamkniętymi należy do właściciela/ki wątku, właściciela/ki pokoju lub administratora/ki.",
+    "archivedNote": "Ten pokój jest zarchiwizowany, więc status nie może się już zmieniać.",
+    "closeTitle": "Zamknąć ten wątek?",
+    "closeMessage": "Przeniesienie #{{number}} do statusu {{status}} zamyka go: żadnych nowych wiadomości, edycji ani zmian szczegółów, dopóki jego właściciel/ka, właściciel/ka pokoju lub administrator/ka nie otworzy go ponownie.",
+    "closeConfirm": "Zamknij wątek",
+    "error": {
+      "forbidden": "Wątek może zamknąć lub otworzyć ponownie tylko jego właściciel/ka, właściciel/ka pokoju lub administrator/ka",
+      "gone": "Ten wątek już nie istnieje albo nie masz już dostępu do jego pokoju — odśwież stronę",
+      "archived": "W międzyczasie ten pokój został zarchiwizowany, więc status nie może się już zmieniać.",
+      "unavailable": "Ten status nie jest już dostępny w tym pokoju. Wybierz inny."
+    }
+  },
+  "owner": {
+    "label": "Właściciel/ka",
+    "hint": "Wyszukaj członków/członkinie pokoju, żeby przekazać im wątek.",
+    "passOn": "Przekaż",
+    "stewardNote": "Wątek może przekazać tylko jego właściciel/ka, właściciel/ka pokoju lub administrator/ka.",
+    "closedNote": "Zamkniętego wątku nie można przekazać. Najpierw otwórz go ponownie.",
+    "archivedNote": "Ten pokój jest zarchiwizowany, więc nie można przekazać wątku.",
+    "error": {
+      "forbidden": "Wątek może przekazać tylko jego właściciel/ka, właściciel/ka pokoju lub administrator/ka",
+      "gone": "Ten wątek już nie istnieje albo nie masz już dostępu do jego pokoju — odśwież stronę",
+      "closed": "W międzyczasie ten wątek został zamknięty, więc nie można go przekazać. Najpierw otwórz go ponownie.",
+      "archived": "W międzyczasie ten pokój został zarchiwizowany, więc nie można przekazać wątku.",
+      "conflict": "Wątek lub pokój zmienił się w międzyczasie. Odśwież stronę i spróbuj ponownie.",
+      "invalid": "Ta osoba nie jest już aktywnym/aktywną członkiem/członkinią tego pokoju. Wybierz kogoś innego."
+    }
+  },
+  "details": {
+    "edit": "Edytuj szczegóły",
+    "notSet": "Nie ustawiono",
+    "noFields": "Przepływ pracy tego pokoju nie ma dodatkowych pól.",
+    "closedNote": "Ten wątek jest zamknięty, więc jego szczegóły nie mogą się już zmieniać. Otwórz go ponownie, żeby je edytować.",
+    "archivedNote": "Ten pokój jest zarchiwizowany, więc szczegóły nie mogą się już zmieniać.",
+    "conflict": {
+      "title": "Ten wątek zmienił się gdzie indziej",
+      "message": "Ktoś zapisał nowszą wersję w trakcie Twojej edycji. Twoje zmiany zostały tu zachowane. Wczytaj najnowszą wersję, aby ją zobaczyć, i zastosuj zmiany jeszcze raz.",
+      "reload": "Wczytaj najnowszą wersję"
+    },
+    "error": {
+      "gone": "Ten wątek już nie istnieje albo nie masz już dostępu do jego pokoju — odśwież stronę",
+      "closed": "W międzyczasie ten wątek został zamknięty, więc jego szczegóły nie mogą się już zmieniać. Twoje zmiany zostają tutaj.",
+      "archived": "W międzyczasie ten pokój został zarchiwizowany, więc szczegóły nie mogą się już zmieniać. Twoje zmiany zostają tutaj.",
+      "conflict": "Wątek lub pokój zmienił się w międzyczasie. Odśwież stronę i spróbuj ponownie.",
+      "invalid": "Nie udało się zapisać szczegółów: co najmniej jedna wartość jest nieprawidłowa"
+    },
+    "fieldsMoved": {
+      "title": "Pola pokoju zostały zmienione",
+      "message": "Pola tego pokoju zmieniły się w trakcie Twojej edycji. Twoje zmiany zostały tu zachowane. Wczytaj ponownie, aby zobaczyć aktualne pola, i zastosuj zmiany jeszcze raz."
+    }
+  },
+  "history": {
+    "empty": "Brak historii.",
+    "userDeleted": "{{name}} (usunięte konto)"
+  },
+  "event": {
+    "created": "Rozpoczął/Rozpoczęła wątek ze statusem {{status}}",
+    "titleChanged": "Zmienił/a tytuł wątku",
+    "titleLabel": "Tytuł",
+    "statusChanged": "Przeniósł/Przeniosła wątek ze statusu {{from}} do {{to}}",
+    "closed": "Zamknął/Zamknęła wątek: {{from}} → {{to}}",
+    "reopened": "Otworzył/a wątek ponownie: {{from}} → {{to}}",
+    "statusReplaced": "Status {{from}} przestał istnieć; wątek trafił do statusu {{to}}",
+    "ownerChanged": "Przekazał/a wątek: {{from}} → {{to}}",
+    "fieldChanged": "Zmienił/a pole {{field}}"
   }
 }

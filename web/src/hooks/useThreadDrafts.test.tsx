@@ -21,6 +21,28 @@ describe("the thread draft store", () => {
   });
 });
 
+describe("the reply drafts", () => {
+  test("are kept per thread, per room, and a blank text clears one", () => {
+    const store = createThreadDraftStore();
+    expect(store.getReply(1, 7)).toBe("");
+    store.setReply(1, 7, "half a thought");
+    store.setReply(1, 8, "another");
+    store.setReply(2, 7, "elsewhere");
+    expect(store.getReply(1, 7)).toBe("half a thought");
+    expect(store.getReply(1, 8)).toBe("another");
+    expect(store.getReply(2, 7)).toBe("elsewhere");
+    store.setReply(1, 7, "  \n");
+    expect(store.getReply(1, 7)).toBe("");
+    expect(store.getReply(1, 8)).toBe("another");
+  });
+
+  test("do not touch the new-thread drafts", () => {
+    const store = createThreadDraftStore();
+    store.setReply(1, 7, "x");
+    expect(store.get(1)).toBeNull();
+  });
+});
+
 describe("useThreadDrafts", () => {
   test("without a provider each component owns one private, stable store", () => {
     const first = renderHook(() => useThreadDrafts());

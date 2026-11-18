@@ -155,6 +155,16 @@ export async function createUserViaUi(
   return { id, name, email, password };
 }
 
+/**
+ * A throwaway user through the admin UI (an admin must be signed in), with its cleanup registered: `cleanup` is the spec's own
+ * teardown list (`deleteViaApi` in its `afterEach`; users go AFTER the rooms and teams that reference them, so push, never unshift).
+ */
+export async function throwawayUser(page: Page, name: string, cleanup: string[]) {
+  const user = await createUserViaUi(page, name);
+  cleanup.push(`/api/v1/users/${user.id}`);
+  return user;
+}
+
 /** Collision-free text so specs never depend on absolute counts or clean state. */
 export function uniqueText(prefix: string): string {
   return `${prefix}-${randomUUID().slice(0, 8)}`;

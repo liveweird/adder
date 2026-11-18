@@ -5,6 +5,7 @@ export const PROBLEM_TYPES = {
   revisionConflict: "urn:adder:problem:revision-conflict",
   lastOwner: "urn:adder:problem:last-owner",
   roomArchived: "urn:adder:problem:room-archived",
+  threadClosed: "urn:adder:problem:thread-closed",
   statusInUse: "urn:adder:problem:status-in-use",
   fieldTypeImmutable: "urn:adder:problem:field-type-immutable",
 } as const;

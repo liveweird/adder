@@ -5,7 +5,7 @@
 // are shared and read-only here: rooms only copy them. Every room is created by a throwaway user (the room-name bucket is
 // per user, 30 a minute, and the member add has its own per-user bucket: this file stays far below both), so the seed administrator is never a member of any of them.
 import type { Page } from "@playwright/test";
-import { apiAsAdmin, createUserViaUi, deleteViaApi, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
+import { apiAsAdmin, deleteViaApi, expect, login, openFilters, rowOperation, signOut, test, throwawayUser, uniqueText } from "./helpers";
 
 // API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
 const cleanup: string[] = [];
@@ -17,13 +17,6 @@ const ROOMS_API = /\/api\/v1\/rooms(\/\d+)?(\/(archive|unarchive))?$/;
 /** The sidebar's Rooms section: the static "All rooms" leaf and the caller's rooms rail. */
 const rail = (page: Page) => page.getByRole("group", { name: "Rooms", exact: true });
 const NOT_A_MEMBER = "This room does not exist, or you are not a member of it.";
-
-/** Create a throwaway user through the admin UI and register its cleanup. */
-async function throwawayUser(page: Page, name: string) {
-  const user = await createUserViaUi(page, name);
-  cleanup.push(`/api/v1/users/${user.id}`);
-  return user;
-}
 
 /** Create a room from the create form as the signed-in user and register its cleanup; leaves the browser on the new room. */
 async function createRoomViaUi(page: Page, name: string, template: string): Promise<number> {
@@ -44,7 +37,7 @@ async function createRoomViaUi(page: Page, name: string, template: string): Prom
 
 test("a user creates a room from the Incident template and finds it in the rooms rail", async ({ page }) => {
   await login(page);
-  const user = await throwawayUser(page, "E2E Room Creator");
+  const user = await throwawayUser(page, "E2E Room Creator", cleanup);
   await signOut(page);
   await login(page, user.email, user.password);
   const name = uniqueText("e2e-room");
@@ -119,9 +112,9 @@ const LAST_OWNER = "You are the only owner of this room. Make someone else an ow
 
 test("the owner adds a person and a whole team, hands over ownership and leaves", async ({ page }) => {
   await login(page);
-  const owner = await throwawayUser(page, "E2E Room Owner");
-  const person = await throwawayUser(page, "E2E Room Person");
-  const mate = await throwawayUser(page, "E2E Room Teammate");
+  const owner = await throwawayUser(page, "E2E Room Owner", cleanup);
+  const person = await throwawayUser(page, "E2E Room Person", cleanup);
+  const mate = await throwawayUser(page, "E2E Room Teammate", cleanup);
   // The fixture team holds the person (who will already belong by then) and a teammate; built through the API, since the journey's
   // subject is the room. It goes ahead of the users in the teardown (it references them).
   const teamName = uniqueText("e2e-room-team");
@@ -228,8 +221,8 @@ test("the owner adds a person and a whole team, hands over ownership and leaves"
 
 test("a non-member cannot open a room while an administrator can", async ({ page }) => {
   await login(page);
-  const owner = await throwawayUser(page, "E2E Room Owner");
-  const outsider = await throwawayUser(page, "E2E Room Outsider");
+  const owner = await throwawayUser(page, "E2E Room Owner", cleanup);
+  const outsider = await throwawayUser(page, "E2E Room Outsider", cleanup);
   await signOut(page);
 
   await login(page, owner.email, owner.password);
@@ -266,7 +259,7 @@ test("a non-member cannot open a room while an administrator can", async ({ page
 
 test("an owner archives and unarchives a room and an administrator deletes it", async ({ page }) => {
   await login(page);
-  const owner = await throwawayUser(page, "E2E Room Archiver");
+  const owner = await throwawayUser(page, "E2E Room Archiver", cleanup);
   await signOut(page);
 
   await login(page, owner.email, owner.password);

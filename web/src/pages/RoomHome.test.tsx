@@ -62,6 +62,8 @@ function serve(mockFetch: ReturnType<typeof vi.fn>, room: unknown = ROOM) {
     if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
     if (url.startsWith("/api/v1/rooms/12/threads?")) return Promise.resolve(jsonResponse(200, THREADS));
     if (url === "/api/v1/rooms/12/threads/7") return Promise.resolve(jsonResponse(200, THREAD));
+    if (url.startsWith("/api/v1/rooms/12/threads/7/messages?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
+    if (url.startsWith("/api/v1/rooms/12/threads/7/events?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 }));
     return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
   });
 }
@@ -109,9 +111,14 @@ describe("RoomHome page", () => {
     expect(screen.getByRole("link", { name: "Threads" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Back to threads" })).toHaveAttribute("href", "/rooms/12");
     expect(screen.queryByText("Pick a thread")).not.toBeInTheDocument();
+    // The side panel's sections are h4s under the pane's h3.
     expect(headingOutline()).toEqual([
       [2, "Night Shift"],
       [3, "#7 Disk full on db-3"],
+      [4, "Status"],
+      [4, "Owner"],
+      [4, "Details"],
+      [4, "History"],
     ]);
   });
 

@@ -1,0 +1,65 @@
+/*
+ * The thread pane's own grid: the header, the side panel and the conversation, in that DOM order — the panel's h4 sections have to follow the
+ * pane's h3 in the outline, so the panel lives INSIDE the pane's region and is only PLACED to the right of the conversation when there is room.
+ *
+ * It answers to the width of the MAIN AREA (the container query on `RoomHome.module.css` `.root`), like the room view's own columns:
+ * - from 70rem: the third column. The list takes at most 22rem, so the conversation keeps about 27rem beside the 18rem panel, which is
+ *   always shown; the "Details" toggle is hidden.
+ * - below it (two columns, or master-detail): one column, the panel under the header and above the conversation, folded behind the "Details"
+ *   toggle (`data-open="false"` hides it; collapsed it is out of the tab order and the accessibility tree).
+ * Used alone (a test, no container) it is the narrow layout.
+ */
+.pane {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-sm);
+}
+
+.head,
+.conversation,
+.side {
+  min-width: 0;
+}
+
+.side {
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+}
+
+.pane .side[data-open="false"] {
+  display: none;
+}
+
+@container (min-width: 70rem) {
+  .pane {
+    grid-template-columns: minmax(0, 1fr) 18rem;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "head side"
+      "conversation side";
+    column-gap: var(--mantine-spacing-lg);
+  }
+
+  .head {
+    grid-area: head;
+  }
+
+  .conversation {
+    grid-area: conversation;
+  }
+
+  .side {
+    grid-area: side;
+    align-self: start;
+  }
+
+  /* Specific enough to beat the folded rule above whatever the order the bundler emits the two in. */
+  .pane .side[data-open] {
+    display: block;
+  }
+
+  .pane .toggle {
+    display: none;
+  }
+}

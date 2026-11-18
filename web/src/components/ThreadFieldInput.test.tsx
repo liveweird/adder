@@ -126,4 +126,18 @@ describe("ThreadFieldInput", () => {
     await user.click(await screen.findByRole("option", { name: "Ann (ann@example.test)" }));
     expect(onDraft).toHaveBeenLastCalledWith({ kind: "user", value: { value: "12", label: "Ann (ann@example.test)" } });
   });
+
+  test("a SELECT value the workflow no longer lists stays shown, marked as a removed option and not offered as a new choice", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Harness field={field("SELECT")} initial={{ kind: "text", value: "s9" }} onDraft={vi.fn()} />);
+    expect(screen.getByRole("combobox", { name: "Thing" })).toHaveValue("s9 (removed option)");
+    await user.click(screen.getByRole("combobox", { name: "Thing" }));
+    expect(await screen.findByRole("option", { name: "s9 (removed option)" })).toHaveAttribute("data-combobox-disabled", "true");
+    expect(screen.getByRole("option", { name: "S1" })).not.toHaveAttribute("data-combobox-disabled");
+  });
+
+  test("a MULTI_SELECT keeps a removed option's key among its values, marked", () => {
+    const { container } = renderWithProviders(<Harness field={field("MULTI_SELECT")} initial={{ kind: "multi", value: ["s1", "gone"] }} onDraft={vi.fn()} />);
+    expect([...container.querySelectorAll(".mantine-Pill-root")].map((pill) => pill.textContent)).toEqual(["S1", "gone (removed option)"]);
+  });
 });

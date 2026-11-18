@@ -1,5 +1,6 @@
 import type { ParseKeys, TFunction } from "i18next";
 import { ApiError, isTimeoutError } from "../api/http";
+import i18n from "../i18n";
 
 export interface SaveErrorKeys {
   /** 401 — omit to route it through the generic fallbacks (the login page's wrong-credentials). */
@@ -51,4 +52,12 @@ export function loadErrorMessage(err: unknown, t: TFunction): string {
   if (err instanceof ApiError) return t("common.error.loadFailedStatus", { status: err.status });
   if (isTimeoutError(err)) return t("common.error.timeout");
   return t("common.error.network");
+}
+
+/**
+ * A 400's own sentence (the server names the field or the rule) appended to the UI's words — in English only: the server's `detail` is English
+ * prose, and appending it to a Polish message would mix the two languages in one sentence. Other languages keep the translated words alone.
+ */
+export function withServerDetail(message: string, err: unknown): string {
+  return i18n.resolvedLanguage === "en" && err instanceof ApiError && err.status === 400 && err.detail ? `${message} (${err.detail})` : message;
 }

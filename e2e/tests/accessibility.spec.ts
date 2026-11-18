@@ -145,7 +145,15 @@ test.describe("detail pages and overlays", () => {
     expect(failures, "fixture teardown").toEqual([]);
   });
 
-  const DETAIL_PAGES: { name: string; path: () => string; settled: (page: Page) => Locator; alsoSettled?: (page: Page) => Locator }[] = [
+  /** Opens the thread's side panel when it is folded behind the "Details" toggle (a narrower main area); in the wide layout it is always there. */
+  const openSidePanel = async (page: Page) => {
+    const toggle = page.getByRole("button", { name: "Details", exact: true });
+    // The toggle is `display: none` in the wide layout, so visibility (not presence) says whether the panel is folded.
+    if ((await toggle.isVisible()) && (await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+    await expect(page.getByRole("combobox", { name: "Thread status", exact: true })).toBeVisible();
+  };
+
+  const DETAIL_PAGES: { name: string; path: () => string; settled: (page: Page) => Locator; alsoSettled?: (page: Page) => Locator; before?: (page: Page) => Promise<void> }[] = [
     { name: "the team page", path: () => `/teams/${teamId}`, settled: (p) => p.getByRole("heading", { name: teamName }) },
     // Settled once the thread list has loaded: the seeded thread is a link in the labelled Threads nav.
     { name: "the room home page (the thread list)", path: () => `/rooms/${roomId}`, settled: (p) => p.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(threadTitle) }) },
@@ -155,6 +163,28 @@ test.describe("detail pages and overlays", () => {
       path: () => `/rooms/${roomId}/threads/${threadNumber}`,
       settled: (p) => p.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(threadTitle) }),
       alsoSettled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
+    },
+    // The side panel: Status, Owner (the fixture room's admin owns the room and the thread, so the member picker is drawn), Details and History.
+    {
+      name: "the thread's side panel",
+      path: () => `/rooms/${roomId}/threads/${threadNumber}`,
+      settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
+      before: async (p) => {
+        await openSidePanel(p);
+        await expect(p.getByRole("heading", { level: 4, name: "History", exact: true })).toBeVisible();
+        await expect(p.getByText("Started the thread in Open")).toBeVisible();
+      },
+    },
+    // The details editor open: the title and the (Default template: none) fields, the Cancel and Save buttons.
+    {
+      name: "the thread's details editor",
+      path: () => `/rooms/${roomId}/threads/${threadNumber}`,
+      settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
+      before: async (p) => {
+        await openSidePanel(p);
+        await p.getByRole("button", { name: "Edit details", exact: true }).click();
+        await expect(p.getByRole("textbox", { name: /^Title/ })).toBeVisible();
+      },
     },
     { name: "the new-thread form", path: () => `/rooms/${roomId}/threads/new`, settled: (p) => p.getByRole("textbox", { name: /Title/ }) },
     // Settled once the admin's own row (the fixture room's owner) is in the table: the list has loaded, the controls are drawn.
@@ -167,12 +197,13 @@ test.describe("detail pages and overlays", () => {
     { name: "the edit-user page", path: () => `/users/${adminId}/edit`, settled: (p) => p.getByRole("heading", { name: "Edit user" }) },
     { name: "the user-features page", path: () => `/users/${adminId}/features`, settled: (p) => p.getByRole("heading", { name: "Feature flags" }) },
   ];
-  for (const { name, path, settled, alsoSettled } of DETAIL_PAGES) {
+  for (const { name, path, settled, alsoSettled, before } of DETAIL_PAGES) {
     test(`${name} has no WCAG A/AA violations`, async ({ page }) => {
       await login(page);
       await page.goto(path());
       await expect(settled(page)).toBeVisible();
       if (alsoSettled) await expect(alsoSettled(page)).toBeVisible();
+      if (before) await before(page);
       await scan(page);
     });
   }

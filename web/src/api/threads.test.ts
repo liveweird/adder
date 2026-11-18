@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createThread, getThread, listThreads } from "./threads";
+import { createThread, getThread, listThreadEvents, listThreads, setThreadOwner, setThreadStatus, updateThreadDetails } from "./threads";
 
 describe("threads API wrappers", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -41,5 +41,31 @@ describe("threads API wrappers", () => {
     const [url, init] = lastCall();
     expect([url, init.method]).toEqual(["/api/v1/rooms/5/threads", "POST"]);
     expect(JSON.parse(init.body as string)).toEqual({ title: "T", body: "B", fields: { severity: "s1" } });
+  });
+
+  test("updateThreadDetails PUTs the body under X-Expected-Revision (a cleared field travels as null)", async () => {
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    await updateThreadDetails(5, 42, { title: "T", fields: { severity: null, note: "x" } }, 3);
+    const [url, init] = lastCall();
+    expect([url, init.method]).toEqual(["/api/v1/rooms/5/threads/42", "PUT"]);
+    expect(new Headers(init.headers).get("X-Expected-Revision")).toBe("3");
+    expect(JSON.parse(init.body as string)).toEqual({ title: "T", fields: { severity: null, note: "x" } });
+  });
+
+  test("setThreadStatus and setThreadOwner PUT their one value, with no revision header", async () => {
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    await setThreadStatus(5, 42, "done");
+    let [url, init] = lastCall();
+    expect([url, init.method, init.body]).toEqual(["/api/v1/rooms/5/threads/42/status", "PUT", JSON.stringify({ status: "done" })]);
+    expect(new Headers(init.headers).has("X-Expected-Revision")).toBe(false);
+    await setThreadOwner(5, 42, 9);
+    [url, init] = lastCall();
+    expect([url, init.method, init.body]).toEqual(["/api/v1/rooms/5/threads/42/owner", "PUT", JSON.stringify({ userId: 9 })]);
+  });
+
+  test("listThreadEvents asks for a page and leaves the order to the server (newest first)", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 2, pageSize: 10, total: 12 })));
+    await expect(listThreadEvents(5, 42, { page: 2, pageSize: 10 })).resolves.toMatchObject({ total: 12 });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads/42/events?page=2&pageSize=10");
   });
 });

@@ -3,8 +3,10 @@
  * the viewport (a container query on `.root`), because the sidebar (240px, or 64px as a rail) and the ADMIN telemetry aside take their
  * share of the viewport and would otherwise crush the pane at widths a viewport query calls roomy.
  *
- * - from 46rem of main area: two columns, the list `minmax(18rem, 22rem)` and the pane `1fr`. The side panel's third column (`18rem`, and
- *   below a wider breakpoint its "Details" toggle above the pane) arrives with the side panel itself.
+ * - from 46rem of main area: two columns, the list `minmax(18rem, 22rem)` and the pane `1fr`. The side panel's third column (`18rem`, from 70rem
+ *   of main area; below it the "Details" toggle above the conversation) is the THREAD PANE's own grid (`components/ThreadPane.module.css`, which
+ *   answers to this same container): the panel's h4 sections must follow the pane's h3 in the outline, so it lives inside the pane's region and
+ *   is only placed beside the conversation.
  * - below it: master-detail. `data-pane="list"` (`/rooms/:id`) shows only the list, `data-pane="thread"` (a thread or the new-thread form)
  *   only the pane, which carries the "Back to threads" link.
  */

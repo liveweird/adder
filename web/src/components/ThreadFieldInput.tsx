@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { MAX_TEXT_FIELD_LENGTH, MAX_URL_FIELD_LENGTH, type FieldDraft, type WorkflowField } from "../utils/threadForm";
 import RoomMemberSelect from "./RoomMemberSelect";
 
-type Option = { value: string; label: string };
+type Option = { value: string; label: string; disabled?: boolean };
 
 /**
  * One workflow field's input, by type (the shape of Toadie's `EntityPropertyField`): TEXT and URL a text box, NUMBER a number box,
@@ -19,6 +19,7 @@ export default function ThreadFieldInput({
   onChange,
   error,
   disabled,
+  readOnly,
 }: {
   roomId: number;
   field: WorkflowField;
@@ -26,10 +27,17 @@ export default function ThreadFieldInput({
   onChange: (next: FieldDraft) => void;
   error?: ReactNode;
   disabled?: boolean;
+  /** Locked without losing the caret (a save in flight). */
+  readOnly?: boolean;
 }) {
   const { t } = useTranslation();
-  const common = { label: field.label, required: field.required, error, disabled };
+  const common = { label: field.label, required: field.required, error, disabled, readOnly };
   const options: Option[] = field.options.map((option) => ({ value: option.key, label: option.label }));
+  // A held key the workflow no longer lists (an option removed after it was chosen) stays shown, marked, and is not offered as a new choice.
+  const held = draft.kind === "multi" ? draft.value : draft.kind === "text" && field.type === "SELECT" && draft.value !== "" ? [draft.value] : [];
+  for (const key of held) {
+    if (!options.some((option) => option.value === key)) options.push({ value: key, label: `${key} ${t("threads.field.removedOption")}`, disabled: true });
+  }
 
   if (draft.kind === "user") {
     return <RoomMemberSelect roomId={roomId} {...common} picked={draft.value} onPick={(picked) => onChange({ kind: "user", value: picked })} />;
