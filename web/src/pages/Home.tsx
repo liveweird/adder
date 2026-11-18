@@ -5,7 +5,7 @@ import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 
 /**
- * The landing page. In v0.1.0 it is a placeholder: rooms and threads (the chat and its workflow
+ * The landing page: a placeholder pointing at the rooms rail (0.2.0). Threads and messages (the chat and its workflow
  * threads) arrive in a later version and replace the empty state.
  */
 export default function Home() {

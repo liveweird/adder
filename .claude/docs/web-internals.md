@@ -176,11 +176,15 @@ When a feature needs one of these, port the sibling's `web/` implementation and 
 `web/CLAUDE.md` section wholesale:
 
 - **Lettuce's chat-shaped pieces** (`~/Sources/lettuce/web/src/components/`): `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `NotificationsButton` (0.6 mentions), and
-  `safeBackParam` (the open-redirect guard for any future `?back=` param), `StatusPill`/`MetaStrip`/`FormFooter`/`ListToolbar`, and `useDiscardGuard` + `DiscardGuard` for
-  dirty-form navigation (its in-app half is the data router's `useBlocker`, which the plain `BrowserRouter` does not have; only the `beforeunload` half,
-  `hooks/useBeforeUnloadGuard.ts`, was ported in Flow — port it again with the first dirty-form page, e.g. the room workflow editor).
-- **Toadie's `X-Expected-Revision` handling** for a whole-document PUT (the workflow editor): the transport must read the revision from the GET and send it back; port its `web/`
-  half together with the server's.
+  `safeBackParam` (the open-redirect guard for any future `?back=` param), `MetaStrip`/`FormFooter`/`ListToolbar`, and the in-app half of `DiscardGuard` (the data
+  router's `useBlocker`, which the plain `BrowserRouter` does not have). Ported in 0.2.0: `StatusPill` and the `beforeunload` half (`hooks/useDiscardGuard.ts` over
+  `hooks/useBeforeUnloadGuard.ts`, used by the workflow template form, the room workflow form and the room settings/create pages).
+
+**Ported in 0.2.0 (reference).** Toadie's `X-Expected-Revision` handling is in: `api/workflowTemplates.ts` and `api/rooms.ts` send the revision the caller read as the header
+of the whole-document PUT (204, so the page re-reads for the next revision), `utils/problems.ts` types the `409 revision-conflict`, and `RevisionConflictAlert`
+offers Reload, which re-seeds the draft only on the user's click. The shared pieces are `WorkflowEditor`/`WorkflowStatusRow`/`WorkflowFieldRow`/`RetireStatusModal`
+(one editor for a template's two-language labels and a room's single label), `RoomsRail` (the sidebar's rooms, `hooks/useRailRooms.ts`) and the pickers over
+`SearchPicker` (`TeamSelect`, `UserDirectorySelect`). The wire vocabularies in `utils/workflowForm.ts` are the generated `schema.ts` types.
 - **Covenant's catalog surface** (`covenant/web/src/`) — the filter-set/facets pattern
   (`hooks/useContractFilterState.ts` + `components/ContractFilterControls.tsx`) — port it with 0.5 Find when the thread list needs filters; today's Teams/Users lists are the
   `useRegistryListControls`/`Users.tsx` templates above, which is as far as the foundation goes.

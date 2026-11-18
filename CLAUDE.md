@@ -11,9 +11,8 @@ at first, passable like a Jira assignee); a thread in a CLOSED-category status i
 or an ADMIN reopens it. Room content is filterable, sortable and searchable; the usual chat affordances apply (pins, @mentions, reactions, emoji,
 #hashtags). Updates reach open browsers live over a WebSocket.
 
-**Roadmap:** **0.1.0 (current) = the foundation**, Flow trimmed to its generic core: auth + email MFA, password reset, users, feature flags, teams
-with a manager, EN/PL, light/dark, changelog, the ADMIN telemetry panel, the olive brand and the "Strike" logo. Next: 0.2.0 rooms + workflows,
-0.3.0 threads + messages, 0.4.0 live updates (WebSockets), 0.5.0 filters/sort/search/hashtags, 0.6.0 mentions/reactions/pins/unread, then a 1.0.0
+**Roadmap:** **0.2.0 (current) = rooms + workflows** (the ADMIN workflow-template registry, members-only rooms with a copied, editable workflow, the rooms rail) on **the 0.1.0 foundation**, Flow trimmed to its generic core: auth + email MFA, password reset, users, feature flags, teams
+with a manager, EN/PL, light/dark, changelog, the ADMIN telemetry panel, the olive brand and the "Strike" logo. Next: 0.3.0 threads + messages, 0.4.0 live updates (WebSockets), 0.5.0 filters/sort/search/hashtags, 0.6.0 mentions/reactions/pins/unread, then a 1.0.0
 checkup. Per-version scope, the user's decisions and the assumptions: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`;
 the live protocol: `.claude/docs/live.md`. Open items: `BACKLOG.md`.
 
@@ -106,7 +105,7 @@ Source files sit flat under `server/src/main/kotlin/<area>/` but declare `packag
 override). One line per package; `ls` gives the files. **Layering is one-way (`PackageBoundaryTest`):** `infra/` imports no feature package
 except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry/` is imported by nothing.
 
-- `plugins/` — cross-cutting Ktor wiring (`configureXxx` that only `install` plugins; Security = JWT, ErrorHandling = RFC 7807). `Routing` (the SPA catch-all) is registered strictly last; `Health` (`/api/v1/health`, `/api/v1/ready`) after Database; `RateLimits` holds every per-IP bucket (and the per-user `telemetry`, `directory` and `room-create` ones); `ResponseValidators` is the `ETag` seam.
+- `plugins/` — cross-cutting Ktor wiring (`configureXxx` that only `install` plugins; Security = JWT, ErrorHandling = RFC 7807). `Routing` (the SPA catch-all) is registered strictly last; `Health` (`/api/v1/health`, `/api/v1/ready`) after Database; `RateLimits` holds every per-IP bucket (and the per-user `telemetry`, `directory`, `room-name` and `room-members` ones); `ResponseValidators` is the `ETag` seam.
 - `infra/mail/` — outbound email (Lettuce's, ported): `MAIL_TRANSPORT` log/smtp/disabled; the `log` transport is refused in production (fail-closed); a null mailer = email features answer 503.
 - `infra/crypto/` — encryption at rest (Lettuce's, ported): `FieldCipher` (AES-256-GCM `enc:v1:` envelopes, current + rotation key), `configureCrypto` (`DATA_ENCRYPTION_KEY`; a burned key fails startup closed). No consumer yet; Flow's `EncryptedAtRest` registry and `Reencrypt` come back with the first encrypted column.
 - `infra/db/` — Flyway bootstrap, the R2DBC composition root, the seed bootstrap (admin rotation, prod fail-closed), `SoftDelete.kt` (`SoftDeletable`: ONE `active()` predicate, `nowMillis()`, `lockActiveForWrite`), `Sql.kt` (`containsNormalized` — the only substring filter), `Jsonb.kt`, `MultiRowInsert.kt`, `StatementTimeoutCache.kt` (only `queryTimeout` may set `STATEMENT_TIMEOUT`), `LeakedSocketGuard.kt`, `DetachingConnectionFactory.kt` (pool hygiene, `persistence.md`).
@@ -118,7 +117,7 @@ except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry
 - `infra/config/` — `requireConfigInt`/`requireConfigLong`, boot-validated numeric config (Lettuce's).
 - `infra/Failures.kt` — `catchingFailures` (keeps the failure without swallowing cancellation).
 - `audit/` — the security audit trail: `audit(event, fields…)` → AUDIT-marked structured logs.
-- `authz/` — `CallerPrincipal`, the guards (`requireAdmin`, `requireSelfOrAdmin`, `requireTeamManagerOrAdmin`, `requireRoomReader`, `requireRoomManager`) and the typed HTTP exceptions (401/403/404/409/429).
+- `authz/` — `CallerPrincipal`, the guards (`requireAdmin`, `requireFeatureEnabled`, `requireSelfOrAdmin`, `requireTeamManagerOrAdmin`, `requireRoomReader`, `requireRoomManager`) and the typed HTTP exceptions (401/403/404/409/429).
 - `auth/` — login (+ the email-MFA second step), refresh, logout, self-service password reset, token minting, password hashing, the revoked-token blocklist; in-memory auth state is capacity-bounded with audited 429 saturation.
 - `users/` — Adder's login accounts (REST `/api/v1/users`): ADMIN-only CRUD (self-delete 403, last-admin 409), per-user feature flags (`Feature` enum, the V5 disabled-set model; MFA is the inverted-default login-scoped flag), the ONE synced per-user UI+email language (`Languages.kt` = `SUPPORTED_LANGUAGES`).
 - `teams/` — flat teams (V6) with an optional manager and a roster (V10): GET any authenticated, record writes ADMIN only, roster PUT/DELETE ADMIN or the manager. **The feature template** (below).

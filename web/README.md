@@ -1,7 +1,7 @@
 # adder — web frontend
 
 Vite + React 19 + TypeScript SPA for the Adder app (a chat with workflow threads; currently the
-v0.1.0 foundation — sign-in, users, teams, feature flags, i18n, theming — with no rooms or
+v0.2.0 rooms and workflows on the foundation — sign-in, users, teams, feature flags, i18n, theming, workflow templates, rooms — with no
 threads yet). UI is [Mantine](https://mantine.dev), routing is
 React Router, server state is TanStack Query, and the UI is bilingual (English/Polish) via
 react-i18next.

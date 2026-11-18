@@ -5,22 +5,29 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (0.1.0 — the foundation)
+## What's here today (0.2.0 — rooms and workflows, on the 0.1.0 foundation)
 
-Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. **There is no chat feature yet** —
-0.1.0 is the platform it will stand on:
+Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. **Threads and messages are not here yet** —
+0.2.0 adds the rooms they will live in, on the 0.1.0 platform:
+
+- **Rooms** (`/api/v1/rooms`) — members-only, created from a **workflow template** whose statuses (colour, open/closed category, order) and typed fields the room copies. People or a whole
+  team (a snapshot) are added as members; OWNER or ADMIN manages the room, a room always keeps one active OWNER, and a room can be archived (read-only) and unarchived. A non-member sees a uniform 404.
+- **Workflow templates** — an ADMIN-curated registry (Default and Incident are seeded, English and Polish). A room's workflow is edited in place by its owners, as a whole document under `X-Expected-Revision`.
+- The sidebar **rooms rail** (most recently active first, archived behind a switch) and **team members** (a roster managed by an ADMIN or the team's manager).
+
+The 0.1.0 foundation:
 
 - **Sign-in** with a JWT access/refresh pair, a server-side revocation blocklist, per-account lockout and per-IP rate limits; opt-in **email MFA**; **self-service password reset** by an
   emailed single-use link.
 - **Users** (ADMIN-managed, `/api/v1/users`) with per-user **feature flags** and a synced UI/email **language** (English and Polish).
-- **Teams** — a flat registry with an optional manager (a room will add a whole team at once).
+- **Teams** — a flat registry with an optional manager and a roster (a room adds a whole team at once).
 - The React **shell**: navigation model, command palette, light/dark theme in the olive Adder brand with the "Strike" logo, a changelog, and the ADMIN **telemetry panel** (memory, JVM,
   requests and storage of the running process, 90 days of history).
 - The quality gates, the Docker/Compose/Kubernetes deployment and a Playwright e2e suite, all inherited from Flow.
 
 ## Roadmap
 
-0.2.0 rooms and workflows · 0.3.0 threads and messages · 0.4.0 live updates (WebSockets) · 0.5.0 filters, sort, search, hashtags · 0.6.0 mentions, reactions, pins, unread · 1.0.0 checkup.
+0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages · 0.4.0 live updates (WebSockets) · 0.5.0 filters, sort, search, hashtags · 0.6.0 mentions, reactions, pins, unread · 1.0.0 checkup.
 The scope of each version and the decisions behind it: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`; open items: `BACKLOG.md`. `CLAUDE.md`'s "Product" and
 "Donors" sections say which sibling project each capability ports from.
 
@@ -157,7 +164,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `MFA_CODE_TTL_SECONDS` | `300` | Lifetime of an emailed MFA code. |
 | `MFA_MAX_ATTEMPTS` | `5` | Wrong-code attempts before a challenge dies. |
 | `MFA_MAX_TRACKED` | `10000` | Maximum pending email-MFA challenges; new issuance receives 429 at capacity. |
-| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored credentials (none stored yet in 0.1.0; reserved for the first stored credential) — the dev default is burned, production refuses it. Back it up apart from the database. |
+| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored credentials (none stored yet; reserved for the first stored credential) — the dev default is burned, production refuses it. Back it up apart from the database. |
 | `DATA_ENCRYPTION_KEY_PREVIOUS` | *(blank)* | Decrypt-only fallback during a key rotation (boot once, then remove). |
 | `SECURITY_CSRF_ENABLED` | `false` | CSRF plugin gate — off (bearer JWT, no cookies). |
 | `JWT_SECRET` | `secret` | HMAC key for the access/refresh pair — production requires a private 64-hex key (`openssl rand -hex 32`); the placeholders and compose demo key are burned. |

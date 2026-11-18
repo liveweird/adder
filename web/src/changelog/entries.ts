@@ -17,6 +17,28 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.2.0",
+    date: "2026-11-18",
+    en: `**Adder 0.2.0: rooms and workflows.**
+
+- Create a room for a piece of work and become its owner. Rooms are members-only: add people one by one, or a whole team at once.
+- An owner manages the room, and a room always keeps at least one owner. Archive a room to make it read-only; unarchive it when work resumes.
+- Every room has its own workflow: statuses with a colour, an open or closed category and an order, plus typed fields. Owners edit it in place.
+- Administrators curate the workflow templates a new room starts from. Default and Incident are built in, in English and Polish.
+- Your rooms sit in the navigation, most recently active first, with archived rooms behind a switch.
+- Teams now have members, managed by an administrator or the team's manager.
+- Threads and messages arrive in the next version.`,
+    pl: `**Adder 0.2.0: pokoje i przepływy pracy.**
+
+- Utwórz pokój do konkretnej pracy i zostań jego właścicielem/ką. Pokoje są tylko dla członków i członkiń: dodawaj osoby pojedynczo albo cały zespół naraz.
+- Właściciel/ka zarządza pokojem, a pokój zawsze ma co najmniej jednego właściciela/kę. Zarchiwizuj pokój, aby był tylko do odczytu; przywróć go, gdy praca wraca.
+- Każdy pokój ma własny przepływ pracy: statusy z kolorem, kategorią (otwarty lub zamknięty) i kolejnością oraz typowane pola. Właściciele/ki edytują go na miejscu.
+- Administratorzy/rki prowadzą szablony przepływów, od których zaczyna nowy pokój. Wbudowane są Default i Incident, po angielsku i po polsku.
+- Twoje pokoje są w nawigacji, od ostatnio aktywnych, a zarchiwizowane pod przełącznikiem.
+- Zespoły mają teraz członków i członkinie, którymi zarządza administrator/ka albo kierownik/czka zespołu.
+- Wątki i wiadomości pojawią się w kolejnej wersji.`,
+  },
+  {
     version: "0.1.0",
     date: "2026-11-17",
     en: `**Adder 0.1.0: the foundation.**

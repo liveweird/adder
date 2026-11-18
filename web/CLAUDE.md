@@ -3,8 +3,8 @@
 Vite + React 19 + TypeScript SPA: the shell + auth, user/feature management, MFA, password reset,
 the changelog, the flat-teams registry and the ADMIN telemetry panel — the v0.1.0 foundation, trimmed from Flow
 (`~/Sources/flow` @ 4e43e480, 1.57.1, the donor: port building blocks from there, don't reinvent; Astrolabe's trim of the same
-shell is the precedent) — with rooms (the Rooms page, the sidebar rooms rail, room settings; 0.2.0) and a placeholder Home; the threads and messages
-arrives in later versions. Routes are lazy.
+shell is the precedent) — plus, since 0.2.0, the ADMIN workflow-template pages and rooms (the Rooms page, the sidebar rooms rail, room settings, members and the room workflow editor) under a placeholder Home; threads and messages
+arrive in later versions. Routes are lazy.
 
 - Dev server: `cd web && npm run dev` (port **5179** — not Vite's 5173 default, so Adder can run
   beside the sibling stacks' 5173–5178 and 5180; the port table is in `.claude/docs/ci.md`). All backend routes live under the
@@ -210,6 +210,8 @@ server's own validation (`infra/validation/Text.kt`'s `requireNameAndDescription
 
 **The workflow-template pages** (`WorkflowTemplates.tsx`, `CreateWorkflowTemplate.tsx`, `EditWorkflowTemplate.tsx`, all under `RequireAdmin`) are the registry shape with a full-page editor instead of a modal: `components/WorkflowTemplateForm.tsx` owns the draft, the dirty check (`utils/workflowTemplateForm.ts`), the Cancel confirm and the before-unload guard, and the page owns the request. The edit page seeds the form ONCE with the revision it read (a background refetch never rebases the draft; `gcTime: 0` so a visit starts from a fresh read) and sends it as `X-Expected-Revision`; a `409 revision-conflict` keeps the draft and offers Reload, which re-seeds on the user's click. Save is disabled while an edit is clean. The wire types in `utils/workflowForm.ts` ARE the generated `schema.ts` types (`workflowForm.test.ts` pins the vocabularies equal), so a spec change fails the compile.
 
+**The room workflow** (`/rooms/:id/workflow`, `RoomWorkflow.tsx` → `components/RoomWorkflowForm.tsx` over the shared `WorkflowEditor.tsx`, which also drives the template form: `labelColumns` 1 for a room, 2 EN+PL for a template) follows the same draft rules: seeded ONCE from the revision read, re-seeded only by re-keying the form (after a save and on the conflict alert's Reload, `RevisionConflictAlert`), `X-Expected-Revision` on the whole-document PUT, dirty check + `useDiscardGuard`. Only the room's OWNER or an ADMIN on a non-archived room edits (UX only; anyone else gets the read-only `RoomWorkflowView` under a note saying why). Rows are controlled and every edit is a whole next draft (`utils/workflowForm.ts`): a persisted field's type is locked, statuses and fields are retired and revived by key (a removed row keeps an Undo notice), and removing a status asks for a same-category replacement in `RetireStatusModal` (`replacements` = `{retiredKey: replacementKey}`; `409 status-in-use` re-opens the dialog for the keys it names; until 0.3 no thread uses a status, so the dialog is unit-tested only). A save that committed but whose re-read failed FREEZES the editor behind a reload prompt (its rows lack the new revision).
+
 **Searchable pickers** (Astrolabe's, ported): `components/SearchPicker.tsx` owns the search-box mechanics (a debounced server-side term, the caller holds the pick so its label survives later searches); thin wrappers own the query and the texts — `TeamSelect` (the teams registry) and `UserDirectorySelect` (`GET /users/directory`, open to every signed-in user; the server REQUIRES a term, so the picker searches only from two characters, page size 20, and shows a hint below that — `minTermLength`/`minTermHint`). `TeamManagerSelect` stays on the ADMIN-only users list. A team's roster (`components/TeamMembers.tsx`, the Members h3 of `/teams/:id`) shows its controls to an ADMIN or the team's manager (`managerUserId === getUserId()`; UX only, the server guards).
 
 ## Forms (the CreateUser/EditUser template)
@@ -244,7 +246,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
 - **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`,
-  `changelog`, `common`, `home`, `teams`, `telemetry`, `users`); `i18n.ts` merges them into a single
+  `changelog`, `common`, `home`, `rooms`, `teams`, `telemetry`, `users`, `workflows`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on
@@ -336,4 +338,4 @@ Rendering & UI wiring (details: `.claude/docs/web-internals.md`): `pages/Changel
 
 ## Not yet ported from Toadie / Lettuce (port, don't reinvent)
 
-When a feature needs a Lettuce or Covenant `web/` building block (`safeBackParam`, `StatusPill`/`MetaStrip`/`FormFooter`/`ListToolbar`, `useDiscardGuard` / the `beforeunload` guard (Flow's `hooks/useBeforeUnloadGuard.ts`, dropped with the Capacity page), the catalog filter-set/facets, the CodeMirror editor), port the sibling's `web/` implementation and its `web/CLAUDE.md` section wholesale — the list is in `.claude/docs/web-internals.md`. `hooks/useRovingGrid.ts` is kept as prior art for later grid views' keyboard navigation (no consumer yet; its test keeps it live for knip).
+When a feature needs a Lettuce or Covenant `web/` building block (`safeBackParam`, `MetaStrip`/`FormFooter`/`ListToolbar`, the data router's in-app `useBlocker` half of `useDiscardGuard` (only the `beforeunload` half is ported: `hooks/useDiscardGuard.ts` + `hooks/useBeforeUnloadGuard.ts`), the catalog filter-set/facets, the CodeMirror editor; `StatusPill` and the X-Expected-Revision transport are already ported), port the sibling's `web/` implementation and its `web/CLAUDE.md` section wholesale — the list is in `.claude/docs/web-internals.md`. `hooks/useRovingGrid.ts` is kept as prior art for later grid views' keyboard navigation (no consumer yet; its test keeps it live for knip).

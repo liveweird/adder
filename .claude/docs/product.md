@@ -87,7 +87,7 @@ Detail and the rules they became: `chat-model.md` "Rules".
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 0.1.0.**
+Each increment gets its own plan (architect) before implementation. **Current version: 0.2.0.**
 
 | Ver | Scope |
 |---|---|
@@ -111,8 +111,9 @@ reinvent**: when Adder needs a capability a sibling repo already has, port its i
   migrations, the trimmed telemetry and teams, the bootstrap docs.
 - **Lettuce** (`~/Sources/lettuce`): `infra/mail`, `infra/crypto`, `infra/paging`, the connection pool (through Flow); next: `MarkdownView`,
   `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `NotificationsButton` + `notifications/`, `infra/db/EventLog.kt`, the dictionary whole-document PUT.
-- **Toadie** (`~/Sources/toadie`): `X-Expected-Revision` optimistic concurrency (ported, `infra/revision/`; the workflow-template PUT is its first consumer); next:
-  `blueprints/` `PropertyDefinition` as the reference for typed workflow fields, `lockingTransaction`.
+- **Toadie** (`~/Sources/toadie`): `X-Expected-Revision` optimistic concurrency (ported in 0.2.0, `infra/revision/` and its `web/` half; the workflow-template and room-workflow PUTs consume it);
+  `lockingTransaction` deliberately NOT ported (a room write takes one `FOR NO KEY UPDATE` row lock on the room instead, `rooms/RoomLock.kt`); next:
+  `blueprints/` `PropertyDefinition` as the reference for typed workflow fields.
 - **Covenant** (`~/Sources/covenant`): next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
 
 Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `identities/`, `metrics/`, `reports/`, `integration/` (service tokens),
@@ -120,6 +121,15 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing, reactions, Postgres full-text search.
 
 ## Release history
+
+### v0.2.0 — rooms and workflows (2026-11-18)
+
+Rooms and workflows in fourteen commits on `feat/0.2.0-rooms-workflows`. Migrations V10-V13: team members (V10), the workflow-template registry (V11) and its
+Default/Incident seeds (V12), rooms with members and the copied workflow (V13). Shipped: the ADMIN workflow-template registry; members-only rooms created from a
+template (a person or a team snapshot as members, OWNER/MEMBER roles, the last-OWNER rule, archive/unarchive, ADMIN soft delete); the room workflow editor
+(statuses with colour, category and order, typed fields, retire by key) under `X-Expected-Revision`; the user directory lookup; team rosters; the sidebar
+rooms rail. Security hardening from the audit of the increment: a global 512 KiB request-body cap (413) and new per-user rate buckets (`room-name`, `room-members`,
+`directory`). Donors: `X-Expected-Revision` ported from Toadie; `lockingTransaction` deliberately not ported. Open follow-ups: `BACKLOG.md`.
 
 ### v0.1.0 — the foundation (2026-11-17)
 
