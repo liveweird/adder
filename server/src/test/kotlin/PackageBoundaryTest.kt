@@ -8,9 +8,8 @@ import kotlin.test.assertTrue
 /**
  * The one-way package layering (CLAUDE.md "Package layout", checkup D5): everything under `infra/` is the foundation every feature
  * builds on, so it never references a feature package (`teams`, `users`, `auth`, `authz`, `telemetry`,
- * `workflows`, `rooms`). `audit` (the cross-cutting audit trail) and `plugins` (Ktor wiring: `respondProblem`) are not features and stay
- * open
- * to `infra`. The composition root is the one
+ * `workflows`, `rooms`, `threads`). `audit` (the cross-cutting audit trail) and `plugins` (Ktor wiring: `respondProblem`) are not
+ * features and stay open to `infra`. The composition root is the one
  * documented exception ([infraCompositionRoot]): the DB/bootstrap wiring MUST construct the feature services it publishes on
  * `Application.attributes`, so exactly those two files may name exactly those packages. `telemetry/` is the top layer (an observer of
  * every lower one): nothing else names it. A plain source scan (no Docker, no classpath tricks): any non-comment line of a file in
@@ -36,7 +35,7 @@ class PackageBoundaryTest {
     )
 
     private val featurePackages = listOf(
-        "teams", "users", "auth", "authz", "telemetry", "workflows", "rooms",
+        "teams", "users", "auth", "authz", "telemetry", "workflows", "rooms", "threads",
     )
 
     private fun packageOf(text: String): String? =
@@ -86,14 +85,28 @@ class PackageBoundaryTest {
     }
 
     @Test
-    fun `workflows never references rooms`() {
+    fun `workflows never references rooms or threads`() {
         // rooms/ imports workflows/ (the template read and the shared rules kernel), never the reverse: the workflow vocabulary and
         // the template registry stay usable without the chat domain. The scan must see both packages, or an empty result proves nothing.
         assertTrue(mainSources.any { packageOf(it.readText()) == "ch.nokillswit.rooms" }, "no source declares ch.nokillswit.rooms")
         val workflows = mainSources.filter { packageOf(it.readText()) == "ch.nokillswit.workflows" }
         assertTrue(workflows.size >= 4, "the scan saw only ${workflows.size} workflows sources")
         val violations = workflows.flatMap { file ->
-            forbiddenReferences(file.readText(), listOf("rooms")).map { "${file.name} $it" }
+            forbiddenReferences(file.readText(), listOf("rooms", "threads")).map { "${file.name} $it" }
+        }
+        assertEquals(emptyList(), violations)
+    }
+
+    @Test
+    fun `rooms never references threads`() {
+        // threads/ imports rooms/ (the guards' standing, the room lock, the workflow snapshot), never the reverse: the one way back is
+        // the `WorkflowUsage` port rooms declares and threads implements. The scan must see both packages, or an empty result proves
+        // nothing.
+        assertTrue(mainSources.any { packageOf(it.readText()) == "ch.nokillswit.threads" }, "no source declares ch.nokillswit.threads")
+        val rooms = mainSources.filter { packageOf(it.readText()) == "ch.nokillswit.rooms" }
+        assertTrue(rooms.size >= 8, "the scan saw only ${rooms.size} rooms sources")
+        val violations = rooms.flatMap { file ->
+            forbiddenReferences(file.readText(), listOf("threads")).map { "${file.name} $it" }
         }
         assertEquals(emptyList(), violations)
     }

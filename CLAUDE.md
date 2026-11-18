@@ -110,8 +110,8 @@ except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry
 - `infra/crypto/` — encryption at rest (Lettuce's, ported): `FieldCipher` (AES-256-GCM `enc:v1:` envelopes, current + rotation key), `configureCrypto` (`DATA_ENCRYPTION_KEY`; a burned key fails startup closed). No consumer yet; Flow's `EncryptedAtRest` registry and `Reencrypt` come back with the first encrypted column.
 - `infra/db/` — Flyway bootstrap, the R2DBC composition root, the seed bootstrap (admin rotation, prod fail-closed), `SoftDelete.kt` (`SoftDeletable`: ONE `active()` predicate, `nowMillis()`, `lockActiveForWrite`), `Sql.kt` (`containsNormalized` — the only substring filter), `Jsonb.kt`, `MultiRowInsert.kt`, `StatementTimeoutCache.kt` (only `queryTimeout` may set `STATEMENT_TIMEOUT`), `LeakedSocketGuard.kt`, `DetachingConnectionFactory.kt` (pool hygiene, `persistence.md`).
 - `infra/paging/` — the shared list-endpoint machinery (Lettuce's, ported verbatim; `list-endpoints.md`).
-- `infra/validation/` — cross-feature input helpers (`sanitizeSingleLine`: trim + control-char 400).
-- `infra/json/` — `CanonicalJson.kt` (canonical JSON + sha256 for stored payloads), `JsonArrays.kt`.
+- `infra/validation/` — cross-feature input helpers (`sanitizeSingleLine`: trim + control-char 400; `sanitizeMultiLine`: message bodies, `\n`/`\t` kept).
+- `infra/json/` — `CanonicalJson.kt` (canonical JSON + sha256 for stored payloads), `JsonArrays.kt`, `JsonParams.kt` (string-map event params).
 - `infra/revision/` — `X-Expected-Revision` for whole-document PUTs (Toadie's, header REQUIRED): `expectedRevision()` (400), `requireRevision` (typed 409 `urn:adder:problem:revision-conflict`).
 - `infra/time/` — `Millis.kt`, `MILLIS_PER_DAY`, the one fixed-24h-day constant.
 - `infra/config/` — `requireConfigInt`/`requireConfigLong`, boot-validated numeric config (Lettuce's).
@@ -125,7 +125,7 @@ except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry
 - `rooms/` — rooms (V13, `/api/v1/rooms`): members-only (a non-member gets a uniform 404, audited `room.access_denied`; ADMIN reads and manages every room), created from a workflow template whose statuses and fields the room COPIES; OWNER or ADMIN edits, archives and unarchives, ADMIN deletes (soft). Every room write runs under `withRoomWrite` (`RoomLock.kt`: the room row `FOR NO KEY UPDATE`, the caller's `users` row and standing re-read and the guard re-run under it). Members (`RoomMember*.kt`): a person or a team SNAPSHOT is added as MEMBER (idempotent, 500 cap), roles and leave/remove, and the last active OWNER cannot leave or be demoted (409 `last-owner`). The room's workflow (`RoomWorkflow*.kt`): `GET /rooms/{id}/workflow` and the whole-document `PUT` (OWNER or ADMIN, `X-Expected-Revision` REQUIRED; statuses and fields are retired and revived by key, a field's type is immutable, `RoomWorkflowPlan.kt` is the pure plan) both go through the `WorkflowUsage` port (`NoThreadsYet` until 0.3: thread counts, the retire `replacements` mapping and `moveThreads`; `chat-model.md`).
 - `telemetry/` — per-process JVM/cgroup/request/storage samples in `ops.*` (V9), 90 days, hourly, ADMIN read API (`observability.md`).
 
-The chat domain is arriving: `workflows/` and `rooms/` exist (0.2.0); `threads/` and `live/` come later (`chat-model.md`).
+The chat domain is arriving: `workflows/` and `rooms/` exist (0.2.0); `threads/` is arriving in 0.3.0 (V14, the field and status kernels); `live/` comes later (`chat-model.md`).
 
 **Feature template — copy `teams/`** (a small ADMIN-curated registry; the only shape the foundation ships). Before adding a feature, route,
 service, migration or page, read `.claude/docs/conventions.md` in full.
@@ -153,7 +153,7 @@ disagree, the doc wins. The always-loaded set (this file plus the two imports) s
 | Doc | Read before you touch |
 |---|---|
 | `.claude/docs/conventions.md` | adding a feature, route, service, migration or page: the `teams/` feature template (DTO + validator, routes, service, migration + checksum pin, spec paths, `gen:api`, lazy page + nav entry, e2e spec + scenario) |
-| `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql`, V1–V13 today — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `ops` schema |
+| `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql`, V1–V14 today — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `ops` schema |
 | `.claude/docs/security.md` | auth/JWT/MFA/password reset, rate limits, headers/CSP, secrets/encryption at rest, production fail-closed startup checks, payload validation |
 | `.claude/docs/authorization.md` | any route: its guard (ADMIN vs any authenticated), 403-before-400/404 ordering, existence disclosure, the error/`ProblemDetail` mapping |
 | `.claude/docs/observability.md` | any mutation or denial path (it needs an `audit(...)` event, listed there), logging, OpenTelemetry, health probes, the telemetry panel's server side |

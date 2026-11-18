@@ -14,10 +14,10 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   makes every long-lived database refuse to boot (a failure no fresh-container CI run can see).
   `MigrationChecksumTest` pins every file's checksum; a new migration adds one manifest line, and
   a red pin means REVERT the edit (clarifications go into this doc), never update the pinned
-  value. The range today is **V1–V13**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
+  value. The range today is **V1–V14**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
   `unaccent` extension, V5 `user_disabled_features` (V1–V5 are Flow's), V6 `teams` (with the optional
   manager), V7 `users.credential_revision`, V8 `password_reset_tokens`, V9 the `ops` telemetry
-  schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows, V13 the room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
+  schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows, V13 the room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`), V14 the thread aggregate (`threads`, `messages`, `thread_events`). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root: it constructs the
   services and publishes them into `Application.attributes` (`UserServiceKey`, `TeamServiceKey`,
@@ -190,7 +190,7 @@ List each new cross-feature read/write here as it lands — the list IS the perm
 Adder's PostgreSQL database is split across schemas:
 
 - **`public`** — the foundation tables (`users`, `teams`, `team_members`, `workflow_templates`, `revoked_tokens`, `user_disabled_features`, `password_reset_tokens`), the
-  room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`, V13) and, later, the remaining chat tables (`chat-model.md`). Flyway's own history table also stays here — `flyway.schemas` is left at its default.
+  room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`, V13), the thread aggregate (`threads`, `messages`, `thread_events`, V14) and, later, the remaining chat tables (`chat-model.md`). Flyway's own history table also stays here — `flyway.schemas` is left at its default.
 - **`ops`** — Adder's own operational telemetry (V9, "Telemetry (V9)" below): the process registry and the metric samples each
   process writes about itself. Numbers and labels only, never user or chat data.
 
@@ -289,7 +289,7 @@ transaction under `TELEMETRY_LOCK_KEY`, and a row exactly at its cutoff stays. T
 
 ### Soft delete (convention)
 
-`users`, `teams`, `workflow_templates` and `rooms` are **soft-deleted** (and a room's `room_statuses`/`room_fields` are retired, never removed: "Rooms (V13)") — rows are flagged, never physically removed; every
+`users`, `teams`, `workflow_templates`, `rooms` and `messages` are **soft-deleted** (and a room's `room_statuses`/`room_fields` are retired, never removed: "Rooms (V13)"; `threads` are never deleted in 0.3 and `thread_events` is append-only: "Threads (V14)") — rows are flagged, never physically removed; every
 business entity follows the same convention. Only join/token tables (today: `revoked_tokens`, a
 pure token registry, `password_reset_tokens` (V8, expiring single-use credentials, not history), `user_disabled_features`, a pure flag join
 whose PUT is a wholesale replace, `room_members` (V13, the room membership join, the same reasoning), `team_members` (V10, the roster join: the audit trail holds the adds and removals, a re-add must not
@@ -336,16 +336,16 @@ create that reads its row back).
 PostgreSQL's foreign-key check takes `FOR KEY SHARE` on the REFERENCED row for every child insert and keeps it until the
 inserting transaction ends. A long transaction whose inserts reference a parent row therefore holds key-share locks on every parent it
 touched for its whole run; `SELECT … FOR UPDATE` on that parent conflicts with `FOR KEY SHARE` and would wait behind it (Flow hit this
-with its long-running derive job against team rows; the chat writes — threads and messages referencing a room — will be the same shape).
+with its long-running derive job against team rows; the chat writes — threads and messages referencing a room — are the same shape).
 
 The rule: **lock a row `FOR NO KEY UPDATE` unless the write changes its key.** That mode conflicts with itself and with
 `UPDATE`/`DELETE` (writers of the row, e.g. a soft delete racing a child insert, still serialize) but
 NOT with `FOR KEY SHARE`, so FK locks never stall it. `lockActiveForWrite` (`infra/db/SoftDelete.kt`,
-`FOR NO KEY UPDATE`), `withRoomWrite` (the room row, every room-scoped write; the future thread and message inserts reference it), `TeamService.update` and `PasswordResetService.lockUser` (the active `users` row) follow it; none of them touches
+`FOR NO KEY UPDATE`), `withRoomWrite` (the room row, every room-scoped write; the thread and message inserts reference it), `TeamService.update` and `PasswordResetService.lockUser` (the active `users` row) follow it; none of them touches
 `id`, and the unique indexes on these tables are partial or expression indexes (`uq_teams_name_active`, `uq_users_email_active`), which
 PostgreSQL does not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a
 long transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
-`user_disabled_features.user_id`, `password_reset_tokens.user_id` (short inserts only): `UserService.lockedActiveAdminCount`), or for
+`user_disabled_features.user_id`, `password_reset_tokens.user_id`, and the V14 columns `threads.owner_id`/`created_by`, `messages.author_id`/`deleted_by`, `thread_events.user_id` (short inserts only): `UserService.lockedActiveAdminCount`), or for
 `SKIP LOCKED` claims. A new `FOR UPDATE` on an FK-referenced row needs that justification in a comment. Flow pinned both halves with `RowLockVersusDeriveTest` (a writer completes while another transaction holds `FOR KEY SHARE` on the row, and a second `FOR NO KEY UPDATE` writer still waits); Adder re-adds that test with the first long chat transaction.
 
 ### `infra/db/Jsonb.kt` and canonical JSON
@@ -373,8 +373,27 @@ digests agree — this is key-order independence, not general structural equalit
 does not normalize number spelling (`1`, `1.0` and `1e0` stay distinct token text). The output must stay byte-stable, since stored
 text and sha256 are compared against stored rows.
 
-### Planned persistence (not yet built)
+### Threads (V14)
 
-The remaining chat tables arrive with v0.3–v0.6; their sketch (threads, messages, `thread_events`, tags, mentions, reactions, pins, unread markers; SERIAL ids, epoch-millis
-timestamps, `SoftDeletable`, partial unique indexes) is in `chat-model.md`. Nothing in this document changes until a migration lands; then the schema list, the soft-delete list
-and the cross-feature list above grow in the same commit. The ported-later infrastructure is named in `product.md` "Donors" (`infra/db/EventLog.kt`).
+The whole thread aggregate in ONE migration (`V14__create_threads.sql`, whose header comment states the delete class of each table): `threads (id, room_id, number, title, status_key,
+owner_id, created_by, fields, revision, message_count, closed_at, last_activity_at, created_at, updated_at)`, `messages (id, thread_id, author_id, body, created_at, edited_at,
+marked_as_deleted, deleted_by)` and `thread_events (id, thread_id, user_id, created_at, event_type, params)`. Ids are `SERIAL`, timestamps epoch-millis `BIGINT`, user references
+`BIGINT` (the V1 wrinkle). `event_type` carries no CHECK (the Kotlin enum is the whitelist, the V5 rule), and its NAMES are persisted values, frozen like the template document's.
+
+- **Delete classes.** `threads`: never deleted in 0.3 (a thread is closed, not removed; a room's soft delete hides its threads with it). `messages`: soft delete
+  (`marked_as_deleted`), because a deleted message stays listed as a tombstone: the body is scrubbed to `''` and `deleted_by` records who removed it (D2: the author, a room OWNER or an
+  ADMIN; set on EVERY delete). Three CHECKs pin the shape: a tombstone has an empty body and a `deleted_by`, a live message has a body (1 to 8,000 characters) and none (`ThreadSchemaTest`). `thread_events`: append-only (Toadie's `catalog_file_events` shape: no update, no delete; `user_id` is `ON DELETE RESTRICT`).
+  A room's hard delete (tests only) cascades `rooms` to `threads` to `messages` and `thread_events`.
+- **The composite status foreign key** `fk_threads_status (room_id, status_key) -> room_statuses(room_id, key)` keeps the default `NO ACTION` (checked at statement end). A room hard delete cascades into `room_statuses` and `threads` in one statement (`TestRooms.purge`); `ThreadSchemaTest` pins that the cascade passes (it passes under `RESTRICT` too on current PostgreSQL, so the choice is the conservative default, not a requirement). It is a backstop: every
+  status-setting write holds the room lock and reads the status inside it, so a status in use cannot be retired under a thread write, and statuses are retired with a soft delete
+  (never hard-deleted), so the FK can only fail when a write names a status that does not exist: a bug, a 500 (`ErrorHandling.kt` maps only 23505, the unique violation, and 22021, a character the encoding cannot hold; a foreign-key violation 23503 is not mapped).
+- **Per-room numbers.** `uq_threads_room_number (room_id, number)`; `MAX(number) + 1` under the room lock, never reused. A clash (a lock bug) is a 23505, mapped to 409.
+- **`closed_at` mirrors the status category** (set on a move into a CLOSED status, cleared on a move into an OPEN one) and stays exact because a status in use cannot change category and a
+  replacement must have the same one. `message_count` counts every message, tombstones included, and never goes down. `fields` is a `jsonb` object (`CHECK jsonb_typeof = 'object'`) of
+  field key to value; retired fields keep theirs. `revision` is the `X-Expected-Revision` token of the details PUT.
+- **FK locks on `users`.** The references to `users(id)` (`threads.owner_id`, `threads.created_by`, `messages.author_id`, `messages.deleted_by`, `thread_events.user_id`) take `FOR KEY SHARE` on
+  the actor's row for the inserting transaction. The last-admin `FOR UPDATE` on admin rows conflicts with it only for the length of a role change: the "short inserts only" justification of
+  "Row locks vs. FK locks".
+- **Indexes:** `idx_threads_room_activity (room_id, last_activity_at)` (the list order), `idx_threads_room_status (room_id, status_key)` (the usage counts), `idx_messages_thread (thread_id, id)`
+  (the keyset list), `idx_thread_events_thread (thread_id, created_at, id)` (the history's `-createdAt,-id` page).
+- The Exposed tables arrive nested in their services (`ThreadService.Threads`, `MessageService.Messages`, `ThreadEventService.ThreadEvents`) with the services; V14 ships no service yet.

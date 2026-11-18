@@ -143,11 +143,11 @@ architect's recommended options taken as assumptions (`product.md` "0.3.0 thread
   listed tombstone; `thread_events` is **append-only** (Toadie's `V23__create_catalog_file_events.sql` shape). No CHECK on enum-valued columns (the V5 rule).
 - `threads`: `id`, `room_id` (FK `rooms` ON DELETE CASCADE), per-room `number` (`#42`, unique `(room_id, number)`), `title` <= 200, `status_key`, `owner_id`
   (the creator at first), `created_by`, `fields` jsonb object, `revision`, `message_count`, `closed_at`, `last_activity_at`, `created_at`, `updated_at`.
-  The composite FK `(room_id, status_key)` -> `room_statuses(room_id, key)` keeps the default `NO ACTION` (checked at statement end), so a room hard delete
-  that cascades into both tables at once passes; `RESTRICT` would fail mid-cascade.
+  The composite FK `(room_id, status_key)` -> `room_statuses(room_id, key)` keeps the default `NO ACTION` (checked at statement end); the room hard-delete
+  cascade into both tables at once is pinned by a test (`ThreadSchemaTest`).
 - **`closed_at` mirrors the status category**: set on a move into a CLOSED status, cleared on a move into an OPEN one. It stays exact because a category
   cannot change on a status in use and a replacement has the same category (Workflows, above).
-- `messages`: `thread_id` (CASCADE), `author_id`, `body` <= 8,000, `created_at`, `edited_at`, `marked_as_deleted`, `deleted_by` (set only on a delete).
+- `messages`: `thread_id` (CASCADE), `author_id`, `body` <= 8,000, `created_at`, `edited_at`, `marked_as_deleted`, `deleted_by` (set on every delete, the author's own included; `deletedByModerator` = it differs from `author_id`). CHECKs: a tombstone has an empty body and a `deleted_by`, a live message has a body and none.
 - `thread_events` (Toadie's/Lettuce's event log): `thread_id`, `user_id` (RESTRICT), `created_at`, `event_type`, `params` (a string map via `infra/json/JsonParams.kt`).
 - **Numbers** are `COALESCE(MAX(number), 0) + 1` per room under the room lock and are never reused; a clash on `uq_threads_room_number` (23505) maps to 409.
 - **`message_count`** counts every message, the opener and tombstones included, and never goes down (the sketch's "reply count"; the UI says "N messages").
@@ -207,8 +207,8 @@ Four groups (D1 and D2 are the architect's recommendations, taken as assumptions
 - `GET|PUT|DELETE /rooms/{id}/messages/{messageId}`: GET is reader (a deleted message is `404`); PUT is author-only and last-writer-wins (`204`, a no-op on an
   unchanged body); DELETE is the author, the room OWNER or an ADMIN. Every write on a deleted message is `404`.
 - **Rate limit:** one per-user bucket, `chat-post` 120/min, on the two POSTs; edits, deletes and metadata writes stay unbucketed (guard-gated, one row each).
-- Limits: title single line <= 200 (`sanitizeSingleLine`); a message body is Markdown, 1 to 8,000 UTF-16 units after CRLF -> LF and trimming, `\n` and `\t` allowed,
-  other control characters a `400` (`sanitizeMultiLine`); stored raw, rendered without HTML.
+- Limits: title single line <= 200 (`sanitizeSingleLine`); a message body is Markdown, 1 to 8,000 UTF-16 units after CRLF and a lone CR become LF and the leading blank lines and the trailing whitespace are dropped (the first line's indentation stays, so an indented code block survives), `\n` and `\t` allowed,
+  other control characters and the hidden direction and separator characters (U+202A-202E, U+2066-2069, U+2028/2029) a `400` (`sanitizeMultiLine`; titles and TEXT values use `sanitizeSingleLine`, the same hidden-character rule; the zero-width joiner of emoji is fine); stored raw, rendered without HTML.
 
 ### Field values
 
@@ -216,15 +216,15 @@ Checked by the pure kernel `threads/ThreadFields.kt` against the room's field de
 
 | Type | Valid value |
 |---|---|
-| TEXT | single line <= 500; blank means unset |
-| NUMBER | finite, \|x\| <= 1e15 |
+| TEXT | single line <= 500, no control or hidden direction characters; blank means unset |
+| NUMBER | strict JSON number grammar (<= 32 characters), finite, \|x\| <= 1e15; stored as one canonical number (`7` and `7.0` are the same) |
 | DATE | strict `YYYY-MM-DD`, a real calendar day |
 | SELECT | one option key |
-| MULTI_SELECT | 1 to 50 distinct option keys; empty means unset |
+| MULTI_SELECT | 1 to 50 distinct option keys; empty means unset; stored in option order, kept removed options last |
 | USER | the id of an active room member |
-| URL | absolute `http`/`https`, <= 2,000 |
+| URL | absolute `http`/`https`, trimmed, <= 2,000 |
 
-An unknown or retired key is a `400`; a required field is supplied at create and cannot be cleared once set (one never set may stay unset after create);
+An unknown key is a `400`, and so is a changed or new value for a retired key (an UNCHANGED retired value, e.g. from a stale form, is ignored); a required field is supplied at create and cannot be cleared once set (one never set may stay unset after create);
 unchanged values skip validation (see "Stored values" under Workflows).
 
 ### Activity
