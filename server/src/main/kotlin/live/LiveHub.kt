@@ -3,6 +3,7 @@ package ch.nokillswit.live
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.notify.LIVE_HINT_VERSION
 import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.notify.NotifyListener
 import ch.nokillswit.infra.notify.NotifyListenerTimings
 import io.ktor.websocket.CloseReason
@@ -22,47 +23,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 private val log = LoggerFactory.getLogger("ch.nokillswit.live.LiveHub")
 
-/** Frames a socket's own writer has not yet sent; past it the socket gets ONE `resync` instead (`live.md` "The hub"). */
-const val OUTBOUND_QUEUE_CAPACITY = 64
-
-/** Hints waiting for the actor; past it a hint becomes a gap (one `resync` to every socket) instead of growing the inbox without bound. */
-const val MAX_QUEUED_HINTS = 1024
-
-/** How long [LiveHub.shutdown] waits for the sockets to leave after asking them to close 1001 (`live.md` "Shutdown"). */
-const val SHUTDOWN_GRACE_MILLIS = 2_000L
-
 private const val SHUTDOWN_POLL_MILLIS = 20L
 
-/** Whether a subscribed room already receives hints, or is still being checked (the subscribe race rule, `live.md` "The hub"). */
-internal enum class RoomState { PENDING, ACTIVE }
-
-/**
- * What the hub knows about one authenticated socket. [rooms] belongs to the hub's actor coroutine and is touched by nothing else; the
- * socket's session owns [outbound]'s receiving end (its writer) and [closeRequest]'s waiting end. Only the hub `trySend`s into [outbound].
- */
-internal class HubSocket(
-    val userId: UInt,
-    val isAdmin: Boolean,
-    /** The minting access token's `exp` (Unix millis): the socket closes 4001 at it (the next step). */
-    val tokenExpiresAtMillis: Long,
-    /** The token facts the account sweep re-judges (`accessVerdicts(jti, userId, credentialRevision, roles)`, the next step). */
-    val jti: String = "",
-    val credentialRevision: Long = 0,
-    val roles: Set<String> = emptySet(),
-    val outbound: Channel<LiveServerFrame> = Channel(OUTBOUND_QUEUE_CAPACITY),
-    /** Completed by the hub to make the session close with that reason (server stopping, a failed account verdict). */
-    val closeRequest: CompletableDeferred<CloseReason> = CompletableDeferred(),
-) {
-    val rooms = HashMap<UInt, RoomState>()
-}
-
-internal enum class RegisterResult { OK, USER_CAP, FULL, UNAVAILABLE }
-
-/**
- * The outcome of the first half of a subscribe: [toCheck] are registered PENDING and need the readable check; [already] are
- * subscribed; [capped] are over the limit.
- */
-internal class SubscribeBegin(val already: List<UInt>, val toCheck: List<UInt>, val capped: List<UInt>)
+/** The kinds whose `targetUserIds` also receive the plain `event` (the others are for subscribers only, or become `revoked`). */
+private val PERSONAL_EVENT_KINDS = setOf(LiveKind.ROOM_CREATED, LiveKind.ROOM_MEMBER_ADDED, LiveKind.ROOM_MEMBER_ROLE_CHANGED)
 
 private sealed interface Command {
     class Register(val socket: HubSocket, val reply: CompletableDeferred<RegisterResult>) : Command
@@ -73,6 +37,8 @@ private sealed interface Command {
     class Unsubscribe(val socket: HubSocket, val ids: List<UInt>) : Command
     class Deliver(val hint: LiveHint) : Command
     class Pong(val socket: HubSocket) : Command
+    class Snapshot(val reply: CompletableDeferred<List<SocketView>>) : Command
+    class RevokeRoom(val socket: HubSocket, val roomId: UInt) : Command
     data object Gap : Command
     data object CloseAll : Command
 }
@@ -85,8 +51,10 @@ private sealed interface Command {
  * refetch is the backfill; delivery is at-most-once). The inbox is unbounded for COMMANDS (register, unregister, subscribe: never
  * dropped) but hints are admitted only while fewer than [maxQueuedHints] wait for the actor: past that a hint is a gap.
  *
- * This step delivers each hint to the ACTIVE subscribers of its room. The personal frames (`revoked`, the hints for a room the user was
- * just added to), the account sweep and the close at the token's `exp` are the next step's.
+ * Delivery (`live.md` "Hints"): a hint goes to the ACTIVE subscribers of its room and, for the kinds that name `targetUserIds`, to every
+ * socket of each target (subscribed or not); a socket gets AT MOST ONE frame per hint. A removed member's sockets and every socket of a
+ * deleted room drop the room and get `revoked` instead (an ADMIN keeps a room they were merely removed from). The account sweep
+ * ([LiveSweep]) and the close at the token's `exp` (the session) are what end a socket whose account changed.
  *
  * The hub also owns the [NotifyListener] (started lazily by [ensureStarted] on the first mint): its payloads become hints in
  * the inbox, and its gaps become `resync` to every socket (coalesced through an atomic flag: `onGap` may be called from two threads).
@@ -152,6 +120,15 @@ class LiveHub internal constructor(
      */
     internal fun onGap() {
         if (gapPending.compareAndSet(false, true)) inbox.trySend(Command.Gap)
+        gapObserver?.invoke()
+    }
+
+    /** Told of every gap (a lost hint may be a removal): the sweep re-checks memberships ([LiveSweep.start]); must not block. */
+    @Volatile internal var gapObserver: (() -> Unit)? = null
+
+    /** Drops [roomId] from [socket] and tells it `revoked` (a membership the sweep found gone), if the room is still ACTIVE there. */
+    internal fun revokeRoom(socket: HubSocket, roomId: UInt) {
+        inbox.trySend(Command.RevokeRoom(socket, roomId))
     }
 
     internal suspend fun register(socket: HubSocket): RegisterResult {
@@ -200,6 +177,16 @@ class LiveHub internal constructor(
         inbox.trySend(Command.Pong(socket))
     }
 
+    /**
+     * The authenticated sockets as the actor sees them now, each with a COPY of its ACTIVE rooms (the sweep's input; the actor owns the
+     * live sets); empty once the hub is stopped.
+     */
+    internal suspend fun snapshot(): List<SocketView> {
+        val reply = CompletableDeferred<List<SocketView>>()
+        if (inbox.trySend(Command.Snapshot(reply)).isFailure) return emptyList()
+        return reply.await()
+    }
+
     /** Counts a session that has upgraded but not authenticated; false (nothing counted) when [max] such sessions already exist. */
     internal fun claimPending(max: Int): Boolean {
         if (pendingAuth.incrementAndGet() <= max) return true
@@ -246,12 +233,22 @@ class LiveHub internal constructor(
                 fanOut(command.hint)
             }
             is Command.Pong -> send(command.socket, LiveServerFrame.Pong)
+            is Command.Snapshot -> command.reply.complete(
+                sockets.map { s -> SocketView(s, s.rooms.filterValues { it == RoomState.ACTIVE }.keys.toList()) },
+            )
+            is Command.RevokeRoom -> dropRevoked(command.socket, command.roomId)
             Command.Gap -> {
                 gapPending.set(false)
                 sockets.forEach { send(it, LiveServerFrame.Resync) }
             }
             Command.CloseAll -> sockets.forEach { it.closeRequest.complete(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping")) }
         }
+    }
+
+    private fun dropRevoked(socket: HubSocket, roomId: UInt) {
+        if (socket !in sockets || socket.rooms[roomId] != RoomState.ACTIVE) return
+        drop(socket, roomId)
+        send(socket, LiveServerFrame.Revoked(roomId))
     }
 
     private fun admit(socket: HubSocket): RegisterResult = when {
@@ -325,10 +322,56 @@ class LiveHub internal constructor(
     }
 
     private fun fanOut(hint: LiveHint) {
-        val subscribers = subscribersByRoom[hint.roomId] ?: return
-        val event = LiveServerFrame.Event(hint.kind, hint.roomId, hint.threadNumber, hint.messageId)
-        subscribers.forEach { send(it, event) }
+        when (hint.kind) {
+            LiveKind.ROOM_DELETED -> roomGone(hint)
+            LiveKind.ROOM_MEMBER_REMOVED -> memberRemoved(hint)
+            else -> {
+                val recipients = LinkedHashSet<HubSocket>()
+                // A new room has no subscribers; `room.created` is for its creator alone.
+                if (hint.kind != LiveKind.ROOM_CREATED) subscribersByRoom[hint.roomId]?.let { recipients += it }
+                // These kinds tell the person the change is about, on every socket they have, even one not subscribed to the room.
+                if (hint.kind in PERSONAL_EVENT_KINDS) recipients += targetSockets(hint)
+                val event = eventOf(hint)
+                recipients.forEach { send(it, event) }
+            }
+        }
     }
+
+    /** `room.deleted`: every subscriber and every member's socket drops the room and is told; a subscribe still being checked is voided. */
+    private fun roomGone(hint: LiveHint) {
+        val recipients = LinkedHashSet<HubSocket>()
+        subscribersByRoom[hint.roomId]?.let { recipients += it }
+        recipients += targetSockets(hint)
+        // A PENDING socket is in no subscriber set; without this its readable check (made before the delete) could still activate it.
+        sockets.forEach { if (it.rooms[hint.roomId] == RoomState.PENDING) it.rooms.remove(hint.roomId) }
+        recipients.forEach {
+            drop(it, hint.roomId)
+            send(it, LiveServerFrame.Revoked(hint.roomId))
+        }
+    }
+
+    /**
+     * `room.member_removed`: each non-ADMIN socket of the removed user drops the room (ACTIVE or PENDING) and gets `revoked`. An ADMIN may
+     * still read the room, so their sockets keep it and hear the removal like any subscriber (also when not subscribed: it changes what
+     * their rail shows).
+     */
+    private fun memberRemoved(hint: LiveHint) {
+        val (adminSockets, memberSockets) = targetSockets(hint).partition { it.isAdmin }
+        memberSockets.forEach {
+            drop(it, hint.roomId)
+            send(it, LiveServerFrame.Revoked(hint.roomId))
+        }
+        val recipients = LinkedHashSet<HubSocket>()
+        subscribersByRoom[hint.roomId]?.let { recipients += it }
+        recipients += adminSockets
+        val event = eventOf(hint)
+        recipients.forEach { send(it, event) }
+    }
+
+    private fun targetSockets(hint: LiveHint): List<HubSocket> =
+        hint.targetUserIds.orEmpty().flatMap { socketsByUser[it].orEmpty() }
+
+    private fun eventOf(hint: LiveHint) = LiveServerFrame.Event(hint.kind, hint.roomId, hint.threadNumber, hint.messageId)
 
     /**
      * `trySend`, never a suspension. A full queue loses what a refetch recovers (events, a pending `resync`, a pong) to ONE `resync`, and

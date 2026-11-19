@@ -1745,12 +1745,13 @@ paths:
         `{"type":"subscribe","roomIds":[...]}` and `{"type":"unsubscribe","roomIds":[...]}` (1 to 128 positive ids), `{"type":"ping"}`. Server to
         client (`LiveServerFrame`): `ready` (after a good ticket; `maxSubscriptions` is 128), `subscribed` (the answer to ONE `subscribe` frame: which of its ids are now subscribed, which are `refused`
         and which are `capped` over the per-socket limit; `refused` deliberately mixes "no such room" with "not readable", like the REST `404`),
-        `event` (a hint), `revoked` (the room is no longer readable: the subscription is gone), `resync` (a gap: refetch everything) and `pong`.
+        `event` (a hint), `revoked` (the room is no longer readable, because the caller was removed from it or it was deleted: the subscription is gone, at once), `resync` (a gap: refetch everything) and `pong`.
 
         **Close codes:** 1000 normal; 1001 the server is stopping (reconnect after a random 1 to 5 seconds); 1003 a binary frame; 1008 a malformed,
-        unknown or over-long frame, a frame before `auth` or a second `auth`; 1009 a frame over 8 KiB; 1011 an internal error; 4001 the access token
-        that minted the ticket expired (mint again at once); 4003 that token was revoked, or the account changed, at redemption (mint again;
-        the client's refresh or sign-out follows); 4401 no ticket by the deadline, or an unknown, expired or used one; 4429 the per-user socket cap (16)
+        unknown or over-long frame, a frame before `auth`, a second `auth`, or more than 30 frames in 10 seconds; 1009 a frame over 8 KiB; 1011 an
+        internal error; 4001 the access token that minted the ticket expired (mint again at once); 4003 that token was revoked, or the account
+        changed (logout, deletion, password or role change), at redemption or within a minute after it (mint again; the client's refresh or
+        sign-out follows); 4401 no ticket by the deadline, or an unknown, expired or used one; 4429 the per-user socket cap (16)
         was reached (pause, retry in 60 seconds); 1013 the server's socket table filled between the upgrade and the redemption, or too many
         unauthenticated sockets were open (try again with backoff). A server ping every 25 seconds keeps the connection open through proxies; a visible, authenticated
         socket is never closed for being quiet.
@@ -1760,7 +1761,10 @@ paths:
         `room.workflow_updated`, `thread.created`, `thread.updated`, `thread.status_changed`, `thread.owner_changed` (these carry `threadNumber`
         for the thread kinds), `message.posted`, `message.edited` and `message.deleted` (these carry `threadNumber` and `messageId`). An event says
         THAT something changed, never what: it carries ids only, and the client refetches through the ordinary REST reads, so authorization stays
-        where it is. **Delivery semantics:** a socket receives the events of the rooms it is subscribed to, in commit order per room; delivery is
+        where it is. **Delivery semantics:** a socket receives the events of the rooms it is subscribed to, in commit order per room, plus the events about
+        the person itself on every socket it has, subscribed or not (`room.created` for the creator; `room.member_added` and
+        `room.member_role_changed` for the person concerned); removal from a room and deletion of a room arrive as `revoked` instead (an `ADMIN`
+        who is merely removed from a room keeps it and gets the `room.member_removed` event); delivery is
         AT MOST ONCE with no replay (a missed hint is covered by `resync` and by the refetch after each `subscribed`); an event is emitted only for
         a real change (a no-op write emits nothing); a socket gets at most one frame per hint. A user may subscribe to the rooms they can read (an
         `ADMIN`: every existing room).

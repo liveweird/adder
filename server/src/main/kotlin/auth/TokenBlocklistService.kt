@@ -5,6 +5,8 @@ import ch.nokillswit.users.UserService.Users
 import ch.nokillswit.users.asAdditionalRoles
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.r2dbc.*
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -139,14 +141,55 @@ class TokenBlocklistService(
             val row = Users.select(Users.role, Users.credentialRevision, Users.markedAsDeleted, revoked)
                 .where { Users.id eq userId }
                 .firstOrNull()
-            when {
-                row == null || row[Users.markedAsDeleted] -> AccessVerdict.USER_GONE
-                row[revoked] -> AccessVerdict.REVOKED
-                row[Users.credentialRevision] != credentialRevision -> AccessVerdict.CREDENTIAL_CHANGED
-                row[Users.role].storedRoleNames() != roles -> AccessVerdict.ROLES_CHANGED
-                else -> AccessVerdict.LIVE
+            decideAccess(
+                row?.let { StoredAccount(it[Users.role], it[Users.credentialRevision], it[Users.markedAsDeleted]) },
+                row?.get(revoked) ?: false,
+                credentialRevision,
+                roles,
+            )
+        }
+
+    /**
+     * [accessVerdict] for many tokens at once (the live channel's account sweep): the SAME decision function, but per chunk of
+     * [ACCESS_VERDICT_CHUNK] checks ONE `users` read and ONE `revoked_tokens` read instead of one statement each. The answer is in the
+     * order of [checks]. Like [accessVerdict] it is never cached.
+     */
+    suspend fun accessVerdicts(checks: List<AccessCheck>): List<AccessVerdict> =
+        checks.chunked(ACCESS_VERDICT_CHUNK).flatMap { chunk ->
+            suspendTransaction(database) {
+                val accounts = Users.select(Users.id, Users.role, Users.credentialRevision, Users.markedAsDeleted)
+                    .where { Users.id inList chunk.map { it.userId }.toSet() }
+                    .map { it[Users.id].value to StoredAccount(it[Users.role], it[Users.credentialRevision], it[Users.markedAsDeleted]) }
+                    .toList().toMap()
+                val revoked = RevokedTokens.select(RevokedTokens.jti)
+                    .where { RevokedTokens.jti inList chunk.map { it.jti }.toSet() }
+                    .map { it[RevokedTokens.jti] }
+                    .toList().toSet()
+                chunk.map { decideAccess(accounts[it.userId], it.jti in revoked, it.credentialRevision, it.roles) }
             }
         }
+}
+
+/** Checks per statement pair of [TokenBlocklistService.accessVerdicts]: well under PostgreSQL's bind-parameter limit. */
+internal const val ACCESS_VERDICT_CHUNK = 1000
+
+/** One token whose standing [TokenBlocklistService.accessVerdicts] judges: the arguments of [TokenBlocklistService.accessVerdict]. */
+class AccessCheck(val jti: String, val userId: UInt, val credentialRevision: Long, val roles: Set<String>)
+
+/** The stored facts about an account that decide a token's standing. */
+private class StoredAccount(val role: String, val credentialRevision: Long, val deleted: Boolean)
+
+/**
+ * The ONE decision behind [TokenBlocklistService.accessVerdict] and [TokenBlocklistService.accessVerdicts] (so the per-request check and
+ * the live sweep cannot drift): no account or a deleted one -> [AccessVerdict.USER_GONE], blocklisted -> [AccessVerdict.REVOKED], another
+ * credential revision -> [AccessVerdict.CREDENTIAL_CHANGED], other roles -> [AccessVerdict.ROLES_CHANGED].
+ */
+private fun decideAccess(account: StoredAccount?, revoked: Boolean, credentialRevision: Long, roles: Set<String>): AccessVerdict = when {
+    account == null || account.deleted -> AccessVerdict.USER_GONE
+    revoked -> AccessVerdict.REVOKED
+    account.credentialRevision != credentialRevision -> AccessVerdict.CREDENTIAL_CHANGED
+    account.role.storedRoleNames() != roles -> AccessVerdict.ROLES_CHANGED
+    else -> AccessVerdict.LIVE
 }
 
 // The stored role as the token's `roles` claim carries it: additional roles only (empty for the baseline).

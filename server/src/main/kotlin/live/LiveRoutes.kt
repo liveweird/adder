@@ -83,6 +83,9 @@ fun Application.configureLive() {
         scope.cancel()
     }
     val audits = LiveAudit()
+    val sweep = LiveSweep(hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey])
+    attributes.put(LiveSweepKey, sweep)
+    sweep.start(scope)
     val deps = LiveSessionDeps(config, tickets, hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey], audits)
     // `live.ticket_saturated` is coalesced per user (one line a minute with a `suppressed` count): a full store answers every mint, and the
     // per-user bucket alone would still let many accounts write a line each per request.

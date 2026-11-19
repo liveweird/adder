@@ -10,6 +10,7 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.ChannelResult
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
@@ -52,7 +53,8 @@ private sealed interface Next {
  *    close from either side. A subscribe registers the rooms PENDING in the hub, judges them with `RoomService.readableRoomIds` OUTSIDE
  *    the hub, and lets the hub activate the ones still PENDING and queue the ack in one step.
  *
- * A binary frame is 1003, a malformed, unknown, fragmented or misplaced one 1008 (audited, coalesced); a frame over 8 KiB is Ktor's 1009.
+ * A binary frame is 1003, a malformed, unknown, fragmented or misplaced one 1008 (audited, coalesced); a frame over 8 KiB is Ktor's 1009;
+ * more than [INBOUND_FRAME_LIMIT] frames in [INBOUND_WINDOW_MILLIS] is 1008 too. The socket also ends 4001 at its token's `exp`.
  */
 internal suspend fun DefaultWebSocketSession.liveSession(deps: LiveSessionDeps) {
     val hub = deps.hub
@@ -65,6 +67,7 @@ internal suspend fun DefaultWebSocketSession.liveSession(deps: LiveSessionDeps) 
     var pendingHeld = true
     var socket: HubSocket? = null
     var writer: Job? = null
+    var expiry: Job? = null
     try {
         val binding = authenticate(deps)
         hub.pendingAuth.decrementAndGet()
@@ -78,6 +81,8 @@ internal suspend fun DefaultWebSocketSession.liveSession(deps: LiveSessionDeps) 
         socket = registered
         if (!register(deps, binding, registered)) return
         writer = launch { writeFrames(registered) }
+        // The socket never outlives its token: at `exp` the hub-independent timer asks the reading loop to close 4001.
+        expiry = launch { closeAtExpiry(deps, registered) }
         serve(deps, registered)
     } catch (e: CancellationException) {
         throw e
@@ -92,7 +97,15 @@ internal suspend fun DefaultWebSocketSession.liveSession(deps: LiveSessionDeps) 
             it.outbound.close()
         }
         writer?.cancel()
+        expiry?.cancel()
     }
+}
+
+/** Closes [socket] 4001 when its minting access token expires (`live.md`: "Each socket closes with 4001 at its token's `exp`"). */
+private suspend fun closeAtExpiry(deps: LiveSessionDeps, socket: HubSocket) {
+    delay((socket.tokenExpiresAtMillis - deps.clock()).coerceAtLeast(0))
+    log.debug("live socket reached its access token's expiry")
+    socket.closeRequest.complete(CloseReason(CLOSE_TOKEN_EXPIRED, "The access token expired"))
 }
 
 private suspend fun DefaultWebSocketSession.closeWith(code: Short, reason: String) {
@@ -182,6 +195,7 @@ private suspend fun DefaultWebSocketSession.writeFrames(socket: HubSocket) {
 
 /** The reading loop: frames from the client and close requests from the hub, until either side ends the socket. */
 private suspend fun DefaultWebSocketSession.serve(deps: LiveSessionDeps, socket: HubSocket) {
+    val rate = InboundRate()
     while (true) {
         // `select` is biased to the FIRST clause: a close request (stopping, a failed verdict) is never starved by a chatty client.
         val next = select<Next> {
@@ -195,6 +209,12 @@ private suspend fun DefaultWebSocketSession.serve(deps: LiveSessionDeps, socket:
             }
             is Next.Incoming -> {
                 val frame = next.result.getOrNull() ?: return
+                // Before parsing: a flood costs a counter, not a JSON parse or a database transaction per frame.
+                if (!rate.allow()) {
+                    deps.audits.refused("inbound-rate", socket.userId, "limit" to INBOUND_FRAME_LIMIT)
+                    closeWith(CloseReason.Codes.VIOLATED_POLICY.code, "Too many frames")
+                    return
+                }
                 val parsed = parse(deps, frame, socket.userId) ?: return
                 if (!handle(deps, socket, parsed)) return
             }
@@ -238,7 +258,7 @@ private suspend fun subscribe(deps: LiveSessionDeps, socket: HubSocket, ids: Lis
         return
     }
     val readable = try {
-        deps.rooms.readableRoomIds(socket.userId, socket.isAdmin, begin.toCheck)
+        deps.rooms.readableRoomIds(socket.userId, begin.toCheck)
     } catch (e: Exception) {
         // The PENDING registrations must not outlive a failed check; the session then closes 1011.
         deps.hub.abortSubscribe(socket, begin.toCheck)

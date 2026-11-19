@@ -54,8 +54,8 @@ class LiveHubTest {
         }
     }
 
-    private fun socket(userId: UInt = 1u, capacity: Int = 64) =
-        HubSocket(userId, isAdmin = false, tokenExpiresAtMillis = Long.MAX_VALUE, outbound = Channel(capacity))
+    private fun socket(userId: UInt = 1u, capacity: Int = 64, admin: Boolean = false) =
+        HubSocket(userId, isAdmin = admin, tokenExpiresAtMillis = Long.MAX_VALUE, outbound = Channel(capacity))
 
     private fun HubSocket.drain(): List<LiveServerFrame> = generateSequence { outbound.tryReceive().getOrNull() }.toList()
 
@@ -69,7 +69,10 @@ class LiveHubTest {
         barrier(socket)
     }
 
-    private fun hint(room: UInt, kind: LiveKind = LiveKind.ROOM_UPDATED) = LiveHint(kind, room)
+    private fun hint(room: UInt, kind: LiveKind = LiveKind.ROOM_UPDATED, targets: List<UInt>? = null) =
+        LiveHint(kind, room, targetUserIds = targets)
+
+    private fun event(room: UInt, kind: LiveKind) = LiveServerFrame.Event(kind, room)
 
     @Test
     fun `register queues ready first and enforces the per-user and the global cap`() = withHub(maxSockets = 3, maxPerUser = 2) {
@@ -291,5 +294,178 @@ class LiveHubTest {
         pong(s)
         barrier(s)
         assertEquals(listOf<LiveServerFrame>(LiveServerFrame.Pong), s.drain())
+    }
+
+    @Test
+    fun `a removed member's sockets drop the room and are told, subscribed or not, and get nothing further`() = withHub(maxPerUser = 4) {
+        val subscribed = socket(1u)
+        val otherTab = socket(1u) // the same person, never subscribed
+        val pendingTab = socket(1u)
+        val bystander = socket(2u)
+        listOf(subscribed, otherTab, pendingTab, bystander).forEach { register(it) }
+        subscribe(subscribed, 7u)
+        subscribe(bystander, 7u)
+        beginSubscribe(pendingTab, listOf(7u)) // still being checked when the removal lands
+        listOf(subscribed, otherTab, pendingTab, bystander).forEach { it.drain() }
+
+        deliver(hint(7u, LiveKind.ROOM_MEMBER_REMOVED, targets = listOf(1u)))
+        deliver(hint(7u))
+        barrier(subscribed)
+        assertEquals(listOf<LiveServerFrame>(LiveServerFrame.Revoked(7u)), subscribed.drain(), "one frame, none for the next hint")
+        assertEquals(listOf<LiveServerFrame>(LiveServerFrame.Revoked(7u)), otherTab.drain(), "a socket that never subscribed is told too")
+        assertEquals(listOf<LiveServerFrame>(LiveServerFrame.Revoked(7u)), pendingTab.drain())
+        assertEquals(
+            listOf(event(7u, LiveKind.ROOM_MEMBER_REMOVED), event(7u, LiveKind.ROOM_UPDATED)), bystander.drain(),
+            "the others hear the removal as an event and keep the room",
+        )
+    }
+
+    @Test
+    fun `a removal processed while a subscribe is pending wins`() = withHub {
+        val s = socket(1u)
+        register(s)
+        s.drain()
+        val begin = beginSubscribe(s, listOf(7u)) // PENDING; the readable check (made BEFORE the removal) says readable
+        deliver(hint(7u, LiveKind.ROOM_MEMBER_REMOVED, targets = listOf(1u)))
+        completeSubscribe(s, begin, readable = setOf(7u))
+        barrier(s)
+        assertEquals(
+            listOf(LiveServerFrame.Revoked(7u), LiveServerFrame.Subscribed(emptyList(), listOf(7u), emptyList())),
+            s.drain(),
+            "the room was dropped by the removal: the late check cannot activate it",
+        )
+        deliver(hint(7u))
+        barrier(s)
+        assertEquals(emptyList(), s.drain())
+    }
+
+    @Test
+    fun `a removed ADMIN keeps the room and hears the removal as an event`() = withHub {
+        val admin = socket(1u, admin = true)
+        val adminOtherTab = socket(1u, admin = true) // not subscribed
+        register(admin)
+        register(adminOtherTab)
+        subscribe(admin, 7u)
+        admin.drain()
+        adminOtherTab.drain()
+
+        deliver(hint(7u, LiveKind.ROOM_MEMBER_REMOVED, targets = listOf(1u)))
+        deliver(hint(7u))
+        barrier(admin)
+        assertEquals(listOf(event(7u, LiveKind.ROOM_MEMBER_REMOVED), event(7u, LiveKind.ROOM_UPDATED)), admin.drain(), "still subscribed")
+        assertEquals(listOf(event(7u, LiveKind.ROOM_MEMBER_REMOVED)), adminOtherTab.drain(), "one frame, no subscription gained")
+    }
+
+    @Test
+    fun `a deleted room revokes every subscriber and every target, and a socket that is both gets ONE frame`() = withHub {
+        val member = socket(1u) // subscriber AND target
+        val memberOtherTab = socket(1u) // target only
+        val admin = socket(2u, admin = true) // subscriber, not a member
+        val pending = socket(3u) // a subscribe in flight
+        val bystander = socket(4u)
+        listOf(member, memberOtherTab, admin, pending, bystander).forEach { register(it) }
+        subscribe(member, 7u)
+        subscribe(admin, 7u)
+        subscribe(bystander, 8u)
+        val begin = beginSubscribe(pending, listOf(7u))
+        listOf(member, memberOtherTab, admin, pending, bystander).forEach { it.drain() }
+
+        deliver(hint(7u, LiveKind.ROOM_DELETED, targets = listOf(1u)))
+        completeSubscribe(pending, begin, readable = setOf(7u)) // its check ran before the delete committed
+        barrier(member)
+        val revoked = listOf<LiveServerFrame>(LiveServerFrame.Revoked(7u))
+        assertEquals(revoked, member.drain())
+        assertEquals(revoked, memberOtherTab.drain())
+        assertEquals(revoked, admin.drain(), "an ADMIN loses a deleted room too")
+        assertEquals(
+            listOf<LiveServerFrame>(LiveServerFrame.Subscribed(emptyList(), listOf(7u), emptyList())), pending.drain(),
+            "the in-flight subscribe is voided, not activated",
+        )
+        assertEquals(emptyList(), bystander.drain())
+        deliver(hint(7u))
+        barrier(member)
+        assertEquals(emptyList(), member.drain())
+        assertEquals(emptyList(), admin.drain())
+    }
+
+    @Test
+    fun `the personal kinds reach every socket of the target, subscribed or not, once`() = withHub {
+        val subscribed = socket(1u)
+        val otherTab = socket(1u)
+        val stranger = socket(2u)
+        listOf(subscribed, otherTab, stranger).forEach { register(it) }
+        subscribe(subscribed, 7u)
+        listOf(subscribed, otherTab, stranger).forEach { it.drain() }
+
+        listOf(LiveKind.ROOM_CREATED, LiveKind.ROOM_MEMBER_ADDED, LiveKind.ROOM_MEMBER_ROLE_CHANGED).forEach { kind ->
+            deliver(hint(7u, kind, targets = listOf(1u)))
+            barrier(subscribed)
+            assertEquals(listOf(event(7u, kind)), subscribed.drain(), "$kind: subscriber and target is ONE frame")
+            assertEquals(listOf(event(7u, kind)), otherTab.drain(), "$kind: a socket that never subscribed")
+            assertEquals(emptyList(), stranger.drain(), "$kind: not for anyone else")
+        }
+    }
+
+    @Test
+    fun `room created goes to its targets only, and a kind with no personal frame ignores its targets`() = withHub {
+        val creator = socket(1u)
+        val subscriber = socket(2u)
+        val target = socket(3u)
+        listOf(creator, subscriber, target).forEach { register(it) }
+        subscribe(subscriber, 7u)
+        listOf(creator, subscriber, target).forEach { it.drain() }
+
+        deliver(hint(7u, LiveKind.ROOM_CREATED, targets = listOf(1u)))
+        deliver(hint(7u, LiveKind.ROOM_UPDATED, targets = listOf(3u))) // never carries targets in practice; the hub must not widen on them
+        barrier(creator)
+        assertEquals(listOf(event(7u, LiveKind.ROOM_CREATED)), creator.drain())
+        assertEquals(listOf(event(7u, LiveKind.ROOM_UPDATED)), subscriber.drain(), "a subscriber is not a target of room.created")
+        assertEquals(emptyList(), target.drain())
+    }
+
+    @Test
+    fun `a full queue keeps revoked, the frame that changes what the client knows`() = withHub {
+        val s = socket(1u, capacity = 4)
+        register(s) // Ready
+        subscribe(s, 7u) // Subscribed
+        repeat(2) { deliver(hint(7u)) } // fill the queue
+        deliver(hint(7u, LiveKind.ROOM_DELETED, targets = listOf(1u))) // overflows
+        barrier(s)
+        assertEquals(
+            listOf(
+                LiveServerFrame.Ready(), LiveServerFrame.Subscribed(listOf(7u), emptyList(), emptyList()),
+                LiveServerFrame.Revoked(7u), LiveServerFrame.Resync,
+            ),
+            s.drain(),
+            "the events were lost to one resync; the revocation was not",
+        )
+    }
+
+    @Test
+    fun `the snapshot lists the registered sockets with a copy of their ACTIVE rooms`() = withHub {
+        val a = socket(1u)
+        val b = socket(2u)
+        register(a)
+        register(b)
+        subscribe(a, 7u, 8u)
+        beginSubscribe(a, listOf(9u)) // PENDING: not listed
+        assertEquals(setOf(a, b), snapshot().map { it.socket }.toSet())
+        assertEquals(setOf(7u, 8u), snapshot().first { it.socket == a }.activeRooms.toSet())
+        unregister(a)
+        assertEquals(listOf(b), snapshot().map { it.socket })
+    }
+
+    @Test
+    fun `revokeRoom drops an ACTIVE room and tells the socket once, and ignores a room it does not hold`() = withHub {
+        val s = socket(1u)
+        register(s)
+        subscribe(s, 7u)
+        s.drain()
+        revokeRoom(s, 8u)
+        revokeRoom(s, 7u)
+        revokeRoom(s, 7u)
+        deliver(hint(7u))
+        barrier(s)
+        assertEquals(listOf<LiveServerFrame>(LiveServerFrame.Revoked(7u)), s.drain(), "one frame, and the room is gone")
     }
 }

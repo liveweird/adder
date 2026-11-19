@@ -13,6 +13,7 @@ import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.users.DEFAULT_LANGUAGE
+import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService
 import ch.nokillswit.workflows.WorkflowDefinition
 import ch.nokillswit.workflows.WorkflowTemplateService
@@ -33,6 +34,9 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
     "lastActivityAt" to RoomService.Rooms.lastActivityAt,
     "createdAt" to RoomService.Rooms.createdAt,
 )
+
+/** Distinct rooms per read of [RoomService.lostMemberships]. */
+private const val LOST_MEMBERSHIP_CHUNK = 500
 
 /** The ONE sortable whitelist - derived from the column map so the two can never drift. */
 val ROOM_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
@@ -157,19 +161,28 @@ class RoomService(
     }
 
     /**
-     * Which of [roomIds] the caller may read, for the live socket's subscribe (`live.md` "The hub"): ONE transaction, two reads. The
+     * Which of [roomIds] the caller may read, for the live socket's subscribe (`live.md` "The hub"): ONE transaction, three reads. The
      * existing rooms are the non-deleted ones among [roomIds]; an ADMIN reads every one of them, anyone else the ones they are an ACTIVE
-     * member of (the same membership join as [readStanding]: a soft-deleted user's row is inert). The rest of the existing rooms are
+     * member of (the same membership join as [readStanding]: a soft-deleted user's row is inert). Whether the caller is an ADMIN is read
+     * HERE from the stored role of the ACTIVE user, never taken from the socket (its snapshot dates from the ticket): a demoted or deleted
+     * ADMIN cannot gain NEW rooms (their existing subscriptions end at the next account sweep). The rest of the existing rooms are
      * [ReadableRooms.deniedExisting], the ids the subscribe audits as `live.subscribe_denied`; an id that matches no room is in neither set
      * (nothing was denied, and a caller must not learn which ids exist). Archived rooms are readable.
      */
-    suspend fun readableRoomIds(userId: UInt, isAdmin: Boolean, roomIds: Collection<UInt>): ReadableRooms {
+    suspend fun readableRoomIds(userId: UInt, roomIds: Collection<UInt>): ReadableRooms {
         if (roomIds.isEmpty()) return ReadableRooms(emptySet(), emptySet())
         return suspendTransaction(database) {
             val existing = Rooms.select(Rooms.id).where { (Rooms.id inList roomIds) and Rooms.active() }
                 .map { it[Rooms.id].value }.toList().toSet()
-            if (isAdmin || existing.isEmpty()) {
+            val admin = existing.isNotEmpty() && UserService.Users.select(UserService.Users.id)
+                .where {
+                    (UserService.Users.id eq userId) and (UserService.Users.role eq UserRole.ADMIN.name) and UserService.Users.active()
+                }
+                .toList().isNotEmpty()
+            if (admin) {
                 ReadableRooms(readable = existing, deniedExisting = emptySet())
+            } else if (existing.isEmpty()) {
+                ReadableRooms(readable = emptySet(), deniedExisting = emptySet())
             } else {
                 val member = RoomMembers.innerJoin(UserService.Users).select(RoomMembers.roomId)
                     .where { (RoomMembers.roomId inList existing) and (RoomMembers.userId eq userId) and UserService.Users.active() }
@@ -177,6 +190,29 @@ class RoomService(
                 ReadableRooms(readable = member, deniedExisting = existing - member)
             }
         }
+    }
+
+    /**
+     * Of the (user, room) pairs a live socket holds ACTIVE subscriptions for, the ones whose owner is no longer an ACTIVE member of an
+     * existing room (the removal's pushed hint can be lost in a listener gap; the live sweep and every gap re-check with this).
+     * Callers pass non-ADMIN pairs only. One read per [LOST_MEMBERSHIP_CHUNK] distinct rooms.
+     */
+    suspend fun lostMemberships(pairs: Collection<Pair<UInt, UInt>>): Set<Pair<UInt, UInt>> {
+        if (pairs.isEmpty()) return emptySet()
+        val present = HashSet<Pair<UInt, UInt>>()
+        pairs.map { it.second }.distinct().chunked(LOST_MEMBERSHIP_CHUNK).map { it.toSet() }.forEach { roomIds ->
+            val userIds = pairs.filter { it.second in roomIds }.map { it.first }.toSet()
+            present += suspendTransaction(database) {
+                RoomMembers.innerJoin(UserService.Users).innerJoin(Rooms)
+                    .select(RoomMembers.userId, RoomMembers.roomId)
+                    .where {
+                        (RoomMembers.roomId inList roomIds) and (RoomMembers.userId inList userIds) and
+                            UserService.Users.active() and Rooms.active()
+                    }
+                    .map { it[RoomMembers.userId].value to it[RoomMembers.roomId].value }.toList()
+            }
+        }
+        return pairs.filterTo(HashSet()) { it !in present }
     }
 
     /**

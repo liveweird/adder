@@ -25,6 +25,8 @@ const val LIVE_SOCKET_LIMIT_PROBLEM_TYPE = "urn:adder:problem:live-socket-limit"
  */
 const val LIVE_UNAVAILABLE_RETRY_SECONDS = 5
 
+/** Room ids one `live.subscribe_denied` line lists. */
+private const val MAX_DENIED_LISTED = 20
 private const val HTTP_DEFAULT_PORT = 80
 private const val HTTPS_DEFAULT_PORT = 443
 private const val MAX_PORT = 65_535
@@ -64,11 +66,16 @@ internal fun originAllowed(origin: String?, serverHost: String, serverPort: Int,
  * The live channel's audit lines (`observability.md`): `live.refused` is COALESCED through [RateLimitAuditThrottle] (one line per reason a
  * minute before authentication, per reason and user after it, with the `suppressed` count), so a flood of refused sockets writes a
  * handful of
- * lines; `live.subscribe_denied` is not (the inbound frame rate bounds it, like `room.access_denied`). The client address is
- * deliberately NOT a
+ * lines; `live.subscribe_denied` is coalesced per user the same way (the inbound frame rate alone would still allow 3 lines a second per
+ * socket). The client address is deliberately NOT a
  * field (the `rate_limit.exceeded` rule: behind a proxy it is attacker-chosen text; the access log has it).
  */
-internal class LiveAudit(private val throttle: RateLimitAuditThrottle = RateLimitAuditThrottle()) {
+internal class LiveAudit(
+    private val throttle: RateLimitAuditThrottle = RateLimitAuditThrottle(),
+    private val deniedThrottle: RateLimitAuditThrottle = RateLimitAuditThrottle(),
+) {
+    private val pendingDenied = java.util.concurrent.ConcurrentHashMap<UInt, java.util.TreeSet<UInt>>()
+
     fun refused(reason: String, userId: UInt? = null, vararg fields: Pair<String, Any?>) {
         val key = if (userId == null) "live.refused:$reason" else "live.refused:$reason:$userId"
         throttle.admit(key)?.let { suppressed ->
@@ -77,8 +84,21 @@ internal class LiveAudit(private val throttle: RateLimitAuditThrottle = RateLimi
         }
     }
 
+    /**
+     * COALESCED per user (one line a minute with the `suppressed` count): a client can send a subscribe per frame, and each denied one
+     * would otherwise cost a log line. The line lists the UNION of the rooms denied since the last line, at most [MAX_DENIED_LISTED] ids
+     * (the lowest first), so a rotating probe is not lost to the window.
+     */
     fun subscribeDenied(userId: UInt, roomIds: Collection<UInt>) {
-        audit("live.subscribe_denied", "byUserId" to userId.toLong(), "roomIds" to roomIds.sorted().map { it.toLong() })
+        val pending = pendingDenied.computeIfAbsent(userId) { java.util.TreeSet() }
+        synchronized(pending) { roomIds.sorted().forEach { if (pending.size < MAX_DENIED_LISTED) pending.add(it) } }
+        deniedThrottle.admit("live.subscribe_denied:$userId")?.let { suppressed ->
+            val listed = synchronized(pending) { pending.toList().also { pending.clear() } }
+            audit(
+                "live.subscribe_denied", "byUserId" to userId.toLong(), "roomIds" to listed.map { it.toLong() },
+                "suppressed" to suppressed,
+            )
+        }
     }
 }
 

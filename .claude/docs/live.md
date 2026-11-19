@@ -75,7 +75,7 @@ equal to the spec enum and to the audit names.
 | 1000 | client closes (sign-out, unmount, hidden 5 min) | none |
 | 1001 | server stopping (`ApplicationStopPreparing`) | reconnect after a random 1-5 s |
 | 1003 | binary frame | backoff |
-| 1008 | malformed, unknown or over-long frame; a frame before `auth`; a second `auth`; inbound rate | backoff |
+| 1008 | malformed, unknown or over-long frame; a frame before `auth`; a second `auth`; more than 30 frames in 10 s | backoff |
 | 1009 | frame over 8 KiB (Ktor) | backoff |
 | 1011 | internal error | backoff |
 | 4001 | the minting access token's `exp` passed | re-mint at once |
@@ -97,13 +97,13 @@ subscribed or not (it may not be subscribed yet).
 
 | Kind | Extras | Recipients |
 |---|---|---|
-| `room.created` | targets [creator] | targets |
+| `room.created` | targets [creator] | targets only |
 | `room.updated` | | subscribers |
 | `room.archived` / `room.unarchived` | | subscribers |
 | `room.deleted` | targets = the active members, read before the delete | subscribers and targets get `revoked` |
 | `room.member_added` | targets = the added users (at most 500) | subscribers and targets |
-| `room.member_role_changed` | targets [user] | subscribers |
-| `room.member_removed` | targets [user] | subscribers; non-ADMIN targets get `revoked` |
+| `room.member_role_changed` | targets [user] | subscribers and targets |
+| `room.member_removed` | targets [user] | subscribers; non-ADMIN targets get `revoked`; an ADMIN target hears the event even when unsubscribed |
 | `room.workflow_updated` | | subscribers |
 | `thread.created` / `thread.updated` / `thread.status_changed` / `thread.owner_changed` | threadNumber | subscribers |
 | `message.posted` / `message.edited` / `message.deleted` | threadNumber, messageId | subscribers |
@@ -167,11 +167,11 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
 - **Subscriptions** are the caller's rooms only; an ADMIN may subscribe to any existing room, and a demoted ADMIN keeps those subscriptions until the next
   sweep (at most 60 s).
 - **Account standing.** Each socket closes with 4001 at its token's `exp`. Every 60 s a sweep calls `TokenBlocklistService.accessVerdicts(...)` (batched in
-  chunks of 1000; the SAME decision function as `accessVerdict`, refactored so the two cannot drift); a verdict other than LIVE closes the socket with 4003
-  and audits `live.revoked`. This catches logout, delete, password change and role change without touching any `auth/` or `users/` write path.
-  Membership removal and room deletion are pushed at once (`revoked`), not swept. `sweepNow()` is an internal test seam.
+  chunks of 1000; the SAME decision function as `accessVerdict`, refactored so the two cannot drift: `decideAccess`); a verdict other than LIVE closes the socket with 4003
+  and audits `live.revoked` (one line per user per sweep). The sweep (`live/LiveSweep.kt`) takes a snapshot of the sockets from the hub actor and completes each failing socket's `closeRequest`; the 4001 close is a timer in the session itself, not the hub. This catches logout, delete, password change and role change without touching any `auth/` or `users/` write path.
+  Membership removal and room deletion are pushed at once (`revoked`); the same pass ALSO re-checks memberships (one query over the non-ADMIN sockets' (user, room) pairs: the ACTIVE member row, the user and the room both active) and pushes `revoked` for a subscription whose membership is gone, because a hint lost in a listener gap would otherwise leave a removed member subscribed. A gap triggers that re-check straight away (coalesced), so the bound is **immediate normally, at most 60 s after a gap**. ADMIN sockets are skipped: they read every room. `sweepNow()` is an internal test seam. **New** subscriptions never trust the ticket-time role: `readableRoomIds` reads the stored role of the ACTIVE user, so a demoted or deleted ADMIN cannot gain new rooms (its existing ones last until the sweep, A13).
 - **Gap:** `onGap` sends `resync` to every socket (one atomic flag coalesces concurrent gaps; the listener starts with the first ticket mint, so a socket registered before its first LISTEN completes hears that LISTEN's own `resync`).
-- **Delivery in the socket step (S4):** a hint goes to the ACTIVE subscribers of its room; the personal frames (`revoked`, the hints for a room the user was just added to), the 60 s account sweep and the close at the token's `exp` are the next step's. A full socket queue loses its events (and a pending pong) to ONE `resync` but keeps `ready`, `subscribed` and `revoked` (the socket is closed 1013 if even that cannot fit). Hints wait for the actor in a bounded count (`MAX_QUEUED_HINTS` 1024; past it a hint is a gap, i.e. a `resync`), while commands (register, unregister, subscribe) are never dropped. A session that is cancelled while it waits to register still unregisters (its socket is recorded first; the inbox is FIFO).
+- **Delivery:** a hint goes to the ACTIVE subscribers of its room and, for `room.created`, `room.member_added` and `room.member_role_changed`, to every socket of each target, subscribed or not (`room.created` to its targets only: a new room has no subscribers); the hub never widens on `targetUserIds` of any other kind. `room.member_removed` drops the room from each non-ADMIN target socket (ACTIVE or PENDING) and sends it `revoked`; an ADMIN target socket keeps the room and hears the removal as an `event` (also when not subscribed). `room.deleted` drops the room from every subscriber and target socket and sends each `revoked`, and voids every subscribe still PENDING for it (the readable check ran before the delete, so it must not activate afterwards). Every socket gets one frame per hint. A full socket queue loses its events (and a pending pong) to ONE `resync` but keeps `ready`, `subscribed` and `revoked` (the socket is closed 1013 if even that cannot fit). Hints wait for the actor in a bounded count (`MAX_QUEUED_HINTS` 1024; past it a hint is a gap, i.e. a `resync`), while commands (register, unregister, subscribe) are never dropped. A session that is cancelled while it waits to register still unregisters (its socket is recorded first; the inbox is FIFO).
 - **Shutdown:** `ApplicationStopPreparing` refuses admissions and mints with 503, then closes every socket with 1001 within 2 s; `ApplicationStopped`
   cancels the scope and closes the listener.
 
@@ -210,7 +210,7 @@ updates off" and retries every minute (a shared leader-tab socket is a deliberat
 
 **Audits** (names in `observability.md` when each lands): `live.refused` (`reason` = origin | capacity | auth | socket-cap | subscription-cap | inbound-rate |
 bad-frame; **[changed] no `ip`**: the `rate_limit.exceeded` rule, the client address is attacker-chosen text behind a proxy and the access log has it; `byUserId` after authentication, a printable `origin` for the Origin refusal; coalesced through `RateLimitAuditThrottle`, with a `suppressed` count), `live.subscribe_denied` (`byUserId` and
-the EXISTING rooms the caller cannot read; never ids that do not exist; not coalesced, like `room.access_denied`), `live.revoked` (at most one line per user per
+the EXISTING rooms the caller cannot read; never ids that do not exist; **[changed] coalesced per user** like `live.refused`, one line a minute with `suppressed` and the union of at most 20 denied ids: the frame-rate limit alone still allows a line every 0.3 s per socket), `live.revoked` (at most one line per user per
 sweep), `live.ticket_saturated`, and the generic `rate_limit.exceeded` for `live-connect` and `live-ticket`. Not audited: connects, normal closes, 4001,
 `resync` (DEBUG; the gauges count sockets). **Telemetry:** the latency collector excludes `/api/v1/live`; each socket is one OTel server span for its whole
 life (the Ktor instrumentation has no request filter; measured in the socket step); gauges `live.sockets`, `live.listener_up` and `live.notify_queue_usage`
