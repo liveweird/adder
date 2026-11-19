@@ -333,7 +333,7 @@ function message(name: ValidationName, params?: Record<string, number>): Validat
 
 /** The translated text of a message, or undefined (what Mantine's `error` prop wants for "no error"). */
 export function validationText(t: TFunction, m: ValidationMessage | undefined): string | undefined {
-  return m ? t(m.key, m.params) : undefined;
+  return m ? t(m.key, m.params ?? {}) : undefined;
 }
 
 export type RowErrors = {
