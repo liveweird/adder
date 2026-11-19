@@ -34,7 +34,7 @@ the kubeconform version/sha) are in that same manual list — see "CI toolchain 
 separate PRs (the `docker-compose` and `docker` ecosystems cannot share a group; the `postgres`
 group in `dependabot.yml` merges the `/` and `/k8s` `docker` directories at most). So a Postgres
 tag/digest bump lands in ONE hand-assembled PR touching all three literals — close or redo
-Dependabot's split PRs into it, re-deriving the digest per the provenance rule below. The
+Dependabot's split PRs into it, re-deriving the digest per "Runtime and image verification" below. The
 Testcontainers literal is no longer a monthly manual inspection item: `PostgresImagePinTest`
 asserts it equals the compose and k8s `image:` values, so a partial bump fails the build.
 
@@ -61,7 +61,7 @@ refresh both together. The tag describes the intended version, while the digest 
 local rebuild without an updated base digest does not pick up security fixes. Verify
 `java -version`, `node --version`, and `postgres --version` inside the selected images when
 changing runtime pins. A `mise` version identifier may differ from the Java version it installs;
-record the actual binary version when verifying a JDK patch.
+record the actual binary version when verifying a JDK patch. Re-derive every image digest from the registry (`docker buildx imagetools inspect <tag>`, the index digest) rather than copying it from a Dependabot PR: Dependabot's digest can differ from the tag's current one in non-deployed platform entries.
 
 Use the build-specific local Kubernetes image workflow in `.claude/skills/run-stack/SKILL.md`. Do
 not redeploy a mutable `latest` tag and assume every node has the same image. Never remove
@@ -126,7 +126,7 @@ ships. Dependabot covers none of the pins in the first three rows — bump them 
 | Pin / gate | Where | Bump rule |
 |---|---|---|
 | JDK `21.0.13` (`actions/setup-java` `java-version`, both Gradle jobs) | `ci.yml` | the exact patch of `mise.toml`'s `java` (`temurin-21.0.13+9.0.LTS`) and the Dockerfile's `eclipse-temurin:21.0.13_9-jdk-noble` / `-jre-noble` tags — one PR moves all three. A Temurin respin (e.g. `21.0.12.1+1`) is `temurin-21.0.12+101.0.LTS` in mise (Adoptium folds the respin into the build number); `setup-java` resolves the patch to its newest respin, so `ci.yml` names the patch only, while the Dockerfile tag names the respin. `node scripts/check-toolchain-pins.mjs` (an `e2e-static` step) fails the build with one line per mismatch if the JDK or node pins diverge |
-| Node `24.22.1` (`node-version-file: .nvmrc`, web/e2e-static/e2e jobs) | `.nvmrc` | mirrors `mise.toml`'s `node` and the Dockerfile's `node:24.22.1-alpine` (guarded by the same script); `.nvmrc` holds the bare version, no `v` |
+| Node `24.22.3` (`node-version-file: .nvmrc`, web/e2e-static/e2e jobs) | `.nvmrc` | mirrors `mise.toml`'s `node` and the Dockerfile's `node:24.22.3-alpine` (guarded by the same script); `.nvmrc` holds the bare version, no `v` |
 | Gradle `distributionSha256Sum` | `gradle/wrapper/gradle-wrapper.properties` | the wrapper validates the downloaded distribution against it (CI, local, and the Docker build's `./gradlew --version`). On a Gradle bump take the value from `https://services.gradle.org/distributions/gradle-<version>-bin.zip.sha256` (the `bin` type the URL uses), confirm it against a `shasum -a 256` of the downloaded zip, and change URL and checksum in the same commit |
 | `npm audit --omit=dev --audit-level=high` | `ci.yml` `web` | runtime dependencies only (a dev-tool advisory never reaches the bundle). The LAST step of the job, so an overnight advisory cannot hide the real gate results |
 | `npm audit --audit-level=high` | `ci.yml` `e2e-static` | every e2e dependency is a dev tool, so the whole tree. Also the last step |
@@ -188,6 +188,15 @@ workspace here running the same tools:
 Flow's batch-by-batch bump log (2026-09 .. 2026-11) is not carried over: Adder starts from the dependency set Flow 1.57.1 resolved at `4e43e480` (minus WireMock and the
 integration-only clients, `infra/outbound`'s guarded HTTP client with them), and its own rounds are recorded below, newest first, as they happen. The v0.1.0 lockfiles and
 `gradle/verification-metadata.xml` were regenerated from an empty `GRADLE_USER_HOME` per `dependency-reproducibility.md`.
+
+**2026-11-19: one hand-assembled round** (replaces Dependabot PRs #1-#8 and #11-#13, which branched from the 0.1.0 tree and carried neither regenerated Gradle locks nor checksums; the majors #9 react-i18next 18 and #10 i18next 27 were left alone).
+
+- **Images.** Mailpit v1.33.0 -> v1.33.1 (compose). Postgres 18.6-alpine digest `10a5c69a` -> `9ba53c7d` in all THREE places (compose, `k8s/postgres-deployment.yaml`, `PostgresTestSupport.IMAGE`; `PostgresImagePinTest`). Node 24.22.1 -> 24.22.3 (Dockerfile, `.nvmrc`, `mise.toml`, the `CLAUDE.md` and run-stack mentions; `check-toolchain-pins.mjs` agrees). Temurin 21.0.13_9 jdk/jre digests moved to `a2e61ec9` / `977602aa`. Every digest was re-read from the registry index (`docker buildx imagetools inspect`), not copied from a PR; the two Temurin digests are the tags' current ones, which differ from Dependabot's `06c1f157` / `0d57a8e9` only in the riscv64 entry (amd64/arm64 images are byte-identical).
+- **Actions.** `actions/setup-java` 6.2.0 -> 6.3.0 (`d1374f8a`, both Gradle jobs in `ci.yml`; the tag resolves to that commit). Nothing else pins the Playwright version: the browser cache key of `e2e.yml` is read from `npx playwright --version`.
+- **e2e.** `@playwright/test` 1.65.1, `eslint` 10.15.0, `knip` 6.45.1, `typescript-eslint` 8.72.2 (lock refreshed from the committed one).
+- **web.** All `@mantine/*` on **9.8.0** (charts and spotlight exact; core/form/hooks/notifications `^9.8.0` but locked to 9.8.0 — 9.8.1 exists and would have split the family from the exact pins), `@tabler/icons-react` 3.52.0, `@tanstack/react-query` 5.107.1, `@stoplight/spectral-cli` 6.17.1, `@testing-library/user-event` 14.6.10, `@vitejs/plugin-react` 6.3.0, `eslint` 10.15.0, `knip` 6.45.1, `postcss` 8.5.33, `typescript-eslint` 8.72.2, `vite` 8.3.8. Packages were installed at exactly the versions reviewed; newer patches published since are for the next round. knip and eslint raised no new findings.
+- **Gradle.** Jackson 2.22.4 -> 2.23.0 (catalog plus the buildscript constraints in `server/build.gradle.kts`; `jackson-annotations` is `2.23`), Flyway 13.12.0 -> 13.12.2, logback 1.6.6 -> 1.6.7, Exposed 1.6.0 -> 1.6.1, OpenTelemetry SDK 1.67.0 -> 1.68.0 **together with the instrumentation line 2.33.1-alpha -> 2.34.0-alpha** (the catalog rule: 2.34.0's BOM imports SDK 1.68.0, so the SDK bump alone would have broken the pair). Gradle wrapper 9.8.2 -> 9.9.1: `distributionSha256Sum` from `services.gradle.org` and confirmed against a `shasum -a 256` of the downloaded zip, wrapper jar regenerated by the 9.9.1 distribution and matched to its published `-wrapper.jar.sha256` (CI has no separate wrapper-validation step). Transitive moves in the locks: okhttp 5.5.0 -> 5.5.1 (OpenTelemetry), commons-lang3 3.21.0 -> 3.22.0 (buildscript classpath only; the runtime lock keeps 3.20.0), and the buildscript locks' `kotlin-stdlib` 2.4.10 -> 2.4.21 (Gradle 9.9.1's own Kotlin). `checkDependencyAlignment`: Netty 4.2.20.Final, OpenTelemetry 1.68.0, Jackson 2.23, kotlin 2.4.21 — one version each. Locks regenerated, `gradle/verification-metadata.xml` regenerated from an empty `GRADLE_USER_HOME` and validated with `--dependency-verification strict` from a second one; the only additions are the moved coordinates plus POM/`.module`-only entries for versions Gradle consults during conflict resolution (errorprone 2.49.0, okio 3.12.0, kotlinx-io 0.6.0, slf4j 2.0.9, reactor-core 3.5.20 and similar), recorded from Maven Central like the rest of the file.
+- **Audit.** `npm audit --audit-level=high` is clean in both workspaces; both report a moderate minimatch advisory (GHSA-g3hv-75wg-m249) through `typescript-eslint`/`eslint-plugin-sonarjs`, dev-only and below the gate (`--omit=dev` is clean in `web`), already present at 0.4.0 (`08a01ea`): this round only adds patched 11.0.9 copies under `eslint`.
 
 A dependency kept for a future consumer stays on the classpath only while a test or source file uses it; knip/dependency analysis flags an orphan, and a consumer-less one is deleted
 and re-added with its feature.
