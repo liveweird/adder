@@ -157,6 +157,29 @@ class RoomService(
     }
 
     /**
+     * Which of [roomIds] the caller may read, for the live socket's subscribe (`live.md` "The hub"): ONE transaction, two reads. The
+     * existing rooms are the non-deleted ones among [roomIds]; an ADMIN reads every one of them, anyone else the ones they are an ACTIVE
+     * member of (the same membership join as [readStanding]: a soft-deleted user's row is inert). The rest of the existing rooms are
+     * [ReadableRooms.deniedExisting], the ids the subscribe audits as `live.subscribe_denied`; an id that matches no room is in neither set
+     * (nothing was denied, and a caller must not learn which ids exist). Archived rooms are readable.
+     */
+    suspend fun readableRoomIds(userId: UInt, isAdmin: Boolean, roomIds: Collection<UInt>): ReadableRooms {
+        if (roomIds.isEmpty()) return ReadableRooms(emptySet(), emptySet())
+        return suspendTransaction(database) {
+            val existing = Rooms.select(Rooms.id).where { (Rooms.id inList roomIds) and Rooms.active() }
+                .map { it[Rooms.id].value }.toList().toSet()
+            if (isAdmin || existing.isEmpty()) {
+                ReadableRooms(readable = existing, deniedExisting = emptySet())
+            } else {
+                val member = RoomMembers.innerJoin(UserService.Users).select(RoomMembers.roomId)
+                    .where { (RoomMembers.roomId inList existing) and (RoomMembers.userId eq userId) and UserService.Users.active() }
+                    .map { it[RoomMembers.roomId].value }.toList().toSet()
+                ReadableRooms(readable = member, deniedExisting = existing - member)
+            }
+        }
+    }
+
+    /**
      * The metadata replace under the room lock: [guard] re-runs on the locked standing, an archived room is the typed `409`
      * (`room-archived`), then name and description are written (a name clash is the central 409).
      */

@@ -24,6 +24,8 @@ ktor:
       - ch.nokillswit.plugins.OpenTelemetryKt.configureOpenTelemetry
       - ch.nokillswit.plugins.AutoHeadResponseKt.configureAutoHeadResponse
       - ch.nokillswit.plugins.ResourcesKt.configureResources
+      # The WebSocket plugin of the live-update channel (`live/`): ping/pong, the frame ceiling. Only a route that calls `webSocket {}` upgrades.
+      - ch.nokillswit.plugins.SocketsKt.configureSockets
       # — infrastructure
       - ch.nokillswit.infra.mail.MailKt.configureMail
       # Crypto before Database: the composition root hands the FieldCipher to any service
@@ -49,8 +51,8 @@ ktor:
       # Threads (V14): the room's threads and their history, then their messages (0.3.0 S5). After the room routes, before the catch-all.
       - ch.nokillswit.threads.ThreadRoutesKt.configureThreadRoutes
       - ch.nokillswit.threads.MessageRoutesKt.configureMessageRoutes
-      # The live-update channel (`.claude/docs/live.md`): the single-use socket ticket mint (0.4.0 S3); the socket itself joins it in S4. After the
-      # chat routes (it reads no chat service yet), before the catch-all like every feature module.
+      # The live-update channel (`.claude/docs/live.md`): the single-use socket ticket mint, the WebSocket and its hub (0.4.0 S3, S4). After the
+      # chat routes (it reads `RoomService` for the subscribe check), before the catch-all like every feature module.
       - ch.nokillswit.live.LiveRoutesKt.configureLive
       - ch.nokillswit.auth.AuthRoutesKt.configureAuthRoutes
       - ch.nokillswit.auth.PasswordResetRoutesKt.configurePasswordResetRoutes
@@ -85,6 +87,9 @@ security:
     # (POST /api/v1/password-reset/confirm) rides its own `password-reset-confirm` bucket: 10/min per IP in
     # every mode, NOT configurable (the MFA bucket idiom; plugins/RateLimits.kt).
     passwordResetPerMinute: "$PASSWORD_RESET_RATE_LIMIT_PER_MINUTE:"
+    # Per-IP bucket on GET /api/v1/live (the WebSocket upgrade, public at the HTTP layer: it authenticates in its first frame). Blank keeps the
+    # default 600/min (both modes: a tab opens one socket per (re)connect, so a NAT'd office stays far under it); a number pins it.
+    liveConnectPerMinute: "$LIVE_CONNECT_RATE_LIMIT_PER_MINUTE:"
   # Not configurable, stated for the operator: the per-request access-token check
   # (auth/TokenBlocklistService.accessVerdict, plugins/Security.kt) is ONE uncached database
   # statement (revocation, account liveness, credential revision, roles), so a logout, a delete,
@@ -196,6 +201,15 @@ live:
   # The live-update channel (live/, `.claude/docs/live.md` "Bounds"): in-memory and per-instance like the MFA challenges (single replica).
   # Unexpired socket tickets held at once (1..100000); past it a mint is a 429 and an audited `live.ticket_saturated`.
   maxTickets: "$LIVE_MAX_TICKETS:10000"
+  # Authenticated sockets at once, the whole process (1..10000); past it an upgrade and a ticket mint are a 503 `live-unavailable`.
+  maxSockets: "$LIVE_MAX_SOCKETS:1000"
+  # Sockets one user may hold, one per tab (1..64); past it a mint is a 429 `live-socket-limit` and a redeem closes the socket 4429.
+  maxSocketsPerUser: "$LIVE_MAX_SOCKETS_PER_USER:16"
+  # Sockets that have upgraded but not yet sent a good `auth` frame (1..10000): the WebSocket GET is public at the HTTP layer, so these are
+  # the only unauthenticated connections the server holds; past the cap an upgrade is a 503.
+  maxPendingAuth: "$LIVE_MAX_PENDING_AUTH:256"
+  # How long an unauthenticated socket may live before it is closed 4401 (100..30000 milliseconds; the first frame must carry the ticket).
+  authTimeoutMillis: "$LIVE_AUTH_TIMEOUT_MILLIS:5000"
 
 telemetry:
   # The in-app telemetry sampler (telemetry/, `.claude/docs/observability.md` "Telemetry"): every process writes its own memory/JVM

@@ -10,7 +10,8 @@ import io.ktor.server.response.*
 //   attributes and runtime <style> tags; Mantine 9 has no emotion) + the app's inline style={{}} usage.
 //   Styles only — script-src stays strict, so this does not reopen script injection.
 // - img-src 'self' data:: local assets + data URIs; remote images in user markdown won't load (acceptable).
-// - connect-src 'self': the API is same-origin and the SPA opens no WebSocket.
+// - connect-src 'self': the API is same-origin, and under CSP3 'self' also matches the same host's ws:/wss: (the live-update
+//   socket); adding ws:/wss: scheme sources would allow sockets to ANY host, so the string stays as it is.
 // Pinned verbatim by ServerTest — any edit must be a deliberate test edit too.
 private const val APP_CSP =
     "default-src 'self'; " +

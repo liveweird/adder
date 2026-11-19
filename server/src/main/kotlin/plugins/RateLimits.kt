@@ -59,9 +59,9 @@ internal class RateLimitAuditThrottle(
 }
 
 /**
- * Every token bucket the routes ride (per client IP, except [TELEMETRY], [DIRECTORY], [ROOM_NAME], [ROOM_MEMBERS], [CHAT_POST],
- * [CHAT_WRITE] and [LIVE_TICKET]: per signed-in user), named in
- * one place so a feature module never has to know another's constant (the auth module used to import the try-it bucket's name — a layering
+ * Every token bucket the routes ride (per client IP, the live-connect included, except [TELEMETRY], [DIRECTORY], [ROOM_NAME],
+ * [ROOM_MEMBERS], [CHAT_POST], [CHAT_WRITE] and [LIVE_TICKET]: per signed-in user), named in one place so a feature module never has to
+ * know another's constant (the auth module used to import the try-it bucket's name — a layering
  * inversion the checkup removed). Route files reference these names; only this plugin installs them.
  */
 object RateLimits {
@@ -123,8 +123,16 @@ object RateLimits {
      * reconnect loop or a script is what the bound stops, before it can fill the in-memory ticket store (`live/LiveTickets.kt`).
      */
     const val LIVE_TICKET = "live-ticket"
+    /**
+     * `GET /api/v1/live` - the WebSocket upgrade - rides a per-IP bucket (default 600/min, `security.rateLimit.liveConnectPerMinute`, a
+     * number pins it). The route is public at the HTTP layer (the socket authenticates in its first frame), so the client address is
+     * the only key there is; a tab opens one socket per (re)connect, so even a NAT'd office stays far under it, while a script cannot
+     * open sockets faster than the unauthenticated-socket cap and the 5 s auth deadline would let it hold them.
+     */
+    const val LIVE_CONNECT = "live-connect"
 
     const val DEFAULT_REFRESH_PER_MINUTE = 30
+    const val DEFAULT_LIVE_CONNECT_PER_MINUTE = 600
     /**
      * 60/min per IP: the kubelet probes `/ready` every 5 s per container (12/min, `k8s/app-deployment.yaml`; the e2e global setup
      * polls every 2 s = 30/min), so real probers stay at a fifth to a half
@@ -160,6 +168,8 @@ object RateLimits {
         if (developmentMode) LOGIN_PER_MINUTE_DEVELOPMENT else LOGIN_PER_MINUTE_PRODUCTION,
     )
     internal fun Application.refreshLimit() = configuredLimit("security.rateLimit.refreshPerMinute", DEFAULT_REFRESH_PER_MINUTE)
+    internal fun Application.liveConnectLimit() =
+        configuredLimit("security.rateLimit.liveConnectPerMinute", DEFAULT_LIVE_CONNECT_PER_MINUTE)
     internal fun Application.readyLimit() = configuredLimit("security.rateLimit.readyPerMinute", DEFAULT_READY_PER_MINUTE)
     internal fun Application.passwordResetLimit() = configuredLimit(
         "security.rateLimit.passwordResetPerMinute",
@@ -193,6 +203,7 @@ fun Application.configureRateLimits() {
             MFA to mfaLimit(),
             PASSWORD_RESET_CONFIRM to passwordResetConfirmLimit(),
             READY to readyLimit(),
+            LIVE_CONNECT to liveConnectLimit(),
         )
     }
     val perUserBuckets = with(RateLimits) {

@@ -81,6 +81,12 @@ Kubernetes
 (OrbStack) deployment targets the dedicated `adder` namespace — see `k8s/secret.yaml`'s header for
 the secret-creation command; the image is `adder-app` and the cluster runs a single `app-deployment.yaml` (one process, one replica) beside postgres.
 
+**The live socket in front of a proxy** (0.4.0; `live.md` "Deploy and proxies", `security.md`). Compose serves 8087 directly and the OrbStack `adder` namespace is a LoadBalancer with no Ingress, so
+the WebSocket passes at L4 and its 1001 close (the hub's 2 s) fits inside `terminationGracePeriodSeconds` 45. Vite needs `ws: true` on its `/api` proxy and NO `changeOrigin`: the Origin check compares the
+browser's origin with the request's own host, so the proxied request must keep the original `Host`. A reverse proxy in front of a real deployment must pass the upgrade (`proxy_http_version 1.1`,
+`Upgrade $http_upgrade`, `Connection $connection_upgrade`), keep read and send timeouts at 60 s or more (the server pings every 25 s), and forward the host (`Host $host`, or `X-Forwarded-Host` with
+`http.behindProxy=true`) or every Origin check is a `403`; with `http.behindProxy=true` the per-IP `live-connect` bucket also sees the real client. A second replica needs sticky `/api/v1/live*` or a shared ticket table (`BACKLOG.md`).
+
 **AppCDS (class-data sharing).**
 
 - The Docker build dumps `/app/cds/adder.jsa` from the committed `server/cds/classlist.txt` (a few seconds per image build); Trivy scans the same image as before.

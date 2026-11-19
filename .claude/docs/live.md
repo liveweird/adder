@@ -34,7 +34,7 @@ in it; a plain (non-Upgrade) GET answers 400 after admission (403 before 400).
   ticket POST (fetch sees the problem document) or into a 4xxx close code.
 
 **Admission order:** per-IP bucket `live-connect` (600/min) -> 429; Origin -> 403; stopping -> 503; global sockets -> 503; global pending-auth -> 503;
-otherwise 101.
+otherwise 101. The caps are ADVISORY at admission (a few upgrades in flight can slip past) and authoritative afterwards: the hub's register enforces `maxSockets` and `maxSocketsPerUser`, the pending counter is incremented when the session starts. `RequestBodyLimit` is told the upgrade has no body (`Long.MAX_VALUE`; wrapping the request channel starves the test host's socket of client frames).
 
 **Origin rule (CSWSH defence).** The header is required and its scheme must be `http` or `https`. It is allowed when its authority (case-insensitive,
 default ports dropped) equals `call.request.origin.serverHost:serverPort` (`XForwardedHeaders` rewrites it when `http.behindProxy` is on), or the origin is
@@ -82,6 +82,7 @@ equal to the spec enum and to the audit names.
 | 4003 | the sweep verdict is not LIVE, or the token was revoked at redemption | re-mint at once (`authedFetch` refreshes or signs out) |
 | 4401 | no ticket, or an unknown, expired or used one, by the deadline | backoff |
 | 4429 | per-user socket cap at redemption | "paused"; retry in 60 s |
+| 1013 | the global socket table filled between admission and redemption, or the unauthenticated-socket cap between admission and the session start (rare races; `live.maxSockets`, `live.maxPendingAuth`) | backoff |
 
 If 4001 or 4003 arrives twice within 10 s, the client falls back to backoff. No exception escapes a session (StatusPages cannot answer after a 101): catch,
 log, close with 1011.
@@ -169,7 +170,8 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
   chunks of 1000; the SAME decision function as `accessVerdict`, refactored so the two cannot drift); a verdict other than LIVE closes the socket with 4003
   and audits `live.revoked`. This catches logout, delete, password change and role change without touching any `auth/` or `users/` write path.
   Membership removal and room deletion are pushed at once (`revoked`), not swept. `sweepNow()` is an internal test seam.
-- **Gap:** `onGap` sends `resync` to every socket.
+- **Gap:** `onGap` sends `resync` to every socket (one atomic flag coalesces concurrent gaps; the listener starts with the first ticket mint, so a socket registered before its first LISTEN completes hears that LISTEN's own `resync`).
+- **Delivery in the socket step (S4):** a hint goes to the ACTIVE subscribers of its room; the personal frames (`revoked`, the hints for a room the user was just added to), the 60 s account sweep and the close at the token's `exp` are the next step's. A full socket queue loses its events (and a pending pong) to ONE `resync` but keeps `ready`, `subscribed` and `revoked` (the socket is closed 1013 if even that cannot fit). Hints wait for the actor in a bounded count (`MAX_QUEUED_HINTS` 1024; past it a hint is a gap, i.e. a `resync`), while commands (register, unregister, subscribe) are never dropped. A session that is cancelled while it waits to register still unregisters (its socket is recorded first; the inbox is FIFO).
 - **Shutdown:** `ApplicationStopPreparing` refuses admissions and mints with 503, then closes every socket with 1001 within 2 s; `ApplicationStopped`
   cancels the scope and closes the listener.
 
@@ -207,7 +209,7 @@ socket after 5 minutes hidden. A visible, authenticated socket is never closed f
 updates off" and retries every minute (a shared leader-tab socket is a deliberate non-goal for now, revisit with 0.6.0 unread counts).
 
 **Audits** (names in `observability.md` when each lands): `live.refused` (`reason` = origin | capacity | auth | socket-cap | subscription-cap | inbound-rate |
-bad-frame; `ip` before auth, `byUserId` after; coalesced through `RateLimitAuditThrottle`, with a `suppressed` count), `live.subscribe_denied` (`byUserId` and
+bad-frame; **[changed] no `ip`**: the `rate_limit.exceeded` rule, the client address is attacker-chosen text behind a proxy and the access log has it; `byUserId` after authentication, a printable `origin` for the Origin refusal; coalesced through `RateLimitAuditThrottle`, with a `suppressed` count), `live.subscribe_denied` (`byUserId` and
 the EXISTING rooms the caller cannot read; never ids that do not exist; not coalesced, like `room.access_denied`), `live.revoked` (at most one line per user per
 sweep), `live.ticket_saturated`, and the generic `rate_limit.exceeded` for `live-connect` and `live-ticket`. Not audited: connects, normal closes, 4001,
 `resync` (DEBUG; the gauges count sockets). **Telemetry:** the latency collector excludes `/api/v1/live`; each socket is one OTel server span for its whole

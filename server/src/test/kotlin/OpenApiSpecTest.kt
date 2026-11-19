@@ -69,9 +69,11 @@ class OpenApiSpecTest {
         val violations = OpenApiSpec.parsed.paths.flatMap { (path, item) ->
             item.readOperationsMap().mapNotNull { (method, op) ->
                 val statuses = op.responses.keys
-                val hasSuccess = statuses.any { it.startsWith("2") || it.startsWith("3") }
+                // `101` counts too: `GET /api/v1/live` is a WebSocket upgrade whose only success is Switching Protocols (Grenadiers'
+                // `lint-api.test.mjs` accepts a 101-only operation the same way).
+                val hasSuccess = statuses.any { it.startsWith("2") || it.startsWith("3") || it == "101" }
                 when {
-                    !hasSuccess -> "$method $path declares no 2xx/3xx response"
+                    !hasSuccess -> "$method $path declares no 2xx/3xx/101 response"
                     "500" !in statuses -> "$method $path declares no 500 response"
                     else -> null
                 }

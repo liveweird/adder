@@ -86,6 +86,7 @@ class SecretToStringTest {
         assertFalse(issued.ticket in issued.toString(), "the ticket leaked into: $issued")
         assertTrue("expiresAtMillis=${issued.expiresAtMillis}" in issued.toString())
         assertMasked(LiveTicketResponse(ticket = secret, expiresAt = 42).toString(), "expiresAt=42")
+        assertMasked(ch.nokillswit.live.LiveClientFrame.Auth(secret).toString(), "Auth")
         val binding = tickets.redeem(issued.ticket)!!
         assertMasked(binding.toString(), "userId=1")
     }

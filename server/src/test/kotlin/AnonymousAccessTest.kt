@@ -17,8 +17,9 @@ import kotlin.test.assertEquals
 /**
  * Every authenticated endpoint answers a uniform 401 to callers without a valid bearer. The sweep is
  * DRIVEN BY THE SPEC: every operation in documentation.yaml that does not opt out with `security: []`
- * (health, ready, login, the MFA step, refresh, the password-reset request and its confirm step — the sanctioned public
- * surface) is probed without a token, so a route that lands outside `authenticate {}` fails here the moment its spec entry exists
+ * (health, ready, login, the MFA step, refresh, the password-reset request and its confirm step and the live WebSocket upgrade, which
+ * authenticates in its first frame — the sanctioned public surface) is probed without a token, so a route that lands outside
+ * `authenticate {}` fails here the moment its spec entry exists
  * (and the conformance plugin fails any route that lands WITHOUT a spec entry).
  */
 class AnonymousAccessTest {
@@ -98,8 +99,9 @@ class AnonymousAccessTest {
         val PATH_PARAMETER = Regex("\\{[^}]+}")
 
         /**
-         * The EXACT number of secured operations: the 57 the spec declares less the seven public ones (`security: []`), as of 0.4.0
-         * S3 (the live ticket mint). The sweep derives its list from the spec deterministically, so the count is asserted with
+         * The EXACT number of secured operations: the 58 the spec declares less the eight public ones (`security: []`: the seven
+         * of 0.1.0 and, as of 0.4.0 S4, the live WebSocket upgrade, which authenticates in its first frame), 50 as of the live
+         * socket. The sweep derives its list from the spec deterministically, so the count is asserted with
          * `==`: an operation that silently drops out of the sweep, and one added without being counted, both fail here. When an
          * operation is added or removed, set it to the new count (the failure message prints it; or count `operationId:` lines
          * less the `security: []` ones).

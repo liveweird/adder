@@ -11,12 +11,18 @@ private const val TIMER_SUFFIX = "timer"
 private const val API_PREFIX = "/api/"
 private const val TELEMETRY_API = "/api/v1/telemetry"
 private val PROBE_ROUTES = setOf("/api/v1/health", "/api/v1/ready")
+
+/**
+ * The live WebSocket: Ktor times a socket for its WHOLE life (minutes), which would drown the panel's p50/p95; the ticket mint stays
+ * counted.
+ */
+private const val LIVE_SOCKET_API = "/api/v1/live"
 private const val NANOS_PER_MILLI = 1_000_000.0
 private const val STATUS_DIGITS = 3
 private const val SERVER_ERROR_FLOOR = 500
 private const val RATE_LIMITED = 429
 
-/** The `*` label: every `/api/` route but the telemetry's own and the health and ready probes. */
+/** The `*` label: every `/api/` route but the telemetry's own, the health and ready probes and the live WebSocket. */
 internal const val TOTAL_LABEL = "*"
 
 private val SELECTOR = Regex("""\([^)]*\)""")
@@ -66,7 +72,8 @@ internal fun parseKtorSeries(name: String): KtorSeries? {
 }
 
 private fun isCounted(route: String) =
-    route.startsWith(API_PREFIX) && route != TELEMETRY_API && !route.startsWith("$TELEMETRY_API/") && route !in PROBE_ROUTES
+    route.startsWith(API_PREFIX) && route != TELEMETRY_API && !route.startsWith("$TELEMETRY_API/") && route !in PROBE_ROUTES &&
+        route != LIVE_SOCKET_API
 
 /** What one label (a route or the total) saw since the previous collection. */
 private class Window {

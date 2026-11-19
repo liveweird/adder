@@ -174,6 +174,8 @@ dependencies {
     implementation(ktorLibs.server.resources)
     implementation(ktorLibs.server.statusPages)
     implementation(ktorLibs.server.swagger)
+    // The live-update socket (0.4.0, `live/`, `plugins/Sockets.kt`); it was test-only (via the test host) before the socket step.
+    implementation(ktorLibs.server.websockets)
     implementation(libs.angus.mail)
     implementation(libs.bcrypt)
     implementation(libs.exposed.core)
@@ -211,6 +213,8 @@ dependencies {
     // Test-only: the test HTTP clients (TestEnvironment.kt's jsonClient()/authedClient()) negotiate
     // application/json and application/problem+json bodies.
     testImplementation(ktorLibs.client.contentNegotiation)
+    // Test-only: the WebSocket client of the live-channel tests (TestEnvironment.kt's `liveClient()`); never used for /api/ HTTP.
+    testImplementation(ktorLibs.client.websockets)
     // Test-only: the OpenAPI conformance/spec-validation harness (OpenApiConformance.kt,
     // OpenApiSpecTest.kt) parses and validates documentation.yaml against real traffic — see the
     // `swagger-parser`/`swagger-request-validator` catalog notes.

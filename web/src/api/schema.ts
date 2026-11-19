@@ -1148,9 +1148,66 @@ export interface paths {
          *
          *     Rides the per-USER `live-ticket` bucket of 60 per minute (`429` beyond it; spent before anything else). The server holds at most
          *     `live.maxTickets` (10,000) unexpired tickets in memory; past that the mint is also a `429` with `Retry-After: 30` (audited `live.ticket_saturated`).
-         *     Tickets are per process: the deployment runs one replica.
+         *     Tickets are per process: the deployment runs one replica. The caller may hold at most 16 sockets (one per tab): a mint beyond
+         *     that is a `429` of type `urn:adder:problem:live-socket-limit` with `Retry-After: 60` (nothing is minted). While the server is
+         *     stopping or already holds its maximum of sockets the mint is a `503` of type `urn:adder:problem:live-unavailable` with `Retry-After`.
          */
         post: operations["mintLiveTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Open the live-update WebSocket
+         * @description A WebSocket upgrade (`GET` with `Connection: Upgrade` and `Upgrade: websocket`); `101` is the only success. The route is public at the HTTP
+         *     layer (`security: []`): the socket authenticates in-band, by its FIRST FRAME, a ticket minted by `mintLiveTicket`. The ticket never travels in
+         *     the URL (API-AUTH-002) and the `Authorization` header never reaches the socket. A plain (non-upgrade) `GET` answers `400` after admission.
+         *
+         *     **Admission, in order:** the per-IP `live-connect` bucket (600 a minute, `429` with `Retry-After`); the `Origin` header (REQUIRED, `403`): its
+         *     scheme must be `http` or `https` and its authority must equal the request's own host and port (default ports dropped, case-insensitive) or
+         *     be listed in `http.corsHosts`; a stopping server, a full socket table or too many unauthenticated sockets (`503` of type
+         *     `urn:adder:problem:live-unavailable` with `Retry-After`); otherwise `101`. A browser hides a refused handshake's status from the page, so
+         *     everything the client must act on goes on the ticket mint or into a 4xxx close code below.
+         *
+         *     **Frames** are JSON text frames of at most 8 KiB; the client ignores unknown server frame types and fields; the server is strict
+         *     (`LiveClientFrame`). Client to server: `{"type":"auth","ticket":"..."}` (the first frame, within 5 seconds, exactly once),
+         *     `{"type":"subscribe","roomIds":[...]}` and `{"type":"unsubscribe","roomIds":[...]}` (1 to 128 positive ids), `{"type":"ping"}`. Server to
+         *     client (`LiveServerFrame`): `ready` (after a good ticket; `maxSubscriptions` is 128), `subscribed` (the answer to ONE `subscribe` frame: which of its ids are now subscribed, which are `refused`
+         *     and which are `capped` over the per-socket limit; `refused` deliberately mixes "no such room" with "not readable", like the REST `404`),
+         *     `event` (a hint), `revoked` (the room is no longer readable: the subscription is gone), `resync` (a gap: refetch everything) and `pong`.
+         *
+         *     **Close codes:** 1000 normal; 1001 the server is stopping (reconnect after a random 1 to 5 seconds); 1003 a binary frame; 1008 a malformed,
+         *     unknown or over-long frame, a frame before `auth` or a second `auth`; 1009 a frame over 8 KiB; 1011 an internal error; 4001 the access token
+         *     that minted the ticket expired (mint again at once); 4003 that token was revoked, or the account changed, at redemption (mint again;
+         *     the client's refresh or sign-out follows); 4401 no ticket by the deadline, or an unknown, expired or used one; 4429 the per-user socket cap (16)
+         *     was reached (pause, retry in 60 seconds); 1013 the server's socket table filled between the upgrade and the redemption, or too many
+         *     unauthenticated sockets were open (try again with backoff). A server ping every 25 seconds keeps the connection open through proxies; a visible, authenticated
+         *     socket is never closed for being quiet.
+         *
+         *     **Events** (`event.kind`, `LiveEventKind`; the wire name equals the audit event of the write): `room.created`, `room.updated`,
+         *     `room.archived`, `room.unarchived`, `room.deleted`, `room.member_added`, `room.member_role_changed`, `room.member_removed`,
+         *     `room.workflow_updated`, `thread.created`, `thread.updated`, `thread.status_changed`, `thread.owner_changed` (these carry `threadNumber`
+         *     for the thread kinds), `message.posted`, `message.edited` and `message.deleted` (these carry `threadNumber` and `messageId`). An event says
+         *     THAT something changed, never what: it carries ids only, and the client refetches through the ordinary REST reads, so authorization stays
+         *     where it is. **Delivery semantics:** a socket receives the events of the rooms it is subscribed to, in commit order per room; delivery is
+         *     AT MOST ONCE with no replay (a missed hint is covered by `resync` and by the refetch after each `subscribed`); an event is emitted only for
+         *     a real change (a no-op write emits nothing); a socket gets at most one frame per hint. A user may subscribe to the rooms they can read (an
+         *     `ADMIN`: every existing room).
+         *
+         *     One socket per tab, at most 16 per user. The server is a single replica: tickets and subscriptions are per process.
+         */
+        get: operations["connectLive"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1307,6 +1364,127 @@ export interface components {
              */
             expiresAt: number;
         };
+        /**
+         * @description What changed; the wire name equals the audit event of the write (the catalog is in the `connectLive` description).
+         * @enum {string}
+         */
+        LiveEventKind: "room.created" | "room.updated" | "room.archived" | "room.unarchived" | "room.deleted" | "room.member_added" | "room.member_role_changed" | "room.member_removed" | "room.workflow_updated" | "thread.created" | "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "message.posted" | "message.edited" | "message.deleted";
+        /** @description The FIRST frame of a socket, within 5 seconds, exactly once. */
+        LiveAuthFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "auth";
+            /** @description The single-use ticket of `mintLiveTicket`. */
+            ticket: string;
+        };
+        /** @description Subscribe to rooms the caller can read; answered by one `subscribed` frame. */
+        LiveSubscribeFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "subscribe";
+            roomIds: number[];
+        };
+        /** @description Drop subscriptions; no answer. */
+        LiveUnsubscribeFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "unsubscribe";
+            roomIds: number[];
+        };
+        /** @description Application-level keep-alive; answered by `pong`. */
+        LivePingFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "ping";
+        };
+        /** @description A frame the client sends (JSON text, at most 8 KiB, parsed strictly). */
+        LiveClientFrame: components["schemas"]["LiveAuthFrame"] | components["schemas"]["LiveSubscribeFrame"] | components["schemas"]["LiveUnsubscribeFrame"] | components["schemas"]["LivePingFrame"];
+        /** @description The ticket was good; the socket is authenticated. */
+        LiveReadyFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "ready";
+            /**
+             * Format: int32
+             * @description The protocol version (1).
+             */
+            protocol: number;
+            /**
+             * Format: int32
+             * @description Subscriptions allowed per socket (128).
+             */
+            maxSubscriptions: number;
+        };
+        /** @description The answer to ONE `subscribe` frame, about that frame's ids only: `roomIds` are subscribed now, `refused` are rooms that do not exist or the caller cannot read (deliberately indistinguishable) and `capped` are ids over the per-socket subscription limit. */
+        LiveSubscribedFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "subscribed";
+            roomIds: number[];
+            refused: number[];
+            capped: number[];
+        };
+        /** @description A hint that something changed; ids only, never what. */
+        LiveEventFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "event";
+            kind: components["schemas"]["LiveEventKind"];
+            /** Format: int32 */
+            roomId: number;
+            /**
+             * Format: int32
+             * @description The thread's per-room number; present for the thread and message kinds.
+             */
+            threadNumber?: number;
+            /**
+             * Format: int32
+             * @description Present for the message kinds.
+             */
+            messageId?: number;
+        };
+        /** @description The room is no longer readable by the caller (removed, or the room was deleted); the subscription is gone. */
+        LiveRevokedFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "revoked";
+            /** Format: int32 */
+            roomId: number;
+        };
+        /** @description A gap (a listener outage or an overflowing queue), so refetch everything the page shows. */
+        LiveResyncFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "resync";
+        };
+        /** @description The answer to a `ping`. */
+        LivePongFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "pong";
+        };
+        /** @description A frame the server sends (JSON text). A client ignores unknown types and unknown fields. */
+        LiveServerFrame: components["schemas"]["LiveReadyFrame"] | components["schemas"]["LiveSubscribedFrame"] | components["schemas"]["LiveEventFrame"] | components["schemas"]["LiveRevokedFrame"] | components["schemas"]["LiveResyncFrame"] | components["schemas"]["LivePongFrame"];
         MfaVerifyRequest: {
             challengeId: string;
             /** @description The 6-digit code from the sign-in email. */
@@ -2262,7 +2440,18 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min) or the server already holds its maximum of pending tickets (answered with `Retry-After: 30`), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description The live channel cannot take another socket right now: the server is stopping, holds its maximum of sockets or of unauthenticated sockets (`urn:adder:problem:live-unavailable`). Retry after the stated seconds; every other route is unaffected. */
+        LiveUnavailable: {
+            headers: {
+                /** @description Seconds to wait before retrying. */
+                "Retry-After": number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 /** @description Seconds to wait before retrying; sent with `room-busy` and the rate-limit bucket 429s. */
@@ -4134,6 +4323,49 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
+            503: components["responses"]["LiveUnavailable"];
+        };
+    };
+    connectLive: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The page's origin; a missing header, a non-http(s) scheme or a foreign authority is a `403`. */
+                Origin: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching Protocols - the socket is open; send the `auth` frame */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not a WebSocket upgrade (a plain `GET`) */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The `Origin` header is missing, malformed or foreign (audited as `live.refused` with reason `origin`). When `http.corsHosts` is set, the CORS plugin refuses a foreign origin first, with a bodiless `403` and no audit line. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["LiveUnavailable"];
         };
     };
     getTelemetryCurrent: {

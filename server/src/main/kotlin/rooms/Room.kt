@@ -114,3 +114,9 @@ fun validateRoomUpdate(request: RoomUpdateRequest) {
     requireNameAndDescription(request.name, request.description, MAX_ROOM_NAME_LENGTH, MAX_ROOM_DESCRIPTION_LENGTH)
     requireVisibleName(request.name)
 }
+
+/**
+ * The answer of `RoomService.readableRoomIds`: the rooms a caller may read, and the EXISTING rooms they may not (never an id that
+ * matches no room).
+ */
+data class ReadableRooms(val readable: Set<UInt>, val deniedExisting: Set<UInt>)

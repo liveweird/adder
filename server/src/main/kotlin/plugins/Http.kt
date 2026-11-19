@@ -56,6 +56,7 @@ const val MAX_MESSAGE_REQUEST_BODY_BYTES: Long = 64L * 1024
  */
 const val MAX_THREAD_REQUEST_BODY_BYTES: Long = 192L * 1024
 
+private const val LIVE_SOCKET_PATH = "/api/v1/live"
 private val SMALL_BODY_PATHS = setOf(
     "/api/v1/login",
     "/api/v1/login/mfa",
@@ -91,6 +92,9 @@ internal fun requestBodyLimit(call: ApplicationCall): Long {
     val method = call.request.httpMethod
     val path = routedPath(call.request.path())
     return when {
+        // The live WebSocket upgrade is a GET with no body: the plugin's "no limit" answer leaves the call's channel alone. Wrapping it
+        // (the test host feeds the upgraded socket's frames through the request channel) starves the server of every client frame.
+        method == HttpMethod.Get && path == LIVE_SOCKET_PATH -> Long.MAX_VALUE
         method == HttpMethod.Post && (path in SMALL_BODY_PATHS || ROOM_MEMBERS_PATH.matches(path)) -> MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Put && THREAD_STATUS_OR_OWNER_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Post && MESSAGE_POST_PATH.matches(path) -> MAX_MESSAGE_REQUEST_BODY_BYTES

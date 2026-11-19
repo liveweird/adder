@@ -10,7 +10,7 @@ import kotlin.test.Test
  * a malformed or out-of-range override refuses startup, naming the key — the `DurationConfigBoundsTest`
  * pattern, for `jwt.*ExpiresInSeconds` (`plugins/Security.kt`), the three `maxTracked` capacities and
  * `mfa.codeTtlSeconds` (`auth/AuthRoutes.kt`), `mail.smtp.port` (`infra/mail/Mail.kt`) and the per-IP
- * `security.rateLimit.*PerMinute` overrides (`plugins/RateLimits.kt`) and `live.maxTickets` (`live/LiveConfig.kt`).
+ * `security.rateLimit.*PerMinute` overrides (`plugins/RateLimits.kt`) and the `live.*` bounds (`live/LiveConfig.kt`).
  */
 class NumericConfigBoundsTest {
 
@@ -39,6 +39,15 @@ class NumericConfigBoundsTest {
     @Test
     fun `a malformed or out-of-range live ticket capacity refuses to start`() {
         assertRefused("live.maxTickets", "0", "-1", "abc", "100001")
+    }
+
+    @Test
+    fun `a malformed or out-of-range live socket bound refuses to start`() {
+        assertRefused("live.maxSockets", "0", "-1", "abc", "10001")
+        assertRefused("live.maxSocketsPerUser", "0", "-1", "abc", "65")
+        assertRefused("live.maxPendingAuth", "0", "-1", "abc", "10001")
+        assertRefused("live.authTimeoutMillis", "99", "0", "abc", "30001")
+        assertRefused("security.rateLimit.liveConnectPerMinute", "0", "-1", "abc", "1000001")
     }
 
     @Test
@@ -85,6 +94,11 @@ class NumericConfigBoundsTest {
             "security.mfa.codeTtlSeconds" to "0",
             "security.rateLimit.loginPerMinute" to "1000000",
             "live.maxTickets" to "100000",
+            "live.maxSockets" to "10000",
+            "live.maxSocketsPerUser" to "64",
+            "live.maxPendingAuth" to "10000",
+            "live.authTimeoutMillis" to "30000",
+            "security.rateLimit.liveConnectPerMinute" to "1000000",
         )
         startApplication() // must not throw
     }

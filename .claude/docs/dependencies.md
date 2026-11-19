@@ -146,6 +146,14 @@ HIGH/CRITICAL) — those are the baselines the gates started from.
 `docker compose build`. A BuildKit `type=local` layer cache persisted with `actions/cache` was tried in Flow and removed: it cost more than it saved, and each ~1 GB cache entry pushed
 the repository over GitHub's 10 GB cache quota and evicted the Playwright browser cache. Do not re-add one without re-measuring both.
 
+## The WebSocket artifacts (0.4.0 S4)
+
+`io.ktor:ktor-server-websockets` (the live-update socket, `plugins/Sockets.kt` and `live/`) moved from the test classpaths, where the test host dragged it in, to `implementation` in
+`server/build.gradle.kts`; it is the same locked 3.6.1 (`ktorLibs.server.websockets`, no version of its own), already checksummed, and its `ktor-websockets` runtime was on the main classpath
+before. The one NEW artifact is test-only: `io.ktor:ktor-client-websockets` 3.6.1 (`testImplementation(ktorLibs.client.websockets)`, the client plugin `liveClient()` installs in
+`TestEnvironment`'s live fixtures; never used for `/api/` HTTP). Locks and `gradle/verification-metadata.xml` were regenerated per `dependency-reproducibility.md` (an EMPTY `GRADLE_USER_HOME`); the only
+checksum additions are the three `ktor-client-websockets` entries, recorded by Gradle from Maven Central like the rest of the file (no independent publisher signature, same caveat as the baseline).
+
 ## Buildscript advisory follow-up (inherited from Flow, 2026-09-26)
 
 CI scans reported CVE-2026-84939 in the root plugin classpath's transitive
