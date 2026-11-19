@@ -37,19 +37,20 @@ function Where() {
   return (
     <>
       <p data-testid="where">{location.pathname}</p>
+      <p data-testid="search">{location.search}</p>
       <p data-testid="state">{JSON.stringify(location.state)}</p>
     </>
   );
 }
 
-function renderForm(room: RoomResponse = ROOM) {
+function renderForm(room: RoomResponse = ROOM, route = "/rooms/12/threads/new") {
   return renderWithProviders(
     <Routes>
       <Route path="/rooms/:id/threads/new" element={<NewThreadForm room={room} />} />
       <Route path="/rooms/:id" element={<Where />} />
       <Route path="/rooms/:id/threads/:number" element={<Where />} />
     </Routes>,
-    { route: "/rooms/12/threads/new" },
+    { route },
   );
 }
 
@@ -119,6 +120,23 @@ describe("NewThreadForm", () => {
       body: "db-3 is at 100%",
       fields: { severity: "s2", component: "db" },
     });
+  });
+
+  test("the list's keys of the URL ride along: a started thread opens with them, and a clean Cancel goes back to the list with them", async () => {
+    serve();
+    const user = userEvent.setup();
+    const { unmount } = renderForm(ROOM, "/rooms/12/threads/new?scope=closed&page=2&message=9");
+    await fillRequired(user);
+    await user.click(screen.getByRole("combobox", { name: /Severity/ }));
+    await user.click(await screen.findByRole("option", { name: "S1" }));
+    await user.click(screen.getByRole("button", { name: "Start thread" }));
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/rooms/12/threads/7"));
+    expect(screen.getByTestId("search")).toHaveTextContent("?scope=closed&page=2");
+    unmount();
+    renderForm(ROOM, "/rooms/12/threads/new?scope=all&order=number");
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/rooms/12"));
+    expect(screen.getByTestId("search")).toHaveTextContent("?scope=all&order=number");
   });
 
   test("a form with a required field empty is refused before any request, and an invalid optional field opens More fields", async () => {

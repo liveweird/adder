@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link as RouterLink } from "react-router-dom";
+import { useEffect } from "react";
+import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button, Group, SegmentedControl, Select, Stack, Text } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -7,9 +7,9 @@ import { IconMessages, IconPlus } from "@tabler/icons-react";
 import { listThreads } from "../api/threads";
 import type { RoomResponse } from "../api/rooms";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
-import { isOneOf, useStoredState } from "../hooks/useStoredState";
+import { useThreadListParams } from "../hooks/useThreadListParams";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
-import { focusThreadPaneState, newThreadPath, threadPath } from "../utils/roomLinks";
+import { focusThreadPaneState, newThreadPath, threadPath, withListParams } from "../utils/roomLinks";
 import { threadStartBlock } from "../utils/threadAccess";
 import classes from "./ThreadList.module.css";
 import EmptyState from "./EmptyState";
@@ -18,38 +18,23 @@ import LoadingBlock from "./LoadingBlock";
 import PaginationBar from "./PaginationBar";
 import ThreadStatusPill from "./ThreadStatusPill";
 import { roomKeys } from "../utils/roomKeys";
+import { ORDER_SORT, ORDERS, SCOPE_FILTER, SCOPES, type Order, type Scope } from "../utils/threadListParams";
 
 /** The rail shows 50 threads a page (the server's cap is 100); the page-size picker is left out, the rail is too narrow for it. */
 const THREAD_PAGE_SIZE = 50;
 
-const SCOPES = ["open", "closed", "all"] as const;
-type Scope = (typeof SCOPES)[number];
-/** `closed` is the list's only filter: open threads, closed ones, or both (omitted). */
-const SCOPE_FILTER: Record<Scope, boolean | undefined> = { open: false, closed: true, all: undefined };
-
-const ORDERS = ["activity", "newest", "number"] as const;
-type Order = (typeof ORDERS)[number];
-/** Recent activity and newest read from the top; a number counts up from #1. All three are on the server's sort whitelist. */
-const ORDER_SORT: Record<Order, string> = { activity: "-lastActivityAt", newest: "-createdAt", number: "number" };
-
-/** The view-settings namespace; each room has its own (`roomThreads.<id>`), so one room's scope or order never rearranges another's. */
-const SETTINGS_KEY = "roomThreads";
-
 /**
  * The room view's left pane: the room's threads as a labelled `nav` of whole-row links (number, title, status, owner, message count,
  * last activity), Open by default and most recently active first, with the Open/Closed/All filter, the order, a pager and, for a
- * member of a live room, "New thread". The open thread is marked with `aria-current`. The two choices persist per room like the other views'.
- * The page belongs to the (room, scope, order) it was chosen under: a changed filter reads page 1 from its very first request.
+ * member of a live room, "New thread". The open thread is marked with `aria-current`. The state (scope, order, page) lives in the URL
+ * (`useThreadListParams`), so a change is one write that also resets the page: a changed filter reads page 1 from its very first request.
+ * Every link out of the list keeps the list's keys, so opening a thread never loses the reader's place.
  */
 export default function ThreadList({ room, activeNumber }: { room: RoomResponse; activeNumber: number | null }) {
   const { t } = useTranslation();
-  const [scope, setScope] = useStoredState<Scope>(`${SETTINGS_KEY}.${room.id}.scope`, "open", isOneOf(SCOPES));
-  const [order, setOrder] = useStoredState<Order>(`${SETTINGS_KEY}.${room.id}.order`, "activity", isOneOf(ORDERS));
-  // Derived, not reset in an effect: an effect would run after the first request for the new filter had already gone out with the old page.
-  const filterKey = `${room.id}|${scope}|${order}`;
-  const [paging, setPaging] = useState({ filterKey, page: 1 });
-  const page = paging.filterKey === filterKey ? paging.page : 1;
-  const setPage = (next: number) => setPaging({ filterKey, page: next });
+  const { params, update } = useThreadListParams(room.id);
+  const { scope, order, page } = params;
+  const { search } = useLocation();
   const workflow = useRoomWorkflow(room.id);
   const zone = browserTimeZone();
 
@@ -60,7 +45,10 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
     placeholderData: keepPreviousData,
   });
   // The page was emptied under the reader: step back to the first.
-  if (data && data.items.length === 0 && data.total > 0 && page > 1) setPage(1);
+  const emptied = !!data && !isPlaceholderData && data.items.length === 0 && data.total > 0 && page > 1;
+  useEffect(() => {
+    if (emptied) update({ page: 1 });
+  }, [emptied, update]);
   const canStart = threadStartBlock(room) === null;
   // Starting a thread is no way to fill the Closed list: it says how threads get there instead.
   const emptyHint = scope === "closed" ? t("threads.empty.hintClosed") : canStart ? t("threads.empty.hint") : undefined;
@@ -72,11 +60,11 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
           size="xs"
           aria-label={t("threads.scope.aria")}
           value={scope}
-          onChange={(value) => setScope(value as Scope)}
+          onChange={(value) => update({ scope: value as Scope })}
           data={SCOPES.map((value) => ({ value, label: t(`threads.scope.${value}`) }))}
         />
         {canStart && (
-          <Button component={RouterLink} to={newThreadPath(room.id)} size="compact-sm" leftSection={<IconPlus size={14} />}>
+          <Button component={RouterLink} to={withListParams(newThreadPath(room.id), search)} size="compact-sm" leftSection={<IconPlus size={14} />}>
             {t("threads.newThread")}
           </Button>
         )}
@@ -86,7 +74,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
         aria-label={t("threads.order.aria")}
         data={ORDERS.map((value) => ({ value, label: t(`threads.order.${value}`) }))}
         value={order}
-        onChange={(value) => value && setOrder(value as Order)}
+        onChange={(value) => value && update({ order: value as Order })}
         allowDeselect={false}
       />
       {isError && <ErrorAlert error={error} title={t("threads.loadFailed")} />}
@@ -101,7 +89,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
             {data.items.map((thread) => (
               <li key={thread.id}>
                 <RouterLink
-                  to={threadPath(room.id, thread.number)}
+                  to={withListParams(threadPath(room.id, thread.number), search)}
                   state={focusThreadPaneState}
                   className={classes.row}
                   aria-current={thread.number === activeNumber ? "page" : undefined}
@@ -126,7 +114,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
           </ul>
         </nav>
       )}
-      {data && data.total > THREAD_PAGE_SIZE && <PaginationBar total={data.total} page={page} pageSize={THREAD_PAGE_SIZE} onPageChange={setPage} />}
+      {data && data.total > THREAD_PAGE_SIZE && <PaginationBar total={data.total} page={page} pageSize={THREAD_PAGE_SIZE} onPageChange={(next) => update({ page: next })} />}
     </Stack>
   );
 }

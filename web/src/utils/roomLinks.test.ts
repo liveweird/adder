@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSettingsPath, roomWorkflowPath, roomsPath, threadPath, focusThreadPaneState, wantsThreadPaneFocus } from "./roomLinks";
+import { newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSettingsPath, roomWorkflowPath, roomsPath, threadPath, focusThreadPaneState, wantsThreadPaneFocus, withListParams } from "./roomLinks";
 
 describe("roomLinks", () => {
   test("builds the list, create, room, members, workflow and settings paths", () => {
@@ -27,5 +27,12 @@ describe("roomLinks", () => {
   test("the pane-focus state is recognised, and nothing else is", () => {
     expect(wantsThreadPaneFocus(focusThreadPaneState)).toBe(true);
     for (const other of [null, undefined, "focusPane", {}, { focusPane: false }, { focusPane: "yes" }]) expect(wantsThreadPaneFocus(other)).toBe(false);
+  });
+
+  test("withListParams carries the list's keys (normalized, page included) and nothing else", () => {
+    expect(withListParams("/rooms/7/threads/42", "?scope=closed&order=number&page=3")).toBe("/rooms/7/threads/42?scope=closed&order=number&page=3");
+    expect(withListParams("/rooms/7", new URLSearchParams("page=2&message=9&focus=1"))).toBe("/rooms/7?page=2");
+    expect(withListParams("/rooms/7", "?scope=junk&order=activity&page=1")).toBe("/rooms/7");
+    expect(withListParams("/rooms/7", "")).toBe("/rooms/7");
   });
 });

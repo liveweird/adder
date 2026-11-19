@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Alert, Button, Collapse, Group, Stack, TextInput, Title } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,7 +14,7 @@ import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { charCountDescription } from "../utils/charCount";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
-import { focusThreadPaneState, roomPath, threadPath } from "../utils/roomLinks";
+import { focusThreadPaneState, roomPath, threadPath, withListParams } from "../utils/roomLinks";
 import { threadStartBlock } from "../utils/threadAccess";
 import {
   MAX_MESSAGE_BODY_LENGTH,
@@ -44,6 +44,7 @@ import { roomKeys } from "../utils/roomKeys";
 function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly WorkflowField[] }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { search } = useLocation();
   const queryClient = useQueryClient();
   const moreId = useId();
   const drafts = useThreadDrafts();
@@ -55,7 +56,7 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const guard = useDiscardGuard({ isDirty: () => !isThreadDraftEmpty(form.values), to: roomPath(room.id) });
+  const guard = useDiscardGuard({ isDirty: () => !isThreadDraftEmpty(form.values), to: withListParams(roomPath(room.id), search) });
   const confirmDiscard = guard.confirmProps.onConfirm;
   // Required fields lead; the rest sit behind "More fields", so the common case is a title and a message.
   const required = fields.filter((field) => field.required);
@@ -80,7 +81,7 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
       const created = await createThread(room.id, toThreadCreateBody(values, fields));
       drafts.set(room.id, null);
       showSuccessToast(t("threads.toast.started"));
-      navigate(threadPath(room.id, created.number), { state: focusThreadPaneState });
+      navigate(withListParams(threadPath(room.id, created.number), search), { state: focusThreadPaneState });
       await refreshQueriesAfterMutation(queryClient, ["rooms"]);
     } catch (err) {
       setError(threadCreateErrorMessage(err, t));

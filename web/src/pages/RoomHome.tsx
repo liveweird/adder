@@ -1,4 +1,4 @@
-import { Link as RouterLink, useParams } from "react-router-dom";
+import { Link as RouterLink, useLocation, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Anchor, Group } from "@mantine/core";
 import { IconArrowLeft, IconMessages } from "@tabler/icons-react";
@@ -8,7 +8,7 @@ import NewThreadForm from "../components/NewThreadForm";
 import RoomPage from "../components/RoomPage";
 import ThreadList from "../components/ThreadList";
 import ThreadPane from "../components/ThreadPane";
-import { parseThreadNumber, roomPath } from "../utils/roomLinks";
+import { parseThreadNumber, roomPath, withListParams } from "../utils/roomLinks";
 import classes from "./RoomHome.module.css";
 
 /** The conversation pane's body, by route: the new-thread form, one thread, or — with none open — a prompt. */
@@ -27,6 +27,7 @@ function PaneBody({ room, isNew, numberParam }: { room: RoomResponse; isNew: boo
 export default function RoomHome({ isNew = false }: { isNew?: boolean }) {
   const { t } = useTranslation();
   const { id, number: numberParam } = useParams();
+  const { search } = useLocation();
   const inPane = isNew || numberParam !== undefined;
   return (
     <RoomPage idParam={id} tab="home">
@@ -39,7 +40,7 @@ export default function RoomHome({ isNew = false }: { isNew?: boolean }) {
             <div className={classes.pane}>
               {inPane && (
                 <Group className={classes.back} mb="sm">
-                  <Anchor component={RouterLink} to={roomPath(room.id)} size="sm">
+                  <Anchor component={RouterLink} to={withListParams(roomPath(room.id), search)} size="sm">
                     <Group gap={4} wrap="nowrap" component="span">
                       <IconArrowLeft size={14} />
                       {t("threads.back")}

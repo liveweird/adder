@@ -155,6 +155,8 @@ describe("RoomHome page", () => {
     const region = await screen.findByRole("region", { name: "#7 Disk full on db-3" });
     await waitFor(() => expect(region).toHaveFocus());
     expect(screen.getByRole("navigation", { name: "Threads" })).toBe(nav);
+    // The list's state is the URL, and every in-room link carries it.
+    expect(screen.getByRole("link", { name: "Back to threads" })).toHaveAttribute("href", "/rooms/12?page=2");
     await user.click(screen.getByRole("link", { name: "Back to threads" }));
     await screen.findByText("Pick a thread");
     await user.click(screen.getByRole("link", { name: "New thread" }));
@@ -162,6 +164,24 @@ describe("RoomHome page", () => {
     expect(screen.getByRole("navigation", { name: "Threads" })).toBe(nav);
     expect(listUrls.every((url, index) => index < requestsBefore || url.includes("page=2"))).toBe(true);
     expect(screen.getByRole("button", { name: "2" })).toHaveAttribute("aria-current", "page");
+  });
+
+  test("the list's keys survive the whole round: a deep link, a row, the new-thread form and back", async () => {
+    const user = userEvent.setup();
+    serve(mockFetch);
+    renderHome("/rooms/12/threads/7?scope=all&order=number&page=2");
+    const nav = await screen.findByRole("navigation", { name: "Threads" });
+    expect(within(nav).getByRole("link", { name: /Disk full on db-3/ })).toHaveAttribute("href", "/rooms/12/threads/7?scope=all&order=number&page=2");
+    expect(screen.getByRole("link", { name: "Back to threads" })).toHaveAttribute("href", "/rooms/12?scope=all&order=number&page=2");
+    expect(screen.getByRole("link", { name: "New thread" })).toHaveAttribute("href", "/rooms/12/threads/new?scope=all&order=number&page=2");
+    await user.click(screen.getByRole("link", { name: "New thread" }));
+    await screen.findByRole("heading", { level: 3, name: "New thread" });
+    expect(screen.getByRole("link", { name: "Back to threads" })).toHaveAttribute("href", "/rooms/12?scope=all&order=number&page=2");
+    expect(screen.getByRole("navigation", { name: "Threads" })).toBe(nav);
+    await user.click(screen.getByRole("link", { name: "Back to threads" }));
+    await screen.findByText("Pick a thread");
+    expect(screen.getByRole("navigation", { name: "Threads" })).toBe(nav);
+    expect(screen.getByRole("radio", { name: "All" })).toBeChecked();
   });
 
   test("a thread number that names nothing reads as not found in the pane, and the list stays", async () => {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+import { Link, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { screen, waitFor, within } from "@testing-library/react";
 import ThreadList from "./ThreadList";
 import type { RoomResponse } from "../api/rooms";
@@ -38,6 +39,25 @@ const THREADS = {
   pageSize: 50,
   total: 2,
 };
+const REMEMBERED = "adder.viewSettings.roomThreads.12.query";
+
+/** The router's location, as text, beside the list: the list's state is the URL. */
+function Where() {
+  const { pathname, search } = useLocation();
+  return <output aria-label="where">{pathname + search}</output>;
+}
+
+function renderList(room: RoomResponse = ROOM, route = "/rooms/12", activeNumber: number | null = null) {
+  return renderWithProviders(
+    <>
+      <ThreadList room={room} activeNumber={activeNumber} />
+      <Where />
+    </>,
+    { route },
+  );
+}
+
+const where = () => screen.getByLabelText("where").textContent;
 
 describe("ThreadList", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -63,7 +83,7 @@ describe("ThreadList", () => {
 
   test("lists the open threads, most recently active first, as whole-row links with number, title, status, owner, count and time", async () => {
     serve();
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    renderList();
     const nav = await screen.findByRole("navigation", { name: "Threads" });
     expect(listCalls()).toEqual(["/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false"]);
     const first = within(nav).getByRole("link", { name: /Disk full on db-3/ });
@@ -83,42 +103,90 @@ describe("ThreadList", () => {
 
   test("the open thread is marked with aria-current", async () => {
     serve();
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={1} />);
+    renderList(ROOM, "/rooms/12/threads/1", 1);
     expect(await screen.findByRole("link", { name: /Old alert/ })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: /Disk full/ })).not.toHaveAttribute("aria-current");
   });
 
-  test("Closed, All, and the order each change the request and persist", async () => {
+  test("the scope and the order come from the URL, and the request follows them", async () => {
+    serve();
+    renderList(ROOM, "/rooms/12?scope=closed&order=number");
+    await screen.findByRole("navigation", { name: "Threads" });
+    expect(listCalls()).toEqual(["/api/v1/rooms/12/threads?page=1&pageSize=50&sort=number&closed=true"]);
+    expect(screen.getByRole("radio", { name: "Closed" })).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Order threads by" })).toHaveValue("Number");
+  });
+
+  test("junk in the URL reads as the plain list", async () => {
+    serve();
+    renderList(ROOM, "/rooms/12?scope=bogus&order=sideways&page=-3");
+    await screen.findByRole("navigation", { name: "Threads" });
+    expect(listCalls()).toEqual(["/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false"]);
+  });
+
+  test("Closed, All and the order each change the request and write the URL by replace, defaults left out", async () => {
     serve();
     const user = userEvent.setup();
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    renderList();
     await screen.findByRole("navigation", { name: "Threads" });
     await user.click(screen.getByRole("radio", { name: "Closed" }));
     await waitFor(() => expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=true"));
+    expect(where()).toBe("/rooms/12?scope=closed");
     await user.click(screen.getByRole("radio", { name: "All" }));
     await waitFor(() => expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt"));
+    expect(where()).toBe("/rooms/12?scope=all");
     await user.click(screen.getByRole("combobox", { name: "Order threads by" }));
     await user.click(await screen.findByRole("option", { name: "Number" }));
     await waitFor(() => expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=number"));
+    expect(where()).toBe("/rooms/12?scope=all&order=number");
     await user.click(screen.getByRole("combobox", { name: "Order threads by" }));
     await user.click(await screen.findByRole("option", { name: "Newest" }));
     await waitFor(() => expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-createdAt"));
-    expect(localStorage.getItem("adder.viewSettings.roomThreads.12.scope")).toBe('"all"');
-    expect(localStorage.getItem("adder.viewSettings.roomThreads.12.order")).toBe('"newest"');
+    await user.click(screen.getByRole("radio", { name: "Open" }));
+    await user.click(screen.getByRole("combobox", { name: "Order threads by" }));
+    await user.click(await screen.findByRole("option", { name: "Recent activity" }));
+    await waitFor(() => expect(where()).toBe("/rooms/12"));
+    expect(JSON.parse(localStorage.getItem(REMEMBERED) ?? "null")).toBe("");
+  });
+
+  test("the old per-room scope and order keys are no longer read", async () => {
+    localStorage.setItem("adder.viewSettings.roomThreads.12.scope", JSON.stringify("closed"));
+    localStorage.setItem("adder.viewSettings.roomThreads.12.order", JSON.stringify("number"));
+    serve();
+    renderList();
+    await screen.findByRole("navigation", { name: "Threads" });
+    expect(listCalls()).toEqual(["/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false"]);
+  });
+
+  test("a bare URL gets the room's remembered query at once: the first request already carries it", async () => {
+    localStorage.setItem(REMEMBERED, JSON.stringify("scope=closed&order=newest"));
+    serve();
+    renderList();
+    await screen.findByRole("navigation", { name: "Threads" });
+    expect(listCalls()).toEqual(["/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-createdAt&closed=true"]);
+    await waitFor(() => expect(where()).toBe("/rooms/12?scope=closed&order=newest"));
   });
 
   test("a member of a live room sees New thread; an ADMIN outside the room and an archived room do not", async () => {
     serve();
-    const { unmount } = renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    const { unmount } = renderList();
     expect(await screen.findByRole("link", { name: "New thread" })).toHaveAttribute("href", "/rooms/12/threads/new");
     unmount();
-    const outside = renderWithProviders(<ThreadList room={{ ...ROOM, role: null }} activeNumber={null} />);
+    const outside = renderList({ ...ROOM, role: null });
     await screen.findByRole("navigation", { name: "Threads" });
     expect(screen.queryByRole("link", { name: "New thread" })).not.toBeInTheDocument();
     outside.unmount();
-    renderWithProviders(<ThreadList room={{ ...ROOM, archived: true }} activeNumber={null} />);
+    renderList({ ...ROOM, archived: true });
     await screen.findByRole("navigation", { name: "Threads" });
     expect(screen.queryByRole("link", { name: "New thread" })).not.toBeInTheDocument();
+  });
+
+  test("the rows and New thread keep the list's keys: a thread opens on the page and the filter the reader chose", async () => {
+    serve();
+    renderList(ROOM, "/rooms/12?scope=all&order=number&page=2&message=9");
+    const nav = await screen.findByRole("navigation", { name: "Threads" });
+    expect(within(nav).getByRole("link", { name: /Disk full/ })).toHaveAttribute("href", "/rooms/12/threads/2?scope=all&order=number&page=2");
+    expect(screen.getByRole("link", { name: "New thread" })).toHaveAttribute("href", "/rooms/12/threads/new?scope=all&order=number&page=2");
   });
 
   test.each([
@@ -127,34 +195,32 @@ describe("ThreadList", () => {
     // Starting a thread does not fill the Closed list: it says how threads get there.
     ["closed", "No closed threads", "Threads land here when they reach a closed status."],
   ])("an empty %s list says so, with its own next step", async (scope, label, hint) => {
-    localStorage.setItem("adder.viewSettings.roomThreads.12.scope", JSON.stringify(scope));
     serve({ items: [], page: 1, pageSize: 50, total: 0 });
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    renderList(ROOM, `/rooms/12?scope=${scope}`);
     expect(await screen.findByText(label)).toBeInTheDocument();
     expect(screen.getByText(hint)).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Threads" })).not.toBeInTheDocument();
   });
 
   test("the Closed hint is for everyone, a reader included; the start-one hint only for who can start", async () => {
-    localStorage.setItem("adder.viewSettings.roomThreads.12.scope", JSON.stringify("closed"));
     serve({ items: [], page: 1, pageSize: 50, total: 0 });
-    renderWithProviders(<ThreadList room={{ ...ROOM, role: null }} activeNumber={null} />);
+    renderList({ ...ROOM, role: null }, "/rooms/12?scope=closed");
     expect(await screen.findByText("Threads land here when they reach a closed status.")).toBeInTheDocument();
   });
 
-  test("the scope and the order are kept per room", async () => {
+  test("the scope is kept per room: the remembered query is the room's own", async () => {
     serve();
     const user = userEvent.setup();
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    renderList();
     await screen.findByRole("navigation", { name: "Threads" });
     await user.click(screen.getByRole("radio", { name: "Closed" }));
-    expect(localStorage.getItem("adder.viewSettings.roomThreads.12.scope")).toBe('"closed"');
-    expect(localStorage.getItem("adder.viewSettings.roomThreads.13.scope")).toBeNull();
+    expect(JSON.parse(localStorage.getItem(REMEMBERED) ?? "null")).toBe("scope=closed");
+    expect(localStorage.getItem("adder.viewSettings.roomThreads.13.query")).toBeNull();
   });
 
   test("a reader who cannot start threads gets no hint", async () => {
     serve({ items: [], page: 1, pageSize: 50, total: 0 });
-    renderWithProviders(<ThreadList room={{ ...ROOM, role: null }} activeNumber={null} />);
+    renderList({ ...ROOM, role: null });
     expect(await screen.findByText("No open threads")).toBeInTheDocument();
     expect(screen.queryByText("Start one to get the conversation going.")).not.toBeInTheDocument();
   });
@@ -163,39 +229,39 @@ describe("ThreadList", () => {
     mockFetch.mockImplementation((url: string) =>
       Promise.resolve(url === "/api/v1/rooms/12/workflow" ? jsonResponse(200, WORKFLOW) : jsonResponse(500, { title: "Boom", status: 500 })),
     );
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    renderList();
     expect(await screen.findByText("Could not load the threads")).toBeInTheDocument();
     expect(screen.queryByText("No open threads")).not.toBeInTheDocument();
   });
 
-  test("more than one page of threads shows the pager (no page-size picker) and pages through the list", async () => {
+  test("more than one page of threads shows the pager (no page-size picker) and pages through the list, the page in the URL", async () => {
     serve({ ...THREADS, total: 120 });
     const user = userEvent.setup();
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    renderList();
     expect(await screen.findByText("120 total")).toBeInTheDocument();
     expect(screen.queryByLabelText("Rows per page", { selector: "input" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "3" }));
     await waitFor(() => expect(listCalls().at(-1)).toContain("page=3&pageSize=50"));
+    expect(where()).toBe("/rooms/12?page=3");
   });
 
-  test("a page emptied under the reader steps back to the first", async () => {
+  test("the page comes from the URL, and a page that is out of range steps back to the first", async () => {
     mockFetch.mockImplementation((url: string) => {
-      if (url.includes("page=2")) return Promise.resolve(jsonResponse(200, { items: [], page: 2, pageSize: 50, total: 60 }));
+      if (url.includes("page=9")) return Promise.resolve(jsonResponse(200, { items: [], page: 9, pageSize: 50, total: 60 }));
       if (url.startsWith("/api/v1/rooms/12/threads?")) return Promise.resolve(jsonResponse(200, { ...THREADS, total: 120 }));
       return Promise.resolve(jsonResponse(200, WORKFLOW));
     });
-    const user = userEvent.setup();
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
-    await screen.findByText("120 total");
-    await user.click(screen.getByRole("button", { name: "2" }));
-    await waitFor(() => expect(listCalls().at(-1)).toContain("page=1&pageSize=50"));
+    renderList(ROOM, "/rooms/12?scope=all&page=9");
     expect(await screen.findByRole("link", { name: /Disk full/ })).toBeInTheDocument();
+    expect(listCalls()[0]).toContain("page=9&pageSize=50");
+    expect(listCalls().at(-1)).toContain("page=1&pageSize=50");
+    expect(where()).toBe("/rooms/12?scope=all");
   });
 
   test("a changed filter reads page 1 from its very first request, never the old page under the new filter", async () => {
     serve({ ...THREADS, total: 120 });
     const user = userEvent.setup();
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    renderList();
     await screen.findByText("120 total");
     await user.click(screen.getByRole("button", { name: "3" }));
     await waitFor(() => expect(listCalls().at(-1)).toContain("page=3&pageSize=50"));
@@ -203,6 +269,7 @@ describe("ThreadList", () => {
     await waitFor(() => expect(listCalls().at(-1)).toContain("closed=true"));
     expect(listCalls().filter((url) => url.includes("closed=true") && url.includes("page=3"))).toEqual([]);
     expect(listCalls().at(-1)).toContain("page=1&pageSize=50");
+    expect(where()).toBe("/rooms/12?scope=closed");
   });
 
   test("while a new filter loads the previous rows stay, dimmed and busy, and an empty answer is only shown once it is the current one", async () => {
@@ -213,7 +280,7 @@ describe("ThreadList", () => {
       return Promise.resolve(jsonResponse(200, THREADS));
     });
     const user = userEvent.setup();
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    renderList();
     const nav = await screen.findByRole("navigation", { name: "Threads" });
     expect(nav).toHaveAttribute("aria-busy", "false");
     await user.click(screen.getByRole("radio", { name: "Closed" }));
@@ -226,7 +293,6 @@ describe("ThreadList", () => {
   });
 
   test("a filter that follows an empty answer shows the spinner, not a blank, while it loads", async () => {
-    localStorage.setItem("adder.viewSettings.roomThreads.12.scope", JSON.stringify("closed"));
     const pending: { answer?: (response: Response) => void } = {};
     mockFetch.mockImplementation((url: string) => {
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
@@ -234,12 +300,72 @@ describe("ThreadList", () => {
       return new Promise<Response>((resolve) => (pending.answer = resolve));
     });
     const user = userEvent.setup();
-    renderWithProviders(<ThreadList room={ROOM} activeNumber={null} />);
+    renderList(ROOM, "/rooms/12?scope=closed");
     await screen.findByText("No closed threads");
     await user.click(screen.getByRole("radio", { name: "All" }));
     expect(await screen.findByRole("status", { name: "Loading…" })).toBeInTheDocument();
     expect(screen.queryByText("No closed threads")).not.toBeInTheDocument();
     pending.answer?.(jsonResponse(200, THREADS));
     expect(await screen.findByRole("link", { name: /Disk full/ })).toBeInTheDocument();
+  });
+
+  test("a room switch with the list still mounted shows the new room's own remembered query, and a room with none the plain list", async () => {
+    localStorage.setItem(REMEMBERED, JSON.stringify("scope=closed"));
+    localStorage.setItem("adder.viewSettings.roomThreads.13.query", JSON.stringify("order=newest"));
+    mockFetch.mockImplementation((url: string) => {
+      if (/^\/api\/v1\/rooms\/\d+\/threads\?/.test(url)) return Promise.resolve(jsonResponse(200, THREADS));
+      if (/^\/api\/v1\/rooms\/\d+\/workflow$/.test(url)) return Promise.resolve(jsonResponse(200, WORKFLOW));
+      return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+    });
+    const calls = (room: number) => mockFetch.mock.calls.map(([url]) => url as string).filter((url) => url.startsWith(`/api/v1/rooms/${room}/threads?`));
+    function Host() {
+      const { id } = useParams();
+      return <ThreadList room={{ ...ROOM, id: Number(id) }} activeNumber={null} />;
+    }
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <Routes>
+          <Route path="/rooms/:id" element={<Host />} />
+        </Routes>
+        <Where />
+        <Link to="/rooms/13">to room 13</Link>
+        <Link to="/rooms/14">to room 14</Link>
+      </>,
+      { route: "/rooms/12" },
+    );
+    await screen.findByRole("navigation", { name: "Threads" });
+    await waitFor(() => expect(where()).toBe("/rooms/12?scope=closed"));
+    await user.click(screen.getByRole("link", { name: "to room 13" }));
+    await waitFor(() => expect(where()).toBe("/rooms/13?order=newest"));
+    await waitFor(() => expect(calls(13).at(-1)).toBe("/api/v1/rooms/13/threads?page=1&pageSize=50&sort=-createdAt&closed=false"));
+    expect(calls(13).filter((url) => url.includes("closed=true"))).toEqual([]);
+    await user.click(screen.getByRole("link", { name: "to room 14" }));
+    await waitFor(() => expect(calls(14).at(-1)).toBe("/api/v1/rooms/14/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false"));
+    expect(where()).toBe("/rooms/14");
+    expect(calls(14).filter((url) => url.includes("closed=true") || url.includes("sort=-createdAt"))).toEqual([]);
+    expect(screen.getByRole("radio", { name: "Open" })).toBeChecked();
+  });
+
+  test("a placeholder answer that is empty does not step the page back: only the current page's own empty answer does", async () => {
+    const pending: { answer?: (response: Response) => void } = {};
+    mockFetch.mockImplementation((url: string) => {
+      if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+      // An odd answer (page 1 empty, yet a total past one page) stands in for "an empty previous answer that is on screen as the placeholder".
+      if (url.includes("page=2")) return new Promise<Response>((resolve) => (pending.answer = resolve));
+      return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 60 }));
+    });
+    const user = userEvent.setup();
+    renderList(ROOM, "/rooms/12?scope=all");
+    await screen.findByText("60 total");
+    await user.click(screen.getByRole("button", { name: "2" }));
+    await waitFor(() => expect(listCalls().at(-1)).toContain("page=2&pageSize=50"));
+    await waitFor(() => expect(pending.answer).toBeDefined());
+    // Page 2 is still loading and the empty page-1 answer is the placeholder: nothing may write page 1 back.
+    expect(where()).toBe("/rooms/12?scope=all&page=2");
+    pending.answer?.(jsonResponse(200, { ...THREADS, page: 2, total: 60 }));
+    expect(await screen.findByRole("link", { name: /Disk full/ })).toBeInTheDocument();
+    expect(where()).toBe("/rooms/12?scope=all&page=2");
+    expect(listCalls().filter((url) => url.includes("page=1&"))).toHaveLength(1);
   });
 });

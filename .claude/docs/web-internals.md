@@ -101,8 +101,7 @@ which carry a "Back to threads" link that the wide layout hides); the side panel
 `PageHeader` h2 (the repo's h2, not the plan's "h1"), the pane's heading `#42 Title` is the h3 (the pane is a labelled `region`), the side panel's sections are h4, the list is a
 labelled `nav` with no heading, and message bodies never emit headings; long titles wrap anywhere (`overflow-wrap: anywhere`). **Focus:** a navigation to a thread from a list row or a
 started thread carries `focusThreadPaneState` (`utils/roomLinks.ts`) and the pane `section` (`tabIndex={-1}`) takes focus once the thread has loaded (keyed by the thread's id, so a refetch
-never pulls it back); a deep link or a reload leaves focus alone. **Queries:** `["rooms", "threads", roomId, "list", …]` (the rail: 50 a page, Open by default and `-lastActivityAt`; the scope
-and the order persist per room as `roomThreads.<id>.scope|order`; the page is derived from the (room, scope, order) it was chosen under, so a changed filter's FIRST request is page 1;
+never pulls it back); a deep link or a reload leaves focus alone. **Queries:** `["rooms", "threads", roomId, "list", …]` (the rail: 50 a page, Open by default and `-lastActivityAt`; **the list's state lives in the URL**, see "The list's state in the URL" below;
 the previous filter's rows stay dimmed and `aria-busy` while the new one loads, and an empty state is only ever the current filter's answer; the page-size picker is left out of
 `PaginationBar` by omitting `onPageSizeChange`) and `["rooms", "threads", roomId, "detail", number]`; the workflow is the ONE shared `["rooms", "workflow", roomId]` read
 (`hooks/useRoomWorkflow.ts`) for the status pills and the form's fields. A write refreshes the whole `["rooms"]` prefix (threads, rail, workflow `threadCount`s, the room's own header).
@@ -115,6 +114,16 @@ body (only fields that hold something are sent; NUMBER and USER travel as JSON n
 (the server parses with `java.net.URI`), and the host must be ASCII letters, digits, `-` and `.`, the server's own rule); `ThreadFieldInput` is the per-type switch and `RoomMemberSelect`
 (a `SearchPicker` over `GET /rooms/{id}/members?name=`) its USER input. UX gating only (`utils/threadAccess.ts`): speech is for members of a live room, the server answers 403 and 409.
 Times render in the BROWSER's time zone (`browserTimeZone()` in `utils/formatDate.ts`).
+
+#### The list's state in the URL (since 0.5.0)
+
+`utils/threadListParams.ts` is the pure half, `hooks/useThreadListParams.ts` the hook. Keys: `scope` (`closed`, `all`; Open omitted), `order` (`newest`, `number`; activity omitted) and `page` (a positive integer; 1 omitted).
+Parsing drops junk (an unknown value reads as the default, a repeated key reads its first value) and a write omits defaults, so a URL spells only what differs from the plain list. Keys the list does not own (`focus`, `message` …) pass through a write.
+To add a list key (0.5.0's status, owner, tag and field filters): extend `ThreadListParams`, `DEFAULT_THREAD_LIST_PARAMS`, `LIST_KEYS`, `parseThreadListParams` and `serialize`; `hasListKeys`, `withListParams` and the remembered query follow. A multi-value key (repeated in the URL) needs `.getAll` in the parse and an emptiness check (not `!==`) in `serialize`'s default test; `writeThreadListParams` already deletes every list key and re-adds with `append`, so repeats survive a write. A write to the remembered query files it under the room of the LATEST render (a ref), so a stale handler never writes one room's key with another's params.
+
+- **Writes** (`update(patch)`, `clear()`) go through `hooks/useLiveSearchParams.ts` (Flow's, ported: the functional form gets the LATEST params, so a handler captured by an older render never overwrites a newer change; the setter is stable; two writes in one event compose), use `replace` (a filter is not a history entry) and keep `location.state` (the pane-focus hand-off). A change of anything but the page deletes `page` in the same write, which is why a changed filter's FIRST request is page 1 (nothing is derived or reset in an effect). A page the server answers empty (the list shrank, or a hand-edited `page=99`) steps back to page 1 by `replace`.
+- **The remembered query**: the last non-default query of a room, the page left out, is kept under `adder.viewSettings.roomThreads.<id>.query` (a string; the old `roomThreads.<id>.scope|order` keys are no longer read). When the Threads view opens on a URL that spells no list key, the hook reads it at once (so the first request already carries it, never the defaults first) and an effect writes it into the URL by `replace`. Every write updates what is remembered (the plain list remembers nothing), so the restore happens once: choosing the plain list leaves a bare URL AND nothing kept. `clear()` removes the list's keys and forgets the remembered query.
+- **Links keep the list's keys**: `withListParams(path, search)` (`utils/roomLinks.ts`) carries the normalized `scope`/`order`/`page` of the current URL into the list's rows, "New thread", "Back to threads" (`RoomHome`), the new-thread form's Cancel and the navigation after a started thread. The room's tabs and the rail link to the bare room route on purpose: that is where the remembered query comes back.
 
 ### The conversation (messages and the composer)
 
