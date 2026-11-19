@@ -138,7 +138,8 @@ fun Application.configureSecurity() {
 /**
  * The principal of one access token, or null (a `401` via the challenge). Structurally invalid tokens (wrong audience or
  * `typ`, no `jti`) are rejected without touching the database and without an audit event; a token that is ours but
- * lacks a claim the check needs (`malformed`) or whose account has moved on goes through [reject] (`access.rejected`).
+ * lacks a claim the check needs (`userId`, `credentialRevision`, `roles` or `exp`: `malformed`) or whose account has moved on goes
+ * through [reject] (`access.rejected`).
  * The account check is ONE uncached statement ([ch.nokillswit.auth.TokenBlocklistService.accessVerdict]): blocklist,
  * liveness, credential revision and roles. A lookup that THROWS is an outage and stashes its cause for the challenge's 500.
  */
@@ -156,7 +157,10 @@ private suspend fun ApplicationCall.accessPrincipal(credential: JWTCredential, j
     val userId = token.strictLongClaim("userId")?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }
     val revision = token.strictLongClaim("credentialRevision")?.takeIf { it >= 0 }
     val roles = payload.getClaim("roles").asList(String::class.java)?.toSet()
-    if (userId == null || revision == null || roles == null) return reject("malformed", userId)
+    // The server mints every access token with an `exp` (`Tokens.kt`), yet the verifier alone accepts a token without one: it would
+    // never expire. Refused here, once, for every bearer route (the live-ticket mint included).
+    val expiresAtMillis = payload.expiresAt?.time
+    if (userId == null || revision == null || roles == null || expiresAtMillis == null) return reject("malformed", userId)
     // A cancelled call (client gone) mid-lookup unwinds - catchingFailures never swallows cancellation.
     val blocklist = application.attributes[TokenBlocklistServiceKey]
     val verdict = catchingFailures({ blocklist.accessVerdict(jti, userId.toUInt(), revision, roles) }) { cause ->
@@ -168,7 +172,7 @@ private suspend fun ApplicationCall.accessPrincipal(credential: JWTCredential, j
     }
     if (verdict != AccessVerdict.LIVE) return reject(verdict.name.lowercase(), userId)
     // The token's own facts for the routes that bind to it (`authz/AccessToken.kt`); only a token the account check accepted gets here.
-    attributes.put(AccessTokenKey, AccessToken(jti, payload.expiresAt?.time ?: 0L, revision))
+    attributes.put(AccessTokenKey, AccessToken(jti, expiresAtMillis, revision))
     return JWTPrincipal(payload)
 }
 

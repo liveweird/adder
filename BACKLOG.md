@@ -52,7 +52,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **Room restore.** Soft delete (ADMIN `DELETE /rooms/{id}`) has no restore API; an ADMIN cannot bring a deleted room back except through the database. Decide the shape (a restore route, or a trash list) and the name-reuse rule.
 - [new] **History interleaved in the conversation.** 0.3 shows a thread's history in the side panel only; consider interleaving the events with the messages in one timeline.
 - [new] **The message composer nests a `<div>` in a `<p>`.** React warns twice in the console when a thread pane mounts ("cannot be a descendant of <p>"): `MessageComposer`'s Mantine `Textarea` `description` renders block content inside its `<p>`. Seen while verifying 0.5.0 W1; pre-existing.
-- [new] **The MFA email failure line logs the address and the full throwable.** `auth/MfaEmail.kt:98` (`log.error("MFA code email delivery failed for ${user.email}", e)`) breaks the `errorType`-only rule that `PasswordResetEmail` and the audit line follow. Found during 0.5.0 S0.
 - [new] **Message edit history.** An edit overwrites the body and sets `edited_at`; no versions are kept. Decide whether to keep them (who may see them, and how a moderator delete scrubs them).
 - [new] **Thread delete or merge.** Threads are never deleted in 0.3 (close one as *Won't do*); decide whether an owner or ADMIN may delete a thread, or merge a duplicate into another.
 - [new] **Relax the same-category replacement rule.** Retiring a status in use requires a replacement in the SAME category (so a thread never silently opens or closes). Consider allowing a cross-category move with an explicit confirmation now that threads exist.
@@ -64,5 +63,3 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **Bots posting into rooms.** Port Flow's `integration/` service tokens when an external system should post or update threads.
 - [new] **CI's e2e `npm audit` step is red on GHSA-fc5q-39xc-vjpf.** `picomatch` <= 4.0.7, reached through knip; no patched version exists yet. Per the
   user's choice of 2026-11-17 the step stays red until a fix ships and Dependabot picks it up (no ignore, no pin).
-- [new] **Refuse access tokens without `exp` in `accessPrincipal`.** The JWT verifier accepts them on every route except the live ticket mint; only a
-  holder of the signing secret can mint one.

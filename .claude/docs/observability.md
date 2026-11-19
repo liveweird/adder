@@ -95,7 +95,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `access.rejected` (with `reason`: user_gone/revoked/credential_changed/roles_changed/malformed, `userId` - the
   token's claim, null when absent OR out of range - and `suppressed`; `plugins/Security.kt`) - the per-request access check (`TokenBlocklistService.accessVerdict`)
   refused an otherwise valid signed access token: the account was deleted, the token was logged out, the password was
-  changed, the role was changed, or the token lacks a claim the check needs (a pre-deploy token). **Coalesced** like `rate_limit.exceeded` (its own `RateLimitAuditThrottle`): at most ONE event per user and reason per 60 s, `suppressed`
+  changed, the role was changed, or the token lacks a claim the check needs (`roles`, `exp`, an invalid `userId`/`credentialRevision`: a pre-deploy token or a hand-signed one). **Coalesced** like `rate_limit.exceeded` (its own `RateLimitAuditThrottle`): at most ONE event per user and reason per 60 s, `suppressed`
   counting the rejections folded into it since the previous one (0 on the first), so a stale token replayed on every request writes a line a minute;
   the keys are bounded by the accounts that ever held a signed token. Junk, expired, wrong-audience/`typ` and jti-less tokens never reach the check and emit nothing. Never the token,
 - `refresh.replay_grace` (userId — a rotated refresh token presented again inside the grace

@@ -7,8 +7,8 @@ import io.ktor.util.AttributeKey
  * The facts of the access token that authenticated a call, which [CallerPrincipal] does not carry: its `jti`, its expiry and the
  * credential revision it was minted under. `plugins/Security.kt` stashes one on the call only after the per-request account check
  * answered LIVE; the live-update ticket (`live/LiveRoutes.kt`) binds these so the socket can be re-judged and closed at the token's
- * own `exp`. [expiresAtMillis] is 0 for a token without an `exp` (the server never mints one), i.e. already expired. The `jti` is a
- * blocklist key, not a credential, and cannot authenticate anything.
+ * own `exp`. [expiresAtMillis] is always present: `validate` refuses a token without an `exp` (`access.rejected` `malformed`).
+ * The `jti` is a blocklist key, not a credential, and cannot authenticate anything.
  */
 data class AccessToken(val jti: String, val expiresAtMillis: Long, val credentialRevision: Long)
 

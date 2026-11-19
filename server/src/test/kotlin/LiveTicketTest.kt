@@ -86,11 +86,12 @@ class LiveTicketTest {
     }
 
     @Test
-    fun `a signed access token without an exp can bind nothing a socket could live on - 401, no ticket`() = testApplication {
+    fun `a signed access token without an exp is refused by the bearer check - 401, no ticket`() = testApplication {
         usePostgresTestcontainer()
         val email = uniqueEmail("live-ticket-noexp")
         val id = TestUsers.seed(email = email, password = "pw-123456789", role = UserRole.USER)
-        // The dev secret and the minting shape of Tokens.kt, minus the expiry (the server never mints one; the verifier alone accepts it).
+        // The dev secret and the minting shape of Tokens.kt, minus the expiry (the server never mints one;
+        // `plugins/Security.kt` refuses it: `StaleAccessTokenTest`).
         fun mint(withExp: Boolean): String = JWT.create()
             .withAudience("adder-api")
             .withIssuer("http://0.0.0.0:8087/")

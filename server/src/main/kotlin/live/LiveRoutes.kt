@@ -3,7 +3,6 @@ package ch.nokillswit.live
 import ch.nokillswit.audit.audit
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.authz.TooManyRequestsException
-import ch.nokillswit.authz.UnauthorizedException
 import ch.nokillswit.authz.accessToken
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.isAdmin
@@ -101,10 +100,6 @@ fun Application.configureLive() {
                 post<LiveTicketsRoute> {
                     val caller = call.caller()
                     val token = call.accessToken()
-                    // A token with no future `exp` can bind nothing a socket could live on.
-                    if (token.expiresAtMillis <= System.currentTimeMillis()) {
-                        throw UnauthorizedException("Access token is no longer valid - refresh or sign in again")
-                    }
                     // A deaf hub (the LISTEN session down for long) cannot deliver a hint, so a ticket would buy a silent socket.
                     if (hub.isStopping || hub.socketCount >= config.maxSockets || hub.isDeaf) {
                         when {
