@@ -10,6 +10,12 @@ const val OUTBOUND_QUEUE_CAPACITY = 64
 /** Hints waiting for the actor; past it a hint becomes a gap (one `resync` to every socket) instead of growing the inbox without bound. */
 const val MAX_QUEUED_HINTS = 1024
 
+/** How long the LISTEN session may be down before the channel counts as deaf (`LiveHub.isDeaf`: a mint answers 503, sockets close 1013). */
+const val LISTENER_DEAF_MILLIS = 10_000L
+
+/** How often the hub checks for a deaf channel. */
+const val DEAF_CHECK_MILLIS = 1_000L
+
 /** How long [LiveHub.shutdown] waits for the sockets to leave after asking them to close 1001 (`live.md` "Shutdown"). */
 const val SHUTDOWN_GRACE_MILLIS = 2_000L
 
@@ -46,3 +52,23 @@ internal enum class RegisterResult { OK, USER_CAP, FULL, UNAVAILABLE }
  * subscribed; [capped] are over the limit.
  */
 internal class SubscribeBegin(val already: List<UInt>, val toCheck: List<UInt>, val capped: List<UInt>)
+
+/**
+ * `trySend`, never a suspension. A full queue loses what a refetch recovers (events, a pending `resync`, a pong) to ONE `resync`, and
+ * keeps what changes the client's state (`ready`, `subscribed`, `revoked`); if even that cannot fit, the socket is closed (1013) rather
+ * than left with a silent gap. Called by the hub's actor only.
+ */
+internal fun queueFrame(socket: HubSocket, frame: LiveServerFrame) {
+    if (socket.outbound.trySend(frame).isSuccess) return
+    val kept = ArrayList<LiveServerFrame>()
+    while (true) {
+        val queued = socket.outbound.tryReceive().getOrNull() ?: break
+        if (queued.changesState()) kept += queued
+    }
+    if (frame.changesState()) kept += frame
+    val requeued = kept.all { socket.outbound.trySend(it).isSuccess } && socket.outbound.trySend(LiveServerFrame.Resync).isSuccess
+    if (!requeued) socket.closeRequest.complete(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Too slow"))
+}
+
+private fun LiveServerFrame.changesState(): Boolean =
+    this is LiveServerFrame.Ready || this is LiveServerFrame.Subscribed || this is LiveServerFrame.Revoked

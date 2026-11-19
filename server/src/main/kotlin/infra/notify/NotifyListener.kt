@@ -102,9 +102,21 @@ class NotifyListener(
     /** The backend pid of the current session, or null while down (a test seam: `pg_terminate_backend`, `pg_stat_activity`). */
     val backendPid: Int? get() = pid
 
+    // When the listener last stopped being up (or was first started): a monotonic stamp, written by the loop and by ensureStarted().
+    @Volatile private var downSinceNanos = System.nanoTime()
+
+    /**
+     * How long the listener has been started and NOT up, in milliseconds (a deaf hub: hints committed meanwhile are lost to every
+     * socket); null while it is up or has never been started (idle, not down). The live hub turns a long outage into a `503` on the
+     * ticket mint and a `1013` close of the open sockets.
+     */
+    fun downForMillis(): Long? =
+        if (!started.get() || isUp) null else (System.nanoTime() - downSinceNanos) / NANOS_PER_MILLI
+
     /** Starts the session loop on the first call; later calls do nothing. */
     fun ensureStarted() {
         if (started.compareAndSet(false, true)) {
+            downSinceNanos = System.nanoTime()
             // LAZY and published before it starts, so a concurrent stop() either sees the job (and cancels it) or this sees `stopped`.
             val launched = scope.launch(CoroutineName("adder-live-listener"), start = CoroutineStart.LAZY) { supervise() }
             job = launched
@@ -171,6 +183,8 @@ class NotifyListener(
             if (first) log.info("live listener started") else if (recovering) log.info("live listener recovered")
             watch(connection, ended)
         } finally {
+            // Only the up -> down transition restarts the clock: a failed reconnect must not make the outage look young.
+            if (pid != null) downSinceNanos = System.nanoTime()
             pid = null
             subscription?.dispose()
             withContext(NonCancellable) {
@@ -210,6 +224,7 @@ class NotifyListener(
 
     private companion object {
         const val JITTER_FLOOR = 0.5
+        const val NANOS_PER_MILLI = 1_000_000L
     }
 }
 

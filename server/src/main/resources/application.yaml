@@ -208,8 +208,12 @@ live:
   # Sockets that have upgraded but not yet sent a good `auth` frame (1..10000): the WebSocket GET is public at the HTTP layer, so these are
   # the only unauthenticated connections the server holds; past the cap an upgrade is a 503.
   maxPendingAuth: "$LIVE_MAX_PENDING_AUTH:256"
+  # Of those, how many ONE client address may hold at once (1..10000; an IPv6 address counts by its /64, an IPv4 address whole; behind a
+  # proxy the real client, as for the `live-connect` bucket): one host cannot fill the global cap and turn every other tab away.
+  maxPendingPerAddress: "$LIVE_MAX_PENDING_PER_ADDRESS:8"
   # How long an unauthenticated socket may live before it is closed 4401 (100..30000 milliseconds; the first frame must carry the ticket).
-  authTimeoutMillis: "$LIVE_AUTH_TIMEOUT_MILLIS:5000"
+  # The SPA sends it from its `open` handler, so a healthy client needs one round trip; 2 s keeps a silent socket's slot short.
+  authTimeoutMillis: "$LIVE_AUTH_TIMEOUT_MILLIS:2000"
 
 telemetry:
   # The in-app telemetry sampler (telemetry/, `.claude/docs/observability.md` "Telemetry"): every process writes its own memory/JVM

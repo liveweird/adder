@@ -3,6 +3,8 @@ package ch.nokillswit.live
 import ch.nokillswit.auth.AccessVerdict
 import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.rooms.RoomService
+import io.ktor.server.plugins.origin
+import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.DefaultWebSocketSession
 import io.ktor.websocket.Frame
@@ -46,21 +48,27 @@ private sealed interface Next {
  * 101, so any failure is logged (class name only) and the socket closes 1011.
  *
  * 1. **Authenticate.** The FIRST frame must be `{"type":"auth","ticket":...}` within `live.authTimeoutMillis` (else 4401); the
- *    unauthenticated time is counted in the hub's `pendingAuth` (the cap the admission checks). Redemption, in order: the ticket
+ *    unauthenticated time is counted in the hub's pending slots (in total and per client address, the caps the admission checks).
+ *    Redemption, in order: the ticket
  *    (single use; unknown, used and expired are one answer, 4401), `accessVerdict` of the token it was minted with (not LIVE: 4003),
  *    the token's `exp` (4001), then the hub's register (the per-user cap: 4429), which queues `ready` first.
  * 2. **Serve.** One writer drains the socket's queue; the reading loop answers `ping`, subscribes and unsubscribes, and ends on a
  *    close from either side. A subscribe registers the rooms PENDING in the hub, judges them with `RoomService.readableRoomIds` OUTSIDE
  *    the hub, and lets the hub activate the ones still PENDING and queue the ack in one step.
  *
- * A binary frame is 1003, a malformed, unknown, fragmented or misplaced one 1008 (audited, coalesced); a frame over 8 KiB is Ktor's 1009;
- * more than [INBOUND_FRAME_LIMIT] frames in [INBOUND_WINDOW_MILLIS] is 1008 too. The socket also ends 4001 at its token's `exp`.
+ * A binary frame is 1003, a malformed, unknown or misplaced one 1008 (audited, coalesced); a frame over 8 KiB is Ktor's 1009 (Ktor
+ * reassembles a fragmented text message before the reading loop sees it, and the limit applies to the whole message); more than
+ * [INBOUND_FRAME_LIMIT] frames in [INBOUND_WINDOW_MILLIS] is 1008 too. The socket also ends 4001 at its token's `exp`.
  */
-internal suspend fun DefaultWebSocketSession.liveSession(deps: LiveSessionDeps) {
+internal suspend fun DefaultWebSocketServerSession.liveSession(deps: LiveSessionDeps) {
     val hub = deps.hub
-    // The advisory check at admission can be raced by a few upgrades in flight; this claim is the authoritative one.
-    if (!hub.claimPending(deps.config.maxPendingAuth)) {
-        deps.audits.refused("capacity", null, "limit" to "pending-auth")
+    // The advisory check at admission can be raced by a few upgrades in flight; this claim is the authoritative one. The address is the
+    // one the per-IP bucket keyed by (the real client behind a proxy), an IPv6 one by its /64.
+    val address = pendingAddressKey(call.request.origin.remoteHost)
+    val claim = hub.pending.claim(address, deps.config.maxPendingAuth, deps.config.maxPendingPerAddress)
+    if (claim != PendingClaim.OK) {
+        val limit = if (claim == PendingClaim.ADDRESS_FULL) "pending-per-address" else "pending-auth"
+        deps.audits.refused("capacity", null, "limit" to limit)
         closeWith(CloseReason.Codes.TRY_AGAIN_LATER.code, "Too many unauthenticated sockets")
         return
     }
@@ -70,7 +78,7 @@ internal suspend fun DefaultWebSocketSession.liveSession(deps: LiveSessionDeps) 
     var expiry: Job? = null
     try {
         val binding = authenticate(deps)
-        hub.pendingAuth.decrementAndGet()
+        hub.pending.release(address)
         pendingHeld = false
         if (binding == null) return
         val registered = HubSocket(
@@ -91,7 +99,7 @@ internal suspend fun DefaultWebSocketSession.liveSession(deps: LiveSessionDeps) 
         log.warn("live socket failed ({})", e.javaClass.simpleName)
         closeWith(CloseReason.Codes.INTERNAL_ERROR.code, "Internal error")
     } finally {
-        if (pendingHeld) hub.pendingAuth.decrementAndGet()
+        if (pendingHeld) hub.pending.release(address)
         socket?.let {
             hub.unregister(it)
             it.outbound.close()
@@ -270,8 +278,9 @@ private suspend fun subscribe(deps: LiveSessionDeps, socket: HubSocket, ids: Lis
 }
 
 /**
- * One client frame parsed, or null after the socket was closed for it: binary is 1003; text that is not a well-formed, known, complete
- * frame (including a fragmented one) is 1008.
+ * One client frame parsed, or null after the socket was closed for it: binary is 1003; text that is not a well-formed, known frame is
+ * 1008. A fragmented text message arrives here already reassembled (Ktor's `incoming` only delivers whole messages, so the 8 KiB limit
+ * has been applied to the total and there is no partial frame to refuse).
  */
 private suspend fun DefaultWebSocketSession.parse(deps: LiveSessionDeps, frame: Frame, userId: UInt?): LiveClientFrame? {
     if (frame is Frame.Binary) {
@@ -279,7 +288,7 @@ private suspend fun DefaultWebSocketSession.parse(deps: LiveSessionDeps, frame: 
         closeWith(CloseReason.Codes.CANNOT_ACCEPT.code, "Binary frames are not accepted")
         return null
     }
-    val parsed = if (frame is Frame.Text && frame.fin) {
+    val parsed = if (frame is Frame.Text) {
         try {
             parseClientFrame(frame.readText())
         } catch (_: Exception) {

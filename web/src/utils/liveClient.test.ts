@@ -369,38 +369,61 @@ describe("close codes", () => {
     expect(t.clock.pendingDelays()).toEqual([5000]);
   });
 
-  test("4001 re-mints at once, with a fresh ticket and no wait", async () => {
+  test("4001 re-mints after a random 0 to 1 s of jitter, with a fresh ticket", async () => {
     const t = setup();
     await goLive(t);
+    t.clock.randomValue = 0.5;
     newest().closeWith(4001);
-    expect(t.clock.pendingDelays()).toEqual([]);
+    expect(t.client.getStatus()).toBe("down");
+    expect(t.clock.pendingDelays()).toEqual([500]);
+    expect(t.mintTicket).toHaveBeenCalledTimes(1);
+    t.clock.advanceBy(499);
+    expect(t.mintTicket).toHaveBeenCalledTimes(1);
+    t.clock.advanceBy(1);
     expect(t.mintTicket).toHaveBeenCalledTimes(2);
     await settle();
     expect(sockets()).toHaveLength(2);
   });
 
-  test("4003 re-mints at once too, and a second 4001 or 4003 within ten seconds falls back to backoff", async () => {
+  test("the jitter before a re-mint spans 0 to 1 s and never more", async () => {
+    for (const [random, expected] of [
+      [0, 0],
+      [0.999, 999],
+    ] as const) {
+      SocketStub.reset();
+      const t = setup();
+      await goLive(t);
+      t.clock.randomValue = random;
+      newest().closeWith(4003);
+      expect(t.clock.pendingDelays()).toEqual([expected]);
+    }
+  });
+
+  test("4003 re-mints too, and a second 4001 or 4003 within ten seconds falls back to backoff", async () => {
     const t = setup();
     await goLive(t);
     newest().closeWith(4003);
+    t.clock.advanceBy(SECOND);
     await settle();
     makeLive(newest());
-    t.clock.advanceBy(9 * SECOND);
+    t.clock.advanceBy(8 * SECOND);
     newest().closeWith(4001);
     expect(t.mintTicket).toHaveBeenCalledTimes(2);
     expect(t.clock.pendingDelays()).toEqual([1000]);
   });
 
-  test("a 4001 more than ten seconds after the last re-mint re-mints at once again", async () => {
+  test("a 4001 more than ten seconds after the last re-mint re-mints again", async () => {
     const t = setup();
     await goLive(t);
     newest().closeWith(4001);
+    t.clock.advanceBy(SECOND);
     await settle();
     makeLive(newest());
     t.clock.advanceBy(10 * SECOND);
     newest().closeWith(4003);
+    expect(t.clock.pendingDelays()).toEqual([1000]);
+    t.clock.advanceBy(SECOND);
     expect(t.mintTicket).toHaveBeenCalledTimes(3);
-    expect(t.clock.pendingDelays()).toEqual([]);
   });
 
   test("4429 pauses for a minute, then asks again; a socket that goes live ends the pause", async () => {

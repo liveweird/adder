@@ -68,7 +68,7 @@ const STOPPING_RETRY_SPREAD_MS = 4_000;
 /** A `Retry-After` is honoured up to this (a misbehaving proxy cannot park a tab for an hour). */
 const RETRY_AFTER_CAP_MS = 5 * 60_000;
 const DEFAULT_MAX_SUBSCRIPTIONS = 128;
-/** A tab shown or a network that returns reconnects after a random 0 to this long, so a whole office coming back online does not arrive in one instant. */
+/** A tab shown, a network that returns or a token that expired (4001/4003) reconnects after a random 0 to this long, so a crowd does not arrive in one instant. */
 const RECONNECT_JITTER_MS = 1_000;
 /** Subscription changes are coalesced for this long: quick navigation stays far below the server's 30 frames per 10 s. */
 const SUBSCRIPTION_COALESCE_MS = 100;
@@ -305,7 +305,10 @@ export class LiveClient {
     }
   }
 
-  /** 4001 and 4003: the minting token expired or its standing changed; a fresh mint (through `authedFetch`) is the answer, unless it keeps happening. */
+  /**
+   * 4001 and 4003: the minting token expired or its standing changed; a fresh mint (through `authedFetch`) is the answer, unless it keeps
+   * happening. Tokens minted together expire together, so the mint waits a random 0 to 1 s: a whole room of sockets does not mint in one instant.
+   */
   private remint(): void {
     const now = this.deps.clock.now();
     const looping = this.lastRemintAt !== null && now - this.lastRemintAt < REMINT_LOOP_MS;
@@ -315,7 +318,7 @@ export class LiveClient {
       return;
     }
     this.setStatus("down");
-    this.connect();
+    this.connectSoon();
   }
 
   private fail(generation: number, code = CLOSE_NORMAL): void {

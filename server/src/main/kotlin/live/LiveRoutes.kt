@@ -66,7 +66,8 @@ data class LiveTicketResponse(val ticket: String, val expiresAt: Long) {
  * The live-update channel's HTTP side (`.claude/docs/live.md`): the ticket mint `POST /api/v1/live/tickets` (any authenticated caller,
  * inside `authenticate {}` so the per-USER `live-ticket` bucket is keyed by the verified user) and the socket `GET /api/v1/live`
  * (`security: []`, authenticated in-band by its first frame; the per-IP `live-connect` bucket, then `installLiveAdmission`: Origin,
- * stopping, capacity). The ticket binds the caller and the access token that authenticated the mint (`authz/AccessToken.kt`) and
+ * stopping, capacity, per address and in total). The ticket binds the caller and the access token that authenticated the mint
+ * (`authz/AccessToken.kt`) and
  * proves nothing about any room: subscriptions are judged per room when they are made. The hub's LISTEN connection starts lazily (the
  * first mint), and everything ends with the application (`ApplicationStopPreparing` closes every socket 1001 within 2 s,
  * `ApplicationStopped` stops the listener).
@@ -86,7 +87,7 @@ fun Application.configureLive() {
         scope.cancel()
     }
     val audits = LiveAudit()
-    val sweep = LiveSweep(hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey])
+    val sweep = LiveSweep(hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey], audits = audits)
     attributes.put(LiveSweepKey, sweep)
     sweep.start(scope)
     val deps = LiveSessionDeps(config, tickets, hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey], audits)
@@ -104,11 +105,12 @@ fun Application.configureLive() {
                     if (token.expiresAtMillis <= System.currentTimeMillis()) {
                         throw UnauthorizedException("Access token is no longer valid - refresh or sign in again")
                     }
-                    if (hub.isStopping || hub.socketCount >= config.maxSockets) {
-                        if (hub.isStopping) {
-                            audits.refused("stopping", caller.userId)
-                        } else {
-                            audits.refused("capacity", caller.userId, "limit" to "sockets")
+                    // A deaf hub (the LISTEN session down for long) cannot deliver a hint, so a ticket would buy a silent socket.
+                    if (hub.isStopping || hub.socketCount >= config.maxSockets || hub.isDeaf) {
+                        when {
+                            hub.isStopping -> audits.refused("stopping", caller.userId)
+                            hub.isDeaf -> audits.refused("listener-down", caller.userId)
+                            else -> audits.refused("capacity", caller.userId, "limit" to "sockets")
                         }
                         call.respondLiveUnavailable()
                         return@post

@@ -21,25 +21,34 @@ the existing REST endpoints, so authorization and OpenAPI conformance stay in on
 
 **`POST /api/v1/live/tickets`** (`mintLiveTicket`; bearer, any authenticated caller). Per-user bucket `live-ticket`, 60/min. Answers `200 {ticket, expiresAt}`
 (an exchange, like login and refresh, so not 201), `401`, `429` (the bucket; `urn:adder:problem:live-socket-limit`, the per-user cap; ticket-store
-saturation), `503 urn:adder:problem:live-unavailable` (stopping, or the global socket cap), `500`.
+saturation), `503 urn:adder:problem:live-unavailable` (stopping, the global socket cap, or a deaf channel: the listener has been down for more than 10 s, "The NOTIFY wire and the listener"), `500`.
 
 **`GET /api/v1/live`** (`connectLive`; `security: []`, authenticated in-band by the first frame). The typed `@Resource` idiom with `webSocket {}` nested
 in it; a plain (non-Upgrade) GET answers 400 after admission (403 before 400).
 
 - **[changed] The ticket travels in the first frame, never in the URL.** The 2026-11-17 text put it in `?ticket=`. API-AUTH-002 says tokens MUST NOT appear
-  in the URL path or query string, and a query credential lands in every proxy access log. So the client sends `{"type":"auth","ticket":…}` within 5 s of
-  the upgrade. The cost: the WebSocket GET is public at the HTTP layer, so an unauthenticated socket lives at most 5 s, under a pending cap and a per-IP
-  bucket. The `Authorization` header never reaches the socket.
+  in the URL path or query string, and a query credential lands in every proxy access log. So the client sends `{"type":"auth","ticket":…}` within 2 s of
+  the upgrade (it sends it from its `open` handler, one round trip; the default was 5 s until the 0.4.0 audit). The cost: the WebSocket GET is public at the
+  HTTP layer, so an unauthenticated socket lives at most 2 s, under a pending cap in total and per client address, and a per-IP bucket. The `Authorization` header never reaches the socket.
 - **Browsers hide a refused handshake's HTTP status** (the page sees only `error` and close 1006). So every refusal the client must act on goes on the
   ticket POST (fetch sees the problem document) or into a 4xxx close code.
 
-**Admission order:** per-IP bucket `live-connect` (600/min) -> 429; Origin -> 403; stopping -> 503; global sockets -> 503; global pending-auth -> 503;
-otherwise 101. The caps are ADVISORY at admission (a few upgrades in flight can slip past) and authoritative afterwards: the hub's register enforces `maxSockets` and `maxSocketsPerUser`, the pending counter is incremented when the session starts. `RequestBodyLimit` is told the upgrade has no body (`Long.MAX_VALUE`; wrapping the request channel starves the test host's socket of client frames).
+**Admission order:** per-IP bucket `live-connect` (600/min) -> 429; Origin -> 403; stopping -> 503; global sockets -> 503; unauthenticated sockets of
+the caller's address -> 503; global unauthenticated sockets -> 503; otherwise 101. **The bucket really is first** [changed in the 0.4.0 audit]: the route's
+`rateLimit` runs in the plugin phases and `installLiveAdmission` intercepts in the `Call` phase (it used to intercept in `Plugins`, before the bucket, so
+refused requests were never throttled; `LiveAdmissionTest` pins a foreign-Origin flood going 403 then 429). The caps are ADVISORY at admission (a few upgrades in flight
+can slip past) and authoritative afterwards: the hub's register enforces `maxSockets` and `maxSocketsPerUser`, and the session's own atomic claim (`PendingSlots`)
+enforces both pending caps when it starts. `RequestBodyLimit` is told the upgrade has no body (`Long.MAX_VALUE`; wrapping the request channel starves the test host's socket of client frames).
 
-**Origin rule (CSWSH defence).** The header is required and its scheme must be `http` or `https`. It is allowed when its authority (case-insensitive,
-default ports dropped) equals `call.request.origin.serverHost:serverPort` (`XForwardedHeaders` rewrites it when `http.behindProxy` is on), or the origin is
-listed in `http.corsHosts`. Anything else (a missing header and `null` included) is `403` with `live.refused reason=origin`. It works unchanged for Vite
-(5179, Host preserved), compose (8087) and `testApplication` (`http://localhost`).
+**Origin rule (CSWSH defence).** The header is required and its scheme must be `http` or `https`. It is allowed when its **scheme** equals the request's
+(`call.request.origin.scheme`) and its authority (case-insensitive, default ports dropped) equals `serverHost:serverPort` (`XForwardedHeaders` rewrites all
+three when `http.behindProxy` is on: `X-Forwarded-Proto`, `X-Forwarded-Host` with its port), or the origin is listed in `http.corsHosts`. Anything else (a
+missing header and `null` included) is `403` with `live.refused reason=origin` and a `detail`: `authority` (some other site), `scheme` (this host, the
+other scheme: a TLS front door that does not send `X-Forwarded-Proto`, or `http://x:443` against an https site) or `host` (the request's own `Host` cannot be
+read). [changed in the 0.4.0 audit: the scheme used to be ignored.] The `Host` header is client text: a non-numeric port (`localhost:abc`) made Ktor's
+`serverPort` throw and the route answer an anonymous 500 with a stack trace; it is now a refusal like any other. Ktor reads the port after the FIRST colon, so
+a bare or bracketed IPv6 literal in `Host` (`::1`, `[::1]:8087`) is unreadable too: browse a name, not an IPv6 literal (a known limitation, not a regression).
+It works unchanged for Vite (5179, Host preserved), compose (8087) and `testApplication` (`http://localhost`).
 
 **[changed] The CSP is unchanged.** `connect-src 'self'` already matches same-host `ws:`/`wss:` under CSP3. Adding `ws:`/`wss:` scheme sources would allow
 sockets to ANY host: do not.
@@ -49,7 +58,7 @@ sockets to ANY host: do not.
 Client to server (JSON text frames, parsed strictly):
 
 ```
-{"type":"auth","ticket":"<43-char base64url>"}   first frame, within 5 s, exactly once
+{"type":"auth","ticket":"<43-char base64url>"}   first frame, within 2 s, exactly once
 {"type":"subscribe","roomIds":[12,40]}            1..128 positive ids
 {"type":"unsubscribe","roomIds":[40]}
 {"type":"ping"}
@@ -76,13 +85,13 @@ equal to the spec enum and to the audit names.
 | 1001 | server stopping (`ApplicationStopPreparing`) | reconnect after a random 1-5 s |
 | 1003 | binary frame | backoff |
 | 1008 | malformed, unknown or over-long frame; a frame before `auth`; a second `auth`; more than 30 frames in 10 s | backoff |
-| 1009 | frame over 8 KiB (Ktor) | backoff |
+| 1009 | a message over 8 KiB (Ktor; a fragmented text message is reassembled first and the limit applies to the total, before authentication too) | backoff |
 | 1011 | internal error | backoff |
-| 4001 | the minting access token's `exp` passed | re-mint at once |
-| 4003 | the sweep verdict is not LIVE, or the token was revoked at redemption | re-mint at once (`authedFetch` refreshes or signs out) |
+| 4001 | the minting access token's `exp` passed | re-mint after a random 0-1 s |
+| 4003 | the sweep verdict is not LIVE, or the token was revoked at redemption | re-mint after a random 0-1 s (`authedFetch` refreshes or signs out) |
 | 4401 | no ticket, or an unknown, expired or used one, by the deadline | backoff |
 | 4429 | per-user socket cap at redemption | "paused"; retry in 60 s |
-| 1013 | the global socket table filled between admission and redemption, or the unauthenticated-socket cap between admission and the session start (rare races; `live.maxSockets`, `live.maxPendingAuth`) | backoff |
+| 1013 | the global socket table filled between admission and redemption, or an unauthenticated-socket cap (total or per address) between admission and the session start (rare races; `live.maxSockets`, `live.maxPendingAuth`, `live.maxPendingPerAddress`); the notification listener has been down for more than 10 s (every open socket, and any that registers meanwhile) | backoff |
 
 If 4001 or 4003 arrives twice within 10 s, the client falls back to backoff. No exception escapes a session (StatusPages cannot answer after a 101): catch,
 log, close with 1011.
@@ -139,6 +148,12 @@ per process.
 - **Health:** a `SELECT 1` heartbeat every 30 s with a 5 s timeout (a half-open TCP connection leaves the listener "up" but deaf). On a flux error or
   completion or a failed heartbeat: close, reconnect with jittered backoff (1, 2, 4 ... 30 s). After every successful LISTEN (the first included) and every gap, `onGap` makes the hub
   broadcast `resync`.
+- **A deaf channel is not silent** [added in the 0.4.0 audit]. Hints committed while the listener is down reach nobody, and the `resync` after the reconnect
+  only helps a socket that is still open and believes it is live. So the listener tracks `downForMillis()` (since it stopped being up, or since it started: a
+  failed reconnect does not restart the clock), and past `LISTENER_DEAF_MILLIS` (10 s, a constant) the hub is DEAF (`LiveHub.isDeaf`): the ticket mint answers
+  `503 live-unavailable` (audited `live.refused reason=listener-down`), and a watcher (checking every second) closes every open socket 1013, again on every
+  check while the outage lasts so a socket that registered meanwhile goes too. The client's badge appears (the socket is down) and it retries with backoff;
+  when the listener is back the next mint works and the reconnect's `ready` refetch is the backfill. Shorter outages stay covered by the `resync`.
 - **Logs:** WARN once per outage, INFO on recovery, nothing per notification, no audit. `ApplicationStopped` closes the connection.
 
 ## Tickets
@@ -168,8 +183,8 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
   sweep (at most 60 s).
 - **Account standing.** Each socket closes with 4001 at its token's `exp`. Every 60 s a sweep calls `TokenBlocklistService.accessVerdicts(...)` (batched in
   chunks of 1000; the SAME decision function as `accessVerdict`, refactored so the two cannot drift: `decideAccess`); a verdict other than LIVE closes the socket with 4003
-  and audits `live.revoked` (one line per user per sweep). The sweep (`live/LiveSweep.kt`) takes a snapshot of the sockets from the hub actor and completes each failing socket's `closeRequest`; the 4001 close is a timer in the session itself, not the hub. This catches logout, delete, password change and role change without touching any `auth/` or `users/` write path.
-  Membership removal and room deletion are pushed at once (`revoked`); the same pass ALSO re-checks memberships (one query over the non-ADMIN sockets' (user, room) pairs: the ACTIVE member row, the user and the room both active) and pushes `revoked` for a subscription whose membership is gone, because a hint lost in a listener gap would otherwise leave a removed member subscribed. A gap triggers that re-check straight away (coalesced), so the bound is **immediate normally, at most 60 s after a gap**. ADMIN sockets are skipped: they read every room. `sweepNow()` is an internal test seam. **New** subscriptions never trust the ticket-time role: `readableRoomIds` reads the stored role of the ACTIVE user, so a demoted or deleted ADMIN cannot gain new rooms (its existing ones last until the sweep, A13).
+  and audits `live.revoked` (one line per user per sweep). The sweep (`live/LiveSweep.kt`) takes a snapshot of the sockets from the hub actor and completes each failing socket's `closeRequest`; **the verdict half and the membership half run independently** (a failing verdict query never skips the membership re-check, and the reverse), a failed half is **retried once after 5 s** (`SWEEP_RETRY_MILLIS`) instead of waiting a whole interval, and `sweepNow()` reports the first failure after both ran; the 4001 close is a timer in the session itself, not the hub. This catches logout, delete, password change and role change without touching any `auth/` or `users/` write path.
+  Membership removal and room deletion are pushed at once (`revoked`); the same pass ALSO re-checks memberships (one query over the non-ADMIN sockets' (user, room) pairs: the ACTIVE member row, the user and the room both active) and pushes `revoked` for a subscription whose membership is gone (audited, one `live.revoked reason=membership` line per user per pass), because a hint lost in a listener gap would otherwise leave a removed member subscribed. A gap triggers that re-check straight away (coalesced), so the bound is **immediate normally, at most 60 s after a gap**. ADMIN sockets are skipped: they read every room. `sweepNow()` is an internal test seam. **New** subscriptions never trust the ticket-time role: `readableRoomIds` reads the stored role of the ACTIVE user, so a demoted or deleted ADMIN cannot gain new rooms (its existing ones last until the sweep, A13).
 - **Gap:** `onGap` sends `resync` to every socket (one atomic flag coalesces concurrent gaps; the listener starts with the first ticket mint, so a socket registered before its first LISTEN completes hears that LISTEN's own `resync`).
 - **Delivery:** a hint goes to the ACTIVE subscribers of its room and, for `room.created`, `room.member_added` and `room.member_role_changed`, to every socket of each target, subscribed or not (`room.created` to its targets only: a new room has no subscribers); the hub never widens on `targetUserIds` of any other kind. `room.member_removed` drops the room from each non-ADMIN target socket (ACTIVE or PENDING) and sends it `revoked`; an ADMIN target socket keeps the room and hears the removal as an `event` (also when not subscribed). `room.deleted` drops the room from every subscriber and target socket and sends each `revoked`, and voids every subscribe still PENDING for it (the readable check ran before the delete, so it must not activate afterwards). Every socket gets one frame per hint. A full socket queue loses its events (and a pending pong) to ONE `resync` but keeps `ready`, `subscribed` and `revoked` (the socket is closed 1013 if even that cannot fit). Hints wait for the actor in a bounded count (`MAX_QUEUED_HINTS` 1024; past it a hint is a gap, i.e. a `resync`), while commands (register, unregister, subscribe) are never dropped. A session that is cancelled while it waits to register still unregisters (its socket is recorded first; the inbox is FIFO).
 - **Shutdown:** `ApplicationStopPreparing` refuses admissions and mints with 503, then closes every socket with 1001 within 2 s; `ApplicationStopped`
@@ -181,7 +196,8 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
 |---|---|---|---|
 | connects per IP | 600/min | `RateLimits.LIVE_CONNECT` (`security.rateLimit.liveConnectPerMinute`) | 429 + `Retry-After`, `rate_limit.exceeded` |
 | unauthenticated sockets | 256 | `live.maxPendingAuth` | 503 |
-| auth deadline | 5 s | `live.authTimeoutMillis` | 4401 |
+| unauthenticated sockets per client address | 8 (IPv6 by /64) | `live.maxPendingPerAddress` | 503 + `live.refused reason=capacity limit=pending-per-address` |
+| auth deadline | 2 s | `live.authTimeoutMillis` | 4401 |
 | sockets (global) | 1000 | `live.maxSockets` | 503 (upgrade and mint) |
 | sockets per user | 16 | `live.maxSocketsPerUser` | mint 429 `live-socket-limit`; redeem 4429 |
 | tickets held | 10,000 | `live.maxTickets` | 429 + `live.ticket_saturated` |
@@ -189,7 +205,7 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
 | ticket TTL | 30 s | constant | 4401 |
 | subscriptions per socket | 128 | constant, announced in `ready` | `capped` + coalesced `live.refused reason=subscription-cap` |
 | ids per subscribe frame | 128 | constant | 1008 |
-| inbound frames | 30 per 10 s | constant | 1008 + `live.refused reason=inbound-rate` |
+| inbound messages | 30 per 10 s (an application `ping` counts; WebSocket protocol ping, pong and continuation frames never reach the loop) | constant | 1008 + `live.refused reason=inbound-rate` |
 | frame size | 8 KiB | `maxFrameSize` | 1009 |
 | outbound queue | 64 frames | constant | one `resync` |
 | protocol ping / pong timeout | 25 s / 15 s | `pingPeriod` / `timeout` | Ktor closes |
@@ -198,20 +214,30 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
 | account sweep | 60 s | constant + `sweepNow()` | 4003 + `live.revoked` |
 | listener channel | 1024 | constant | `resync` to all |
 | listener heartbeat | 30 s, 5 s timeout | constant | reconnect, then `resync` |
+| listener down | 10 s | `LISTENER_DEAF_MILLIS` | mint 503, open sockets 1013 |
+| sweep retry | 5 s | `SWEEP_RETRY_MILLIS` | one retry of a failed half |
 | hidden tab | 5 min | client | close 1000; reopen when shown |
 | indicator delay | 5 s down | client | badge |
 
 Only the keys tests must shrink are config (`requireConfigInt`/`requireConfigLong`, each pinned in `NumericConfigBoundsTest`): `live.maxTickets` 1..100,000,
-`live.maxSockets` 1..10,000, `live.maxSocketsPerUser` 1..64, `live.maxPendingAuth` 1..10,000, `live.authTimeoutMillis` 100..30,000.
+`live.maxSockets` 1..10,000, `live.maxSocketsPerUser` 1..64, `live.maxPendingAuth` 1..10,000, `live.maxPendingPerAddress` 1..10,000, `live.authTimeoutMillis` 100..30,000.
 
-**"Idle close"** is four mechanisms, not one timer: the protocol heartbeat, the 5 s auth deadline, the close at the token's `exp`, and the client closing a
+**The pending share per address.** `live.maxPendingPerAddress` keeps one host from holding the global `maxPendingAuth` (before the audit, 256 sockets from one
+address left every other tab 503 for the length of the deadline, and the 600/min bucket let it refill them). The key is the client address the per-IP bucket
+uses (`call.request.origin.remoteHost`: the real client behind a proxy with `http.behindProxy`), an IPv4 address whole, an IPv6 address by its /64 (an
+IPv4-mapped one as IPv4), in `live/LivePending.kt`; entries exist only while a socket holds a slot. An office behind one NAT shares its address's 8: a tab holds a
+slot only for the round trip between the upgrade and its `auth` frame, so a reconnect storm backs off (503, then jittered backoff) rather than failing. **The share is only as good as the client address** (`security.md` "Trust the address or the share degrades"): `remoteHost` is the NUMERIC peer address (`plugins/Http.kt` copies it before anything can trigger a reverse-DNS lookup), or the trusted `X-Forwarded-For` hop with `http.behindProxy=true`. Without real client addresses (a plain proxy with `behindProxy=false`, an SNAT load balancer such as a Kubernetes Service with `externalTrafficPolicy: Cluster`) EVERYONE shares ONE `live.maxPendingPerAddress`: raise it (up to 10,000) or fix the trust. With a client-supplied `X-Forwarded-For` (`behindProxy=true` and no proxy stripping it) a client picks its own key and the share is bypassable, as is every per-IP bucket.
+
+**"Idle close"** is four mechanisms, not one timer: the protocol heartbeat, the 2 s auth deadline, the close at the token's `exp`, and the client closing a
 socket after 5 minutes hidden. A visible, authenticated socket is never closed for being quiet. **One socket per tab**; the 17th tab of a user shows "Live
 updates off" and retries every minute (a shared leader-tab socket is a deliberate non-goal for now, revisit with 0.6.0 unread counts).
 
-**Audits** (names in `observability.md` when each lands): `live.refused` (`reason` = origin | capacity | auth | socket-cap | subscription-cap | inbound-rate |
-bad-frame; **[changed] no `ip`**: the `rate_limit.exceeded` rule, the client address is attacker-chosen text behind a proxy and the access log has it; `byUserId` after authentication, a printable `origin` for the Origin refusal; coalesced through `RateLimitAuditThrottle`, with a `suppressed` count), `live.subscribe_denied` (`byUserId` and
-the EXISTING rooms the caller cannot read; never ids that do not exist; **[changed] coalesced per user** like `live.refused`, one line a minute with `suppressed` and the union of at most 20 denied ids: the frame-rate limit alone still allows a line every 0.3 s per socket), `live.revoked` (at most one line per user per
-sweep), `live.ticket_saturated`, and the generic `rate_limit.exceeded` for `live-connect` and `live-ticket`. Not audited: connects, normal closes, 4001,
+**Audits** (names in `observability.md` when each lands): `live.refused` (`reason` = origin | capacity | stopping | listener-down | auth | socket-cap | subscription-cap | inbound-rate |
+bad-frame; **[changed] no `ip`**: the `rate_limit.exceeded` rule, the client address is attacker-chosen text behind a proxy and the access log has it; `byUserId` after authentication, a printable `origin` for the Origin refusal; coalesced through `RateLimitAuditThrottle`, with a `suppressed` count; **the window is per reason, and per `limit` for a refusal that names one (a
+per-address refusal does not hide the global one), and per origin HOST for `origin`** in a set of at most 64 hosts per process, past which they share one window, so a
+probe from one site does not hide another's), `live.subscribe_denied` (`byUserId` and
+the EXISTING rooms the caller cannot read; never ids that do not exist; **[changed] coalesced per user** like `live.refused`, one line a minute with `suppressed` and the union of at most 20 denied ids: the frame-rate limit alone still allows a line every 0.3 s per socket; **the tail a stopped probe leaves is flushed by the sweep tick** once its window is due, without counting a rejection), `live.revoked` (at most one line per user per
+sweep and kind: `reason=verdict` closed sockets, `reason=membership` revoked subscriptions), `live.ticket_saturated`, and the generic `rate_limit.exceeded` for `live-connect` and `live-ticket`. Not audited: connects, normal closes, 4001,
 `resync` (DEBUG; the gauges count sockets). **Telemetry:** the latency collector excludes `/api/v1/live`; each socket is one OTel server span for its whole
 life (the Ktor instrumentation has no request filter; measured in the socket step); gauges `live.sockets`, `live.listener_up` (no row until the lazy listener has started) and `live.notify_queue_usage`
 (`pg_notification_queue_usage()`, cluster section) ride the telemetry sampler through `infra/notify/LiveStats.kt`'s `LiveStatsKey` (`observability.md` "Telemetry").
@@ -224,12 +250,19 @@ archived rail and All rooms keep refreshing on focus. States `connecting | live 
 random 0.5-1, reset after 60 s live; reconnect at once on `online` and when the tab becomes visible; a reconnect invalidates the subscribed rooms.
 Invalidation is debounced (focused keys 300 ms, aggregate keys at most once per 3 s, `resync` after a random 0-2 s) and NEVER cancels an in-flight fetch.
 The header shows a "Reconnecting..." badge after 5 s down and "Live updates off" at once when paused. The writer's own tab refetches twice (its mutation
-refresh plus the hint); accepted. Vite's proxy needs `ws: true` (no `changeOrigin`, so the Origin check matches).
+refresh plus the hint); accepted. Vite's proxy needs `ws: true` (no `changeOrigin`, so the Origin check matches). The socket URL is derived from the same base as the REST
+calls (`VITE_API_BASE`): empty means the page's own host (`ws:` on http, `wss:` on https), an absolute base maps `http`/`https` to `ws`/`wss` on THAT origin
+(the server then needs the page's origin in `http.corsHosts`, as for REST). **Adder's own CSP (`connect-src 'self'`) blocks such a socket, as it blocks the REST calls**: an absolute base only works when the SPA is served from somewhere else, under that host's own CSP. A base without a leading slash resolves relative to the page, as `fetch` does. After a 4001 or 4003 the client re-mints after a random 0-1 s, so a whole room
+of sockets that expired together does not mint in one instant.
 
 ## Deploy and proxies
 
 Compose serves 8087 directly. The Kubernetes (OrbStack) `adder` namespace uses a LoadBalancer Service and no Ingress, so the socket passes at L4; the 1001
 close fits inside `terminationGracePeriodSeconds` 45. A **reverse proxy** must pass the upgrade (`proxy_http_version 1.1`, `Upgrade $http_upgrade`,
-`Connection $connection_upgrade`), keep read and send timeouts at 60 s or more (25 s pings fit ingress-nginx's default), and forward the host (`Host $host`,
-or `X-Forwarded-Host` with `http.behindProxy=true`), otherwise every Origin check fails. With `http.behindProxy=true` the per-IP bucket also sees the real
-client. Production `HttpsRedirect`: the SPA derives `wss:` from `https:`. The front-door notes are in `security.md` and `ci.md`.
+`Connection $connection_upgrade`) and keep read and send timeouts at 60 s or more (25 s pings fit ingress-nginx's default). The Origin check needs the
+request's scheme, host AND port to be the browser's, which is a statement about headers, not about `Host`: **TLS at the proxy needs
+`X-Forwarded-Proto: https` plus `http.behindProxy=true`** (the application sees plain http otherwise, and an `https://` Origin is refused for its scheme);
+**a public port other than 443 (or 80) must be in `X-Forwarded-Host`** (`app.example.com:8443`; without the port the default one is meant); **`Host $host`
+alone, with TLS ended at the proxy, gets a 403** (right host, wrong scheme). Plain http end to end needs nothing but `Host`. With `http.behindProxy=true` the
+per-IP bucket and the per-address pending share also see the real client. Production `HttpsRedirect`: the SPA derives `wss:` from `https:`, or from
+`VITE_API_BASE` when that is absolute ("Web"). Without real client addresses at the application (see "The pending share per address") the 8 unauthenticated slots are everyone's together. The front-door notes are in `security.md` and `ci.md`.

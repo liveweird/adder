@@ -16,6 +16,7 @@ import io.ktor.server.plugins.httpsredirect.*
 import io.ktor.server.routing.*
 import io.ktor.server.plugins.bodylimit.*
 import io.ktor.server.plugins.mutableOriginConnectionPoint
+import io.ktor.server.plugins.origin
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 
@@ -155,6 +156,14 @@ fun Application.configureHttp() {
             }
         }
     }
+    // The client address every per-IP bucket (login lockout, rate limits, the live channel's pending share) keys by is
+    // `origin.remoteHost`. On Netty that is `InetSocketAddress.getHostName()`: a REVERSE-DNS lookup, so a client with forward-confirmed
+    // PTR records for many addresses gets a different key per address, and one whose PTR is shared (or whose lookup times out) shares
+    // one. The numeric address (`remoteAddress`, `getHostString()`) is the key; it is copied FIRST (Setup phase, before anything reads
+    // `remoteHost`: the JDK caches the resolved name), and the proxy-trust interceptor below overrides it with the trusted hop.
+    intercept(ApplicationCallPipeline.Setup) {
+        call.mutableOriginConnectionPoint.remoteHost = numericClientHost(call.request.local)
+    }
     // CORS is installed only when a cross-origin caller actually exists (an explicit allow-list
     // via CORS_ALLOWED_HOSTS). Production is single-origin (Ktor serves the SPA) and local dev
     // goes through the Vite proxy, so the default is: no CORS plugin, browsers enforce
@@ -163,6 +172,15 @@ fun Application.configureHttp() {
         ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
         .orEmpty()
     if (corsHosts.isNotEmpty()) {
+        // Ktor's CORS plugin compares the Origin with the request's own authority (`origin.serverPort` parses the Host header's port) and
+        // throws a NumberFormatException on a malformed one: a 500 with an ERROR log on every call that carries an Origin. A Host header
+        // is client text, so it is judged ONCE, in the Setup phase, before the CORS hook (Plugins phase) can read it: unreadable is a 400.
+        intercept(ApplicationCallPipeline.Setup) {
+            if (!hostIsReadable(call)) {
+                call.respondProblem(HttpStatusCode.BadRequest, "The Host header is malformed")
+                finish()
+            }
+        }
         install(CORS) {
             allowMethod(HttpMethod.Options)
             allowMethod(HttpMethod.Put)
@@ -232,6 +250,21 @@ fun Application.configureHttp() {
         }
     }
 }
+
+/**
+ * The key a client is known by (see `configureHttp`): the connection's NUMERIC remote address. The origin's `remoteHost` otherwise defaults
+ * to the engine's, a reverse-DNS name. Internal for the unit test, which cannot make a test host resolve one.
+ */
+internal fun numericClientHost(local: RequestConnectionPoint): String = local.remoteAddress
+
+/** Whether the request's own authority can be read: `origin.serverPort` throws on a `Host` port that is not a number. */
+private fun hostIsReadable(call: ApplicationCall): Boolean =
+    try {
+        call.request.origin.serverPort
+        true
+    } catch (_: IllegalArgumentException) {
+        false
+    }
 
 /**
  * The proxy-trust counterpart to XForwardedHeaders' built-in for-header handling — the identical

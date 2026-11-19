@@ -23,6 +23,25 @@ describe("liveUrl", () => {
     expect(liveUrl({ protocol: "http:", host: "localhost:5179" })).toBe("ws://localhost:5179/api/v1/live");
     expect(liveUrl({ protocol: "https:", host: "adder.example.test" })).toBe("wss://adder.example.test/api/v1/live");
   });
+
+  test("follows VITE_API_BASE: an absolute base maps http(s) to ws(s) on that origin, a relative one is a prefix on the page's host", () => {
+    const page = { protocol: "https:", host: "app.example.test" };
+    expect(liveUrl(page, "")).toBe("wss://app.example.test/api/v1/live");
+    expect(liveUrl(page, "https://api.example.test")).toBe("wss://api.example.test/api/v1/live");
+    expect(liveUrl(page, "https://api.example.test/")).toBe("wss://api.example.test/api/v1/live");
+    expect(liveUrl({ protocol: "http:", host: "localhost:5179" }, "http://localhost:8087")).toBe("ws://localhost:8087/api/v1/live");
+    expect(liveUrl(page, "http://api.example.test:8080/adder/")).toBe("ws://api.example.test:8080/adder/api/v1/live");
+    expect(liveUrl(page, "/adder")).toBe("wss://app.example.test/adder/api/v1/live");
+    expect(liveUrl(page, "adder")).toBe("wss://app.example.test/adder/api/v1/live");
+    // Like REST's fetch: a base without a leading slash is relative to the page's own path.
+    expect(liveUrl({ ...page, pathname: "/rooms/5" }, "adder")).toBe("wss://app.example.test/rooms/adder/api/v1/live");
+    expect(liveUrl({ ...page, pathname: "/rooms/5" }, "/adder")).toBe("wss://app.example.test/adder/api/v1/live");
+    expect(liveUrl(page, "  ")).toBe("wss://app.example.test/api/v1/live");
+  });
+
+  test("an unusable absolute base falls back to the page's own host", () => {
+    expect(liveUrl({ protocol: "http:", host: "localhost:5179" }, "http://")).toBe("ws://localhost:5179/api/v1/live");
+  });
 });
 
 describe("parseServerFrame", () => {

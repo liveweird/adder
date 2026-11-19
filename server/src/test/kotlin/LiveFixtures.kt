@@ -7,6 +7,7 @@ import io.ktor.client.call.body
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.http.HttpHeaders
@@ -82,12 +83,19 @@ class LiveTestSocket(val session: DefaultClientWebSocketSession) {
 }
 
 /**
- * Opens `GET /api/v1/live` on [client] ([liveClient]) with [origin] as its `Origin` header (null sends none) and answers the open
- * socket; the
- * upgrade's `101` is recorded in the OpenAPI coverage. The caller authenticates ([LiveTestSocket.auth]) and closes.
+ * Opens `GET /api/v1/live` on [client] ([liveClient]) with [origin] as its `Origin` header (null sends none; [configure] may add more,
+ * e.g. an `X-Forwarded-For` to be another client address behind `http.behindProxy`) and answers the open socket; the upgrade's `101` is
+ * recorded in the OpenAPI coverage. The caller authenticates ([LiveTestSocket.auth]) and closes.
  */
-suspend fun openLive(client: HttpClient, origin: String? = LIVE_TEST_ORIGIN): LiveTestSocket {
-    val session = client.webSocketSession("/api/v1/live") { if (origin != null) header(HttpHeaders.Origin, origin) }
+suspend fun openLive(
+    client: HttpClient,
+    origin: String? = LIVE_TEST_ORIGIN,
+    configure: HttpRequestBuilder.() -> Unit = {},
+): LiveTestSocket {
+    val session = client.webSocketSession("/api/v1/live") {
+        if (origin != null) header(HttpHeaders.Origin, origin)
+        configure()
+    }
     OpenApiCoverage.record("GET", "/api/v1/live", 101)
     return LiveTestSocket(session)
 }
@@ -119,5 +127,17 @@ suspend fun LiveTestSocket.nextNonResync(timeoutMillis: Long = LiveTestSocket.FR
     while (true) {
         val frame = nextFrame(timeoutMillis)
         if (frame !is LiveServerFrame.Resync) return frame
+    }
+}
+
+/**
+ * Consumes whatever the socket was already owed (the first LISTEN's own `resync` can land on ANY socket registered before the hub handled
+ * that gap) up to a `pong`: the hub's inbox is FIFO, so the `pong` follows every frame queued before the ping. Call it after
+ * [awaitListenerUp], on every socket a test later asserts silence on (`nextFrameOrNull(...) == null`), or that silence is a flake.
+ */
+suspend fun LiveTestSocket.settle() {
+    sendText("""{"type":"ping"}""")
+    while (nextFrame() != LiveServerFrame.Pong) {
+        // a resync (or any frame owed before the ping): consumed
     }
 }

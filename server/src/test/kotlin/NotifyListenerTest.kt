@@ -185,6 +185,42 @@ class NotifyListenerTest {
     }
 
     @Test
+    fun `downForMillis is null while idle or up and counts one whole outage across the failed reconnects`() {
+        val real = notifyConnectionFactory(options("adder-test-live-${UUID.randomUUID()}"))
+        val refuse = java.util.concurrent.atomic.AtomicBoolean(false)
+        val factory = object : ConnectionFactory by real {
+            override fun create(): Publisher<out Connection> =
+                if (refuse.get()) Mono.error<Connection>(IllegalStateException("refused for the test")) else real.create()
+        }
+        runBlocking {
+            PostgresTestSupport.ensureMigrated()
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            val listener = NotifyListener(factory, scope, {}, fast)
+            try {
+                assertNull(listener.downForMillis(), "never started: idle, not down")
+                listener.ensureStarted()
+                awaitUntil("the listener to come up") { listener.isUp }
+                assertNull(listener.downForMillis(), "up")
+                refuse.set(true)
+                terminate(assertNotNull(listener.backendPid))
+                awaitUntil("the session to end") { !listener.isUp }
+                delay(300)
+                val early = assertNotNull(listener.downForMillis())
+                assertTrue(early >= 250, "down for $early ms")
+                delay(300)
+                val later = assertNotNull(listener.downForMillis())
+                assertTrue(later >= early + 250, "failed reconnects must not restart the clock: $early then $later")
+                refuse.set(false)
+                awaitUntil("the listener to recover") { listener.isUp }
+                assertNull(listener.downForMillis(), "up again")
+            } finally {
+                listener.stop()
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test
     fun `the connection is named adder-live and closes on stop`() = runBlocking {
         PostgresTestSupport.ensureMigrated()
         val appName = "adder-test-live-${UUID.randomUUID()}"

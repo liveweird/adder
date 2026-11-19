@@ -2,7 +2,9 @@ package ch.nokillswit
 
 import ch.nokillswit.live.LIVE_UNAVAILABLE_PROBLEM_TYPE
 import ch.nokillswit.live.LiveHubKey
+import ch.nokillswit.live.OriginVerdict
 import ch.nokillswit.live.originAllowed
+import ch.nokillswit.live.originVerdict
 import ch.nokillswit.plugins.ProblemDetail
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -37,7 +39,12 @@ class LiveAdmissionTest {
     private suspend fun io.ktor.server.testing.ApplicationTestBuilder.actor(prefix: String): RoomActor =
         seedActor(prefix).also { minted += it.id }
 
-    private fun allowed(origin: String?, host: String, port: Int, vararg cors: String) = originAllowed(origin, host, port, cors.toList())
+    private fun allowed(origin: String?, host: String, port: Int, vararg cors: String) =
+        originAllowed(origin, "http", host, port, cors.toList())
+
+    /** The same for a request the server resolves as `https` (a TLS front door that says so with `X-Forwarded-Proto`). */
+    private fun allowedTls(origin: String?, host: String, port: Int, vararg cors: String) =
+        originAllowed(origin, "https", host, port, cors.toList())
 
     @Test
     fun `the Origin matcher table - default ports, case, IPv6, null, missing, the cors list`() {
@@ -47,8 +54,9 @@ class LiveAdmissionTest {
         assertTrue(allowed("HTTP://LocalHost", "localhost", 80), "scheme and host are case-insensitive")
         assertTrue(allowed("http://localhost:8087", "localhost", 8087), "compose")
         assertTrue(allowed("http://localhost:5179", "localhost", 5179), "Vite, Host preserved")
-        assertTrue(allowed("https://app.example.com", "app.example.com", 443), "behind a TLS proxy: X-Forwarded-Proto https")
-        assertTrue(allowed("https://app.example.com:443", "APP.example.com", 443))
+        assertTrue(allowedTls("https://app.example.com", "app.example.com", 443), "behind a TLS proxy: X-Forwarded-Proto https")
+        assertTrue(allowedTls("https://app.example.com:443", "APP.example.com", 443))
+        assertTrue(allowedTls("https://app.example.com:8443", "app.example.com", 8443), "a non-default public port")
         assertTrue(allowed("http://[::1]:8087", "[::1]", 8087), "IPv6 literal, brackets on both sides")
         assertTrue(allowed("http://[::1]:8087", "::1", 8087), "brackets are not part of the comparison")
         // Every other authority is a different origin.
@@ -60,6 +68,13 @@ class LiveAdmissionTest {
         assertFalse(allowed("http://evil.example/localhost", "localhost", 80), "a path is not an origin")
         assertFalse(allowed("http://user@localhost", "localhost", 80), "user info is not an origin")
         assertFalse(allowed("http://localhost:99999", "localhost", 99999), "an impossible port")
+        // The scheme is part of the origin: the same authority over the other scheme is not this site.
+        assertFalse(allowed("https://app.example.com", "app.example.com", 443), "an https page, a request resolved as http")
+        assertFalse(allowedTls("http://app.example.com:443", "app.example.com", 443), "same host and port, other scheme")
+        assertFalse(allowedTls("http://app.example.com", "app.example.com", 80), "an http page against an https site")
+        assertFalse(allowed("https://localhost:80", "localhost", 80), "same host and port, other scheme")
+        assertEquals(OriginVerdict.SCHEME, originVerdict("https://app.example.com", "http", "app.example.com", 80, emptyList()))
+        assertEquals(OriginVerdict.FOREIGN, originVerdict("https://evil.example", "http", "app.example.com", 80, emptyList()))
         // No usable header.
         assertFalse(allowed(null, "localhost", 80), "missing")
         assertFalse(allowed("null", "localhost", 80), "an opaque origin")
@@ -80,11 +95,13 @@ class LiveAdmissionTest {
     }
 
     @Test
-    fun `a cross-origin, null, non-http or missing Origin is 403 and audited once`() = testApplication {
+    fun `a cross-origin, null, non-http or missing Origin is 403, and refusals of one origin host are audited once`() = testApplication {
         usePostgresTestcontainer()
         val client = jsonClient()
         withAuditCapture { capture ->
-            for (origin in listOf("http://evil.example", "null", "ftp://localhost", "http://localhost:8087")) {
+            // Different spellings of ONE foreign host share a window; "null", a foreign scheme and a missing header have no host of their
+            // own to key by and share "unparsed".
+            for (origin in listOf("http://evil.example", "http://evil.example:8087", "https://EVIL.example", "null", "ftp://localhost")) {
                 val response = client.get(path) { header(HttpHeaders.Origin, origin) }
                 assertEquals(HttpStatusCode.Forbidden, response.status, origin)
                 assertEquals(403, response.body<ProblemDetail>().status)
@@ -94,7 +111,9 @@ class LiveAdmissionTest {
             val event = capture.awaitEvent { it.message == "live.refused" && it.hasKeyValue("reason", "origin") }
             assertNotNull(event)
             assertTrue(event.hasKeyValue("suppressed", 0L))
-            assertEquals(1, capture.events.count { it.message == "live.refused" }, "coalesced: one line per reason a minute")
+            assertTrue(event.hasKeyValue("detail", "authority"))
+            val lines = capture.events.filter { it.message == "live.refused" }
+            assertEquals(3, lines.size, "evil.example, ftp://localhost (a host of its own) and the unparsed ones: one line each")
             assertTrue(capture.events.none { it.message == "authz.denied" }, "live.refused is the only line, not a second authz.denied")
         }
     }
@@ -199,5 +218,84 @@ class LiveAdmissionTest {
         withTimeout(10_000) { while (hub.pendingAuth.get() > 0) delay(25) }
         assertEquals(HttpStatusCode.BadRequest, http.get(path) { header(HttpHeaders.Origin, LIVE_TEST_ORIGIN) }.status, "admitted again")
         pending.close()
+    }
+
+    @Test
+    fun `refused Origins past the per-IP bucket are 429, not 403 forever`() = testApplication {
+        configureApp("security.rateLimit.liveConnectPerMinute" to "3")
+        startApplication()
+        val client = jsonClient()
+        val statuses = (1..6).map { client.get(path) { header(HttpHeaders.Origin, "http://evil.example") }.status }
+        assertEquals(
+            List(3) { HttpStatusCode.Forbidden } + List(3) { HttpStatusCode.TooManyRequests }, statuses,
+            "the bucket runs BEFORE admission, so a refused request spends a token too",
+        )
+    }
+
+    @Test
+    fun `a Host with a non-numeric port or a bare IPv6 literal is a refused Origin, never an anonymous 500`() = testApplication {
+        usePostgresTestcontainer()
+        val client = jsonClient()
+        withAuditCapture { capture ->
+            // Ktor reads the port after the FIRST colon, so even a well-formed bracketed IPv6 literal is unreadable: refused (live.md).
+            for (host in listOf("localhost:abc", "localhost:99999999999", "::1", "[::1]:8087", "localhost:")) {
+                val response = client.get(path) {
+                    header(HttpHeaders.Origin, LIVE_TEST_ORIGIN)
+                    header(HttpHeaders.Host, host)
+                }
+                assertEquals(HttpStatusCode.Forbidden, response.status, "Host: $host")
+                assertEquals(403, response.body<ProblemDetail>().status)
+            }
+            val line = assertNotNull(capture.awaitEvent { it.message == "live.refused" && it.hasKeyValue("reason", "origin") })
+            assertTrue(line.hasKeyValue("detail", "host"))
+            assertTrue(capture.events.none { it.level.toString() == "ERROR" }, "no stack trace for a header the client chose")
+        }
+    }
+
+    @Test
+    fun `a TLS proxy that forwards only Host is refused for its scheme, one that sends the forwarded headers is admitted`() =
+        testApplication {
+            configureApp("http.behindProxy" to "true")
+            startApplication()
+            val client = jsonClient()
+            suspend fun status(origin: String, host: String? = null, forwardedHost: String? = null, proto: String? = null) =
+                client.get(path) {
+                    header(HttpHeaders.Origin, origin)
+                    if (host != null) header(HttpHeaders.Host, host)
+                    if (forwardedHost != null) header(HttpHeaders.XForwardedHost, forwardedHost)
+                    if (proto != null) header(HttpHeaders.XForwardedProto, proto)
+                }.status
+            withAuditCapture { capture ->
+                assertEquals(HttpStatusCode.Forbidden, status("https://app.example.com", host = "app.example.com"), "Host only: still http")
+                val line = assertNotNull(capture.awaitEvent { it.message == "live.refused" && it.hasKeyValue("reason", "origin") })
+                assertTrue(line.hasKeyValue("detail", "scheme"), "the line says why")
+            }
+            assertEquals(HttpStatusCode.BadRequest, status("https://app.example.com", forwardedHost = "app.example.com", proto = "https"))
+            assertEquals(
+                HttpStatusCode.BadRequest,
+                status("https://app.example.com:8443", forwardedHost = "app.example.com:8443", proto = "https"),
+                "a public port outside 443 must be in X-Forwarded-Host",
+            )
+            assertEquals(
+                HttpStatusCode.Forbidden,
+                status("https://app.example.com:8443", forwardedHost = "app.example.com", proto = "https"),
+                "X-Forwarded-Host without the port names the default one",
+            )
+            assertEquals(
+                HttpStatusCode.Forbidden, status("http://app.example.com", forwardedHost = "app.example.com", proto = "https"),
+                "an http page against an https front door",
+            )
+        }
+
+    @Test
+    fun `an http origin cannot open a socket on an https site by borrowing its port`() = testApplication {
+        configureApp("http.behindProxy" to "true")
+        startApplication()
+        val response = jsonClient().get(path) {
+            header(HttpHeaders.Origin, "http://app.example.com:443")
+            header(HttpHeaders.XForwardedHost, "app.example.com")
+            header(HttpHeaders.XForwardedProto, "https")
+        }
+        assertEquals(HttpStatusCode.Forbidden, response.status)
     }
 }

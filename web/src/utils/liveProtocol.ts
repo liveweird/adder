@@ -42,10 +42,34 @@ export type LiveServerFrame =
 /** Subscriptions per socket when a `ready` frame does not say. */
 const DEFAULT_MAX_SUBSCRIPTIONS = 128;
 
-/** The socket's own path: the ticket travels in the first frame, never in the URL (API-AUTH-002). */
-export function liveUrl(location: Pick<Location, "protocol" | "host">): string {
-  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${scheme}//${location.host}/api/v1/live`;
+/** A linear scan, not `replace(/\/+$/, "")`: that regex backtracks super-linearly (sonarjs) on a long run of slashes. */
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end--;
+  return value.slice(0, end);
+}
+
+/**
+ * The socket's URL: the same base as the REST calls (`VITE_API_BASE`, `API_BASE` in `api/http.ts`), so a build that talks to an API on another
+ * origin opens its socket there too. An empty base is the page's own host (`ws:` on http, `wss:` on https); a relative base (`/adder`) is a path
+ * prefix on that host (resolved like REST's `fetch`, so one without a leading slash is relative to the page); an absolute `http(s)://host[:port][/prefix]` base maps to `ws(s)://` on THAT origin (the server then needs the page's
+ * origin in `http.corsHosts`, as for REST). The ticket is never in the URL, API-AUTH-002.
+ */
+export function liveUrl(location: Pick<Location, "protocol" | "host"> & { pathname?: string }, apiBase = ""): string {
+  const path = "/api/v1/live";
+  const given = apiBase.trim();
+  if (/^https?:\/\//i.test(given)) {
+    try {
+      const url = new URL(given);
+      return `${url.protocol === "https:" ? "wss:" : "ws:"}//${url.host}${trimTrailingSlashes(url.pathname)}${path}`;
+    } catch {
+      // an unusable base: REST fails the same way; fall through to the page's own host
+    }
+  }
+  // Resolved the way REST's `fetch` resolves it: "/adder" from the origin's root, "adder" relative to the page's own path.
+  const prefix = /^https?:\/\//i.test(given) ? "" : trimTrailingSlashes(given);
+  const resolved = new URL(`${prefix}${path}`, `${location.protocol}//${location.host}${location.pathname ?? "/"}`);
+  return `${resolved.protocol === "https:" ? "wss:" : "ws:"}//${resolved.host}${resolved.pathname}`;
 }
 
 const isId = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;

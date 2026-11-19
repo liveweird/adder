@@ -7,6 +7,7 @@ import ch.nokillswit.live.LiveHub
 import ch.nokillswit.live.LiveServerFrame
 import ch.nokillswit.live.MAX_QUEUED_HINTS
 import ch.nokillswit.live.MAX_SUBSCRIPTIONS
+import ch.nokillswit.live.PendingClaim
 import ch.nokillswit.live.RegisterResult
 import ch.nokillswit.live.SubscribeBegin
 import io.ktor.websocket.CloseReason
@@ -26,6 +27,7 @@ import kotlinx.coroutines.withTimeout
 import org.reactivestreams.Publisher
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -277,13 +279,49 @@ class LiveHubTest {
     }
 
     @Test
-    fun `the pending-auth claim never exceeds its cap, however many sessions race for it`() = withHub {
+    fun `the pending-auth claim never exceeds its caps, however many sessions race for it`() = withHub {
         val claimed = java.util.concurrent.atomic.AtomicInteger()
-        val threads = (1..16).map { Thread { repeat(50) { if (claimPending(5)) claimed.incrementAndGet() } } }
+        val addresses = listOf("a", "b", "c", "d")
+        // Total 5, two per address: four addresses race, so the total binds (5 = 2 + 2 + 1) and no address holds more than 2.
+        val threads = (1..16).map { n ->
+            Thread { repeat(50) { if (pending.claim(addresses[n % 4], 5, 2) == PendingClaim.OK) claimed.incrementAndGet() } }
+        }
         threads.forEach { it.start() }
         threads.forEach { it.join() }
         assertEquals(5, claimed.get())
         assertEquals(5, pendingAuth.get(), "a refused claim counts nothing")
+        assertEquals(5, addresses.sumOf { pending.held(it) })
+        assertTrue(addresses.all { pending.held(it) <= 2 })
+        addresses.forEach { address -> repeat(pending.held(address)) { pending.release(address) } }
+        assertEquals(0, pendingAuth.get())
+        assertEquals(0, addresses.sumOf { pending.held(it) }, "released slots leave no entry behind")
+    }
+
+    @Test
+    fun `an address is judged before the total, and a refused claim takes nothing from either`() = withHub {
+        assertEquals(PendingClaim.OK, pending.claim("a", 2, 1))
+        assertEquals(PendingClaim.ADDRESS_FULL, pending.claim("a", 2, 1))
+        assertEquals(PendingClaim.OK, pending.claim("b", 2, 1))
+        assertEquals(PendingClaim.FULL, pending.claim("c", 2, 1))
+        assertEquals(2, pendingAuth.get())
+        assertEquals(0, pending.held("c"))
+        pending.release("a")
+        assertEquals(PendingClaim.OK, pending.claim("c", 2, 1))
+    }
+
+    @Test
+    fun `a listener that stays down makes the hub deaf and closes its sockets 1013, late registrants included`() = withHub {
+        deafAfterMillis = 100
+        deafCheckMillis = 20
+        val first = socket(1u)
+        register(first)
+        assertFalse(isDeaf, "a listener that was never started is idle, not down")
+        ensureStarted() // the factory refuses every connect, so the session never comes up
+        withTimeout(10_000) { while (!isDeaf) delay(10) }
+        assertEquals(1013, withTimeout(10_000) { first.closeRequest.await() }.code)
+        val late = socket(2u)
+        register(late)
+        assertEquals(1013, withTimeout(10_000) { late.closeRequest.await() }.code, "the watcher checks again while the outage lasts")
     }
 
     @Test

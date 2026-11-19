@@ -55,9 +55,9 @@ cyan 189°, Flow blue 209°, Covenant violet 264°, Astrid red 350°). The logo 
 
 The architect's plan put three decisions to the user; all three took the recommended option. The rules they became: `live.md`.
 
-- **D1. The ticket travels in the first frame** (`{"type":"auth","ticket":…}` within 5 s of the upgrade), not in `?ticket=` as the 2026-11-17 text said.
+- **D1. The ticket travels in the first frame** (`{"type":"auth","ticket":…}` within 2 s of the upgrade; 5 s until the 0.4.0 audit), not in `?ticket=` as the 2026-11-17 text said.
   This honours API-AUTH-002 (no tokens in a URL) and keeps the credential out of proxy logs; the cost is that the WebSocket GET is public at the HTTP layer
-  (an unauthenticated socket lives at most 5 s, under a pending cap and a per-IP bucket). The alternative was `?ticket=` with a written exception to a MUST.
+  (an unauthenticated socket lives at most 2 s, under a pending cap in total and per address and a per-IP bucket). The alternative was `?ticket=` with a written exception to a MUST.
 - **D2. Account changes close a socket by a 60 s sweep, plus a close at the access token's `exp`.** Logout, user deletion, password change and role change
   are caught within a minute with no change to any `auth/` or `users/` write path; membership removal and room deletion are pushed at once. The alternative was
   pushing those four account events too (five more call sites and one more reviewed surface), now a `BACKLOG.md` item.
@@ -107,7 +107,7 @@ Taken without asking, in the 0.4.0 plan. Detail and the rules they became: `live
 - **A2. Hints carry a kind and ids only**, never a title, body, name or field value. Delivery is at-most-once with no replay; the refetch is the backfill and
   `resync` covers every gap.
 - **A3. Subscriptions** are the active rail (up to 100 rooms, `RAIL_PAGE_SIZE`) plus the open room. The archived rail and All rooms keep refreshing on focus.
-- **A4. "Idle close"** means four mechanisms: the protocol heartbeat (Ktor pings every 25 s, pong timeout 15 s), the 5 s auth deadline, the close at the
+- **A4. "Idle close"** means four mechanisms: the protocol heartbeat (Ktor pings every 25 s, pong timeout 15 s), the 2 s auth deadline, the close at the
   token's `exp`, and the client closing a socket after 5 minutes hidden. A visible, authenticated socket is never closed just for being quiet.
 - **A5. The CSP is unchanged:** `connect-src 'self'` already matches the same-host socket; scheme sources would open sockets to any host.
 - **A6. The channel is `adder_live`** and the NOTIFY payload format is `v: 1`.

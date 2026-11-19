@@ -1,7 +1,5 @@
 package ch.nokillswit.live
 
-import ch.nokillswit.audit.audit
-import ch.nokillswit.plugins.RateLimitAuditThrottle
 import ch.nokillswit.plugins.respondProblem
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -25,8 +23,6 @@ const val LIVE_SOCKET_LIMIT_PROBLEM_TYPE = "urn:adder:problem:live-socket-limit"
  */
 const val LIVE_UNAVAILABLE_RETRY_SECONDS = 5
 
-/** Room ids one `live.subscribe_denied` line lists. */
-private const val MAX_DENIED_LISTED = 20
 private const val HTTP_DEFAULT_PORT = 80
 private const val HTTPS_DEFAULT_PORT = 443
 private const val MAX_PORT = 65_535
@@ -39,68 +35,59 @@ private fun normaliseHost(host: String): String = host.lowercase().removePrefix(
 
 private fun defaultPort(scheme: String): Int = if (scheme.equals("https", ignoreCase = true)) HTTPS_DEFAULT_PORT else HTTP_DEFAULT_PORT
 
+/** Why an upgrade's `Origin` was or was not accepted; [detail] refines the audit line of a refusal. */
+internal enum class OriginVerdict(val detail: String?) {
+    ALLOWED(null),
+
+    /** Some other authority: a foreign site, a missing or malformed header. */
+    FOREIGN("authority"),
+
+    /** The authority is this server's but the scheme is not (a TLS front door that does not say so, `X-Forwarded-Proto` missing). */
+    SCHEME("scheme"),
+
+    /** The request's own `Host` could not be read (a non-numeric port): nothing can be compared with it. */
+    HOST("host"),
+}
+
 /**
  * The CSWSH defence (`live.md` "Origin rule"): whether the `Origin` header of a WebSocket upgrade names this very server or a host the
- * deployment lists in `http.corsHosts`. [origin] is the header (null = missing); [serverHost] and [serverPort] are the request's own
- * authority as Ktor resolves it (`XForwardedHeaders` rewrites it behind a proxy). The scheme must be `http` or `https`; the header must
- * be a bare `scheme://host[:port]` (no path, query, user info); host comparison is case-insensitive, an absent port is the scheme's default
- * and an IPv6 literal is compared without its brackets. A [corsHosts] entry is `host[:port]` and matches any `http`/`https` origin of
- * that host: with a port, exactly that port; without one, the scheme's default port. Anything else, a missing header and `null` included,
- * is refused.
+ * deployment lists in `http.corsHosts`. [origin] is the header (null = missing); [serverScheme], [serverHost] and [serverPort] are the
+ * request's own origin as Ktor resolves it (`XForwardedHeaders` rewrites all three behind a proxy: `X-Forwarded-Proto` and
+ * `X-Forwarded-Host`, port included). The scheme must be `http` or `https` AND equal the server's (a plain-`http` page is not the
+ * `https` site's origin, and `http://x:443` is not `https://x:443`); the header must be a bare `scheme://host[:port]` (no path, query,
+ * user info); host comparison is case-insensitive, an absent port is the scheme's default and an IPv6 literal is compared without its
+ * brackets. A [corsHosts] entry is `host[:port]` and matches any `http`/`https` origin of that host: with a port, exactly that port;
+ * without one, the scheme's default port. Anything else, a missing header and `null` included, is refused.
  */
-internal fun originAllowed(origin: String?, serverHost: String, serverPort: Int, corsHosts: List<String>): Boolean {
-    val match = origin?.let { ORIGIN.matchEntire(it) } ?: return false
+internal fun originVerdict(
+    origin: String?,
+    serverScheme: String,
+    serverHost: String,
+    serverPort: Int,
+    corsHosts: List<String>,
+): OriginVerdict {
+    val match = origin?.let { ORIGIN.matchEntire(it) } ?: return OriginVerdict.FOREIGN
     val scheme = match.groupValues[1].lowercase()
     val host = normaliseHost(match.groupValues[2])
     val port = match.groupValues[3].ifEmpty { null }?.toInt() ?: defaultPort(scheme)
-    if (port > MAX_PORT) return false
-    if (host == normaliseHost(serverHost) && port == serverPort) return true
-    return corsHosts.any { entry ->
+    if (port > MAX_PORT) return OriginVerdict.FOREIGN
+    val sameHost = host == normaliseHost(serverHost)
+    val sameScheme = scheme == serverScheme.lowercase()
+    val listed = corsHosts.any { entry ->
         val parts = CORS_HOST.matchEntire(entry.trim()) ?: return@any false
         val entryPort = parts.groupValues[2].ifEmpty { null }?.toInt() ?: defaultPort(scheme)
         host == normaliseHost(parts.groupValues[1]) && port == entryPort
     }
-}
-
-/**
- * The live channel's audit lines (`observability.md`): `live.refused` is COALESCED through [RateLimitAuditThrottle] (one line per reason a
- * minute before authentication, per reason and user after it, with the `suppressed` count), so a flood of refused sockets writes a
- * handful of
- * lines; `live.subscribe_denied` is coalesced per user the same way (the inbound frame rate alone would still allow 3 lines a second per
- * socket). The client address is deliberately NOT a
- * field (the `rate_limit.exceeded` rule: behind a proxy it is attacker-chosen text; the access log has it).
- */
-internal class LiveAudit(
-    private val throttle: RateLimitAuditThrottle = RateLimitAuditThrottle(),
-    private val deniedThrottle: RateLimitAuditThrottle = RateLimitAuditThrottle(),
-) {
-    private val pendingDenied = java.util.concurrent.ConcurrentHashMap<UInt, java.util.TreeSet<UInt>>()
-
-    fun refused(reason: String, userId: UInt? = null, vararg fields: Pair<String, Any?>) {
-        val key = if (userId == null) "live.refused:$reason" else "live.refused:$reason:$userId"
-        throttle.admit(key)?.let { suppressed ->
-            val identity = if (userId == null) emptyArray() else arrayOf("byUserId" to userId.toLong())
-            audit("live.refused", "reason" to reason, *identity, *fields, "suppressed" to suppressed)
-        }
-    }
-
-    /**
-     * COALESCED per user (one line a minute with the `suppressed` count): a client can send a subscribe per frame, and each denied one
-     * would otherwise cost a log line. The line lists the UNION of the rooms denied since the last line, at most [MAX_DENIED_LISTED] ids
-     * (the lowest first), so a rotating probe is not lost to the window.
-     */
-    fun subscribeDenied(userId: UInt, roomIds: Collection<UInt>) {
-        val pending = pendingDenied.computeIfAbsent(userId) { java.util.TreeSet() }
-        synchronized(pending) { roomIds.sorted().forEach { if (pending.size < MAX_DENIED_LISTED) pending.add(it) } }
-        deniedThrottle.admit("live.subscribe_denied:$userId")?.let { suppressed ->
-            val listed = synchronized(pending) { pending.toList().also { pending.clear() } }
-            audit(
-                "live.subscribe_denied", "byUserId" to userId.toLong(), "roomIds" to listed.map { it.toLong() },
-                "suppressed" to suppressed,
-            )
-        }
+    return when {
+        sameHost && sameScheme && port == serverPort -> OriginVerdict.ALLOWED
+        listed -> OriginVerdict.ALLOWED
+        sameHost && !sameScheme -> OriginVerdict.SCHEME
+        else -> OriginVerdict.FOREIGN
     }
 }
+
+internal fun originAllowed(origin: String?, serverScheme: String, serverHost: String, serverPort: Int, corsHosts: List<String>): Boolean =
+    originVerdict(origin, serverScheme, serverHost, serverPort, corsHosts) == OriginVerdict.ALLOWED
 
 /** The printable ASCII of [origin], cut to a log-safe length: the header is client text, it names nothing but itself. */
 private fun loggedOrigin(origin: String?): String? =
@@ -108,14 +95,17 @@ private fun loggedOrigin(origin: String?): String? =
 
 /**
  * Admission of a call to `GET /api/v1/live` (before the upgrade, and for a plain GET too, so 403 comes before 400): the Origin rule
- * (`403`), then a stopping server, a full socket table and too many unauthenticated sockets (`503` `live-unavailable` with
- * `Retry-After`). The caps are ADVISORY here (a handful of upgrades in flight can slip past); the hub's register and the pending
- * counter are what hold the numbers. The per-IP bucket sits before this (the route's `rateLimit`), so a flood is a `429` first.
+ * (`403`), then a stopping server, a full socket table and too many unauthenticated sockets, in total or for the caller's address (`503`
+ * `live-unavailable` with `Retry-After`). The caps are ADVISORY here (a handful of upgrades in flight can slip past); the hub's register
+ * and the pending claim are what hold the numbers.
+ *
+ * It intercepts in the `Call` phase, AFTER the route's per-IP bucket (`rateLimit` runs in an earlier phase), so a refused request spends
+ * a token too: a flood of foreign-Origin or over-capacity requests is a `429` once the bucket is empty.
  */
 internal fun Route.installLiveAdmission(config: LiveConfig, hub: LiveHub, audits: LiveAudit) {
     val corsHosts = application.environment.config.propertyOrNull("http.corsHosts")?.getString()
         ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
-    intercept(ApplicationCallPipeline.Plugins) {
+    intercept(ApplicationCallPipeline.Call) {
         val refused = refusal(call, config, hub, audits, corsHosts)
         if (refused != null) {
             if (refused == HttpStatusCode.Forbidden) {
@@ -142,10 +132,10 @@ internal suspend fun ApplicationCall.respondLiveUnavailable() {
 private fun refusal(call: ApplicationCall, config: LiveConfig, hub: LiveHub, audits: LiveAudit, corsHosts: List<String>): HttpStatusCode? {
     val origins = call.request.headers.getAll(HttpHeaders.Origin)
     val header = origins?.singleOrNull()
-    val point = call.request.origin
+    val verdict = originVerdictOf(call, header, corsHosts)
     return when {
-        !originAllowed(header, point.serverHost, point.serverPort, corsHosts) -> {
-            audits.refused("origin", null, "origin" to loggedOrigin(header ?: origins?.firstOrNull()))
+        verdict != OriginVerdict.ALLOWED -> {
+            audits.refusedOrigin(loggedOrigin(header ?: origins?.firstOrNull()), verdict)
             HttpStatusCode.Forbidden
         }
         hub.isStopping -> {
@@ -156,10 +146,27 @@ private fun refusal(call: ApplicationCall, config: LiveConfig, hub: LiveHub, aud
             audits.refused("capacity", null, "limit" to "sockets")
             HttpStatusCode.ServiceUnavailable
         }
+        hub.pending.held(pendingAddressKey(call.request.origin.remoteHost)) >= config.maxPendingPerAddress -> {
+            audits.refused("capacity", null, "limit" to "pending-per-address")
+            HttpStatusCode.ServiceUnavailable
+        }
         hub.pendingAuth.get() >= config.maxPendingAuth -> {
             audits.refused("capacity", null, "limit" to "pending-auth")
             HttpStatusCode.ServiceUnavailable
         }
         else -> null
+    }
+}
+
+/**
+ * The Origin verdict against the request's own scheme, host and port. `origin.serverPort` parses the `Host` header's port, which the
+ * client chooses: a malformed one (`localhost:abc`, a bare IPv6 literal) throws, and that must be a refusal, never an anonymous 500.
+ */
+private fun originVerdictOf(call: ApplicationCall, header: String?, corsHosts: List<String>): OriginVerdict {
+    val point = call.request.origin
+    return try {
+        originVerdict(header, point.scheme, point.serverHost, point.serverPort, corsHosts)
+    } catch (_: IllegalArgumentException) {
+        OriginVerdict.HOST
     }
 }

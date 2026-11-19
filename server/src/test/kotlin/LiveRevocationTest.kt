@@ -29,6 +29,7 @@ import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -161,6 +162,7 @@ class LiveRevocationTest {
         val second = openAuthenticatedLive(liveClient(), newcomer)
         val other = openAuthenticatedLive(liveClient(), bystander)
         awaitListenerUp(hub)
+        other.settle() // the first LISTEN's resync may have reached it: the silence below is about the hint
 
         val added = owner.client.postJson("$rooms/$room/members", RoomMembersAddRequest(userIds = listOf(newcomer.id)))
         assertEquals(HttpStatusCode.OK, added.status)
@@ -186,6 +188,7 @@ class LiveRevocationTest {
         val tab = openAuthenticatedLive(liveClient(), creator)
         val other = openAuthenticatedLive(liveClient(), stranger)
         awaitListenerUp(hub)
+        other.settle() // the first LISTEN's resync may have reached it (the flake this fixes): the silence below is about the hint
 
         val created = creator.client.postJson(rooms, RoomCreateRequest("Rev new ${UUID.randomUUID().toString().substring(0, 8)}", template))
         assertEquals(HttpStatusCode.Created, created.status)
@@ -302,7 +305,14 @@ class LiveRevocationTest {
         awaitListenerUp(hub)
 
         deleteMembership(room, member.id) // raw: no hint is emitted, exactly like a hint lost in a listener gap
-        assertEquals(0, sweep.sweepNow(), "no socket closes; only the subscription goes")
+        withAuditCapture { capture ->
+            assertEquals(0, sweep.sweepNow(), "no socket closes; only the subscription goes")
+            val line = assertNotNull(capture.awaitEvent { it.message == "live.revoked" && it.hasKeyValue("reason", "membership") })
+            assertTrue(line.hasKeyValue("byUserId", member.id.toLong()))
+            assertTrue(line.hasKeyValue("rooms", 1))
+            assertTrue(line.hasKeyValue("sockets", 1))
+            assertEquals(1, capture.events.count { it.message == "live.revoked" }, "one line, for the member alone")
+        }
         assertEquals(LiveServerFrame.Revoked(room), memberSocket.nextNonResync())
         listOf(adminSocket, ownerSocket).forEach {
             it.sendText("""{"type":"ping"}""")
@@ -365,7 +375,7 @@ class LiveRevocationTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             LiveSweep(
-                hub, blocklist, application.attributes[RoomServiceKey], intervalMillis = 100,
+                hub, blocklist, application.attributes[RoomServiceKey], intervalMillis = 100, retryDelayMillis = 50,
                 judge = { checks ->
                     when (runs.incrementAndGet()) {
                         1 -> error("the database went away")
@@ -376,6 +386,74 @@ class LiveRevocationTest {
             ).start(scope)
             socket.expectClose(4003)
             assertTrue(runs.get() >= 3, "runs: ${runs.get()}")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a failing verdict query still re-checks the memberships`() = testApplication {
+        usePostgresTestcontainer()
+        val hub = application.attributes[LiveHubKey]
+        val owner = actor("half-own")
+        val member = actor("half-mem")
+        val room = room(owner, member)
+        val memberSocket = subscribed(member, room)
+        awaitListenerUp(hub)
+        deleteMembership(room, member.id)
+
+        val sweep = LiveSweep(
+            hub, application.attributes[TokenBlocklistServiceKey], application.attributes[RoomServiceKey],
+            judge = { error("the verdict query is down") },
+        )
+        val failure = assertFailsWith<IllegalStateException> { sweep.sweepNow() }
+        assertEquals("the verdict query is down", failure.message, "the run reports the failure once both halves ran")
+        assertEquals(LiveServerFrame.Revoked(room), memberSocket.nextNonResync(), "the membership half ran anyway")
+        memberSocket.close()
+    }
+
+    @Test
+    fun `a failing membership query still closes the revoked sessions`() = testApplication {
+        usePostgresTestcontainer()
+        val hub = application.attributes[LiveHubKey]
+        val loggedOut = actor("half-out")
+        val owner = actor("half-own2")
+        val room = room(owner)
+        val socket = subscribed(owner, room)
+        val outSocket = openAuthenticatedLive(liveClient(), loggedOut)
+        assertEquals(HttpStatusCode.NoContent, loggedOut.client.post("/api/v1/logout").status)
+
+        val sweep = LiveSweep(
+            hub, application.attributes[TokenBlocklistServiceKey], application.attributes[RoomServiceKey],
+            lost = { error("the membership query is down") },
+        )
+        assertFailsWith<IllegalStateException> { sweep.sweepNow() }
+        outSocket.expectClose(4003)
+        socket.close()
+    }
+
+    @Test
+    fun `a failed run is retried once after the retry delay, not a whole interval later`() = testApplication {
+        usePostgresTestcontainer()
+        val hub = application.attributes[LiveHubKey]
+        val blocklist = application.attributes[TokenBlocklistServiceKey]
+        val user = actor("sw-retry")
+        val socket = openAuthenticatedLive(liveClient(), user)
+        assertEquals(HttpStatusCode.NoContent, user.client.post("/api/v1/logout").status)
+
+        val calls = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            LiveSweep(
+                hub, blocklist, application.attributes[RoomServiceKey], intervalMillis = 600, retryDelayMillis = 50,
+                judge = { checks ->
+                    calls += System.nanoTime() / 1_000_000
+                    if (calls.size == 1) error("a blip") else blocklist.accessVerdicts(checks)
+                },
+            ).start(scope)
+            socket.expectClose(4003)
+            assertEquals(2, calls.size, "one failure, one retry")
+            assertTrue(calls[1] - calls[0] < 400, "retried ${calls[1] - calls[0]} ms later; the interval is 600 ms")
         } finally {
             scope.cancel()
         }

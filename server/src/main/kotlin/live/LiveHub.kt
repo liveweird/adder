@@ -40,7 +40,7 @@ private sealed interface Command {
     class Snapshot(val reply: CompletableDeferred<List<SocketView>>) : Command
     class RevokeRoom(val socket: HubSocket, val roomId: UInt) : Command
     data object Gap : Command
-    data object CloseAll : Command
+    class CloseAll(val reason: CloseReason) : Command
 }
 
 /**
@@ -82,8 +82,23 @@ class LiveHub internal constructor(
     @Volatile var isStopping = false
         private set
 
-    /** Sockets that upgraded but have not authenticated yet (counted by the session, bounded by `live.maxPendingAuth` at admission). */
-    val pendingAuth = AtomicInteger()
+    /** Sockets that upgraded but have not authenticated yet, in total and per client address (claimed by the session). */
+    internal val pending = PendingSlots()
+
+    /** The unauthenticated sockets in total (`live.maxPendingAuth`). */
+    val pendingAuth: AtomicInteger get() = pending.total
+
+    /** How long the listener may be down before the channel counts as deaf (a constant of the design; a test shrinks it). */
+    @Volatile internal var deafAfterMillis = LISTENER_DEAF_MILLIS
+
+    /** How often the watcher checks [isDeaf]; a test shrinks it. */
+    @Volatile internal var deafCheckMillis = DEAF_CHECK_MILLIS
+
+    /**
+     * Whether the LISTEN session has been down for [deafAfterMillis]: hints committed meanwhile reach nobody, so a mint answers `503` and
+     * the open sockets close 1013 (the client's badge appears and it retries; the reconnect's `ready` refetch is the backfill).
+     */
+    val isDeaf: Boolean get() = listener.downForMillis()?.let { it >= deafAfterMillis } ?: false
 
     /** Authenticated sockets, the whole process. */
     val socketCount: Int get() = total.get()
@@ -103,6 +118,13 @@ class LiveHub internal constructor(
         if (consuming.compareAndSet(false, true)) {
             scope.launch(CoroutineName("adder-live-hints")) {
                 for (payload in listener.payloads) decode(payload)?.let { deliver(it) }
+            }
+            scope.launch(CoroutineName("adder-live-deaf")) {
+                while (true) {
+                    delay(deafCheckMillis)
+                    // Every check while deaf: a socket that registered mid-outage is closed within one period too.
+                    if (isDeaf) inbox.trySend(Command.CloseAll(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Live updates unavailable")))
+                }
             }
         }
     }
@@ -187,17 +209,10 @@ class LiveHub internal constructor(
         return reply.await()
     }
 
-    /** Counts a session that has upgraded but not authenticated; false (nothing counted) when [max] such sessions already exist. */
-    internal fun claimPending(max: Int): Boolean {
-        if (pendingAuth.incrementAndGet() <= max) return true
-        pendingAuth.decrementAndGet()
-        return false
-    }
-
     /** Refuses further admissions and mints, closes every socket 1001 and waits (bounded) for them to leave. */
     suspend fun shutdown(graceMillis: Long = SHUTDOWN_GRACE_MILLIS) {
         isStopping = true
-        inbox.trySend(Command.CloseAll)
+        inbox.trySend(Command.CloseAll(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping")))
         withTimeoutOrNull(graceMillis) {
             while (total.get() > 0) delay(SHUTDOWN_POLL_MILLIS)
         }
@@ -232,23 +247,23 @@ class LiveHub internal constructor(
                 queuedHints.decrementAndGet()
                 fanOut(command.hint)
             }
-            is Command.Pong -> send(command.socket, LiveServerFrame.Pong)
+            is Command.Pong -> queueFrame(command.socket, LiveServerFrame.Pong)
             is Command.Snapshot -> command.reply.complete(
                 sockets.map { s -> SocketView(s, s.rooms.filterValues { it == RoomState.ACTIVE }.keys.toList()) },
             )
             is Command.RevokeRoom -> dropRevoked(command.socket, command.roomId)
             Command.Gap -> {
                 gapPending.set(false)
-                sockets.forEach { send(it, LiveServerFrame.Resync) }
+                sockets.forEach { queueFrame(it, LiveServerFrame.Resync) }
             }
-            Command.CloseAll -> sockets.forEach { it.closeRequest.complete(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping")) }
+            is Command.CloseAll -> sockets.forEach { it.closeRequest.complete(command.reason) }
         }
     }
 
     private fun dropRevoked(socket: HubSocket, roomId: UInt) {
         if (socket !in sockets || socket.rooms[roomId] != RoomState.ACTIVE) return
         drop(socket, roomId)
-        send(socket, LiveServerFrame.Revoked(roomId))
+        queueFrame(socket, LiveServerFrame.Revoked(roomId))
     }
 
     private fun admit(socket: HubSocket): RegisterResult = when {
@@ -261,7 +276,7 @@ class LiveHub internal constructor(
             total.incrementAndGet()
             perUser.computeIfAbsent(socket.userId) { AtomicInteger() }.incrementAndGet()
             // `ready` is queued by the actor itself, so it is always the socket's first frame.
-            send(socket, LiveServerFrame.Ready())
+            queueFrame(socket, LiveServerFrame.Ready())
             RegisterResult.OK
         }
     }
@@ -310,7 +325,7 @@ class LiveHub internal constructor(
                 refused += id
             }
         }
-        send(socket, LiveServerFrame.Subscribed(begin.already + activated, refused, begin.capped))
+        queueFrame(socket, LiveServerFrame.Subscribed(begin.already + activated, refused, begin.capped))
     }
 
     private fun drop(socket: HubSocket, roomId: UInt) {
@@ -332,7 +347,7 @@ class LiveHub internal constructor(
                 // These kinds tell the person the change is about, on every socket they have, even one not subscribed to the room.
                 if (hint.kind in PERSONAL_EVENT_KINDS) recipients += targetSockets(hint)
                 val event = eventOf(hint)
-                recipients.forEach { send(it, event) }
+                recipients.forEach { queueFrame(it, event) }
             }
         }
     }
@@ -346,7 +361,7 @@ class LiveHub internal constructor(
         sockets.forEach { if (it.rooms[hint.roomId] == RoomState.PENDING) it.rooms.remove(hint.roomId) }
         recipients.forEach {
             drop(it, hint.roomId)
-            send(it, LiveServerFrame.Revoked(hint.roomId))
+            queueFrame(it, LiveServerFrame.Revoked(hint.roomId))
         }
     }
 
@@ -359,37 +374,17 @@ class LiveHub internal constructor(
         val (adminSockets, memberSockets) = targetSockets(hint).partition { it.isAdmin }
         memberSockets.forEach {
             drop(it, hint.roomId)
-            send(it, LiveServerFrame.Revoked(hint.roomId))
+            queueFrame(it, LiveServerFrame.Revoked(hint.roomId))
         }
         val recipients = LinkedHashSet<HubSocket>()
         subscribersByRoom[hint.roomId]?.let { recipients += it }
         recipients += adminSockets
         val event = eventOf(hint)
-        recipients.forEach { send(it, event) }
+        recipients.forEach { queueFrame(it, event) }
     }
 
     private fun targetSockets(hint: LiveHint): List<HubSocket> =
         hint.targetUserIds.orEmpty().flatMap { socketsByUser[it].orEmpty() }
 
     private fun eventOf(hint: LiveHint) = LiveServerFrame.Event(hint.kind, hint.roomId, hint.threadNumber, hint.messageId)
-
-    /**
-     * `trySend`, never a suspension. A full queue loses what a refetch recovers (events, a pending `resync`, a pong) to ONE `resync`, and
-     * keeps what changes the client's state (`ready`, `subscribed`, `revoked`); if even that cannot fit, the socket is closed (1013) rather
-     * than left with a silent gap.
-     */
-    private fun send(socket: HubSocket, frame: LiveServerFrame) {
-        if (socket.outbound.trySend(frame).isSuccess) return
-        val kept = ArrayList<LiveServerFrame>()
-        while (true) {
-            val queued = socket.outbound.tryReceive().getOrNull() ?: break
-            if (queued.changesState()) kept += queued
-        }
-        if (frame.changesState()) kept += frame
-        val requeued = kept.all { socket.outbound.trySend(it).isSuccess } && socket.outbound.trySend(LiveServerFrame.Resync).isSuccess
-        if (!requeued) socket.closeRequest.complete(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Too slow"))
-    }
-
-    private fun LiveServerFrame.changesState(): Boolean =
-        this is LiveServerFrame.Ready || this is LiveServerFrame.Subscribed || this is LiveServerFrame.Revoked
 }

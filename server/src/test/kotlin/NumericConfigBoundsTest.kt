@@ -46,6 +46,7 @@ class NumericConfigBoundsTest {
         assertRefused("live.maxSockets", "0", "-1", "abc", "10001")
         assertRefused("live.maxSocketsPerUser", "0", "-1", "abc", "65")
         assertRefused("live.maxPendingAuth", "0", "-1", "abc", "10001")
+        assertRefused("live.maxPendingPerAddress", "0", "-1", "abc", "10001")
         assertRefused("live.authTimeoutMillis", "99", "0", "abc", "30001")
         assertRefused("security.rateLimit.liveConnectPerMinute", "0", "-1", "abc", "1000001")
     }
@@ -97,6 +98,7 @@ class NumericConfigBoundsTest {
             "live.maxSockets" to "10000",
             "live.maxSocketsPerUser" to "64",
             "live.maxPendingAuth" to "10000",
+            "live.maxPendingPerAddress" to "10000",
             "live.authTimeoutMillis" to "30000",
             "security.rateLimit.liveConnectPerMinute" to "1000000",
         )

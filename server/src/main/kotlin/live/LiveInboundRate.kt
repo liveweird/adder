@@ -11,7 +11,9 @@ private const val NANOS_PER_MILLI = 1_000_000L
 
 /**
  * The inbound frame rate of ONE socket: a sliding log of the last [limit] frame times, so the answer is exact (no fixed-window burst of
- * twice the limit at a boundary) and the memory is a fixed array. Every frame counts, a `ping` included; a refused frame is not recorded.
+ * twice the limit at a boundary) and the memory is a fixed array. Every message the reading loop receives counts, an application `ping`
+ * included; WebSocket protocol ping, pong and continuation frames never reach the loop (Ktor answers and reassembles them below it), so
+ * they do not count. A refused frame is not recorded.
  * Owned by one session coroutine: not thread-safe.
  */
 internal class InboundRate(

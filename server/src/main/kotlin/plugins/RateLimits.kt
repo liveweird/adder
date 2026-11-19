@@ -53,6 +53,24 @@ internal class RateLimitAuditThrottle(
         return emit
     }
 
+    /**
+     * For a FLUSH of a coalesced event whose caller has nothing new to count: the number folded into the window when [bucket] has a window
+     * that is due (the window restarts), else null WITHOUT counting a rejection. A bucket never seen has nothing to flush.
+     */
+    fun admitIfDue(bucket: String): Long? {
+        var emit: Long? = null
+        windows.computeIfPresent(bucket) { _, window ->
+            val now = clock()
+            if (now - window.lastEmitMs >= intervalMs) {
+                emit = window.suppressed
+                window.lastEmitMs = now
+                window.suppressed = 0
+            }
+            window
+        }
+        return emit
+    }
+
     companion object {
         const val DEFAULT_INTERVAL_MS = 60_000L
     }

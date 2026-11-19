@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { matchPath, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { API_BASE } from "../api/http";
 import { mintLiveTicket } from "../api/live";
 import { getSessionSnapshot } from "../api/session";
 import { bindBrowserSignals, browserClock, LiveClient, type LiveDependencies, type LiveStatus } from "../utils/liveClient";
@@ -46,7 +47,7 @@ export function useLiveUpdates(railRoomIds: readonly number[], overrides: LiveOv
     if (identity === null) return;
     const invalidator = createLiveInvalidator(queryClient, clock);
     const client = new LiveClient({
-      url: liveUrl(window.location),
+      url: liveUrl(window.location, API_BASE),
       socketFactory,
       clock,
       mintTicket,
