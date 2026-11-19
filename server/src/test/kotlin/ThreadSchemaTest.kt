@@ -98,4 +98,57 @@ class ThreadSchemaTest {
             }
         }
     }
+
+    @Test
+    fun `message tags key on message and tag, default the version to 0, and go with their message and their room`() {
+        val marker = UUID.randomUUID().toString().take(8)
+        PostgresTestSupport.connect().use { c ->
+            val user = c.scalar(
+                "INSERT INTO users (\"name\", email, password_hash) VALUES ('Schema', ?, 'x') RETURNING id",
+                "schema-tags-$marker@test",
+            )
+            val room = c.scalar(
+                "INSERT INTO rooms (\"name\", last_activity_at, created_at, updated_at) VALUES (?, 1, 1, 1) RETURNING id",
+                "Schema tags $marker",
+            )
+            try {
+                c.exec(
+                    "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position) " +
+                        "VALUES (?, 'open', 'Open', 'BLUE', 'OPEN', TRUE, 0)",
+                    room,
+                )
+                val thread = c.scalar(
+                    "INSERT INTO threads (room_id, \"number\", title, status_key, owner_id, created_by, " +
+                        "last_activity_at, created_at, updated_at) VALUES (?, 1, 'T', 'open', ?, ?, 1, 1, 1) RETURNING id",
+                    room, user, user,
+                )
+                val first = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "one #a", false, null)
+                val second = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "two #a", false, null)
+                assertEquals(0, c.scalar("SELECT tags_version FROM messages WHERE id = ?", first), "a message starts un-indexed")
+                // No CHECK on the version (a new one would scan `messages` under an exclusive lock): only code writes the column.
+                assertEquals(1, c.exec("UPDATE messages SET tags_version = 1 WHERE id = ?", second))
+
+                val insertTag = "INSERT INTO message_tags (message_id, thread_id, room_id, tag) VALUES (?, ?, ?, ?)"
+                assertEquals(1, c.exec(insertTag, first, thread, room, "a"))
+                assertEquals(1, c.exec(insertTag, second, thread, room, "a"), "two messages may carry one tag")
+                assertState(UNIQUE_VIOLATION, "a message carries a tag once") { c.exec(insertTag, first, thread, room, "a") }
+                assertState(CHECK_VIOLATION, "a tag is not empty") { c.exec(insertTag, first, thread, room, "") }
+                assertState("22001", "a tag is at most 150 characters") { c.exec(insertTag, first, thread, room, "x".repeat(151)) }
+                assertEquals(1, c.exec(insertTag, first, thread, room, "x".repeat(150)))
+                assertState(FK_VIOLATION, "a tag needs its message") { c.exec(insertTag, Int.MAX_VALUE, thread, room, "a") }
+                assertState(FK_VIOLATION, "a tag needs its thread") { c.exec(insertTag, second, Int.MAX_VALUE, room, "b") }
+                assertState(FK_VIOLATION, "a tag needs its room") { c.exec(insertTag, second, thread, Int.MAX_VALUE, "b") }
+
+                assertEquals(1, c.exec("DELETE FROM messages WHERE id = ?", second))
+                assertEquals(0, c.scalar("SELECT count(*) FROM message_tags WHERE message_id = ?", second), "a message's rows go with it")
+                assertEquals(2, c.scalar("SELECT count(*) FROM message_tags WHERE room_id = ?", room))
+                // The room's hard delete (the test purge) cascades through the thread and the message into the tags.
+                assertEquals(1, c.exec("DELETE FROM rooms WHERE id = ?", room))
+                assertEquals(0, c.scalar("SELECT count(*) FROM message_tags WHERE room_id = ?", room))
+            } finally {
+                c.exec("DELETE FROM rooms WHERE id = ?", room)
+                c.exec("DELETE FROM users WHERE id = ?", user)
+            }
+        }
+    }
 }

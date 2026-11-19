@@ -40,7 +40,11 @@ val MESSAGE_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
  * removed it, the author's own delete included. Reads use `users` for display names only (soft-deleted accounts included) and room data
  * only through the `rooms/` services.
  */
-class MessageService(private val database: R2dbcDatabase, private val rooms: RoomService) {
+class MessageService(
+    private val database: R2dbcDatabase,
+    private val rooms: RoomService,
+    private val tags: MessageTagService,
+) {
     object Messages : UIntIdTable("messages"), SoftDeletable {
         val threadId = reference("thread_id", ThreadService.Threads)
         val authorId = reference("author_id", UserService.Users)
@@ -55,15 +59,26 @@ class MessageService(private val database: R2dbcDatabase, private val rooms: Roo
 
         /** Who deleted it, the author's own delete included (a V14 CHECK: set exactly when the message is deleted). */
         val deletedBy = reference("deleted_by", UserService.Users).nullable()
+
+        /** The hashtag grammar version the message's tags were indexed under (V15; 0 = not yet). Set with every write of its tags. */
+        val tagsVersion = short("tags_version").default(0)
     }
 
-    /** Inserts a message inside the caller's transaction (the thread write under the room lock) and returns its id. */
-    suspend fun insertInTransaction(threadId: UInt, authorId: UInt, body: String, at: Long): UInt = Messages.insert {
-        it[Messages.threadId] = threadId
-        it[Messages.authorId] = authorId
-        it[Messages.body] = body
-        it[createdAt] = at
-    }[Messages.id].value
+    /**
+     * Inserts a message inside the caller's transaction (the thread write under the room lock) and returns its id. The ONE chokepoint of a
+     * new body (a post and a thread's opening message both come here), so its hashtags are indexed here, in the same transaction.
+     */
+    suspend fun insertInTransaction(roomId: UInt, threadId: UInt, authorId: UInt, body: String, at: Long): UInt {
+        val id = Messages.insert {
+            it[Messages.threadId] = threadId
+            it[Messages.authorId] = authorId
+            it[Messages.body] = body
+            it[createdAt] = at
+            it[tagsVersion] = TAGS_VERSION
+        }[Messages.id].value
+        tags.insertInTransaction(id, threadId, roomId, body)
+        return id
+    }
 
     /**
      * One page of thread [threadId]'s messages (its per-room [number] rides on every row), tombstones included. [idLt] keeps only the
@@ -112,7 +127,7 @@ class MessageService(private val database: R2dbcDatabase, private val rooms: Roo
             write.requireThreadOpen()
             val authorId = write.caller.userId
             val stamp = nowMillis()
-            val id = insertInTransaction(write.thread.id, authorId, request.body, stamp)
+            val id = insertInTransaction(roomId, write.thread.id, authorId, request.body, stamp)
             val threads = ThreadService.Threads
             threads.update({ threads.id eq write.thread.id }) {
                 it[messageCount] = messageCount + 1
@@ -128,7 +143,8 @@ class MessageService(private val database: R2dbcDatabase, private val rooms: Roo
     /**
      * Edits message [messageId] in ONE message write: the AUTHOR while a member ([requireMessageAuthor] on the fresh caller and row), an
      * archived room `409`, a closed thread `409`; the same body again (after sanitising) is null, a `204` with no write; otherwise the
-     * body is overwritten (no versions kept) and `edited_at` set. An edit never bumps the activity or `message_count`.
+     * body is overwritten (no versions kept) and `edited_at` set. An edit never bumps the activity or `message_count`. The hashtags follow
+     * the body in the same transaction: rewritten when the folded set changed, or when the message was never indexed under this grammar.
      */
     suspend fun edit(roomId: UInt, messageId: UInt, caller: CallerPrincipal, raw: MessageRequest): MessageEdit? {
         val request = sanitizedMessage(raw)
@@ -143,6 +159,10 @@ class MessageService(private val database: R2dbcDatabase, private val rooms: Roo
             Messages.update({ Messages.id eq messageId }) {
                 it[body] = request.body
                 it[editedAt] = nowMillis()
+                it[tagsVersion] = TAGS_VERSION
+            }
+            if (write.message.tagsVersion < TAGS_VERSION || tagKeysDiffer(write.message.body, request.body)) {
+                tags.replaceInTransaction(messageId, write.thread.id, roomId, request.body)
             }
             notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
             MessageEdit(write.thread.id, messageId)
@@ -153,7 +173,8 @@ class MessageService(private val database: R2dbcDatabase, private val rooms: Roo
      * Deletes message [messageId] in ONE message write (D2): the AUTHOR while a member, the room OWNER or an ADMIN
      * ([requireMessageRemover]), an archived room `409`, a closed thread `409` (a moderator's delete included: a steward reopens, deletes
      * and closes again). The body is scrubbed to '', the row marked and `deleted_by` set to the caller; `message_count` and the activity
-     * stay as they are.
+     * stay as they are. The message's hashtags are deleted in the same transaction, AFTER the row update (which takes the row lock a boot
+     * reindex may hold), so a scrubbed body never keeps a findable tag.
      */
     suspend fun delete(roomId: UInt, messageId: UInt, caller: CallerPrincipal): MessageRemoval =
         database.withMessageWrite(
@@ -168,6 +189,7 @@ class MessageService(private val database: R2dbcDatabase, private val rooms: Roo
                 it[markedAsDeleted] = true
                 it[deletedBy] = remover
             }
+            tags.clearInTransaction(messageId)
             notifyLive(LiveHint(LiveKind.MESSAGE_DELETED, roomId, threadNumber = write.thread.number, messageId = messageId))
             MessageRemoval(write.thread.id, messageId, write.message.authorId, moderated = remover != write.message.authorId)
         }

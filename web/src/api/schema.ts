@@ -841,6 +841,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a room's hashtags
+         * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`, then the parameters are checked: `400`).
+         *
+         *     A tag is a hashtag written in a message (`#Wdrozenie`); it belongs to the MESSAGE, so a thread has it while one of its live
+         *     messages does, and editing it away or deleting the message removes it. A row is the FOLDED tag (lower case, accents stripped: the
+         *     key the thread list's `tag` filter takes) and `threadCount`, the number of distinct threads, open and closed, that have a live
+         *     message carrying it. Nothing here is a record the caller can edit: the set is derived from the messages.
+         *
+         *     - Sortable fields: `tag`, `threadCount`. Default `-threadCount` (the most used first; ties by `tag`).
+         *     - Filter: `tag`, a case- and accent-insensitive substring of the tag (for a picker), at most 50 characters (`400` beyond). A
+         *       repeated key is a `400`.
+         */
+        get: operations["listRoomTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rooms/{id}/threads": {
         parameters: {
             query?: never;
@@ -862,7 +893,12 @@ export interface paths {
          *       within a key and all-of across keys (SELECT and MULTI_SELECT: an option key, one the room has since removed still finds
          *       the threads that kept it; USER: a user id). An unknown, RETIRED, TEXT, URL, DATE or NUMBER field key, a `field` without a
          *       colon and a value of the wrong shape for its type are a `400`.
-         *     - A well-formed status key, owner id or field value that matches nothing is an empty page, never an error. Checked in this
+         *     - `tag` (repeatable, any-of, at most 10 distinct after case folding) keeps the threads that have a LIVE message carrying any of
+         *       the hashtags: the value is the tag as written without its `#`, or a `tag` of `GET /rooms/{id}/tags` as returned, and it is
+         *       folded (case and accents ignored: `Wdrozenie` and `wdrożenie` are one tag). A returned key can hold punctuation and be longer
+         *       than a written tag, so a value is 1 to 150 characters without `#` or control characters. A malformed value, or more than 10
+         *       distinct values, is a `400`.
+         *     - A well-formed status key, owner id, field value or tag that matches nothing is an empty page, never an error. Checked in this
          *       order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
          *       what the caller may read.
          *     - A row carries the status KEY; labels and colours come from the room's workflow (`GET /rooms/{id}/workflow`).
@@ -2075,6 +2111,22 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        RoomTag: {
+            /** @description The FOLDED tag without its `#` (lower case, accents stripped); what the thread list's `tag` filter takes. */
+            tag: string;
+            /**
+             * Format: int64
+             * @description Distinct threads, open and closed, that have a live message carrying the tag.
+             */
+            threadCount: number;
+        };
+        RoomTagPage: {
+            items: components["schemas"]["RoomTag"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
         /**
          * @description The kind of a history entry (persisted, never renamed). The `params` of each: `CREATED` `{title, status, statusLabel}`;
          *     `TITLE_CHANGED` `{from, to}`; `STATUS_CHANGED`, `CLOSED`, `REOPENED` and `STATUS_REPLACED` `{from, to, fromLabel, toLabel}`
@@ -2548,6 +2600,8 @@ export interface components {
         ThreadOwnerFilter: number[];
         /** @description Repeatable `key:value` (the thread list): the field's key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). Any-of within one key, all-of across keys; at most 20 distinct pairs. The key must be an ACTIVE SELECT, MULTI_SELECT or USER field of the room; any other key, a missing colon or a value of the wrong shape is a `400`. */
         ThreadFieldFilter: string[];
+        /** @description Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10. */
+        ThreadTagFilter: string[];
         /**
          * @description The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
          *     malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
@@ -3918,6 +3972,45 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    listRoomTags: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                tag?: string;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the room's tags */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomTagPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     listThreads: {
         parameters: {
             query?: {
@@ -3939,6 +4032,8 @@ export interface operations {
                 ownerId?: components["parameters"]["ThreadOwnerFilter"];
                 /** @description Repeatable `key:value` (the thread list): the field's key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). Any-of within one key, all-of across keys; at most 20 distinct pairs. The key must be an ACTIVE SELECT, MULTI_SELECT or USER field of the room; any other key, a missing colon or a value of the wrong shape is a `400`. */
                 field?: components["parameters"]["ThreadFieldFilter"];
+                /** @description Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10. */
+                tag?: components["parameters"]["ThreadTagFilter"];
             };
             header?: never;
             path: {

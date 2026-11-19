@@ -9,6 +9,7 @@ import ch.nokillswit.infra.db.EVENT_LOG_DEFAULT_SORT
 import ch.nokillswit.infra.db.EVENT_LOG_SORT_FIELDS
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoolean
+import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.infra.revision.expectedRevision
@@ -22,6 +23,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
@@ -56,11 +58,17 @@ class ThreadsRoute(val parent: RoomsRoute.Id) {
     }
 }
 
+/** `/api/v1/rooms/{id}/tags`: the room's hashtags with their thread counts (a child of [RoomsRoute.Id]). */
+@Serializable
+@Resource("tags")
+class RoomTagsRoute(val parent: RoomsRoute.Id)
+
 fun Application.configureThreadRoutes() {
     val roomService = attributes[RoomServiceKey]
     val threadService = attributes[ThreadServiceKey]
     val eventService = attributes[ThreadEventServiceKey]
     val statusService = attributes[ThreadStatusServiceKey]
+    val tagService = attributes[MessageTagServiceKey]
 
     routing {
         authenticate {
@@ -69,6 +77,7 @@ fun Application.configureThreadRoutes() {
             // 404 for a missing room and a non-member alike, audited `room.access_denied`); the pre-check (member: 403); the body
             // (400); then the service re-runs the guard under the room lock.
             threadReads(roomService, threadService, eventService)
+            roomTags(roomService, tagService)
             threadCreate(roomService, threadService)
             threadDetails(roomService, threadService)
             threadStatus(roomService, statusService)
@@ -97,6 +106,23 @@ private fun Route.threadReads(roomService: RoomService, threadService: ThreadSer
         val threadId = threadService.idOf(roomId, route.parent.number.toInt()).orNotFound("Thread")
         val paging = call.parsePaging(sortable = EVENT_LOG_SORT_FIELDS, defaultSort = EVENT_LOG_DEFAULT_SORT)
         val result = eventService.list(threadId, paging)
+        call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+    }
+}
+
+/**
+ * `GET /rooms/{id}/tags` (reader, no bucket: bounded by the room): the guard order of every read - 401, visibility (404), then the `400`s
+ * (paging, then the substring). The substring is at most [MAX_TAG_FILTER_LENGTH] characters (a longer one could match no tag).
+ */
+private fun Route.roomTags(roomService: RoomService, tagService: MessageTagService) {
+    get<RoomTagsRoute> { route ->
+        roomService.visibleStanding(call.caller(), route.parent.id)
+        val paging = call.parsePaging(sortable = ROOM_TAG_SORT_FIELDS, defaultSort = ROOM_TAG_DEFAULT_SORT)
+        val tag = call.request.queryParameters.optionalString("tag")
+        if (tag != null && tag.codePointCount(0, tag.length) > MAX_TAG_FILTER_LENGTH) {
+            throw BadRequestException("tag must be at most $MAX_TAG_FILTER_LENGTH characters")
+        }
+        val result = tagService.list(route.parent.id, RoomTagListFilter(tag), paging)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }
 }

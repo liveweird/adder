@@ -34,6 +34,7 @@ class MigrationChecksumTest {
         "V12__seed_workflow_templates.sql" to -1012377143,
         "V13__create_rooms.sql" to -108017395,
         "V14__create_threads.sql" to 35270631,
+        "V15__create_message_tags.sql" to -717285948,
     )
 
     @Test

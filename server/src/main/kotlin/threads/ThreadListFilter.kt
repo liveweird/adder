@@ -41,13 +41,15 @@ data class FieldCriterion(val key: String, val value: String)
 /**
  * The thread list's filters. Within a parameter the values are any-of; across parameters (and across field keys) all-of. A blank list
  * filters nothing. A well-formed but unknown status key or owner id matches nothing; an unknown, retired or unfilterable FIELD key is a
- * `400` ([predicate]).
+ * `400` ([predicate]). A `tag` is a folded hashtag; one the room never saw matches nothing.
  */
 data class ThreadListFilter(
     val closed: Boolean? = null,
     val statuses: List<String> = emptyList(),
     val ownerIds: List<UInt> = emptyList(),
     val fields: List<FieldCriterion> = emptyList(),
+    /** Folded tags ([requireTagFilter]): a live message of the thread carries any of them. */
+    val tags: List<String> = emptyList(),
 )
 
 /** The filters of the thread list; a malformed key, id or pair, or too many values, is a `400` ([BadRequestException]). */
@@ -59,7 +61,18 @@ fun Parameters.threadListFilter(closed: Boolean?): ThreadListFilter = ThreadList
         (positiveId(it) ?: throw BadRequestException("Invalid ownerId")).toUInt()
     }.distinct(),
     fields = repeatedStrings("field", MAX_FILTER_VALUES).map(::fieldCriterion),
+    tags = tagFilter(),
 )
+
+/**
+ * The `tag` values, validated and case-folded ([requireTagFilter]); the bound of [MAX_TAG_FILTER_VALUES] counts the values AFTER folding
+ * (`A` and `a` are one), over a request that carries at most [MAX_RAW_TAG_VALUES] distinct raw ones.
+ */
+private fun Parameters.tagFilter(): List<String> {
+    val folded = repeatedStrings("tag", MAX_RAW_TAG_VALUES).map(::requireTagFilter).distinct()
+    if (folded.size > MAX_TAG_FILTER_VALUES) throw BadRequestException("Parameter 'tag' takes at most $MAX_TAG_FILTER_VALUES distinct tags")
+    return folded
+}
 
 private fun fieldCriterion(raw: String): FieldCriterion {
     val colon = raw.indexOf(':')
@@ -82,6 +95,7 @@ internal fun ThreadListFilter.predicate(roomId: UInt, workflow: RoomWorkflowSnap
     closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
     if (statuses.isNotEmpty()) predicate = predicate and (threads.statusKey inList statuses)
     if (ownerIds.isNotEmpty()) predicate = predicate and (threads.ownerId inList ownerIds)
+    if (tags.isNotEmpty()) predicate = predicate and threadCarriesAnyTag(roomId, threads.id, tags)
     fields.groupBy { it.key }.forEach { (key, criteria) ->
         val field = workflow?.fields?.firstOrNull { it.key == key && !it.retired }
             ?: throw BadRequestException("Unknown field '${key.shown()}'")

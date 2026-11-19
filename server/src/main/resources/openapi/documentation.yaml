@@ -1290,6 +1290,43 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/tags:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [threads]
+      operationId: listRoomTags
+      summary: List a room's hashtags
+      description: |
+        A member of the room or an `ADMIN` (a non-member gets the uniform `404`, then the parameters are checked: `400`).
+
+        A tag is a hashtag written in a message (`#Wdrozenie`); it belongs to the MESSAGE, so a thread has it while one of its live
+        messages does, and editing it away or deleting the message removes it. A row is the FOLDED tag (lower case, accents stripped: the
+        key the thread list's `tag` filter takes) and `threadCount`, the number of distinct threads, open and closed, that have a live
+        message carrying it. Nothing here is a record the caller can edit: the set is derived from the messages.
+
+        - Sortable fields: `tag`, `threadCount`. Default `-threadCount` (the most used first; ties by `tag`).
+        - Filter: `tag`, a case- and accent-insensitive substring of the tag (for a picker), at most 50 characters (`400` beyond). A
+          repeated key is a `400`.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - name: tag
+          in: query
+          required: false
+          schema: { type: string, maxLength: 50 }
+      responses:
+        '200':
+          description: A page of the room's tags
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomTagPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/threads:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -1308,7 +1345,12 @@ paths:
           within a key and all-of across keys (SELECT and MULTI_SELECT: an option key, one the room has since removed still finds
           the threads that kept it; USER: a user id). An unknown, RETIRED, TEXT, URL, DATE or NUMBER field key, a `field` without a
           colon and a value of the wrong shape for its type are a `400`.
-        - A well-formed status key, owner id or field value that matches nothing is an empty page, never an error. Checked in this
+        - `tag` (repeatable, any-of, at most 10 distinct after case folding) keeps the threads that have a LIVE message carrying any of
+          the hashtags: the value is the tag as written without its `#`, or a `tag` of `GET /rooms/{id}/tags` as returned, and it is
+          folded (case and accents ignored: `Wdrozenie` and `wdrożenie` are one tag). A returned key can hold punctuation and be longer
+          than a written tag, so a value is 1 to 150 characters without `#` or control characters. A malformed value, or more than 10
+          distinct values, is a `400`.
+        - A well-formed status key, owner id, field value or tag that matches nothing is an empty page, never an error. Checked in this
           order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
           what the caller may read.
         - A row carries the status KEY; labels and colours come from the room's workflow (`GET /rooms/{id}/workflow`).
@@ -1323,6 +1365,7 @@ paths:
         - $ref: '#/components/parameters/ThreadStatusFilter'
         - $ref: '#/components/parameters/ThreadOwnerFilter'
         - $ref: '#/components/parameters/ThreadFieldFilter'
+        - $ref: '#/components/parameters/ThreadTagFilter'
       responses:
         '200':
           description: A page of threads
@@ -1995,6 +2038,23 @@ components:
           type: string
           maxLength: 81
           pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*:([a-z][a-z0-9]*(-[a-z0-9]+)*|[0-9]+)$'
+      style: form
+      explode: true
+    ThreadTagFilter:
+      name: tag
+      in: query
+      required: false
+      description: >-
+        Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as
+        returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags
+        (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct
+        values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to
+        at most 10.
+      schema:
+        type: array
+        minItems: 1
+        maxItems: 10
+        items: { type: string, minLength: 1, maxLength: 150 }
       style: form
       explode: true
     ExpectedRevision:
@@ -3065,6 +3125,34 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ThreadListItem'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+    RoomTag:
+      type: object
+      required: [tag, threadCount]
+      properties:
+        tag:
+          type: string
+          minLength: 1
+          maxLength: 150
+          description: The FOLDED tag without its `#` (lower case, accents stripped); what the thread list's `tag` filter takes.
+        threadCount:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Distinct threads, open and closed, that have a live message carrying the tag.
+    RoomTagPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoomTag'
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 100 }
         total:

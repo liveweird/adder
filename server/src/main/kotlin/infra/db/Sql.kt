@@ -33,8 +33,8 @@ fun Expression<out String?>.containsNormalized(raw: String): Op<Boolean> {
 
 // Schema-qualified so resolution never depends on search_path. Accepts nullable string
 // expressions too: a NULL value never LIKE-matches, which is exactly what a substring filter
-// over an optional column should do.
-private fun unaccent(expr: Expression<*>): CustomFunction<String> =
+// over an optional column should do. Internal so the hashtag writes and the tag filter fold with the SAME function.
+internal fun unaccent(expr: Expression<*>): CustomFunction<String> =
     CustomFunction("public.unaccent", TextColumnType(), expr)
 
 /**

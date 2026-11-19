@@ -1,0 +1,303 @@
+[
+ {
+  "name": "a tag in a sentence",
+  "body": "Rollback done, see #outage for details",
+  "tags": [
+   "outage"
+  ]
+ },
+ {
+  "name": "a tag at the very start",
+  "body": "#outage is back",
+  "tags": [
+   "outage"
+  ]
+ },
+ {
+  "name": "a tag on its own line",
+  "body": "first line\n#outage",
+  "tags": [
+   "outage"
+  ]
+ },
+ {
+  "name": "a tag inside brackets and quotes",
+  "body": "(#a) \"#b\" [#c]",
+  "tags": [
+   "a",
+   "b",
+   "c"
+  ]
+ },
+ {
+  "name": "punctuation ends a tag",
+  "body": "#a, #b. #c! #d? #e; #f: #g's",
+  "tags": [
+   "a",
+   "b",
+   "c",
+   "d",
+   "e",
+   "f",
+   "g"
+  ]
+ },
+ {
+  "name": "hyphen, underscore and digits belong to a tag",
+  "body": "#db-outage #q3_2026 #a1",
+  "tags": [
+   "db-outage",
+   "q3_2026",
+   "a1"
+  ]
+ },
+ {
+  "name": "a trailing hyphen belongs to the tag",
+  "body": "#tag- done",
+  "tags": [
+   "tag-"
+  ]
+ },
+ {
+  "name": "a leading hyphen or underscore needs a letter later",
+  "body": "#-a #_b #_ #-",
+  "tags": [
+   "-a",
+   "_b"
+  ]
+ },
+ {
+  "name": "digits only is a thread number, not a tag",
+  "body": "see #42 and #7 and #2026",
+  "tags": []
+ },
+ {
+  "name": "digits then a letter is a tag",
+  "body": "#42a",
+  "tags": [
+   "42a"
+  ]
+ },
+ {
+  "name": "a lone hash is not a tag",
+  "body": "# # #",
+  "tags": []
+ },
+ {
+  "name": "a heading with a space is not a tag, a tag in it is",
+  "body": "# Title #x",
+  "tags": [
+   "x"
+  ]
+ },
+ {
+  "name": "a hash glued to a letter is no tag",
+  "body": "foo#bar a#b",
+  "tags": []
+ },
+ {
+  "name": "a hash glued to a digit is no tag",
+  "body": "3#a",
+  "tags": []
+ },
+ {
+  "name": "a hash after another hash is no tag",
+  "body": "##x #a#b",
+  "tags": [
+   "a"
+  ]
+ },
+ {
+  "name": "an HTML entity is no tag",
+  "body": "a &#39; b &#x27; c",
+  "tags": []
+ },
+ {
+  "name": "a path or an anchor is no tag",
+  "body": "/#anchor and x/#frag",
+  "tags": []
+ },
+ {
+  "name": "an e-mail fragment is no tag",
+  "body": "mail@example.com#frag then #real",
+  "tags": [
+   "real"
+  ]
+ },
+ {
+  "name": "a hash glued to a supplementary-plane letter is no tag",
+  "body": "\ud835\udc9c#a",
+  "tags": []
+ },
+ {
+  "name": "a tag of exactly fifty characters is a tag",
+  "body": "#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tags": [
+   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ]
+ },
+ {
+  "name": "a run of fifty-one characters is no tag at all",
+  "body": "#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa #ok",
+  "tags": [
+   "ok"
+  ]
+ },
+ {
+  "name": "case-different spellings are one tag, the first spelling wins",
+  "body": "#Wdro\u017cenie then #wdro\u017cenie and #WDRO\u017bENIE",
+  "tags": [
+   "Wdro\u017cenie"
+  ]
+ },
+ {
+  "name": "accent-different spellings stay apart in the parser",
+  "body": "#wdrozenie #wdro\u017cenie",
+  "tags": [
+   "wdrozenie",
+   "wdro\u017cenie"
+  ]
+ },
+ {
+  "name": "letters of other scripts are tag characters",
+  "body": "#\u041f\u0440\u0438\u0432\u0435\u0442 #\u65e5\u672c\u8a9e #\u03b1\u03b2\u03b3",
+  "tags": [
+   "\u041f\u0440\u0438\u0432\u0435\u0442",
+   "\u65e5\u672c\u8a9e",
+   "\u03b1\u03b2\u03b3"
+  ]
+ },
+ {
+  "name": "an emoji ends a tag",
+  "body": "#tag\ud83d\ude00 done",
+  "tags": [
+   "tag"
+  ]
+ },
+ {
+  "name": "the body is NFC-normalised: a decomposed letter joins its mark",
+  "body": "#Wdroz\u0307enie",
+  "tags": [
+   "Wdro\u017cenie"
+  ]
+ },
+ {
+  "name": "a backslash does not escape the hash",
+  "body": "\\#a",
+  "tags": [
+   "a"
+  ]
+ },
+ {
+  "name": "an inline code span is skipped",
+  "body": "`#a` and #b",
+  "tags": [
+   "b"
+  ]
+ },
+ {
+  "name": "a double-backtick span may hold a single backtick",
+  "body": "``#a ` #b`` #c",
+  "tags": [
+   "c"
+  ]
+ },
+ {
+  "name": "an unmatched backtick is plain text",
+  "body": "`#a",
+  "tags": [
+   "a"
+  ]
+ },
+ {
+  "name": "a fenced code block is skipped",
+  "body": "before\n```\n#a\n```\n#b",
+  "tags": [
+   "b"
+  ]
+ },
+ {
+  "name": "a fence with an info string is skipped",
+  "body": "```js\n#a\n```\n#b",
+  "tags": [
+   "b"
+  ]
+ },
+ {
+  "name": "a tilde fence is skipped",
+  "body": "~~~\n#a\n~~~\n#b",
+  "tags": [
+   "b"
+  ]
+ },
+ {
+  "name": "an unclosed fence runs to the end",
+  "body": "#a\n```\n#b",
+  "tags": [
+   "a"
+  ]
+ },
+ {
+  "name": "a longer fence is not closed by a shorter one",
+  "body": "````\n```\n#a\n````\n#b",
+  "tags": [
+   "b"
+  ]
+ },
+ {
+  "name": "a link destination is skipped",
+  "body": "[docs](https://example.com/page#frag) #b",
+  "tags": [
+   "b"
+  ]
+ },
+ {
+  "name": "an image destination is skipped",
+  "body": "![alt](img.png#x) #y",
+  "tags": [
+   "y"
+  ]
+ },
+ {
+  "name": "an autolink is skipped",
+  "body": "<https://example.com/#frag> #b",
+  "tags": [
+   "b"
+  ]
+ },
+ {
+  "name": "a bare URL is skipped",
+  "body": "see https://example.com/a#frag #b",
+  "tags": [
+   "b"
+  ]
+ },
+ {
+  "name": "a bare www address is skipped",
+  "body": "www.example.com/#x #b",
+  "tags": [
+   "b"
+  ]
+ },
+ {
+  "name": "a link reference definition is skipped",
+  "body": "[ref]: https://example.com/#frag\n#z",
+  "tags": [
+   "z"
+  ]
+ },
+ {
+  "name": "list items and quotes carry tags",
+  "body": "- #a\n- #b\n> #c",
+  "tags": [
+   "a",
+   "b",
+   "c"
+  ]
+ },
+ {
+  "name": "no hash, no tag",
+  "body": "nothing here",
+  "tags": []
+ }
+]

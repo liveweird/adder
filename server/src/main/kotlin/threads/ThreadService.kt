@@ -202,7 +202,7 @@ class ThreadService(
                 it[createdAt] = stamp
                 it[updatedAt] = stamp
             }[Threads.id].value
-            val messageId = messages.insertInTransaction(threadId, caller.userId, request.body, stamp)
+            val messageId = messages.insertInTransaction(roomId, threadId, caller.userId, request.body, stamp)
             events.record(threadId, caller.userId, threadCreatedEvent(request.title, initial.key, initial.label), stamp)
             rooms.touchActivity(roomId, stamp)
             // The opening message is part of this hint, never a `message.posted` of its own.

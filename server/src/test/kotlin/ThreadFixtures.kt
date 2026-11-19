@@ -7,6 +7,7 @@ import ch.nokillswit.teams.TeamService
 import ch.nokillswit.threads.CreatedThread
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageService
+import ch.nokillswit.threads.MessageTagService
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadService
@@ -38,7 +39,9 @@ import org.jetbrains.exposed.v1.r2dbc.update
 object TestThreads {
     val events: ThreadEventService by lazy { ThreadEventService(sharedDatabaseForTests()) }
     private val members: RoomMemberService by lazy { RoomMemberService(sharedDatabaseForTests(), TeamService(sharedDatabaseForTests())) }
-    val messages: MessageService by lazy { MessageService(sharedDatabaseForTests(), TestRooms.service) }
+    val messages: MessageService by lazy {
+        MessageService(sharedDatabaseForTests(), TestRooms.service, MessageTagService(sharedDatabaseForTests()))
+    }
     val service: ThreadService by lazy {
         ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, messages)
     }

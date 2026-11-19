@@ -18,6 +18,8 @@ import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.MessageServiceKey
+import ch.nokillswit.threads.MessageTagService
+import ch.nokillswit.threads.MessageTagServiceKey
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadEventServiceKey
 import ch.nokillswit.threads.ThreadService
@@ -295,7 +297,10 @@ suspend fun Application.configureDatabase() {
     // The thread aggregate (V14): a thread write runs under the room lock and reads the room through the rooms/ services only.
     val threadEventService = ThreadEventService(database)
     attributes.put(ThreadEventServiceKey, threadEventService)
-    val messageService = MessageService(database, roomService)
+    // The hashtag index (V15) is written inside the message writes, so the message service holds it; a boot reindex reads it back.
+    val messageTagService = MessageTagService(database)
+    attributes.put(MessageTagServiceKey, messageTagService)
+    val messageService = MessageService(database, roomService, messageTagService)
     attributes.put(MessageServiceKey, messageService)
     attributes.put(
         ThreadServiceKey,

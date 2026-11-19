@@ -66,8 +66,11 @@ internal suspend fun <T> R2dbcDatabase.withThreadWrite(
     block(ThreadWrite(fresh, standing, thread))
 }
 
-/** The message row as a write under the room lock sees it: who wrote it and what it says now (a deleted message is never read here). */
-internal data class MessageRow(val authorId: UInt, val body: String)
+/**
+ * The message row as a write under the room lock sees it: who wrote it, what it says now and the grammar version its hashtags were
+ * indexed under (a deleted message is never read here).
+ */
+internal data class MessageRow(val authorId: UInt, val body: String, val tagsVersion: Short)
 
 /** What a message write's block is handed: the thread write (caller, standing and thread row, as under the lock) and the message row. */
 internal class MessageWrite(val threadWrite: ThreadWrite, val message: MessageRow) {
@@ -96,7 +99,7 @@ internal suspend fun <T> R2dbcDatabase.withMessageWrite(
     val row = messages.innerJoin(threads).selectAll()
         .where { (messages.id eq messageId) and (threads.roomId eq roomId) and messages.active() }
         .toList().singleOrNull() ?: throw NotFoundException("Message not found")
-    val message = MessageRow(row[messages.authorId].value, row[messages.body])
+    val message = MessageRow(row[messages.authorId].value, row[messages.body], row[messages.tagsVersion])
     actGuard(fresh, standing, message)
     block(MessageWrite(ThreadWrite(fresh, standing, row.toThreadRow()), message))
 }

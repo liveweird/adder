@@ -9,6 +9,7 @@ import ch.qos.logback.classic.spi.ThrowableProxyUtil
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
+import io.ktor.client.request.get
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -131,6 +132,43 @@ class ChatLogHygieneTest {
             assertTrue("thread.created" in names && "message.posted" in names && "message.deleted" in names, "captured: $names")
             val leaked = capture.events.filter { marker in it.rendered() }
             assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries user content")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    /**
+     * A hashtag is user content like a body: the tag index, the thread list's `tag` filter and the room's tag list (its `tag` substring)
+     * must leave the tag in no log line of any logger, whether the request is answered or refused (a malformed filter is a `400` whose
+     * detail may echo the value, a response and never a log).
+     */
+    @Test
+    fun `no log line carries a hashtag - written, edited, deleted, filtered or listed`() = testApplication {
+        val tag = "hygtag" + UUID.randomUUID().toString().replace("-", "")
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            usePostgresTestcontainer()
+            val cast = castWithThread("hyg-tag")
+            val posted = cast.post("""{"body":"P #$tag and #${tag}x"}""")
+            assertEquals(HttpStatusCode.Created, posted.status)
+            val messageId = posted.body<MessageResponse>().id
+            assertEquals(
+                HttpStatusCode.NoContent,
+                cast.member.client.raw(HttpMethod.Put, "$rooms/${cast.room}/messages/$messageId", """{"body":"E #${tag}y"}""").status,
+            )
+            val threads = "$rooms/${cast.room}/threads"
+            assertEquals(HttpStatusCode.OK, cast.member.client.get("$threads?tag=${tag}y").status)
+            assertEquals(HttpStatusCode.OK, cast.member.client.get("$threads?tag=${tag.uppercase()}&tag=nothing").status)
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$threads?tag=%23$tag").status)
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$threads?tag=${tag}${"z".repeat(120)}").status)
+            assertEquals(HttpStatusCode.OK, cast.member.client.get("$rooms/${cast.room}/tags?tag=${tag.take(12)}").status)
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$rooms/${cast.room}/tags?tag=${tag}${"z".repeat(60)}").status)
+            assertEquals(HttpStatusCode.NoContent, cast.member.client.delete("$rooms/${cast.room}/messages/$messageId").status)
+
+            val names = capture.events.map { it.message }
+            assertTrue("message.posted" in names && "message.edited" in names && "message.deleted" in names, "captured: $names")
+            val leaked = capture.events.filter { tag in it.rendered() || tag.uppercase() in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a hashtag")
         } finally {
             capture.detach()
         }
