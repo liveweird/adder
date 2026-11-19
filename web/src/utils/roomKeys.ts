@@ -2,6 +2,14 @@
 // channel's `keysForFrame` all build their keys here, so renaming a key part cannot silently desync a live hint from the page it should refresh.
 // Every key is a prefix: a reader appends its own parameters (a page number, a sort), a hint names the prefix.
 
+/**
+ * The search results: `["search", q, scope, page]` for the search across the caller's rooms, `["search", "room", R, q, scope, page]` for one room's.
+ * Both sit OUTSIDE `["rooms"]`, because search results are not live (every re-read spends a token of the reader's `search` bucket and one of the
+ * server's few search slots): only the frames that take the room away name them (`revoked`, and `room.deleted` for the room's own), and the session
+ * boundary clears them. A hint that names a room's thread tree, or `["rooms"]`, never matches them.
+ */
+export const searchAllKey = ["search"] as const;
+
 export const roomKeys = {
   /** Everything about rooms: the blunt refresh after a refusal, and a live `resync`. */
   all: ["rooms"] as const,
@@ -28,4 +36,6 @@ export const roomKeys = {
   threadDetail: (room: number, thread: number | null) => ["rooms", "threads", room, "detail", thread] as const,
   threadEvents: (room: number, thread: number) => ["rooms", "threads", room, "events", thread] as const,
   messages: (room: number, thread: number) => ["rooms", "threads", room, "messages", thread] as const,
+  /** One room's search results (see `searchAllKey`): not under the room's thread tree, so the hints that re-read the tree leave an open search alone. */
+  search: (room: number) => [...searchAllKey, "room", room] as const,
 };

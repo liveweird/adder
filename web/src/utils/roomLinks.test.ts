@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSettingsPath, roomWorkflowPath, roomsPath, threadPath, focusThreadPaneState, tagFilterPath, wantsThreadPaneFocus, withListParams } from "./roomLinks";
+import { newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSearchPath, roomSettingsPath, roomWorkflowPath, roomsPath, searchPath, threadMessagePath, threadPath, focusThreadPaneState, tagFilterPath, wantsThreadPaneFocus, withListParams } from "./roomLinks";
 
 describe("roomLinks", () => {
   test("builds the list, create, room, members, workflow and settings paths", () => {
@@ -41,5 +41,20 @@ describe("roomLinks", () => {
     expect(withListParams("/rooms/7", new URLSearchParams("page=2&message=9&focus=1"))).toBe("/rooms/7?page=2");
     expect(withListParams("/rooms/7", "?scope=junk&order=activity&page=1")).toBe("/rooms/7");
     expect(withListParams("/rooms/7", "")).toBe("/rooms/7");
+  });
+
+  test("the search routes: one room's, and the one across rooms", () => {
+    expect(roomSearchPath(7)).toBe("/rooms/7/search");
+    expect(searchPath).toBe("/search");
+  });
+
+  test("threadMessagePath names the thread and the message to jump to", () => {
+    expect(threadMessagePath(7, 42, 991)).toBe("/rooms/7/threads/42?message=991");
+  });
+
+  test("threadMessagePath carries the list's keys only when asked, normalized, and never a search page's own keys", () => {
+    expect(threadMessagePath(7, 42, 991, "?scope=closed&order=number&page=3&q=outage&message=5")).toBe("/rooms/7/threads/42?message=991&scope=closed&order=number&page=3");
+    expect(threadMessagePath(7, 42, 991, new URLSearchParams("tag=a&tag=b&scope=junk"))).toBe("/rooms/7/threads/42?message=991&tag=a&tag=b");
+    expect(threadMessagePath(7, 42, 991, "")).toBe("/rooms/7/threads/42?message=991");
   });
 });

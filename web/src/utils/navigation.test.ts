@@ -6,7 +6,7 @@ describe("visibleSections", () => {
     const sections = visibleSections(false);
     expect(sections.map((s) => s.label)).toEqual(["appShell.section.overview", ROOMS_SECTION, "appShell.section.administration"]);
     const paths = sections.flatMap((s) => s.items.map((l) => l.to));
-    expect(paths).toEqual(["/", "/rooms", "/teams"]);
+    expect(paths).toEqual(["/", "/search", "/rooms", "/teams"]);
   });
 
   test("an admin session gets Teams, Users, Workflow templates and Feature flags in the Administration section", () => {
@@ -33,6 +33,7 @@ describe("activeNavPath", () => {
     expect(activeNavPath("/workflow-templates/3/edit", leaves)).toBe("/workflow-templates");
     expect(activeNavPath("/rooms", leaves)).toBe("/rooms");
     expect(activeNavPath("/rooms/new", leaves)).toBe("/rooms");
+    expect(activeNavPath("/search", leaves)).toBe("/search");
   });
 
   test("a room of the rail lights up on every page of that room, and the static leaf on the rest", () => {

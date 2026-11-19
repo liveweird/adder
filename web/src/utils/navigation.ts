@@ -1,6 +1,6 @@
 import type { ParseKeys } from "i18next";
-import { IconDoor, IconHistory, IconHome2, IconKey, IconListCheck, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
-import { roomsPath } from "./roomLinks";
+import { IconDoor, IconHistory, IconHome2, IconKey, IconListCheck, IconSearch, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
+import { roomsPath, searchPath } from "./roomLinks";
 import { teamsPath } from "./teamLinks";
 import { usersPath } from "./userLinks";
 import { workflowTemplatesPath } from "./workflowTemplateLinks";
@@ -45,7 +45,10 @@ export const ROOMS_SECTION: ParseKeys = "appShell.section.rooms";
 const NAV_SECTIONS: ReadonlyArray<NavSection> = [
   {
     label: "appShell.section.overview",
-    items: [{ to: homePath, label: "appShell.nav.home", icon: IconHome2 }],
+    items: [
+      { to: homePath, label: "appShell.nav.home", icon: IconHome2 },
+      { to: searchPath, label: "appShell.nav.search", icon: IconSearch },
+    ],
   },
   {
     label: "appShell.section.rooms",

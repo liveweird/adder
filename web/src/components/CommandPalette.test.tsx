@@ -7,11 +7,16 @@ import { palette } from "../utils/commandPalette";
 import { jsonResponse } from "../test/http";
 
 function Probe() {
-  const { pathname } = useLocation();
-  return <p>at {pathname}</p>;
+  const { pathname, search } = useLocation();
+  return (
+    <>
+      <p>at {pathname}</p>
+      <p>with {search}</p>
+    </>
+  );
 }
 
-function renderPalette() {
+function renderPalette(route?: string) {
   return renderWithProviders(
     <>
       <CommandPalette />
@@ -19,6 +24,7 @@ function renderPalette() {
         <Route path="*" element={<Probe />} />
       </Routes>
     </>,
+    { route },
   );
 }
 
@@ -127,6 +133,82 @@ describe("CommandPalette", () => {
       palette.open();
       await screen.findByRole("button", { name: /^Home/ });
       expect(screen.queryByText("Rooms")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("the Search group", () => {
+    const ROOMS = {
+      items: [{ id: 12, name: "Night Shift", description: null, archived: false, role: "OWNER", memberCount: 3, lastActivityAt: 5, createdAt: 1 }],
+      page: 1,
+      pageSize: 100,
+      total: 1,
+    };
+    const ROOM = { ...ROOMS.items[0], archivedAt: null, workflowRevision: 1, updatedAt: 1 };
+
+    function serveRooms() {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => Promise.resolve(String(input) === "/api/v1/rooms/12" ? jsonResponse(200, ROOM) : jsonResponse(200, ROOMS))),
+      );
+    }
+
+    test("from two searchable characters, an action searches all rooms for the term, and a pick opens the page with the term", async () => {
+      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: 0 }))));
+      const user = userEvent.setup();
+      renderPalette();
+      palette.open();
+      const box = await screen.findByRole("textbox");
+      await user.type(box, "o");
+      expect(screen.queryByRole("button", { name: /Search all rooms/ })).not.toBeInTheDocument();
+      await user.type(box, "ut");
+      await user.click(await screen.findByRole("button", { name: "Search all rooms for “out”" }));
+      expect(await screen.findByText("at /search")).toBeInTheDocument();
+      expect(screen.getByText("with ?q=out")).toBeInTheDocument();
+    });
+
+    test("a term with no letter or digit offers no search", async () => {
+      vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: 0 }))));
+      const user = userEvent.setup();
+      renderPalette();
+      palette.open();
+      await user.type(await screen.findByRole("textbox"), "!!");
+      expect(await screen.findByText("Nothing found")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Search all rooms/ })).not.toBeInTheDocument();
+    });
+
+    test("inside a room there is also an action that searches that room, and it reaches the room's search page", async () => {
+      serveRooms();
+      const user = userEvent.setup();
+      renderPalette("/rooms/12/threads/3");
+      palette.open();
+      await user.type(await screen.findByRole("textbox"), "disk full");
+      expect(await screen.findByRole("button", { name: "Search all rooms for “disk full”" })).toBeInTheDocument();
+      await user.click(await screen.findByRole("button", { name: "Search Night Shift for “disk full”" }));
+      expect(await screen.findByText("at /rooms/12/search")).toBeInTheDocument();
+      expect(screen.getByText("with ?q=disk+full")).toBeInTheDocument();
+    });
+
+    test("when the room cannot be read (a 404) there is no room action, only the search across rooms", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => Promise.resolve(String(input) === "/api/v1/rooms/12" ? jsonResponse(404, { title: "Not found", status: 404 }) : jsonResponse(200, ROOMS))),
+      );
+      const user = userEvent.setup();
+      renderPalette("/rooms/12/search");
+      palette.open();
+      await user.type(await screen.findByRole("textbox"), "disk");
+      await screen.findByRole("button", { name: "Search all rooms for “disk”" });
+      expect(screen.queryByRole("button", { name: /^Search Night Shift/ })).not.toBeInTheDocument();
+    });
+
+    test("outside a room there is no room action", async () => {
+      serveRooms();
+      const user = userEvent.setup();
+      renderPalette("/teams");
+      palette.open();
+      await user.type(await screen.findByRole("textbox"), "disk");
+      await screen.findByRole("button", { name: "Search all rooms for “disk”" });
+      expect(screen.queryByRole("button", { name: /^Search Night Shift/ })).not.toBeInTheDocument();
     });
   });
 });

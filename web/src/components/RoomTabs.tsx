@@ -1,9 +1,9 @@
 import { Button, Group } from "@mantine/core";
 import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { roomMembersPath, roomPath, roomSettingsPath, roomWorkflowPath } from "../utils/roomLinks";
+import { roomMembersPath, roomPath, roomSearchPath, roomSettingsPath, roomWorkflowPath } from "../utils/roomLinks";
 
-export type RoomTabKey = "home" | "members" | "workflow" | "settings";
+export type RoomTabKey = "home" | "search" | "members" | "workflow" | "settings";
 
 /**
  * The room's page switcher: real links (a route per tab), the open one marked with `aria-current`. Not an ARIA tablist — there
@@ -13,6 +13,7 @@ export default function RoomTabs({ id, active }: { id: number; active: RoomTabKe
   const { t } = useTranslation();
   const tabs: ReadonlyArray<{ key: RoomTabKey; to: string; label: string }> = [
     { key: "home", to: roomPath(id), label: t("rooms.tabs.home") },
+    { key: "search", to: roomSearchPath(id), label: t("rooms.tabs.search") },
     { key: "members", to: roomMembersPath(id), label: t("rooms.tabs.members") },
     { key: "workflow", to: roomWorkflowPath(id), label: t("rooms.tabs.workflow") },
     { key: "settings", to: roomSettingsPath(id), label: t("rooms.tabs.settings") },

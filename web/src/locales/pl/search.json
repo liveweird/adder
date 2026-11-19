@@ -1,0 +1,37 @@
+{
+  "submit": "Szukaj",
+  "scope": {
+    "aria": "Które wątki przeszukać"
+  },
+  "room": {
+    "label": "Szukaj w tym pokoju"
+  },
+  "all": {
+    "label": "Szukaj we wszystkich swoich pokojach"
+  },
+  "hint": "Słowa są dopasowywane w takiej formie, w jakiej je wpiszesz, bez uwzględniania odmiany. Wyraz od 3 znaków pasuje do początku słowa („awari” znajdzie „awaria”), krótszy musi pasować dokładnie. Wszystkie wyrazy muszą wystąpić w jednej wiadomości albo w tytule. Wielkość liter i znaki diakrytyczne nie mają znaczenia.",
+  "empty": "Nic nie pasuje do „{{q}}”.",
+  "error": {
+    "tooShort": "Wpisz co najmniej dwa znaki, w tym literę lub cyfrę.",
+    "tooLong": "Użyj najwyżej 100 znaków.",
+    "invalid": "Wyszukiwane słowa nie mogą zawierać znaków sterujących.",
+    "timeout": "Wyszukiwanie trwało zbyt długo. Zawęź je dokładniejszym słowem.",
+    "busy": "Serwer jest teraz zajęty. Spróbuj ponownie za chwilę.",
+    "rate": "Zbyt wiele wyszukiwań. Poczekaj chwilę i spróbuj ponownie.",
+    "gone": "Ten pokój już nie istnieje albo nie jesteś już jego członkiem/członkinią.",
+    "failedStatus": "Wyszukiwanie nie powiodło się ({{status}})"
+  },
+  "results": {
+    "aria": "Wyniki wyszukiwania",
+    "count_one": "Znaleziono {{count}} wątek",
+    "count_few": "Znaleziono {{count}} wątki",
+    "count_many": "Znaleziono {{count}} wątków",
+    "count_other": "Znaleziono {{count}} wątku",
+    "matches_one": "{{count}} pasująca wiadomość",
+    "matches_few": "{{count}} pasujące wiadomości",
+    "matches_many": "{{count}} pasujących wiadomości",
+    "matches_other": "{{count}} pasującej wiadomości",
+    "open": "Otwarty",
+    "closed": "Zamknięty"
+  }
+}

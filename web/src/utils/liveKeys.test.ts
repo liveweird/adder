@@ -3,7 +3,7 @@ import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query
 import { FakeClock } from "../test/socket";
 import { createLiveInvalidator, keysForFrame } from "./liveKeys";
 import { LIVE_EVENT_KINDS, type LiveServerFrame } from "./liveProtocol";
-import { roomKeys } from "./roomKeys";
+import { roomKeys, searchAllKey } from "./roomKeys";
 
 const event = (kind: string, roomId: number, threadNumber?: number, messageId?: number): LiveServerFrame => ({
   type: "event",
@@ -83,10 +83,33 @@ describe("keysForFrame: the key map", () => {
     for (const kind of ["room.member_added", "room.member_role_changed", "room.member_removed"]) expect(keysForFrame(event(kind, 5))).toEqual(keys);
   });
 
-  test("room.deleted, revoked and an unknown kind with a room all re-read everything the room's pages read", () => {
-    expect(keysForFrame(event("room.deleted", 5))).toEqual(gone(5));
-    expect(keysForFrame({ type: "revoked", roomId: 5 })).toEqual(gone(5));
+  test("room.deleted and an unknown kind with a room re-read everything the room's pages read; room.deleted also names the room's search results", () => {
+    expect(keysForFrame(event("room.deleted", 5))).toEqual([...gone(5), ["search", "room", 5]]);
     expect(keysForFrame(event("room.from_the_future", 5, 7))).toEqual(gone(5));
+  });
+
+  test("revoked re-reads the same, the room's own search results, and an open search across rooms (a lost room's hits must leave it)", () => {
+    expect(keysForFrame({ type: "revoked", roomId: 5 })).toEqual([...gone(5), ["search", "room", 5], ["search"]]);
+  });
+
+  test("of every frame, only revoked and room.deleted name a room's search results: results are not live", () => {
+    // A hint "names" a search when invalidating its key would re-read the search (the key is a prefix of the search's, or the other way round).
+    const search = roomKeys.search(5);
+    const names = (frame: LiveServerFrame) => keysForFrame(frame).some((key) => startsWith(search, key) || startsWith(key, search));
+    const frames: LiveServerFrame[] = [
+      ...LIVE_EVENT_KINDS.map((kind) => event(kind, 5, 7, 99)),
+      ...LIVE_EVENT_KINDS.map((kind) => event(kind, 5)),
+      event("room.from_the_future", 5, 7),
+      { type: "revoked", roomId: 5 },
+      { type: "subscribed", roomIds: [5, 6], refused: [], capped: [] },
+      { type: "ready", protocol: 1, maxSubscriptions: 128 },
+      { type: "resync" },
+      { type: "pong" },
+    ];
+    const naming = frames.filter(names).map((frame) => (frame.type === "event" ? frame.kind : frame.type));
+    expect([...new Set(naming)].sort()).toEqual(["revoked", "room.deleted"]);
+    // ...and the search of ANOTHER room is never named by a frame about room 5.
+    expect(frames.some((frame) => keysForFrame(frame).some((key) => startsWith(roomKeys.search(6), key) && key.length > 1))).toBe(false);
   });
 
   test("a thread or message kind without its thread number falls back to the room's thread tree and the rail", () => {
@@ -124,6 +147,8 @@ describe("keysForFrame: the key map", () => {
   });
 });
 
+const startsWith = (key: readonly unknown[], prefix: readonly unknown[]) => prefix.every((part, i) => key[i] === part);
+
 /** The key a filter names (the spy's parameter type hides it behind `Omit`). */
 const keyOf = (filters: unknown) => (filters as { queryKey: unknown[] }).queryKey;
 
@@ -142,8 +167,9 @@ describe("the keys and the readers cannot drift apart", () => {
     roomKeys.threadDetail(5, 7),
     [...roomKeys.threadEvents(5, 7), 1],
     roomKeys.messages(5, 7),
+    [...roomKeys.search(5), "term", "all", 1],
+    [...searchAllKey, "term", "all", 1],
   ];
-  const startsWith = (key: readonly unknown[], prefix: readonly unknown[]) => prefix.every((part, i) => key[i] === part);
 
   test("the room's tag options sit under the thread-list prefix, so every hint that refreshes the list refreshes them", () => {
     expect(startsWith(roomKeys.threadTags(5), roomKeys.threadList(5))).toBe(true);
@@ -156,6 +182,12 @@ describe("the keys and the readers cannot drift apart", () => {
         kind,
       ).toBe(true);
     }
+  });
+
+  test("a room's search results sit outside both the room's thread tree and ['rooms'], so no hint for those re-reads them", () => {
+    expect(startsWith(roomKeys.search(5), roomKeys.threads(5))).toBe(false);
+    expect(startsWith(roomKeys.search(5), roomKeys.all)).toBe(false);
+    expect(startsWith(roomKeys.search(5), searchAllKey)).toBe(true);
   });
 
   test("every key a hint names is a prefix of a key some reader uses", () => {
@@ -211,6 +243,23 @@ describe("createLiveInvalidator", () => {
     const holdListBusy = () => fetching.mockImplementation((filters) => (keyOf(filters)[3] === "list" ? 1 : 0));
     return { queryClient, clock, invalidate, fetching, invalidator, flushed, flushedMessages, holdListBusy };
   }
+
+  test("a re-read of an open search is flushed like any focused key, and the rail's next re-read is not delayed by it", () => {
+    const t = setup();
+    t.invalidator.handle({ type: "revoked", roomId: 5 });
+    t.clock.advanceBy(300);
+    expect(t.flushed()).toContainEqual(["search"]);
+    expect(t.flushed()).toContainEqual(["search", "room", 5]);
+    const railReads = () => t.flushed().filter((key) => JSON.stringify(key) === JSON.stringify(RAIL)).length;
+    expect(railReads()).toBe(1);
+    // The rail is spaced from ITS OWN last re-read (3 s), never from a search's: a hint 3 s after it re-reads it again at once (300 ms settle).
+    t.clock.advanceBy(2_700);
+    t.invalidator.handle(event("room.created", 5));
+    t.clock.advanceBy(299);
+    expect(railReads()).toBe(1);
+    t.clock.advanceBy(1);
+    expect(railReads()).toBe(2);
+  });
 
   test("a burst of hints settles for 300 ms after the last one and then re-reads each focused key once", () => {
     const t = setup();

@@ -1,0 +1,33 @@
+{
+  "submit": "Search",
+  "scope": {
+    "aria": "Which threads to search"
+  },
+  "room": {
+    "label": "Search this room"
+  },
+  "all": {
+    "label": "Search all your rooms"
+  },
+  "hint": "Words are matched as typed, with no stemming. A term of 3 or more characters matches the start of a word (“awari” finds “awaria”); a shorter one must match exactly. Every term must appear within one message or within the title. Case and accents are ignored.",
+  "empty": "Nothing matches “{{q}}”.",
+  "error": {
+    "tooShort": "Type at least two characters, with a letter or a digit.",
+    "tooLong": "Use at most 100 characters.",
+    "invalid": "The search cannot contain control characters.",
+    "timeout": "The search took too long. Narrow it down with a more specific word.",
+    "busy": "The server is busy. Try again in a moment.",
+    "rate": "Too many searches. Wait a moment and try again.",
+    "gone": "This room no longer exists, or you are no longer a member of it.",
+    "failedStatus": "Search failed ({{status}})"
+  },
+  "results": {
+    "aria": "Search results",
+    "count_one": "{{count}} thread found",
+    "count_other": "{{count}} threads found",
+    "matches_one": "{{count}} matching message",
+    "matches_other": "{{count}} matching messages",
+    "open": "Open",
+    "closed": "Closed"
+  }
+}

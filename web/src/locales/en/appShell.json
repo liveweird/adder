@@ -5,6 +5,7 @@
   "toggleMobileNav": "Toggle navigation",
   "nav": {
     "home": "Home",
+    "search": "Search",
     "users": "Users",
     "changePassword": "Change password",
     "featureFlags": "Feature flags",
@@ -33,7 +34,10 @@
     "groupPages": "Pages",
     "groupRooms": "Rooms",
     "nothingFound": "Nothing found",
-    "groupActions": "Actions"
+    "groupActions": "Actions",
+    "groupSearch": "Search",
+    "searchAll": "Search all rooms for “{{q}}”",
+    "searchRoom": "Search {{room}} for “{{q}}”"
   },
   "live": {
     "reconnecting": "Reconnecting…",

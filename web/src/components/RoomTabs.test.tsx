@@ -9,6 +9,8 @@ describe("RoomTabs", () => {
     expect(nav).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Threads" })).toHaveAttribute("href", "/rooms/12");
     expect(screen.getByRole("link", { name: "Threads" })).not.toHaveAttribute("aria-current");
+    expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("href", "/rooms/12/search");
+    expect(screen.getByRole("link", { name: "Search" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute("href", "/rooms/12/members");
     expect(screen.getByRole("link", { name: "Members" })).not.toHaveAttribute("aria-current");
     expect(screen.getByRole("link", { name: "Workflow" })).toHaveAttribute("href", "/rooms/12/workflow");

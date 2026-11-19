@@ -5,6 +5,7 @@
   "toggleMobileNav": "Przełącz nawigację",
   "nav": {
     "home": "Strona główna",
+    "search": "Szukaj",
     "users": "Użytkownicy/czki",
     "changePassword": "Zmiana hasła",
     "featureFlags": "Flagi funkcji",
@@ -33,7 +34,10 @@
     "groupPages": "Strony",
     "groupRooms": "Pokoje",
     "nothingFound": "Nic nie znaleziono",
-    "groupActions": "Akcje"
+    "groupActions": "Akcje",
+    "groupSearch": "Szukaj",
+    "searchAll": "Szukaj „{{q}}” we wszystkich pokojach",
+    "searchRoom": "Szukaj „{{q}}” w pokoju {{room}}"
   },
   "live": {
     "reconnecting": "Ponowne łączenie…",

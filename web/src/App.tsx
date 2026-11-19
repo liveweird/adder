@@ -28,6 +28,8 @@ import classes from "./theme.module.css";
 const TelemetryPanel = lazy(() => import("./components/TelemetryPanel"));
 const Login = lazy(() => import("./pages/Login"));
 const Home = lazy(() => import("./pages/Home"));
+const Search = lazy(() => import("./pages/Search"));
+const RoomSearch = lazy(() => import("./pages/RoomSearch"));
 const Rooms = lazy(() => import("./pages/Rooms"));
 const CreateRoom = lazy(() => import("./pages/CreateRoom"));
 const RoomHome = lazy(() => import("./pages/RoomHome"));
@@ -260,11 +262,13 @@ export default function App() {
         <Route element={<RequireAuth />}>
           <Route element={<Shell />}>
             <Route index element={<Home />} />
+            <Route path="search" element={<Search />} />
             <Route path="rooms" element={<Rooms />} />
             <Route path="rooms/new" element={<CreateRoom />} />
             <Route path="rooms/:id" element={<RoomHome />} />
             <Route path="rooms/:id/threads/new" element={<RoomHome isNew />} />
             <Route path="rooms/:id/threads/:number" element={<RoomHome />} />
+            <Route path="rooms/:id/search" element={<RoomSearch />} />
             <Route path="rooms/:id/members" element={<RoomMembers />} />
             <Route path="rooms/:id/workflow" element={<RoomWorkflow />} />
             <Route path="rooms/:id/settings" element={<RoomSettings />} />

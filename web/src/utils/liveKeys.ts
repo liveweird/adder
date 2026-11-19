@@ -4,7 +4,7 @@
 
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { LiveClock } from "./liveClient";
-import { roomKeys } from "./roomKeys";
+import { roomKeys, searchAllKey } from "./roomKeys";
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
 
 const { rail: RAIL, list: ROOM_LIST, detail, members, workflow, workflowEdit, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
@@ -47,7 +47,8 @@ function eventKeys(kind: LiveEventKind, r: number, n: number | undefined): Query
     case "room.unarchived":
       return [detail(r), RAIL, ROOM_LIST];
     case "room.deleted":
-      return roomGone(r);
+      // The one hint besides `revoked` that names the room's search results: the room is gone, so are its hits.
+      return [...roomGone(r), roomKeys.search(r)];
     case "room.workflow_updated":
       return [workflow(r), workflowEdit(r), threadList(r), roomKeys.threadDetails(r), roomKeys.threadHistories(r)];
     case "room.member_added":
@@ -66,7 +67,8 @@ export function keysForFrame(frame: LiveServerFrame): QueryKey[] {
       // A kind this client does not know: re-read the room, whatever it was.
       return isKnownKind(frame.kind) ? eventKeys(frame.kind, frame.roomId, frame.threadNumber) : roomGone(frame.roomId);
     case "revoked":
-      return roomGone(frame.roomId);
+      // A lost room's hits leave an open search, the room's own and the one across rooms; search results are otherwise not live.
+      return [...roomGone(frame.roomId), roomKeys.search(frame.roomId), searchAllKey];
     case "subscribed":
       // The subscription is live only from this ack: whatever changed between the page's own read and now is caught by one re-read.
       return frame.roomIds.flatMap((r) => [detail(r), threads(r), members(r), workflow(r), workflowEdit(r)]);
@@ -99,9 +101,12 @@ function isAggregate(key: QueryKey): boolean {
 
 const idOf = (key: QueryKey) => JSON.stringify(key);
 
-/** The aggregates a re-read of this key ALSO refreshes (a room's whole thread tree includes its list; `["rooms"]` includes the rail and the rooms list). */
+/**
+ * The aggregates a re-read of this key ALSO refreshes (a room's whole thread tree includes its list; `["rooms"]` includes the rail and the rooms list).
+ * `["search"]` is the other key of length one and covers none: a guard, so a search re-read is never stamped as a rail or rooms-list re-read.
+ */
 function coveredAggregates(key: QueryKey): string[] {
-  if (key.length === 1) return [idOf(RAIL), idOf(ROOM_LIST)];
+  if (key.length === 1) return key[0] === "rooms" ? [idOf(RAIL), idOf(ROOM_LIST)] : [];
   if (key.length === 3 && key[1] === "threads") return [idOf(threadList(key[2] as number))];
   return [];
 }

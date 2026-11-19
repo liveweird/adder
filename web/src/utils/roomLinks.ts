@@ -7,6 +7,9 @@ export const roomPath = (id: number) => `${roomsPath}/${id}`;
 export const roomMembersPath = (id: number) => `${roomPath(id)}/members`;
 export const roomWorkflowPath = (id: number) => `${roomPath(id)}/workflow`;
 export const roomSettingsPath = (id: number) => `${roomPath(id)}/settings`;
+/** Search: one room's, and the one across the caller's rooms. */
+export const roomSearchPath = (id: number) => `${roomPath(id)}/search`;
+export const searchPath = "/search";
 
 /** The numeric id of a `:id` route parameter, or null when it is not a plain positive int32 (`12abc`, `1e3`, `0`, `-1`): such a room cannot exist. */
 export function parseRoomId(param: string | undefined): number | null {
@@ -36,6 +39,17 @@ export function withListParams(path: string, search: string | URLSearchParams): 
  */
 export function tagFilterPath(roomId: number, number: number, tag: string): string {
   return `${threadPath(roomId, number)}?${writeThreadListParams(new URLSearchParams(), { scope: "all", tag: [tag] })}`;
+}
+
+/**
+ * A found message's link: the thread that holds it, with `message=<id>` naming the message to jump to (the thread view reads it). `search`, the
+ * current URL's query, passes the thread list's keys through [listSearch] when the link should keep the reader's list state; a search page's own
+ * keys (`q`, `page`...) are never carried.
+ */
+export function threadMessagePath(roomId: number, number: number, messageId: number, search?: string | URLSearchParams): string {
+  const query = new URLSearchParams({ message: String(messageId) });
+  if (search !== undefined) for (const [key, value] of listSearch(new URLSearchParams(search))) query.append(key, value);
+  return `${threadPath(roomId, number)}?${query}`;
 }
 
 /** The per-room number of a `:number` route parameter, or null when it is not a plain positive int32 (`new`, `0`, `1e3`): no such thread exists. */

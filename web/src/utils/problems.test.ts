@@ -12,6 +12,8 @@ describe("problems", () => {
       statusInUse: "urn:adder:problem:status-in-use",
       fieldTypeImmutable: "urn:adder:problem:field-type-immutable",
       roomBusy: "urn:adder:problem:room-busy",
+      searchTimeout: "urn:adder:problem:search-timeout",
+      searchBusy: "urn:adder:problem:search-busy",
     });
   });
 
