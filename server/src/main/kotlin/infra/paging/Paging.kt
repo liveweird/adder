@@ -2,7 +2,7 @@ package ch.nokillswit.infra.paging
 
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.plugins.BadRequestException
-import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.r2dbc.Query
 
@@ -56,7 +56,12 @@ fun ApplicationCall.parsePaging(
     return PageRequest(page = page, pageSize = pageSize, sort = withTiebreaker)
 }
 
-fun Query.applyPaging(req: PageRequest, columns: Map<String, Column<*>>): Query {
+/**
+ * Applies the sort, limit and offset of [req]. [columns] maps a sort name to an [Expression] rather than a `Column`: the one departure
+ * from the verbatim Lettuce port, so a list can sort by a computed value (the thread list's `CASE` over the workflow order). `Map` is
+ * covariant, so a `Map<String, Column<*>>` still compiles unchanged.
+ */
+fun Query.applyPaging(req: PageRequest, columns: Map<String, Expression<*>>): Query {
     val order = req.sort.map { sf ->
         val column = columns[sf.name]
             ?: error("Sort field '${sf.name}' has no mapped column (paging helper invariant violated)")

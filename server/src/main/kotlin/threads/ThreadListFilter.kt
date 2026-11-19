@@ -1,0 +1,132 @@
+package ch.nokillswit.threads
+
+import ch.nokillswit.infra.db.jsonbContains
+import ch.nokillswit.infra.paging.repeatedStrings
+import ch.nokillswit.rooms.RoomWorkflowSnapshot
+import ch.nokillswit.rooms.SnapshotField
+import ch.nokillswit.workflows.FieldType
+import ch.nokillswit.workflows.requireKey
+import ch.nokillswit.workflows.shown
+import io.ktor.http.Parameters
+import io.ktor.server.plugins.BadRequestException
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import org.jetbrains.exposed.v1.core.Case
+import org.jetbrains.exposed.v1.core.Expression
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.compoundOr
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.intLiteral
+import org.jetbrains.exposed.v1.core.isNotNull
+import org.jetbrains.exposed.v1.core.isNull
+
+// The thread list's filters (`chat-model.md` "The thread list: filters and sorts"): parsed from the query string in the route (after the
+// visibility 404, so a non-member's bad filter is still a 404) and turned into ONE predicate for the count and the rows. The `field`
+// filter needs the room's workflow to be judged (its type decides the predicate), so its check runs in the service, in the list's own
+// transaction, over `RoomWorkflowService.snapshot`: `threads/` never reads the workflow tables.
+
+/** The sort name of the status's position in the room's workflow. */
+const val STATUS_SORT = "status"
+
+/** The most distinct values of `status`, of `ownerId` and of `field` a request may carry (each key is its own bound). */
+const val MAX_FILTER_VALUES = 20
+
+/** One `field=key:value` pair as the request spelled it: the key is well formed, the value is judged against the field's type later. */
+data class FieldCriterion(val key: String, val value: String)
+
+/**
+ * The thread list's filters. Within a parameter the values are any-of; across parameters (and across field keys) all-of. A blank list
+ * filters nothing. A well-formed but unknown status key or owner id matches nothing; an unknown, retired or unfilterable FIELD key is a
+ * `400` ([predicate]).
+ */
+data class ThreadListFilter(
+    val closed: Boolean? = null,
+    val statuses: List<String> = emptyList(),
+    val ownerIds: List<UInt> = emptyList(),
+    val fields: List<FieldCriterion> = emptyList(),
+)
+
+/** The filters of the thread list; a malformed key, id or pair, or too many values, is a `400` ([BadRequestException]). */
+fun Parameters.threadListFilter(closed: Boolean?): ThreadListFilter = ThreadListFilter(
+    closed = closed,
+    statuses = repeatedStrings("status", MAX_FILTER_VALUES).onEach { requireKey(it, "Status key '${it.shown()}'") },
+    // Read as strings, not `repeatedLongs`: that helper takes a leading `+` and any script's digits; an id here is ASCII digits only.
+    ownerIds = repeatedStrings("ownerId", MAX_FILTER_VALUES).map {
+        (positiveId(it) ?: throw BadRequestException("Invalid ownerId")).toUInt()
+    }.distinct(),
+    fields = repeatedStrings("field", MAX_FILTER_VALUES).map(::fieldCriterion),
+)
+
+private fun fieldCriterion(raw: String): FieldCriterion {
+    val colon = raw.indexOf(':')
+    if (colon < 0) throw BadRequestException("A field filter is key:value")
+    val key = raw.substring(0, colon)
+    requireKey(key, "Field key '${key.shown()}'")
+    return FieldCriterion(key, raw.substring(colon + 1))
+}
+
+/** The filter has a part that needs the room's workflow. */
+internal val ThreadListFilter.needsWorkflow: Boolean get() = fields.isNotEmpty()
+
+/**
+ * The ONE predicate of the count and the rows. [workflow] is the room's snapshot and is required when [ThreadListFilter.fields] is not
+ * empty; a field key that is unknown, retired or of a type that has no filter (TEXT, URL, DATE, NUMBER) is a `400`.
+ */
+internal fun ThreadListFilter.predicate(roomId: UInt, workflow: RoomWorkflowSnapshot?): Op<Boolean> {
+    val threads = ThreadService.Threads
+    var predicate: Op<Boolean> = threads.roomId eq roomId
+    closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
+    if (statuses.isNotEmpty()) predicate = predicate and (threads.statusKey inList statuses)
+    if (ownerIds.isNotEmpty()) predicate = predicate and (threads.ownerId inList ownerIds)
+    fields.groupBy { it.key }.forEach { (key, criteria) ->
+        val field = workflow?.fields?.firstOrNull { it.key == key && !it.retired }
+            ?: throw BadRequestException("Unknown field '${key.shown()}'")
+        val documents = criteria.map { filterDocument(field, it.value) }
+        predicate = predicate and documents.map { threads.fieldValues.jsonbContains(it) }.compoundOr()
+    }
+    return predicate
+}
+
+/**
+ * The containment document of one criterion: SELECT `{"severity":"s1"}`, MULTI_SELECT `{"labels":["a"]}`, USER `{"lead":42}` (a number,
+ * because `jsonb` compares numbers by value and a string never equals one). A SELECT or MULTI_SELECT value only has to be a well-formed
+ * key, not a current option: a removed option still finds the threads that kept it.
+ */
+private fun filterDocument(field: SnapshotField, value: String): String {
+    val element: JsonElement = when (field.type) {
+        FieldType.SELECT -> JsonPrimitive(optionKey(field, value))
+        FieldType.MULTI_SELECT -> JsonArray(listOf(JsonPrimitive(optionKey(field, value))))
+        FieldType.USER -> JsonPrimitive(userId(field, value))
+        else -> throw BadRequestException("Field '${field.key.shown()}' of type ${field.type} cannot be filtered")
+    }
+    return JsonObject(mapOf(field.key to element)).toString()
+}
+
+private fun optionKey(field: SnapshotField, value: String): String {
+    requireKey(value, "Value of field '${field.key.shown()}'")
+    return value
+}
+
+private fun userId(field: SnapshotField, value: String): Long =
+    positiveId(value) ?: throw BadRequestException("Value of field '${field.key.shown()}' must be a user id")
+
+/** [value] as an id of 1 to int32: ASCII digits only (no sign, no other script's digits), else null. */
+private fun positiveId(value: String): Long? =
+    value.takeIf { text -> text.all { it in '0'..'9' } }?.toLongOrNull()?.takeIf { it in 1..Int.MAX_VALUE }
+
+/**
+ * `CASE status_key WHEN ? THEN 0 WHEN ? THEN 1 ... ELSE n END`: the status's position in the workflow, from the keys of
+ * `RoomWorkflowService.snapshot` in position order (retired ones too, a thread can still sit in one). The ELSE keeps a key the snapshot
+ * lacks last instead of failing the list.
+ */
+internal fun statusOrder(workflow: RoomWorkflowSnapshot): Expression<Int> {
+    val keys = workflow.statuses.map { it.key }
+    val statusKey = ThreadService.Threads.statusKey
+    val order = Case().When(statusKey eq keys.first(), intLiteral(0))
+    keys.drop(1).forEachIndexed { index, key -> order.When(statusKey eq key, intLiteral(index + 1)) }
+    return order.Else(intLiteral(keys.size))
+}

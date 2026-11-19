@@ -251,11 +251,14 @@ class RoomWorkflowService(private val database: R2dbcDatabase) {
     }
 
     /**
-     * The room's statuses and fields, retired ones included, in position order. Runs inside the caller's transaction (a thread write,
-     * under the room lock), so the snapshot is the very state the write is validated against: no workflow PUT can interleave.
+     * The room's statuses and fields, retired ones included, in position order (a retired row keeps its last position, which an active
+     * row can share, so the statuses tie-break by key: the order is total and the thread list's `sort=status` is deterministic). Runs
+     * inside the caller's transaction (a thread write, under the room lock), so the snapshot is the very state the write is validated
+     * against: no workflow PUT can interleave.
      */
     suspend fun snapshot(roomId: UInt): RoomWorkflowSnapshot = RoomWorkflowSnapshot(
-        statuses = RoomStatuses.selectAll().where { RoomStatuses.roomId eq roomId }.orderBy(RoomStatuses.position to SortOrder.ASC).map {
+        statuses = RoomStatuses.selectAll().where { RoomStatuses.roomId eq roomId }
+            .orderBy(RoomStatuses.position to SortOrder.ASC, RoomStatuses.key to SortOrder.ASC).map {
             SnapshotStatus(
                 key = it[RoomStatuses.key],
                 label = it[RoomStatuses.label],

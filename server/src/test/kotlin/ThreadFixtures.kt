@@ -136,6 +136,14 @@ object TestThreads {
         }
     }
 
+    /** Moves a thread to [statusKey] by raw update, closing nothing (an OPEN status such as `monitoring`; [closeRaw] is the CLOSED one). */
+    suspend fun moveRaw(roomId: UInt, number: Int, statusKey: String) {
+        suspendTransaction(sharedDatabaseForTests()) {
+            val t = ThreadService.Threads
+            t.update({ (t.roomId eq roomId) and (t.number eq number) }) { it[t.statusKey] = statusKey }
+        }
+    }
+
     /**
      * Sets a thread's `created_at` and `last_activity_at` (and `updated_at`, when given) by raw update (distinct stamps for a sort test:
      * a loop shares a millisecond).

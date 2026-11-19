@@ -241,6 +241,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     A malformed create body is `404` for an outsider, `403` for an ADMIN outside the room and `400` only for a member. A thread is addressed by `(room id, number)`, so another room's number is
     never reachable: the lookup is scoped to the room the visibility check admitted. An archived room refuses the POST with the typed `409` `urn:adder:problem:room-archived`. Tests:
     `ThreadAuthzMatrixTest` (a fresh room per cell), `ThreadTest`, `ThreadWriteBoundsTest`, `MessageTest`, `GuardsTest`.
+    **List filters:** `status`, `ownerId` and `field` narrow what `GET /rooms/{id}/threads` returns inside the room the visibility check admitted; they never widen it (the predicate always starts at `room_id = ?`). The order is `401`, the visibility `404`, then the filter `400`s, so a non-member's malformed filter is still `404`. A RETIRED field key is a `400`, never a match: its stored values are hidden from readers (`chat-model.md` "Stored values survive"), and a filter would otherwise let a reader probe them. Test: `ThreadListFilterTest`.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: three sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**
   (`GET /users/{id}`): a forbidden caller gets a uniform 403 whether or not the id exists — use it

@@ -854,9 +854,17 @@ export interface paths {
          * List a room's threads
          * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`).
          *
-         *     - Sortable fields: `id`, `number`, `title`, `lastActivityAt`, `createdAt`. Default `id` ascending (the SPA sends `-lastActivityAt`).
+         *     - Sortable fields: `id`, `number`, `title`, `lastActivityAt`, `createdAt`, `status` (the status's position in the room's
+         *       workflow: the first status first, a retired one where it sits). Default `id` ascending (the SPA sends `-lastActivityAt`).
          *     - Filters: `closed` (strict `true` or `false`, on the status category: `true` = only closed threads, `false` = only open ones;
-         *       omitted = both). A repeated key is a `400`.
+         *       omitted = both; a repeated key is a `400`), and the repeatable `status`, `ownerId` and `field`: any-of within one parameter,
+         *       all-of across parameters. `field` is `key:value` on an ACTIVE SELECT, MULTI_SELECT or USER field of the room, any-of
+         *       within a key and all-of across keys (SELECT and MULTI_SELECT: an option key, one the room has since removed still finds
+         *       the threads that kept it; USER: a user id). An unknown, RETIRED, TEXT, URL, DATE or NUMBER field key, a `field` without a
+         *       colon and a value of the wrong shape for its type are a `400`.
+         *     - A well-formed status key, owner id or field value that matches nothing is an empty page, never an error. Checked in this
+         *       order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
+         *       what the caller may read.
          *     - A row carries the status KEY; labels and colours come from the room's workflow (`GET /rooms/{id}/workflow`).
          */
         get: operations["listThreads"];
@@ -2534,6 +2542,12 @@ export interface components {
         DirectoryPageSize: number;
         /** @description Free-text search (API-LIST-005), REQUIRED where declared (the user directory). Case- and accent-insensitive substring match; the endpoint declares which fields it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
         Q: string;
+        /** @description Repeatable - any of these status keys (the thread list). A well-formed key that is not a status of the room matches nothing; a malformed one, or more than 20 distinct values, is a `400`. */
+        ThreadStatusFilter: string[];
+        /** @description Repeatable - any of these owner ids (the thread list; "mine" is the caller's own id). An id that owns nothing matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
+        ThreadOwnerFilter: number[];
+        /** @description Repeatable `key:value` (the thread list): the field's key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). Any-of within one key, all-of across keys; at most 20 distinct pairs. The key must be an ACTIVE SELECT, MULTI_SELECT or USER field of the room; any other key, a missing colon or a value of the wrong shape is a `400`. */
+        ThreadFieldFilter: string[];
         /**
          * @description The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
          *     malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
@@ -3919,6 +3933,12 @@ export interface operations {
                  */
                 sort?: components["parameters"]["Sort"];
                 closed?: boolean;
+                /** @description Repeatable - any of these status keys (the thread list). A well-formed key that is not a status of the room matches nothing; a malformed one, or more than 20 distinct values, is a `400`. */
+                status?: components["parameters"]["ThreadStatusFilter"];
+                /** @description Repeatable - any of these owner ids (the thread list; "mine" is the caller's own id). An id that owns nothing matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
+                ownerId?: components["parameters"]["ThreadOwnerFilter"];
+                /** @description Repeatable `key:value` (the thread list): the field's key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). Any-of within one key, all-of across keys; at most 20 distinct pairs. The key must be an ACTIVE SELECT, MULTI_SELECT or USER field of the room; any other key, a missing colon or a value of the wrong shape is a `400`. */
+                field?: components["parameters"]["ThreadFieldFilter"];
             };
             header?: never;
             path: {

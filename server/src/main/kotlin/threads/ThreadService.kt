@@ -47,8 +47,11 @@ private val LIST_COLUMNS: List<Column<*>> = with(ThreadService.Threads) {
     listOf(id, number, title, statusKey, closedAt, ownerId, messageCount, lastActivityAt, createdAt)
 }
 
-/** The ONE sortable whitelist of the thread list - derived from the column map so the two can never drift. */
-val THREAD_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
+/**
+ * The ONE sortable whitelist of the thread list - derived from the column map so the two can never drift, plus [STATUS_SORT], the
+ * computed workflow order that [ThreadService.list] adds to the map for the one request that sorts by it.
+ */
+val THREAD_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys + STATUS_SORT
 
 /**
  * The thread aggregate's record (V14 `threads`, never deleted in 0.3): list, read, create (with its opening message and its
@@ -89,15 +92,19 @@ class ThreadService(
     }
 
     /**
-     * One page of the room's threads: one predicate for the count and the rows, in one transaction. The rows select only the columns a
-     * [ThreadListItem] shows: never `fields`, the jsonb document that can be tens of kilobytes per thread (page size 100 would
-     * otherwise load megabytes the list never reads).
+     * One page of the room's threads: one predicate ([predicate]) for the count and the rows, in one transaction. The rows select only
+     * the columns a [ThreadListItem] shows: never `fields`, the jsonb document that can be tens of kilobytes per thread (page size 100
+     * would otherwise load megabytes the list never reads). The room's workflow snapshot is read only when a `field` filter or
+     * `sort=status` needs it, so the plain list keeps its two queries.
      */
-    suspend fun list(roomId: UInt, closed: Boolean?, paging: PageRequest): ThreadListResult = suspendTransaction(database) {
-        var predicate: Op<Boolean> = Threads.roomId eq roomId
-        closed?.let { predicate = predicate and (if (it) Threads.closedAt.isNotNull() else Threads.closedAt.isNull()) }
+    suspend fun list(roomId: UInt, filter: ThreadListFilter, paging: PageRequest): ThreadListResult = suspendTransaction(database) {
+        val sortsByStatus = paging.sort.any { it.name == STATUS_SORT }
+        val workflow = if (filter.needsWorkflow || sortsByStatus) workflows.snapshot(roomId) else null
+        val predicate = filter.predicate(roomId, workflow)
+        val columns: Map<String, Expression<*>> = workflow?.takeIf { sortsByStatus }
+            ?.let { SORTABLE_COLUMNS + (STATUS_SORT to statusOrder(it)) } ?: SORTABLE_COLUMNS
         val total = Threads.selectAll().where { predicate }.count()
-        val rows = Threads.select(LIST_COLUMNS).where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
+        val rows = Threads.select(LIST_COLUMNS).where { predicate }.applyPaging(paging, columns).toList()
         val names = userNames(rows.map { it[Threads.ownerId].value })
         ThreadListResult(
             items = rows.map {

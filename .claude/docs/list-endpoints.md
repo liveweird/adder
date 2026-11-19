@@ -42,7 +42,7 @@ hand-roll `lowerCase() like containsPattern(...)`, and keep unaccent-before-LOWE
 breaks uppercase-diacritic input under a C-locale database). The SPA mirrors the rule via the
 theme-level `foldedOptionsFilter` (`web/src/utils/text.ts`).
 
-**Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. No endpoint uses `IN` semantics in v0.1.0; the first consumer adds a per-endpoint ledger line here (Flow kept its ledger in a report doc that was not ported).
+**Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. Ledger: `GET /rooms/{id}/threads` takes `status`, `ownerId` and `field=key:value` (each at most 20 distinct; any-of within a key, all-of across; `threads/ThreadListFilter.kt`); `closed` stays scalar. A new consumer adds a line.
 
 **No shape-exception exists yet.** Every list keeps the paged envelope. A purpose-built document (e.g. a room's thread board, if the chat views need one) answers
 outside it only with a documented cap and a line here in the commit that introduces it; Flow's report drill lists (`{meta, bar, items[<=500], total, truncated}`) were the precedent.
@@ -53,4 +53,4 @@ pattern with the first filterable list that needs them.
 
 **Keyset inside the envelope:** `GET .../messages?id[lt]=` (the first bracket filter; `optionalUInt`; default `-id`): `total` counts AFTER it, so `total > items.length` means older rows exist.
 
-A room's members, threads and a thread's history are the paged sub-collections (whitelists, filters, caps): `chat-model.md` "Paged lists of a room".
+A room's members, threads and a thread's history are the paged sub-collections (whitelists, filters, caps): `chat-model.md` "Paged lists of a room". The thread list also sorts by `status` (workflow order) and filters by repeated `status`, `ownerId` and `field=key:value`.
