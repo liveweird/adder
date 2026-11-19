@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigationType } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Box, Button, Group, Stack, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
-import { IconChevronDown, IconChevronRight, IconMessageOff } from "@tabler/icons-react";
+import { IconChevronDown, IconChevronRight, IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand, IconMessageOff } from "@tabler/icons-react";
 import { ApiError } from "../api/http";
 import type { RoomResponse } from "../api/rooms";
 import { getThread } from "../api/threads";
+import { useLiveSearchParams } from "../hooks/useLiveSearchParams";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { parseThreadNumber, wantsThreadPaneFocus } from "../utils/roomLinks";
+import { parseFocus, parseMessageAnchor, writeFocus } from "../utils/threadListParams";
 import EmptyState from "./EmptyState";
 import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
@@ -25,13 +27,22 @@ import { roomKeys } from "../utils/roomKeys";
  * status, owner, message count and when it started and last moved (the browser's time zone) — then the conversation (`MessageList`, newest at
  * the bottom) and the reply box (`MessageComposer`, or the note that says why there is none). The side panel (`ThreadSidePanel`: Status, Owner, Details, History) is part of the pane, placed beside the conversation from a wide main area and behind a "Details" toggle below it (`ThreadPane.module.css`). A number that names no thread (not a plain positive number, or a 404) reads as one "does not exist". The section is
  * programmatically focusable and takes focus once its thread has loaded after a navigation that asked for it (a list row, a started
- * thread — `wantsThreadPaneFocus`), the `RoomWorkflowForm` precedent: the clicked row is left behind in the list.
+ * thread — `wantsThreadPaneFocus`), the `RoomWorkflowForm` precedent: the clicked row is left behind in the list. A `replace` (a filter
+ * change, the focus toggle) never asks for it, and neither does a jump to a message (the conversation focuses that message).
+ *
+ * Two keys of the URL belong to the pane (`utils/threadListParams.ts`): `message=<id>` is the message the conversation jumps to (a search hit's
+ * link) and `focus=1` is the focus view, which `RoomHome` reads to hide the thread list; the header's "Focus on this thread" toggle
+ * (`aria-pressed`) writes it by `replace`, keeping the list's keys. The URL is the state, so a reload keeps it; nothing remembers it. A thread
+ * that cannot be shown (missing, unreadable, failed) says so with its own "Show the thread list" button while the view is on, so it is never a dead end.
  */
 export default function ThreadPane({ room, numberParam }: { room: RoomResponse; numberParam: string | undefined }) {
   const { t } = useTranslation();
   const headingId = useId();
   const sideId = useId();
   const location = useLocation();
+  const [search, setSearch] = useLiveSearchParams();
+  const focusView = parseFocus(search);
+  const anchorId = parseMessageAnchor(search);
   const paneRef = useRef<HTMLDivElement>(null);
   const number = parseThreadNumber(numberParam);
   const workflow = useRoomWorkflow(room.id);
@@ -47,15 +58,38 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   });
   // Keyed by the loaded thread's id (not the object), so a background refetch never pulls focus back.
   const loadedId = thread?.id ?? null;
-  const focusRequested = wantsThreadPaneFocus(location.state);
+  const navigationType = useNavigationType();
+  const focusRequested = wantsThreadPaneFocus(location.state) && navigationType !== "REPLACE" && anchorId === null;
   useEffect(() => {
     if (focusRequested && loadedId !== null) paneRef.current?.focus();
   }, [focusRequested, location.key, loadedId]);
   // A 404 wins over a copy cached from an earlier visit (the room lost the thread's reader since).
   const notFound = number === null || (error instanceof ApiError && error.status === 404);
+  // In the focus view the list is hidden: a pane with no thread to show carries its own way back.
+  const showList = focusView ? (
+    <Button variant="default" size="xs" style={{ alignSelf: "flex-start" }} onClick={() => setSearch((prev) => writeFocus(prev, false), { replace: true })}>
+      {t("threads.focus.off")}
+    </Button>
+  ) : null;
 
-  if (notFound) return <EmptyState icon={IconMessageOff} label={t("threads.pane.notFound")} />;
-  if (!thread) return isLoading ? <LoadingBlock /> : <ErrorAlert error={error} title={t("threads.pane.loadFailed")} />;
+  if (notFound) {
+    return (
+      <Stack gap="sm">
+        <EmptyState icon={IconMessageOff} label={t("threads.pane.notFound")} />
+        {showList}
+      </Stack>
+    );
+  }
+  if (!thread) {
+    return isLoading ? (
+      <LoadingBlock />
+    ) : (
+      <Stack gap="sm">
+        <ErrorAlert error={error} title={t("threads.pane.loadFailed")} />
+        {showList}
+      </Stack>
+    );
+  }
 
   const zone = browserTimeZone();
   return (
@@ -82,18 +116,28 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             {t("threads.pane.lastActivity", { when: formatDateTime(thread.lastActivityAt, zone) })}
           </Text>
         </Group>
-        <Button
-          className={classes.toggle}
-          variant="default"
-          size="xs"
-          style={{ alignSelf: "flex-start" }}
-          aria-expanded={detailsOpen}
-          aria-controls={sideId}
-          leftSection={detailsOpen ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
-          onClick={() => setDetailsOpen((open) => !open)}
-        >
-          {t("threads.side.toggle")}
-        </Button>
+        <Group gap="xs">
+          <Button
+            variant={focusView ? "light" : "default"}
+            size="xs"
+            aria-pressed={focusView}
+            leftSection={focusView ? <IconLayoutSidebarLeftExpand size={14} /> : <IconLayoutSidebarLeftCollapse size={14} />}
+            onClick={() => setSearch((prev) => writeFocus(prev, !parseFocus(prev)), { replace: true })}
+          >
+            {t("threads.focus.on")}
+          </Button>
+          <Button
+            className={classes.toggle}
+            variant="default"
+            size="xs"
+            aria-expanded={detailsOpen}
+            aria-controls={sideId}
+            leftSection={detailsOpen ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+            onClick={() => setDetailsOpen((open) => !open)}
+          >
+            {t("threads.side.toggle")}
+          </Button>
+        </Group>
       </Stack>
       <div id={sideId} className={classes.side} data-open={detailsOpen}>
         <ThreadSidePanel key={`${room.id}/${thread.number}`} room={room} thread={thread} />
@@ -105,6 +149,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           thread={thread}
           scrollToId={scrollRequest?.threadNumber === thread.number ? scrollRequest.messageId : null}
           onScrolled={clearScrollRequest}
+          anchorId={anchorId}
         />
         <MessageComposer room={room} thread={thread} onPosted={(messageId) => setScrollRequest({ threadNumber: thread.number, messageId })} />
       </Stack>

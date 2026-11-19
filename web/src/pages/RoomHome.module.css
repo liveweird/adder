@@ -9,6 +9,7 @@
  *   is only placed beside the conversation.
  * - below it: master-detail. `data-pane="list"` (`/rooms/:id`) shows only the list, `data-pane="thread"` (a thread or the new-thread form)
  *   only the pane, which carries the "Back to threads" link.
+ * - the focus view (`data-focus`, only ever set on a thread route): the list is hidden at every width and the pane takes the whole row.
  */
 .root {
   container-type: inline-size;
@@ -42,4 +43,13 @@
   .back {
     display: none;
   }
+}
+
+/* Specific enough to beat the two-column rule above whatever order the bundler emits them in. */
+.layout[data-focus] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.layout[data-focus] .list {
+  display: none;
 }

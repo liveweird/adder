@@ -97,6 +97,15 @@
     "loadOlder": "Load older messages",
     "loadFailed": "Could not load the messages"
   },
+  "focus": {
+    "on": "Focus on this thread",
+    "off": "Show the thread list"
+  },
+  "anchor": {
+    "gone": "That message no longer exists.",
+    "tooFar": "That message is too far back to jump to. Keep loading older messages to look for it.",
+    "found": "Found the message by {{author}}."
+  },
   "message": {
     "name": "message by {{author}} on {{when}}",
     "edited": "edited {{when}}",

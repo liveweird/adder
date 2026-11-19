@@ -24,9 +24,22 @@ import RowActionsMenu from "./RowActionsMenu";
  * re-reads the whole `["rooms"]` prefix, so the controls follow the truth. The failure of an edit or a delete shows under the message: it
  * lives HERE, so it outlives an editor that the refusal takes away (the thread closed), and `editing` resets when the edit action goes.
  * Focus has somewhere to go: the message (`tabIndex={-1}`) takes it back after an edit ends (saved or cancelled) and when the message
- * becomes the tombstone of the caller's own delete or removal.
+ * becomes the tombstone of the caller's own delete or removal. `data-message-id` lets the list find the message it jumps to.
  */
-export default function MessageItem({ roomId, message, actions, zone }: { roomId: number; message: MessageResponse; actions: MessageActions; zone: string }) {
+export default function MessageItem({
+  roomId,
+  message,
+  actions,
+  zone,
+  anchored = false,
+}: {
+  roomId: number;
+  message: MessageResponse;
+  actions: MessageActions;
+  zone: string;
+  /** The message a jump landed on: marked for the list's highlight (`data-anchor`; the list finds it by `data-message-id`). */
+  anchored?: boolean;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -72,7 +85,7 @@ export default function MessageItem({ roomId, message, actions, zone }: { roomId
   }
 
   return (
-    <Box component="li" ref={item} tabIndex={-1} py="xs">
+    <Box component="li" ref={item} tabIndex={-1} py="xs" data-message-id={message.id} data-anchor={anchored || undefined}>
       <Stack gap={4}>
         <Group justify="space-between" align="center" wrap="nowrap" gap="xs">
           <Group gap="xs" wrap="wrap" miw={0}>

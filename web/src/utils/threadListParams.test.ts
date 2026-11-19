@@ -9,6 +9,8 @@ import {
   listSearch,
   ORDER_SORT,
   ORDERS,
+  parseFocus,
+  parseMessageAnchor,
   parseThreadListParams,
   pruneFieldEntries,
   rememberedQuery,
@@ -17,6 +19,7 @@ import {
   SCOPES,
   setFieldValues,
   toApiQuery,
+  writeFocus,
   writeThreadListParams,
   type ThreadListParams,
 } from "./threadListParams";
@@ -230,5 +233,35 @@ describe("threadListParams", () => {
   test("every scope and order has its server side: the closed filter and a whitelisted sort", () => {
     expect(SCOPE_FILTER).toEqual({ open: false, closed: true, all: undefined });
     expect(ORDER_SORT).toEqual({ activity: "-lastActivityAt", newest: "-createdAt", number: "number", status: "status" });
+  });
+
+  describe("the room view's own keys: focus and message", () => {
+    test("focus is on only for focus=1", () => {
+      expect(parseFocus(q("focus=1"))).toBe(true);
+      for (const junk of ["", "focus=0", "focus=true", "focus=", "focus=11"]) expect(parseFocus(q(junk))).toBe(false);
+    });
+
+    test("writing focus keeps every other key, and off removes it", () => {
+      const on = writeFocus(q("scope=all&tag=a&message=5"), true);
+      expect(on.get("focus")).toBe("1");
+      expect(on.get("scope")).toBe("all");
+      expect(on.get("message")).toBe("5");
+      expect(writeFocus(on, false).toString()).toBe("scope=all&tag=a&message=5");
+    });
+
+    test("the message to jump to is a positive integer; anything else is dropped", () => {
+      expect(parseMessageAnchor(q("message=42"))).toBe(42);
+      expect(parseMessageAnchor(q("message=123456789012345"))).toBe(123456789012345);
+      for (const junk of ["", "message=", "message=0", "message=-1", "message=4x", "message=1.5", "message=1e3", "message=012", "message=1234567890123456", "message=%20"]) {
+        expect(parseMessageAnchor(q(junk))).toBeNull();
+      }
+    });
+
+    test("they are not list keys: a list write keeps them, the remembered query and the links never carry them", () => {
+      expect(hasListKeys(q("focus=1&message=5"))).toBe(false);
+      expect(writeThreadListParams(q("focus=1&message=5"), { scope: "all" }).toString()).toBe("focus=1&message=5&scope=all");
+      expect(rememberedQuery(q("scope=all&focus=1&message=5"))).toBe("scope=all");
+      expect(listSearch(q("scope=all&focus=1&message=5")).toString()).toBe("scope=all");
+    });
   });
 });

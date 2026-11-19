@@ -9,6 +9,7 @@ import RoomPage from "../components/RoomPage";
 import ThreadList from "../components/ThreadList";
 import ThreadPane from "../components/ThreadPane";
 import { parseThreadNumber, roomPath, withListParams } from "../utils/roomLinks";
+import { parseFocus } from "../utils/threadListParams";
 import classes from "./RoomHome.module.css";
 
 /** The conversation pane's body, by route: the new-thread form, one thread, or — with none open — a prompt. */
@@ -22,18 +23,21 @@ function PaneBody({ room, isNew, numberParam }: { room: RoomResponse; isNew: boo
 /**
  * `/rooms/:id`, `/rooms/:id/threads/new` and `/rooms/:id/threads/:number` — one page, the room's Threads tab: the header and tabs, then
  * the thread list beside the pane the route names (the layout and its container breakpoint: `RoomHome.module.css`). In a narrow main area it is
- * master-detail: the list at the room's own route, the pane on the thread routes with a "Back to threads" link.
+ * master-detail: the list at the room's own route, the pane on the thread routes with a "Back to threads" link. `?focus=1` (the pane's
+ * "Focus on this thread" toggle) hides the list at every width so the conversation takes the main area; it is read on a thread route only
+ * (the room's own route and the new-thread form ignore it), and the list stays mounted, so leaving the focus view loses nothing.
  */
 export default function RoomHome({ isNew = false }: { isNew?: boolean }) {
   const { t } = useTranslation();
   const { id, number: numberParam } = useParams();
   const { search } = useLocation();
   const inPane = isNew || numberParam !== undefined;
+  const focusView = numberParam !== undefined && parseFocus(new URLSearchParams(search));
   return (
     <RoomPage idParam={id} tab="home">
       {(room) => (
         <div className={classes.root}>
-          <div className={classes.layout} data-pane={inPane ? "thread" : "list"}>
+          <div className={classes.layout} data-pane={inPane ? "thread" : "list"} data-focus={focusView || undefined}>
             <div className={classes.list}>
               <ThreadList room={room} activeNumber={parseThreadNumber(numberParam)} />
             </div>

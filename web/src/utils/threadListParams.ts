@@ -2,8 +2,9 @@
  * The thread list's state as URL query parameters, the pure half (the hook is `hooks/useThreadListParams.ts`).
  *
  * Parsing drops junk (an unknown value reads as the default), and writing omits defaults, so a URL only ever spells what differs from
- * the plain list and a shared link means the same list for everyone. Keys that are not the list's (`focus`, `message` and the like,
- * owned by other features) pass through a write untouched. To add a list key: put it in `ThreadListParams`, `DEFAULTS`, `LIST_KEYS`,
+ * the plain list and a shared link means the same list for everyone. Keys that are not the list's pass through a write untouched; the two
+ * view keys of the room (`focus`, `message`) are parsed and written here too, but are deliberately NOT list keys: the remembered query and
+ * the in-room links carry the list's state only, never the focus view (a link back to the list must show it) or a message to jump to. To add a list key: put it in `ThreadListParams`, `DEFAULTS`, `LIST_KEYS`,
  * `parseThreadListParams` and `serialize`; `withListParams` (roomLinks) and the remembered query follow on their own.
  * `toApiQuery` turns the state into the request (resolving `owner=me`, dropping a stale `field` key).
  */
@@ -94,6 +95,28 @@ export function parseThreadListParams(search: URLSearchParams): ThreadListParams
 /** Whether the URL spells any list key at all, valid or not (a bare URL is what the remembered query is restored onto). */
 export function hasListKeys(search: URLSearchParams): boolean {
   return LIST_KEYS.some((key) => search.has(key));
+}
+
+/** The room view's focus switch: `focus=1` hides the thread list so the conversation takes the main area; anything else reads as off. */
+export function parseFocus(search: URLSearchParams): boolean {
+  return search.get("focus") === "1";
+}
+
+/** `base` with the focus switch on (`focus=1`) or off (the key removed); every other key survives. */
+export function writeFocus(base: URLSearchParams, on: boolean): URLSearchParams {
+  const out = new URLSearchParams(base);
+  if (on) out.set("focus", "1");
+  else out.delete("focus");
+  return out;
+}
+
+/** A message id as the API carries it: a positive integer within JavaScript's safe range (at most 15 digits). */
+const MESSAGE_ID = /^[1-9]\d{0,14}$/;
+
+/** The message a thread link asks to jump to (`message=<id>`), or null when the key is absent or not a positive integer. */
+export function parseMessageAnchor(search: URLSearchParams): number | null {
+  const raw = search.get("message");
+  return raw !== null && MESSAGE_ID.test(raw) ? Number(raw) : null;
 }
 
 /** The list keys that differ from the defaults, in URL order. */

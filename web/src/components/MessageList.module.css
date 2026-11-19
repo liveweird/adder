@@ -27,3 +27,13 @@
 .list > li + li {
   border-top: 1px solid var(--mantine-color-default-border);
 }
+
+/*
+ * The message a jump landed on. The mark is a heavy outline (a shape, so it survives forced colours and does not rely on hue) beside a
+ * tinted background; the list clears it after a few seconds (`data-anchor`), and the message keeps the focus.
+ */
+.list > li[data-anchor] {
+  outline: 3px solid var(--adder-accent-ink);
+  outline-offset: -3px;
+  background-color: var(--mantine-color-default-hover);
+}

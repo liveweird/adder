@@ -122,6 +122,33 @@ describe("RoomHome page", () => {
     ]);
   });
 
+  test("focus=1 on a thread route marks the layout for the focus view and keeps the thread list mounted", async () => {
+    serve(mockFetch);
+    const { container } = renderHome("/rooms/12/threads/7?focus=1");
+    await screen.findByRole("region", { name: "#7 Disk full on db-3" });
+    expect(container.querySelector("[data-pane]")).toHaveAttribute("data-focus", "true");
+    // Mounted (its state survives leaving the focus view); the layout's CSS hides it.
+    expect(await screen.findByRole("navigation", { name: "Threads" })).toBeInTheDocument();
+  });
+
+  test("a thread route without focus=1 carries no data-focus", async () => {
+    serve(mockFetch);
+    const { container } = renderHome("/rooms/12/threads/7?focus=0");
+    await screen.findByRole("region", { name: "#7 Disk full on db-3" });
+    expect(container.querySelector("[data-pane]")).not.toHaveAttribute("data-focus");
+  });
+
+  test("focus=1 is ignored on the room's own route and on the new-thread form", async () => {
+    serve(mockFetch);
+    const own = renderHome("/rooms/12?focus=1");
+    await screen.findByText("Pick a thread");
+    expect(own.container.querySelector("[data-pane]")).not.toHaveAttribute("data-focus");
+    own.unmount();
+    const fresh = renderHome("/rooms/12/threads/new?focus=1");
+    await screen.findByRole("heading", { level: 3, name: "New thread" });
+    expect(fresh.container.querySelector("[data-pane]")).not.toHaveAttribute("data-focus");
+  });
+
   test("the new-thread route: the form in the pane, the Threads tab still open", async () => {
     serve(mockFetch);
     const { container } = renderHome("/rooms/12/threads/new");

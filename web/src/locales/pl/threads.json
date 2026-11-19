@@ -99,6 +99,15 @@
     "loadOlder": "Wczytaj starsze wiadomości",
     "loadFailed": "Nie udało się wczytać wiadomości"
   },
+  "focus": {
+    "on": "Skup się na tym wątku",
+    "off": "Pokaż listę wątków"
+  },
+  "anchor": {
+    "gone": "Ta wiadomość już nie istnieje.",
+    "tooFar": "Ta wiadomość jest zbyt daleko w historii, by od razu do niej przejść. Wczytuj starsze wiadomości, aby szukać dalej.",
+    "found": "Znaleziono wiadomość autora: {{author}}."
+  },
   "message": {
     "name": "wiadomości: {{author}}, {{when}}",
     "edited": "edytowana {{when}}",

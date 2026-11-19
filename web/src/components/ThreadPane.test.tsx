@@ -9,6 +9,7 @@ import { makeMessage, messagePage } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
 import { SIDE_WORKFLOW } from "../test/sideFixtures";
 import userEvent from "@testing-library/user-event";
+import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { focusThreadPaneState } from "../utils/roomLinks";
 
@@ -249,6 +250,153 @@ describe("ThreadPane", () => {
     expect(screen.getByText("my words")).toBeInTheDocument();
     expect(screen.getByRole("note")).toHaveTextContent("This thread is closed");
     expect(screen.queryByRole("button", { name: /^Operations for message by/ })).not.toBeInTheDocument();
+  });
+
+  describe("the focus view and the message to jump to live in the URL", () => {
+    function Probe() {
+      const { pathname, search } = useLocation();
+      const navigationType = useNavigationType();
+      return <output aria-label="location" data-navigation={navigationType}>{`${pathname}${search}`}</output>;
+    }
+    const renderPane = (route: string, options: { state?: unknown; queryClient?: QueryClient; numberParam?: string } = {}) =>
+      renderWithProviders(
+        <>
+          <ThreadPane room={ROOM} numberParam={options.numberParam ?? "42"} />
+          <Probe />
+        </>,
+        { route, state: options.state, queryClient: options.queryClient },
+      );
+
+    test("the toggle writes focus=1 by replace, keeps the other keys, is aria-pressed, and writing again removes it", async () => {
+      const user = userEvent.setup();
+      serve(jsonResponse(200, THREAD));
+      renderPane("/rooms/12/threads/42?scope=all&message=2");
+      const toggle = await screen.findByRole("button", { name: "Focus on this thread" });
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByLabelText("location")).toHaveAttribute("data-navigation", "POP");
+      await user.click(toggle);
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+      expect(screen.getByLabelText("location")).toHaveTextContent("/rooms/12/threads/42?scope=all&message=2&focus=1");
+      // A replace, never a push: Back does not step through the layout switch.
+      expect(screen.getByLabelText("location")).toHaveAttribute("data-navigation", "REPLACE");
+      await user.click(toggle);
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
+      expect(screen.getByLabelText("location")).toHaveTextContent("/rooms/12/threads/42?scope=all&message=2");
+      expect(screen.getByLabelText("location")).toHaveAttribute("data-navigation", "REPLACE");
+    });
+
+    test("pressing the toggle leaves the focus on it, even after a navigation that had asked the pane for focus", async () => {
+      const user = userEvent.setup();
+      serve(jsonResponse(200, THREAD));
+      renderPane("/rooms/12/threads/42", { state: focusThreadPaneState });
+      const region = await screen.findByRole("region", { name: "#42 Disk full on db-3" });
+      await waitFor(() => expect(region).toHaveFocus());
+      const toggle = screen.getByRole("button", { name: "Focus on this thread" });
+      await user.click(toggle);
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+      expect(toggle).toHaveFocus();
+    });
+
+    test("a replace that keeps the pane-focus state (a list filter write) does not pull the focus into the pane either", async () => {
+      const user = userEvent.setup();
+      serve(jsonResponse(200, THREAD));
+      function FilterWrite() {
+        const navigate = useNavigate();
+        return <button onClick={() => navigate("?scope=all", { replace: true, state: focusThreadPaneState })}>write filter</button>;
+      }
+      renderWithProviders(
+        <>
+          <ThreadPane room={ROOM} numberParam="42" />
+          <FilterWrite />
+        </>,
+        { route: "/rooms/12/threads/42", state: focusThreadPaneState },
+      );
+      const region = await screen.findByRole("region", { name: "#42 Disk full on db-3" });
+      await waitFor(() => expect(region).toHaveFocus());
+      const write = screen.getByRole("button", { name: "write filter" });
+      await user.click(write);
+      expect(write).toHaveFocus();
+    });
+
+    test("a missing thread in the focus view offers the way back to the list, which turns the view off", async () => {
+      const user = userEvent.setup();
+      serve(jsonResponse(404, { title: "Not found", status: 404 }));
+      renderPane("/rooms/12/threads/42?focus=1&scope=all");
+      expect(await screen.findByText("This thread does not exist.")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Show the thread list" }));
+      expect(screen.getByLabelText("location")).toHaveTextContent("/rooms/12/threads/42?scope=all");
+      expect(screen.queryByRole("button", { name: "Show the thread list" })).not.toBeInTheDocument();
+    });
+
+    test("a thread that fails to load in the focus view offers it too; outside the view there is no such button", async () => {
+      serve(jsonResponse(500, { title: "Boom", status: 500 }));
+      const { unmount } = renderPane("/rooms/12/threads/42?focus=1");
+      expect(await screen.findByText("Could not load the thread")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show the thread list" })).toBeInTheDocument();
+      unmount();
+      renderPane("/rooms/12/threads/42");
+      expect(await screen.findByText("Could not load the thread")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Show the thread list" })).not.toBeInTheDocument();
+    });
+
+    test("a URL that already says focus=1 shows the toggle pressed", async () => {
+      serve(jsonResponse(200, THREAD));
+      renderPane("/rooms/12/threads/42?focus=1");
+      expect(await screen.findByRole("button", { name: "Focus on this thread" })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    test("?message= makes the conversation jump to that message", async () => {
+      serve(jsonResponse(200, THREAD));
+      renderPane("/rooms/12/threads/42?message=1");
+      const first = await screen.findByText("the opening message");
+      await waitFor(() => expect(first.closest("li")).toHaveFocus());
+      expect(first.closest("li")).toHaveAttribute("data-anchor", "true");
+    });
+
+    test("a malformed message key jumps nowhere", async () => {
+      serve(jsonResponse(200, THREAD));
+      renderPane("/rooms/12/threads/42?message=abc");
+      await screen.findByText("the opening message");
+      expect(document.querySelector("[data-anchor]")).toBeNull();
+      expect(screen.queryByRole("note")).not.toBeInTheDocument();
+    });
+
+    test("a jump wins over the pane's own focus request, also when the thread and its messages are already cached", async () => {
+      serve(jsonResponse(200, THREAD));
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      queryClient.setQueryData(["rooms", "threads", 12, "detail", 42], THREAD);
+      queryClient.setQueryData(["rooms", "threads", 12, "messages", 42], { pages: [messagePage(MESSAGES)], pageParams: [undefined] });
+      renderPane("/rooms/12/threads/42?message=1", { state: focusThreadPaneState, queryClient });
+      const first = (await screen.findByText("the opening message")).closest("li")!;
+      await waitFor(() => expect(first).toHaveFocus());
+      // Let every effect and the background re-reads settle: the section never takes the focus from the message.
+      await waitFor(() => expect(queryClient.isFetching()).toBe(0));
+      expect(first).toHaveFocus();
+      expect(screen.getByRole("region", { name: "#42 Disk full on db-3" })).not.toHaveFocus();
+    });
+
+    test("switching to another thread mid-jump starts the conversation clean: the new thread's own anchor is looked for there", async () => {
+      const second = { ...THREAD, id: 2, number: 43, title: "Second thread" };
+      mockFetch.mockImplementation((url: string) => {
+        if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, THREAD));
+        if (url === "/api/v1/rooms/12/threads/43") return Promise.resolve(jsonResponse(200, second));
+        if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+        // Thread 42 has more behind its first page, and the next page never answers: the search is in flight when the reader switches.
+        if (url.startsWith("/api/v1/rooms/12/threads/42/messages?") && url.includes("id%5Blt%5D")) return new Promise<Response>(() => undefined);
+        if (url.startsWith("/api/v1/rooms/12/threads/42/messages?")) return Promise.resolve(jsonResponse(200, messagePage([makeMessage({ id: 30, body: "in forty-two" })], 99)));
+        if (url.startsWith("/api/v1/rooms/12/threads/43/messages?")) return Promise.resolve(jsonResponse(200, messagePage([makeMessage({ id: 5, threadNumber: 43, body: "in forty-three" })])));
+        if (url.includes("/events?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 }));
+        return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+      });
+      const { rerender } = renderWithProviders(<ThreadPane room={ROOM} numberParam="42" />, { route: "/rooms/12/threads/42?message=5" });
+      await screen.findByText("in forty-two");
+      await waitFor(() => expect(mockFetch.mock.calls.some(([url]) => String(url).includes("/threads/42/messages?") && String(url).includes("id%5Blt%5D"))).toBe(true));
+      rerender(<ThreadPane room={ROOM} numberParam="43" />);
+      const target = (await screen.findByText("in forty-three")).closest("li")!;
+      await waitFor(() => expect(target).toHaveFocus());
+      expect(screen.queryByText("in forty-two")).not.toBeInTheDocument();
+      expect(screen.queryByRole("note")).not.toBeInTheDocument();
+    });
   });
 
   test("below the three-column width the side panel is folded behind a Details toggle that opens and closes it", async () => {
