@@ -12,6 +12,7 @@ export type ThreadFieldValues = NonNullable<ThreadCreateBody["fields"]>;
 export type ThreadUpdateBody = paths["/api/v1/rooms/{id}/threads/{number}"]["put"]["requestBody"]["content"]["application/json"];
 export type ThreadEventPage = paths["/api/v1/rooms/{id}/threads/{number}/events"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ThreadEvent = ThreadEventPage["items"][number];
+export type RoomTagPage = paths["/api/v1/rooms/{id}/tags"]["get"]["responses"]["200"]["content"]["application/json"];
 
 type ThreadListQuery = {
   page: number;
@@ -25,11 +26,19 @@ type ThreadListQuery = {
   ownerId?: number[];
   /** `key:value` pairs: any-of within a key, all-of across keys (SELECT, MULTI_SELECT and USER fields; a key that is not one is a 400). */
   field?: string[];
+  /** Any of these hashtags, as typed or as `listRoomTags` returned them (the server folds case and accents); at most 10 distinct. */
+  tag?: string[];
 };
 
 export async function listThreads(roomId: number, q: ThreadListQuery): Promise<ThreadPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), field: q.field });
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), field: q.field, tag: q.tag });
   return jsonRequest<ThreadPage>(`/api/v1/rooms/${roomId}/threads?${params}`);
+}
+
+/** One page of a room's hashtags (`{tag, threadCount}`, the tag folded, no `#`). Sortable by `tag` or `threadCount` (the default, `-threadCount`); `tag` is a case- and accent-insensitive substring of at most 50 characters. */
+export async function listRoomTags(roomId: number, q: { page: number; pageSize: number; sort?: string; tag?: string }): Promise<RoomTagPage> {
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, tag: q.tag });
+  return jsonRequest<RoomTagPage>(`/api/v1/rooms/${roomId}/tags?${params}`);
 }
 
 export async function getThread(roomId: number, number: number): Promise<ThreadResponse> {

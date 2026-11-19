@@ -26,7 +26,7 @@ const q = (query: string) => new URLSearchParams(query);
 describe("threadListParams", () => {
   test("a bare URL reads as the plain list", () => {
     expect(parseThreadListParams(q(""))).toEqual(DEFAULT_THREAD_LIST_PARAMS);
-    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, field: [], page: 1 });
+    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, tag: [], field: [], page: 1 });
   });
 
   test("the round trip: what a write spells, a read gives back", () => {
@@ -38,7 +38,7 @@ describe("threadListParams", () => {
         }
       }
     }
-    const filtered = { status: ["triage", "on-hold"], owner: "me", field: ["severity:s1", "severity:s2", "lead:42"] };
+    const filtered = { status: ["triage", "on-hold"], owner: "me", tag: ["Wdro\u017cenie", "hawai'i", "1/2price", "a 1/2"], field: ["severity:s1", "severity:s2", "lead:42"] };
     expect(parseThreadListParams(writeThreadListParams(q(""), filtered))).toEqual({ ...DEFAULT_THREAD_LIST_PARAMS, ...filtered });
     expect(parseThreadListParams(writeThreadListParams(q(""), { owner: "42" })).owner).toBe("42");
   });
@@ -53,17 +53,29 @@ describe("threadListParams", () => {
     expect(parseThreadListParams(q("owner=3&owner=4")).owner).toBe("3");
   });
 
-  test("a write spells status and field as repeated keys between order and page, and a change resets the page", () => {
-    expect(writeThreadListParams(q("page=3&message=1"), { status: ["a", "b"], owner: "me", field: ["k:v"] }).toString()).toBe(
-      "message=1&status=a&status=b&owner=me&field=k%3Av",
+  test("tags keep what the server's tag grammar takes: 1 to 150 characters, no hash, no control character; the URL holds at most 10, distinct", () => {
+    const tags = (query: string) => parseThreadListParams(q(query)).tag;
+    // Typed spellings and stored keys alike (a stored key can hold punctuation and a space); no key grammar applies.
+    expect(tags("tag=Out-age&tag=hawai%27i&tag=1%2F2price&tag=a%201%2F2&tag=%C5%BB%C3%B3%C5%82w")).toEqual(["Out-age", "hawai'i", "1/2price", "a 1/2", "\u017b\u00f3\u0142w"]);
+    expect(tags("tag=&tag=%23x&tag=a%23b&tag=a%00b&tag=a%0Ab&tag=a%7Fb&tag=ok&tag=ok")).toEqual(["ok"]);
+    expect(tags(`tag=${"a".repeat(150)}&tag=${"a".repeat(151)}`)).toEqual(["a".repeat(150)]);
+    // Code points, not UTF-16 units: 150 astral letters are 300 units and still one tag.
+    expect(tags(`tag=${encodeURIComponent("\u{1D49C}".repeat(150))}`)).toHaveLength(1);
+    expect(tags(Array.from({ length: 30 }, (_, i) => `tag=t${i}`).join("&"))).toHaveLength(10);
+  });
+
+  test("a write spells status, tag and field as repeated keys between order and page, and a change resets the page", () => {
+    expect(writeThreadListParams(q("page=3&message=1"), { status: ["a", "b"], owner: "me", tag: ["x y", "Z"], field: ["k:v"] }).toString()).toBe(
+      "message=1&status=a&status=b&owner=me&tag=x+y&tag=Z&field=k%3Av",
     );
     expect(writeThreadListParams(q("status=a&status=b"), { status: [] }).toString()).toBe("");
   });
 
   test("the remembered query and the link keys carry the filters", () => {
-    expect(rememberedQuery(q("status=a&owner=me&field=k%3Av&page=2"))).toBe("status=a&owner=me&field=k%3Av");
+    expect(rememberedQuery(q("status=a&owner=me&tag=x&field=k%3Av&page=2"))).toBe("status=a&owner=me&tag=x&field=k%3Av");
     expect(listSearch(q("status=a&status=zzZ&page=2")).toString()).toBe("status=a&page=2");
     expect(hasListKeys(q("owner=me"))).toBe(true);
+    expect(hasListKeys(q("tag=x"))).toBe(true);
     expect(restoreRememberedQuery(q(""), "status=a&status=b&owner=7").toString()).toBe("status=a&status=b&owner=7");
   });
 
@@ -82,7 +94,7 @@ describe("threadListParams", () => {
     const params = (patch: Partial<ThreadListParams>) => ({ ...DEFAULT_THREAD_LIST_PARAMS, ...patch });
 
     test("the plain list asks for open threads by activity and nothing else, with or without a workflow", () => {
-      const plain = { closed: false, sort: "-lastActivityAt", status: undefined, ownerId: undefined, field: undefined };
+      const plain = { closed: false, sort: "-lastActivityAt", status: undefined, ownerId: undefined, tag: undefined, field: undefined };
       expect(toApiQuery(params({}), undefined, 7)).toEqual(plain);
       expect(toApiQuery(params({}), workflow, 7)).toEqual(plain);
     });
@@ -95,6 +107,11 @@ describe("threadListParams", () => {
 
     test("statuses, the all scope and the workflow order are sent as they are", () => {
       expect(toApiQuery(params({ status: ["triage"], scope: "all", order: "status" }), undefined, 1)).toMatchObject({ status: ["triage"], closed: undefined, sort: "status" });
+    });
+
+    test("tags go to the request as they are, need no workflow, and at most 10 are sent", () => {
+      expect(toApiQuery(params({ tag: ["Out-age", "hawai'i"] }), undefined, 1)?.tag).toEqual(["Out-age", "hawai'i"]);
+      expect(toApiQuery(params({ tag: Array.from({ length: 12 }, (_, i) => `t${i}`) }), undefined, 1)?.tag).toHaveLength(10);
     });
 
     test("field filters wait for the workflow, and a key that is not an active filterable field is dropped, not sent", () => {
@@ -130,8 +147,10 @@ describe("threadListParams", () => {
       expect(setFieldValues([], "k", Array.from({ length: 25 }, (_, i) => `v${i}`))).toHaveLength(20);
     });
 
-    test("the active count is the statuses, the owner and each field key with a value", () => {
+    test("the active count is the statuses, the owner, the tags as one and each field key with a value", () => {
       expect(activeFilterCount({})).toBe(0);
+      expect(activeFilterCount({ tag: ["a", "b", "c"] })).toBe(1);
+      expect(activeFilterCount({ status: ["a"], ownerId: [7], tag: ["a"], field: ["k:1"] })).toBe(4);
       expect(activeFilterCount({ status: ["a", "b"], ownerId: [7], field: ["k:1", "k:2", "j:3"] })).toBe(4);
     });
   });

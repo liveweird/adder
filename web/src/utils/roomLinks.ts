@@ -1,4 +1,4 @@
-import { listSearch } from "./threadListParams";
+import { listSearch, writeThreadListParams } from "./threadListParams";
 
 /** The ONE place the room route family is spelled out — never hand-assemble a room URL. */
 export const roomsPath = "/rooms";
@@ -27,6 +27,15 @@ export const threadPath = (roomId: number, number: number) => `${roomPath(roomId
 export function withListParams(path: string, search: string | URLSearchParams): string {
   const query = listSearch(new URLSearchParams(search)).toString();
   return query === "" ? path : `${path}?${query}`;
+}
+
+/**
+ * A hashtag's link: the thread that is open, with the list filtered to the tag as TYPED (the server folds case and accents) across open and
+ * closed threads. The list's other filters are not carried (a status filter would hide threads that have the tag), and the value is
+ * URL-encoded by the query writer.
+ */
+export function tagFilterPath(roomId: number, number: number, tag: string): string {
+  return `${threadPath(roomId, number)}?${writeThreadListParams(new URLSearchParams(), { scope: "all", tag: [tag] })}`;
 }
 
 /** The per-room number of a `:number` route parameter, or null when it is not a plain positive int32 (`new`, `0`, `1e3`): no such thread exists. */

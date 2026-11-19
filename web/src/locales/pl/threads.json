@@ -19,6 +19,8 @@
   "filters": {
     "all": "Wszystkie",
     "status": "Status",
+    "tags": "Hasztagi",
+    "noTags": "Nie znaleziono hasztagów",
     "owner": "Właściciel/ka",
     "mine": "Moje",
     "clear": "Wyczyść filtry"

@@ -19,6 +19,8 @@ export const roomKeys = {
   /** Everything about a room's threads: lists, details, histories, conversations. */
   threads: (room: number) => ["rooms", "threads", room] as const,
   threadList: (room: number) => ["rooms", "threads", room, "list"] as const,
+  /** The room's hashtags (the tag filter's options): under the list prefix, so a live hint that refreshes the list refreshes them. */
+  threadTags: (room: number) => [...roomKeys.threadList(room), "tags"] as const,
   /** Every thread's detail / history in the room (a workflow change), or one thread's. */
   threadDetails: (room: number) => ["rooms", "threads", room, "detail"] as const,
   threadHistories: (room: number) => ["rooms", "threads", room, "events"] as const,

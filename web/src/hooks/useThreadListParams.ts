@@ -64,14 +64,14 @@ export function useThreadListParams(roomId: number) {
   );
 
   /**
-   * Clear the PANEL filters (status, owner, field) and go back to page 1; the scope and the order stay. What is remembered becomes what
+   * Clear the PANEL filters (status, owner, hashtags, field) and go back to page 1; the scope and the order stay. What is remembered becomes what
    * remains (nothing, when that is the plain list).
    */
   const clear = useCallback(
     () =>
       setSearch(
         (prev) => {
-          const next = writeThreadListParams(prev, { status: [], owner: null, field: [] });
+          const next = writeThreadListParams(prev, { status: [], owner: null, tag: [], field: [] });
           writeStoredJson(rememberedKey(room.current), rememberedQuery(next));
           return next;
         },

@@ -60,7 +60,7 @@
  },
  {
   "name": "a leading hyphen or underscore needs a letter later",
-  "body": "#-a #_b #_ #-",
+  "body": "#-a #_ #_b #-",
   "tags": [
    "-a",
    "_b"

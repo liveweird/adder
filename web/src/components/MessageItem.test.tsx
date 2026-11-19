@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
+import { useLocation } from "react-router-dom";
 import { screen, waitFor, within } from "@testing-library/react";
 import MessageItem from "./MessageItem";
 import { jsonResponse } from "../test/http";
@@ -46,6 +47,31 @@ describe("MessageItem", () => {
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
     expect(screen.queryByText(/^edited /)).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  test("a hashtag in the body is a link that keeps the thread open and filters the list to the tag as typed, across open and closed threads", () => {
+    renderItem(makeMessage({ body: "Rolled back, see #Wdro\u017cenie and #outage-3.", threadNumber: 42 }), { edit: false, remove: null });
+    const tag = screen.getByRole("link", { name: "#Wdro\u017cenie" });
+    expect(tag).toHaveAttribute("href", "/rooms/12/threads/42?scope=all&tag=Wdro%C5%BCenie");
+    expect(tag).not.toHaveAttribute("target");
+    expect(screen.getByRole("link", { name: "#outage-3" })).toHaveAttribute("href", "/rooms/12/threads/42?scope=all&tag=outage-3");
+  });
+
+  test("clicking a hashtag navigates inside the app, to the thread with the filter in the URL", async () => {
+    const Where = () => <output aria-label="where">{useLocation().pathname + useLocation().search}</output>;
+    renderWithProviders(
+      <>
+        {list(makeMessage({ body: "see #outage" }), { edit: false, remove: null })}
+        <Where />
+      </>,
+    );
+    await userEvent.setup().click(screen.getByRole("link", { name: "#outage" }));
+    expect(screen.getByLabelText("where")).toHaveTextContent("/rooms/12/threads/42?scope=all&tag=outage");
+  });
+
+  test("a tombstone shows no body, so no tag link", () => {
+    renderItem(makeMessage({ body: null, deleted: true }), { edit: false, remove: null });
+    expect(screen.queryByRole("link")).toBeNull();
   });
 
   test("an edited message carries the marker, with its time as visible text", () => {

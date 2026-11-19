@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createThread, getThread, listThreadEvents, listThreads, setThreadOwner, setThreadStatus, updateThreadDetails } from "./threads";
+import { createThread, getThread, listRoomTags, listThreadEvents, listThreads, setThreadOwner, setThreadStatus, updateThreadDetails } from "./threads";
 
 describe("threads API wrappers", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -27,6 +27,20 @@ describe("threads API wrappers", () => {
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&closed=true");
     await listThreads(5, { page: 1, pageSize: 50 });
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50");
+  });
+
+  test("listThreads repeats the tag key, URL-encoding each value as typed", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 50, total: 0 })));
+    await listThreads(5, { page: 1, pageSize: 50, tag: ["Wdro\u017cenie", "hawai'i", "a 1/2"] });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&tag=Wdro%C5%BCenie&tag=hawai%27i&tag=a+1%2F2");
+  });
+
+  test("listRoomTags reads a room's tags with paging, sort and the substring filter, and omits what is unset", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [{ tag: "outage", threadCount: 3 }], page: 1, pageSize: 50, total: 1 })));
+    await expect(listRoomTags(5, { page: 1, pageSize: 50 })).resolves.toMatchObject({ items: [{ tag: "outage", threadCount: 3 }] });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/tags?page=1&pageSize=50");
+    await listRoomTags(5, { page: 2, pageSize: 20, sort: "tag", tag: "wdro" });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/tags?page=2&pageSize=20&sort=tag&tag=wdro");
   });
 
   test("getThread reads by the per-room number", async () => {

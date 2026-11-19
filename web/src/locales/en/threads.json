@@ -19,6 +19,8 @@
   "filters": {
     "all": "All",
     "status": "Status",
+    "tags": "Hashtags",
+    "noTags": "No hashtags found",
     "owner": "Owner",
     "mine": "Mine",
     "clear": "Clear filters"

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSettingsPath, roomWorkflowPath, roomsPath, threadPath, focusThreadPaneState, wantsThreadPaneFocus, withListParams } from "./roomLinks";
+import { newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSettingsPath, roomWorkflowPath, roomsPath, threadPath, focusThreadPaneState, tagFilterPath, wantsThreadPaneFocus, withListParams } from "./roomLinks";
 
 describe("roomLinks", () => {
   test("builds the list, create, room, members, workflow and settings paths", () => {
@@ -22,6 +22,13 @@ describe("roomLinks", () => {
     expect(threadPath(7, 42)).toBe("/rooms/7/threads/42");
     expect(parseThreadNumber("42")).toBe(42);
     for (const bad of [undefined, "new", "0", "-1", "4.2"]) expect(parseThreadNumber(bad)).toBeNull();
+  });
+
+  test("tagFilterPath keeps the thread, filters the list to the tag as typed across open and closed threads, and encodes it", () => {
+    expect(tagFilterPath(7, 42, "Outage")).toBe("/rooms/7/threads/42?scope=all&tag=Outage");
+    expect(tagFilterPath(7, 42, "Wdro\u017cenie")).toBe("/rooms/7/threads/42?scope=all&tag=Wdro%C5%BCenie");
+    expect(tagFilterPath(7, 42, "a&b=c-d_1")).toBe("/rooms/7/threads/42?scope=all&tag=a%26b%3Dc-d_1");
+    expect(new URLSearchParams(tagFilterPath(7, 42, "a&b=c").split("?")[1]).getAll("tag")).toEqual(["a&b=c"]);
   });
 
   test("the pane-focus state is recognised, and nothing else is", () => {

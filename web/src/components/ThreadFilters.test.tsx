@@ -49,6 +49,15 @@ const THREADS = {
   pageSize: 50,
   total: 1,
 };
+const TAGS = {
+  items: [
+    { tag: "outage", threadCount: 4 },
+    { tag: "wdrozenie", threadCount: 1 },
+  ],
+  page: 1,
+  pageSize: 50,
+  total: 2,
+};
 const EMPTY = { items: [], page: 1, pageSize: 50, total: 0 };
 
 function Where() {
@@ -67,6 +76,7 @@ describe("the thread filter panel", () => {
       if (url.startsWith("/api/v1/rooms/12/threads?")) return Promise.resolve(jsonResponse(200, threads));
       if (url === "/api/v1/rooms/12/workflow") return workflow();
       if (url.startsWith("/api/v1/rooms/12/members?")) return Promise.resolve(jsonResponse(200, MEMBERS));
+      if (url.startsWith("/api/v1/rooms/12/tags?")) return Promise.resolve(jsonResponse(200, TAGS));
       return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
     });
   }
@@ -118,14 +128,48 @@ describe("the thread filter panel", () => {
     expect(listCalls().at(-1)).not.toContain("status=triage");
   });
 
-  test("the badge counts the filters in use: the statuses, the owner and each field", async () => {
+  test("the hashtag control follows the status control, and its picks write the repeated tag key and the request", async () => {
     serve();
-    renderPanel("/rooms/12?status=triage&status=fixing&owner=me&field=severity%3As1&field=severity%3As2&scope=all");
+    const user = userEvent.setup();
+    renderPanel();
+    await openPanel(user);
+    const tags = screen.getByRole("combobox", { name: "Hashtags" });
+    const follows = (before: HTMLElement, after: HTMLElement) => Boolean(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(screen.getByRole("combobox", { name: "Status" }), tags)).toBe(true);
+    expect(follows(tags, screen.getByRole("combobox", { name: "Owner" }))).toBe(true);
+    expect(tags).toHaveAttribute("placeholder", "All");
+    await user.click(tags);
+    await user.click(await screen.findByRole("option", { name: "#outage (4)" }));
+    await user.click(screen.getByRole("option", { name: "#wdrozenie (1)" }));
+    await waitFor(() => expect(where()).toBe("/rooms/12?tag=outage&tag=wdrozenie"));
+    expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false&tag=outage&tag=wdrozenie");
+    await user.click(screen.getByRole("button", { name: "Remove #outage" }));
+    await waitFor(() => expect(where()).toBe("/rooms/12?tag=wdrozenie"));
+    expect(listCalls().at(-1)).not.toContain("tag=outage");
+  });
+
+  test("a tag from a link is shown as typed, and Clear filters drops it with the rest", async () => {
+    serve();
+    const user = userEvent.setup();
+    renderPanel("/rooms/12?scope=all&tag=Wdro%C5%BCenie&tag=a%201%2F2");
+    await openPanel(user);
+    expect(await screen.findByRole("button", { name: "Remove #Wdro\u017cenie" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove #a 1/2" })).toBeInTheDocument();
+    expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&tag=Wdro%C5%BCenie&tag=a+1%2F2");
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(where()).toBe("/rooms/12?scope=all"));
+    expect(listCalls().at(-1)).not.toContain("tag=");
+    expect(JSON.parse(localStorage.getItem("adder.viewSettings.roomThreads.12.query") ?? "null")).toBe("scope=all");
+  });
+
+  test("the badge counts the filters in use: the statuses, the owner, the tags and each field", async () => {
+    serve();
+    renderPanel("/rooms/12?status=triage&status=fixing&owner=me&tag=outage&tag=wdrozenie&field=severity%3As1&field=severity%3As2&scope=all");
     await screen.findByRole("navigation", { name: "Threads" });
-    // Two statuses are ONE filter; the owner one; the two severity values one: 3. The scope lives outside the panel.
-    expect(within(panelButton()).getByText("3")).toBeInTheDocument();
+    // Two statuses are ONE filter; the owner one; the two tags one; the two severity values one: 4. The scope lives outside the panel.
+    expect(within(panelButton()).getByText("4")).toBeInTheDocument();
     expect(listCalls().at(-1)).toBe(
-      "/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&status=triage&status=fixing&ownerId=5&field=severity%3As1&field=severity%3As2",
+      "/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&status=triage&status=fixing&ownerId=5&field=severity%3As1&field=severity%3As2&tag=outage&tag=wdrozenie",
     );
   });
 

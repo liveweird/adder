@@ -9,11 +9,13 @@ import { Pill, type MultiSelectProps } from "@mantine/core";
  */
 export function accessibleRenderPill(
   removeLabel: (optionLabel: string) => string,
+  /** The label of a selected value that has no option (default: the raw value). */
+  fallbackLabel: (value: string) => string = (value) => value,
 ): NonNullable<MultiSelectProps["renderPill"]> {
   // Mantine 9.8 calls renderPill with `option: undefined` for a selected value absent from `data` (a stored pick whose options load
   // late or were removed) although its type says otherwise; fall back to the raw value.
   return ({ option, value, onRemove, disabled }) => {
-    const label = (option as { label: string } | undefined)?.label ?? String(value ?? "");
+    const label = (option as { label: string } | undefined)?.label ?? fallbackLabel(String(value ?? ""));
     return (
       <Pill
         withRemoveButton={!disabled}

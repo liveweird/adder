@@ -138,11 +138,25 @@ describe("the keys and the readers cannot drift apart", () => {
     roomKeys.workflow(5),
     roomKeys.workflowEdit(5),
     [...roomKeys.threadList(5), 1, 50, "-lastActivityAt", "open"],
+    [...roomKeys.threadTags(5), "term"],
     roomKeys.threadDetail(5, 7),
     [...roomKeys.threadEvents(5, 7), 1],
     roomKeys.messages(5, 7),
   ];
   const startsWith = (key: readonly unknown[], prefix: readonly unknown[]) => prefix.every((part, i) => key[i] === part);
+
+  test("the room's tag options sit under the thread-list prefix, so every hint that refreshes the list refreshes them", () => {
+    expect(startsWith(roomKeys.threadTags(5), roomKeys.threadList(5))).toBe(true);
+    const refreshesList = (kind: (typeof LIVE_EVENT_KINDS)[number]) =>
+      keysForFrame(event(kind, 5, 7, 99)).some((key) => startsWith(roomKeys.threadList(5), key));
+    expect(LIVE_EVENT_KINDS.filter(refreshesList).length).toBeGreaterThan(0);
+    for (const kind of LIVE_EVENT_KINDS.filter(refreshesList)) {
+      expect(
+        keysForFrame(event(kind, 5, 7, 99)).some((key) => startsWith(roomKeys.threadTags(5), key)),
+        kind,
+      ).toBe(true);
+    }
+  });
 
   test("every key a hint names is a prefix of a key some reader uses", () => {
     for (const kind of LIVE_EVENT_KINDS) {

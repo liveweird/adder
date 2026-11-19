@@ -9,6 +9,7 @@ import type { MessageActions } from "../utils/messageAccess";
 import { messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
+import { tagFilterPath } from "../utils/roomLinks";
 import ConfirmActionModal from "./ConfirmActionModal";
 import FormErrorAlert from "./FormErrorAlert";
 import MarkdownView from "./MarkdownView";
@@ -131,7 +132,9 @@ export default function MessageItem({ roomId, message, actions, zone }: { roomId
             onError={setError}
           />
         ) : (
-          <MarkdownView variant="message">{message.body}</MarkdownView>
+          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(roomId, message.threadNumber, tag)}>
+            {message.body}
+          </MarkdownView>
         )}
         {error && <FormErrorAlert>{error}</FormErrorAlert>}
       </Stack>

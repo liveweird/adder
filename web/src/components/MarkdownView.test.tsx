@@ -1,13 +1,20 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
+import { MemoryRouter } from "react-router-dom";
 import MarkdownView, { type MarkdownVariant } from "./MarkdownView";
 import classes from "./MarkdownView.module.css";
 
-function renderView(markdown: string, variant?: MarkdownVariant) {
+const tagHref = (tag: string) => `/rooms/7/threads/42?scope=all&tag=${encodeURIComponent(tag)}`;
+
+function renderView(markdown: string, variant?: MarkdownVariant, tags?: (tag: string) => string) {
   return render(
     <MantineProvider env="test">
-      <MarkdownView variant={variant}>{markdown}</MarkdownView>
+      <MemoryRouter>
+        <MarkdownView variant={variant} tagHref={tags}>
+          {markdown}
+        </MarkdownView>
+      </MemoryRouter>
     </MantineProvider>,
   );
 }
@@ -37,6 +44,12 @@ describe("MarkdownView (document, the default)", () => {
     const link = screen.getByRole("link", { name: "docs" });
     expect(link).not.toHaveAttribute("target");
     expect(link.closest(`.${classes.message}`)).toBeNull();
+  });
+
+  test("leaves hashtags as plain text, even when asked for tag links (the changelog is a document)", () => {
+    renderView("Fixed #outage handling", "document", tagHref);
+    expect(screen.getByText("Fixed #outage handling")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
   });
 
   test("renders no raw HTML", () => {
@@ -98,5 +111,67 @@ describe("MarkdownView (message)", () => {
     expect(screen.getByText("done 🎉")).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
     expect(screen.getByText("done 🎉").parentElement).toHaveClass(classes.message);
+  });
+
+  test("a hashtag is plain text until the message is given a tag link", () => {
+    renderView("see #outage", "message");
+    expect(screen.getByText("see #outage")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  test("a hashtag is an in-app router link without target or opener, its text the tag as typed", () => {
+    renderView("Rolled back, see #Outage-3 for details.", "message", tagHref);
+    const link = screen.getByRole("link", { name: "#Outage-3" });
+    expect(link).toHaveAttribute("href", "/rooms/7/threads/42?scope=all&tag=Outage-3");
+    expect(link).not.toHaveAttribute("target");
+    expect(link).not.toHaveAttribute("rel");
+    expect(link.closest("p")).toHaveTextContent("Rolled back, see #Outage-3 for details.");
+  });
+
+  test("the tag value is URL-encoded in the link", () => {
+    renderView("#Wdro\u017cenie and #a_b", "message", tagHref);
+    expect(screen.getByRole("link", { name: "#Wdro\u017cenie" })).toHaveAttribute("href", "/rooms/7/threads/42?scope=all&tag=Wdro%C5%BCenie");
+    expect(screen.getByRole("link", { name: "#a_b" })).toHaveAttribute("href", "/rooms/7/threads/42?scope=all&tag=a_b");
+  });
+
+  test("tags in code and in links stay text, and an external link still opens a new tab", () => {
+    renderView("`#a` and [docs #b](https://example.com/#c) and https://example.com/x#d and #real", "message", tagHref);
+    expect(screen.getByRole("link", { name: "#real" })).not.toHaveAttribute("target");
+    const external = screen.getByRole("link", { name: "docs #b" });
+    expect(external).toHaveAttribute("href", "https://example.com/#c");
+    expect(external).toHaveAttribute("target", "_blank");
+    expect(external).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByRole("link", { name: "https://example.com/x#d" })).toHaveAttribute("target", "_blank");
+    expect(screen.getByText("#a").tagName).toBe("CODE");
+    expect(screen.getAllByRole("link")).toHaveLength(3);
+  });
+
+  test("a tag is text inside its link: markup around it is never interpreted", () => {
+    renderView("#a<img src=x onerror=alert(1)> and **#b**", "message", tagHref);
+    expect(document.querySelector("img")).toBeNull();
+    expect(screen.getByRole("link", { name: "#b" }).closest("strong")).not.toBeNull();
+    expect(screen.getByRole("link", { name: "#a" }).children).toHaveLength(0);
+  });
+
+  test("a re-render with a new tagHref closure keeps the very same link element, so focus on it survives", async () => {
+    const view = (hrefs: (tag: string) => string) => (
+      <MantineProvider env="test">
+        <MemoryRouter>
+          <MarkdownView variant="message" tagHref={hrefs}>
+            {"see #outage and [docs](https://example.com)"}
+          </MarkdownView>
+        </MemoryRouter>
+      </MantineProvider>
+    );
+    const { rerender } = render(view((tag) => `/a?tag=${tag}`));
+    const link = screen.getByRole("link", { name: "#outage" });
+    const docs = screen.getByRole("link", { name: "docs" });
+    link.focus();
+    rerender(view((tag) => `/b?tag=${tag}`));
+    // The new closure is used (the href follows it) on the SAME nodes: nothing was remounted.
+    expect(screen.getByRole("link", { name: "#outage" })).toBe(link);
+    expect(screen.getByRole("link", { name: "docs" })).toBe(docs);
+    expect(link).toHaveAttribute("href", "/b?tag=outage");
+    expect(link).toHaveFocus();
   });
 });

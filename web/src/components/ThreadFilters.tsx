@@ -10,10 +10,11 @@ import {
 import FilterMultiSelect from "./FilterMultiSelect";
 import FilterPanel from "./FilterPanel";
 import MemberFilterSelect from "./MemberFilterSelect";
+import RoomTagSelect from "./RoomTagSelect";
 
 /**
  * The thread list's filter panel (inside the shared `FilterPanel`, stacked: the room view's left rail is narrow): the statuses (with the
- * workflow's thread counts), the owner ("Mine" is `owner=me`, the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
+ * workflow's thread counts), the room's hashtags (`RoomTagSelect`, searched on the server), the owner ("Mine" is `owner=me`, the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
  * USER field of the room's workflow. Every control writes the URL through `update`; the panel only draws what the URL says.
  * "Clear filters" is the hook's `clear`: the panel's filters and the page only, the scope and the order stay.
  */
@@ -56,6 +57,13 @@ export default function ThreadFilters({
               <Text span size="xs" c="dimmed">{`(${counts.get(option.value) ?? 0})`}</Text>
             </Group>
           )}
+        />
+        <RoomTagSelect
+          roomId={roomId}
+          label={t("threads.filters.tags")}
+          emptyLabel={t("threads.filters.all")}
+          value={params.tag}
+          onChange={(tag) => update({ tag })}
         />
         <Stack gap={4}>
           <Button

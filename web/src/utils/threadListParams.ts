@@ -22,6 +22,8 @@ export const ORDER_SORT: Record<Order, string> = { activity: "-lastActivityAt", 
 
 /** The most distinct values of `status` and of `field` the server accepts in one request. */
 const MAX_FILTER_VALUES = 20;
+/** The most `tag` values one request may carry: the server accepts 50 raw values but folds them to at most 10 distinct. */
+export const MAX_TAG_VALUES = 10;
 
 export interface ThreadListParams {
   scope: Scope;
@@ -30,16 +32,18 @@ export interface ThreadListParams {
   status: string[];
   /** One owner: `me` (resolved to the session's id where the request is built, so a shared link means "my threads" for whoever opens it) or a user id. */
   owner: string | null;
+  /** Any-of these hashtags (empty = no filter), as typed or as the room's tag list spells them; the server folds case and accents. */
+  tag: string[];
   /** `key:value` pairs: any-of within a field key, all-of across keys. Judged against the room's workflow where the request is built. */
   field: string[];
   /** 1-based. */
   page: number;
 }
 
-export const DEFAULT_THREAD_LIST_PARAMS: ThreadListParams = { scope: "open", order: "activity", status: [], owner: null, field: [], page: 1 };
+export const DEFAULT_THREAD_LIST_PARAMS: ThreadListParams = { scope: "open", order: "activity", status: [], owner: null, tag: [], field: [], page: 1 };
 
 /** Every query key the list owns, in the order a URL spells them. */
-const LIST_KEYS = ["scope", "order", "status", "owner", "field", "page"] as const;
+const LIST_KEYS = ["scope", "order", "status", "owner", "tag", "field", "page"] as const;
 
 /** A positive integer of at most nine digits; anything else (`0`, `-1`, `2x`, `1e3`, a huge number) is junk. */
 const PAGE = /^[1-9]\d{0,8}$/;
@@ -50,22 +54,29 @@ const KEY_MAX_LENGTH = 40;
 const isKey = (raw: string) => raw.length <= KEY_MAX_LENGTH && KEY.test(raw);
 /** A user id as the server takes it: ASCII digits, no leading zero, within int32. */
 const isUserId = (raw: string) => /^[1-9]\d{0,9}$/.test(raw) && Number(raw) <= 2_147_483_647;
+/**
+ * A tag value as the thread list takes it: 1 to 150 characters (code points), no `#`, no control character. It is a written tag (at most 50
+ * characters) or a key the room's tag list returned (folded, up to 150, and it may hold punctuation: `hawai'i`, `1/2price`, `a 1/2`),
+ * so the key grammar does not fit; the server folds whatever is typed.
+ */
+const TAG_MAX_LENGTH = 150;
+const isTag = (raw: string) => [...raw].length <= TAG_MAX_LENGTH && raw !== "" && !/[#\p{Cc}]/u.test(raw);
 /** `key:value`: a field key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). */
 function isFieldEntry(raw: string): boolean {
   const colon = raw.indexOf(":");
   return colon > 0 && isKey(raw.slice(0, colon)) && (isKey(raw.slice(colon + 1)) || isUserId(raw.slice(colon + 1)));
 }
 
-/** The valid, distinct values of a repeated key, in URL order, at most [MAX_FILTER_VALUES]. */
-function repeated(search: URLSearchParams, name: string, valid: (raw: string) => boolean): string[] {
-  return [...new Set(search.getAll(name).filter(valid))].slice(0, MAX_FILTER_VALUES);
+/** The valid, distinct values of a repeated key, in URL order, at most `max` (by default [MAX_FILTER_VALUES]). */
+function repeated(search: URLSearchParams, name: string, valid: (raw: string) => boolean, max = MAX_FILTER_VALUES): string[] {
+  return [...new Set(search.getAll(name).filter(valid))].slice(0, max);
 }
 
 function oneOf<T extends string>(values: readonly T[], raw: string | null, fallback: T): T {
   return values.find((value) => value === raw) ?? fallback;
 }
 
-/** The list's state as the URL says it: junk and absent keys read as defaults. A repeated scalar key reads its first value; `status` and `field` keep every valid value. */
+/** The list's state as the URL says it: junk and absent keys read as defaults. A repeated scalar key reads its first value; `status`, `tag` and `field` keep every valid value. */
 export function parseThreadListParams(search: URLSearchParams): ThreadListParams {
   const page = search.get("page");
   const owner = search.get("owner");
@@ -74,6 +85,7 @@ export function parseThreadListParams(search: URLSearchParams): ThreadListParams
     order: oneOf(ORDERS, search.get("order"), DEFAULT_THREAD_LIST_PARAMS.order),
     status: repeated(search, "status", isKey),
     owner: owner !== null && (owner === "me" || isUserId(owner)) ? owner : DEFAULT_THREAD_LIST_PARAMS.owner,
+    tag: repeated(search, "tag", isTag, MAX_TAG_VALUES),
     field: repeated(search, "field", isFieldEntry),
     page: page !== null && PAGE.test(page) ? Number(page) : DEFAULT_THREAD_LIST_PARAMS.page,
   };
@@ -91,6 +103,7 @@ function serialize(params: ThreadListParams): URLSearchParams {
   if (params.order !== DEFAULT_THREAD_LIST_PARAMS.order) out.set("order", params.order);
   for (const status of params.status) out.append("status", status);
   if (params.owner !== DEFAULT_THREAD_LIST_PARAMS.owner) out.set("owner", String(params.owner));
+  for (const tag of params.tag) out.append("tag", tag);
   for (const entry of params.field) out.append("field", entry);
   if (params.page !== DEFAULT_THREAD_LIST_PARAMS.page) out.set("page", String(params.page));
   return out;
@@ -153,6 +166,7 @@ export interface ThreadListFilters {
   sort: string;
   status?: string[];
   ownerId?: number[];
+  tag?: string[];
   field?: string[];
 }
 
@@ -192,12 +206,13 @@ export function toApiQuery(params: ThreadListParams, workflow: RoomWorkflow | un
     sort: ORDER_SORT[params.order],
     status: params.status.length > 0 ? params.status : undefined,
     ownerId: owners.length > 0 ? owners : undefined,
+    tag: params.tag.length > 0 ? params.tag.slice(0, MAX_TAG_VALUES) : undefined,
     field: field.length > 0 ? field : undefined,
   };
 }
 
-/** How many filters the panel holds: the statuses, the owner, and each field key with a value (the scope and the order live outside the panel). */
-export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "field">): number {
+/** How many filters the panel holds: the statuses, the owner, the hashtags (one dimension), and each field key with a value (the scope and the order live outside the panel). */
+export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "tag" | "field">): number {
   const fieldKeys = new Set((filters.field ?? []).map(fieldKeyOf));
-  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + fieldKeys.size;
+  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.tag ? 1 : 0) + fieldKeys.size;
 }
