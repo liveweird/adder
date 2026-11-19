@@ -5,6 +5,7 @@ import appSource from "../App.tsx?raw";
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
+import { SocketStub } from "../test/socket";
 
 // The heading-outline guard for EVERY page the router registers (web/CLAUDE.md "One heading outline
 // everywhere"): the PageHeader title is the h2, sections h3, inner blocks h4. Rendered through the
@@ -49,9 +50,12 @@ function emptyApi() {
 describe("heading outline of every registered page", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", emptyApi());
+    // The shell opens the live socket; a stub keeps every page test off the network.
+    vi.stubGlobal("WebSocket", SocketStub);
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    SocketStub.reset();
   });
 
   test("the route list was read from App.tsx", () => {

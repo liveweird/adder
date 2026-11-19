@@ -34,6 +34,7 @@ import {
 import { roomsPath } from "../utils/roomLinks";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
+import { roomKeys } from "../utils/roomKeys";
 
 /**
  * The details form of one room. Seeded from the room it is mounted with and keyed by the room alone, so a change of the room's data
@@ -161,8 +162,8 @@ function Lifecycle({ room, admin }: { room: RoomResponse; admin: boolean }) {
     onSuccess: async (target) => {
       // Leave first: the room's own queries would only answer 404 from here on.
       navigate(roomsPath, { replace: true });
-      queryClient.removeQueries({ queryKey: ["rooms", "detail", target.id] });
-      queryClient.removeQueries({ queryKey: ["rooms", "workflow", target.id] });
+      queryClient.removeQueries({ queryKey: roomKeys.detail(target.id) });
+      queryClient.removeQueries({ queryKey: roomKeys.workflow(target.id) });
       await refreshQueriesAfterMutation(queryClient, ["rooms"]);
     },
     successMessage: t("rooms.toast.deleted"),

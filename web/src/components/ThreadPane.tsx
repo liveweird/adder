@@ -18,6 +18,7 @@ import MessageList from "./MessageList";
 import ThreadSidePanel from "./ThreadSidePanel";
 import ThreadStatusPill from "./ThreadStatusPill";
 import classes from "./ThreadPane.module.css";
+import { roomKeys } from "../utils/roomKeys";
 
 /**
  * The room view's conversation pane for `/rooms/:id/threads/:number`: the thread's header — `#42 Title` as the pane's heading, its
@@ -36,11 +37,11 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   const workflow = useRoomWorkflow(room.id);
   // The caller's own just-posted message (and its thread, so a request never outlives a navigation): the list scrolls to the bottom once it shows it.
   const [scrollRequest, setScrollRequest] = useState<{ threadNumber: number; messageId: number } | null>(null);
-  const clearScrollRequest = useCallback(() => setScrollRequest(null), []);
+  const clearScrollRequest = useCallback(() => setScrollRequest(null), [setScrollRequest]);
   // Below the three-column width the side panel folds behind a "Details" toggle (collapsed by default); at that width it is always shown.
   const [detailsOpen, setDetailsOpen] = useState(false);
   const { data: thread, isLoading, error } = useQuery({
-    queryKey: ["rooms", "threads", room.id, "detail", number],
+    queryKey: roomKeys.threadDetail(room.id, number),
     queryFn: () => getThread(room.id, number!),
     enabled: number !== null,
   });

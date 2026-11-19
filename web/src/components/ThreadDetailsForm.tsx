@@ -19,6 +19,7 @@ import ConfirmActionModal from "./ConfirmActionModal";
 import FormErrorAlert from "./FormErrorAlert";
 import RevisionConflictAlert from "./RevisionConflictAlert";
 import ThreadFieldInput from "./ThreadFieldInput";
+import { roomKeys } from "../utils/roomKeys";
 
 /** What the draft was seeded from: the values, the thread's revision (what the save names in `X-Expected-Revision`), and the workflow's fields and revision at that moment. */
 type Seed = { values: ThreadDetailsValues; revision: number; fields: readonly WorkflowField[]; workflowRevision: number };
@@ -113,7 +114,7 @@ export default function ThreadDetailsForm({
     showSuccessToast(t("threads.toast.detailsSaved"));
     // The thread (its new revision and values), the list, the history and the rail; the editor ends once they are read. A details save moves
     // no workflow count and changes no room header, so those stay as they are.
-    await refreshQueriesAfterMutation(queryClient, ["rooms", "threads", room.id], ["rooms", "rail"]);
+    await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail);
     setSaving(false);
     onDone();
   }
@@ -121,7 +122,7 @@ export default function ThreadDetailsForm({
   async function reload() {
     setReloading(true);
     try {
-      const fresh = await queryClient.fetchQuery({ queryKey: ["rooms", "threads", room.id, "detail", thread.number], queryFn: () => getThread(room.id, thread.number), staleTime: 0 });
+      const fresh = await queryClient.fetchQuery({ queryKey: roomKeys.threadDetail(room.id, thread.number), queryFn: () => getThread(room.id, thread.number), staleTime: 0 });
       const next = seedOf(fresh, fields, workflowRevision);
       setSeed(next);
       setDraft(next.values);

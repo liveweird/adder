@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { listRooms } from "../api/rooms";
+import { roomKeys } from "../utils/roomKeys";
 
 /** The rail shows at most this many rooms per list; beyond it a "more rooms" link leads to the Rooms page. */
 export const RAIL_PAGE_SIZE = 100;
 
 const railQuery = (archived: boolean) => ({
-  queryKey: ["rooms", "rail", archived ? "archived" : "active"],
+  queryKey: [...roomKeys.rail, archived ? "archived" : "active"],
   queryFn: () => listRooms({ page: 1, pageSize: RAIL_PAGE_SIZE, sort: "-lastActivityAt", archived, member: true }),
 });
 

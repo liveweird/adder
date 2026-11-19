@@ -10,6 +10,7 @@ import { statusMoveBlock } from "../utils/threadAccess";
 import { showSuccessToast } from "../utils/toast";
 import ConfirmActionModal from "./ConfirmActionModal";
 import FormErrorAlert from "./FormErrorAlert";
+import { roomKeys } from "../utils/roomKeys";
 
 type WorkflowStatus = RoomWorkflow["statuses"][number];
 /** What the control needs of a status (the current one may be a bare key the workflow no longer lists). */
@@ -71,7 +72,7 @@ export default function ThreadStatusControl({
     }
     showSuccessToast(t("threads.toast.statusChanged"));
     // The thread, the list, the history and the rail follow, and so do the workflow's `threadCount`s; a move changes no room header.
-    await refreshQueriesAfterMutation(queryClient, ["rooms", "threads", room.id], ["rooms", "rail"], ["rooms", "workflow", room.id]);
+    await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail, roomKeys.workflow(room.id));
     setSaving(false);
     setClosing(null);
   }

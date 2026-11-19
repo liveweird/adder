@@ -11,6 +11,7 @@ import { showSuccessToast } from "../utils/toast";
 import FormErrorAlert from "./FormErrorAlert";
 import RoomMemberSelect from "./RoomMemberSelect";
 import type { PickedOption } from "./SearchPicker";
+import { roomKeys } from "../utils/roomKeys";
 
 /**
  * The thread's owner, and — for a STEWARD only (the thread's owner while a member, a room OWNER, an ADMIN; D1) — the way to pass it on: a
@@ -61,7 +62,7 @@ export default function ThreadOwnerSelect({ room, thread, steward }: { room: Roo
     showSuccessToast(t("threads.toast.ownerChanged"));
     // The thread (its owner), the list, the history and the rail; the pick goes back to the owner only once they are read, so the picker never
     // flashes the old owner. A hand-over moves no workflow count and changes no room header.
-    await refreshQueriesAfterMutation(queryClient, ["rooms", "threads", room.id], ["rooms", "rail"]);
+    await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail);
     setChoice(undefined);
     setSaving(false);
   }

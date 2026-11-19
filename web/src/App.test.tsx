@@ -8,6 +8,7 @@ import App from "./App";
 import { consumeSignedOut } from "./auth";
 import { APP_VERSION } from "./changelog/version";
 import { jsonResponse } from "./test/http";
+import { SocketStub } from "./test/socket";
 import { currentFixture, historyFixture } from "./test/telemetryFixtures";
 
 const TOKEN_KEY = "adder.auth.token";
@@ -30,10 +31,13 @@ function renderApp(route: string) {
 describe("App shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+    // The shell opens the live socket; a stub keeps these tests off the network (App.live.test.tsx drives it).
+    vi.stubGlobal("WebSocket", SocketStub);
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    SocketStub.reset();
     localStorage.clear();
     // The signed-out banner flag is module-level state (`auth.tsx`); the sign-out flows set it and only the login page consumes it.
     consumeSignedOut();

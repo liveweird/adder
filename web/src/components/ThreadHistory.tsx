@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { listThreadEvents } from "../api/threads";
 import { describeEvent, eventLines } from "../utils/threadEvents";
 import EventTimeline from "./EventTimeline";
+import { roomKeys } from "../utils/roomKeys";
 
 /** Ten a page: the history sits in a narrow side panel, newest first. */
 const PAGE_SIZE = 10;
@@ -18,7 +19,7 @@ export default function ThreadHistory({ roomId, number }: { roomId: number; numb
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const { data, isLoading, isError, error, isPlaceholderData, refetch } = useQuery({
-    queryKey: ["rooms", "threads", roomId, "events", number, page],
+    queryKey: [...roomKeys.threadEvents(roomId, number), page],
     queryFn: () => listThreadEvents(roomId, number, { page, pageSize: PAGE_SIZE }),
     placeholderData: keepPreviousData,
   });

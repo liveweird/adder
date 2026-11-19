@@ -34,5 +34,11 @@
     "groupRooms": "Pokoje",
     "nothingFound": "Nic nie znaleziono",
     "groupActions": "Akcje"
+  },
+  "live": {
+    "reconnecting": "Ponowne łączenie…",
+    "reconnectingHint": "Aktualizacje na żywo wstrzymane. Strona nadrobi zmiany, gdy tylko połączenie wróci.",
+    "paused": "Aktualizacje na żywo wyłączone",
+    "pausedHint": "Zbyt wiele Twoich kart odbiera aktualizacje na żywo. Zamknij jedną; ta karta spróbuje ponownie za minutę."
   }
 }

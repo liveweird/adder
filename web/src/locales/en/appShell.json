@@ -34,5 +34,11 @@
     "groupRooms": "Rooms",
     "nothingFound": "Nothing found",
     "groupActions": "Actions"
+  },
+  "live": {
+    "reconnecting": "Reconnecting…",
+    "reconnectingHint": "Live updates paused. The page catches up as soon as the connection is back.",
+    "paused": "Live updates off",
+    "pausedHint": "Too many of your tabs receive live updates. Close one; this tab tries again in a minute."
   }
 }

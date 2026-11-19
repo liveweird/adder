@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { RedirectIfAuthed, RequireAdmin, RequireAuth, useAdmin } from "./auth";
 import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
+import LiveStatus from "./components/LiveStatus";
 import LoadingBlock from "./components/LoadingBlock";
 import RoomsRail from "./components/RoomsRail";
 import ThreadDraftsProvider from "./components/ThreadDraftsProvider";
@@ -17,6 +18,7 @@ import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
 import { activeNavPath, ROOMS_SECTION, visibleSections, type NavLeaf } from "./utils/navigation";
 import { roomPath } from "./utils/roomLinks";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
+import { useLiveUpdates } from "./hooks/useLiveUpdates";
 import { useRailRooms } from "./hooks/useRailRooms";
 import { isBoolean, useStoredState } from "./hooks/useStoredState";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "./hooks/useTelemetryPanel";
@@ -77,6 +79,8 @@ function Shell() {
   // The caller's rooms (the rail under "All rooms"): the toggle for the archived ones is device-level, like the other view settings.
   const [showArchived, setShowArchived] = useStoredState("rooms.rail.showArchived", false, isBoolean);
   const railRooms = useRailRooms(showArchived);
+  // The tab's one live socket: it follows the ACTIVE rail rooms and the open room (the archived rail and "All rooms" refresh on focus).
+  const liveStatus = useLiveUpdates((railRooms.active.data?.items ?? []).map((room) => room.id));
   // The rooms join the leaves in ONE longest-prefix resolution, so /rooms/12/members lights room 12, not "All rooms".
   const roomLeaves = [...(railRooms.active.data?.items ?? []), ...(showArchived ? (railRooms.archived.data?.items ?? []) : [])].map((room) => ({
     to: roomPath(room.id),
@@ -164,6 +168,7 @@ function Shell() {
             </Text>
           </Group>
           <Group gap="sm" wrap="nowrap">
+            <LiveStatus status={liveStatus} />
             <CommandPalette />
             <UserMenu />
           </Group>

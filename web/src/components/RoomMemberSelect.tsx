@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { listRoomMembers } from "../api/rooms";
 import { OPTION_PAGE_SIZE } from "../hooks/usePagedSort";
 import SearchPicker, { type PickedOption } from "./SearchPicker";
+import { roomKeys } from "../utils/roomKeys";
 
 /** The server's cap on the members' `name` filter. */
 const MEMBER_NAME_MAX_LENGTH = 100;
@@ -44,7 +45,7 @@ export default function RoomMemberSelect({
       noMatchLabel={t("threads.memberPicker.noMatch")}
       maxLength={MEMBER_NAME_MAX_LENGTH}
       // Under the ["rooms"] prefix, so any room refresh (a member removed, say) re-reads the options.
-      queryKey={["rooms", "members", roomId, "picker"]}
+      queryKey={[...roomKeys.members(roomId), "picker"]}
       search={async (term) => {
         const page = await listRoomMembers(roomId, { page: 1, pageSize: OPTION_PAGE_SIZE, sort: "name", name: term || undefined });
         return page.items.map((member) => ({ value: String(member.userId), label: `${member.name} (${member.email})` }));

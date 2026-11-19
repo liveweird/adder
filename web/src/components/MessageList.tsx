@@ -13,6 +13,7 @@ import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import MessageItem from "./MessageItem";
 import classes from "./MessageList.module.css";
+import { roomKeys } from "../utils/roomKeys";
 
 /** A load reads 50 messages (the server's cap is 100). */
 const MESSAGE_PAGE_SIZE = 50;
@@ -47,7 +48,7 @@ export default function MessageList({
   const userId = getUserId();
   const zone = browserTimeZone();
   const { data, isLoading, isError, error, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = useInfiniteQuery({
-    queryKey: ["rooms", "threads", room.id, "messages", thread.number],
+    queryKey: roomKeys.messages(room.id, thread.number),
     queryFn: ({ pageParam }) => listMessages(room.id, thread.number, { idLt: pageParam, pageSize: MESSAGE_PAGE_SIZE }),
     initialPageParam: undefined as number | undefined,
     getNextPageParam: (last) => (last.total > last.items.length ? last.items.at(-1)?.id : undefined),

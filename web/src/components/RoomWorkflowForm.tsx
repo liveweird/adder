@@ -19,6 +19,7 @@ import RegistryEditorActions from "./RegistryEditorActions";
 import RevisionConflictAlert from "./RevisionConflictAlert";
 import RoomWorkflowView from "./RoomWorkflowView";
 import WorkflowEditor from "./WorkflowEditor";
+import { roomKeys } from "../utils/roomKeys";
 
 /**
  * The room's workflow: the editor over a draft, its notes and its save. The draft is seeded ONCE from `seed` (read at `revision`,
@@ -116,7 +117,7 @@ export default function RoomWorkflowForm({
     }
     // The room's header and the Threads view (its status pills and the new-thread form's fields, under the shared workflow key) read the old document,
     // and a save can MOVE threads (a retired status's replacement), so the thread list and the open thread's status are stale too.
-    await refreshQueriesAfterMutation(queryClient, ["rooms", "detail", room.id], ["rooms", "workflow", room.id], ["rooms", "threads", room.id]);
+    await refreshQueriesAfterMutation(queryClient, roomKeys.detail(room.id), roomKeys.workflow(room.id), roomKeys.threads(room.id));
   }
 
   async function reload() {

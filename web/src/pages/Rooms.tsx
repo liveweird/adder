@@ -15,6 +15,7 @@ import { isBoolean, isOneOf, useStoredState } from "../hooks/useStoredState";
 import { formatDate } from "../utils/formatDate";
 import { MAX_ROOM_NAME_LENGTH } from "../utils/roomForm";
 import { newRoomPath, roomPath } from "../utils/roomLinks";
+import { roomKeys } from "../utils/roomKeys";
 
 const SORT_FIELDS = ["name", "lastActivityAt", "createdAt"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -44,7 +45,7 @@ export default function Rooms() {
   const everything = admin && scope === "all";
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["rooms", "list", page, pageSize, sortParam, debouncedName, everything, showArchived],
+    queryKey: [...roomKeys.list, page, pageSize, sortParam, debouncedName, everything, showArchived],
     queryFn: () =>
       listRooms({
         page,

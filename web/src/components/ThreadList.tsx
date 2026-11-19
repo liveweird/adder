@@ -17,6 +17,7 @@ import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import PaginationBar from "./PaginationBar";
 import ThreadStatusPill from "./ThreadStatusPill";
+import { roomKeys } from "../utils/roomKeys";
 
 /** The rail shows 50 threads a page (the server's cap is 100); the page-size picker is left out, the rail is too narrow for it. */
 const THREAD_PAGE_SIZE = 50;
@@ -54,7 +55,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
 
   // Under the ["rooms"] prefix: a thread written anywhere in the room (and the rail's refresh) re-reads the page.
   const { data, isLoading, isError, error, isPlaceholderData } = useQuery({
-    queryKey: ["rooms", "threads", room.id, "list", page, THREAD_PAGE_SIZE, ORDER_SORT[order], scope],
+    queryKey: [...roomKeys.threadList(room.id), page, THREAD_PAGE_SIZE, ORDER_SORT[order], scope],
     queryFn: () => listThreads(room.id, { page, pageSize: THREAD_PAGE_SIZE, sort: ORDER_SORT[order], closed: SCOPE_FILTER[scope] }),
     placeholderData: keepPreviousData,
   });

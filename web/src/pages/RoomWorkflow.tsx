@@ -12,6 +12,7 @@ import RoomPage from "../components/RoomPage";
 import RoomWorkflowForm from "../components/RoomWorkflowForm";
 import { canManageRoom } from "../utils/roomAccess";
 import { toRoomWorkflowDraft, type RoomWorkflow, type WorkflowDraft } from "../utils/workflowForm";
+import { roomKeys } from "../utils/roomKeys";
 
 /**
  * A seed paired with the revision it was read at (the `X-Expected-Revision` of the save), whether the caller could edit when it was
@@ -32,7 +33,7 @@ function WorkflowBody({ room }: { room: RoomResponse }) {
   // Its own key (not the Threads view's shared `["rooms", "workflow", id]`), so that cache never seeds a draft: a visit
   // starts from a fresh read (`gcTime: 0`). Someone who can edit never refetches on focus (it would only be thrown away); a reader
   // does, so what they see follows the room.
-  const readQuery = { queryKey: ["rooms", "workflow-edit", room.id], queryFn: () => getRoomWorkflow(room.id), gcTime: 0, refetchOnWindowFocus: !editable };
+  const readQuery = { queryKey: roomKeys.workflowEdit(room.id), queryFn: () => getRoomWorkflow(room.id), gcTime: 0, refetchOnWindowFocus: !editable };
   const { data, isLoading, error: readError, refetch } = useQuery({ ...readQuery, retry: false });
 
   const seedOf = (workflow: RoomWorkflow, focus: boolean, generation: number): LoadedSeed => ({
@@ -52,7 +53,7 @@ function WorkflowBody({ room }: { room: RoomResponse }) {
   // The workflow answering 404 means the room is gone or the caller no longer reads it: re-read the room, which then shows not-found.
   const gone = readError instanceof ApiError && readError.status === 404;
   useEffect(() => {
-    if (gone) void queryClient.invalidateQueries({ queryKey: ["rooms", "detail", room.id] });
+    if (gone) void queryClient.invalidateQueries({ queryKey: roomKeys.detail(room.id) });
   }, [gone, queryClient, room.id]);
 
   async function reseed() {

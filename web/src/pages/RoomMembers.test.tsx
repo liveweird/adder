@@ -7,6 +7,8 @@ import RoomMembers from "./RoomMembers";
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
+import { FakeClock } from "../test/socket";
+import { createLiveInvalidator } from "../utils/liveKeys";
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
@@ -611,5 +613,56 @@ describe("RoomMembers page: the roster moves under the reader", () => {
     await user.type(screen.getByRole("textbox", { name: "Name" }), "otto");
     await waitFor(() => expect(JSON.parse(localStorage.getItem("adder.viewSettings.roomMembers.12.filter.name") ?? "null")).toBe("otto"));
     expect(localStorage.getItem("adder.viewSettings.roomMembers.filter.name")).toBeNull();
+  });
+});
+
+// The caller's own Leave is followed by the server's `revoked` frame for the same room. The frame goes through the invalidator's settle, so
+// the page navigates away first and the room's detail is never re-read into a not-found flash.
+describe("RoomMembers page: the caller's own leave and the live `revoked` frame", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    signIn(7);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  test("a revoked that arrives before the Leave DELETE resolves shows no not-found flash", async () => {
+    serve(mockFetch);
+    const base = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    let finishLeave: () => void = () => {};
+    const leaveHeld = new Promise<void>((resolve) => (finishLeave = resolve));
+    mockFetch.mockImplementation((url: string, init?: RequestInit) =>
+      init?.method === "DELETE" ? leaveHeld.then(() => base(url, init)) : base(url, init),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const clock = new FakeClock();
+    const invalidator = createLiveInvalidator(queryClient, clock);
+    const user = userEvent.setup();
+    renderMembers(queryClient);
+    await user.click(await screen.findByRole("button", { name: "Leave room" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Leave room" }));
+    await waitFor(() => expect(calls(mockFetch, "DELETE")).toHaveLength(1));
+
+    // The server has already removed the caller and says so; the invalidation waits out its settle.
+    const readsBefore = detailGets(mockFetch);
+    invalidator.handle({ type: "revoked", roomId: 12 });
+    clock.advanceBy(299);
+    expect(detailGets(mockFetch)).toBe(readsBefore);
+    finishLeave();
+    expect(await screen.findByText("the rooms list")).toBeInTheDocument();
+
+    // The settle ends after the page is gone: its room queries were dropped, so nothing is re-read and nothing answers 404.
+    clock.advanceBy(5000);
+    await waitFor(() => expect(queryClient.getQueryCache().findAll({ queryKey: ["rooms", "detail", 12] })).toEqual([]));
+    expect(detailGets(mockFetch)).toBe(readsBefore);
+    expect(memberCalls(mockFetch)).toHaveLength(1);
+    expect(screen.queryByText("This room does not exist, or you are not a member of it.")).not.toBeInTheDocument();
+    invalidator.dispose();
   });
 });

@@ -34,6 +34,7 @@ import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import ThreadFieldInput from "./ThreadFieldInput";
+import { roomKeys } from "../utils/roomKeys";
 
 /**
  * The form proper, once the room's fields are known. They are read ONCE (a background re-read never adds or drops an input under a half-typed
@@ -87,7 +88,7 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
       // A 403, 404 or 409 says the caller's standing moved (removed, the room archived): re-read, and the pane follows the truth.
       if (isAccessRefusal(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
       // A 400 may mean the room's fields moved on (the message says so when it names one): re-read them (the shared workflow key), so the next visit to the form is current.
-      if (err instanceof ApiError && err.status === 400) await queryClient.invalidateQueries({ queryKey: ["rooms", "workflow", room.id] });
+      if (err instanceof ApiError && err.status === 400) await queryClient.invalidateQueries({ queryKey: roomKeys.workflow(room.id) });
     }
   }
 

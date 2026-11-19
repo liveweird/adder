@@ -9,6 +9,7 @@ import { loadErrorMessage } from "../utils/saveError";
 import EditPageLoadState from "./EditPageLoadState";
 import PageHeader from "./PageHeader";
 import RoomTabs, { type RoomTabKey } from "./RoomTabs";
+import { roomKeys } from "../utils/roomKeys";
 
 /**
  * The frame every page of one room shares: the load triage (a missing room and one the caller may not read are the same 404),
@@ -19,7 +20,7 @@ export default function RoomPage({ idParam, tab, children }: { idParam: string |
   const { t } = useTranslation();
   // An id that is not a plain positive number names no room: the not-found state, without a request.
   const id = parseRoomId(idParam);
-  const { data: room, isLoading, error } = useQuery({ queryKey: ["rooms", "detail", id], queryFn: () => getRoom(id!), enabled: id !== null });
+  const { data: room, isLoading, error } = useQuery({ queryKey: roomKeys.detail(id), queryFn: () => getRoom(id!), enabled: id !== null });
   // A 404 wins over data cached from an earlier visit (the room was deleted, or the caller left it, since).
   const notFound = id === null || (error instanceof ApiError && error.status === 404);
 

@@ -4,6 +4,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { PROBLEM_TYPES, isProblem } from "./problems";
 import { refreshQueriesAfterMutation } from "./queryRefresh";
 import { saveErrorMessage } from "./saveError";
+import { roomKeys } from "./roomKeys";
 
 /**
  * The failure vocabulary of every message write (post, edit, delete). The two 409s are told apart by their problem type (a closed thread and
@@ -38,5 +39,5 @@ export function isSendShortcut(event: KeyboardEvent): boolean {
  * refusal re-reads the whole `["rooms"]` prefix instead (`isAccessRefusal`).
  */
 export function refreshAfterMessageWrite(queryClient: QueryClient, roomId: number): Promise<void> {
-  return refreshQueriesAfterMutation(queryClient, ["rooms", "threads", roomId], ["rooms", "rail"]);
+  return refreshQueriesAfterMutation(queryClient, roomKeys.threads(roomId), roomKeys.rail);
 }

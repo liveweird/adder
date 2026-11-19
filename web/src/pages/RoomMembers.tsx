@@ -27,6 +27,7 @@ import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { roomsPath } from "../utils/roomLinks";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
+import { roomKeys } from "../utils/roomKeys";
 
 const SORT_FIELDS = ["name", "role", "addedAt"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -73,7 +74,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
 
   // Under the ["rooms"] prefix: any room refresh (the header's member count included) re-reads the page.
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["rooms", "members", room.id, page, pageSize, sortParam, debouncedName, role],
+    queryKey: [...roomKeys.members(room.id), page, pageSize, sortParam, debouncedName, role],
     queryFn: () => listRoomMembers(room.id, { page, pageSize, sort: sortParam, name: debouncedName || undefined, role: role ?? undefined }),
     placeholderData: keepPreviousData,
   });
@@ -83,7 +84,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
   // The members answering 404 means the room is gone or the caller no longer reads it: re-read the room, which then shows not-found.
   const membersGone = error instanceof ApiError && error.status === 404;
   useEffect(() => {
-    if (membersGone) void queryClient.invalidateQueries({ queryKey: ["rooms", "detail", room.id] });
+    if (membersGone) void queryClient.invalidateQueries({ queryKey: roomKeys.detail(room.id) });
   }, [membersGone, queryClient, room.id]);
 
   // After a leave the room's own queries would only answer 404: they are dropped, and the rooms re-read, once the page has gone
@@ -92,7 +93,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
   useEffect(
     () => () => {
       if (!left.current) return;
-      for (const part of ["detail", "members", "workflow"]) queryClient.removeQueries({ queryKey: ["rooms", part, room.id] });
+      for (const key of [roomKeys.detail, roomKeys.members, roomKeys.workflow]) queryClient.removeQueries({ queryKey: key(room.id) });
       void refreshQueriesAfterMutation(queryClient, ["rooms"]);
     },
     [queryClient, room.id],

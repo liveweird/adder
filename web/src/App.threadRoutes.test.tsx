@@ -5,6 +5,7 @@ import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { jsonResponse } from "./test/http";
+import { SocketStub } from "./test/socket";
 
 // The room view's routes through the real <App/> (the shell, the rooms rail and the lazy RoomHome chunk): a thread's route and the
 // new-thread route, which must not be read as the thread numbered "new". Split out of App.test.tsx, which is at its function-size cap.
@@ -30,6 +31,7 @@ function renderApp(route: string) {
 describe("a room's thread routes", () => {
   beforeEach(() => {
     localStorage.setItem("adder.auth.token", "fake-token");
+    vi.stubGlobal("WebSocket", SocketStub);
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) => {
@@ -46,6 +48,7 @@ describe("a room's thread routes", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    SocketStub.reset();
     localStorage.clear();
   });
 

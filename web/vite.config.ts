@@ -30,7 +30,8 @@ export default defineConfig({
     // 5179 — Adder's own port, beside the sibling stacks' 5173–5178.
     port: 5179,
     proxy: {
-      '/api': 'http://localhost:8087',
+      // `ws: true` carries the live socket (`/api/v1/live`); no `changeOrigin`, so the Host is kept and the server's Origin check matches.
+      '/api': { target: 'http://localhost:8087', ws: true },
     },
   },
   build: {
