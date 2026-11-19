@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Stack } from "@mantine/core";
 import type { TelemetryCurrent, TelemetryRange } from "../api/telemetry";
@@ -8,7 +9,13 @@ import TelemetryProcessHeader from "./TelemetryProcessHeader";
 import TelemetryTrend from "./TelemetryTrend";
 import TelemetryValueTable from "./TelemetryValueTable";
 
-/** JVM extras: per process the CPU, thread count, GC work of the latest interval and the database pool, and the trend. */
+/** The live LISTEN session: up, down, or (not started yet) a dash. */
+function listenerState(up: boolean | null | undefined, t: TFunction): string {
+  if (up == null) return "—";
+  return up ? t("telemetry.jvm.listenerUp") : t("telemetry.jvm.listenerDown");
+}
+
+/** JVM extras: per process the CPU, thread count, GC work of the latest interval and the database pool and the live channel, and the trend. */
 export default function TelemetryJvmSection({ current, range, active }: { current: TelemetryCurrent; range: TelemetryRange; active: boolean }) {
   const { t } = useTranslation();
   return (
@@ -33,6 +40,8 @@ export default function TelemetryJvmSection({ current, range, active }: { curren
                   { label: t("telemetry.jvm.poolIdle"), value: formatCount(process.jvm.poolIdle) },
                   { label: t("telemetry.jvm.poolPending"), value: formatCount(process.jvm.poolPending) },
                   { label: t("telemetry.jvm.poolAllocated"), value: formatCount(process.jvm.poolAllocated) },
+                  { label: t("telemetry.jvm.liveSockets"), value: formatCount(process.jvm.liveSockets) },
+                  { label: t("telemetry.jvm.liveListener"), value: listenerState(process.jvm.liveListenerUp, t) },
                 ]}
               />
             )}

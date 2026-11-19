@@ -15,6 +15,8 @@ data class TelemetryCurrent(
     val processes: List<TelemetryProcess>,
     /** The newest storage measurement; null until the cluster section has taken one. */
     val storage: TelemetryStorage?,
+    /** The newest NOTIFY-queue reading (`live.notify_queue_usage`), independent of [storage]; null until one was taken. */
+    val notifyQueue: TelemetryNotifyQueue?,
     val requests: TelemetryRequests,
 )
 
@@ -69,6 +71,10 @@ data class TelemetryJvm(
     val poolIdle: Int?,
     val poolPending: Int?,
     val poolAllocated: Int?,
+    /** Authenticated live sockets of the process (`live.sockets`). */
+    val liveSockets: Int?,
+    /** Whether the process's live LISTEN session was up; null before the listener started (it starts on the first ticket mint). */
+    val liveListenerUp: Boolean?,
 )
 
 @Serializable
@@ -76,6 +82,10 @@ data class TelemetrySchemaSize(val name: String, val bytes: Long)
 
 @Serializable
 data class TelemetryStorage(val measuredAt: Long, val databaseBytes: Long, val schemas: List<TelemetrySchemaSize>)
+
+/** How full the cluster's NOTIFY queue was at its newest measurement; its cadence is the sample interval, not the storage's hourly one. */
+@Serializable
+data class TelemetryNotifyQueue(val measuredAt: Long, val usage: Double)
 
 @Serializable
 data class TelemetryRequests(

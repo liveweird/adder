@@ -131,11 +131,18 @@ describe("TelemetryPanel", () => {
     expect(within(sizes).getByText("1.5 GB")).toBeInTheDocument();
     expect(within(sizes).getByText("Schema public")).toBeInTheDocument();
     expect(within(sizes).getByText("900 MB")).toBeInTheDocument();
+    expect(within(sizes).queryByText("Notification queue in use")).not.toBeInTheDocument();
+    const queue = screen.getByRole("table", { name: "Notification queue" });
+    expect(within(queue).getByText("Notification queue in use")).toBeInTheDocument();
+    expect(within(queue).getByText("12.5%")).toBeInTheDocument();
+    expect(screen.getByText("Notification queue measured at 2026-10-24 11:55 UTC (every sample interval)")).toBeInTheDocument();
     unmount();
 
+    // The queue has its own cadence: it shows while the hourly storage measurement is still missing.
     stubApi(currentFixture({ storage: null }));
     renderPanel();
     expect(await screen.findByText("Storage is measured hourly: not yet.")).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Notification queue" })).toBeInTheDocument();
   });
 
   test("Requests shows the total and the busiest routes with 5xx and 429 badges; without a sample it says so", async () => {
@@ -171,6 +178,23 @@ describe("TelemetryPanel", () => {
     expect(within(jvm).getByText("41")).toBeInTheDocument();
     expect(within(jvm).getByText("25 ms")).toBeInTheDocument();
     expect(within(jvm).getByText("Waiting for a database connection")).toBeInTheDocument();
+    expect(within(jvm).getByText("Live sockets")).toBeInTheDocument();
+    expect(within(jvm).getByText("12")).toBeInTheDocument();
+    expect(within(jvm).getByText("Live updates listener").closest("tr")).toHaveTextContent("Up");
+  });
+
+  test("JVM says the live listener is down, and shows a dash before it has started", async () => {
+    stubApi(currentFixture({ processes: [processFixture({ jvm: { ...processFixture().jvm, liveListenerUp: false } })] }));
+    const user = userEvent.setup();
+    const { unmount } = renderPanel();
+    await user.click(await screen.findByRole("button", { name: "JVM" }));
+    expect(screen.getByText("Live updates listener").closest("tr")).toHaveTextContent("Down");
+    unmount();
+
+    stubApi(currentFixture({ processes: [processFixture({ jvm: { ...processFixture().jvm, liveListenerUp: null } })] }));
+    renderPanel();
+    expect(await screen.findByText("Live updates listener")).toBeInTheDocument();
+    expect(screen.getByText("Live updates listener").closest("tr")).toHaveTextContent("—");
   });
 
   test("JVM before the first sample says when it arrives", async () => {

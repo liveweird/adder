@@ -156,6 +156,8 @@ class TelemetryRoutesTest {
             rawRow(web, latest, m.GC_TIME, 20.0, "G1 Young"), rawRow(web, latest, m.GC_TIME, 90.0, "G1 Old"),
             rawRow(web, latest, m.POOL_ACQUIRED, 2.0), rawRow(web, latest, m.POOL_IDLE, 3.0),
             rawRow(web, latest, m.POOL_PENDING, 0.0), rawRow(web, latest, m.POOL_ALLOCATED, 5.0),
+            rawRow(web, latest, m.LIVE_SOCKETS, 7.0), rawRow(web, latest, m.LIVE_LISTENER_UP, 1.0),
+            rawRow(worker, latest, m.LIVE_LISTENER_UP, 0.0),
             rawRow(worker, latest, m.HEAP_USED, 50_000_000.0), rawRow(worker, latest, m.CGROUP_WORKING_SET, 200_000_000.0),
             rawRow(silent, now - TELE_HOUR, m.HEAP_USED, 1.0),
         )
@@ -193,17 +195,37 @@ class TelemetryRoutesTest {
         assertEquals(4L, w.jvm.gcCount, "collectors add up")
         assertEquals(110L, w.jvm.gcTimeMs)
         assertEquals(listOf(2, 3, 0, 5), listOf(w.jvm.poolAcquired, w.jvm.poolIdle, w.jvm.poolPending, w.jvm.poolAllocated))
+        assertEquals(7, w.jvm.liveSockets)
+        assertEquals(true, w.jvm.liveListenerUp)
 
         val wk = processes.getValue(worker)
         assertNull(wk.memory.containerLimitBytes)
         assertNull(wk.memory.percentOfLimit, "no limit, no percentage")
         assertEquals(200_000_000L, wk.memory.workingSetBytes)
         assertNull(wk.jvm.cpuRatio)
+        assertEquals(false, wk.jvm.liveListenerUp, "a listener that is down is false, not unknown")
+        assertNull(wk.jvm.liveSockets)
 
         val gone = processes.getValue(stoppedAll)
         assertTrue(gone.stale)
         assertNull(gone.sampledAt)
         assertNull(gone.memory.heapUsedBytes)
+    }
+
+    @Test
+    fun `current shows the notify queue before the first storage measurement, and none before its first reading`() = testApplication {
+        boot()
+        val web = store.seedProcess("web", lastSeen = now - 10_000)
+        val admin = seededClient("telemetry-queue", UserRole.ADMIN)
+        store.put(rawRow(web, latest, TelemetryMetrics.HEAP_USED, 1.0))
+        val before = admin.current()
+        assertNull(before.storage)
+        assertNull(before.notifyQueue)
+
+        store.put(rawRow(web, latest, TelemetryMetrics.LIVE_NOTIFY_QUEUE_USAGE, 0.5))
+        val after = admin.current()
+        assertNull(after.storage, "no db.size yet")
+        assertEquals(0.5, assertNotNull(after.notifyQueue).usage)
     }
 
     @Test
@@ -222,6 +244,8 @@ class TelemetryRoutesTest {
             rawRow(web, latest - 30 * TELE_MINUTE, m.DB_SIZE, 9_000_000.0),
             rawRow(web, latest - 30 * TELE_MINUTE, m.DB_SCHEMA_SIZE, 6_000_000.0, "raw"),
             rawRow(web, latest - 30 * TELE_MINUTE, m.DB_SCHEMA_SIZE, 1_000_000.0, "ops"),
+            rawRow(web, latest - 10 * TELE_MINUTE, m.LIVE_NOTIFY_QUEUE_USAGE, 0.5),
+            rawRow(web, latest, m.LIVE_NOTIFY_QUEUE_USAGE, 0.25),
             rawRow(web, latest, m.HTTP_COUNT, 200.0, "*"), rawRow(web, latest, m.HTTP_P50, 12.0, "*"),
             rawRow(web, latest, m.HTTP_P95, 80.0, "*"),
             rawRow(web, latest, m.HTTP_5XX, 3.0, "*"), rawRow(web, latest, m.HTTP_429, 2.0, "*"),
@@ -234,6 +258,9 @@ class TelemetryRoutesTest {
         val storage = assertNotNull(current.storage)
         assertEquals(latest - 30 * TELE_MINUTE, storage.measuredAt, "the newest measurement")
         assertEquals(9_000_000L, storage.databaseBytes)
+        val queue = assertNotNull(current.notifyQueue)
+        assertEquals(latest, queue.measuredAt, "the queue is read on the sample cadence, not the storage's")
+        assertEquals(0.25, queue.usage)
         assertEquals(listOf("ops" to 1_000_000L, "raw" to 6_000_000L), storage.schemas.map { it.name to it.bytes })
 
         val requests = current.requests

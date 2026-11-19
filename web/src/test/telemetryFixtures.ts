@@ -41,6 +41,8 @@ export function processFixture(overrides: Partial<TelemetryProcess> = {}): Telem
       poolIdle: 5,
       poolPending: 0,
       poolAllocated: 7,
+      liveSockets: 12,
+      liveListenerUp: true,
     },
     ...overrides,
   };
@@ -66,6 +68,7 @@ export function currentFixture(overrides: Partial<TelemetryCurrent> = {}): Telem
         { name: "ops", bytes: 300 * MB },
       ],
     },
+    notifyQueue: { measuredAt: SAMPLED_AT, usage: 0.125 },
     requests: {
       windowSeconds: 300,
       percentileWindowSeconds: 300,

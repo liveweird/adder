@@ -56,7 +56,11 @@
     "poolAcquired": "Database connections in use",
     "poolIdle": "Database connections idle",
     "poolPending": "Waiting for a database connection",
-    "poolAllocated": "Database connections open"
+    "poolAllocated": "Database connections open",
+    "liveSockets": "Live sockets",
+    "liveListener": "Live updates listener",
+    "listenerUp": "Up",
+    "listenerDown": "Down"
   },
   "requests": {
     "none": "No process has a recent sample, so there are no request figures yet.",
@@ -75,7 +79,10 @@
     "measuredAt": "Measured at {{time}} UTC",
     "tableAria": "Database size per schema",
     "database": "Database",
-    "schema": "Schema {{name}}"
+    "schema": "Schema {{name}}",
+    "notifyQueue": "Notification queue in use",
+    "queueMeasuredAt": "Notification queue measured at {{time}} UTC (every sample interval)",
+    "queueTableAria": "Notification queue"
   },
   "trend": {
     "empty": "No history for this range yet.",
@@ -103,7 +110,10 @@
     "poolAcquired": "Pool in use (peak)",
     "poolPending": "Pool waiting (peak)",
     "shareOfLimit": "Share of the limit (mean)",
-    "shareOfLimitPeak": "Share of the limit (peak)"
+    "shareOfLimitPeak": "Share of the limit (peak)",
+    "liveSockets": "Live sockets (peak)",
+    "liveListenerUp": "Live listener up (share of samples)",
+    "notifyQueuePeak": "Notification queue in use (peak)"
   },
   "crash": {
     "title": "The telemetry panel stopped working",

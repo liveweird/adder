@@ -52,7 +52,10 @@ export default function TelemetryTrend({
   const data = history.data;
   const all = columns(data.series, t);
   const plotted = all.filter((column) => column.plot);
+  // The table lists every bucket any column has a figure for; the chart only those of the DRAWN columns, so a table-only column sampled on
+  // a finer cadence (the NOTIFY queue beside the hourly DB size) cannot break the drawn lines into isolated dots.
   const times = trendTimes(all);
+  const chartTimes = trendTimes(plotted);
   const unit = plotted[0]?.unit ?? "COUNT";
   // Kept data of the previous range (a switch in flight) is dimmed, never mislabelled: its own range is on the answer.
   const stale = history.isPlaceholderData;
@@ -64,15 +67,17 @@ export default function TelemetryTrend({
         </Text>
       ) : (
         <>
-          <Suspense fallback={<LoadingBlock py="md" />}>
-            <TelemetryTrendChart
-              rows={chartRows(plotted, times)}
-              lines={plotted.map((column) => ({ label: column.label }))}
-              unit={unit}
-              range={data.range}
-              ariaLabel={t("telemetry.trend.chartAria", { section: label })}
-            />
-          </Suspense>
+          {chartTimes.length > 0 && (
+            <Suspense fallback={<LoadingBlock py="md" />}>
+              <TelemetryTrendChart
+                rows={chartRows(plotted, chartTimes)}
+                lines={plotted.map((column) => ({ label: column.label }))}
+                unit={unit}
+                range={data.range}
+                ariaLabel={t("telemetry.trend.chartAria", { section: label })}
+              />
+            </Suspense>
+          )}
           <TableDisclosure showLabel={t("telemetry.trend.showTable")} hideLabel={t("telemetry.trend.hideTable")}>
             <ScrollRegion label={t("telemetry.trend.tableAria", { section: label })} minWidth={120 + 110 * all.length} maxHeight={320}>
               <Table verticalSpacing="xs" stickyHeader aria-label={t("telemetry.trend.tableAria", { section: label })}>

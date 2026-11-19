@@ -118,6 +118,8 @@ export function storageColumns(series: readonly TelemetrySeries[], t: TFunction)
   return [
     ...columnsOf(series, "db.size", t("telemetry.trend.database"), "avg", true, (label) => label),
     ...series.filter((s) => s.metric === "db.schema.size").map((s) => toColumn(s, s.label, "avg", true)),
+    // The NOTIFY queue is a share, not bytes: in the table only (the drawn lines share one unit).
+    ...columnsOf(series, "live.notify_queue_usage", t("telemetry.trend.notifyQueuePeak"), "max", false, (label) => label),
   ];
 }
 
@@ -135,7 +137,20 @@ export function requestsColumns(series: readonly TelemetrySeries[], t: TFunction
   ];
 }
 
-/** JVM: CPU (percent of the available processors) drawn per role; threads, GC time and the pool beside it. */
+/** The share of samples (in percent) the live LISTEN session was up: the gauge is 1 or 0, so its mean over a bucket is that share. */
+function listenerUpColumns(series: readonly TelemetrySeries[], label: string, name: Namer): TrendColumn[] {
+  return series
+    .filter((s) => s.metric === "live.listener_up")
+    .map((s) => ({
+      id: `${s.key}:avg:share`,
+      label: name(label, s.role),
+      unit: "PERCENT" as const,
+      plot: false,
+      values: new Map(s.points.map((point) => [point.t, point.avg * 100])),
+    }));
+}
+
+/** JVM: CPU (percent of the available processors) drawn per role; threads, GC time, the pool and the live channel beside it. */
 export function jvmColumns(series: readonly TelemetrySeries[], t: TFunction): TrendColumn[] {
   const name = namer(series, t);
   const gc = [...new Set(series.filter((s) => s.metric === "jvm.gc_time_ms").map((s) => s.role))].flatMap((role) => {
@@ -150,6 +165,8 @@ export function jvmColumns(series: readonly TelemetrySeries[], t: TFunction): Tr
     ...gc,
     ...columnsOf(series, "pool.acquired", t("telemetry.trend.poolAcquired"), "max", false, name),
     ...columnsOf(series, "pool.pending", t("telemetry.trend.poolPending"), "max", false, name),
+    ...columnsOf(series, "live.sockets", t("telemetry.trend.liveSockets"), "max", false, name),
+    ...listenerUpColumns(series, t("telemetry.trend.liveListenerUp"), name),
   ];
 }
 

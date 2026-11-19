@@ -213,8 +213,8 @@ bad-frame; **[changed] no `ip`**: the `rate_limit.exceeded` rule, the client add
 the EXISTING rooms the caller cannot read; never ids that do not exist; **[changed] coalesced per user** like `live.refused`, one line a minute with `suppressed` and the union of at most 20 denied ids: the frame-rate limit alone still allows a line every 0.3 s per socket), `live.revoked` (at most one line per user per
 sweep), `live.ticket_saturated`, and the generic `rate_limit.exceeded` for `live-connect` and `live-ticket`. Not audited: connects, normal closes, 4001,
 `resync` (DEBUG; the gauges count sockets). **Telemetry:** the latency collector excludes `/api/v1/live`; each socket is one OTel server span for its whole
-life (the Ktor instrumentation has no request filter; measured in the socket step); gauges `live.sockets`, `live.listener_up` and `live.notify_queue_usage`
-come with the telemetry step.
+life (the Ktor instrumentation has no request filter; measured in the socket step); gauges `live.sockets`, `live.listener_up` (no row until the lazy listener has started) and `live.notify_queue_usage`
+(`pg_notification_queue_usage()`, cluster section) ride the telemetry sampler through `infra/notify/LiveStats.kt`'s `LiveStatsKey` (`observability.md` "Telemetry").
 
 ## Web
 

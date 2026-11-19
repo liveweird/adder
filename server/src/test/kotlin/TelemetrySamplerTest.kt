@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.db.PoolSnapshot
+import ch.nokillswit.infra.notify.LiveStats
 import ch.nokillswit.telemetry.CgroupProbe
 import ch.nokillswit.telemetry.ClusterCollector
 import ch.nokillswit.telemetry.HOURLY_RESOLUTION
@@ -14,6 +15,8 @@ import ch.nokillswit.telemetry.TelemetryMetrics
 import ch.nokillswit.telemetry.TelemetrySampler
 import ch.nokillswit.telemetry.hourFloor
 import ch.nokillswit.telemetry.insertSampleRows
+import ch.nokillswit.telemetry.liveReadings
+import ch.nokillswit.telemetry.notifyQueueReadings
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -271,6 +274,57 @@ class TelemetrySamplerTest {
         } finally {
             capture.detach()
         }
+    }
+
+    @Test
+    fun `the live gauges are the socket count, the listener state once it started, and the notify queue usage`() = runBlocking {
+        val identity = testIdentity()
+        var stats = LiveStats(sockets = 3, listenerUp = null)
+        val live = ProcessCollector("live") { liveReadings { stats } }
+        val notify = ClusterCollector("notify") { notifyQueueReadings() }
+        val sampler = sampler({ t0 }, identity, extra = listOf(live), cluster = listOf(notify))
+        sampler.tick()
+        val pid = assertNotNull(store.processId(identity))
+        assertEquals(3.0, store.samples(pid, metric = "live.sockets").single().avg)
+        assertTrue(store.samples(pid, metric = "live.listener_up").isEmpty(), "a listener that never started is not an outage")
+        val queue = store.samples(pid, metric = "live.notify_queue_usage").single().avg
+        assertTrue(queue in 0.0..1.0, "pg_notification_queue_usage() is a fraction: $queue")
+
+        stats = LiveStats(sockets = 0, listenerUp = true)
+        sampler({ t0 + interval }, identity, extra = listOf(live)).tick()
+        assertEquals(1.0, store.samples(pid, metric = "live.listener_up").single().avg)
+        stats = LiveStats(sockets = 0, listenerUp = false)
+        sampler({ t0 + 2 * interval }, identity, extra = listOf(live)).tick()
+        assertEquals(listOf(1.0, 0.0), store.samples(pid, metric = "live.listener_up").sortedBy { it.ts }.map { it.avg })
+    }
+
+    @Test
+    fun `a failing notify queue reading is undone by its savepoint and the other cluster collectors still run`() = runBlocking {
+        val identity = testIdentity()
+        // An aborted statement inside the collector's savepoint makes the queue read itself fail ("current transaction is aborted").
+        val notify = ClusterCollector("notify") {
+            runCatching { exec("SELECT 1/0") }
+            notifyQueueReadings()
+        }
+        val healthy = ClusterCollector("healthy") { listOf(Reading(TelemetryMetrics.HEAP_USED, 7.0, "after-notify")) }
+        val sampler = sampler({ t0 }, identity, cluster = listOf(notify, healthy))
+        val capture = LogCapture(logName)
+        try {
+            sampler.tick()
+            val pid = assertNotNull(store.processId(identity))
+            assertTrue(store.samples(pid, metric = "live.notify_queue_usage").isEmpty())
+            assertEquals(7.0, store.samples(pid).single { it.label == "after-notify" }.avg)
+            val warns = capture.events.filter { it.level == ch.qos.logback.classic.Level.WARN }.map { it.formattedMessage }
+            assertEquals(1, warns.size, "$warns")
+            assertTrue(warns.single().startsWith("Telemetry collector notify failed:"), warns.single())
+        } finally {
+            capture.detach()
+        }
+    }
+
+    @Test
+    fun `without a live module there are no live readings`() {
+        assertEquals(emptyList(), liveReadings(null))
     }
 
     private companion object {

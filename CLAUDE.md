@@ -112,7 +112,7 @@ except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry
 - `infra/paging/` — the shared list-endpoint machinery (Lettuce's, ported verbatim; `list-endpoints.md`).
 - `infra/validation/` — cross-feature input helpers (`sanitizeSingleLine`: trim + control-char 400; `sanitizeMultiLine`: message bodies, `\n`/`\t` kept).
 - `infra/json/` — `CanonicalJson.kt` (canonical JSON + sha256 for stored payloads), `JsonArrays.kt`, `JsonParams.kt` (string-map event params).
-- `infra/notify/` — the live channel's wire: `LiveKind`/`LiveHint` (ids only) and `notifyLive` (one `pg_notify('adder_live', …)` per chat change branch, inside the write's transaction) and `NotifyListener` (the one non-pooled LISTEN connection, started lazily by the live hub: a bounded drain, a gap callback, a heartbeat, jittered reconnect); `live.md`, `persistence.md`.
+- `infra/notify/` — the live channel's wire: `LiveKind`/`LiveHint` (ids only) and `notifyLive` (one `pg_notify('adder_live', …)` per chat change branch, inside the write's transaction) and `NotifyListener` (the one non-pooled LISTEN connection, started lazily by the live hub: a bounded drain, a gap callback, a heartbeat, jittered reconnect) and `LiveStatsKey` (the telemetry seam for sockets and listener state); `live.md`, `persistence.md`.
 - `infra/revision/` — `X-Expected-Revision` for whole-document PUTs (Toadie's, header REQUIRED): `expectedRevision()` (400), `requireRevision` (typed 409 `urn:adder:problem:revision-conflict`).
 - `infra/time/` — `Millis.kt`, `MILLIS_PER_DAY`, the one fixed-24h-day constant.
 - `infra/config/` — `requireConfigInt`/`requireConfigLong`, boot-validated numeric config (Lettuce's).

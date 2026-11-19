@@ -3,6 +3,7 @@ package ch.nokillswit.telemetry
 import ch.nokillswit.infra.db.PoolSnapshot
 import ch.nokillswit.infra.db.PoolStatsKey
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
+import ch.nokillswit.infra.notify.LiveStatsKey
 import ch.nokillswit.plugins.MetricRegistryKey
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
@@ -52,6 +53,7 @@ fun Application.configureTelemetry() {
     monitor.subscribe(ApplicationStarted) { app ->
         val overrides = app.attributes.getOrNull(TelemetryOverridesKey) ?: TelemetryOverrides()
         val poolStats: () -> PoolSnapshot? = app.attributes.getOrNull(PoolStatsKey) ?: { null }
+        val liveStats = app.attributes.getOrNull(LiveStatsKey)
         val latency = app.attributes.getOrNull(MetricRegistryKey)?.let(::LatencyCollector)
         val sampler = TelemetrySampler(
             store = TelemetryStore(app.attributes[R2dbcDatabaseKey], config.statementTimeoutSeconds),
@@ -61,7 +63,11 @@ fun Application.configureTelemetry() {
             jvm = overrides.jvm ?: JvmProbe(),
             cgroup = overrides.cgroup ?: CgroupProbe(),
             poolStats = poolStats,
-            extraProcessCollectors = listOfNotNull(latency?.let { ProcessCollector("latency") { it.collect() } }),
+            extraProcessCollectors = listOfNotNull(
+                latency?.let { ProcessCollector("latency") { it.collect() } },
+                ProcessCollector("live") { liveReadings(liveStats) },
+            ),
+            clusterCollectors = listOf(ClusterCollector("notify") { notifyQueueReadings() }),
             heavyCollectors = heavyCollectors(config),
             firstTickDelayMillis = overrides.firstTickDelayMillis,
         )

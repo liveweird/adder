@@ -2,15 +2,15 @@ import { useTranslation } from "react-i18next";
 import { Stack, Text } from "@mantine/core";
 import type { TelemetryCurrent, TelemetryRange } from "../api/telemetry";
 import { formatDateTime } from "../utils/formatDate";
-import { formatBytes } from "../utils/telemetryFormat";
+import { formatBytes, formatRatio } from "../utils/telemetryFormat";
 import { storageColumns } from "../utils/telemetryTrend";
 import TelemetryTrend from "./TelemetryTrend";
 import TelemetryValueTable from "./TelemetryValueTable";
 
-/** Storage: the database and each schema (measured hourly), and the trend. */
+/** Storage: the database and each schema (measured hourly), the NOTIFY queue (every sample interval, a block of its own), and the trend. */
 export default function TelemetryStorageSection({ current, range, active }: { current: TelemetryCurrent; range: TelemetryRange; active: boolean }) {
   const { t } = useTranslation();
-  const { storage } = current;
+  const { storage, notifyQueue } = current;
   return (
     <Stack gap="md">
       {storage == null ? (
@@ -28,6 +28,17 @@ export default function TelemetryStorageSection({ current, range, active }: { cu
               { label: t("telemetry.storage.database"), value: formatBytes(storage.databaseBytes) },
               ...storage.schemas.map((schema) => ({ label: t("telemetry.storage.schema", { name: schema.name }), value: formatBytes(schema.bytes) })),
             ]}
+          />
+        </Stack>
+      )}
+      {notifyQueue != null && (
+        <Stack gap="xs">
+          <Text size="xs" c="dimmed">
+            {t("telemetry.storage.queueMeasuredAt", { time: formatDateTime(notifyQueue.measuredAt) })}
+          </Text>
+          <TelemetryValueTable
+            label={t("telemetry.storage.queueTableAria")}
+            rows={[{ label: t("telemetry.storage.notifyQueue"), value: formatRatio(notifyQueue.usage) }]}
           />
         </Stack>
       )}

@@ -2159,6 +2159,8 @@ export interface components {
             processes: components["schemas"]["TelemetryProcess"][];
             /** @description The newest storage measurement; null until the cluster section has taken one. */
             storage: components["schemas"]["TelemetryStorage"] | null;
+            /** @description The newest NOTIFY-queue reading, independent of `storage` (its own cadence); null until one was taken. */
+            notifyQueue: components["schemas"]["TelemetryNotifyQueue"] | null;
             requests: components["schemas"]["TelemetryRequests"];
         };
         /** @description One sampling process (a JVM run) with its latest raw sample. */
@@ -2260,6 +2262,13 @@ export interface components {
             poolPending: number | null;
             /** Format: int32 */
             poolAllocated: number | null;
+            /**
+             * Format: int32
+             * @description Authenticated live-channel sockets of the process at its latest sample.
+             */
+            liveSockets: number | null;
+            /** @description Whether the process's live LISTEN session was up at its latest sample; null before the listener started (it starts on the first ticket mint) or without a sample. */
+            liveListenerUp: boolean | null;
         };
         TelemetryStorage: {
             /**
@@ -2273,6 +2282,19 @@ export interface components {
              */
             databaseBytes: number;
             schemas: components["schemas"]["TelemetrySchemaSize"][];
+        };
+        /** @description How full the cluster's NOTIFY queue was (`pg_notification_queue_usage()`), measured every sample interval. */
+        TelemetryNotifyQueue: {
+            /**
+             * Format: int64
+             * @description Epoch millis of the measurement's bucket
+             */
+            measuredAt: number;
+            /**
+             * Format: double
+             * @description The fraction of the queue in use, 0..1.
+             */
+            usage: number;
         };
         TelemetrySchemaSize: {
             /** @description public or ops (telemetry's own cost). */

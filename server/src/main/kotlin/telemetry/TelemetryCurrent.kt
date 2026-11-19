@@ -36,13 +36,16 @@ internal class TelemetryCurrentReport(
         val samples = reads.latestPerProcess(seen, PROCESS_METRICS)
         val stale = seen.filter { isStale(it, samples[it.id], now) }.map { it.id }.toSet()
         val processes = visibleProcesses(seen, stale, now)
-        val cluster = reads.latestCluster(with(TelemetryMetrics) { listOf(DB_SIZE, DB_SCHEMA_SIZE) })
+        val cluster = reads.latestCluster(with(TelemetryMetrics) { listOf(DB_SIZE, DB_SCHEMA_SIZE, LIVE_NOTIFY_QUEUE_USAGE) })
         val api = processes.filter { it.id !in stale }.mapNotNull { samples[it.id] }
         return TelemetryCurrent(
             generatedAt = now,
             sampleIntervalSeconds = intervalSeconds,
             processes = processes.map { it.toWire(samples[it.id], it.id in stale) },
             storage = storage(cluster),
+            notifyQueue = cluster[TelemetryMetrics.LIVE_NOTIFY_QUEUE_USAGE.name]?.let { sample ->
+                sample.values[""]?.let { TelemetryNotifyQueue(sample.ts, it) }
+            },
             requests = requests(api),
         )
     }
@@ -99,6 +102,8 @@ internal class TelemetryCurrentReport(
                 gcCount = total(TelemetryMetrics.GC_COUNT), gcTimeMs = total(TelemetryMetrics.GC_TIME),
                 poolAcquired = count(TelemetryMetrics.POOL_ACQUIRED), poolIdle = count(TelemetryMetrics.POOL_IDLE),
                 poolPending = count(TelemetryMetrics.POOL_PENDING), poolAllocated = count(TelemetryMetrics.POOL_ALLOCATED),
+                liveSockets = count(TelemetryMetrics.LIVE_SOCKETS),
+                liveListenerUp = sample?.value(TelemetryMetrics.LIVE_LISTENER_UP)?.let { it > 0.0 },
             ),
         )
     }

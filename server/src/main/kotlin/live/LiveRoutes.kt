@@ -9,6 +9,8 @@ import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.isAdmin
 import ch.nokillswit.infra.db.NotifyConnectionFactoryKey
 import ch.nokillswit.infra.maskedSecret
+import ch.nokillswit.infra.notify.LiveStats
+import ch.nokillswit.infra.notify.LiveStatsKey
 import ch.nokillswit.plugins.RateLimitAuditThrottle
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.rooms.RoomServiceKey
@@ -77,6 +79,7 @@ fun Application.configureLive() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineName("adder-live"))
     val hub = LiveHub(scope, config.maxSockets, config.maxSocketsPerUser, attributes[NotifyConnectionFactoryKey])
     attributes.put(LiveHubKey, hub)
+    attributes.put(LiveStatsKey) { LiveStats(hub.socketCount, hub.listener.let { if (it.isStarted) it.isUp else null }) }
     monitor.subscribe(ApplicationStopPreparing) { runBlocking { hub.shutdown() } }
     monitor.subscribe(ApplicationStopped) {
         runBlocking { hub.stop() }

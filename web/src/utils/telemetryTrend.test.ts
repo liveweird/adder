@@ -102,6 +102,30 @@ describe("telemetryTrend", () => {
     expect(columns.some((c) => c.label === "Threads (mean)")).toBe(true);
   });
 
+  test("the live gauges are table-only columns: sockets peak, the listener's share of samples up, the NOTIFY queue peak", () => {
+    const jvm = jvmColumns(
+      [
+        seriesFixture("live.sockets", [4, 9], { unit: "COUNT" }),
+        seriesFixture("live.listener_up", [1, 0.5], { unit: "COUNT" }),
+      ],
+      t,
+    );
+    const sockets = jvm.find((c) => c.label === "Live sockets (peak)");
+    expect([...(sockets?.values.values() ?? [])]).toEqual([6, 13.5]);
+    expect(sockets?.plot).toBe(false);
+    const listener = jvm.find((c) => c.label === "Live listener up (share of samples)");
+    expect(listener?.unit).toBe("PERCENT");
+    expect([...(listener?.values.values() ?? [])]).toEqual([100, 50]);
+    expect(listener?.plot).toBe(false);
+
+    const storage = storageColumns([seriesFixture("db.size", [5], { role: null }), seriesFixture("live.notify_queue_usage", [0.1, 0.2], { role: null, unit: "RATIO" })], t);
+    const queue = storage.find((c) => c.label === "Notification queue in use (peak)");
+    expect(queue?.unit).toBe("PERCENT");
+    expect(queue?.plot).toBe(false);
+    expect(queue?.values.size).toBe(2);
+    expect(storage.filter((c) => c.plot).map((c) => c.label)).toEqual(["Database"]);
+  });
+
   test("times are the union of the columns' buckets, and chart rows leave a gap where a column has none", () => {
     const a = seriesFixture("db.size", [1, 2], { role: null });
     const b = seriesFixture("db.schema.size", [9], { role: null, label: "public" });

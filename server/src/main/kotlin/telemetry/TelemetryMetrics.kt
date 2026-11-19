@@ -65,6 +65,12 @@ object TelemetryMetrics {
     val POOL_PENDING = gauge("pool.pending", MetricUnit.COUNT, MetricGroup.JVM)
     val POOL_ALLOCATED = gauge("pool.allocated", MetricUnit.COUNT, MetricGroup.JVM)
 
+    /** The live channel's authenticated sockets in this process (`LiveCollectors.kt`). */
+    val LIVE_SOCKETS = gauge("live.sockets", MetricUnit.COUNT, MetricGroup.JVM)
+
+    /** 1 while the live LISTEN session is up, 0 while down; no row until the listener has started (on the first mint). */
+    val LIVE_LISTENER_UP = gauge("live.listener_up", MetricUnit.COUNT, MetricGroup.JVM)
+
     /**
      * Requests, per process (`LatencyCollector.kt`), labelled with the normalised route (`/api/v1/users/{id}`)
      * or `*` for every `/api/` route but the telemetry's own. A series has a row only in an interval it saw a request (count), a 5xx
@@ -81,6 +87,12 @@ object TelemetryMetrics {
     val DB_SIZE = gauge("db.size", MetricUnit.BYTES, MetricGroup.STORAGE)
     val DB_SCHEMA_SIZE = gauge("db.schema.size", MetricUnit.BYTES, MetricGroup.STORAGE)
 
+    /**
+     * How full the cluster's NOTIFY queue is (`pg_notification_queue_usage()`, 0..1; cluster section, every tick): it fills when a
+     * listening connection stops reading, and a full queue makes every notifying commit fail (`live.md`).
+     */
+    val LIVE_NOTIFY_QUEUE_USAGE = gauge("live.notify_queue_usage", MetricUnit.RATIO, MetricGroup.STORAGE)
+
     /** How long the storage collector took when it ran: also its marker (`StorageCollectors.kt` gates on it). */
     val STORAGE_TICK = gauge("telemetry.storage_ms", MetricUnit.MILLISECONDS, MetricGroup.TELEMETRY)
 
@@ -94,7 +106,8 @@ object TelemetryMetrics {
         listOf(
             HEAP_USED, HEAP_COMMITTED, OLD_GEN_PEAK, NON_HEAP_USED, DIRECT_BUFFERS, RSS, CGROUP_CURRENT, CGROUP_ANON,
             CGROUP_WORKING_SET, CGROUP_PEAK, CPU_RATIO, THREADS, GC_COUNT, GC_TIME, POOL_ACQUIRED, POOL_IDLE, POOL_PENDING,
-            POOL_ALLOCATED, HTTP_COUNT, HTTP_P50, HTTP_P95, HTTP_5XX, HTTP_429, DB_SIZE, DB_SCHEMA_SIZE, STORAGE_TICK, CLUSTER_TICK,
+            POOL_ALLOCATED, LIVE_SOCKETS, LIVE_LISTENER_UP, HTTP_COUNT, HTTP_P50, HTTP_P95, HTTP_5XX, HTTP_429, DB_SIZE,
+            DB_SCHEMA_SIZE, LIVE_NOTIFY_QUEUE_USAGE, STORAGE_TICK, CLUSTER_TICK,
         )
     }
 }

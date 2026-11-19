@@ -5,12 +5,16 @@ import { renderWithProviders, screen } from "../test/render";
 import { GENERATED_AT, historyFixture, MB, seriesFixture } from "../test/telemetryFixtures";
 import type { TFunction } from "i18next";
 import type { TelemetrySeries } from "../api/telemetry";
-import { memoryColumns } from "../utils/telemetryTrend";
+import { memoryColumns, storageColumns } from "../utils/telemetryTrend";
 import TelemetryTrend from "./TelemetryTrend";
 
 vi.mock("@mantine/charts", () => ({
-  LineChart: (props: { series: { label: string }[] }) => (
-    <div data-testid="line-chart" data-labels={props.series.map((s) => s.label).join("|")} />
+  LineChart: (props: { series: { label: string }[]; data: { s0?: number }[] }) => (
+    <div
+      data-testid="line-chart"
+      data-labels={props.series.map((s) => s.label).join("|")}
+      data-first-line={props.data.map((row) => String(row.s0)).join("|")}
+    />
   ),
 }));
 
@@ -48,6 +52,20 @@ describe("TelemetryTrend", () => {
     expect(table).toHaveTextContent("2026-10-24 10:00");
     // A full-range history says nothing about where it starts.
     expect(screen.queryByText(/History starts/)).not.toBeInTheDocument();
+  });
+
+  test("a table-only column sampled more often than the drawn ones adds table rows, never chart rows", async () => {
+    const hourly = seriesFixture("db.size", [1 * MB, 2 * MB, 3 * MB], { role: null });
+    const queue = seriesFixture("live.notify_queue_usage", [], { role: null, unit: "RATIO" });
+    queue.points = Array.from({ length: 24 }, (_, i) => ({ t: GENERATED_AT - 2 * 3_600_000 + i * 300_000 + 60_000, avg: 0.1, max: 0.2 }));
+    stubHistory(() => jsonResponse(200, historyFixture("storage", "24h", [hourly, queue])));
+    const user = userEvent.setup();
+    renderWithProviders(<TelemetryTrend group="storage" range="24h" columns={storageColumns} label="Storage" />);
+    const chart = await screen.findByTestId("line-chart");
+    expect(chart.getAttribute("data-first-line")).toBe(`${MB}|${2 * MB}|${3 * MB}`);
+    await user.click(screen.getByRole("button", { name: "Show the figures" }));
+    const table = screen.getByRole("table", { name: "Trend figures: Storage" });
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(27);
   });
 
   test("says when the history is shorter than the range, and when more lines matched than are listed", async () => {

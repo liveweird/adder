@@ -3089,7 +3089,7 @@ components:
           description: The rows matching the filters, `id[lt]` included - so `total` greater than the items loaded means older messages exist.
     TelemetryCurrent:
       type: object
-      required: [generatedAt, sampleIntervalSeconds, processes, storage, requests]
+      required: [generatedAt, sampleIntervalSeconds, processes, storage, notifyQueue, requests]
       properties:
         generatedAt: { type: integer, format: int64, description: Epoch millis }
         sampleIntervalSeconds: { type: integer, format: int32, description: The cadence of the raw samples; also the `requests` window. }
@@ -3100,6 +3100,10 @@ components:
           allOf: [{ $ref: '#/components/schemas/TelemetryStorage' }]
           nullable: true
           description: The newest storage measurement; null until the cluster section has taken one.
+        notifyQueue:
+          allOf: [{ $ref: '#/components/schemas/TelemetryNotifyQueue' }]
+          nullable: true
+          description: The newest NOTIFY-queue reading, independent of `storage` (its own cadence); null until one was taken.
         requests: { $ref: '#/components/schemas/TelemetryRequests' }
     TelemetryProcess:
       type: object
@@ -3154,7 +3158,7 @@ components:
           description: '`workingSetBytes` over `containerLimitBytes`, in percent (one decimal; may exceed 100); null without a limit or a working set.'
     TelemetryJvm:
       type: object
-      required: [cpuRatio, threads, gcCount, gcTimeMs, poolAcquired, poolIdle, poolPending, poolAllocated]
+      required: [cpuRatio, threads, gcCount, gcTimeMs, poolAcquired, poolIdle, poolPending, poolAllocated, liveSockets, liveListenerUp]
       properties:
         cpuRatio: { type: number, format: double, nullable: true, description: Process CPU time over wall time as a fraction of the available processors (0..1). }
         threads: { type: integer, format: int32, nullable: true }
@@ -3164,6 +3168,8 @@ components:
         poolIdle: { type: integer, format: int32, nullable: true }
         poolPending: { type: integer, format: int32, nullable: true }
         poolAllocated: { type: integer, format: int32, nullable: true }
+        liveSockets: { type: integer, format: int32, nullable: true, description: Authenticated live-channel sockets of the process at its latest sample. }
+        liveListenerUp: { type: boolean, nullable: true, description: 'Whether the process''s live LISTEN session was up at its latest sample; null before the listener started (it starts on the first ticket mint) or without a sample.' }
     TelemetryStorage:
       type: object
       required: [measuredAt, databaseBytes, schemas]
@@ -3173,6 +3179,13 @@ components:
         schemas:
           type: array
           items: { $ref: '#/components/schemas/TelemetrySchemaSize' }
+    TelemetryNotifyQueue:
+      type: object
+      description: 'How full the cluster''s NOTIFY queue was (`pg_notification_queue_usage()`), measured every sample interval.'
+      required: [measuredAt, usage]
+      properties:
+        measuredAt: { type: integer, format: int64, description: Epoch millis of the measurement's bucket }
+        usage: { type: number, format: double, description: 'The fraction of the queue in use, 0..1.' }
     TelemetrySchemaSize:
       type: object
       required: [name, bytes]

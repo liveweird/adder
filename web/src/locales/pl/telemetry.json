@@ -56,7 +56,11 @@
     "poolAcquired": "Połączenia z bazą w użyciu",
     "poolIdle": "Połączenia z bazą bezczynne",
     "poolPending": "Oczekujące na połączenie z bazą",
-    "poolAllocated": "Otwarte połączenia z bazą"
+    "poolAllocated": "Otwarte połączenia z bazą",
+    "liveSockets": "Gniazda aktualizacji na żywo",
+    "liveListener": "Nasłuch aktualizacji na żywo",
+    "listenerUp": "Działa",
+    "listenerDown": "Nie działa"
   },
   "requests": {
     "none": "Żaden proces nie ma świeżej próbki, więc nie ma jeszcze danych o żądaniach.",
@@ -75,7 +79,10 @@
     "measuredAt": "Zmierzone o {{time}} UTC",
     "tableAria": "Rozmiar bazy według schematów",
     "database": "Baza danych",
-    "schema": "Schemat {{name}}"
+    "schema": "Schemat {{name}}",
+    "notifyQueue": "Zajętość kolejki powiadomień",
+    "queueMeasuredAt": "Kolejka powiadomień zmierzona o {{time}} UTC (co interwał próbkowania)",
+    "queueTableAria": "Kolejka powiadomień"
   },
   "trend": {
     "empty": "Nie ma jeszcze historii dla tego zakresu.",
@@ -103,7 +110,10 @@
     "poolAcquired": "Pula w użyciu (szczyt)",
     "poolPending": "Pula oczekuje (szczyt)",
     "shareOfLimit": "Udział w limicie (średnia)",
-    "shareOfLimitPeak": "Udział w limicie (szczyt)"
+    "shareOfLimitPeak": "Udział w limicie (szczyt)",
+    "liveSockets": "Gniazda na żywo (szczyt)",
+    "liveListenerUp": "Nasłuch na żywo działa (udział próbek)",
+    "notifyQueuePeak": "Zajętość kolejki powiadomień (szczyt)"
   },
   "crash": {
     "title": "Panel telemetrii przestał działać",

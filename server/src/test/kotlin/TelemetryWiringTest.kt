@@ -51,6 +51,9 @@ class TelemetryWiringTest {
                 val pid = awaitProcess { store.processId(identity) }
                 val sample = awaitProcess { store.samples(pid, metric = "mem.heap_used").firstOrNull() }
                 assertEquals("mem.heap_used", sample.metric, "its samples land")
+                // `configureLive` publishes `LiveStatsKey`: the live gauges ride the sampler, the NOTIFY queue its cluster section.
+                awaitProcess { store.samples(pid, metric = "live.sockets").firstOrNull() }
+                awaitProcess { store.samples(pid, metric = "live.notify_queue_usage").firstOrNull() }
                 assertTrue(assertNotNull(sampler.loop).isActive, "the loop is running")
             } else {
                 delay(300)

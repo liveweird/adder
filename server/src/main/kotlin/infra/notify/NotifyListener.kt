@@ -93,6 +93,9 @@ class NotifyListener(
     /** Raw NOTIFY payloads in commit order, for the one consumer (the hub). Closed by [stop]. */
     val payloads: ReceiveChannel<String> get() = channel
 
+    /** Whether [ensureStarted] (or [stop]) has been called: until then the listener is idle, not down. */
+    val isStarted: Boolean get() = started.get()
+
     /** Whether a session is LISTENing right now (the `live.listener_up` gauge). */
     val isUp: Boolean get() = pid != null
 
