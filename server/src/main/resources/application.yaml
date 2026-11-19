@@ -51,6 +51,8 @@ ktor:
       # Threads (V14): the room's threads and their history, then their messages (0.3.0 S5). After the room routes, before the catch-all.
       - ch.nokillswit.threads.ThreadRoutesKt.configureThreadRoutes
       - ch.nokillswit.threads.MessageRoutesKt.configureMessageRoutes
+      # The full-text search (V16): after the thread routes (it reads the room service they share), before the catch-all.
+      - ch.nokillswit.threads.ThreadSearchRoutesKt.configureThreadSearchRoutes
       # The boot reindex of the hashtag index (V15): after the routes, on ApplicationStarted, in its own scope; `threads.tagReindexOnBoot` below.
       - ch.nokillswit.threads.MessageTagReindexKt.configureMessageTagReindex
       # The live-update channel (`.claude/docs/live.md`): the single-use socket ticket mint, the WebSocket and its hub (0.4.0 S3, S4). After the
@@ -259,6 +261,12 @@ rooms:
   # room write holds the lock for a few milliseconds, so 3 s is ~1000x a normal hold and still far below the pool's 10 s acquire
   # timeout. 100..30000.
   lockWaitMillis: "$ROOM_LOCK_WAIT_MILLIS:3000"
+
+search:
+  # The statement budget of a search (`threads/ThreadSearchService.kt`, the transaction's `queryTimeout`, whole seconds): a statement past it
+  # is cancelled and answered 429 `search-timeout` with `Retry-After: 2`. A normal search takes tens of milliseconds, so 5 s is a runaway
+  # prefix over a very large corpus, not a slow one. 1..30.
+  timeoutSeconds: "$SEARCH_TIMEOUT_SECONDS:5"
 
 threads:
   # Index the hashtags of messages written before the index (V15, `messages.tags_version` 0) once after boot, in batches, without blocking

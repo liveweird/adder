@@ -9,7 +9,8 @@ import kotlin.test.assertFailsWith
 
 /**
  * The V14 constraints, by raw SQL (no service exists yet): the tombstone shape of `messages`, the composite status foreign key, the
- * per-room number, and the room hard-delete cascade that the `NO ACTION` foreign key must let through (`TestRooms.purge` relies on it).
+ * per-room number, and the room hard-delete cascade that the `NO ACTION` foreign key must let through (`TestRooms.purge` relies on it);
+ * then the V15 tag index and the V16 search columns (stored generated vectors over the accent-folding configuration, the GIN index).
  */
 class ThreadSchemaTest {
     private companion object {
@@ -149,6 +150,120 @@ class ThreadSchemaTest {
                 c.exec("DELETE FROM rooms WHERE id = ?", room)
                 c.exec("DELETE FROM users WHERE id = ?", user)
             }
+        }
+    }
+
+    private fun Connection.text(sql: String, vararg args: Any?): String? = prepareStatement(sql).use { st ->
+        args.forEachIndexed { index, arg -> st.setObject(index + 1, arg) }
+        st.executeQuery().use { rs ->
+            rs.next()
+            rs.getString(1)
+        }
+    }
+
+    /** Runs [block] with a user, a room, its `open` status and thread #1 (all removed afterwards), for the V16 search-column tests. */
+    private fun withThread(label: String, block: (c: Connection, user: Long, thread: Long) -> Unit) {
+        val marker = UUID.randomUUID().toString().take(8)
+        PostgresTestSupport.connect().use { c ->
+            val user = c.scalar(
+                "INSERT INTO users (\"name\", email, password_hash) VALUES ('Schema', ?, 'x') RETURNING id",
+                "schema-$label-$marker@test",
+            )
+            val room = c.scalar(
+                "INSERT INTO rooms (\"name\", last_activity_at, created_at, updated_at) VALUES (?, 1, 1, 1) RETURNING id",
+                "Schema $label $marker",
+            )
+            try {
+                c.exec(
+                    "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position) " +
+                        "VALUES (?, 'open', 'Open', 'BLUE', 'OPEN', TRUE, 0)",
+                    room,
+                )
+                val thread = c.scalar(
+                    "INSERT INTO threads (room_id, \"number\", title, status_key, owner_id, created_by, " +
+                        "last_activity_at, created_at, updated_at) VALUES (?, 1, 'Żółw nad rzeką', 'open', ?, ?, 1, 1, 1) RETURNING id",
+                    room, user, user,
+                )
+                block(c, user, thread)
+            } finally {
+                c.exec("DELETE FROM rooms WHERE id = ?", room)
+                c.exec("DELETE FROM users WHERE id = ?", user)
+            }
+        }
+    }
+
+    @Test
+    fun `the search columns are stored generated columns`() {
+        PostgresTestSupport.connect().use { c ->
+            // 's' = STORED. PostgreSQL 18 reads a bare GENERATED ALWAYS AS as VIRTUAL ('v'), which cannot be indexed.
+            for (table in listOf("messages", "threads")) {
+                assertEquals(
+                    "s",
+                    c.text("SELECT attgenerated::text FROM pg_attribute WHERE attrelid = ?::regclass AND attname = 'search'", table),
+                    "$table.search",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the configuration folds accents`() {
+        PostgresTestSupport.connect().use { c ->
+            fun vector(text: String) = c.text("SELECT to_tsvector('public.adder_search'::regconfig, ?)::text", text)
+            assertEquals("'zolw':1", vector("Żółw"))
+            assertEquals("'aeiou':1", vector("ÀÉÎÕÜ"))
+            assertEquals("'hello':1 'world':2", vector("Hello WORLD"), "ASCII keeps simple's case folding")
+            withThread("fold") { conn, _, thread ->
+                assertEquals("'nad':2 'rzeka':3 'zolw':1", conn.text("SELECT search::text FROM threads WHERE id = ?", thread))
+            }
+        }
+    }
+
+    @Test
+    fun `the message index is a GIN index`() {
+        PostgresTestSupport.connect().use { c ->
+            assertEquals(
+                "gin",
+                c.text("SELECT am.amname FROM pg_class i JOIN pg_am am ON am.oid = i.relam WHERE i.relname = 'idx_messages_search'"),
+            )
+            assertEquals(
+                "messages",
+                c.text(
+                    "SELECT t.relname FROM pg_index x JOIN pg_class t ON t.oid = x.indrelid " +
+                        "JOIN pg_class i ON i.oid = x.indexrelid WHERE i.relname = 'idx_messages_search'",
+                ),
+            )
+            assertEquals(
+                0,
+                c.scalar(
+                    "SELECT count(*) FROM pg_index x JOIN pg_class t ON t.oid = x.indrelid " +
+                        "JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(x.indkey) " +
+                        "WHERE t.relname = 'threads' AND a.attname = 'search'",
+                ),
+                "threads.search has no index: the room's index drives that scan",
+            )
+        }
+    }
+
+    @Test
+    fun `a tombstone's vector is empty`() {
+        withThread("tomb") { c, user, thread ->
+            val message = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "outage in the database", false, null)
+            assertEquals("'database':4 'in':2 'outage':1 'the':3", c.text("SELECT search::text FROM messages WHERE id = ?", message))
+            // A delete scrubs the body to '' and the generated column follows it in the same statement.
+            assertEquals(1, c.exec("UPDATE messages SET body = '', marked_as_deleted = TRUE, deleted_by = ? WHERE id = ?", user, message))
+            assertEquals("", c.text("SELECT search::text FROM messages WHERE id = ?", message))
+        }
+    }
+
+    @Test
+    fun `an 8,000-character token stores no vector and no error`() {
+        withThread("long") { c, user, thread ->
+            // The parser skips a token this long with a NOTICE (a warning, not an error), so the INSERT still succeeds.
+            val message = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "a".repeat(8000), false, null)
+            assertEquals("", c.text("SELECT search::text FROM messages WHERE id = ?", message))
+            val second = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "findable " + "b".repeat(3000), false, null)
+            assertEquals("'findable':1", c.text("SELECT search::text FROM messages WHERE id = ?", second), "only the long token is skipped")
         }
     }
 }

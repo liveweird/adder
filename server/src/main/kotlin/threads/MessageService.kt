@@ -16,11 +16,12 @@ import ch.nokillswit.rooms.memberGuard
 import ch.nokillswit.rooms.readerGuard
 import ch.nokillswit.users.UserService
 import io.ktor.util.AttributeKey
+import kotlinx.coroutines.flow.single
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
-import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.insertReturning
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -69,13 +70,15 @@ class MessageService(
      * new body (a post and a thread's opening message both come here), so its hashtags are indexed here, in the same transaction.
      */
     suspend fun insertInTransaction(roomId: UInt, threadId: UInt, authorId: UInt, body: String, at: Long): UInt {
-        val id = Messages.insert {
+        // `insertReturning(id)`, not `insert`: a plain insert answers `RETURNING *`, which would send the generated `search` vector (about
+        // as large as the body, V16) back on every post. The generated column is never in this table object, so only the id returns.
+        val id = Messages.insertReturning(listOf(Messages.id)) {
             it[Messages.threadId] = threadId
             it[Messages.authorId] = authorId
             it[Messages.body] = body
             it[createdAt] = at
             it[tagsVersion] = TAGS_VERSION
-        }[Messages.id].value
+        }.single()[Messages.id].value
         tags.insertInTransaction(id, threadId, roomId, body)
         return id
     }

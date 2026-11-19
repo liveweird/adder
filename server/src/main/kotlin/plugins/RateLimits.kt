@@ -78,9 +78,9 @@ internal class RateLimitAuditThrottle(
 
 /**
  * Every token bucket the routes ride (per client IP, the live-connect included, except [TELEMETRY], [DIRECTORY], [ROOM_NAME],
- * [ROOM_MEMBERS], [CHAT_POST], [CHAT_WRITE] and [LIVE_TICKET]: per signed-in user), named in one place so a feature module never has to
- * know another's constant (the auth module used to import the try-it bucket's name — a layering
- * inversion the checkup removed). Route files reference these names; only this plugin installs them.
+ * [ROOM_MEMBERS], [CHAT_POST], [CHAT_WRITE], [LIVE_TICKET] and [SEARCH]: per signed-in user), named in one place so a feature module
+ * never has to know another's constant (the auth module used to import the try-it bucket's name — a layering inversion the
+ * checkup removed). Route files reference these names; only this plugin installs them.
  */
 object RateLimits {
     const val LOGIN = "login"
@@ -142,6 +142,13 @@ object RateLimits {
      */
     const val LIVE_TICKET = "live-ticket"
     /**
+     * `GET /api/v1/rooms/{id}/search` (and, from the cross-room search, `GET /api/v1/search`) share ONE bucket per signed-in user:
+     * 60/min in every mode. A search is the one read that can cost the database real work (a prefix over the whole message index), so it is
+     * throttled per user BEFORE the guards: a person submits a search now and then (it is submitted, not as-you-type), and the bound is for
+     * a script, or for probing foreign room ids through the 404. The statement budget (`search.timeoutSeconds`) is the other half.
+     */
+    const val SEARCH = "search"
+    /**
      * `GET /api/v1/live` - the WebSocket upgrade - rides a per-IP bucket (default 600/min, `security.rateLimit.liveConnectPerMinute`, a
      * number pins it). The route is public at the HTTP layer (the socket authenticates in its first frame), so the client address is
      * the only key there is; a tab opens one socket per (re)connect, so even a NAT'd office stays far under it, while a script cannot
@@ -165,6 +172,7 @@ object RateLimits {
     private const val CHAT_POST_PER_MINUTE = 120
     private const val CHAT_WRITE_PER_MINUTE = 240
     private const val LIVE_TICKET_PER_MINUTE = 60
+    private const val SEARCH_PER_MINUTE = 60
     private const val MFA_PER_MINUTE = 10
     private const val PASSWORD_RESET_CONFIRM_PER_MINUTE = 10
     private const val LOGIN_PER_MINUTE_PRODUCTION = 10
@@ -200,13 +208,14 @@ object RateLimits {
     internal fun chatPostLimit() = CHAT_POST_PER_MINUTE
     internal fun chatWriteLimit() = CHAT_WRITE_PER_MINUTE
     internal fun liveTicketLimit() = LIVE_TICKET_PER_MINUTE
+    internal fun searchLimit() = SEARCH_PER_MINUTE
     internal fun mfaLimit() = MFA_PER_MINUTE
     internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
 }
 
 /**
  * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER telemetry, directory,
- * room-name, room-members, chat-post, chat-write and live-ticket buckets.
+ * room-name, room-members, chat-post, chat-write, live-ticket and search buckets.
  * Login and password-reset follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
  * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before
@@ -233,6 +242,7 @@ fun Application.configureRateLimits() {
             CHAT_POST to chatPostLimit(),
             CHAT_WRITE to chatWriteLimit(),
             LIVE_TICKET to liveTicketLimit(),
+            SEARCH to searchLimit(),
         )
     }
     install(RateLimit) {
@@ -247,11 +257,11 @@ fun Application.configureRateLimits() {
                 }
             }
         }
-        // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post, chat-write, live-ticket). The routes mount them
-        // INSIDE `authenticate {}` (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt, threads/ThreadRoutes.kt,
-        // live/LiveRoutes.kt), so this key
-        // runs only for a verified token: an anonymous call is a 401 that never reaches it and never creates a limiter. The plugin keeps
-        // one limiter per key and drops it after its refill period, so memory is bounded by the accounts active within a minute.
+        // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post, chat-write, live-ticket, search). The routes
+        // mount them INSIDE `authenticate {}` (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt,
+        // threads/ThreadRoutes.kt, live/LiveRoutes.kt, threads/ThreadSearchRoutes.kt), so this key runs only for a verified token:
+        // an anonymous call is a 401 that never reaches it and never creates a limiter. The plugin keeps one limiter
+        // per key and drops it after its refill period, so memory is bounded by the accounts active within a minute.
         perUserBuckets.forEach { (name, limit) ->
             register(RateLimitName(name)) {
                 rateLimiter(limit = limit, refillPeriod = 60.seconds)

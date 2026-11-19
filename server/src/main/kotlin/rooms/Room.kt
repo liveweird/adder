@@ -120,3 +120,6 @@ fun validateRoomUpdate(request: RoomUpdateRequest) {
  * matches no room).
  */
 data class ReadableRooms(val readable: Set<UInt>, val deniedExisting: Set<UInt>)
+
+/** An active room as a search hit shows it: its id, its name and whether it is archived (an archived room is searched and labelled). */
+data class RoomSummary(val id: UInt, val name: String, val archived: Boolean)

@@ -872,6 +872,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Search a room's threads and messages
+         * @description Full-text search over the room's thread TITLES and live message BODIES. A member of the room or an `ADMIN` (a non-member gets the
+         *     uniform `404`). Checked in this order: authentication (`401`), the per-USER `search` bucket of 60 per minute (`429`; spent
+         *     before any guard, so a refused search costs a token too), visibility (`404`, audited `room.access_denied`), the parameters
+         *     (`400`), then the query. A non-member's bad `q` is still a `404`. An archived room is searched.
+         *
+         *     - `q` (REQUIRED, 2 to 100 characters after trimming, at least one letter or digit, no control characters; repeating it is a `400`)
+         *       is matched case- and accent-insensitively: `zolw` finds `Żółw` and the snippet keeps the diacritics. Every term is required
+         *       within ONE message or within the title; a term of three or more characters matches as a PREFIX (there is no stemming, so
+         *       `awari` finds `awaria` and `awarii`, but `bazy` does not find `baza`), a shorter one matches exactly. There are no operators:
+         *       `&`, `|`, `!`, quotes and `:*` are punctuation, never syntax, so no input is a query error, and an input with no word in it
+         *       (`!!!`, `<script>`) matches nothing. `PROD-123` is indexed as `prod` and `-123`: searching it finds it, `123` alone does not.
+         *       Hashtag text is searchable (`#db-outage` indexes `db-outage`, `db` and `outage`). Field values and deleted messages are never
+         *       searched.
+         *     - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
+         *     - Sortable fields: `lastActivityAt`, `createdAt`, `id`. Default `-lastActivityAt` (`id` ascending breaks ties). `pageSize` is at
+         *       most 20 (default 20; `400` beyond).
+         *
+         *     An item is a THREAD, in the page envelope: `total` counts matching threads. `messages` holds the three newest matching live
+         *     messages (newest first) and `matchCount` counts all of them; a thread that only matched by its title has no messages and a
+         *     count of 0. A snippet is a list of typed segments `{text, hit}`, never markup: `text` is a fragment of the Markdown source as
+         *     PLAIN text (render it as text, never as HTML or Markdown), `hit` marks the words that matched. `status` is the status KEY (the
+         *     room's workflow holds the label and colour). The search is one read under a statement budget (5 seconds by default): a search
+         *     past it is answered `429` of type `urn:adder:problem:search-timeout` with `Retry-After: 2`, audited without the term (narrow the
+         *     query). The term appears in no log line and in no problem body. Results are not live.
+         */
+        get: operations["searchRoom"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rooms/{id}/threads": {
         parameters: {
             query?: never;
@@ -2127,6 +2172,71 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        /** @description One run of a snippet. `text` is PLAIN text from the Markdown source (render it as text, never as HTML or Markdown). */
+        SnippetSegment: {
+            text: string;
+            /** @description True for the words that matched the query. */
+            hit: boolean;
+        };
+        MessageSearchHit: {
+            /**
+             * Format: int32
+             * @description The message id (the key of `GET /rooms/{id}/messages/{messageId}`).
+             */
+            id: number;
+            /** Format: int32 */
+            authorId: number;
+            authorName: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+            /** @description A fragment of the message, at most two pieces of 6 to 18 words joined by an ellipsis, its hits marked. */
+            snippet: components["schemas"]["SnippetSegment"][];
+        };
+        ThreadSearchHit: {
+            /** Format: int32 */
+            roomId: number;
+            roomName: string;
+            /** @description An archived room is searched and labelled. */
+            roomArchived: boolean;
+            /** Format: int32 */
+            threadNumber: number;
+            title: string;
+            /** @description The whole title, its hits marked (one plain segment when only a message matched). */
+            titleSnippet: components["schemas"]["SnippetSegment"][];
+            /** @description The status KEY. */
+            status: string;
+            closed: boolean;
+            /** Format: int32 */
+            ownerId: number;
+            ownerName: string;
+            /** Format: int32 */
+            messageCount: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastActivityAt: number;
+            /**
+             * Format: int64
+             * @description How many live messages of the thread match (0 for a title-only hit).
+             */
+            matchCount: number;
+            /** @description The three newest matching live messages, newest first. */
+            messages: components["schemas"]["MessageSearchHit"][];
+        };
+        ThreadSearchPage: {
+            items: components["schemas"]["ThreadSearchHit"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Matching threads.
+             */
+            total: number;
+        };
         /**
          * @description The kind of a history entry (persisted, never renamed). The `params` of each: `CREATED` `{title, status, statusLabel}`;
          *     `TITLE_CHANGED` `{from, to}`; `STATUS_CHANGED`, `CLOSED`, `REOPENED` and `STATUS_REPLACED` `{from, to, fromLabel, toLabel}`
@@ -2539,10 +2649,10 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), on a search (`GET /api/v1/rooms/{id}/search`) the per-USER search bucket is exhausted (60/min), or the search outruns its statement budget (`urn:adder:problem:search-timeout`, `Retry-After: 2`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the `search-timeout` 429, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
-                /** @description Seconds to wait before retrying; sent with `room-busy` and the rate-limit bucket 429s. */
+                /** @description Seconds to wait before retrying; sent with `room-busy`, `search-timeout` and the rate-limit bucket 429s. */
                 "Retry-After"?: number;
                 [name: string]: unknown;
             };
@@ -2592,7 +2702,9 @@ export interface components {
         Sort: string;
         /** @description Rows per page for the user directory only. Defaults to 20, maximum 20 (the shared maximum is 100). */
         DirectoryPageSize: number;
-        /** @description Free-text search (API-LIST-005), REQUIRED where declared (the user directory). Case- and accent-insensitive substring match; the endpoint declares which fields it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
+        /** @description Rows per page for the search only (a hit carries up to three snippets). Defaults to 20, maximum 20 (the shared maximum is 100). */
+        SearchPageSize: number;
+        /** @description Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
         Q: string;
         /** @description Repeatable - any of these status keys (the thread list). A well-formed key that is not a status of the room matches nothing; a malformed one, or more than 20 distinct values, is a `400`. */
         ThreadStatusFilter: string[];
@@ -2954,7 +3066,7 @@ export interface operations {
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
-                /** @description Free-text search (API-LIST-005), REQUIRED where declared (the user directory). Case- and accent-insensitive substring match; the endpoint declares which fields it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
+                /** @description Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
                 q: components["parameters"]["Q"];
             };
             header?: never;
@@ -4008,6 +4120,48 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    searchRoom: {
+        parameters: {
+            query: {
+                /** @description Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
+                q: components["parameters"]["Q"];
+                closed?: boolean;
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page for the search only (a hit carries up to three snippets). Defaults to 20, maximum 20 (the shared maximum is 100). */
+                pageSize?: components["parameters"]["SearchPageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of matching threads */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadSearchPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };

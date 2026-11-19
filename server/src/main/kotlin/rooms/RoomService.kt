@@ -82,6 +82,15 @@ class RoomService(
     }
 
     /**
+     * The id, name and archived flag of the ACTIVE room [roomId], or null when there is none: what a search hit shows of its room. No
+     * membership check (the route's visibility preamble runs first).
+     */
+    suspend fun summary(roomId: UInt): RoomSummary? = suspendTransaction(database) {
+        Rooms.select(Rooms.id, Rooms.name, Rooms.archivedAt).where { (Rooms.id eq roomId) and Rooms.active() }.toList().singleOrNull()
+            ?.let { RoomSummary(it[Rooms.id].value, it[Rooms.name], it[Rooms.archivedAt] != null) }
+    }
+
+    /**
      * The rooms [callerUserId] may read, filtered and paged: a member's own rooms, plus every room for an ADMIN ([callerIsAdmin]).
      * `member=true` narrows to the caller's own, `member=false` to the readable ones the caller is NOT in. One predicate for the count and
      * the rows, in one transaction; the member counts and the caller's roles are batched lookups for the page, not per row.

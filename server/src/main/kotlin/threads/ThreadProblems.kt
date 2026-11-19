@@ -1,6 +1,7 @@
 package ch.nokillswit.threads
 
 import ch.nokillswit.authz.ConflictException
+import ch.nokillswit.authz.TooManyRequestsException
 
 /**
  * The typed 409 problem of a closed thread (`urn:adder:problem:`, `ProblemDetail.type`): a client tells it apart from the plain
@@ -10,3 +11,19 @@ const val THREAD_CLOSED_PROBLEM_TYPE = "urn:adder:problem:thread-closed"
 
 /** A closed thread takes no activity until its owner, the room owner or an ADMIN reopens it (`chat-model.md` "Closed and archived"). */
 fun threadClosed(): ConflictException = ConflictException("The thread is closed", problemType = THREAD_CLOSED_PROBLEM_TYPE)
+
+const val SEARCH_TIMEOUT_PROBLEM_TYPE = "urn:adder:problem:search-timeout"
+
+/** Seconds the `Retry-After` header of a [searchTimeout] answer names: a heavy search is not helped by an instant retry. */
+const val SEARCH_TIMEOUT_RETRY_AFTER_SECONDS = 2
+
+/**
+ * A search outran its statement budget (`search.timeoutSeconds`): a `429` with `Retry-After`, typed so a client tells it apart from a
+ * rate-limit bucket by the URI. 429 (not 503/504) because it is already a cross-cutting status on every operation, the `room-busy`
+ * precedent. The detail never names the term.
+ */
+fun searchTimeout(): TooManyRequestsException = TooManyRequestsException(
+    "The search took too long - narrow it and retry in a moment",
+    problemType = SEARCH_TIMEOUT_PROBLEM_TYPE,
+    retryAfterSeconds = SEARCH_TIMEOUT_RETRY_AFTER_SECONDS,
+)

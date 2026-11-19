@@ -1327,6 +1327,59 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/search:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [threads]
+      operationId: searchRoom
+      summary: Search a room's threads and messages
+      description: |
+        Full-text search over the room's thread TITLES and live message BODIES. A member of the room or an `ADMIN` (a non-member gets the
+        uniform `404`). Checked in this order: authentication (`401`), the per-USER `search` bucket of 60 per minute (`429`; spent
+        before any guard, so a refused search costs a token too), visibility (`404`, audited `room.access_denied`), the parameters
+        (`400`), then the query. A non-member's bad `q` is still a `404`. An archived room is searched.
+
+        - `q` (REQUIRED, 2 to 100 characters after trimming, at least one letter or digit, no control characters; repeating it is a `400`)
+          is matched case- and accent-insensitively: `zolw` finds `Żółw` and the snippet keeps the diacritics. Every term is required
+          within ONE message or within the title; a term of three or more characters matches as a PREFIX (there is no stemming, so
+          `awari` finds `awaria` and `awarii`, but `bazy` does not find `baza`), a shorter one matches exactly. There are no operators:
+          `&`, `|`, `!`, quotes and `:*` are punctuation, never syntax, so no input is a query error, and an input with no word in it
+          (`!!!`, `<script>`) matches nothing. `PROD-123` is indexed as `prod` and `-123`: searching it finds it, `123` alone does not.
+          Hashtag text is searchable (`#db-outage` indexes `db-outage`, `db` and `outage`). Field values and deleted messages are never
+          searched.
+        - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
+        - Sortable fields: `lastActivityAt`, `createdAt`, `id`. Default `-lastActivityAt` (`id` ascending breaks ties). `pageSize` is at
+          most 20 (default 20; `400` beyond).
+
+        An item is a THREAD, in the page envelope: `total` counts matching threads. `messages` holds the three newest matching live
+        messages (newest first) and `matchCount` counts all of them; a thread that only matched by its title has no messages and a
+        count of 0. A snippet is a list of typed segments `{text, hit}`, never markup: `text` is a fragment of the Markdown source as
+        PLAIN text (render it as text, never as HTML or Markdown), `hit` marks the words that matched. `status` is the status KEY (the
+        room's workflow holds the label and colour). The search is one read under a statement budget (5 seconds by default): a search
+        past it is answered `429` of type `urn:adder:problem:search-timeout` with `Retry-After: 2`, audited without the term (narrow the
+        query). The term appears in no log line and in no problem body. Results are not live.
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - name: closed
+          in: query
+          required: false
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/SearchPageSize'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: A page of matching threads
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadSearchPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/threads:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -1989,15 +2042,21 @@ components:
       required: false
       schema: { type: integer, minimum: 1, maximum: 20, default: 20 }
       description: Rows per page for the user directory only. Defaults to 20, maximum 20 (the shared maximum is 100).
+    SearchPageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 20, default: 20 }
+      description: Rows per page for the search only (a hit carries up to three snippets). Defaults to 20, maximum 20 (the shared maximum is 100).
     Q:
       name: q
       in: query
       required: true
       schema: { type: string, minLength: 2, maxLength: 100 }
       description: >-
-        Free-text search (API-LIST-005), REQUIRED where declared (the user directory). Case- and accent-insensitive
-        substring match; the endpoint declares which fields it searches. The value is trimmed before the length limits
-        apply, so it needs 2 to 100 characters (code points) after trimming.
+        Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it
+        matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length
+        limits apply, so it needs 2 to 100 characters (code points) after trimming.
     ThreadStatusFilter:
       name: status
       in: query
@@ -2118,14 +2177,14 @@ components:
         on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message
         (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread
         and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min),
-        on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the
+        on a search (`GET /api/v1/rooms/{id}/search`) the per-USER search bucket is exhausted (60/min), or the search outruns its statement budget (`urn:adder:problem:search-timeout`, `Retry-After: 2`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the
         per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other
-        writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is
+        writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the `search-timeout` 429, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is
         declared optional. All carry a ProblemDetail body.
       headers:
         Retry-After:
           required: false
-          description: Seconds to wait before retrying; sent with `room-busy` and the rate-limit bucket 429s.
+          description: Seconds to wait before retrying; sent with `room-busy`, `search-timeout` and the rate-limit bucket 429s.
           schema: { type: integer, minimum: 0 }
       content:
         application/problem+json:
@@ -3159,6 +3218,69 @@ components:
           type: integer
           format: int64
           minimum: 0
+    SnippetSegment:
+      type: object
+      required: [text, hit]
+      description: One run of a snippet. `text` is PLAIN text from the Markdown source (render it as text, never as HTML or Markdown).
+      properties:
+        text: { type: string }
+        hit: { type: boolean, description: True for the words that matched the query. }
+    MessageSearchHit:
+      type: object
+      required: [id, authorId, authorName, createdAt, snippet]
+      properties:
+        id: { type: integer, format: int32, minimum: 1, description: 'The message id (the key of `GET /rooms/{id}/messages/{messageId}`).' }
+        authorId: { type: integer, format: int32, minimum: 1 }
+        authorName: { type: string }
+        createdAt: { type: integer, format: int64, description: Epoch millis }
+        snippet:
+          type: array
+          description: A fragment of the message, at most two pieces of 6 to 18 words joined by an ellipsis, its hits marked.
+          items:
+            $ref: '#/components/schemas/SnippetSegment'
+    ThreadSearchHit:
+      type: object
+      required: [roomId, roomName, roomArchived, threadNumber, title, titleSnippet, status, closed, ownerId, ownerName, messageCount, lastActivityAt, matchCount, messages]
+      properties:
+        roomId: { type: integer, format: int32, minimum: 1 }
+        roomName: { type: string }
+        roomArchived: { type: boolean, description: An archived room is searched and labelled. }
+        threadNumber: { type: integer, format: int32, minimum: 1 }
+        title: { type: string }
+        titleSnippet:
+          type: array
+          description: The whole title, its hits marked (one plain segment when only a message matched).
+          items:
+            $ref: '#/components/schemas/SnippetSegment'
+        status: { type: string, description: The status KEY. }
+        closed: { type: boolean }
+        ownerId: { type: integer, format: int32, minimum: 1 }
+        ownerName: { type: string }
+        messageCount: { type: integer, format: int32, minimum: 0 }
+        lastActivityAt: { type: integer, format: int64, description: Epoch millis }
+        matchCount: { type: integer, format: int64, minimum: 0, description: How many live messages of the thread match (0 for a title-only hit). }
+        messages:
+          type: array
+          maxItems: 3
+          description: The three newest matching live messages, newest first.
+          items:
+            $ref: '#/components/schemas/MessageSearchHit'
+    ThreadSearchPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ThreadSearchHit'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 20 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Matching threads.
     ThreadEventType:
       type: string
       description: |

@@ -51,6 +51,8 @@ outside it only with a documented cap and a line here in the commit that introdu
 wrapper is reserved for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets`) are not implemented — port Covenant's
 pattern with the first filterable list that needs them.
 
+**Search** is the second `q` consumer: `GET /rooms/{id}/search?q=` (`q` REQUIRED, hits are THREADS in the envelope, `SearchPageSize` at most 20; `chat-model.md`).
+
 **Keyset inside the envelope:** `GET .../messages?id[lt]=` (the first bracket filter; `optionalUInt`; default `-id`): `total` counts AFTER it, so `total > items.length` means older rows exist.
 
 A room's members, threads and a thread's history are the paged sub-collections (whitelists, filters, caps): `chat-model.md` "Paged lists of a room". The thread list also sorts by `status` (workflow order) and filters by repeated `status`, `ownerId`, `field=key:value` and `tag`; the room's tags are a paged list too (`GET /rooms/{id}/tags`).

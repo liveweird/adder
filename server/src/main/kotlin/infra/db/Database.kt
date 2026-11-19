@@ -22,6 +22,8 @@ import ch.nokillswit.threads.MessageTagService
 import ch.nokillswit.threads.MessageTagServiceKey
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadEventServiceKey
+import ch.nokillswit.threads.ThreadSearchService
+import ch.nokillswit.threads.ThreadSearchServiceKey
 import ch.nokillswit.threads.ThreadService
 import ch.nokillswit.threads.ThreadServiceKey
 import ch.nokillswit.threads.ThreadStatusService
@@ -305,6 +307,11 @@ suspend fun Application.configureDatabase() {
     attributes.put(
         ThreadServiceKey,
         ThreadService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, messageService),
+    )
+    // The full-text search (V16): one read transaction under `search.timeoutSeconds` as its statement budget, boot-validated.
+    attributes.put(
+        ThreadSearchServiceKey,
+        ThreadSearchService(database, roomService, requireConfigInt(environment.config, "search.timeoutSeconds", min = 1, max = 30)),
     )
     attributes.put(
         ThreadStatusServiceKey,

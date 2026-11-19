@@ -218,6 +218,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     |---|---|---|---|---|---|
     | `GET /rooms/{id}/threads`, `GET .../threads/{number}`, `GET .../threads/{number}/events` | 404 | 200 | 200 | 200 | 200 |
     | `GET /rooms/{id}/tags` (the room's hashtags, 0.5.0; a reader, no bucket) | 404 | 200 | 200 | 200 | 200 |
+    | `GET /rooms/{id}/search` (full-text search, 0.5.0; a reader; the per-user `search` bucket first, so a 429 can precede the 404) | 404 | 200 | 200 | 200 | 200 |
     | `POST /rooms/{id}/threads` (201 + `Location`) | 404 | 201 | 201 | 201 | 403 |
     | `PUT .../threads/{number}` (details, `X-Expected-Revision`) | 404 | 204 | 204 | 204 | 204 |
     | `PUT .../threads/{number}/status`, OPEN to OPEN (`monitoring`) | 404 | 204 | 204 | 204 | 204 |
@@ -242,6 +243,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     A malformed create body is `404` for an outsider, `403` for an ADMIN outside the room and `400` only for a member. A thread is addressed by `(room id, number)`, so another room's number is
     never reachable: the lookup is scoped to the room the visibility check admitted. An archived room refuses the POST with the typed `409` `urn:adder:problem:room-archived`. Tests:
     `ThreadAuthzMatrixTest` (a fresh room per cell), `ThreadTest`, `ThreadWriteBoundsTest`, `MessageTest`, `GuardsTest`.
+    **Search:** the order is `401`, the `search` bucket (`429`), visibility (`404`, audited `room.access_denied`), the parameters (`400`), then the query: a non-member's bad `q` is still `404`, and the search reads only the room the check admitted (`threads.room_id` is its first predicate). An ADMIN outside the room searches it (an ADMIN reads every room). `ThreadSearchTest`.
     **List filters:** `status`, `ownerId` and `field` narrow what `GET /rooms/{id}/threads` returns inside the room the visibility check admitted; they never widen it (the predicate always starts at `room_id = ?`). The order is `401`, the visibility `404`, then the filter `400`s, so a non-member's malformed filter is still `404`. A RETIRED field key is a `400`, never a match: its stored values are hidden from readers (`chat-model.md` "Stored values survive"), and a filter would otherwise let a reader probe them. The `tag` filter is the same kind (`EXISTS` over `message_tags` correlated on the thread and bound to the room's id), and `GET /rooms/{id}/tags` reads `message_tags` by its own `room_id = ?`, so a tag is never read across rooms (`MessageTagsTest` seeds the same tag in two rooms); a non-member's tag list, malformed `tag` included, is `404`. Tests: `ThreadListFilterTest`, `MessageTagsTest`.
 - **Existence disclosure (403 vs 404) — deliberate policy (API-ERR-006)**: three sanctioned idioms,
   and every new resource picks one consciously rather than mixing them. **Guard-before-read**

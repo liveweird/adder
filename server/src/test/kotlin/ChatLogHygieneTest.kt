@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.ThreadResponse
+import ch.nokillswit.threads.ThreadSearchPageResponse
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
@@ -169,6 +170,39 @@ class ChatLogHygieneTest {
             assertTrue("message.posted" in names && "message.edited" in names && "message.deleted" in names, "captured: $names")
             val leaked = capture.events.filter { tag in it.rendered() || tag.uppercase() in it.rendered() }
             assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a hashtag")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    /**
+     * A search term is user content like a body: the room search must leave it in no log line of any logger, whether the search is
+     * answered (200), refused (a control character is a 400 whose detail is a response, never a log) or throttled (the 61st in a minute
+     * is the bucket's 429, whose audit line carries the bucket and the user, never the query string). The statement budget's 429 is
+     * `ThreadSearchTest`.
+     */
+    @Test
+    fun `no log line carries a search term - answered, refused or throttled`() = testApplication {
+        val term = "searchterm" + UUID.randomUUID().toString().replace("-", "")
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            usePostgresTestcontainer()
+            val cast = castWithThread("hyg-srch")
+            assertEquals(HttpStatusCode.Created, cast.post("""{"body":"P $term here"}""").status)
+            val search = "$rooms/${cast.room}/search"
+            val answered = cast.member.client.get("$search?q=$term")
+            assertEquals(HttpStatusCode.OK, answered.status)
+            assertEquals(1, answered.body<ThreadSearchPageResponse>().total, "the search really found the message")
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$search?q=$term%07").status)
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$search?q=$term&q=other").status)
+            assertEquals(HttpStatusCode.OK, cast.member.client.get("$search?q=${term.uppercase()}%20and%20!!!").status)
+            repeat(56) { cast.member.client.get("$search?q=$term") }
+            assertEquals(HttpStatusCode.TooManyRequests, cast.member.client.get("$search?q=$term").status)
+
+            val names = capture.events.map { it.message }
+            assertTrue("message.posted" in names && "rate_limit.exceeded" in names, "captured: $names")
+            val leaked = capture.events.filter { term in it.rendered() || term.uppercase() in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a search term")
         } finally {
             capture.detach()
         }
