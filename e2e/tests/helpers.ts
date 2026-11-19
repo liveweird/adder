@@ -214,8 +214,16 @@ export async function rowOperation(
  * it creates is the caller's to delete directly through the same API — the Owns rule applies unchanged.
  */
 export async function apiAsAdmin(): Promise<{ api: APIRequestContext; userId: number }> {
+  return apiAsUser(ADMIN, PASSWORD);
+}
+
+/**
+ * The same for any account (a throwaway user's credentials from `throwawayUser`): one bearer-authenticated request context, so a spec
+ * can act as that user through the API (seed a room it owns, post a message from "the other tab") without a browser. The caller disposes it.
+ */
+export async function apiAsUser(email: string, password: string): Promise<{ api: APIRequestContext; userId: number }> {
   const anonymous = await playwrightRequest.newContext({ baseURL: BASE_URL });
-  const login = await anonymous.post("/api/v1/login", { data: { email: ADMIN, password: PASSWORD } });
+  const login = await anonymous.post("/api/v1/login", { data: { email, password } });
   expect(login.ok(), await login.text()).toBeTruthy();
   const { token, userId } = (await login.json()) as { token: string; userId: number };
   await anonymous.dispose();
