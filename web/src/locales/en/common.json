@@ -29,7 +29,8 @@
   "filter": {
     "title": "Filters",
     "contains": "Contains…",
-    "clearName": "Clear name filter"
+    "clearName": "Clear name filter",
+    "removeValue": "Remove {{value}}"
   },
   "table": {
     "rowsPerPage": "Rows per page",

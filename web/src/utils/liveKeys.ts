@@ -30,7 +30,8 @@ function threadKeys(kind: ThreadScopedKind, r: number, n: number | undefined): Q
     case "message.posted":
       return [messages(r, n), threadDetail(r, n), threadList(r), RAIL];
     case "message.edited":
-      return [messages(r, n)];
+      // The conversation, and the list: an edit can add or drop a hashtag, which a tag filter would show or hide.
+      return [messages(r, n), threadList(r)];
     default:
       // message.deleted: the tombstone, the count on the thread and its row.
       return [messages(r, n), threadDetail(r, n), threadList(r)];

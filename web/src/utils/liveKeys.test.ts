@@ -51,8 +51,8 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame(event("message.posted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], RAIL]);
   });
 
-  test("message.edited re-reads only the conversation", () => {
-    expect(keysForFrame(event("message.edited", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7]]);
+  test("message.edited re-reads the conversation and the thread list (an edit can add or drop a hashtag), not the thread itself", () => {
+    expect(keysForFrame(event("message.edited", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"]]);
   });
 
   test("message.deleted re-reads the conversation, the thread and the thread list (not the rail)", () => {
@@ -191,18 +191,23 @@ describe("createLiveInvalidator", () => {
     const fetching = vi.spyOn(queryClient, "isFetching").mockReturnValue(0);
     const invalidator = createLiveInvalidator(queryClient, clock);
     const flushed = () => invalidate.mock.calls.map(([filters]) => filters?.queryKey);
-    return { queryClient, clock, invalidate, fetching, invalidator, flushed };
+    // `message.edited` also re-reads the room's thread list (an aggregate, spaced on its own): a positive assertion about the conversation key filters it.
+    const flushedMessages = () => flushed().filter((key) => (key as unknown[])[3] === "messages");
+    /** Holds the room's thread list busy (a re-read of it waits, never cancels), so a test can watch the conversation key's timing alone, strictly. */
+    const holdListBusy = () => fetching.mockImplementation((filters) => (keyOf(filters)[3] === "list" ? 1 : 0));
+    return { queryClient, clock, invalidate, fetching, invalidator, flushed, flushedMessages, holdListBusy };
   }
 
   test("a burst of hints settles for 300 ms after the last one and then re-reads each focused key once", () => {
     const t = setup();
+    t.holdListBusy();
     t.invalidator.handle(event("message.edited", 5, 7, 1));
     t.clock.advanceBy(200);
     t.invalidator.handle(event("message.edited", 5, 7, 1));
     t.clock.advanceBy(299);
     expect(t.flushed()).toEqual([]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7]]);
+    expect(t.flushedMessages()).toEqual([["rooms", "threads", 5, "messages", 7]]);
   });
 
   test("a hint's keys are each re-read once, however many hints named them", () => {
@@ -216,6 +221,7 @@ describe("createLiveInvalidator", () => {
 
   test("a focused key never waits more than a second from its first hint, however steadily they keep coming", () => {
     const t = setup();
+    t.holdListBusy();
     t.invalidator.handle(event("message.edited", 5, 7, 1));
     for (let i = 0; i < 3; i++) {
       t.clock.advanceBy(250);
@@ -224,7 +230,7 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(249);
     expect(t.flushed()).toEqual([]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7]]);
+    expect(t.flushedMessages()).toEqual([["rooms", "threads", 5, "messages", 7]]);
   });
 
   test("the rail, the rooms list and a room's thread list are re-read at most once every three seconds", () => {
@@ -265,7 +271,7 @@ describe("createLiveInvalidator", () => {
     t.invalidator.handle({ type: "subscribed", roomIds: [5], refused: [], capped: [] });
     t.invalidator.handle(event("message.edited", 5, 7, 1));
     t.clock.advanceBy(300);
-    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7]]);
+    expect(t.flushedMessages()).toEqual([["rooms", "threads", 5, "messages", 7]]);
   });
 
   test("a subscribed flush of the room's thread tree counts as the thread list's re-read: the 3 s gap holds", () => {
@@ -299,7 +305,24 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(300);
     t.invalidator.handle(event("message.edited", 5, 7, 2));
     t.clock.advanceBy(300);
-    expect(t.flushed()).toHaveLength(2);
+    expect(t.flushedMessages()).toHaveLength(2);
+  });
+
+  test("the thread-list re-read a message.edited causes keeps the 3 s spacing of the aggregates, while the conversation is not spaced", () => {
+    const t = setup();
+    const lists = () => t.flushed().filter((key) => (key as unknown[])[3] === "list");
+    t.invalidator.handle(event("message.edited", 5, 7, 1));
+    t.clock.advanceBy(300);
+    expect(lists()).toHaveLength(1);
+    t.invalidator.handle(event("message.edited", 5, 7, 2));
+    t.clock.advanceBy(300);
+    expect(t.flushedMessages()).toHaveLength(2);
+    expect(lists()).toHaveLength(1);
+    t.clock.advanceBy(2699);
+    expect(lists()).toHaveLength(1);
+    t.clock.advanceBy(1);
+    expect(lists()).toHaveLength(2);
+    expect(t.flushedMessages()).toHaveLength(2);
   });
 
   test("a resync waits a random 0 to 2 s and then re-reads everything under ['rooms']", () => {
@@ -314,7 +337,8 @@ describe("createLiveInvalidator", () => {
 
   test("a key being fetched is NOT cancelled or re-read: it is tried again until it is idle", () => {
     const t = setup();
-    t.fetching.mockImplementation((filters) => (JSON.stringify(keyOf(filters)) === JSON.stringify(["rooms", "threads", 5, "messages", 7]) ? 1 : 0));
+    // The conversation and the list are both being fetched: neither is re-read, nor cancelled, until it is idle.
+    t.fetching.mockImplementation((filters) => (keyOf(filters)[3] === "messages" || keyOf(filters)[3] === "list" ? 1 : 0));
     t.invalidator.handle(event("message.edited", 5, 7, 1));
     t.clock.advanceBy(300);
     t.clock.advanceBy(300);
@@ -322,7 +346,7 @@ describe("createLiveInvalidator", () => {
     expect(t.flushed()).toEqual([]);
     t.fetching.mockReturnValue(0);
     t.clock.advanceBy(300);
-    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7]]);
+    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"]]);
     // Nothing was ever asked to cancel.
     expect(t.queryClient.isFetching()).toBe(0);
   });

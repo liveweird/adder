@@ -13,12 +13,21 @@
     "aria": "Order threads by",
     "activity": "Recent activity",
     "newest": "Newest",
-    "number": "Number"
+    "number": "Number",
+    "status": "Workflow order"
+  },
+  "filters": {
+    "all": "All",
+    "status": "Status",
+    "owner": "Owner",
+    "mine": "Mine",
+    "clear": "Clear filters"
   },
   "empty": {
     "open": "No open threads",
     "closed": "No closed threads",
     "all": "No threads yet",
+    "filtered": "No threads match these filters.",
     "hint": "Start one to get the conversation going.",
     "hintClosed": "Threads land here when they reach a closed status."
   },

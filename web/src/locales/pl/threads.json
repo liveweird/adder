@@ -13,12 +13,21 @@
     "aria": "Kolejność wątków",
     "activity": "Ostatnia aktywność",
     "newest": "Najnowsze",
-    "number": "Numer"
+    "number": "Numer",
+    "status": "Kolejność przepływu pracy"
+  },
+  "filters": {
+    "all": "Wszystkie",
+    "status": "Status",
+    "owner": "Właściciel/ka",
+    "mine": "Moje",
+    "clear": "Wyczyść filtry"
   },
   "empty": {
     "open": "Brak otwartych wątków",
     "closed": "Brak zamkniętych wątków",
     "all": "Brak wątków",
+    "filtered": "Żaden wątek nie pasuje do tych filtrów.",
     "hint": "Rozpocznij pierwszy, żeby zacząć rozmowę.",
     "hintClosed": "Wątki trafiają tu, gdy osiągną zamknięty status."
   },

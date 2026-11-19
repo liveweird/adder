@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button, Group, SegmentedControl, Select, Stack, Text } from "@mantine/core";
@@ -18,7 +18,9 @@ import LoadingBlock from "./LoadingBlock";
 import PaginationBar from "./PaginationBar";
 import ThreadStatusPill from "./ThreadStatusPill";
 import { roomKeys } from "../utils/roomKeys";
-import { ORDER_SORT, ORDERS, SCOPE_FILTER, SCOPES, type Order, type Scope } from "../utils/threadListParams";
+import { activeFilterCount, ORDERS, pruneFieldEntries, SCOPES, toApiQuery, type Order, type Scope } from "../utils/threadListParams";
+import { getUserId } from "../api/session";
+import ThreadFilters from "./ThreadFilters";
 
 /** The rail shows 50 threads a page (the server's cap is 100); the page-size picker is left out, the rail is too narrow for it. */
 const THREAD_PAGE_SIZE = 50;
@@ -32,16 +34,28 @@ const THREAD_PAGE_SIZE = 50;
  */
 export default function ThreadList({ room, activeNumber }: { room: RoomResponse; activeNumber: number | null }) {
   const { t } = useTranslation();
-  const { params, update } = useThreadListParams(room.id);
+  const { params, update, clear } = useThreadListParams(room.id);
   const { scope, order, page } = params;
   const { search } = useLocation();
   const workflow = useRoomWorkflow(room.id);
   const zone = browserTimeZone();
 
+  // The request: owner=me resolved to the session's id, a stale field entry dropped; null while field filters wait for the workflow.
+  const me = getUserId();
+  const filters = toApiQuery(params, workflow.data, me);
+  // Once the workflow is known, field entries it cannot judge (a retired field, a value of the wrong shape) leave the URL and the remembered
+  // query too, by replace and on the same page: the request already ignores them, so the badge, Clear and the 20-entry cap must not count them.
+  const prunedFields = useMemo(() => (workflow.data ? pruneFieldEntries(params.field, workflow.data) : null), [params.field, workflow.data]);
+  useEffect(() => {
+    if (prunedFields !== null && prunedFields.length !== params.field.length) update({ field: prunedFields, page: params.page });
+  }, [prunedFields, params.field.length, params.page, update]);
+  const waiting = filters === null;
+  const filterCount = filters === null ? 0 : activeFilterCount(filters);
   // Under the ["rooms"] prefix: a thread written anywhere in the room (and the rail's refresh) re-reads the page.
   const { data, isLoading, isError, error, isPlaceholderData } = useQuery({
-    queryKey: [...roomKeys.threadList(room.id), page, THREAD_PAGE_SIZE, ORDER_SORT[order], scope],
-    queryFn: () => listThreads(room.id, { page, pageSize: THREAD_PAGE_SIZE, sort: ORDER_SORT[order], closed: SCOPE_FILTER[scope] }),
+    queryKey: [...roomKeys.threadList(room.id), page, THREAD_PAGE_SIZE, filters],
+    queryFn: () => listThreads(room.id, { page, pageSize: THREAD_PAGE_SIZE, ...filters }),
+    enabled: filters !== null,
     placeholderData: keepPreviousData,
   });
   // The page was emptied under the reader: step back to the first.
@@ -51,7 +65,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
   }, [emptied, update]);
   const canStart = threadStartBlock(room) === null;
   // Starting a thread is no way to fill the Closed list: it says how threads get there instead.
-  const emptyHint = scope === "closed" ? t("threads.empty.hintClosed") : canStart ? t("threads.empty.hint") : undefined;
+  const emptyHint = filterCount > 0 ? undefined : scope === "closed" ? t("threads.empty.hintClosed") : canStart ? t("threads.empty.hint") : undefined;
 
   return (
     <Stack gap="sm">
@@ -77,11 +91,14 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
         onChange={(value) => value && update({ order: value as Order })}
         allowDeselect={false}
       />
+      <ThreadFilters roomId={room.id} me={me} workflow={workflow.data} params={params} update={update} clear={clear} activeCount={filterCount} />
       {isError && <ErrorAlert error={error} title={t("threads.loadFailed")} />}
-      {(isLoading || (isPlaceholderData && data?.items.length === 0)) && <LoadingBlock />}
+      {/* Field filters cannot be judged before the workflow is read: a failed read says so instead of spinning for ever. */}
+      {waiting && workflow.isError && <ErrorAlert error={workflow.error} title={t("threads.loadFailed")} />}
+      {(isLoading || (waiting && !workflow.isError) || (isPlaceholderData && data?.items.length === 0)) && <LoadingBlock />}
       {/* The previous filter's rows stay (dimmed) while the new one loads, and an empty state is only ever the answer to the CURRENT filter. */}
       {data && data.items.length === 0 && !isError && !isPlaceholderData && (
-        <EmptyState icon={IconMessages} label={t(`threads.empty.${scope}`)} hint={emptyHint} />
+        <EmptyState icon={IconMessages} label={t(filterCount > 0 ? "threads.empty.filtered" : `threads.empty.${scope}`)} hint={emptyHint} />
       )}
       {data && data.items.length > 0 && (
         <nav aria-label={t("threads.listAria")} aria-busy={isPlaceholderData} className={isPlaceholderData ? classes.stale : undefined}>

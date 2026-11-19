@@ -19,10 +19,16 @@ type ThreadListQuery = {
   sort?: string;
   /** `true` = only closed threads, `false` = only open ones; omitted = both. */
   closed?: boolean;
+  /** Any of these status keys. */
+  status?: string[];
+  /** Any of these owner ids. */
+  ownerId?: number[];
+  /** `key:value` pairs: any-of within a key, all-of across keys (SELECT, MULTI_SELECT and USER fields; a key that is not one is a 400). */
+  field?: string[];
 };
 
 export async function listThreads(roomId: number, q: ThreadListQuery): Promise<ThreadPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed });
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), field: q.field });
   return jsonRequest<ThreadPage>(`/api/v1/rooms/${roomId}/threads?${params}`);
 }
 

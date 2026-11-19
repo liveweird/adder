@@ -29,7 +29,8 @@
   "filter": {
     "title": "Filtry",
     "contains": "Zawiera…",
-    "clearName": "Wyczyść filtr nazwy"
+    "clearName": "Wyczyść filtr nazwy",
+    "removeValue": "Usuń {{value}}"
   },
   "table": {
     "rowsPerPage": "Wierszy na stronę",

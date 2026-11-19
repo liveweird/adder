@@ -3,7 +3,6 @@ import { readStoredJson, writeStoredJson } from "./useStoredState";
 import { useLiveSearchParams } from "./useLiveSearchParams";
 import {
   hasListKeys,
-  LIST_KEYS,
   parseThreadListParams,
   rememberedQuery,
   restoreRememberedQuery,
@@ -28,7 +27,7 @@ function readRemembered(roomId: number): string {
  * The last non-default query of each room (the page left out) is remembered in localStorage and comes back when the Threads view opens
  * on a URL that spells no list key: the rendered state reads it at once (no request goes out for the defaults first) and an effect
  * writes it into the URL by `replace`. Every write updates what is remembered (a default list remembers nothing), so the restore
- * happens once: after the reader chooses the plain list the URL is bare AND nothing is kept. `clear` forgets it for good.
+ * happens once: after the reader chooses the plain list the URL is bare AND nothing is kept. `clear` drops the panel filters and keeps the rest.
  */
 export function useThreadListParams(roomId: number) {
   const [search, setSearch, live] = useLiveSearchParams();
@@ -64,14 +63,16 @@ export function useThreadListParams(roomId: number) {
     [setSearch, live],
   );
 
-  /** Back to the plain list, and forget the remembered one. */
+  /**
+   * Clear the PANEL filters (status, owner, field) and go back to page 1; the scope and the order stay. What is remembered becomes what
+   * remains (nothing, when that is the plain list).
+   */
   const clear = useCallback(
     () =>
       setSearch(
         (prev) => {
-          const next = new URLSearchParams(prev);
-          for (const key of LIST_KEYS) next.delete(key);
-          writeStoredJson(rememberedKey(room.current), "");
+          const next = writeThreadListParams(prev, { status: [], owner: null, field: [] });
+          writeStoredJson(rememberedKey(room.current), rememberedQuery(next));
           return next;
         },
         { replace: true, state: live.state() },
