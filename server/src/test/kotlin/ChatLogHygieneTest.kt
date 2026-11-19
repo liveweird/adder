@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.ThreadResponse
+import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.classic.spi.ThrowableProxyUtil
@@ -15,13 +16,17 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import org.slf4j.LoggerFactory
 
 /**
  * Application-log hygiene of the chat writes (the 0.3.0 security audit): a message body, a thread title and a TEXT field value are
@@ -128,6 +133,132 @@ class ChatLogHygieneTest {
             assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries user content")
         } finally {
             capture.detach()
+        }
+    }
+
+    private class Cast(val member: RoomActor, val room: UInt)
+
+    /** A room with an owner, a member and one thread (number 1) for the post. */
+    private suspend fun ApplicationTestBuilder.castWithThread(prefix: String): Cast {
+        val owner = seedActor("$prefix-own").also { mintedUsers += it.id }
+        val member = seedActor("$prefix-mem").also { mintedUsers += it.id }
+        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
+        val room = TestRooms.seed(owner.id, template, "Hyg ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
+        TestRooms.addMember(room, member.id)
+        val created = member.client.raw(HttpMethod.Post, "$rooms/$room/threads", """{"title":"T","body":"B","fields":{"severity":"s1"}}""")
+        assertEquals(HttpStatusCode.Created, created.status)
+        return Cast(member, room)
+    }
+
+    /** The 500 lines of the capture: what the catch-all logged for a failed request. */
+    private fun LogCapture.failureLines(): List<ILoggingEvent> =
+        events.filter { it.message.startsWith("Unhandled exception while processing") }
+
+    private suspend fun Cast.post(body: String): HttpResponse = member.client.raw(HttpMethod.Post, "$rooms/$room/threads/1/messages", body)
+
+    @Test
+    fun `the 500 line names the driver class and 57014`() = testApplication {
+        val marker = "HYGIENE-${UUID.randomUUID()}"
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            usePostgresTestcontainer()
+            val cast = castWithThread("hyg-cancel")
+
+            // A SHAPE pin, not a leak proof (the default message does not expand arguments, the echo test below proves the leak): the
+            // post passes every check, its INSERT waits behind a table lock, and cancelling that backend is a database failure (57014)
+            // whose 500 line must still name the driver's class and the SQLSTATE after the scrubbing.
+            val status = PostgresTestSupport.connect().use { holder ->
+                holder.autoCommit = false
+                holder.createStatement().use { it.execute("LOCK TABLE messages IN ACCESS EXCLUSIVE MODE") }
+                try {
+                    coroutineScope {
+                        val posting = async { cast.post("""{"body":"P $marker-post"}""") }
+                        awaitLockWait("INSERT INTO messages")
+                        cancelBackends("INSERT INTO messages")
+                        posting.await().status
+                    }
+                } finally {
+                    holder.rollback()
+                }
+            }
+            assertEquals(HttpStatusCode.InternalServerError, status)
+
+            val failure = capture.failureLines().map { it.rendered() }
+            assertTrue(failure.isNotEmpty(), "the 500 was logged")
+            assertTrue(failure.all { "57014" in it }, "the line still names the SQLSTATE")
+            assertTrue(failure.all { "PostgresqlNonTransientResourceException" in it }, "the line still names the driver's exception class")
+            val leaked = capture.events.filter { marker in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a failed statement logged its bound values")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    /**
+     * Postgres itself can echo a value into an error message (an input-syntax failure, a `RAISE`, a malformed tsquery), and the driver
+     * carries that message in its exception: the catch-all must not render it. A trigger that rejects ONLY this test's marker stands in
+     * for such a failure, so the message is raised from the database with the bound body in its text.
+     */
+    @Test
+    fun `a database error whose own message echoes the body answers 500 and leaves the body in no log line`() = testApplication {
+        val marker = "HYGIENE-${UUID.randomUUID()}"
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            usePostgresTestcontainer()
+            val cast = castWithThread("hyg-echo")
+            PostgresTestSupport.connect().use { admin ->
+                admin.createStatement().use { st ->
+                    st.execute(
+                        "CREATE OR REPLACE FUNCTION hyg_reject() RETURNS trigger LANGUAGE plpgsql AS \$\$ BEGIN " +
+                            "IF position('$marker' in NEW.body) > 0 THEN RAISE EXCEPTION 'rejected body %', NEW.body; " +
+                            "END IF; RETURN NEW; END \$\$",
+                    )
+                    st.execute("CREATE TRIGGER hyg_reject_trg BEFORE INSERT ON messages FOR EACH ROW EXECUTE FUNCTION hyg_reject()")
+                }
+            }
+            try {
+                val posted = cast.post("""{"body":"P $marker-post"}""")
+                assertEquals(HttpStatusCode.InternalServerError, posted.status)
+            } finally {
+                PostgresTestSupport.connect().use { admin ->
+                    admin.createStatement().use { st ->
+                        st.execute("DROP TRIGGER IF EXISTS hyg_reject_trg ON messages")
+                        st.execute("DROP FUNCTION IF EXISTS hyg_reject()")
+                    }
+                }
+            }
+
+            val failure = capture.failureLines().map { it.rendered() }
+            assertTrue(failure.isNotEmpty(), "the 500 was logged")
+            assertTrue(failure.all { "P0001" in it }, "the line still names the SQLSTATE")
+            val leaked = capture.events.filter { marker in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a database error message reached a log line")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    /**
+     * Two loggers print a failure's message below INFO (Exposed's retry DEBUG line `Transaction attempt #N failed: ${cause.message}`,
+     * StatusPages' TRACE line with the URI and `cause.toString()`); `logback.xml` pins both so a root-level change cannot switch them on.
+     */
+    @Test
+    fun `the loggers that print a failure's message below INFO are pinned to INFO`() {
+        listOf("Exposed", "io.ktor.server.plugins.statuspages").forEach { name ->
+            assertEquals(Level.INFO, (LoggerFactory.getLogger(name) as Logger).level, name)
+        }
+    }
+
+    /** `pg_cancel_backend` for every session currently waiting on a lock whose query contains [queryFragment]. */
+    private fun cancelBackends(queryFragment: String) {
+        PostgresTestSupport.connect().use { probe ->
+            probe.prepareStatement(
+                "SELECT pg_cancel_backend(pid) FROM pg_stat_activity " +
+                    "WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid() AND query ILIKE ?",
+            ).use { st ->
+                st.setString(1, "%$queryFragment%")
+                st.executeQuery().close()
+            }
         }
     }
 }

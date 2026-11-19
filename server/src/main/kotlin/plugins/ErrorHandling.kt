@@ -154,7 +154,8 @@ private suspend fun ApplicationCall.respondDbFailure(cause: Throwable) = when {
 // blocklist-lookup failure with this same catch-all 500 instead of a 401 (the 500-not-401 rule —
 // see "JWT model" in .claude/docs/security.md).
 internal suspend fun ApplicationCall.respondInternalError(cause: Throwable) {
-    application.log.error("Unhandled exception while processing ${request.local.method.value} ${request.path()}", cause)
+    // A database failure is logged by class names, SQLSTATE and frames only (plugins/ScrubbedFailure.kt): its message can carry values.
+    application.log.error("Unhandled exception while processing ${request.local.method.value} ${request.path()}", cause.scrubbedForLog())
     respondProblem(HttpStatusCode.InternalServerError, "An unexpected error occurred")
 }
 

@@ -21,4 +21,9 @@
     </root>
     <logger name="org.eclipse.jetty" level="INFO"/>
     <logger name="io.netty" level="INFO"/>
+    <!-- Log hygiene (security.md): these two log a failure's message below INFO, and a database failure's message can carry bound values.
+         Exposed's retry logger prints "Transaction attempt #N failed: ${cause.message}" at DEBUG; StatusPages traces the request URI
+         (query string included) and `cause.toString()` at TRACE. Pinned to INFO so a root-level change cannot switch them on. -->
+    <logger name="Exposed" level="INFO"/>
+    <logger name="io.ktor.server.plugins.statuspages" level="INFO"/>
 </configuration>
