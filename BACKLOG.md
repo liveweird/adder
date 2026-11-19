@@ -17,9 +17,8 @@ Entries are proposals, not delivery commitments.
 
 The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status line and in `/backlog`.
 
-## Chat MVP (0.4–0.6)
+## Chat MVP (0.5–0.6)
 
-- [new] **0.4.0 Live updates.** The WebSocket channel (`live.md`).
 - [new] **0.5.0 Find.** Filters, sorts, full-text search, hashtags.
 - [new] **0.6.0 Mentions, reactions, pins, unread.**
 - [new] **Live: a second replica.** The ticket store and the hub are in memory, per process (`live.md`), so tickets work on one replica only. Two replicas need
@@ -30,6 +29,8 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
   safety net.
 - [new] **Live: skip the writer tab's echo.** The tab that made a write refetches twice, once for its own mutation and once for the hint. Tag the hint with the
   writer's socket (or a client id) so that tab can skip it.
+- [new] **E2E: the live-ticket bucket is shared across a full parallel run.** The seed admin's `live-ticket` bucket (60/min per user) is shared by every Playwright
+  worker that signs in as it, so live specs use throwaway users; a new live spec must do the same.
 - [new] **Conversation: arrivals.** With live updates a reader scrolled up gets no sign that messages arrived. Add a "New messages below" affordance and a
   screen-reader announcement; do it with the 0.6.0 unread markers.
 
@@ -49,8 +50,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
   can only find the creator of a squatted name through the `room.created` audit line. Add a creator (a later migration), a cap on the active rooms one
   user may create, an owner/creator filter on `GET /rooms` for ADMINs and an ADMIN reassign/delete path; the `room-name` bucket only slows it (`security.md`).
 
-- [new] **Raise the coverage floors back.** The trim re-baselined them to lines 97 / branches 81 (Flow had 98 / 85 with its cut features' tests);
-  raise them as the chat features add tests.
 - [new] **Bots posting into rooms.** Port Flow's `integration/` service tokens when an external system should post or update threads.
 - [new] **CI's e2e `npm audit` step is red on GHSA-fc5q-39xc-vjpf.** `picomatch` <= 4.0.7, reached through knip; no patched version exists yet. Per the
   user's choice of 2026-11-17 the step stays red until a fix ships and Dependabot picks it up (no ignore, no pin).

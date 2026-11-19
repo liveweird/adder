@@ -42,7 +42,7 @@ ran at all in this one. Class order is not a contract (with `-Pforks>=2` the cla
 
 **Coverage gates.** Backend Kover enforces line- and branch-coverage floors in `server/build.gradle.kts` (the
 `minBound` floors, wired into `check` via `koverVerify`; `@kotlinx.serialization.Serializable` classes are excluded
-from the measurement). The floors (lines 97, branches 81) were re-baselined once after the trim and sit just below current actuals — **re-measure and raise** them as coverage improves
+from the measurement). The floors (lines 98, branches 85) were re-baselined after the trim (97/81), raised for 0.4.0 (actuals 98.44/86.09) and sit just below current actuals — **re-measure and raise** them as coverage improves
 (`./gradlew :server:koverXmlReport`), never lower them for new code; a tight-loop Kover disable is never committed. Frontend vitest enforces thresholds in `web/vite.config.ts` (`test.coverage.thresholds`,
 same convention); run `cd web && npm run test:coverage`.
 

@@ -92,12 +92,13 @@ export default defineConfig({
       // Floors set just below current measured coverage so they gate regressions without
       // blocking unrelated work. Raise as coverage improves, never lower.
       // (2026-11-17: measured after trimming Flow 1.57 to Adder's 0.1.0 foundation, the floors inherited unchanged:
-      // lines 99.70 / statements 98.33 / functions 98.85 / branches 94.07.)
+      // lines 99.70 / statements 98.33 / functions 98.85 / branches 94.07; raised for 0.4.0, functions to 99 and branches to 96, at
+      // lines 99.78 / statements 99.01 / functions 99.35 / branches 96.42 on 2026-11-19.)
       thresholds: {
         lines: 99,
         statements: 98,
-        functions: 98,
-        branches: 94,
+        functions: 99,
+        branches: 96,
       },
     },
   },

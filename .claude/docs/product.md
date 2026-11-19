@@ -73,7 +73,7 @@ The architect's plan put three decisions to the user; all three took the recomme
 - Each room owns its own copy of its workflow, copied at creation from an ADMIN-curated template (seeded *Default* and *Incident*).
 - Mentions are stored as `<@userId>` tokens and rendered with the current name (rename-safe).
 - Flow's integration service tokens are not ported in 0.1.0: with nothing to serve they would be dead weight (backlog: bots posting into rooms).
-- The coverage floors were re-baselined once after the trim (lines 97, branches 81; Flow's 98/85 relied on tests of the cut features).
+- The coverage floors were re-baselined after the trim (lines 97, branches 81; Flow's 98/85 relied on tests of the cut features) and raised to 98/85 for 0.4.0.
 
 ### 0.2.0 rooms and workflows
 
@@ -148,14 +148,14 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 - **Activity.** New threads and messages, and status, owner, title and field changes, bump the rail order; edits, deletes and workflow moves do not.
 - **History** is the side panel, newest first, 10 per page; message edits and deletes are audited, not in the history; audit lines never carry a title,
   body or field value.
-- **UI.** Enter inserts a newline, Ctrl/Cmd+Enter or Send posts; no polling or live refresh until 0.4 (refetch on focus, navigation and the caller's own
+- **UI.** Enter inserts a newline, Ctrl/Cmd+Enter or Send posts; no polling or live refresh until 0.4 (shipped; refetch on focus, navigation and the caller's own
   writes); the thread list shows open threads, most recently active first, 50 per page, and the message list loads 50 at a time with "Load older messages";
   times render in the browser's zone as `YYYY-MM-DD HH:mm`.
 - **Rate bucket:** `chat-post`, 120/min per user, on the two POSTs.
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 0.3.0.**
+Each increment gets its own plan (architect) before implementation. **Current version: 0.4.0.**
 
 | Ver | Scope |
 |---|---|
@@ -190,6 +190,16 @@ Greenfield (no sibling has it): WebSocket push, @mention parsing, reactions, Pos
 
 ## Release history
 
+### v0.4.0 — live updates (2026-11-19)
+
+Live updates on `feat/0.4.0-live`; no migration. Shipped: single-use socket tickets (`POST /api/v1/live/tickets`, 30 s, in memory), the `GET /api/v1/live` WebSocket that
+authenticates in its first frame (D1), every chat write emitting one `pg_notify('adder_live', …)` hint inside its transaction, one non-pooled LISTEN connection per process
+with a bounded drain and a jittered reconnect, the hub (subscribe per room, `resync` on any gap, `revoked` when a membership is lost), the 60 s account sweep and the close at the token's
+`exp` (D2), the bounds (16 sockets per user, 1000 per process, a 5 s auth deadline, D3's 5-minute hidden-tab close), the SPA's targeted query invalidation, the header "Reconnecting…" and
+"Live updates off" indicator, views that stay put under a live refresh (room settings and the thread form keep their drafts), the telemetry panel's live-socket and listener gauges and the NOTIFY queue usage (the early warning before a full queue fails commits)
+and a two-browser e2e. New per-user bucket `live-ticket` (60/min) and per-IP `live-connect`; new audit events `live.ticket_saturated`, `live.refused` and `live.revoked`. Decisions D1-D3 are
+the user's (2026-11-19); A1-A13 were taken without asking. Donors: none (greenfield). Reverse-proxy notes: `live.md` "Deploy and proxies", `ci.md`. Open follow-ups: `BACKLOG.md`.
+
 ### v0.3.0 — threads and messages (2026-11-18)
 
 Threads and messages on `feat/0.3.0-threads`. Migration V14 (threads, messages and the per-thread history in one migration). Shipped: a room's threads with a
@@ -199,7 +209,7 @@ thread owner while a member, the room OWNER, or an ADMIN; any reader moves a thr
 history over the ported `EventLog`; the `WorkflowUsage` port, so retiring a status that threads use moves them to a replacement (the retire-dialog e2e scenario); the
 three-pane room view and the thread side panel. New per-user rate buckets `chat-post` (120/min, the two POSTs) and `chat-write` (240/min, the five other thread and message writes). Security hardening from the pre-release audit: the room-lock wait is bounded (`rooms.lockWaitMillis`, 3 s, then the audited `429 room-busy`), route-sized body ceilings (64 KiB messages, 192 KiB threads, 16 KiB status/owner) matched on the decoded path, the `fields` shape and document-size checks before any lock, the thread list never reads `fields`, URL values refuse hidden characters and userinfo, and an application-log hygiene test. History redaction (audit M4) is a `BACKLOG.md` item. Decisions D1 (who closes) and D2 (moderating messages) are
 the architect's recommended defaults, taken while the user was away (see "0.3.0 threads and messages" above). Donors: `MarkdownView`, the emoji trio and `EventLog`
-ported from Lettuce. No live refresh until 0.4.0. Open follow-ups: `BACKLOG.md`.
+ported from Lettuce. Live refresh arrived in 0.4.0. Open follow-ups: `BACKLOG.md`.
 
 ### v0.2.0 — rooms and workflows (2026-11-18)
 

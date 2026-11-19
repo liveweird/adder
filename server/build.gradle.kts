@@ -115,15 +115,15 @@ kover {
         }
         verify {
             rule {
-                // Line-coverage floor — Adder's baseline, set once after trimming Flow's suite down to the
-                // generic foundation (Flow did the same at its own bootstrap): actual 97.34% on 2026-11-17,
-                // measured with the @Serializable exclusion above. From here on re-measure with
+                // Line-coverage floor — Adder's baseline, set after trimming Flow's suite down to the
+                // generic foundation (97 at 97.34% on 2026-11-17) and raised for 0.4.0 (98 at 98.44%
+                // on 2026-11-19), measured with the @Serializable exclusion above. From here on re-measure with
                 // `:server:koverXmlReport` and RAISE, never lower.
-                minBound(97)
-                // Branch-coverage floor — same baseline: actual 81.67% on 2026-11-17 (Flow's 85 relied on
-                // tests of the cut features). NOTE: `check` runs only koverVerify — run
+                minBound(98)
+                // Branch-coverage floor — same baseline: 81 at 81.67% on 2026-11-17, raised for 0.4.0 (85 at 86.09%
+                // on 2026-11-19; Flow's 85). NOTE: `check` runs only koverVerify — run
                 // `:server:koverXmlReport` for fresh actuals.
-                minBound(81, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
+                minBound(85, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
             }
         }
     }

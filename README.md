@@ -5,10 +5,20 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (0.3.0 — threads and messages, on the 0.2.0 rooms and the 0.1.0 foundation)
+## What's here today (0.4.0 — live updates, on the 0.3.0 threads and messages, the 0.2.0 rooms and the 0.1.0 foundation)
 
-Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. **Updates are not live yet** (0.4.0 adds the WebSocket
-channel; until then a page refreshes on focus, on navigation and after your own actions). 0.3.0 puts the conversation into the rooms of 0.2.0:
+Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 0.4.0 makes the rooms live:
+
+- **Live updates** over a WebSocket (`GET /api/v1/live`; `.claude/docs/live.md`) — the browser trades its bearer for a single-use ticket (`POST /api/v1/live/tickets`) and sends it in the socket's first frame. Every
+  chat write emits one PostgreSQL `NOTIFY` hint (ids only) inside its transaction; one `LISTEN` connection per process fans the hints out to the sockets subscribed to a room, and the page refetches what changed. Threads,
+  messages, status, owner and detail changes, members and the room workflow update without a reload; the header says **Reconnecting…** while the connection is down, or **Live updates off** when a user's tab cap is hit
+  (16 sockets per user, a hidden tab closes after five minutes), and a removed member's room leaves the rail at once. A logout, deletion, password or role change closes the user's sockets within 60 s. Memory-only and
+  per-process: one replica for now (`BACKLOG.md`). The ADMIN telemetry panel shows the open sockets, the listener and the NOTIFY queue usage.
+- **Behind a reverse proxy** the WebSocket upgrade must pass: `proxy_http_version 1.1`, `Upgrade $http_upgrade`, `Connection $connection_upgrade`, read/send timeouts of 60 s or more (the server pings every 25 s), and the
+  original host (`Host $host`, or `X-Forwarded-Host` with `HTTP_BEHIND_PROXY=true`), otherwise the Origin check answers 403 (`.claude/docs/live.md` "Deploy and proxies", `.claude/docs/ci.md`). Behind a TLS-terminating
+  proxy the socket also needs `X-Forwarded-Proto: https` with `HTTP_BEHIND_PROXY=true`, and a public port other than 443 inside `X-Forwarded-Host`.
+
+0.3.0 put the conversation into the rooms of 0.2.0:
 
 - **Threads** (`/api/v1/rooms/{id}/threads`) — started in a room with a title and an opening message, numbered per room (#1, #2, ...), each with a **workflow status**, an **owner** (the creator at first, passable)
   and the room's typed **metadata fields**. A thread in a CLOSED-category status is frozen (409) until reopened; the thread owner while a member, the room OWNER or an ADMIN closes, reopens and hands over, and any
@@ -35,7 +45,7 @@ The 0.1.0 foundation:
 
 ## Roadmap
 
-0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (WebSockets) · 0.5.0 filters, sort, search, hashtags · 0.6.0 mentions, reactions, pins, unread · 1.0.0 checkup.
+0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (shipped) · 0.5.0 filters, sort, search, hashtags · 0.6.0 mentions, reactions, pins, unread · 1.0.0 checkup.
 The scope of each version and the decisions behind it: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`; open items: `BACKLOG.md`. `CLAUDE.md`'s "Product" and
 "Donors" sections say which sibling project each capability ports from.
 
@@ -114,6 +124,11 @@ Service, but the `app` Deployment is configured as if a TLS-terminating proxy sa
   terminates TLS nor strips them, so the per-IP rate-limit buckets key on a value the caller
   controls, and a caller can send `X-Forwarded-Proto: https` to skip the redirect (unverified on
   OrbStack: how its LoadBalancer treats these headers has not been checked).
+- The live channel depends on real client addresses too: the per-address share of unauthenticated
+  sockets (`live.maxPendingPerAddress`, default 8) keys like the rate-limit buckets, so a caller-chosen
+  `X-Forwarded-For` bypasses it. Put a proxy that sets the header in front, or set
+  `externalTrafficPolicy: Local` on the Service; with a plain proxy and `HTTP_BEHIND_PROXY=false`, or an
+  SNAT load balancer, all clients share one share, so raise `live.maxPendingPerAddress`.
 - For throwaway local testing over plain HTTP, edit `k8s/app-deployment.yaml` yourself —
   `apply-local.sh` only substitutes the image tag — setting `KTOR_DEVELOPMENT` to `"true"` (and
   `HTTP_BEHIND_PROXY` to `"false"`), and never commit or apply that in a shared or production

@@ -17,6 +17,24 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.4.0",
+    date: "2026-11-19",
+    en: `**Adder 0.4.0: live updates.**
+
+- Rooms update while you watch: new threads and messages, edits and deletions, status, owner and detail changes, members and the room's workflow appear without reloading the page.
+- If the connection drops, the header says "Reconnecting…"; once it is back, the page catches up on what it missed.
+- If too many of your tabs receive live updates, the header of the extra one says "Live updates off" and it tries again after a minute. A tab that stays hidden for a few minutes stops receiving updates and catches up when you return.
+- Someone removed you from a room? It leaves your rooms rail at once.
+- Administrators see live-channel figures (open live sockets and whether the updates listener is up) on the telemetry page.`,
+    pl: `**Adder 0.4.0: aktualizacje na żywo.**
+
+- Pokoje odświeżają się na Twoich oczach: nowe wątki i wiadomości, edycje i usunięcia, zmiany statusu, właściciela i szczegółów, członkowie oraz przepływ pracy pokoju pojawiają się bez przeładowania strony.
+- Gdy połączenie zerwie się, nagłówek pokazuje „Ponowne łączenie…”; po jego powrocie strona nadrabia to, co ją ominęło.
+- Jeśli zbyt wiele Twoich kart odbiera aktualizacje na żywo, nagłówek nadmiarowej karty pokazuje „Aktualizacje na żywo wyłączone”, a karta próbuje ponownie po minucie. Karta ukryta przez kilka minut przestaje odbierać aktualizacje i nadrabia zaległości, gdy do niej wrócisz.
+- Ktoś usunął/usunęła Cię z pokoju? Pokój od razu znika z Twojej listy.
+- Administratorzy/ki widzą na stronie telemetrii wskaźniki kanału na żywo (otwarte gniazda i to, czy nasłuch aktualizacji działa).`,
+  },
+  {
     version: "0.3.0",
     date: "2026-11-18",
     en: `**Adder 0.3.0: threads and messages.**

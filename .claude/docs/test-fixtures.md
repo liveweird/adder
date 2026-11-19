@@ -115,7 +115,7 @@ coverage improves, never to lower them for new code: `check` runs only `koverVer
 Kover costs roughly a tenth of the test wall and stays on everywhere `check` runs — the floors are a gate. There is **no
 Gradle property to switch it off**; for a timing run or a tight dev loop over `:server:test` alone, temporarily add
 `kover { currentProject { instrumentation { disabledForTestTasks.add("test") } } }` to `server/build.gradle.kts` and never commit
-it (no `test.ic` is written, so `koverVerify` would have nothing to check). The floors (lines 97, branches 81) were re-baselined once after the trim and are to be raised as the chat features add tests (`BACKLOG.md`). Frontend vitest enforces thresholds in
+it (no `test.ic` is written, so `koverVerify` would have nothing to check). The floors (lines 98, branches 85) were re-baselined after the trim (97/81) and raised for 0.4.0, and rise again as the chat features add tests. Frontend vitest enforces thresholds in
 `web/vite.config.ts` (`test.coverage.thresholds`, same re-measure convention — the current
 actuals are noted in a comment beside them); run `cd web && npm run test:coverage`.
 

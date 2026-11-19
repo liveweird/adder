@@ -11,8 +11,8 @@ at first, passable like a Jira assignee); a thread in a CLOSED-category status i
 or an ADMIN reopens it. Room content is filterable, sortable and searchable; the usual chat affordances apply (pins, @mentions, reactions, emoji,
 #hashtags). Updates reach open browsers live over a WebSocket.
 
-**Roadmap:** **0.3.0 (current) = threads + messages** (a room's numbered threads with status, owner, fields and history, Markdown/emoji messages, close/reopen) on **0.2.0 rooms + workflows** (the ADMIN workflow-template registry, members-only rooms with a copied, editable workflow, the rooms rail) and **the 0.1.0 foundation**, Flow trimmed to its generic core: auth + email MFA, password reset, users, feature flags, teams
-with a manager, EN/PL, light/dark, changelog, the ADMIN telemetry panel, the olive brand and the "Strike" logo. Next: 0.4.0 live updates (WebSockets), 0.5.0 filters/sort/search/hashtags, 0.6.0 mentions/reactions/pins/unread, then a 1.0.0
+**Roadmap:** **0.4.0 (current) = live updates** (a WebSocket per tab turns id-only hints into refetches) on **0.3.0 threads + messages** (numbered threads, Markdown/emoji messages) on **0.2.0 rooms + workflows** (the ADMIN workflow-template registry, members-only rooms with a copied, editable workflow, the rooms rail) and **the 0.1.0 foundation**, Flow trimmed to its generic core: auth + email MFA, password reset, users, feature flags, teams
+with a manager, EN/PL, light/dark, changelog, the ADMIN telemetry panel, the olive brand and the "Strike" logo. Next: 0.5.0 filters/sort/search/hashtags, 0.6.0 mentions/reactions/pins/unread, then a 1.0.0
 checkup. Per-version scope, the user's decisions and the assumptions: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`;
 the live protocol: `.claude/docs/live.md`. Open items: `BACKLOG.md`.
 
