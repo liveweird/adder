@@ -25,6 +25,11 @@ import kotlinx.serialization.Serializable
 @Resource("search")
 class RoomSearchRoute(val parent: RoomsRoute.Id)
 
+/** `/api/v1/search`: full-text search across the rooms the caller is an ACTIVE member of. */
+@Serializable
+@Resource("/api/v1/search")
+class SearchRoute
+
 fun Application.configureThreadSearchRoutes() {
     val roomService = attributes[RoomServiceKey]
     val searchService = attributes[ThreadSearchServiceKey]
@@ -32,6 +37,7 @@ fun Application.configureThreadSearchRoutes() {
     routing {
         authenticate {
             roomSearch(roomService, searchService)
+            globalSearch(searchService)
         }
     }
 }
@@ -50,6 +56,24 @@ private fun Route.roomSearch(roomService: RoomService, searchService: ThreadSear
             roomService.visibleStanding(caller, roomId)
             val params = call.parseSearchParams()
             val result = searchService.searchRoom(roomId, caller.userId, params.q, params.closed, params.paging)
+            call.respond(HttpStatusCode.OK, params.paging.toPage(result.items, result.total))
+        }
+    }
+}
+
+/**
+ * `GET /search` (any authenticated caller, no room guard): the guard order is 401 from `authenticate`; the SAME per-USER `search`
+ * bucket as the room search (one budget for both, before anything else); the parameters (400); then the query over the rooms the
+ * caller is an ACTIVE member of, an ADMIN's too (`authorization.md`: membership is the scope, the role widens nothing here). There is no
+ * room in the request, so nothing about any room can be refused, probed or disclosed: a caller with no rooms gets an empty page. A
+ * search is a read: no audit line of its own, and the term is never logged or put into an audit line or a problem detail.
+ */
+private fun Route.globalSearch(searchService: ThreadSearchService) {
+    rateLimit(RateLimitName(RateLimits.SEARCH)) {
+        get<SearchRoute> {
+            val caller = call.caller()
+            val params = call.parseSearchParams()
+            val result = searchService.searchMemberRooms(caller.userId, params.q, params.closed, params.paging)
             call.respond(HttpStatusCode.OK, params.paging.toPage(result.items, result.total))
         }
     }

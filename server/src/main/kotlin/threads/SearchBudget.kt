@@ -1,0 +1,34 @@
+package ch.nokillswit.threads
+
+import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
+
+/**
+ * One DEADLINE for the whole database work of a search request. A transaction's `queryTimeout` bounds each STATEMENT, and a search runs
+ * several (the query text, the count, the page, the snippets, the titles, the names, the member rooms), so a per-statement budget alone
+ * would let a request run for the sum of them. The budget is armed before each statement: its `queryTimeout` becomes the whole seconds
+ * LEFT (rounded up: the driver takes whole seconds), and once the deadline has passed the next statement is never sent. A request
+ * therefore ends within the configured budget plus at most one second of rounding, whatever the number of its statements. [clock] is
+ * nanoseconds (`System.nanoTime`; a test passes its own).
+ */
+internal class SearchBudget(totalSeconds: Int, private val clock: () -> Long = System::nanoTime) {
+    private val endNanos = clock() + totalSeconds * NANOS_PER_SECOND
+
+    /** The whole seconds left (at least 1); throws [BudgetSpent] when the deadline has passed. */
+    fun remainingSeconds(): Int {
+        val left = endNanos - clock()
+        if (left <= 0) throw BudgetSpent()
+        return ((left + NANOS_PER_SECOND - 1) / NANOS_PER_SECOND).toInt()
+    }
+
+    /** Arms the statements that follow with the time left. */
+    fun arm(transaction: R2dbcTransaction) {
+        transaction.queryTimeout = remainingSeconds()
+    }
+
+    private companion object {
+        const val NANOS_PER_SECOND = 1_000_000_000L
+    }
+}
+
+/** The deadline of a [SearchBudget] passed between two statements: answered like a cancelled statement (the audited `429`). */
+internal class BudgetSpent : RuntimeException("The search budget is spent")

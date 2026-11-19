@@ -35,7 +35,7 @@ class MigrationChecksumTest {
         "V13__create_rooms.sql" to -108017395,
         "V14__create_threads.sql" to 35270631,
         "V15__create_message_tags.sql" to -717285948,
-        "V16__create_search.sql" to 32615027,
+        "V16__create_search.sql" to 932940522,
     )
 
     @Test

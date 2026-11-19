@@ -143,9 +143,10 @@ object RateLimits {
     const val LIVE_TICKET = "live-ticket"
     /**
      * `GET /api/v1/rooms/{id}/search` (and, from the cross-room search, `GET /api/v1/search`) share ONE bucket per signed-in user:
-     * 60/min in every mode. A search is the one read that can cost the database real work (a prefix over the whole message index), so it is
-     * throttled per user BEFORE the guards: a person submits a search now and then (it is submitted, not as-you-type), and the bound is for
-     * a script, or for probing foreign room ids through the 404. The statement budget (`search.timeoutSeconds`) is the other half.
+     * 60/min in every mode. A search is the one read that can cost the database real work (a word that matches nothing is read out of
+     * every message of the caller's rooms), so it is throttled per user BEFORE the guards: a person submits a search now and then (it is
+     * submitted, not as-you-type), and the bound is for a script, or for probing foreign room ids through the 404. The request deadline
+     * (`search.timeoutSeconds`) and the process-wide concurrency cap (`search.maxConcurrent`) are the other halves.
      */
     const val SEARCH = "search"
     /**

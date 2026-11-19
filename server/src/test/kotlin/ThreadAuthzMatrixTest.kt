@@ -81,6 +81,7 @@ class ThreadAuthzMatrixTest {
 
     private val ok = HttpStatusCode.OK
     private val created = HttpStatusCode.Created
+    private val badRequest = HttpStatusCode.BadRequest
     private val noContent = HttpStatusCode.NoContent
     private val notFound = HttpStatusCode.NotFound
     private val forbidden = HttpStatusCode.Forbidden
@@ -89,6 +90,11 @@ class ThreadAuthzMatrixTest {
     private val operations = listOf(
         Operation("GET threads", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/threads") },
         Operation("GET thread", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/threads/1") },
+        // The room search is a reader's read (0.5.0): a non-member's 404 outranks a bad `q` (the bucket sits before it, once per cell).
+        Operation("GET search", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/search?q=matrix") },
+        Operation("GET search with a bad q", notFound, badRequest, badRequest, badRequest, badRequest) { client, base, _ ->
+            client.get("$base/search?q=a")
+        },
         Operation("GET events", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/threads/1/events") },
         // Only members speak: an ADMIN who is not a member is 403 (and joins through the Members page first).
         Operation("POST thread", notFound, created, created, created, forbidden) { client, base, _ ->

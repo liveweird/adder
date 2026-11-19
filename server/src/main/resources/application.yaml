@@ -263,10 +263,14 @@ rooms:
   lockWaitMillis: "$ROOM_LOCK_WAIT_MILLIS:3000"
 
 search:
-  # The statement budget of a search (`threads/ThreadSearchService.kt`, the transaction's `queryTimeout`, whole seconds): a statement past it
-  # is cancelled and answered 429 `search-timeout` with `Retry-After: 2`. A normal search takes tens of milliseconds, so 5 s is a runaway
+  # The budget of a search REQUEST (`threads/SearchBudget.kt`, one deadline for all its statements: each statement's `queryTimeout` is the
+  # whole seconds left): a statement past it is cancelled and answered 429 `search-timeout` with `Retry-After: 2`. A normal search takes tens of milliseconds, so 5 s is a runaway
   # prefix over a very large corpus, not a slow one. 1..30.
   timeoutSeconds: "$SEARCH_TIMEOUT_SECONDS:5"
+  # The most searches this process runs AT ONCE, both routes together (`ThreadSearchService`: a `tryAcquire` before any pool connection, never a
+  # wait): the next one is answered 429 `search-busy` with `Retry-After: 1`. Keep it well below `postgres.pool.maxSize` (20), so a flood of
+  # searches never takes the connections the rest of the app needs; a search holds ONE connection. 1..16.
+  maxConcurrent: "$SEARCH_MAX_CONCURRENT:4"
 
 threads:
   # Index the hashtags of messages written before the index (V15, `messages.tags_version` 0) once after boot, in batches, without blocking

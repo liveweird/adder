@@ -1356,9 +1356,12 @@ paths:
         messages (newest first) and `matchCount` counts all of them; a thread that only matched by its title has no messages and a
         count of 0. A snippet is a list of typed segments `{text, hit}`, never markup: `text` is a fragment of the Markdown source as
         PLAIN text (render it as text, never as HTML or Markdown), `hit` marks the words that matched. `status` is the status KEY (the
-        room's workflow holds the label and colour). The search is one read under a statement budget (5 seconds by default): a search
-        past it is answered `429` of type `urn:adder:problem:search-timeout` with `Retry-After: 2`, audited without the term (narrow the
-        query). The term appears in no log line and in no problem body. Results are not live.
+        room's workflow holds the label and colour). The search is one read under ONE deadline for all its statements (5 seconds by
+        default): a search past it is answered `429` of type `urn:adder:problem:search-timeout` with `Retry-After: 2`, audited without
+        the term (narrow the query). At most 4 searches run in the server at once (both search operations together): another is refused
+        at once with `429` of type `urn:adder:problem:search-busy` and `Retry-After: 1` (the server is loaded; retry shortly, nothing to
+        narrow). The cost of a search is linear in the messages of the rooms it covers (this room, or the caller's rooms): a word that
+        matches nothing reads them all. The term appears in no log line and in no problem body. Results are not live.
       parameters:
         - $ref: '#/components/parameters/Q'
         - name: closed
@@ -1803,6 +1806,58 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/search:
+    get:
+      tags: [threads]
+      operationId: searchRooms
+      summary: Search the threads and messages of all the caller's rooms
+      description: |
+        The same full-text search as `GET /api/v1/rooms/{id}/search` (the matching, the snippets, the item and the page envelope are
+        identical, and each hit says which room it is from) over every room the caller is an ACTIVE member of, an archived one included
+        (`roomArchived: true`) and a deleted one never. Any authenticated caller; there is no room in the request, so there is no `404`.
+        **The scope is membership and nothing else, an `ADMIN`'s too**: an `ADMIN` finds hits only in the rooms they belong to (they can
+        still search any single room through `GET /api/v1/rooms/{id}/search`). A caller who belongs to no room gets an empty page. A room
+        the caller is removed from is gone from the next request.
+
+        Checked in this order: authentication (`401`), the per-USER `search` bucket of 60 per minute, shared with the room search
+        (`429`; spent before anything else, so a refused search costs a token too), the parameters (`400`: no room is looked at first),
+        then the query.
+
+        - `q` (REQUIRED, 2 to 100 characters after trimming, at least one letter or digit, no control characters; repeating it is a
+          `400`): case- and accent-insensitive, every term required within ONE message or the title, a term of three or more characters
+          matches as a PREFIX, no operators. Exactly as the room search documents it.
+        - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
+        - Sortable fields: `lastActivityAt`, `createdAt`, `id`. Default `-lastActivityAt` (`id` ascending breaks ties). `pageSize` is at
+          most 20 (default 20; `400` beyond).
+
+        `total` counts matching threads across the caller's rooms. `status` is the status KEY of the thread's own room: this response does
+        not carry a room's workflow, so a client shows an open or closed badge from `closed` (`GET /api/v1/rooms/{id}/workflow` holds
+        the labels and colours). The search is one read under ONE deadline for all its statements (5 seconds by default): a search past it
+        is answered `429` of type `urn:adder:problem:search-timeout` with `Retry-After: 2`, audited without the term (narrow the query).
+        At most 4 searches run in the server at once (both search operations together): another is refused at once with `429` of type
+        `urn:adder:problem:search-busy` and `Retry-After: 1` (the server is loaded; retry shortly, nothing to narrow). The cost is linear
+        in the messages of the caller's rooms: a word that matches nothing reads them all. The term appears in no log line and in no
+        problem body. Results are not live.
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - name: closed
+          in: query
+          required: false
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/SearchPageSize'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: A page of matching threads, each naming its room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadSearchPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/live/tickets:
     post:
       tags: [live]
@@ -2177,7 +2232,7 @@ components:
         on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message
         (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread
         and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min),
-        on a search (`GET /api/v1/rooms/{id}/search`) the per-USER search bucket is exhausted (60/min), or the search outruns its statement budget (`urn:adder:problem:search-timeout`, `Retry-After: 2`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the
+        on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the
         per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other
         writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the `search-timeout` 429, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is
         declared optional. All carry a ProblemDetail body.

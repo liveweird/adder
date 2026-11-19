@@ -208,6 +208,38 @@ class ChatLogHygieneTest {
         }
     }
 
+    /**
+     * The same rule for the search ACROSS rooms: answered (200, with the hit), refused (a control character, a repeated key: 400),
+     * answered empty (no lexeme) and throttled by the SHARED bucket (the 429's audit line names the bucket and the user, never the
+     * query string) leave the term in no log line of any logger.
+     */
+    @Test
+    fun `no log line carries a search term - across rooms, answered, refused or throttled`() = testApplication {
+        val term = "globalterm" + UUID.randomUUID().toString().replace("-", "")
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            usePostgresTestcontainer()
+            val cast = castWithThread("hyg-gsrch")
+            assertEquals(HttpStatusCode.Created, cast.post("""{"body":"P $term here"}""").status)
+            val search = "/api/v1/search"
+            val answered = cast.member.client.get("$search?q=$term")
+            assertEquals(HttpStatusCode.OK, answered.status)
+            assertEquals(1, answered.body<ThreadSearchPageResponse>().total, "the search really found the message")
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$search?q=$term%07").status)
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$search?q=$term&q=other").status)
+            assertEquals(HttpStatusCode.OK, cast.member.client.get("$search?q=${term.uppercase()}%20and%20!!!").status)
+            repeat(56) { cast.member.client.get("$search?q=$term") }
+            assertEquals(HttpStatusCode.TooManyRequests, cast.member.client.get("$search?q=$term").status)
+
+            val names = capture.events.map { it.message }
+            assertTrue("message.posted" in names && "rate_limit.exceeded" in names, "captured: $names")
+            val leaked = capture.events.filter { term in it.rendered() || term.uppercase() in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a search term")
+        } finally {
+            capture.detach()
+        }
+    }
+
     private class Cast(val member: RoomActor, val room: UInt)
 
     /** A room with an owner, a member and one thread (number 1) for the post. */

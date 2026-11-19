@@ -3,8 +3,10 @@ package ch.nokillswit.threads
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.equalsAnyInt
 import ch.nokillswit.infra.db.ftsMatches
 import ch.nokillswit.infra.db.ftsQueryText
+import ch.nokillswit.infra.db.ftsRowVector
 import ch.nokillswit.infra.db.ftsVector
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
@@ -13,15 +15,15 @@ import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomSummary
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.sync.Semaphore
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.exists
-import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.or
+import org.jetbrains.exposed.v1.core.wrapAsExpression
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.select
@@ -43,38 +45,77 @@ private val HIT_COLUMNS: List<Column<*>> = with(ThreadService.Threads) {
 
 /**
  * Full-text search over thread titles and message bodies (V16, `chat-model.md` "Search (V16)"): a page of THREADS, each with its newest
- * matching live messages. The whole search is ONE read transaction under [timeoutSeconds] as its `queryTimeout` (the only way a
- * statement timeout may be set, `persistence.md` "Connection pool"): a statement past it is the typed `429` `search-timeout`, audited
- * `search.timeout` with ids only, and the throwable is never logged (a database failure's message can echo the term). The term itself
- * reaches no log, no audit line and no problem detail. Room data comes only through the `rooms/` services.
+ * matching live messages. The whole search is ONE read transaction under ONE deadline of [timeoutSeconds] ([SearchBudget]: each
+ * statement's `queryTimeout`, the only way a statement timeout may be set, is the time LEFT, `persistence.md` "Connection pool"): a
+ * statement past it, or a deadline spent between two statements, is the typed `429` `search-timeout`, audited `search.timeout` with
+ * ids only, and the throwable is never logged (a database failure's message can echo the term). At most [maxConcurrent] searches run
+ * in this process at once, for both routes: the next one is refused AT ONCE with the typed `429` `search-busy` (a `tryAcquire`, never
+ * a wait, and before any pool connection is asked for), audited `search.busy`, so a flood of searches can never take the pool from
+ * the rest of the app. The term itself reaches no log, no audit line and no problem detail. Room data comes only through the `rooms/`
+ * services.
  */
 class ThreadSearchService(
     private val database: R2dbcDatabase,
     private val rooms: RoomService,
     private val timeoutSeconds: Int,
+    maxConcurrent: Int,
+    private val clock: () -> Long = System::nanoTime,
 ) {
+    private val permits = Semaphore(maxConcurrent)
+
     /** The search of one room (the route admitted the caller): 404 when the room vanished since, an empty page for no lexeme. */
     suspend fun searchRoom(roomId: UInt, callerUserId: UInt, q: String, closed: Boolean?, paging: PageRequest): ThreadSearchResult =
-        budgeted(callerUserId, roomId) {
+        budgeted(callerUserId, roomId) { budget ->
+            budget.arm(this)
             val room = rooms.summary(roomId) ?: throw NotFoundException("Room not found")
-            searchIn(listOf(room), q, closed, paging)
+            searchIn(listOf(room), q, closed, paging, budget)
         }
 
     /**
-     * Runs [block] in one read transaction under the statement budget; a statement the budget cancelled (SQLSTATE `57014`) becomes the
-     * audited `429`. [roomId] is null for a search across rooms.
+     * The search across the rooms [callerUserId] is an ACTIVE member of (`GET /search`, any authenticated caller): the scope is
+     * `RoomService.memberRooms`, membership only, an ADMIN's too (an ADMIN outside a room finds nothing of it here). A caller with no
+     * rooms gets an empty page without a search. The room list is read first, inside the same budgeted transaction, so no statement of
+     * the search can name a room the caller is not in; a room the caller leaves after this read is gone from the next request.
      */
-    private suspend fun budgeted(callerUserId: UInt, roomId: UInt?, block: suspend R2dbcTransaction.() -> ThreadSearchResult) =
+    suspend fun searchMemberRooms(callerUserId: UInt, q: String, closed: Boolean?, paging: PageRequest): ThreadSearchResult =
+        budgeted(callerUserId, null) { budget ->
+            budget.arm(this)
+            val memberRooms = rooms.memberRooms(callerUserId)
+            if (memberRooms.isEmpty()) ThreadSearchResult(emptyList(), 0) else searchIn(memberRooms, q, closed, paging, budget)
+        }
+
+    /**
+     * Runs [block] in one read transaction under ONE [SearchBudget]; a statement the budget cancelled (SQLSTATE `57014`) or a deadline
+     * spent between two statements becomes the audited `429` `search-timeout`. Takes one of the process's permits first: none free is
+     * the audited `429` `search-busy` at once, before a pool connection is asked for. [roomId] is null for a search across rooms.
+     */
+    private suspend fun budgeted(
+        callerUserId: UInt,
+        roomId: UInt?,
+        block: suspend R2dbcTransaction.(SearchBudget) -> ThreadSearchResult,
+    ): ThreadSearchResult {
+        if (!permits.tryAcquire()) {
+            audit("search.busy", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong())
+            throw searchBusy()
+        }
         try {
-            suspendTransaction(database) {
-                queryTimeout = timeoutSeconds
-                block()
-            }
+            val budget = SearchBudget(timeoutSeconds, clock)
+            return suspendTransaction(database) { block(budget) }
+        } catch (_: BudgetSpent) {
+            timedOut(callerUserId, roomId)
         } catch (failure: Exception) {
             if (!failure.isQueryCanceled()) throw failure
-            audit("search.timeout", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong())
-            throw searchTimeout()
+            timedOut(callerUserId, roomId)
+        } finally {
+            permits.release()
         }
+    }
+
+    /** The audited `429` `search-timeout` (ids only, never the term); the cause is deliberately neither logged nor attached. */
+    private fun timedOut(callerUserId: UInt, roomId: UInt?): Nothing {
+        audit("search.timeout", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong())
+        throw searchTimeout()
+    }
 
     /**
      * The statements of a search over [inRooms]: the query text, the count and the page of threads (one predicate: the title matches,
@@ -85,18 +126,25 @@ class ThreadSearchService(
         q: String,
         closed: Boolean?,
         paging: PageRequest,
+        budget: SearchBudget,
     ): ThreadSearchResult {
+        budget.arm(this)
         val queryText = ftsQueryText(q) ?: return ThreadSearchResult(emptyList(), 0)
         val threads = ThreadService.Threads
-        var predicate: Op<Boolean> = (threads.roomId inList inRooms.map { it.id }) and matchesTitleOrMessage(queryText)
+        var predicate: Op<Boolean> = threads.roomId.equalsAnyInt(inRooms.map { it.id.toInt() }) and matchesTitleOrMessage(queryText)
         closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
+        budget.arm(this)
         val total = threads.selectAll().where { predicate }.count()
+        budget.arm(this)
         val rows = threads.select(HIT_COLUMNS).where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
         if (rows.isEmpty()) return ThreadSearchResult(emptyList(), total)
 
         val ids = rows.map { it[threads.id].value }
+        budget.arm(this)
         val matches = messageSnippets(ids, queryText)
+        budget.arm(this)
         val titles = titleSnippets(ids, queryText)
+        budget.arm(this)
         val names = userNames(rows.map { it[threads.ownerId].value } + matches.values.flatMap { m -> m.messages.map { it.authorId } })
         val byRoom = inRooms.associateBy { it.id }
         val items = rows.map { row ->
@@ -126,17 +174,23 @@ class ThreadSearchService(
     }
 
     /**
-     * `threads.search @@ q OR EXISTS (a live message of the thread with messages.search @@ q)`: PostgreSQL turns the EXISTS into a hashed
-     * subplan fed by `idx_messages_search`, and the title vector is a filter on the room's own index (`threads.search` has none).
+     * `threads.search @@ q OR (the first LIVE message of the thread with messages.search @@ q) IS NOT NULL`. The probe is a correlated
+     * scalar subquery on purpose, NOT `EXISTS`: PostgreSQL may turn an `EXISTS` under an `OR` into a HASHED subplan that reads every
+     * matching message of the WHOLE table (a seq scan of it when the prefix is common: 1.3 s over 200,000 messages for a caller in 500
+     * of 1,000 rooms, and linear in the table), whatever rooms the caller is in. A scalar subquery is never hashed, so the work is
+     * bounded by the caller's own threads: the rooms (the first predicate) are restricted FIRST, and each of their threads probes
+     * `idx_messages_thread` and stops at its first matching message. There is no index on `messages.search`; the probe matches on
+     * [ftsRowVector], not the bare column, so a generic plan could not put one inside the per-thread probe if one were added
+     * (`persistence.md` "Search (V16)"). The title vector is a filter on the room index.
      */
     private fun matchesTitleOrMessage(queryText: String): Op<Boolean> {
         val threads = ThreadService.Threads
         val messages = MessageService.Messages
-        val liveMessageMatches = exists(
+        val firstLiveMatch = wrapAsExpression<Any>(
             messages.select(messages.id).where {
-                (messages.threadId eq threads.id) and messages.active() and messages.ftsVector().ftsMatches(queryText)
-            },
+                (messages.threadId eq threads.id) and messages.active() and messages.ftsRowVector().ftsMatches(queryText)
+            }.limit(1),
         )
-        return threads.ftsVector().ftsMatches(queryText) or liveMessageMatches
+        return threads.ftsVector().ftsMatches(queryText) or firstLiveMatch.isNotNull()
     }
 }

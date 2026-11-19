@@ -5,6 +5,7 @@ import ch.nokillswit.infra.db.FTS_INT_ARRAY
 import ch.nokillswit.infra.db.FTS_WHOLE_OPTIONS
 import ch.nokillswit.infra.db.ftsHeadlineSql
 import ch.nokillswit.infra.db.ftsMatchSql
+import ch.nokillswit.infra.db.ftsRowVectorSql
 import ch.nokillswit.infra.db.splitHeadline
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.TextColumnType
@@ -27,7 +28,9 @@ internal class MatchedMessage(val id: UInt, val authorId: UInt, val createdAt: L
 /**
  * The [SEARCH_MESSAGES_PER_THREAD] newest matching live messages of each thread and the count of all its matches. The inner query ranks
  * the matches by id alone (no body is read for a match that is not shown); the outer one joins the ranked few back for the body to
- * headline. A tombstone never matches (`NOT marked_as_deleted`, and its vector is empty anyway). The arguments, in order: the headline's
+ * headline. The match is on `ftsRowVectorSql`, so the statement reads the page's threads through `idx_messages_thread` in every plan
+ * mode, whatever index `messages.search` may get later. A tombstone never matches (`NOT marked_as_deleted`, and its
+ * vector is empty anyway). The arguments, in order: the headline's
  * query text and options, the thread ids, the match's query text.
  */
 private fun messageSnippetsSql() = """
@@ -36,7 +39,7 @@ FROM (SELECT x.id, x.thread_id,
              row_number() OVER (PARTITION BY x.thread_id ORDER BY x.id DESC) AS rn,
              count(*)      OVER (PARTITION BY x.thread_id) AS hits
       FROM messages x
-      WHERE x.thread_id = ANY(CAST(? AS int4[])) AND NOT x.marked_as_deleted AND ${ftsMatchSql("x.search")}) r
+      WHERE x.thread_id = ANY(CAST(? AS int4[])) AND NOT x.marked_as_deleted AND ${ftsMatchSql(ftsRowVectorSql("x.search"))}) r
 JOIN messages m ON m.id = r.id
 WHERE r.rn <= $SEARCH_MESSAGES_PER_THREAD
 ORDER BY r.thread_id, r.id DESC"""

@@ -10,7 +10,7 @@ import kotlin.test.assertFailsWith
 /**
  * The V14 constraints, by raw SQL (no service exists yet): the tombstone shape of `messages`, the composite status foreign key, the
  * per-room number, and the room hard-delete cascade that the `NO ACTION` foreign key must let through (`TestRooms.purge` relies on it);
- * then the V15 tag index and the V16 search columns (stored generated vectors over the accent-folding configuration, the GIN index).
+ * then the V15 tag index and the V16 search columns (stored generated vectors over the accent-folding configuration, and no index on them).
  */
 class ThreadSchemaTest {
     private companion object {
@@ -220,28 +220,21 @@ class ThreadSchemaTest {
     }
 
     @Test
-    fun `the message index is a GIN index`() {
+    fun `neither search vector is indexed - the match is a per-thread probe through idx_messages_thread`() {
         PostgresTestSupport.connect().use { c ->
-            assertEquals(
-                "gin",
-                c.text("SELECT am.amname FROM pg_class i JOIN pg_am am ON am.oid = i.relam WHERE i.relname = 'idx_messages_search'"),
-            )
-            assertEquals(
-                "messages",
-                c.text(
-                    "SELECT t.relname FROM pg_index x JOIN pg_class t ON t.oid = x.indrelid " +
-                        "JOIN pg_class i ON i.oid = x.indexrelid WHERE i.relname = 'idx_messages_search'",
-                ),
-            )
-            assertEquals(
-                0,
-                c.scalar(
-                    "SELECT count(*) FROM pg_index x JOIN pg_class t ON t.oid = x.indrelid " +
-                        "JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(x.indkey) " +
-                        "WHERE t.relname = 'threads' AND a.attname = 'search'",
-                ),
-                "threads.search has no index: the room's index drives that scan",
-            )
+            listOf("messages", "threads").forEach { table ->
+                assertEquals(
+                    0,
+                    c.scalar(
+                        "SELECT count(*) FROM pg_index x JOIN pg_class t ON t.oid = x.indrelid " +
+                            "JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(x.indkey) " +
+                            "WHERE t.relname = '$table' AND a.attname = 'search'",
+                    ),
+                    "$table.search has no index: the search probes each searched thread's messages through idx_messages_thread " +
+                        "(a later index is a deliberate migration with its own measurement, BACKLOG.md)",
+                )
+            }
+            assertEquals(1, c.scalar("SELECT count(*) FROM pg_class WHERE relname = 'idx_messages_thread'"), "the probe's index exists")
         }
     }
 

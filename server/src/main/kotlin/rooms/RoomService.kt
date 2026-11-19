@@ -91,6 +91,19 @@ class RoomService(
     }
 
     /**
+     * The ACTIVE rooms [userId] is an ACTIVE member of, in id order: the scope of the search across rooms. Membership only, whatever
+     * the caller's role: an ADMIN reads every room one at a time but searches only the rooms they belong to (a room's own member list
+     * is the one thing that widens what a search sees). An archived room is included (it is searched and labelled); a deleted room and
+     * the rows of a soft-deleted user are inert. One read, no lock.
+     */
+    suspend fun memberRooms(userId: UInt): List<RoomSummary> = suspendTransaction(database) {
+        RoomMembers.innerJoin(UserService.Users).innerJoin(Rooms).select(Rooms.id, Rooms.name, Rooms.archivedAt)
+            .where { (RoomMembers.userId eq userId) and UserService.Users.active() and Rooms.active() }
+            .orderBy(Rooms.id)
+            .map { RoomSummary(it[Rooms.id].value, it[Rooms.name], it[Rooms.archivedAt] != null) }.toList()
+    }
+
+    /**
      * The rooms [callerUserId] may read, filtered and paged: a member's own rooms, plus every room for an ADMIN ([callerIsAdmin]).
      * `member=true` narrows to the caller's own, `member=false` to the readable ones the caller is NOT in. One predicate for the count and
      * the rows, in one transaction; the member counts and the caller's roles are batched lookups for the page, not per row.

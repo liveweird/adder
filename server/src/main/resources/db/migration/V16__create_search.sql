@@ -7,13 +7,20 @@
 -- `simple` (no stemming, no stop words) and maps the six token types that can hold non-ASCII letters through `unaccent` first; the
 -- ASCII types keep `simple` alone. A non-superuser owner may create it (the V4 extension is already in `public`).
 --
--- `STORED` MUST be written: on PostgreSQL 18 a bare `GENERATED ALWAYS AS (...)` is VIRTUAL, and an index on a virtual generated
--- column is not supported. A vector is about as large as the body; a token of 8,000 characters is skipped with a NOTICE and the
+-- `STORED` MUST be written: on PostgreSQL 18 a bare `GENERATED ALWAYS AS (...)` is VIRTUAL (computed again on every read, and no index
+-- on it is supported). A vector is about as large as the body; a token of 8,000 characters is skipped with a NOTICE and the
 -- INSERT still succeeds. A tombstone's body is '' so its vector is empty, and a delete empties the vector with the body.
 --
 -- Each ADD COLUMN rewrites its table and computes every row, with the application NOT serving while Flyway runs (about 7 s per
--- 100,000 messages, `persistence.md` "Search (V16)" has the measurement). `threads.search` gets no index: the room's own index drives
--- that scan and the title match is a filter on it. `messages.search` gets the GIN index the message match reads.
+-- 100,000 messages, `persistence.md` "Search (V16)" has the measurement).
+--
+-- NO index is created on either vector, deliberately. The search restricts to the caller's rooms FIRST (`threads(room_id, ...)`), then
+-- probes each of those threads' messages through `idx_messages_thread` and stops at the first message that matches: the vector is a
+-- FILTER on rows the thread index already reached, linear in the searched rooms' own messages. A GIN index on `messages.search` was
+-- built here at first and no statement read it: with the per-thread probe the planner never chooses it, and a table-wide match (the
+-- plan it served) is exactly the cost the search avoids. It would cost about 100 MB per 100,000 messages and slow every post. If a
+-- room or a caller's message count ever makes the probe too slow, `BACKLOG.md` holds the options (a `btree_gin` index on
+-- `(thread_id, search)`, or a `room_id` on `messages`); that is a LATER migration, with its own measurement.
 --
 -- The configuration is IMMUTABLE BY PROMISE. Altering it, or a major PostgreSQL upgrade that changes the `unaccent` rules, leaves the
 -- stored vectors stale until they are recomputed: `ALTER TABLE ... ALTER COLUMN search SET EXPRESSION AS (...)`. A later migration
@@ -31,5 +38,3 @@ ALTER TABLE messages ADD COLUMN search tsvector
     GENERATED ALWAYS AS (to_tsvector('public.adder_search'::regconfig, body)) STORED;
 ALTER TABLE threads ADD COLUMN search tsvector
     GENERATED ALWAYS AS (to_tsvector('public.adder_search'::regconfig, title)) STORED;
-
-CREATE INDEX idx_messages_search ON messages USING gin (search);

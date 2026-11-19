@@ -308,10 +308,16 @@ suspend fun Application.configureDatabase() {
         ThreadServiceKey,
         ThreadService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, messageService),
     )
-    // The full-text search (V16): one read transaction under `search.timeoutSeconds` as its statement budget, boot-validated.
+    // The full-text search (V16): one read transaction under ONE `search.timeoutSeconds` deadline, at most `search.maxConcurrent` at once
+    // (both boot-validated).
     attributes.put(
         ThreadSearchServiceKey,
-        ThreadSearchService(database, roomService, requireConfigInt(environment.config, "search.timeoutSeconds", min = 1, max = 30)),
+        ThreadSearchService(
+            database,
+            roomService,
+            requireConfigInt(environment.config, "search.timeoutSeconds", min = 1, max = 30),
+            requireConfigInt(environment.config, "search.maxConcurrent", min = 1, max = 16),
+        ),
     )
     attributes.put(
         ThreadStatusServiceKey,

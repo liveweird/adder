@@ -11,7 +11,7 @@ import kotlin.test.Test
  * pattern, for `jwt.*ExpiresInSeconds` (`plugins/Security.kt`), the three `maxTracked` capacities and
  * `mfa.codeTtlSeconds` (`auth/AuthRoutes.kt`), `mail.smtp.port` (`infra/mail/Mail.kt`) and the per-IP
  * `security.rateLimit.*PerMinute` overrides (`plugins/RateLimits.kt`), the `live.*` bounds (`live/LiveConfig.kt`) and
- * `search.timeoutSeconds` (`infra/db/Database.kt`).
+ * `search.timeoutSeconds` and `search.maxConcurrent` (`infra/db/Database.kt`).
  */
 class NumericConfigBoundsTest {
 
@@ -55,6 +55,11 @@ class NumericConfigBoundsTest {
     @Test
     fun `a malformed or out-of-range search statement budget refuses to start`() {
         assertRefused("search.timeoutSeconds", "0", "-1", "abc", "31")
+    }
+
+    @Test
+    fun `a malformed or out-of-range search concurrency cap refuses to start`() {
+        assertRefused("search.maxConcurrent", "0", "-1", "abc", "17")
     }
 
     @Test

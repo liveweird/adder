@@ -63,6 +63,26 @@ private class FtsVector(private val table: Table) : Expression<Any>() {
     }
 }
 
+/**
+ * The `search` column of [this] table as a plain ROW value, `COALESCE(<table>.search, ''::tsvector)`, which no index can serve (the
+ * column is never NULL, so the value is the same). For a match that is probed ROW BY ROW through another index (a thread's messages
+ * through `idx_messages_thread`). No index covers `search` today (V16 creates none, deliberately), so the wrapper changes no plan now;
+ * it is the guard for the day one is added (`BACKLOG.md`): on the bare column a prepared (GENERIC) plan then adds that index to EVERY
+ * probe, and each probe builds the bitmap of every matching message of the table (measured over 15 seconds for a caller in 500 of
+ * 1,000 rooms, 200,000 messages, `persistence.md` "Search (V16)"). Wrapped, the probe stays `idx_messages_thread` plus a filter in
+ * every plan mode.
+ */
+fun Table.ftsRowVector(): Expression<*> = FtsRowVector(this)
+
+private class FtsRowVector(private val table: Table) : Expression<Any>() {
+    override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+        queryBuilder.append(ftsRowVectorSql("${table.nameInDatabaseCase()}.search"))
+    }
+}
+
+/** The raw-SQL spelling of [ftsRowVector] for the vector column [vector] (`x.search`). */
+fun ftsRowVectorSql(vector: String): String = "COALESCE($vector, ''::tsvector)"
+
 /** The match operator: renders `<vector> @@ CAST(? AS tsquery)`, the query text bound as an argument, never concatenated. */
 fun Expression<*>.ftsMatches(queryText: String): Op<Boolean> = FtsMatches(this, queryText)
 
@@ -91,6 +111,21 @@ const val FTS_WHOLE_OPTIONS = "$MARKERS, HighlightAll=true"
 
 /** The array parameter type of a list of ids, for `= ANY(CAST(? AS int4[]))`. */
 val FTS_INT_ARRAY = ArrayColumnType<Int, List<Int>>(IntegerColumnType())
+
+/**
+ * Renders `<expression> = ANY(CAST(? AS int4[]))`: [values] travel as ONE array argument, so a caller in thousands of rooms is one bind
+ * (an `IN (...)` list is one bind per value and meets the driver's limit), and the statement text never changes with the list.
+ */
+fun Expression<*>.equalsAnyInt(values: Collection<Int>): Op<Boolean> = EqualsAnyInt(this, values.toList())
+
+private class EqualsAnyInt(private val expression: Expression<*>, private val values: List<Int>) : Op<Boolean>() {
+    override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+        queryBuilder.append(expression)
+        queryBuilder.append(" = ANY(CAST(")
+        queryBuilder.registerArgument(FTS_INT_ARRAY, values)
+        queryBuilder.append(" AS int4[]))")
+    }
+}
 
 /**
  * Splits a headline written with [FTS_HIT_START] and [FTS_HIT_STOP] into segments, collapsing every run of whitespace to one space

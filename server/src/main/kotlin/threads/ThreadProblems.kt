@@ -27,3 +27,19 @@ fun searchTimeout(): TooManyRequestsException = TooManyRequestsException(
     problemType = SEARCH_TIMEOUT_PROBLEM_TYPE,
     retryAfterSeconds = SEARCH_TIMEOUT_RETRY_AFTER_SECONDS,
 )
+
+const val SEARCH_BUSY_PROBLEM_TYPE = "urn:adder:problem:search-busy"
+
+/** Seconds the `Retry-After` header of a [searchBusy] answer names: a slot frees within a search's own budget, usually in milliseconds. */
+const val SEARCH_BUSY_RETRY_AFTER_SECONDS = 1
+
+/**
+ * The process already runs its maximum of concurrent searches (`search.maxConcurrent`): a `429` with `Retry-After`, typed APART from
+ * [searchTimeout] because the remedy differs (this one is the server's load, not the query: retry shortly, nothing to narrow). Sent at
+ * once, never after a wait, so a flood cannot hold pool connections. The detail never names the term.
+ */
+fun searchBusy(): TooManyRequestsException = TooManyRequestsException(
+    "Too many searches are running - retry in a moment",
+    problemType = SEARCH_BUSY_PROBLEM_TYPE,
+    retryAfterSeconds = SEARCH_BUSY_RETRY_AFTER_SECONDS,
+)
