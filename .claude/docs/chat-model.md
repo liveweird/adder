@@ -2,7 +2,7 @@
 
 Owns: the chat domain model — rooms, membership, workflows (statuses and fields), threads, messages, history, mentions, reactions, pins, unread.
 Not here: the live channel (`live.md`), the roadmap and decisions (`product.md`). **Status:** rooms and workflows (0.2) and threads and messages (0.3) are binding rules;
-0.5 onward is still a sketch, and each version turns its part into rules in its own plan first. `workflows/` and `rooms/` (0.2.0) are the first chat packages; the room routes landed commit by commit (the record and its read-only workflow in C7, members in C8, the workflow PUT in C9).
+Find (0.5) is binding too (its code lands step by step); 0.6 onward is still a sketch, and each version turns its part into rules in its own plan first. `workflows/` and `rooms/` (0.2.0) are the first chat packages; the room routes landed commit by commit (the record and its read-only workflow in C7, members in C8, the workflow PUT in C9).
 
 ## Rules
 
@@ -198,7 +198,7 @@ Four groups (D1 and D2 are the architect's recommendations, taken as assumptions
 ### API (rule form; the spec is `documentation.yaml`, the matrix `authorization.md`, the events `observability.md`)
 
 - `GET /rooms/{id}/threads?closed=`: reader; paged; sortable `id`, `number`, `title`, `lastActivityAt`, `createdAt`; `closed` is the only filter (a strict
-  boolean on `closed_at`; omitted = both; 0.5 adds the rest). `POST` (member, `chat-post` bucket) takes `{title, body, fields?}` and answers `201` +
+  boolean on `closed_at`; omitted = both; 0.5 adds the rest: "Find (0.5)"). `POST` (member, `chat-post` bucket) takes `{title, body, fields?}` and answers `201` +
   `Location`; it starts in the initial status with the creator as owner, required fields must be supplied, and the opening message is part of the create.
 - `GET /rooms/{id}/threads/{number}`: reader. `PUT` takes `{title, fields}` under `X-Expected-Revision` (REQUIRED; `204`, a no-op when nothing changed and
   then no revision bump). `PUT .../status` `{status}` and `PUT .../owner` `{userId}` are single-value sets: last writer wins by design, the history records
@@ -260,11 +260,83 @@ owned by `observability.md`.
 
 ## Find (0.5)
 
-Thread filters and sorts per `list-endpoints.md`; full-text search over messages (trigger-maintained `tsvector`, an immutable `unaccent` wrapper,
-the `simple` configuration for EN+PL, GIN index), limited to the caller's rooms; #hashtags (`#[\p{L}\p{N}_-]{1,50}`) parsed server-side into
-`message_tags`.
+Binding for 0.5.0: thread filters and sorts, #hashtags, full-text search. The code lands in plan steps, server first and then web; where a rule names a file, that file
+is the destination. The user's decisions 0.5 D1-0.5 D5 (2026-11-19) and the assumptions 0.5 A1-0.5 A18 are in `product.md` "0.5.0 Find". Deviations from the old sketch are marked **[changed]**.
+
+### Paged lists of a room
+
+A room's members are the first paged sub-collection: `GET /rooms/{id}/members` (reader; `{userId,name,email,role,addedAt}` rows; sortable `id` = the user id, `name`, `role`, `addedAt`; filters `role` (enum, `400` on an unknown name) and `name` (`containsNormalized` on the display name, at most 100 characters); ACTIVE users only, count and rows over ONE predicate in one transaction, in `rooms/RoomMemberService`). A room holds at most 500 members, so the page envelope is bounded by that cap, never unbounded.
+
+A room's threads and a thread's history are the next two: `GET /rooms/{id}/threads` (reader; sortable `id`, `number`, `title`, `lastActivityAt`, `createdAt`; the strict boolean filter `closed`; in `threads/ThreadService`) and `GET .../threads/{number}/events` (sortable `id`, `createdAt`, default `-createdAt,-id`, the shared `EVENT_LOG_*` of `infra/db/EventLog.kt`, so an old sort name such as `timestamp` is a `400`). 0.5 extends the thread list (below) and adds the room's tags and the two searches.
+
+### The thread list: filters and sorts
+
+`GET /rooms/{id}/threads` keeps its guard, its statuses and its response. New parameters (every array one repeatable key; `style: form`, `explode: true`, `minItems`/`maxItems` in the spec, duplicates collapsed before the bound):
+
+| Parameter | Meaning | Value | Bound |
+|---|---|---|---|
+| `status` | any of these status keys | `KEY_GRAMMAR`, at most 40 | 1-20 distinct |
+| `ownerId` | any of these owners | int32, at least 1 | 1-20 distinct |
+| `tag` | a live message of the thread carries any of these | 1-50 tag characters with a letter, no `#` | 1-10 distinct |
+| `field` | `key:value`; any-of within a key, all-of across keys | key: an ACTIVE SELECT, MULTI_SELECT or USER field; value: an option key or a user id | 1-20 distinct |
+| `sort=status` | the status's position in the room's workflow | | |
+
+- **[changed] One repeatable `field=key:value`, not `fields[key]=`**: API-NAME-002 bans bracketed field names, and a room's own key could be `page`, `sort` or `status`. A key cannot hold a colon (`KEY_GRAMMAR`, `workflows/Workflow.kt`).
+- **Already there, not new:** `closed` is the category filter; "mine" is `ownerId=<own id>` (the SPA sends it); per-status counts ride `GET /rooms/{id}/workflow` (`threadCount`).
+- **`400`:** a malformed key, id or tag; a `field` without a colon; an unknown, retired, TEXT, URL, DATE or NUMBER field key; a value of the wrong shape for its type; too many values. A **retired field is a `400`, never a match** (its values are hidden: "Stored values survive" above). A well-formed but unknown status key, owner id or tag matches nothing; a removed option's key still filters the threads that kept it. TEXT, URL, DATE and NUMBER filters are not in 0.5.0 (0.5 D4).
+- **Order:** 401, visibility `404`, then the `400`s: a non-member's bad filter is still `404`. A filter never widens what a reader sees.
+- **One predicate for count and rows**, in one transaction: `room_id = ? [AND closed_at IS (NOT) NULL] [AND status_key IN (...)] [AND owner_id IN (...)] [AND EXISTS (SELECT 1 FROM message_tags mt WHERE mt.thread_id = threads.id AND mt.tag IN (public.unaccent(?), ...))] [AND (fields @> CAST(? AS jsonb) OR ...)]`, one `@>` group per field key. Containment documents: SELECT `{"severity":"s1"}`; USER `{"lead":42}` (numbers compare by value, a string never equals a number); MULTI_SELECT `{"labels":["a"]}`.
+- **`sort=status`** is `ORDER BY CASE status_key WHEN ? THEN 0 ... ELSE 20 END, id` over the keys `RoomWorkflowService.snapshot` returns in position order: `threads/` never joins `room_statuses` ("Room data comes only through the `rooms/` services", `persistence.md`). `applyPaging` takes `Expression<*>` columns for it (the one departure from the verbatim Lettuce port). The snapshot is read only when a `field` filter or `sort=status` is present; the plain list keeps its two queries, and the rows still never select `fields`.
+- `threads.fields` gets **no index** (0.5 A9): a filter scans one room. An index is a `BACKLOG.md` item for a room past a few thousand threads. There are no facet counts and no bucket on the list.
+
+### Hashtags (V15)
+
+**[changed]** from the sketch (`#[\p{L}\p{N}_-]{1,50}` into `message_tags`): the same table, but a parsed grammar with boundaries, parsed in Kotlin only, backfilled by a boot reindex. PostgreSQL's regex has no `\p{L}` and its classes follow the database locale, and SQL cannot skip code the way the SPA's Markdown tree does, so **no tag is parsed or backfilled in SQL**.
+
+- **What a hashtag tags (0.5 D3): the message.** A thread has a tag while one of its LIVE messages has it; editing a tag away or deleting the message removes it. No tag management screen; `#Wdrozenie` and `#wdrozenie` (case and accent folded) are one tag.
+- **Grammar** (one rule, Kotlin and TypeScript; the case table `server/src/test/resources/hashtag-cases.json` is read by `HashtagsTest.kt` and `hashtags.test.ts`): `(?<![\p{L}\p{N}#&/])#([\p{L}\p{N}_-]{1,50})(?![\p{L}\p{N}_-])` and the capture holds a `\p{L}`. A run of 51 or more characters is no tag; `#42` is a thread number, not a tag; `#fff` is a tag (accepted). The body is NFC-normalised for parsing only. Fenced code, inline code, link destinations, `<autolinks>` and bare `http(s)://` and `www.` URLs are replaced by a space first. The first 20 distinct tags of a message are indexed, the rest ignored, never refused.
+- **`message_tags (message_id, tag, thread_id)`**, primary key `(message_id, tag)`, both FKs `ON DELETE CASCADE`, `idx_message_tags_thread (thread_id, tag)`; `thread_id` is copied so the list's filter is an index-only probe. `tag` is the folded key (Kotlin lower-cases, `public.unaccent` strips accents, on write and on filter), `VARCHAR(150)` because folding can lengthen a tag. `messages.tags_version SMALLINT NOT NULL DEFAULT 0` (0 = not indexed yet; the constant default needs no rewrite). **The table is a derived index: hard-deleted, rebuilt from the bodies, nothing references a row, and a deleted message's tags must not outlive its scrubbed body.**
+- **Lifecycle**, inside the message's own write under the room lock (`MessageService.insertInTransaction`, the edit, the delete): post and a thread's opening message parse and insert with `ON CONFLICT DO NOTHING` (two spellings can fold to one key) and set `tags_version = 1`; an edit parses the old and the new body and, if the lower-cased sets differ, deletes and inserts; a delete, a moderator's too, deletes the message's rows.
+- **Reindex at boot** (`MessageTagService.reindexStale`, once, in its own scope, when `threads.tagReindexOnBoot` is true; the test harness turns it off): batches of 200 live messages with `tags_version < 1`, `FOR NO KEY UPDATE SKIP LOCKED`, replace their tags, set the version. A racing edit waits and writes its own tags, or holds the row and is skipped. It logs a count; a failure logs class names only and leaves the rows stale for the next boot. Bumping `TAGS_VERSION` reindexes everything after a grammar change.
+- **`GET /rooms/{id}/tags`** (`listRoomTags`, reader): `{tag, threadCount}` rows in the paged envelope (`RoomTagPage`); sortable `tag`, `threadCount`, default `-threadCount` (the helper's `id` tiebreaker maps to `tag`, as the members list maps `id` to the user id); filter `tag`, a `containsNormalized` substring of at most 50 characters, for the picker. `threadCount` counts distinct threads with a live message carrying the tag, open and closed. No bucket: reader-only and bounded by the room. Statuses: 200/400/401/404/500.
+- **The SPA renders a tag as a link** (a remark plugin that walks the Markdown tree and skips `code`, `inlineCode`, `link`, `linkReference`, `definition`, `html` and `image`) to the thread list with `tag=<as typed>&scope=all`; the server folds it.
+- **Not in 0.5.0:** tags in titles, a thread's tag list on rows or in the side panel, a rename or merge of tags, `#42` as a link.
+
+### Search (V16)
+
+**[changed]** from the sketch (a trigger-maintained `tsvector`, an immutable `unaccent` wrapper, the `simple` configuration, a GIN index): `unaccent()` is STABLE, so it cannot feed a generated column or an expression index, and the trigger and the wrapper were two workarounds for one problem. PostgreSQL's own answer is a **text search configuration with `unaccent` as a filtering dictionary**: `to_tsvector(regconfig, text)` is IMMUTABLE, so the vector is a **stored generated column**, with no trigger and no wrapper, and the `ALTER TABLE` is the backfill. `ts_headline` with that configuration marks hits in the ORIGINAL text (a wrapper design would headline unaccented text or miss accented hits).
+
+```sql
+CREATE TEXT SEARCH CONFIGURATION public.adder_search (COPY = pg_catalog.simple);
+ALTER TEXT SEARCH CONFIGURATION public.adder_search
+    ALTER MAPPING FOR hword, hword_part, word, numword, numhword, hword_numpart WITH public.unaccent, pg_catalog.simple;
+ALTER TABLE messages ADD COLUMN search tsvector GENERATED ALWAYS AS (to_tsvector('public.adder_search'::regconfig, body)) STORED;
+ALTER TABLE threads  ADD COLUMN search tsvector GENERATED ALWAYS AS (to_tsvector('public.adder_search'::regconfig, title)) STORED;
+CREATE INDEX idx_messages_search ON messages USING gin (search);
+```
+
+- **`STORED` must be written**: on PostgreSQL 18 a bare `GENERATED ALWAYS AS (...)` is VIRTUAL, and indexes on virtual generated columns are not supported. The six token types are the ones that can hold non-ASCII letters; the ASCII types keep `simple` alone. `threads.search` gets no index: the room index drives that scan and the title match is a filter on it.
+- **Backfill cost:** each `ALTER TABLE` rewrites its table and computes every row (13.6 s for 210,000 messages of 1.4 KB, plus 1.7 s for the index); the app is not serving while Flyway runs and the Kubernetes startup probe allows about 150 s. **Never declare `search` in an Exposed table object** (`selectAll()` would read a vector on every message read, and the driver has no `tsvector` codec): `infra/db/Fts.kt` refers to the columns as free expressions. After the configuration changes, or a PostgreSQL major upgrade changes the `unaccent` rules, recompute with `ALTER TABLE ... ALTER COLUMN search SET EXPRESSION AS (...)`, in the same migration file that alters the configuration. A non-superuser owner can create the configuration; it cannot be dropped while a column depends on it.
+- **What matches (0.5 A2, 0.5 A3):** **[changed]** message bodies and thread titles, never field values, never tombstones. All terms are required within one message or one title; **[changed]** `simple` does not stem, so every term of three or more characters matches as a prefix and shorter ones match exactly (`awaria w bazie` becomes `'awaria':* & 'bazie':* & 'w'`); case and accents are ignored; no operators, no ranking. Parser facts that need a doc line: `PROD-123` indexes as `prod` and `-123` (searching `PROD-123` finds it, `123` alone does not: BACKLOG); `foo_bar` splits in two; `#db-outage` indexes `db-outage`, `db` and `outage`, so hashtag text is searchable; a token of 8,000 characters is skipped with a NOTICE and the INSERT still succeeds.
+- **No input is a syntax error.** The tsquery is built from `to_tsvector`'s own lexemes (documents and queries share one parser and one folding), so `'; DROP TABLE messages; --` comes out as plain terms; input with no lexeme (`!!!`, `<script>`) gives a NULL query, which matches nothing and raises nothing.
+- **Endpoints:** `GET /rooms/{id}/search` (`searchRoom`, reader) and `GET /search` (`searchRooms`, any authenticated caller, over the rooms they are an ACTIVE member of). `q` is REQUIRED (the shared `Q` parameter, 2-100 code points after trimming, `sanitizeSingleLine`, a letter or a digit), `closed` is a strict boolean (omitted = both), `sort` is `lastActivityAt`, `createdAt` or `id` (default `-lastActivityAt`), `pageSize` default and maximum 20 (`SearchPageSize`). **Check order:** 401; the `search` bucket (429); for the room route, visibility (404, audited `room.access_denied`); the parameters (400); the query. Statuses: room 200/400/401/404/429/500; global the same without 404. `q` stays in the query string (API-LIST-005) and out of every trail: audit lines and problem bodies carry the path only.
+- **One item is a thread** (`ThreadSearchHit`: room id, name and `roomArchived`; thread number, title and `titleSnippet`; status key, `closed`, owner, `messageCount`, `lastActivityAt`; `matchCount`; and `messages`, the three newest matching live messages with their `snippet`), in the page envelope (`total` counts matching threads, no shape exception). A title-only hit has no messages and `matchCount` 0. A snippet is a list of typed segments `{text, hit}`: `ts_headline` returns markup untouched, so the wire never carries a marked-up string; the server headlines with the markers U+0002 and U+0003 (unforgeable, because every title and body refuses control characters), splits on them and collapses whitespace. A snippet is a fragment of the Markdown source as plain text. Only the page's rows are headlined.
+- **Statements**, one read transaction under `queryTimeout` = `search.timeoutSeconds` (5, 1..30): the query text (`string_agg` over `unnest(to_tsvector(...))`, quoted and cast to `tsquery::text`; Kotlin keeps it and later statements cast it back); the count and the page of threads (`t.search @@ q OR EXISTS (a live message of the thread with m.search @@ q)`, `ORDER BY t.last_activity_at DESC, t.id`); the snippets for the page's thread ids only (a `row_number()` over the thread's matching messages, `rn <= 3`, `count(*)` as `hits`); the title headlines with `HighlightAll`. Past the budget (`isQueryCanceled()`) the service answers a typed `429` `urn:adder:problem:search-timeout` with `Retry-After: 2`, audited `search.timeout` (ids only, never the term); the throwable is not logged.
+- **[changed] Who finds what (0.5 D2: member rooms only, for everyone):** a member finds their room; an ADMIN who is not a member gets 200 from the room route (an ADMIN reads every room) and **no hit from that room in the global search**; an outsider gets 404 (audited) from the room route and no hit, count or name globally; an archived room is searched and labelled (`roomArchived`), a deleted room never; a deleted message never (empty vector and `NOT marked_as_deleted`); a removed member loses the room on the next request. The global route reads the caller's rooms through `RoomService.memberRooms(userId)` (`(id, name, archived)` of active rooms joined to the caller's membership and the active user); `threads/` still never touches a room table, and no rooms means an empty page without a search.
+- **Buckets and logs:** one per-user bucket `search` (60/min) for both GETs, before every guard; `rate_limit.exceeded` gains the bucket. A search is a read: no audit line. Tags, terms and snippets never reach a log line. A failed statement logs exception CLASS names and the SQLSTATE only: Exposed's `ExposedR2dbcException.getMessage()` appends the statements with their arguments expanded, so a failed message INSERT would log its body and a failed search its term.
+- **Not searched or not live in 0.5.0:** field values; Markdown stripped from snippets; phrase and exclusion operators; search within one thread; ticket keys; search results are not live (a busy room would spend the reader's bucket on refetches; `revoked` invalidates an open global search).
+
+### The SPA's half of Find
+
+- **The list's state is the URL** (0.5 A13): `scope`, `order`, `status`, `owner` (an id or `me`), `tag`, `field`, `page`, `focus`, `message`; junk is dropped and defaults are omitted; a filter change deletes `page` and uses `replace`; every in-room link keeps the list keys. The last non-default query per room is remembered (`roomThreads.<id>.query`) and restored once on a bare Threads view; "Clear filters" forgets it. The old per-room `scope` and `order` localStorage keys are dropped.
+- **The focus view (0.5 D5)** is a layout switch: `focus=1` on a thread route hides the list column and the conversation takes the main area; it lives in the URL (reloadable, shareable), not remembered.
+- **Jump to a message** (0.5 A17): `message=<id>` loads older pages until it appears, at most 10 loads, then scrolls, focuses and highlights; past the bound, or for a gone message, a gray note says so.
+- **Search is submitted** (0.5 A16), not as-you-type: `/rooms/:id/search` and `/search`, and the palette offers "Search for ..." actions. A snippet renders as text and `<mark>`, never HTML, never Markdown.
+- **Live (0.5 A14):** no new hint kind; `message.edited` also invalidates the thread list (an edit can add or drop a hashtag); the tag picker's key sits under the list prefix.
 
 ## Mentions, reactions, pins, unread (0.6)
+
+**[changed]** The thread list's "mentions me" filter moved here from 0.5 (0.5 D1): until the 0.6 composer writes `<@userId>` tokens and `message_mentions` exists, there is nothing to filter on.
 
 `<@userId>` tokens parsed into `message_mentions` and notified (Lettuce's `notifications/`); reactions keyed `(message, user, emoji)`, one emoji
 grapheme, ≤ 20 distinct per message; room-level pins of threads or messages; a per-member last-read marker per thread.

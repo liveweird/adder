@@ -20,7 +20,15 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 ## Chat MVP (0.5–0.6)
 
 - [new] **0.5.0 Find.** Filters, sorts, full-text search, hashtags.
-- [new] **0.6.0 Mentions, reactions, pins, unread.**
+- [new] **0.6.0 Mentions, reactions, pins, unread.** Includes the thread list's "mentions me" filter, moved from 0.5.0 (`product.md`, 0.5 D1).
+- [new] **Find: range and text filters on field values.** 0.5.0 filters SELECT, MULTI_SELECT and USER fields only (exact, any-of; 0.5 D4). Add DATE and NUMBER ranges (`field[gte]`, `field[lte]`) with their inputs, and TEXT filters.
+- [new] **Find: facet counts in the filter panel.** 0.5.0 labels only the status options with the workflow's `threadCount`. Counts per owner, tag and field value would port Covenant's lifted-predicate facets (`ContractService.kt`).
+- [new] **Find: search within one thread, and anchored message reads.** The focus view (0.5 D5) is a layout switch only. Add a flat, paged list of one thread's matching messages, and a read of the messages around an anchor so a jump needs no loop of older pages.
+- [new] **Find: search over field values, and Markdown stripped from snippets.** 0.5.0 searches message bodies and thread titles; a snippet is a fragment of the Markdown source as plain text.
+- [new] **Find: phrase and exclusion operators.** 0.5.0 matches all terms, as prefixes, with no operators and no ranking.
+- [new] **Find: ticket keys.** `PROD-123` indexes as `prod` and `-123`, so `123` alone does not find it. Index the key whole, or add a second configuration for it.
+- [new] **Hashtags: a thread's tags on list rows and in the side panel, and `#42` as a link.** 0.5.0 shows tags only as links in message text and in the filter panel; `#42` is a thread number and stays plain text.
+- [new] **Find: an index on `threads.fields`** (GIN, `jsonb_path_ops`) if a room passes a few thousand threads. 0.5.0 filters by scanning one room (0.5 A9).
 - [new] **Live: a second replica.** The ticket store and the hub are in memory, per process (`live.md`), so tickets work on one replica only. Two replicas need
   sticky routing of `/api/v1/live*` (the ticket POST and the socket on the same pod) or a shared ticket table; every replica's LISTEN connection already
   hears every hint.

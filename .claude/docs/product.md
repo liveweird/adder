@@ -65,6 +65,21 @@ The architect's plan put three decisions to the user; all three took the recomme
   alternative was one socket per browser through a leader tab (Web Locks plus BroadcastChannel): no cap pressure, but a second state machine and much harder
   tests; revisit when 0.6.0 unread counts need background tabs.
 
+### 0.5.0 Find (the user's, 2026-11-19)
+
+The plan put five decisions to the user; all five took the recommended option, so the plan's defaults are decisions, not assumptions. The rules they became: `chat-model.md` "Find (0.5)".
+
+- **D1. "Mentions me" moves to 0.6.0.** Nothing exists to filter on: V14 stores no mention, and `<@id>` tokens only exist once the 0.6.0 composer writes them. The alternative was a stopgap preset that
+  searches for the caller's display name (wrong for namesakes and renames, thrown away in 0.6.0). The roadmap row of 0.5.0 loses "mentions me"; 0.6.0 gains it.
+- **D2. Global search covers member rooms only, for everyone, an ADMIN included.** An ADMIN still searches any single room, because they read every room. The alternative was an ADMIN opt-in for every
+  room, which turns "may read any room" into "may grep every conversation at once" and would want an audit line per search.
+- **D3. A hashtag tags the message.** A thread has a tag while one of its live messages has it; editing or deleting that message removes it; no tag management screen; `#Wdrożenie` and `#wdrozenie` are one tag.
+  The alternative was a sticky thread tag (a `thread_tags` table, a remove action and history events).
+- **D4. SELECT, MULTI_SELECT and USER field filters, exact match, any-of.** One SQL primitive (`fields @>`), no new index. The alternative added DATE and NUMBER ranges (`field[gte]`, `field[lte]`) with their
+  inputs, about one more server step and two more input kinds; they are a `BACKLOG.md` item.
+- **D5. The "thread only" focus view is a layout switch kept in the URL.** The list column hides and the conversation takes the main area; it survives a reload and can be shared. The alternatives were the
+  switch plus search within the thread, or deferring it (the first is a `BACKLOG.md` item).
+
 ## Assumptions (taken without asking; change on request)
 
 - ADMIN may read every room (the family's ADMIN-overrides posture); a non-member gets `404`, never `403`.
@@ -120,6 +135,29 @@ Taken without asking, in the 0.4.0 plan. Detail and the rules they became: `live
 - **A12. Team, user and auth writes emit no hint.**
 - **A13. An ADMIN may subscribe to any existing room;** a demoted ADMIN keeps those subscriptions until the next sweep (at most 60 s).
 
+### 0.5.0 Find
+
+Taken without asking, in the 0.5.0 plan. Detail and the rules they became: `chat-model.md` "Find (0.5)".
+
+- **A1. Stored generated columns over a text search configuration**, not a trigger and an immutable `unaccent` wrapper (`unaccent()` is STABLE, so it cannot feed a generated column; the configuration can).
+- **A2. Matching:** all terms required within one message or one title; terms of three or more characters are prefixes (`simple` does not stem); case and accents ignored; no operators, no ranking.
+- **A3. Search covers message bodies and thread titles.** Not field values, not tombstones.
+- **A4. Results keep the page envelope:** an item is a thread, with its three newest matching messages; at most 20 a page; no shape exception.
+- **A5. A snippet is a list of typed segments** (`{text, hit}`), a fragment of the Markdown source as plain text; the wire never carries marked-up text.
+- **A6. Archived rooms are searched and labelled.** Deleted rooms never.
+- **A7. One per-user bucket `search`, 60 a minute,** for both search endpoints. A statement budget of 5 s; past it the answer is a typed `429` `search-timeout` (the `room-busy` precedent).
+- **A8. No facets endpoint** (per-status counts already ride the workflow read). Tags get their own counted, paged list because their set is unbounded.
+- **A9. The thread list stays unbucketed and `threads.fields` gets no index.** A filter scans one room.
+- **A10. A well-formed but unknown status key, owner id or tag matches nothing.** An unknown, retired or unfilterable FIELD key is a `400`, because its type decides the predicate.
+- **A11. Tag grammar:** the sketch's characters and length, plus a left boundary, at least one letter (`#42` is a thread number), code and links skipped, the first 20 per message. `#fff` is a tag; accepted.
+- **A12. Messages written before 0.5.0 get their tags from a reindex at boot,** not from SQL (`messages.tags_version`).
+- **A13. The URL is the list's state.** The last query per room is remembered and restored when the Threads view opens bare. The old per-room `scope` and `order` keys are dropped.
+- **A14. No new live hint.** `message.edited` also refreshes the thread list. Search results are not live.
+- **A15. No new dependency:** the hashtag plugin walks the Markdown tree by hand.
+- **A16. Search is submitted, not as-you-type.** The command palette offers "Search for ..." actions.
+- **A17. Jumping to a found message loads older pages until it appears,** at most 10 loads.
+- **A18. Database failures log exception classes and the SQLSTATE only,** never a message (Exposed expands bound values into it).
+
 ### 0.3.0 threads and messages
 
 Taken without asking: the user was away (2026-11-18) and said to take the architect's recommended defaults. **D1 and D2 are the architect's recommended
@@ -163,8 +201,8 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **0.2.0 Rooms and workflows** | The ADMIN workflow-template registry (seeded Default and Incident); rooms with members (person or whole team), OWNER/MEMBER roles, archive; the room workflow editor (statuses with colour/category/order, typed fields) under `X-Expected-Revision`; the rooms rail |
 | **0.3.0 Threads and messages** | Threads with a per-room number, status, owner, fields and history (`EventLog` port); messages in Markdown with emoji; edit/delete own; close/reopen with the closed-thread `409`; the three-pane room view |
 | **0.4.0 Live updates** | `GET /api/v1/live` WebSocket with single-use tickets (sent in the first frame), subscribe/unsubscribe per room, `pg_notify` inside the write transaction, one LISTEN connection per process, bounded sockets, a 60 s account sweep; targeted query invalidation in the SPA (`live.md`) |
-| **0.5.0 Find** | Thread filters and sorts (status, category, owner, fields, tag, mentions me), Postgres full-text search per room and across member rooms, server-parsed #hashtags |
-| **0.6.0 Mentions, reactions, pins, unread** | @mention autocomplete and notifications (Lettuce's model, pushed live; email by preference), reactions, room pins, per-member unread markers |
+| **0.5.0 Find** | Thread filters and sorts (status, category, owner, SELECT/MULTI_SELECT/USER fields, tag, workflow order), a focus view, Postgres full-text search per room and across member rooms (`chat-model.md` "Find (0.5)"), server-parsed #hashtags |
+| **0.6.0 Mentions, reactions, pins, unread** | @mention autocomplete and notifications (Lettuce's model, pushed live; email by preference), the thread list's "mentions me" filter (moved from 0.5.0, 0.5 D1), reactions, room pins, per-member unread markers |
 | **1.0.0 Checkup** | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |
 
 ## Donors
@@ -174,19 +212,19 @@ bootstrap (2026-10-31) set. Flow itself was copied from Covenant and trimmed; Le
 reinvent**: when Adder needs a capability a sibling repo already has, port its implementation.
 
 - **Flow** (`~/Sources/flow`, the primary donor): the whole foundation — stack, API design, UI/UX, testing, gates, versioning, deployment, the
-  telemetry panel.
+  telemetry panel. Planned for 0.5.0: `web/src/hooks/useLiveSearchParams.ts` (URL-held list state, with its test); Flow's `reportFilter.ts`/`useReportFilter.ts` (772 lines) are too heavy.
 - **Astrolabe** (`~/Sources/astrolabe`): the trim recipe — the single-process deployment, `users/` (not `flowusers/`), the V1–V9 foundation
   migrations, the trimmed telemetry and teams, the bootstrap docs.
 - **Lettuce** (`~/Sources/lettuce`): `infra/mail`, `infra/crypto`, `infra/paging`, the connection pool (through Flow); ported in 0.3.0: `MarkdownView` (the message variant),
-  `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `infra/db/EventLog.kt`; next: `NotificationsButton` + `notifications/`, the dictionary whole-document PUT.
+  `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `infra/db/EventLog.kt`; planned for 0.5.0: `FilterMultiSelect.tsx` and `accessiblePill.tsx`; next: `NotificationsButton` + `notifications/`, the dictionary whole-document PUT.
 - **Toadie** (`~/Sources/toadie`): `X-Expected-Revision` optimistic concurrency (ported in 0.2.0, `infra/revision/` and its `web/` half; the workflow-template and room-workflow PUTs consume it);
   `lockingTransaction` deliberately NOT ported (a room write takes one `FOR NO KEY UPDATE` row lock on the room instead, `rooms/RoomLock.kt`); next:
   `blueprints/` `PropertyDefinition` as the reference for typed workflow fields.
-- **Covenant** (`~/Sources/covenant`): next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
+- **Covenant** (`~/Sources/covenant`): planned for 0.5.0: the pass-through group of `CommandPalette.tsx` and the shape of `useReviewInboxFilters.ts` (validate, omit defaults, `replace`); its facets (`ContractService.kt`) are a reference only (no facets in 0.5.0); next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
 
 Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `identities/`, `metrics/`, `reports/`, `integration/` (service tokens),
 `infra/outbound/` (the SSRF guard — port it with the first server-initiated call other than SMTP), `plugins/Role.kt`, `EncryptedAtRest`/`Reencrypt`.
-Greenfield (no sibling has it): WebSocket push, @mention parsing, reactions, Postgres full-text search.
+Greenfield (no sibling has it): WebSocket push, @mention parsing, reactions, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
 
