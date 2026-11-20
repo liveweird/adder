@@ -17,6 +17,26 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.6.0",
+    date: "2026-11-20",
+    en: `**Adder 0.6.0: social.**
+
+- Mention a room member with @: start typing a name in the composer and pick the person. The mention shows as their current name, and the thread list can show only the threads that mention you.
+- A bell in the header counts your unseen notifications: when someone mentions you, or hands a thread over to you. A click opens the message; "Mark all as seen" clears the count. New notifications arrive live.
+- If a notification is still unseen after five minutes, you get one email that sums them up (at most one every 15 minutes). The email names who, the room and the thread number, with a link, and never the message itself. Switch it off per kind under "Notification emails" in your account menu.
+- React to a message with an emoji. Each reaction shows its count and the first few people; press it again to take yours back.
+- Pin threads and messages to a room. The pinned panel in the room header lists them for everyone in the room.
+- See what is new: a dot in the rooms rail for a room with new activity, unread counts in the thread list, and a "New" line in the conversation where you stopped reading, with a jump to it. When you are scrolled up, a button says how many new messages wait below.`,
+    pl: `**Adder 0.6.0: społeczność.**
+
+- Wspomnij osobę z pokoju przez @: zacznij pisać imię w polu wiadomości i wybierz ją z listy. Wzmianka pokazuje jej aktualne imię, a lista wątków może pokazać tylko wątki, w których ktoś Cię wspomniał/a.
+- Dzwonek w nagłówku liczy Twoje nieprzeczytane powiadomienia: gdy ktoś Cię wspomni albo przekaże Ci wątek. Kliknięcie otwiera wiadomość, a „Oznacz wszystkie jako przeczytane” zeruje licznik. Nowe powiadomienia przychodzą na żywo.
+- Jeśli powiadomienie pozostaje nieprzeczytane przez pięć minut, dostajesz jeden e-mail z podsumowaniem (najwyżej jeden na 15 minut). E-mail podaje, kto, w którym pokoju i w którym wątku, z linkiem, i nigdy nie zawiera samej wiadomości. Wyłączysz go dla każdego rodzaju w „Powiadomienia e-mailem” w menu konta.
+- Zareaguj na wiadomość emoji. Każda reakcja pokazuje liczbę i pierwsze osoby; kliknij ją ponownie, aby wycofać swoją.
+- Przypinaj wątki i wiadomości w pokoju. Panel przypiętych w nagłówku pokoju pokazuje je wszystkim osobom w pokoju.
+- Zobacz, co nowego: kropka na liście pokoi przy pokoju z nową aktywnością, liczba nieprzeczytanych na liście wątków i linia „Nowe” w rozmowie tam, gdzie skończyłeś/aś czytać, z przyciskiem, który do niej przenosi. Gdy przewiniesz w górę, przycisk pokazuje, ile nowych wiadomości czeka poniżej.`,
+  },
+  {
     version: "0.5.0",
     date: "2026-11-20",
     en: `**Adder 0.5.0: find.**

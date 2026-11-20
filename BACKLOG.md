@@ -19,7 +19,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 
 ## Chat MVP (0.5–0.6)
 
-- [new] **0.6.0 Mentions, reactions, pins, unread.** Includes the thread list's "mentions me" filter, moved from 0.5.0 (`product.md`, 0.5 D1).
 - [new] **Mentions: `@room` and `@here`, and mentioning someone who is not a member.** 0.6.0 mentions active members only; any other id stays plain text (0.6 A4). Add the group tokens, and an offer to add the named person to the room.
 - [new] **Mentions and hashtags: blank indented code and raw HTML in the shared pre-pass.** `textOutsideCodeAndLinks` (`threads/MarkdownText.kt`) does not see an indented code block (four spaces, then `<@5>`), a raw HTML block or an image's alt text, so the server indexes (and notifies) a mention the SPA shows raw. Blanking them there would close the gap for mentions and change which hashtags are indexed too (`#tag` in an indented block stops being a tag), so it needs the hashtag case table and a note in the release text. The disagreement is documented in `web-internals.md` "Mentions in messages" and pinned by a SPA test.
 - [new] **Notices for being added to a room, for a reply in a thread one owns, and for a reaction.** 0.6.0 notifies a mention and a hand-over only (0.6 A10).

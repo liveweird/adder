@@ -240,7 +240,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 0.5.0** (shipped); next is 0.6.0, whose decisions are recorded ("0.6.0 Social").
+Each increment gets its own plan (architect) before implementation. **Current version: 0.6.0** (shipped); next is the 1.0.0 checkup.
 
 | Ver | Scope |
 |---|---|
@@ -249,7 +249,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **0.3.0 Threads and messages** | Threads with a per-room number, status, owner, fields and history (`EventLog` port); messages in Markdown with emoji; edit/delete own; close/reopen with the closed-thread `409`; the three-pane room view |
 | **0.4.0 Live updates** (shipped) | `GET /api/v1/live` WebSocket with single-use tickets (sent in the first frame), subscribe/unsubscribe per room, `pg_notify` inside the write transaction, one LISTEN connection per process, bounded sockets, a 60 s account sweep; targeted query invalidation in the SPA (`live.md`) |
 | **0.5.0 Find** (shipped) | Thread filters and sorts (status, category, owner, SELECT/MULTI_SELECT/USER fields, tag, workflow order), a focus view, Postgres full-text search per room and across member rooms (`chat-model.md` "Find (0.5)"), server-parsed #hashtags |
-| **0.6.0 Social: mentions, notifications, unread, reactions, pins** | `<@id>` mentions with an autocomplete over room members and the thread list's "mentions me" filter (moved from 0.5.0, 0.5 D1); notifications for mentions and hand-overs (Lettuce's model, ids only), pushed live over the per-user channel, with a 5-minute email digest by per-user preference (0.6 D2, 0.6 D3); per-member unread (a rail dot and mention count, thread counts, a "New" line; 0.6 D1); one-emoji reactions; room pins of threads and messages, any member (0.6 D4); one release (0.6 D5). `chat-model.md` "Mentions, notifications, unread, reactions, pins (0.6)" |
+| **0.6.0 Social: mentions, notifications, unread, reactions, pins** (shipped) | `<@id>` mentions with an autocomplete over room members and the thread list's "mentions me" filter (moved from 0.5.0, 0.5 D1); notifications for mentions and hand-overs (Lettuce's model, ids only), pushed live over the per-user channel, with a 5-minute email digest by per-user preference (0.6 D2, 0.6 D3); per-member unread (a rail dot and mention count, thread counts, a "New" line; 0.6 D1); one-emoji reactions; room pins of threads and messages, any member (0.6 D4); one release (0.6 D5). `chat-model.md` "Mentions, notifications, unread, reactions, pins (0.6)" |
 | **1.0.0 Checkup** | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |
 
 ## Donors
