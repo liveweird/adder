@@ -91,6 +91,8 @@ jobs:
       - name: Start the stack
         run: docker compose up -d --wait --wait-timeout 300
 
+      # Red when a test fails, when a test passed only on a retry (`failOnFlakyTests` in playwright.config.ts: a flake must
+      # not hide behind the CI retries), and when Mailpit is unreachable (global setup requires it; the email specs never skip).
       - name: Run E2E
         working-directory: e2e
         run: npx playwright test
