@@ -2,17 +2,18 @@ package ch.nokillswit.threads
 
 import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.TooManyRequestsException
+import ch.nokillswit.infra.ProblemTypes
 
 /**
  * The typed 409 problem of a closed thread (`urn:adder:problem:`, `ProblemDetail.type`): a client tells it apart from the plain
  * conflicts and from `room-archived` by the URI, never by the detail text.
  */
-const val THREAD_CLOSED_PROBLEM_TYPE = "urn:adder:problem:thread-closed"
+const val THREAD_CLOSED_PROBLEM_TYPE = ProblemTypes.THREAD_CLOSED
 
 /** A closed thread takes no activity until its owner, the room owner or an ADMIN reopens it (`chat-model.md` "Closed and archived"). */
 fun threadClosed(): ConflictException = ConflictException("The thread is closed", problemType = THREAD_CLOSED_PROBLEM_TYPE)
 
-const val REACTION_LIMIT_PROBLEM_TYPE = "urn:adder:problem:reaction-limit"
+const val REACTION_LIMIT_PROBLEM_TYPE = ProblemTypes.REACTION_LIMIT
 
 /**
  * A reaction would pass a limit of `chat-model.md` "Reactions (V20)": a 21st distinct emoji on the message, or a 6th emoji of the caller's
@@ -21,7 +22,7 @@ const val REACTION_LIMIT_PROBLEM_TYPE = "urn:adder:problem:reaction-limit"
 fun reactionLimit(): ConflictException =
     ConflictException("The message has reached its reaction limit", problemType = REACTION_LIMIT_PROBLEM_TYPE)
 
-const val SEARCH_TIMEOUT_PROBLEM_TYPE = "urn:adder:problem:search-timeout"
+const val SEARCH_TIMEOUT_PROBLEM_TYPE = ProblemTypes.SEARCH_TIMEOUT
 
 /** Seconds the `Retry-After` header of a [searchTimeout] answer names: a heavy search is not helped by an instant retry. */
 const val SEARCH_TIMEOUT_RETRY_AFTER_SECONDS = 2
@@ -37,7 +38,7 @@ fun searchTimeout(): TooManyRequestsException = TooManyRequestsException(
     retryAfterSeconds = SEARCH_TIMEOUT_RETRY_AFTER_SECONDS,
 )
 
-const val SEARCH_BUSY_PROBLEM_TYPE = "urn:adder:problem:search-busy"
+const val SEARCH_BUSY_PROBLEM_TYPE = ProblemTypes.SEARCH_BUSY
 
 /** Seconds the `Retry-After` header of a [searchBusy] answer names: a slot frees within a search's own budget, usually in milliseconds. */
 const val SEARCH_BUSY_RETRY_AFTER_SECONDS = 1
@@ -53,12 +54,12 @@ fun searchBusy(): TooManyRequestsException = TooManyRequestsException(
     retryAfterSeconds = SEARCH_BUSY_RETRY_AFTER_SECONDS,
 )
 
-const val PIN_LIMIT_PROBLEM_TYPE = "urn:adder:problem:pin-limit"
+const val PIN_LIMIT_PROBLEM_TYPE = ProblemTypes.PIN_LIMIT
 
 /** The room already holds its [MAX_ROOM_PINS] pins: unpin something first (`chat-model.md` "Pins"). Unpinning is never refused. */
 fun pinLimit(): ConflictException = ConflictException("The room already has $MAX_ROOM_PINS pins", problemType = PIN_LIMIT_PROBLEM_TYPE)
 
-const val READ_TIMEOUT_PROBLEM_TYPE = "urn:adder:problem:read-timeout"
+const val READ_TIMEOUT_PROBLEM_TYPE = ProblemTypes.READ_TIMEOUT
 
 /** Seconds the `Retry-After` header of a [readTimeout] answer names: a list that was too slow is not helped by an instant retry. */
 const val READ_TIMEOUT_RETRY_AFTER_SECONDS = 2
@@ -74,7 +75,7 @@ fun readTimeout(): TooManyRequestsException = TooManyRequestsException(
     retryAfterSeconds = READ_TIMEOUT_RETRY_AFTER_SECONDS,
 )
 
-const val READ_BUSY_PROBLEM_TYPE = "urn:adder:problem:read-busy"
+const val READ_BUSY_PROBLEM_TYPE = ProblemTypes.READ_BUSY
 
 /** Seconds the `Retry-After` header of a [readBusy] answer names: a permit frees within a read's own budget, usually in milliseconds. */
 const val READ_BUSY_RETRY_AFTER_SECONDS = 1

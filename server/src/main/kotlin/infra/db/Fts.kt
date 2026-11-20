@@ -19,7 +19,8 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
  *
  * The query is built from `to_tsvector`'s OWN lexemes ([ftsQueryText]): documents and queries share one parser and one folding, so no
  * input is a syntax error. A term of [FTS_PREFIX_FROM] characters or more is a prefix (`simple` does not stem), shorter ones match
- * exactly, every term must match. Input with no lexeme (`!!!`, `<script>`) gives no query at all.
+ * exactly, every term must match. Input with no lexeme gives no query at all (`!!!` never gets here: `validateSearchQuery` makes it a
+ * `400`; tag-shaped input such as `<script>` does, and matches nothing).
  *
  * `ts_headline` returns its input's markup untouched, so a snippet never travels as a marked-up string: the headline is requested with
  * the control characters [FTS_HIT_START] and [FTS_HIT_STOP] as its markers (unforgeable: every title and body refuses control

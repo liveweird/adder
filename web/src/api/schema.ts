@@ -926,8 +926,8 @@ export interface paths {
          *       is matched case- and accent-insensitively: `zolw` finds `Żółw` and the snippet keeps the diacritics. Every term is required
          *       within ONE message or within the title; a term of three or more characters matches as a PREFIX (there is no stemming, so
          *       `awari` finds `awaria` and `awarii`, but `bazy` does not find `baza`), a shorter one matches exactly. There are no operators:
-         *       `&`, `|`, `!`, quotes and `:*` are punctuation, never syntax, so no input is a query error, and an input with no word in it
-         *       (`!!!`, `<script>`) matches nothing. `PROD-123` is indexed as `prod` and `-123`: searching it finds it, `123` alone does not.
+         *       `&`, `|`, `!`, quotes and `:*` are punctuation, never syntax, so an operator is never a query error: only an input with no letter or digit at all
+         *       (`!!!`) is a `400`, while tag-shaped input such as `<script>` has no indexable word and matches nothing. `PROD-123` is indexed as `prod` and `-123`: searching it finds it, `123` alone does not.
          *       Hashtag text is searchable (`#db-outage` indexes `db-outage`, `db` and `outage`). Field values and deleted messages are never
          *       searched.
          *     - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
@@ -1940,7 +1940,7 @@ export interface components {
              */
             type: "event";
             kind: components["schemas"]["LiveEventKind"];
-            /** Format: int32 */
+            /** Format: int64 */
             roomId: number;
             /**
              * Format: int32
@@ -1948,7 +1948,7 @@ export interface components {
              */
             threadNumber?: number;
             /**
-             * Format: int32
+             * Format: int64
              * @description Present for the message kinds.
              */
             messageId?: number;
@@ -1960,7 +1960,7 @@ export interface components {
              * @enum {string}
              */
             type: "revoked";
-            /** Format: int32 */
+            /** Format: int64 */
             roomId: number;
         };
         /** @description A gap (a listener outage or an overflowing queue), so refetch everything the page shows. */
@@ -2420,7 +2420,25 @@ export interface components {
         /** @description RFC 7807 problem detail. Served as `application/problem+json`; instance is the request path without query parameters. */
         ProblemDetail: {
             /**
-             * @description A URI reference identifying the problem type; `about:blank` unless a conflict is typed (`urn:adder:problem:…`, e.g. `revision-conflict` on a 409 or `room-busy` on a 429).
+             * @description A URI reference identifying the problem type: `about:blank`, or one of the typed problems below, which a client tells apart
+             *     from the plain status by the URI, never by the detail text. This list is the whole set (it equals the server's registry,
+             *     `ProblemTypes`, pinned by `ProblemTypesTest`); the status in brackets is the one it answers.
+             *
+             *     - `urn:adder:problem:revision-conflict` (409): a stale `X-Expected-Revision`.
+             *     - `urn:adder:problem:last-owner` (409): the write would leave a room without an active owner.
+             *     - `urn:adder:problem:room-archived` (409): an archived room is read-only.
+             *     - `urn:adder:problem:thread-closed` (409): a closed thread takes no activity until it is reopened.
+             *     - `urn:adder:problem:status-in-use` (409): a workflow change would retire or re-categorise a status threads use; carries `keys`.
+             *     - `urn:adder:problem:field-type-immutable` (409): a field's type is fixed per key; carries `keys`.
+             *     - `urn:adder:problem:pin-limit` (409): the room already holds its 50 pins.
+             *     - `urn:adder:problem:reaction-limit` (409): the message or the caller is at the reaction limit.
+             *     - `urn:adder:problem:room-busy` (429, `Retry-After`): the room's write lock stayed busy; retry.
+             *     - `urn:adder:problem:read-timeout` (429, `Retry-After`): a filtered thread list or a tag list outran its deadline.
+             *     - `urn:adder:problem:read-busy` (429, `Retry-After`): the caller or the server is at its maximum of list reads.
+             *     - `urn:adder:problem:search-timeout` (429, `Retry-After`): a search outran its deadline.
+             *     - `urn:adder:problem:search-busy` (429, `Retry-After`): the server is at its maximum of concurrent searches.
+             *     - `urn:adder:problem:live-socket-limit` (429, `Retry-After`): the caller already holds their maximum of live sockets.
+             *     - `urn:adder:problem:live-unavailable` (503, `Retry-After`): the live channel is stopping, full or without its listener.
              * @default about:blank
              */
             type: string;
@@ -3225,10 +3243,10 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the two notification "seen" writes (`POST /api/v1/notifications/{id}/seen`, `POST /api/v1/notifications/seen-all`) the per-USER read-state bucket (shared by both) is exhausted (240/min), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the `search-timeout`, `read-timeout` and `read-busy` 429s, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) the per-USER chat-write bucket (shared by all eight) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, the two notification "seen" POSTs and the notification-preferences PUT) the per-USER read-state bucket (shared by all five) is exhausted (240/min), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
-                /** @description Seconds to wait before retrying; sent with `room-busy`, `search-timeout`, `read-timeout`, `read-busy` and the rate-limit bucket 429s. */
+                /** @description Seconds to wait before retrying; sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the rate-limit bucket 429s and the live-ticket store's full 429; not with the login lockout. */
                 "Retry-After"?: number;
                 [name: string]: unknown;
             };
@@ -3236,7 +3254,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Request body exceeds the ceiling — 512 KiB globally, 16 KiB on the anonymous auth routes (login, MFA, refresh, password reset), the room member add and the thread status and owner PUTs, 64 KiB on a message post or edit and 192 KiB on a thread create or details edit — a memory-DoS backstop shared by every endpoint, so declared on every operation that takes a body (field-level maxLength rules reject oversized values far earlier on ordinary payloads). Cross-cutting for the coverage gate: pinned once by `PayloadValidationTest`, never once per operation. */
+        /** @description Request body exceeds the ceiling — 512 KiB globally, 16 KiB on the small-body routes (the anonymous auth routes: login, MFA, refresh, password reset and its confirmation; the room member add; the thread status, owner and read-marker PUTs; the thread and message pin PUTs; the message reaction PUT; the notification-preferences PUT), 64 KiB on a message post or edit and 192 KiB on a thread create or details edit — a memory-DoS backstop shared by every endpoint, so declared on every operation that takes a body (field-level maxLength rules reject oversized values far earlier on ordinary payloads). Cross-cutting for the coverage gate: pinned once by `PayloadValidationTest`, never once per operation. */
         PayloadTooLarge: {
             headers: {
                 [name: string]: unknown;

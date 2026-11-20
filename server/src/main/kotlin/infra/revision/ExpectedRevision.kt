@@ -1,5 +1,6 @@
 package ch.nokillswit.infra.revision
 
+import ch.nokillswit.infra.ProblemTypes
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.plugins.BadRequestException
 
@@ -12,7 +13,7 @@ import io.ktor.server.plugins.BadRequestException
 const val EXPECTED_REVISION_HEADER = "X-Expected-Revision"
 
 /** The RFC 7807 `type` of a stale-revision conflict; the SPA tells it apart from every other 409 by this URI. */
-const val REVISION_CONFLICT_PROBLEM_TYPE = "urn:adder:problem:revision-conflict"
+const val REVISION_CONFLICT_PROBLEM_TYPE = ProblemTypes.REVISION_CONFLICT
 
 // A positive decimal integer without a sign, leading zeros or whitespace; the overflow check is the toLongOrNull below.
 private val POSITIVE_REVISION = Regex("[1-9]\\d*")

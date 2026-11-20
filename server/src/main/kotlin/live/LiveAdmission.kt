@@ -1,5 +1,6 @@
 package ch.nokillswit.live
 
+import ch.nokillswit.infra.ProblemTypes
 import ch.nokillswit.infra.clientAddressKey
 import ch.nokillswit.plugins.respondProblem
 import io.ktor.http.HttpHeaders
@@ -14,10 +15,10 @@ import io.ktor.server.routing.application
 import io.ktor.server.routing.intercept
 
 /** The problem type of a `503` the live channel answers (a stopping server, a full socket table); the spec's `LiveUnavailable`. */
-const val LIVE_UNAVAILABLE_PROBLEM_TYPE = "urn:adder:problem:live-unavailable"
+const val LIVE_UNAVAILABLE_PROBLEM_TYPE = ProblemTypes.LIVE_UNAVAILABLE
 
 /** The problem type of the `429` a mint answers when the caller already holds [LiveConfig.maxSocketsPerUser] sockets. */
-const val LIVE_SOCKET_LIMIT_PROBLEM_TYPE = "urn:adder:problem:live-socket-limit"
+const val LIVE_SOCKET_LIMIT_PROBLEM_TYPE = ProblemTypes.LIVE_SOCKET_LIMIT
 
 /**
  * What `Retry-After` says on a `503` (seconds): a full table frees up as sockets close, a stopping server is back soon.
