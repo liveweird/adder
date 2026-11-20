@@ -265,7 +265,7 @@ of sockets that expired together does not mint in one instant.
 
 ## Deploy and proxies
 
-Compose serves 8087 directly. The Kubernetes (OrbStack) `adder` namespace uses a LoadBalancer Service and no Ingress, so the socket passes at L4; the 1001
+Compose serves 8087 directly. The Kubernetes (OrbStack) `adder` namespace is fronted by an ingress-nginx Ingress (`k8s/ingress.yaml`: upgrade passed by the controller, `proxy-read-timeout`/`proxy-send-timeout` 120 s, TLS ended there); the 1001
 close fits inside `terminationGracePeriodSeconds` 50 (a 5 s `preStop` sleep comes first, `observability.md`). A **reverse proxy** must pass the upgrade (`proxy_http_version 1.1`, `Upgrade $http_upgrade`,
 `Connection $connection_upgrade`) and keep read and send timeouts at 60 s or more (25 s pings fit ingress-nginx's default). The Origin check needs the
 request's scheme, host AND port to be the browser's, which is a statement about headers, not about `Host`: **TLS at the proxy needs

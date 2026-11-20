@@ -85,13 +85,16 @@ side on one machine; host ports bind to 127.0.0.1:
   store, so no push is needed. Everything lives in the dedicated namespace so it coexists with
   other local stacks. PostgreSQL uses an exact version and multi-platform manifest
   digest, its argv-list exec probe also serves as the readiness gate. The app runs in production mode
-  (`KTOR_DEVELOPMENT=false`, `HTTP_BEHIND_PROXY=true` — it expects a TLS-terminating ingress/LB that sets
-  `X-Forwarded-For`/`-Proto`) behind `k8s/app-service.yaml`, one replica (the login lockout, MFA and reset throttles are
-  per-instance in-memory state; CI pins `replicas: 1`). `k8s/network-policies.yaml` (default-deny + the few allowed flows)
+  (`KTOR_DEVELOPMENT=false`, `HTTP_BEHIND_PROXY=true`, `HTTP_PROXY_HOPS=1`) behind a `ClusterIP` Service
+  (`k8s/app-service.yaml`) and the ingress-nginx Ingress `k8s/ingress.yaml`, which ends TLS and REPLACES
+  `X-Forwarded-For`: the ingress-nginx controller must be installed in the cluster first (not part of `k8s/`), and the app is
+  then at `https://adder.k8s.orb.local` (self-signed certificate, so `curl -k`; no `localhost:8087` for the cluster;
+  `kubectl -n adder port-forward svc/app 8087` is the debug bypass). One replica (the login lockout, MFA and reset throttles are
+  per-instance in-memory state; CI pins `replicas: 1`). `k8s/network-policies.yaml` (default-deny + the few allowed flows; `:8087` only from the ingress-nginx controller's pods)
   is applied with the rest and OrbStack's cluster enforces it: an in-cluster SMTP relay is blocked until you add an
   egress policy for it (`.claude/docs/security.md`, "Kubernetes pod and network hardening"). For throwaway plain-HTTP
   local-cluster testing, flip `KTOR_DEVELOPMENT` to `"true"` in the file. **Teardown:** retain database data by scaling the
-  deployments to zero, or delete the deployments, services, network policies and PVC-holding resources explicitly.
+  deployments to zero, or delete the deployments, services, the Ingress (`k8s/ingress.yaml`), network policies and PVC-holding resources explicitly.
   **Secrets:** the deployment consumes the `adder-secrets` Secret via `secretKeyRef` (`JWT_SECRET`,
   `POSTGRES_USER`/`POSTGRES_PASSWORD`, `DATA_ENCRYPTION_KEY`, `ADMIN_INITIAL_PASSWORD`, optional
   `SMTP_USER`/`SMTP_PASSWORD`); `k8s/secret.yaml` is a placeholder **template** — applying it

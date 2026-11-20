@@ -131,37 +131,45 @@ name is a placeholder. An existing installation already has the namespace and Se
 
 The manifests are hardened: no ServiceAccount token in any pod, non-root/seccomp/`drop: [ALL]` on the
 app and postgres containers, and `k8s/network-policies.yaml` — default-deny plus only
-app → postgres:5432, DNS and public egress on 443 / 587, 465, 25 (SMTP), and 8087 into
-the app. NetworkPolicy is enforced only by a CNI that implements it (OrbStack's cluster does). Details
+app → postgres:5432, DNS and public egress on 587, 465, 25 (SMTP), and 8087 into
+the app from the ingress-nginx controller only. NetworkPolicy is enforced only by a CNI that implements it (OrbStack's cluster does). Details
 in `.claude/docs/security.md` ("Kubernetes pod and network hardening"). CI validates every manifest and
 the `apply-local.sh` render with `kubeconform` (`k8s-static` job).
 
-**Known gap: no ingress is shipped.** `app` is exposed through a bare `type: LoadBalancer`
-Service, but the `app` Deployment is configured as if a TLS-terminating proxy sat in front
-(`HTTP_BEHIND_PROXY=true`, `HTTP_PROXY_HOPS=1`). Today that means:
+**The front door is an ingress-nginx Ingress** (`k8s/ingress.yaml`). The `app` Service is `ClusterIP`, so
+no Service path reaches the pod except the Ingress, and `allow-app-ingress` admits only the ingress-nginx
+controller's pods (a node-local or `hostNetwork` process and `kubectl port-forward` can still reach it, as in any cluster). The cluster needs the ingress-nginx controller in its `ingress-nginx` namespace (not part of
+`k8s/`; community ingress-nginx was retired in March 2026, so this is a local reference, not a production
+recipe). Then open <https://adder.k8s.orb.local> (OrbStack resolves `*.k8s.orb.local` ingress hosts). With no
+`secretName` under `tls:` the controller serves its self-signed fake certificate, so the browser warns once;
+plain HTTP is answered with a `308` to https.
 
-- Plain HTTP through the LoadBalancer (e.g. `http://localhost:8087`) is answered with a `301` to
-  `https://…` — production mode redirects every request that does not arrive as HTTPS. The pods'
-  own probes send `X-Forwarded-Proto: https`, which is why they still pass.
-- `X-Forwarded-For` and `X-Forwarded-Proto` are client-supplied here: a bare LoadBalancer neither
-  terminates TLS nor strips them, so the per-IP rate-limit buckets key on a value the caller
-  controls, and a caller can send `X-Forwarded-Proto: https` to skip the redirect (unverified on
-  OrbStack: how its LoadBalancer treats these headers has not been checked).
-- The live channel depends on real client addresses too: the per-address share of unauthenticated
-  sockets (`live.maxPendingPerAddress`, default 8) keys like the rate-limit buckets, so a caller-chosen
-  `X-Forwarded-For` bypasses it. Put a proxy that sets the header in front, or set
-  `externalTrafficPolicy: Local` on the Service; with a plain proxy and `HTTP_BEHIND_PROXY=false`, or an
-  SNAT load balancer, all clients share one share, so raise `live.maxPendingPerAddress`.
-- For throwaway local testing over plain HTTP, edit `k8s/app-deployment.yaml` yourself —
-  `apply-local.sh` only substitutes the image tag — setting `KTOR_DEVELOPMENT` to `"true"` (and
-  `HTTP_BEHIND_PROXY` to `"false"`), and never commit or apply that in a shared or production
-  cluster. Development mode is a different posture, not just "HTTP allowed": it also tolerates
-  the burned demo credentials, exposes `/openapi` and the Swagger UI, and lifts the login per-IP
-  bucket from 10/min to 1000/min when it is left blank.
-
-Whether the reference deployment gains a TLS-terminating Ingress (with a `ClusterIP` Service) or a
-documented local-only overlay is still to be decided; until then treat this manifest set as a local
-reference, not a production recipe.
+- **Install the controller once per cluster** (OrbStack: enable Kubernetes first, `orbctl config set k8s.enable true`, then restart
+  OrbStack once). Pinned to the last community release; the manifest pins the controller image by digest:
+  `kubectl --context orbstack apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.15.1/deploy/static/provider/cloud/deploy.yaml`, then
+  `kubectl --context orbstack -n ingress-nginx wait --for=condition=Ready pod -l app.kubernetes.io/component=controller --timeout=240s`.
+  Undo: the same command with `delete -f` (removes the `ingress-nginx` namespace, its cluster RBAC, the `nginx` IngressClass
+  and the admission webhook). The cloud-provider manifest creates a `LoadBalancer` Service with `externalTrafficPolicy: Local`;
+  OrbStack gives it an address of its own and resolves `*.k8s.orb.local` ingress hosts to it.
+- The app trusts exactly one `X-Forwarded-For` hop (`HTTP_PROXY_HOPS=1`): ingress-nginx's defaults replace
+  the header with the address it saw, and the NetworkPolicy keeps every other pod away from the app, so a
+  client-sent `X-Forwarded-For` never becomes the rate-limit key (`.claude/docs/security.md`).
+- The live WebSocket passes the Ingress (read/send timeouts 120 s against the server's 25 s pings).
+- **OrbStack shows every client as one address.** The controller sees the pod-network gateway (`192.168.194.1` on the
+  tested cluster) as the peer of every request, even with `externalTrafficPolicy: Local`, so the app's per-IP rate-limit buckets and
+  the live per-address pending share (`live.maxPendingPerAddress`, 8) are shared by everyone on the cluster. Fine for one local user;
+  there is no OrbStack-side fix (the audit trail carries no client address by design, so check the controller's access log, whose
+  first field is that peer). A real cluster keeps the browser's address when its load balancer preserves it.
+- A real host needs three edits in step: the host in `ingress.yaml` (twice), a certificate Secret named under
+  `tls: secretName` whose SAN has that host, and `MAIL_APP_URL` in `app-deployment.yaml` when mail is on. CORS
+  stays empty (single origin).
+- `kubectl -n adder port-forward svc/app 8087` bypasses the Ingress for debugging: production mode answers
+  plain HTTP with its `301` to https there. For throwaway plain-HTTP testing, edit `k8s/app-deployment.yaml`
+  yourself — `apply-local.sh` only substitutes the image tag — setting `KTOR_DEVELOPMENT` to `"true"` (and
+  `HTTP_BEHIND_PROXY` to `"false"`), and never commit or apply that in a shared or production cluster.
+  Development mode is a different posture, not just "HTTP allowed": it also tolerates the burned demo
+  credentials, exposes `/openapi` and the Swagger UI, and lifts the login per-IP bucket from 10/min to
+  1000/min when it is left blank.
 
 ## Local development
 

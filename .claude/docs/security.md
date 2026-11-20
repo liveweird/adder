@@ -520,7 +520,7 @@ line before send, so `testApplication`'s client cannot reproduce two genuinely d
 
 **A malformed `Host` with `http.corsHosts` set** (0.4.0 audit): Ktor's CORS plugin compares the `Origin` with the request's own authority, and `origin.serverPort` throws a `NumberFormatException` on a `Host` whose port is not a number, so every `/api` call carrying an `Origin` was a 500 with an ERROR log and a stack trace. When CORS is installed, a second `Setup`-phase interceptor (before CORS's `Plugins`-phase hook) answers such a request `400` with a problem document; without CORS nothing reads the port and the interceptor is not installed (a bracketed IPv6 literal in `Host` is unreadable to Ktor too, so with `corsHosts` set it is a 400 as well). The live admission's own `detail=host` refusal stays as a backstop. 400 is a cross-cutting status (`CROSS_CUTTING_STATUSES`: the coverage gate asks no per-operation entry; the runtime conformance plugin only checks an operation that actually answers one it does not declare, as in `ClientAddressAndHostTest`, which uses `POST /login`, which declares 400).
 
-**Trust the address or the share degrades** (`live.md` "The pending share per address"): the per-address pending share and the `live-connect` bucket are only as good as `remoteHost`. Behind a plain proxy with `http.behindProxy=false`, or through an SNAT load balancer (`externalTrafficPolicy: Cluster`), every client arrives as the proxy's or the node's address and they all share ONE `live.maxPendingPerAddress` (8); with `behindProxy=true` and no proxy that strips client-supplied `X-Forwarded-For` (the shipped OrbStack LoadBalancer, "Known gap" in the README), a client can still claim any REAL address literal (a fresh IPv4 address per request, or an IPv6 /64 of its own) and so pick its own key; junk text no longer can. Fix the trust (a proxy that sets the header and `behindProxy=true`, or `externalTrafficPolicy: Local`), or raise `live.maxPendingPerAddress`. **Behind a proxy the peer IS the proxy**: clients whose trusted hop is not an address (a header format `clientAddressKey()` does not read, or `http.proxyHops` pointing at a hop that is not the client) are all counted under the proxy's address and share ONE bucket per limit, a global lockout; the WARN above says so, so check the proxy's `X-Forwarded-For` format.
+**Trust the address or the share degrades** (`live.md` "The pending share per address"): the per-address pending share and the `live-connect` bucket are only as good as `remoteHost`. Behind a plain proxy with `http.behindProxy=false`, or through an SNAT load balancer (`externalTrafficPolicy: Cluster`), every client arrives as the proxy's or the node's address and they all share ONE `live.maxPendingPerAddress` (8); with `behindProxy=true` and no proxy that strips client-supplied `X-Forwarded-For` (a LoadBalancer or NodePort straight to the pod: the shipped manifests no longer have one, `k8s/ingress.yaml`), a client can still claim any REAL address literal (a fresh IPv4 address per request, or an IPv6 /64 of its own) and so pick its own key; junk text no longer can. Fix the trust (a proxy that sets the header and `behindProxy=true`, or `externalTrafficPolicy: Local`), or raise `live.maxPendingPerAddress`. **Behind a proxy the peer IS the proxy**: clients whose trusted hop is not an address (a header format `clientAddressKey()` does not read, or `http.proxyHops` pointing at a hop that is not the client) are all counted under the proxy's address and share ONE bucket per limit, a global lockout; the WARN above says so, so check the proxy's `X-Forwarded-For` format.
 
 CSRF install is gated behind `security.csrf.enabled` (default **`false`** in `application.yaml`,
 env-overridable via `SECURITY_CSRF_ENABLED`); the configured `originMatchesHost()` +
@@ -561,7 +561,7 @@ job — `kubeconform -strict` over the raw manifests and over what `k8s/apply-lo
   capability: the entrypoint's chown/gosu step only runs as root). `readOnlyRootFilesystem` stays off for
   postgres — it writes its socket/lock files under `/var/run/postgresql` and temp files under `/tmp`.
 - **`k8s/network-policies.yaml`.** `default-deny-all` (ingress AND egress for every pod in `adder`), then:
-  `postgres` accepts 5432 only from `app`; `app` accepts 8087 (see the open decision below);
+  `postgres` accepts 5432 only from `app`; `app` accepts 8087 only from the ingress-nginx controller's pods (the front-door bullet below);
   `app` may egress to `postgres:5432`, to cluster DNS (kube-system `k8s-app=kube-dns`, 53
   UDP/TCP) and to public addresses on 587/465/25 (SMTP) only — **no 443**: the server dials no HTTPS endpoint (C-SEC-9) — RFC 1918,
   link-local (cloud metadata `169.254.169.254`) and CGNAT ranges excluded, so a compromised pod cannot
@@ -576,15 +576,48 @@ job — `kubeconform -strict` over the raw manifests and over what `k8s/apply-lo
   pods take a few seconds to be programmed, so a very fast first connection can fail once — the
   `startupProbe` window absorbs it.
 - **The live socket needs the front door to pass the upgrade** (0.4.0; `ci.md` "The live socket in front of a proxy"): `Upgrade`/`Connection` forwarded, read timeouts of 60 s or more, and the browser's own scheme, host and port: TLS ended at the proxy needs `X-Forwarded-Proto: https` plus `http.behindProxy=true`, a public port other than 443 must be in `X-Forwarded-Host`, and `Host $host` alone behind TLS is a `403` (right host, wrong scheme), otherwise every Origin check is a `403`.
-- **Still open — the front door (decision pending).** `k8s/app-service.yaml` is an OrbStack
-  `LoadBalancer` and the manifests default to the production posture (`KTOR_DEVELOPMENT=false`,
-  `HTTP_BEHIND_PROXY=true`), which assumes a TLS-terminating proxy that sets and overwrites
-  `X-Forwarded-For`/`-Proto`. The reference ships no Ingress: over the bare LB, a plain-HTTP request gets
-  the production HTTPS redirect and `X-Forwarded-*` is client-controlled. Either (a) add a TLS Ingress +
-  `type: ClusterIP`, or (b) keep the LB and document a local overlay with `KTOR_DEVELOPMENT=true` /
-  `HTTP_BEHIND_PROXY=false`. Whichever is chosen must also tighten `allow-app-ingress`, whose `from` is
-  deliberately absent today (the 8087 port is its only restriction), to the ingress controller's
-  namespace.
+- **The front door — settled 2026-11-20: an ingress-nginx Ingress** (`k8s/ingress.yaml`; tested end to end on OrbStack the same day: SPA,
+  login, a `101` and `ready` on `/api/v1/live` with a real ticket, held open 135 s through the Ingress, the NetworkPolicy enforced: a pod in
+  another namespace times out on `app:8087`, reaches it with the policies deleted, and times out again when they are restored). The `app` Service is `ClusterIP`
+  (no LoadBalancer/NodePort path around the proxy) and `allow-app-ingress` admits `:8087` only from the controller's pods
+  (namespace `kubernetes.io/metadata.name: ingress-nginx` AND pod labels `app.kubernetes.io/name: ingress-nginx`,
+  `app.kubernetes.io/component: controller`, ONE `from` item); the kubelet's probes need no rule. The two halves belong
+  together: `HTTP_PROXY_HOPS=1` makes the app trust the LAST `X-Forwarded-For` entry, which is only the controller's
+  when nothing else can reach the pod — the policy is what turns "trust one hop" into "trust only the ingress"
+  (the app has no CIDR allow-list; the CNI's policy is that list). **Which entry is taken:** ingress-nginx's defaults
+  (`use-forwarded-headers: false`) REPLACE `X-Forwarded-For` with the address of the connection nginx accepted (the client's own
+  value moves to `X-Original-Forwarded-For`), so the app sees one entry and `resolveForwardedForOrigin` takes it (index
+  `size - 1`); a client-sent `X-Forwarded-For: 1.2.3.4` never reaches the app as such. With `use-forwarded-headers: true` +
+  `compute-full-forwarded-for: true` the controller APPENDS (`client-sent..., peer`) and the last entry is still the peer the
+  controller saw; trust more hops only when a real proxy sits in front of the controller (a cloud LB that appends:
+  `HTTP_PROXY_HOPS=2`), and never raise the count without that proxy, or a client-written entry becomes the key.
+  `use-forwarded-headers: true` is safe only with `proxy-real-ip-cidr` narrowed to the trusted front proxy and together with
+  `compute-full-forwarded-for`; it also passes the client's `X-Forwarded-Proto`/`-Host` through, which skips the ssl-redirect, and
+  without both a client-written `X-Forwarded-For` becomes the per-IP key. F5's NGINX Ingress Controller ignores the
+  `nginx.ingress.kubernetes.io/*` annotations and carries other labels, so with it the policy admits nothing and the app answers 502/504 (fail closed). **What "the
+  peer the controller saw" is** depends on the cluster: with an SNAT in front of the controller it is the node's or gateway's
+  address, not the browser's, and every client shares one per-IP bucket (the WARN above does not fire: it IS an address).
+  **Verified on OrbStack (2026-11-20, Kubernetes v1.36.5, ingress-nginx controller-v1.15.1): this is what happens there**, even
+  with the manifest's `externalTrafficPolicy: Local`: the controller's access log shows `192.168.194.1`, the pod-network gateway, for
+  every request, so on OrbStack all clients share one per-IP bucket and one live pending share. No audit line carries an address
+  (the buckets are keyed on it, never logged), so look at the controller's access log, whose first field is the peer the app
+  gets. A spoofed `X-Forwarded-For` is not the key: 13 failed logins for different emails, each with its own client-sent
+  `X-Forwarded-For`, were answered 401 nine times and 429 from the tenth (the 10/min `login` bucket, one successful login before),
+  i.e. one shared key. Where the cluster supports it, `externalTrafficPolicy: Local` on the controller's Service (the cloud
+  manifest's default) is the remedy for a node-level SNAT.
+  **`X-Forwarded-Host` and the live socket (verified):** in the default mode the controller sets `X-Forwarded-Host` to the request's own
+  Host (`$best_http_host`) and moves the client's value to `X-Original-Forwarded-Host`, so a client-sent one never reaches the app:
+  the live socket answers `101` for the right Origin, `403` (`live.refused`, `authority`) for `Origin: https://evil.example` with or
+  without `X-Forwarded-Host: evil.example`, and `403` for an `http://` Origin or none; no `Access-Control-*` header is ever sent
+  (CORS is not installed while `http.corsHosts` is empty), so a cross-origin page cannot read the API. With
+  `use-forwarded-headers: true` this changes (the client's value would pass through): see above.
+  TLS ends at the controller (`ssl-redirect` 308, HSTS overwritten by the controller's own policy); the host, the certificate
+  SAN and `MAIL_APP_URL` move together; `http.corsHosts` stays empty (single origin; the live socket's Origin check
+  compares the browser's origin with the scheme/host/port rebuilt from `X-Forwarded-Proto`/`-Host`, which the controller
+  sets from the request). Body ceiling: the largest app ceiling is 512 KiB (`MAX_REQUEST_BODY_BYTES`), the Ingress pins
+  `proxy-body-size: 1m` so the app's own problem+json 413 answers. Community ingress-nginx was retired in March 2026: a
+  production cluster re-verifies this paragraph against whichever controller it runs (the contract, not the name, is what
+  the app needs: replace XFF, set Proto/Host, pass the upgrade, 60 s+ timeouts).
 
 **Log hygiene.** Every data class that carries a password, token, MFA code, password hash or signing key
 (`LoginRequest`, `LoginResponse`, `MfaVerifyRequest`, `RefreshRequest`, `LogoutRequest`, `User`,
