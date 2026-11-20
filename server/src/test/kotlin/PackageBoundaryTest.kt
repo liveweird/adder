@@ -17,24 +17,34 @@ import kotlin.test.assertTrue
  * violation.
  */
 class PackageBoundaryTest {
-    private val mainSources: List<File> by lazy {
+    private val sourceRoot: File by lazy {
         val root = File(System.getProperty("repo.root") ?: "..", "server/src/main/kotlin")
         assertTrue(root.isDirectory, "${root.absolutePath} not found")
-        root.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        root
     }
+
+    private val mainSources: List<File> by lazy { sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList() }
+
+    /** The file's path under `server/src/main/kotlin` (`infra/db/Database.kt`): exemptions are keyed by it, never by a bare file name. */
+    private fun File.relativePath(): String = relativeTo(sourceRoot).invariantSeparatorsPath
 
     /**
      * Composition-root exceptions to "infra never references a feature": `infra/db/Database.kt` builds and publishes the feature
      * services (`teams`, `users`, `auth`, `workflows`, `rooms`), `infra/db/ChatWiring.kt` the chat's (`threads`, `notifications`) and
      * `infra/db/Bootstrap.kt` seeds the admin through `users`/`auth`.
-     * Keyed by file name, valued by the feature packages that file may import;
+     * Keyed by path under `server/src/main/kotlin`, valued by the feature packages that file may import;
      * a listed package the file no longer uses fails the test (a stale exception is dead permission).
      */
     private val infraCompositionRoot: Map<String, Set<String>> = mapOf(
-        "Database.kt" to setOf("auth", "rooms", "teams", "users", "workflows"),
-        "ChatWiring.kt" to setOf("notifications", "rooms", "threads"),
-        "Bootstrap.kt" to setOf("auth", "users"),
+        "infra/db/Database.kt" to setOf("auth", "rooms", "teams", "users", "workflows"),
+        "infra/db/ChatWiring.kt" to setOf("notifications", "rooms", "threads"),
+        "infra/db/Bootstrap.kt" to setOf("auth", "users"),
     )
+
+    /** The files that construct the notification service (the only non-notifications files that may name it). */
+    private val notificationsWiring = setOf("infra/db/Database.kt", "infra/db/ChatWiring.kt")
+
+    private val chatPackages = listOf("workflows", "rooms", "threads", "live", "notifications")
 
     private val featurePackages = listOf(
         "teams", "users", "auth", "authz", "telemetry", "workflows", "rooms", "threads", "live", "notifications",
@@ -98,7 +108,7 @@ class PackageBoundaryTest {
         assertTrue(declared, "no source declares ch.nokillswit.notifications")
         val violations = mainSources.flatMap { file ->
             val text = file.readText()
-            if (packageOf(text) == "ch.nokillswit.notifications" || file.name in setOf("Database.kt", "ChatWiring.kt")) {
+            if (packageOf(text) == "ch.nokillswit.notifications" || file.relativePath() in notificationsWiring) {
                 emptyList()
             } else {
                 forbiddenReferences(text, listOf("notifications")).map { "${file.name} $it" }
@@ -129,7 +139,7 @@ class PackageBoundaryTest {
         val infra = infraSources()
         assertTrue(infra.size > 20, "the scan saw only ${infra.size} infra sources")
         val violations = infra.flatMap { (file, text) ->
-            val allowed = infraCompositionRoot[file.name].orEmpty()
+            val allowed = infraCompositionRoot[file.relativePath()].orEmpty()
             forbiddenReferences(text, featurePackages - allowed).map { "${file.name} $it" }
         }
         assertEquals(emptyList(), violations)
@@ -176,8 +186,25 @@ class PackageBoundaryTest {
     }
 
     @Test
+    fun `the foundation never references a chat package outside the composition root`() {
+        // users, teams, auth, authz, audit, plugins and infra are Flow's generic core (0.1.0): the chat domain is built on them and they
+        // name none of it. The only door is the composition root, which must construct the chat services it publishes.
+        val foundation = setOf("users", "teams", "auth", "authz", "audit", "plugins", "infra")
+        val scanned = mainSources.filter { file ->
+            val pkg = packageOf(file.readText())?.removePrefix("ch.nokillswit.")
+            pkg != null && foundation.contains(pkg.substringBefore('.'))
+        }
+        assertTrue(scanned.size > 60, "the scan saw only ${scanned.size} foundation sources")
+        val violations = scanned.flatMap { file ->
+            val allowed = infraCompositionRoot[file.relativePath()].orEmpty()
+            forbiddenReferences(file.readText(), chatPackages - allowed).map { "${file.relativePath()} $it" }
+        }
+        assertEquals(emptyList(), violations)
+    }
+
+    @Test
     fun `every composition-root exception is still used`() {
-        val infra = infraSources().associate { (file, text) -> file.name to text }
+        val infra = infraSources().associate { (file, text) -> file.relativePath() to text }
         for ((name, allowed) in infraCompositionRoot) {
             val text = infra[name] ?: error("composition-root file $name is not under infra/")
             for (pkg in allowed) {

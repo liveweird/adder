@@ -122,7 +122,7 @@ security:
     replayGraceSeconds: "$REFRESH_REPLAY_GRACE_SECONDS:60"
   # Self-service password reset: at most one request per submitted email per interval,
   # uniformly whether or not the account exists. In-memory, per-instance, like the lockout.
-  # The emailed link is a persisted single-use grant (V35, only its digest is stored) valid for
+  # The emailed link is a persisted single-use grant (V8, only its digest is stored) valid for
   # tokenTtlSeconds (1..3600; default 15 minutes) - a request never changes a password, only
   # the owner opening the link and choosing one does (auth/PasswordResetService.kt).
   passwordReset:

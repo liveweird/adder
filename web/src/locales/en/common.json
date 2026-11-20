@@ -14,7 +14,6 @@
     "keepEditing": "Keep editing",
     "discard": "Discard"
   },
-  "dateFormatHint": "YYYY-MM-DD",
   "field": {
     "email": "Email",
     "name": "Name",

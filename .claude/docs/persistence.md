@@ -67,7 +67,7 @@ go through R2DBC.
   `MultiRowInsert.kt` also splits a batch so one statement binds at most `MAX_PAYLOAD_CHARS` (1 MiB) of `String` values (a lone
   heavier row goes alone, never refused there). `insertRows` / `insertRowsIgnoringConflicts` build each row (run the caller's body)
   lazily, only while the statement that carries it is assembled, so the rows in flight are one statement's cap, not the call's, and
-  each body runs exactly once (`upsertRows` builds them all first: its collapse of repeated keys needs every key). Exposed lists every
+  each body runs exactly once. Exposed lists every
   statement a transaction ran until it ends (parsed SQL and encoded parameters included): `insertRows` clears the list after each statement.
 - **Statement timeouts: use the transaction's `queryTimeout`, nothing else.** Exposed's R2DBC executor *requests* the
   transaction's `queryTimeout` (whole seconds, default 0, never null) from the driver before EVERY statement. The telemetry reads

@@ -14,7 +14,6 @@
     "keepEditing": "Wróć do edycji",
     "discard": "Odrzuć"
   },
-  "dateFormatHint": "RRRR-MM-DD",
   "field": {
     "email": "E-mail",
     "name": "Nazwa",

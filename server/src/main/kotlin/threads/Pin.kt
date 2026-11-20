@@ -1,6 +1,5 @@
 package ch.nokillswit.threads
 
-import ch.nokillswit.infra.paging.PageResponse
 import kotlinx.serialization.Serializable
 
 /** The most pins a room holds (`chat-model.md` "Pins"): a 51st is a `409 pin-limit`. */
@@ -26,8 +25,6 @@ data class RoomPinResponse(
     val pinnedByName: String,
     val pinnedAt: Long,
 )
-
-typealias RoomPinPageResponse = PageResponse<RoomPinResponse>
 
 /** One page of a room's pins plus the pre-pagination total (the list-endpoint envelope). */
 data class RoomPinListResult(val items: List<RoomPinResponse>, val total: Long)

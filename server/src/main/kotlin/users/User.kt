@@ -22,8 +22,7 @@ enum class UserRole { ADMIN, USER }
  * enum is the whitelist — a future gateable feature is just a new value here (no migration).
  * [MFA] is the one INVERTED-DEFAULT, login-scoped flag: every user starts with the disabled
  * row present (the V5 seed + the `UserService.create` chokepoint), so email MFA is opt-in;
- * it gates the LOGIN FLOW only — no route names it in `requireFeatureEnabled` (which awaits
- * its first area-gating consumer).
+ * it gates the LOGIN FLOW only — no route is gated on a feature yet.
  */
 @Serializable
 enum class Feature { MFA }

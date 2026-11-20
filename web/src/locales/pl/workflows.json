@@ -70,7 +70,6 @@
   "options": {
     "title": "Opcje",
     "add": "Dodaj opcję",
-    "rowAria": "Opcja {{position}}",
     "moveUpAria": "Przesuń opcję {{position}} w górę",
     "moveDownAria": "Przesuń opcję {{position}} w dół",
     "removeAria": "Usuń opcję {{position}}"

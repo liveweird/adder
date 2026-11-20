@@ -67,9 +67,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   throw `UnauthorizedException`) and then invokes the relevant guard: `isAdmin(caller)`,
   `requireAdmin(caller)`, `requireSelfOrAdmin(caller, targetUserId)`, `requireTeamManagerOrAdmin(caller, teamId,
   isManager)` (ADMIN, or the team's ACTIVE manager via the injected `TeamService.isActiveManager` lookup, which
-  answers false for a missing team so the 403 is uniform — its first consumer is the team roster below), plus
-  `requireFeatureEnabled` (awaiting its first area-gating consumer); new guards join this file so the whole policy stays
-  in one place.
+  answers false for a missing team so the 403 is uniform — its first consumer is the team roster below); new guards join
+  this file so the whole policy stays in one place.
 - **Resource rules**:
   - `/api/v1/users` (list/create) and `PUT`/`DELETE /api/v1/users/{id}` → **ADMIN only** — the
     whole management surface is admin-gated (the list included; regular users keep only the self
@@ -127,10 +126,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     flags (V5, Lettuce's model)**: `Feature { MFA }` stored as the DISABLED set
     (`user_disabled_features`, no row = enabled). **`MFA` is inverted-default and login-scoped** —
     every user starts with the MFA row present (the V5 seed + the `UserService.create`
-    chokepoint), so email MFA is opt-in; it gates the LOGIN FLOW only, and no route names it in
-    `requireFeatureEnabled` (which awaits the first area-gating feature; run it as the FIRST
-    guard when one arrives — before any read, so a disabled caller gets a uniform 403 even for a
-    missing id). Mind the wholesale-replace PUT: a disabled set omitting MFA — including the
+    chokepoint), so email MFA is opt-in; it gates the LOGIN FLOW only, and no route is gated on a
+    feature yet (the first gated area adds a `requireFeatureEnabled(caller, feature)` guard to `Guards.kt`, run as the FIRST
+    guard — before any read, so a disabled caller gets a uniform 403 even for a missing id). Mind the wholesale-replace PUT: a disabled set omitting MFA — including the
     empty "re-enable everything" array — ENABLES the second factor. The set rides both JWTs as
     the `disabledFeatures` claim (missing claim = empty — outstanding tokens survive the deploy;
     unknown value = 401) and `LoginResponse`/`UserResponse.disabledFeatures`, so a change takes
