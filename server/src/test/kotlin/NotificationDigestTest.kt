@@ -346,6 +346,52 @@ class NotificationDigestTest {
         assertTrue(deleted.to(ben.email).isEmpty(), "a deleted room is nobody's to mail")
     }
 
+    private fun deleteRoom(room: UInt) {
+        sql("UPDATE rooms SET marked_as_deleted = true WHERE id = ?") { st -> st.setInt(1, room.toInt()); st.executeUpdate() }
+    }
+
+    @Test
+    fun `notices of a deleted room at the head do not hide the live ones behind them`() = runBlocking {
+        val dead = setup()
+        val live = setup()
+        val ann = dead.member()
+        TestRooms.addMember(live.room, ann.id)
+        val deadIds = List(60) { i -> dead.notice(ann, ageMillis = DAY - 10 * SECOND - i * 10L) }
+        val liveIds = List(3) { live.notice(ann) }
+        deleteRoom(dead.room)
+        val mailer = RecordingMailer()
+
+        val run = digest(mailer, dead).run()
+
+        assertEquals(63, run.claimed)
+        val mail = mailer.to(ann.email).single()
+        assertEquals("Adder: 3 unseen notifications", mail.subject)
+        assertEquals(3, mail.body.lines().count { it.startsWith("- ") }, mail.body)
+        assertTrue(mail.body.contains(live.roomName), "the live room is named")
+        assertFalse(mail.body.contains(dead.roomName), "the deleted room is not")
+        assertFalse(mail.body.contains("more"), "nothing is unlisted")
+        assertTrue((deadIds + liveIds).all { emailedAt(it) != null }, "the whole claim stays stamped")
+    }
+
+    @Test
+    fun `the count of the unlisted excludes notices of a deleted room and notices seen meanwhile`() = runBlocking {
+        val live = setup()
+        val dead = setup()
+        val ann = live.member()
+        TestRooms.addMember(dead.room, ann.id)
+        val liveIds = List(12) { i -> live.notice(ann, ageMillis = DAY - 10 * SECOND - i * 10L) }
+        repeat(40) { dead.notice(ann) }
+        deleteRoom(dead.room)
+        val mailer = RecordingMailer()
+
+        digest(mailer, live, afterClaim = { markSeen(liveIds.last(), live.now) }).run()
+
+        val mail = mailer.to(ann.email).single()
+        assertEquals("Adder: 11 unseen notifications", mail.subject, "12 live, one seen meanwhile, 40 dead not counted")
+        assertEquals(DIGEST_MAX_ENTRIES, mail.body.lines().count { it.startsWith("- ") }, mail.body)
+        assertTrue(mail.body.lines().contains("...and 1 more"), mail.body)
+    }
+
     @Test
     fun `nothing older than a day is mailed`() = runBlocking {
         val s = setup()

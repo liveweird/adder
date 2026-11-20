@@ -82,6 +82,9 @@ private const val DOT_LOOKALIKE = '․'
 /** U+2215 DIVISION SLASH: reads as a slash, is not one. */
 private const val SLASH_LOOKALIKE = '∕'
 
+/** U+2216 SET MINUS: reads as a backslash, is not one (Outlook links a UNC path, and `file:` followed by backslashes). */
+private const val BACKSLASH_LOOKALIKE = '∖'
+
 /** U+FF20 FULLWIDTH COMMERCIAL AT: reads as an at sign, is not an address separator. */
 private const val AT_LOOKALIKE = '＠'
 
@@ -97,6 +100,7 @@ private fun isDot(c: Int): Boolean = c == '.'.code || c == 0x3002 || c == 0xFF0E
  *   rule below (a linkifier and IDNA ignore them and still resolve the dot);
  * - `@` becomes U+FF20 (fullwidth at), so no `user@host` survives;
  * - the two slashes of `://` become U+2215 (division slash), so no scheme survives;
+ * - EVERY backslash becomes U+2216 (set minus), so no UNC path and no backslash scheme survives;
  * - EVERY full stop (ASCII, ideographic U+3002, fullwidth U+FF0E, halfwidth ideographic U+FF61) that is not followed by a plain space or
  *   the end of the text becomes U+2024 (one dot leader), whatever stands on either side: the rule is "a dot that continues into anything
  *   is not a dot", never "a dot between letters" (a combining mark beside the dot defeated that), so no bare domain
@@ -120,6 +124,7 @@ internal fun mailSafe(text: String): String {
         val continuesPastDot = isDot(c) && next < plain.length && plain[next] != ' '
         when {
             c == '@'.code -> out.append(AT_LOOKALIKE)
+            c == '\\'.code -> out.append(BACKSLASH_LOOKALIKE)
             continuesPastDot -> out.append(DOT_LOOKALIKE)
             else -> out.appendCodePoint(c)
         }

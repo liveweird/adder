@@ -149,9 +149,21 @@ class NotificationEmailTest {
         assertEquals("", mailSafe(" \u202E "))
     }
 
-    /** A blunt oracle, not the implementation's rule: no full stop of any kind continues into a non-space, and no `@`. */
+    @Test
+    fun `a backslash path or scheme cannot survive`() {
+        assertEquals("\u2216\u2216fileshare\u2216x", mailSafe("\\\\fileshare\\x"))
+        assertEquals("file:\u2216\u2216host\u2216x", mailSafe("file:\\\\host\\x"))
+        for (text in listOf("\\\\fileshare\\x", "file:\\\\host\\x", "a\\b")) {
+            val safe = mailSafe(text)
+            assertFalse('\\' in safe, "$text -> $safe")
+            val mail = notificationEmail(text, listOf(entry(actor = text, room = text)), appUrl, "en")
+            assertFalse(mail.body.lines().filterNot { it.startsWith("  $appUrl/") }.any { '\\' in it }, "$text -> ${mail.body}")
+        }
+    }
+
+    /** A blunt oracle, not the implementation's rule: no full stop of any kind continues into a non-space, and no `@`, no backslash. */
     private fun hasLiveDotOrAt(text: String): Boolean {
-        if ('@' in text) return true
+        if ('@' in text || '\\' in text) return true
         val dots = setOf('.', '。', '．', '｡')
         return text.windowed(2).any { it[0] in dots && it[1] != ' ' }
     }
@@ -170,6 +182,8 @@ class NotificationEmailTest {
             "evil｡com",
             "a‮.‬b@c.d",
             "x.y...z",
+            "\\\\fileshare\\x", // a UNC path
+            "file:\\\\host\\x", // a backslash scheme
         )
         for (text in hostile) {
             val safe = mailSafe(text)

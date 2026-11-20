@@ -39,7 +39,7 @@ private val log = LoggerFactory.getLogger("ch.nokillswit.notifications.Notificat
  */
 internal const val DIGEST_BATCH = 500
 
-/** Notices of ONE person a claim takes at most (a digest lists [DIGEST_MAX_ENTRIES]); a longer backlog rides the next digest. */
+/** Notices of ONE person a mail reads as entries (it lists [DIGEST_MAX_ENTRIES]); the re-check's survivors beyond are only counted. */
 internal const val DIGEST_MAX_NOTICES_PER_RECIPIENT = 50
 
 /**
@@ -51,6 +51,9 @@ internal const val DIGEST_MAX_NOTICES_PER_RECIPIENT = 50
  * still walked to find those rows; the settle removes the second kind and [DIGEST_STATEMENT_TIMEOUT_SECONDS] bounds the rest.
  */
 internal const val DIGEST_SCAN_CAP = 5_000
+
+/** Ids one re-check statement carries at most (a claim is bounded by [DIGEST_SCAN_CAP]; more are chunked). */
+private const val RECHECK_CHUNK = 1_000
 
 /** The claim's and the settle's statement budget, whole seconds (the transaction's `queryTimeout`, the only way a timeout is set). */
 internal const val DIGEST_STATEMENT_TIMEOUT_SECONDS = 10
@@ -75,9 +78,8 @@ internal const val DIGEST_MAX_PER_RUN = 100
 internal const val DIGEST_MAX_REMEMBERED = 50_000
 
 /**
- * Failures in a row (a failed re-check or a failed send) that end a run: with SMTP or the database down every further attempt is a certain
- * failure, and a run that tried the whole batch would hold the sweep's tick (and the purge behind it) for as long as the timeouts add up.
- * The untried recipients' claims are released.
+ * Failures in a row (a failed re-check or send) that end a run: with SMTP or the database down every further attempt is a certain failure
+ * and would hold the sweep's tick (and the purge behind it) for as long as the timeouts add up. The untried claims are released.
  */
 internal const val DIGEST_MAX_CONSECUTIVE_FAILURES = 3
 
@@ -152,7 +154,6 @@ internal data class DigestBounds(
     val statementTimeoutSeconds: Int = DIGEST_STATEMENT_TIMEOUT_SECONDS,
 )
 
-/** One claimed notice: ids and its kind, nothing else (a notice has nothing else). */
 internal data class ClaimedNotice(
     val id: UInt,
     val recipientId: UInt,
@@ -178,14 +179,14 @@ internal data class DigestRun(val claimed: Int, val sent: Int, val failed: Int, 
  *    marked BEFORE any send, so a notice is mailed at most once and a failed send is not retried (it is audited). A statement past its
  *    budget is logged scrubbed and the run ends with nothing claimed (the transaction rolled back).
  * 2. **Sends**, outside every transaction, one email per recipient, at most [maxPerRun] mails a run (the budget the MFA and password-reset
- *    mails are protected by: they share the `Mailer`; the claims beyond it are released). Right before each send the recipient is
- *    RE-CHECKED in one short
- *    read transaction: the account is active, the notice still exists unseen (a removed member's notices are deleted with the membership,
- *    a deleted message's with it), the room is an active room the person is an active member of, and the kind is not switched off. What
- *    fails the check is skipped silently and stays claimed (never mailed later); the person is remembered like a mailed one, so a
- *    skipped recipient does not claim a slot again at the next tick. A pooled connection is never held across the send.
- * 3. **Audits** `notification.email_sent` (userId, count) or `notification.email_failed` (userId, errorType: the class name only). A
- *    failure of the re-check is audited the same way as a failure of the send: the recipient was attempted and is not retried.
+ *    mails are protected by: they share the `Mailer`; the claims beyond it are released). Right before each send ALL of the recipient's
+ *    claimed notices are RE-CHECKED in one short read transaction: the account is active, the notice still exists unseen (a removed
+ *    member's notices go with the membership, a deleted message's with it), the room is an active room the person is a member of, the
+ *    kind is not switched off and the thread exists. The survivors are listed (the first [DIGEST_MAX_NOTICES_PER_RECIPIENT]) and
+ *    counted (the rest). With none the recipient is skipped silently, stays claimed (never mailed later) and claims no slot at the next
+ *    tick. No pooled connection is held across the send.
+ * 3. **Audits** `notification.email_sent` (userId, count) or `notification.email_failed` (userId, errorType: the class name only), for a
+ *    failed re-check too: the recipient was attempted and is not retried.
  * 4. **Releases** the claims of recipients that were never ATTEMPTED when the run ends early (cancelled, or
  *    [DIGEST_MAX_CONSECUTIVE_FAILURES] failures in a row): `emailed_at` goes back to null in a `NonCancellable` finally, so a stop or an
  *    outage does not silently settle notices nobody tried to mail. That is not a retry: nothing was sent. What can still be lost is a
@@ -289,8 +290,7 @@ internal class NotificationDigest(
         attempted: () -> Unit,
     ): Delivery {
         try {
-            val listed = notices.filter { it.rank <= DIGEST_MAX_NOTICES_PER_RECIPIENT }.sortedBy { it.rank }
-            val mail = resolve(recipientId, listed, unlisted = notices.size - listed.size)
+            val mail = resolve(recipientId, notices)
             attempted()
             mailedAt[recipientId] = now // a skipped person too: nothing to mail now, no slot in the next claim for one interval
             if (mail == null) return Delivery.SKIPPED
@@ -361,33 +361,38 @@ internal class NotificationDigest(
     }
 
     /**
-     * The send-time re-check and the current names, in ONE read transaction; null when nothing is left to mail. The names are read now
-     * (a rename shows), for the entries that survive only.
+     * The send-time re-check and the current names, in ONE read transaction; null when nothing is left to mail. The re-check (unseen,
+     * an active room of the person, the kind on, the thread there) runs on ALL of the person's [claimed] notices: the first
+     * [DIGEST_MAX_NOTICES_PER_RECIPIENT] survivors by rank become entries, the surviving rest is counted (dead notices neither hide
+     * live ones nor inflate it). The names are read now (a rename shows), for the entries only.
      */
-    private suspend fun resolve(recipientId: UInt, notices: List<ClaimedNotice>, unlisted: Int): Mail? = suspendTransaction(database) {
+    private suspend fun resolve(recipientId: UInt, claimed: List<ClaimedNotice>): Mail? = suspendTransaction(database) {
         val users = UserService.Users
         val user = users.select(users.name, users.email, users.language)
             .where { (users.id eq recipientId) and users.active() }.toList().singleOrNull()
             ?: return@suspendTransaction null
         val n = NotificationService.Notifications
-        val pending = n.select(n.id).where { (n.id inList notices.map { it.id }) and n.seenAt.isNull() }
-            .map { it[n.id].value }.toList().toSet()
+        val pending = claimed.map { it.id }.chunked(RECHECK_CHUNK).flatMap { chunk ->
+            n.select(n.id).where { (n.id inList chunk) and n.seenAt.isNull() }.map { it[n.id].value }.toList()
+        }.toSet()
         val roomNames = memberRooms(recipientId).associate { it.id to it.name }
         val off = emailDisabledKinds(recipientId)
-        val kept = notices.filter { it.id in pending && it.roomId in roomNames && it.type !in off }
-        if (kept.isEmpty()) return@suspendTransaction null
+        val kept = claimed.filter { it.id in pending && it.roomId in roomNames && it.type !in off }
         val threads = ThreadService.Threads
-        val numbers = threads.select(threads.id, threads.number).where { threads.id inList kept.map { it.threadId }.toSet() }
-            .map { it[threads.id].value to it[threads.number] }.toList().toMap()
-        val actors = userNames(kept.map { it.actorId })
-        val entries = kept.mapNotNull { notice ->
-            val number = numbers[notice.threadId] ?: return@mapNotNull null
-            val room = roomNames.getValue(notice.roomId)
-            DigestEntry(notice.type, actors[notice.actorId].orEmpty(), notice.roomId, room, number, notice.messageId)
+        val numbers = kept.map { it.threadId }.distinct().chunked(RECHECK_CHUNK).flatMap { chunk ->
+            threads.select(threads.id, threads.number).where { threads.id inList chunk }
+                .map { it[threads.id].value to it[threads.number] }.toList()
+        }.toMap()
+        val survivors = kept.filter { it.threadId in numbers }.sortedBy { it.rank }
+        if (survivors.isEmpty()) return@suspendTransaction null
+        val listed = survivors.take(DIGEST_MAX_NOTICES_PER_RECIPIENT)
+        val actors = userNames(listed.map { it.actorId })
+        val entries = listed.map {
+            DigestEntry(it.type, actors[it.actorId].orEmpty(), it.roomId, roomNames.getValue(it.roomId),
+                numbers.getValue(it.threadId), it.messageId)
         }
-        if (entries.isEmpty()) return@suspendTransaction null
-        val email = notificationEmail(user[users.name], entries, appUrl, user[users.language], unlisted)
-        Mail(user[users.email], email.subject, email.body, entries.size + unlisted)
+        val email = notificationEmail(user[users.name], entries, appUrl, user[users.language], survivors.size - listed.size)
+        Mail(user[users.email], email.subject, email.body, survivors.size)
     }
 
     /** What one person is mailed, resolved at send time. */
