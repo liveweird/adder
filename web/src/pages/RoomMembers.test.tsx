@@ -505,7 +505,59 @@ describe("RoomMembers page", () => {
   });
 });
 
-// A second top-level block keeps each function within the size cap; the setup is the same.
+// A bucket's 429 on the three member writes (the chat-write bucket, with a Retry-After): the shared "too fast" words.
+describe("RoomMembers page: past the chat-write bucket", () => {
+  let mockFetch: FetchMock;
+  const tooFast = (retryAfter?: string) => jsonResponse(429, { title: "Too Many Requests", status: 429 }, retryAfter ? { "Retry-After": retryAfter } : {});
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    signIn(7);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  test("a role change says how long to wait", async () => {
+    serve(mockFetch, { fail: { "PUT /api/v1/rooms/12/members/9": tooFast("5") } });
+    const user = userEvent.setup();
+    renderMembers();
+    await openRowMenu(user, "Otto Second");
+    await user.click(await screen.findByRole("menuitem", { name: "Make member" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not change the role");
+    expect(alert).toHaveTextContent("You're doing that too fast. Try again in 5 seconds.");
+  });
+
+  test("a removal says it too", async () => {
+    serve(mockFetch, { fail: { "DELETE /api/v1/rooms/12/members/8": tooFast("1") } });
+    const user = userEvent.setup();
+    renderMembers();
+    await openRowMenu(user, "Max Member");
+    await user.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not remove the member");
+    expect(alert).toHaveTextContent("You're doing that too fast. Try again in 1 second.");
+  });
+
+  test("a leave says it too, in a moment when the answer names no wait", async () => {
+    serve(mockFetch, { fail: { "DELETE /api/v1/rooms/12/members/7": tooFast() } });
+    const user = userEvent.setup();
+    renderMembers();
+    await user.click(await screen.findByRole("button", { name: "Leave room" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Leave room" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not leave the room");
+    expect(alert).toHaveTextContent("You're doing that too fast. Try again in a moment.");
+    expect(screen.queryByText("the rooms list")).not.toBeInTheDocument();
+  });
+});
+
+// A further top-level block keeps each function within the size cap; the setup is the same.
 describe("RoomMembers page: the roster moves under the reader", () => {
   let mockFetch: FetchMock;
 

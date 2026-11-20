@@ -384,6 +384,10 @@ class RoomTest {
             val rejected = limited.client.postJson(rooms, body)
             assertEquals(HttpStatusCode.TooManyRequests, rejected.status)
             assertEquals(429, rejected.body<ProblemDetail>().status)
+            assertTrue(
+                Regex("\\d+").matches(rejected.headers["Retry-After"].orEmpty()),
+                "the bucket 429 says when to retry, in whole seconds",
+            )
             val event = capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "room-name") }
             assertNotNull(event)
             assertTrue(event.hasKeyValue("byUserId", limited.id.toLong()))

@@ -144,7 +144,9 @@ scratch, use `npm install --legacy-peer-deps`.
 - **Messages**: never render `error.message` (it's the internal `API <status>` / the browser's
   "Failed to fetch") — map statuses to i18n keys via the shared mappers in `utils/saveError.ts`:
   `saveErrorMessage(err, t, keys)` for mutations (per-status keys + a `failed` fallback) and
-  `loadErrorMessage(err, t)` for list loads. Errors render inline as `color="red" variant="light"`
+  `loadErrorMessage(err, t)` for list loads. A bucket's 429 on a write says how long to wait through the shared `common.error.tooFast`
+  (`retryAfter: true` in the keys; seconds from `ApiError.retryAfterMs`, which `jsonRequest`/`voidRequest` fill from `Retry-After`; the
+  room writes use it). Errors render inline as `color="red" variant="light"`
   Alerts — never as toasts. A failed QUERY renders through `components/ErrorAlert.tsx`
   (`error`, optional `title`), never an inline `<Alert>{loadErrorMessage(…)}</Alert>`; a form/action failure
   (an already-mapped string) renders through `components/FormErrorAlert.tsx`, never a hand-written red `<Alert>`.

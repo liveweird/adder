@@ -1,6 +1,6 @@
 ### Testing
 
-Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `testApplication`) against ONE Testcontainers
+Integration tests live flat in `server/src/test/kotlin/` (kotlin.test + `testApplication`; only `auth/` nests: in-package unit tests of `auth` internals) against ONE Testcontainers
 Postgres per JVM fork (`PostgresTestSupport`, started lazily, image pinned by digest — `PostgresImagePinTest`).
 Running them requires a Docker daemon (OrbStack without `/var/run/docker.sock`: export
 `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock`; `scripts/gates.sh` exports it itself when that socket exists). The container runs **all** Flyway migrations, so the V3 seed
@@ -25,16 +25,16 @@ ran at all in this one. Class order is not a contract (with `-Pforks>=2` the cla
 
 - App: `configureApp(vararg overrides)` points the app at the shared container (CSRF off) WITHOUT starting it —
   startup/fail-closed tests call `startApplication()` themselves; `usePostgresTestcontainer()` configures and starts.
-- Clients: `jsonClient()` / `authedClient(email, password)` (the shared defaults, incl. the `OpenApiConformance`
-  plugin); `seededClient(prefix, role)` seeds a user and logs in.
+- Clients: `jsonClient()` / `authedClient(email, password)` (the shared defaults);
+  `seededClient(prefix, role)` seeds a user and logs in.
 - Users and teams: `TestUsers.seed(...)` (bcrypt cost 4; ADMIN by default — pass `UserRole.USER` for a
   non-privileged caller), `TestUsers.softDelete(id)`, `TestUsers.withSoloAdmins(ids) { }` (the last-admin pin),
   `TestTeams.seed(name)`. Shared suite state (the seed admin) is never mutated destructively — tests mint
   UNIQUE rows and remove their own.
 - Audit and bootstrap: `LogCapture` + `hasKeyValue`/`awaitEvent`, `withAuditCapture { }` (detach in a finally),
-  `postJson`/`putJson`, `HttpClient.login`, `withSeedRestored { }`, `assertStartupFails(part) { }` — use these instead
-  of re-rolling the blocks they replaced.
-- **Many failed logins** (rate limit, proxy trust): freshly seeded accounts with a wrong password (~1 ms; an UNKNOWN email costs ~225 ms), soft-deleted afterwards.
+  `postJson`/`putJson`, `HttpClient.login`, `withSeedRestored { }`, `assertStartupFails(part) { }` — use these, not
+  re-rolled blocks.
+- **Many failed logins** (rate limit, proxy trust): seeded accounts with a wrong password (~1 ms; an UNKNOWN email costs ~225 ms), soft-deleted afterwards.
 - `TestSeedState.restoreSeedAccounts()` — bootstrap/production-mode tests rotate the seed admin's password in the
   SHARED container; call it afterwards. Production-mode boots must also override `"mail.transport" to "disabled"` and
   `"security.encryption.key" to strongEncryptionKey()`; the checks fire in module order (JWT → mail → crypto → DB password → seed

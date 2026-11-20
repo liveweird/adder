@@ -22,6 +22,11 @@ describe("roomWorkflowSaveErrorMessage", () => {
     expect(roomWorkflowSaveErrorMessage(problem(400), t)).toBe("rooms.workflow.saveInvalid");
   });
 
+  test("a 429 is the shared too-fast words", () => {
+    expect(roomWorkflowSaveErrorMessage(new ApiError(429, { title: "x", status: 429 }, 2000), t)).toBe("common.error.tooFast");
+    expect(roomWorkflowSaveErrorMessage(problem(429), t)).toBe("common.error.tooFastSoon");
+  });
+
   test("anything else falls back per status or to the network", () => {
     expect(roomWorkflowSaveErrorMessage(problem(500), t)).toBe("common.error.saveFailedStatus");
     expect(roomWorkflowSaveErrorMessage(new TypeError("offline"), t)).toBe("common.error.saveFailedNetwork");

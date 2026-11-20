@@ -1,8 +1,8 @@
 // Live API — the single-use ticket for the live-update WebSocket (`POST /api/v1/live/tickets`, `.claude/docs/live.md`). The socket itself is
 // `utils/liveClient.ts`; this wrapper only mints. It goes through `authedFetch` (the silent refresh, `timeoutSignal()`) like every wrapper, but
-// reads the response itself so a refusal keeps its `Retry-After` for the client's backoff (`jsonRequest` drops the headers).
+// reads the response itself so a refusal is a `LiveMintError` (the client's backoff reads its `retryAfterMs`).
 
-import { ApiError, authedFetch, safeJson } from "./http";
+import { ApiError, authedFetch, retryAfterMillis, safeJson } from "./http";
 import type { paths } from "./schema";
 
 export type LiveTicket = paths["/api/v1/live/tickets"]["post"]["responses"]["200"]["content"]["application/json"];
@@ -10,21 +10,8 @@ export type LiveTicket = paths["/api/v1/live/tickets"]["post"]["responses"]["200
 /** The problem `type` of the per-user socket cap (`429`): the tab shows "Live updates off" and tries again in a minute. */
 export const LIVE_SOCKET_LIMIT_PROBLEM = "urn:adder:problem:live-socket-limit";
 
-/** A refused mint: an `ApiError` that also carries the server's `Retry-After` in milliseconds (null when it sent none). */
-export class LiveMintError extends ApiError {
-  retryAfterMs: number | null;
-  constructor(status: number, body: unknown, retryAfterMs: number | null) {
-    super(status, body);
-    this.retryAfterMs = retryAfterMs;
-  }
-}
-
-/** `Retry-After` in whole seconds (the only form the server sends); anything else is "none". */
-function retryAfterMillis(res: Response): number | null {
-  const raw = res.headers.get("Retry-After");
-  if (raw === null || !/^\d{1,6}$/.test(raw)) return null;
-  return Number(raw) * 1000;
-}
+/** A refused mint: an `ApiError` whose `retryAfterMs` is the server's `Retry-After` (null when it sent none). */
+export class LiveMintError extends ApiError {}
 
 /** Mints one ticket: any signed-in caller; 429 on the per-user bucket, the socket cap or a full ticket store, 503 while the server stops. */
 export async function mintLiveTicket(): Promise<LiveTicket> {

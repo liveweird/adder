@@ -11,6 +11,7 @@ export function roomWorkflowSaveErrorMessage(err: unknown, t: TFunction): string
   if (isProblem(err, PROBLEM_TYPES.statusInUse)) return t("rooms.workflow.saveStatusInUse");
   if (isProblem(err, PROBLEM_TYPES.fieldTypeImmutable)) return t("rooms.workflow.saveFieldType", { keys: err.keys.join(", ") });
   return saveErrorMessage(err, t, {
+    retryAfter: true,
     forbidden: "rooms.workflow.saveForbidden",
     notFound: "rooms.workflow.saveGone",
     conflict: "rooms.workflow.saveKeyBudget",

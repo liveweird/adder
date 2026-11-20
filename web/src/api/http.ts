@@ -204,10 +204,13 @@ function sendWithToken(path: string, init: RequestInit, token: string | null): P
 export class ApiError extends Error {
   status: number;
   body: unknown;
-  constructor(status: number, body: unknown) {
+  /** The response's `Retry-After` in milliseconds; null when it sent none (or not whole seconds) and for an error built without a response. */
+  retryAfterMs: number | null;
+  constructor(status: number, body: unknown, retryAfterMs: number | null = null) {
     super(`API ${status}`);
     this.status = status;
     this.body = body;
+    this.retryAfterMs = retryAfterMs;
   }
 
   /** The RFC 7807 `detail` string, when the problem body carried one. */
@@ -254,6 +257,13 @@ export function shouldRetryQuery(failureCount: number, error: unknown): boolean 
   return failureCount < 2 && !(error instanceof ApiError && error.status >= 400 && error.status < 500);
 }
 
+/** `Retry-After` in whole seconds (the only form the server sends) as milliseconds; anything else is "none". */
+export function retryAfterMillis(res: Response): number | null {
+  const raw = res.headers.get("Retry-After");
+  if (raw === null || !/^\d{1,6}$/.test(raw)) return null;
+  return Number(raw) * 1000;
+}
+
 export async function safeJson(res: Response): Promise<unknown> {
   try {
     return await res.json();
@@ -270,14 +280,14 @@ export async function safeJson(res: Response): Promise<unknown> {
  */
 export async function jsonRequest<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await authedFetch(input, init);
-  if (!res.ok) throw new ApiError(res.status, await safeJson(res));
+  if (!res.ok) throw new ApiError(res.status, await safeJson(res), retryAfterMillis(res));
   return (await res.json()) as T;
 }
 
 /** [jsonRequest]'s sibling for 201/204-style responses whose body is ignored. */
 export async function voidRequest(input: string, init?: RequestInit): Promise<void> {
   const res = await authedFetch(input, init);
-  if (!res.ok) throw new ApiError(res.status, await safeJson(res));
+  if (!res.ok) throw new ApiError(res.status, await safeJson(res), retryAfterMillis(res));
 }
 
 /**

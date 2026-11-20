@@ -25,14 +25,15 @@ import {
   MAX_ROOM_DESCRIPTION_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   isRoomDetailsDirty,
+  roomDeleteErrorMessage,
   roomDetailsValidation,
+  roomLifecycleErrorMessage,
   roomSaveErrorMessage,
   toRoomDetails,
   toRoomUpdateBody,
   type RoomDetails,
 } from "../utils/roomForm";
 import { roomsPath } from "../utils/roomLinks";
-import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import { roomKeys } from "../utils/roomKeys";
 
@@ -178,12 +179,7 @@ function Lifecycle({ room, admin }: { room: RoomResponse; admin: boolean }) {
         </Title>
         {toggle.isError && (
           <FormErrorAlert>
-            {saveErrorMessage(toggle.error, t, {
-              forbidden: "rooms.settings.saveForbidden",
-              notFound: "rooms.settings.saveGone",
-              failedStatus: "common.error.actionFailedStatus",
-              failed: "common.error.actionFailed",
-            })}
+            {roomLifecycleErrorMessage(toggle.error, t)}
           </FormErrorAlert>
         )}
         <Group justify="space-between" wrap="nowrap" align="flex-start">
@@ -223,6 +219,7 @@ function Lifecycle({ room, admin }: { room: RoomResponse; admin: boolean }) {
         confirm={remove}
         title={t("rooms.settings.deleteTitle")}
         errorTitle={t("rooms.settings.deleteFailed")}
+        errorMessage={(error) => roomDeleteErrorMessage(error, t)}
         body={(target) => t("rooms.settings.deleteBody", { name: target.name })}
       />
     </Paper>

@@ -41,6 +41,7 @@ const SETTINGS_KEY = "roomMembers";
 function memberErrorMessage(error: unknown, t: TFunction, self: boolean): string {
   if (isProblem(error, PROBLEM_TYPES.lastOwner)) return t(self ? "rooms.members.lastOwnerLeave" : "rooms.members.lastOwner");
   return saveErrorMessage(error, t, {
+    retryAfter: true,
     forbidden: "rooms.members.forbidden",
     notFound: "rooms.members.gone",
     failedStatus: "common.error.actionFailedStatus",

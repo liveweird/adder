@@ -35,6 +35,43 @@ describe("saveErrorMessage", () => {
     expect(saveErrorMessage(new ApiError(429, null), t, bucket)).toBe(t("threads.message.error.tooManyRequests"));
   });
 
+  describe("retryAfter: the shared too-fast words", () => {
+    const keys = { ...KEYS, tooManyRequests: "threads.message.error.tooManyRequests", retryAfter: true } as const;
+    const tooFast = (retryAfterMs: number | null) => new ApiError(429, null, retryAfterMs);
+
+    test("seconds from the Retry-After (rounded up, at least one), singular and plural; in a moment without one", () => {
+      expect(saveErrorMessage(tooFast(1000), t, keys)).toBe("You're doing that too fast. Try again in 1 second.");
+      expect(saveErrorMessage(tooFast(2000), t, keys)).toBe("You're doing that too fast. Try again in 2 seconds.");
+      expect(saveErrorMessage(tooFast(1500), t, keys)).toBe("You're doing that too fast. Try again in 2 seconds.");
+      expect(saveErrorMessage(tooFast(null), t, keys)).toBe("You're doing that too fast. Try again in a moment.");
+      expect(saveErrorMessage(tooFast(0), t, keys)).toBe("You're doing that too fast. Try again in a moment.");
+    });
+
+    test("Polish plural forms of the seconds", async () => {
+      await i18n.changeLanguage("pl");
+      try {
+        const pl = i18n.t.bind(i18n);
+        const say = (seconds: number | null) => saveErrorMessage(tooFast(seconds === null ? null : seconds * 1000), pl, keys);
+        expect(say(1)).toBe("Robisz to zbyt szybko. Spróbuj ponownie za 1 sekundę.");
+        expect(say(2)).toBe("Robisz to zbyt szybko. Spróbuj ponownie za 2 sekundy.");
+        expect(say(4)).toBe("Robisz to zbyt szybko. Spróbuj ponownie za 4 sekundy.");
+        expect(say(5)).toBe("Robisz to zbyt szybko. Spróbuj ponownie za 5 sekund.");
+        expect(say(12)).toBe("Robisz to zbyt szybko. Spróbuj ponownie za 12 sekund.");
+        expect(say(22)).toBe("Robisz to zbyt szybko. Spróbuj ponownie za 22 sekundy.");
+        expect(say(60)).toBe("Robisz to zbyt szybko. Spróbuj ponownie za 60 sekund.");
+        expect(say(null)).toBe("Robisz to zbyt szybko. Spróbuj ponownie za chwilę.");
+      } finally {
+        await i18n.changeLanguage("en");
+      }
+    });
+
+    test("wins over the page's own bucket copy, but a room-busy 429 and other statuses are untouched", () => {
+      expect(saveErrorMessage(tooFast(3000), t, keys)).not.toBe(t("threads.message.error.tooManyRequests"));
+      expect(saveErrorMessage(new ApiError(429, { type: "urn:adder:problem:room-busy" }, 1000), t, keys)).toBe(t("common.error.roomBusy"));
+      expect(saveErrorMessage(new ApiError(500, null), t, keys)).toBe("Create failed (500)");
+    });
+  });
+
   test("an unmapped status routes through the generic fallbacks when keys are omitted", () => {
     const minimal = { failed: KEYS.failed } as const;
     expect(saveErrorMessage(new ApiError(404, null), t, minimal)).toBe(t(KEYS.failed));

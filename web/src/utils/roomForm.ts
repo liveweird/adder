@@ -73,13 +73,34 @@ export function roomCreateErrorMessage(err: unknown, t: TFunction): string {
   });
 }
 
-/** The details save vocabulary; the name clash and `room-archived` 409s are the caller's. */
+/** The details save vocabulary (the rename rides the `room-name` bucket); the name clash and `room-archived` 409s are the caller's. */
 export function roomSaveErrorMessage(err: unknown, t: TFunction): string {
   return saveErrorMessage(err, t, {
+    retryAfter: true,
     forbidden: "rooms.settings.saveForbidden",
     notFound: "rooms.settings.saveGone",
     invalid: "rooms.settings.saveInvalid",
     failedStatus: "common.error.saveFailedStatus",
     failed: "common.error.saveFailedNetwork",
+  });
+}
+
+/** Archive and unarchive (the `chat-write` bucket). */
+export function roomLifecycleErrorMessage(err: unknown, t: TFunction): string {
+  return saveErrorMessage(err, t, {
+    retryAfter: true,
+    forbidden: "rooms.settings.saveForbidden",
+    notFound: "rooms.settings.saveGone",
+    failedStatus: "common.error.actionFailedStatus",
+    failed: "common.error.actionFailed",
+  });
+}
+
+/** The room delete (the `chat-write` bucket); every other status keeps the shared delete modal's generic words. */
+export function roomDeleteErrorMessage(err: unknown, t: TFunction): string {
+  return saveErrorMessage(err, t, {
+    retryAfter: true,
+    failedStatus: "common.error.actionFailedStatus",
+    failed: "common.error.actionFailed",
   });
 }

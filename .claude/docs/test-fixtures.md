@@ -121,7 +121,7 @@ actuals are noted in a comment beside them); run `cd web && npm run test:coverag
 
 **Server test setup and forks.**
 
-Backend tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.server.testing.testApplication`)
+Integration tests live flat in `server/src/test/kotlin/` (kotlin.test + `io.ktor.server.testing.testApplication`; only `auth/` nests: in-package unit tests of `auth` internals)
 and override the `postgres.*` config keys via `MapApplicationConfig` to point at a Testcontainers
 `PostgreSQLContainer("postgres:18.6-alpine@sha256:9ba53c7d…")` (the same digest `docker-compose.yaml` and
 `k8s/postgres-deployment.yaml` pin — `PostgresImagePinTest`) started lazily by `PostgresTestSupport` and **shared

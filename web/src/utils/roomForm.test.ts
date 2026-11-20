@@ -10,6 +10,8 @@ import {
   roomCreateErrorMessage,
   roomDetailsValidation,
   roomFormValidation,
+  roomDeleteErrorMessage,
+  roomLifecycleErrorMessage,
   roomSaveErrorMessage,
   toRoomCreateBody,
   toRoomDetails,
@@ -107,5 +109,20 @@ describe("room save vocabularies", () => {
     expect(roomSaveErrorMessage(problem(400), t)).toBe("rooms.settings.saveInvalid");
     expect(roomSaveErrorMessage(problem(500), t)).toBe("common.error.saveFailedStatus");
     expect(roomSaveErrorMessage(new TypeError("offline"), t)).toBe("common.error.saveFailedNetwork");
+  });
+
+  test("the rename, archive and delete answer a 429 in the shared too-fast words", () => {
+    const tooFast = new ApiError(429, { title: "x", status: 429 }, 4000);
+    for (const message of [roomSaveErrorMessage, roomLifecycleErrorMessage, roomDeleteErrorMessage]) {
+      expect(message(tooFast, t)).toBe("common.error.tooFast");
+    }
+  });
+
+  test("archive keeps 403 and 404 words, delete keeps the generic fallbacks", () => {
+    expect(roomLifecycleErrorMessage(problem(403), t)).toBe("rooms.settings.saveForbidden");
+    expect(roomLifecycleErrorMessage(problem(404), t)).toBe("rooms.settings.saveGone");
+    expect(roomLifecycleErrorMessage(problem(500), t)).toBe("common.error.actionFailedStatus");
+    expect(roomDeleteErrorMessage(problem(403), t)).toBe("common.error.actionFailedStatus");
+    expect(roomDeleteErrorMessage(new TypeError("offline"), t)).toBe("common.error.actionFailed");
   });
 });

@@ -467,6 +467,20 @@ describe("a save the server refuses", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
+  test.each([
+    ["names the wait from the Retry-After", { "Retry-After": "12" }, "You're doing that too fast. Try again in 12 seconds."],
+    ["says in a moment without one", {}, "You're doing that too fast. Try again in a moment."],
+  ])("a 429 from the chat-write bucket %s, and the draft is kept", async (_name, headers, message) => {
+    const user = userEvent.setup();
+    serve(mockFetch, { put: () => jsonResponse(429, { title: "Too Many Requests", status: 429 }, headers) });
+    renderWorkflow();
+    await editLabel(user, 1, "!");
+    await save(user);
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText("Save failed (429)")).not.toBeInTheDocument();
+    expect(label(1)).toHaveValue("Triage!");
+  });
+
   test("demoted behind the page: a 403 re-reads the room, the editor turns read-only and the refusal stays visible", async () => {
     const user = userEvent.setup();
     const server = serve(mockFetch);

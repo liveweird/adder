@@ -8,6 +8,11 @@ export interface SaveErrorKeys {
   unauthorized?: ParseKeys;
   /** 429 — omit to route it through the generic fallbacks (the login page's account lockout). */
   tooManyRequests?: ParseKeys;
+  /**
+   * 429 — the SHARED "too fast, try again in N seconds" words (`common.error.tooFast`, from the response's `Retry-After`; "in a moment"
+   * without one). The room writes on the per-user buckets use it; wins over `tooManyRequests`.
+   */
+  retryAfter?: boolean;
   /** 403. Omit only when the page routes a 403 through the generic fallbacks. */
   forbidden?: ParseKeys;
   /** 404 — omit to route it through the generic fallbacks. */
@@ -24,6 +29,12 @@ export interface SaveErrorKeys {
   failed: ParseKeys;
 }
 
+/** A bucket's 429 in the shared words: whole seconds rounded up from the `Retry-After` (at least one), else "in a moment". */
+function tooFastMessage(err: ApiError, t: TFunction): string {
+  if (err.retryAfterMs === null || err.retryAfterMs <= 0) return t("common.error.tooFastSoon");
+  return t("common.error.tooFast", { count: Math.ceil(err.retryAfterMs / 1000) });
+}
+
 /**
  * Maps a mutation failure to the page's fixed vocabulary — never render error.message. A `room-busy` 429 (the room's write lock stayed busy,
  * nothing was written) is NOT a rate-limit bucket and has its own words everywhere, whatever the page's `tooManyRequests` says.
@@ -32,6 +43,7 @@ export function saveErrorMessage(err: unknown, t: TFunction, keys: SaveErrorKeys
   if (isProblem(err, PROBLEM_TYPES.roomBusy)) return t("common.error.roomBusy");
   if (err instanceof ApiError) {
     if (err.status === 401 && keys.unauthorized) return t(keys.unauthorized);
+    if (err.status === 429 && keys.retryAfter) return tooFastMessage(err, t);
     if (err.status === 429 && keys.tooManyRequests) return t(keys.tooManyRequests);
     if (err.status === 403 && keys.forbidden) return t(keys.forbidden);
     if (err.status === 404 && keys.notFound) return t(keys.notFound);

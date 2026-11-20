@@ -174,6 +174,15 @@ describe("RoomSettings page", () => {
     expect(await screen.findByText("Only the room's owners and administrators can change its details")).toBeInTheDocument();
   });
 
+  test("a rename past the room-name bucket says how long to wait (the Retry-After, in seconds)", async () => {
+    serve(mockFetch, ROOM, { "PUT /api/v1/rooms/12": jsonResponse(429, { title: "Too Many Requests", status: 429 }, { "Retry-After": "7" }) });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.type(await screen.findByRole("textbox", { name: "Name" }), "!");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("You're doing that too fast. Try again in 7 seconds.")).toBeInTheDocument();
+  });
+
   test("a plain member reads the details but has no Save and no lifecycle controls", async () => {
     serve(mockFetch, { ...ROOM, role: "MEMBER" });
     renderSettings();
@@ -225,6 +234,34 @@ describe("RoomSettings page", () => {
     await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Archive room" }));
     expect(await screen.findByText("Only the room's owners and administrators can change its details")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("an archive past the chat-write bucket says to try again in a moment when the 429 names no wait", async () => {
+    serve(mockFetch, ROOM, { "POST /api/v1/rooms/12/archive": jsonResponse(429, { title: "Too Many Requests", status: 429 }) });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("button", { name: "Archive room" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Archive room" }));
+    expect(await screen.findByText("You're doing that too fast. Try again in a moment.")).toBeInTheDocument();
+  });
+
+  test("an unarchive past the chat-write bucket uses the same words", async () => {
+    serve(mockFetch, { ...ROOM, archived: true }, { "POST /api/v1/rooms/12/unarchive": jsonResponse(429, { title: "Too Many Requests", status: 429 }, { "Retry-After": "1" }) });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("button", { name: "Unarchive room" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Unarchive room" }));
+    expect(await screen.findByText("You're doing that too fast. Try again in 1 second.")).toBeInTheDocument();
+  });
+
+  test("a delete past the chat-write bucket says how long to wait, in the confirm", async () => {
+    localStorage.setItem("adder.auth.roles", JSON.stringify(["ADMIN"]));
+    serve(mockFetch, ROOM, { "DELETE /api/v1/rooms/12": jsonResponse(429, { title: "Too Many Requests", status: 429 }, { "Retry-After": "3" }) });
+    const user = userEvent.setup();
+    renderSettings();
+    await user.click(await screen.findByRole("button", { name: "Delete room" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete" }));
+    expect(await screen.findByText("You're doing that too fast. Try again in 3 seconds.")).toBeInTheDocument();
   });
 
   test("an administrator who is not a member manages the room and deletes it through the confirm, landing on the list", async () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { consumeSignedOut } from "../auth";
 import { jsonResponse } from "../test/http";
-import { authedFetch } from "./http";
+import { authedFetch, jsonRequest, voidRequest } from "./http";
 import type { components } from "./schema";
 import { getRefreshToken, getToken, isAdmin, persistSession } from "./session";
 
@@ -228,5 +228,34 @@ describe("authedFetch", () => {
     const res = await authedFetch("/api/v1/users");
     expect(res.status).toBe(401);
     expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(0);
+  });
+});
+
+/** A refused write keeps its `Retry-After` (whole seconds, kept in milliseconds) so the UI can say how long to wait. */
+describe("jsonRequest and voidRequest: the Retry-After of a refusal", () => {
+  const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+    persistSession(session("t1", "r1"));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  test("both wrappers carry it on the ApiError", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(429, { status: 429 }, { "Retry-After": "7" })));
+    await expect(voidRequest("/api/v1/x", { method: "POST" })).rejects.toMatchObject({ status: 429, retryAfterMs: 7000 });
+    await expect(jsonRequest("/api/v1/x")).rejects.toMatchObject({ status: 429, retryAfterMs: 7000 });
+  });
+
+  test("no header, or one that is not whole seconds, is none", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(429, { status: 429 }));
+    await expect(voidRequest("/api/v1/x")).rejects.toMatchObject({ retryAfterMs: null });
+    fetchMock.mockResolvedValueOnce(jsonResponse(429, { status: 429 }, { "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT" }));
+    await expect(voidRequest("/api/v1/x")).rejects.toMatchObject({ retryAfterMs: null });
   });
 });

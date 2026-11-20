@@ -107,7 +107,10 @@ class ChatWriteLimitsTest {
             val rejected = writes.map { write -> write(limited.client) }
             assertTrue(rejected.all { it.status == HttpStatusCode.TooManyRequests }, "every one of the writes spends the same bucket")
             assertEquals(429, rejected.first().body<ProblemDetail>().status)
-            assertNotNull(rejected.first().headers["Retry-After"], "the bucket 429 says when to retry")
+            assertTrue(
+                Regex("\\d+").matches(rejected.first().headers["Retry-After"].orEmpty()),
+                "the bucket 429 says when to retry, in whole seconds",
+            )
             val event = capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "chat-write") }
             assertNotNull(event)
             assertTrue(event.hasKeyValue("byUserId", limited.id.toLong()))
@@ -150,7 +153,10 @@ class ChatWriteLimitsTest {
                 "every one of the six spends the same bucket: ${rejected.map { it.status }}",
             )
             assertEquals(429, rejected.first().body<ProblemDetail>().status)
-            assertNotNull(rejected.first().headers["Retry-After"], "the bucket 429 says when to retry")
+            assertTrue(
+                Regex("\\d+").matches(rejected.first().headers["Retry-After"].orEmpty()),
+                "the bucket 429 says when to retry, in whole seconds",
+            )
             val event = capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "chat-write") }
             assertNotNull(event)
             assertTrue(event.hasKeyValue("byUserId", owner.id.toLong()))
