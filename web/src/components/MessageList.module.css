@@ -35,5 +35,5 @@
 .list > li[data-anchor] {
   outline: 3px solid var(--adder-accent-ink);
   outline-offset: -3px;
-  background-color: var(--mantine-color-default-hover);
+  background-color: light-dark(var(--mantine-color-default-hover), var(--adder-surface-tint));
 }

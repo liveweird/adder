@@ -52,7 +52,7 @@
     "title": "New thread",
     "titleLabel": "Title",
     "bodyLabel": "First message",
-    "bodyHint": "Markdown is supported.",
+    "bodyHint": "Markdown is supported. Ctrl+Enter or Cmd+Enter starts the thread; Enter adds a line.",
     "moreFields": "More fields",
     "submit": "Start thread",
     "notMember": "Only members of the room can start threads. Join the room from its Members page first.",

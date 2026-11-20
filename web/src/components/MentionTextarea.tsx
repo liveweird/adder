@@ -210,7 +210,8 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
                   <Text size="sm" truncate>
                     {member.name}
                   </Text>
-                  <Text size="xs" c="dimmed" truncate>
+                  {/* The highlighted option is filled with the brand colour (white ink): dimmed grey would not clear AA on it. */}
+                  <Text size="xs" c={index === current ? "inherit" : "dimmed"} truncate>
                     {member.email}
                   </Text>
                 </Group>

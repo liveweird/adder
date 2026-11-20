@@ -288,6 +288,32 @@ describe("NewThreadForm", () => {
     expect(await screen.findByRole("textbox", { name: /Title/ })).toHaveValue("");
   });
 
+  test("Ctrl+Enter or Cmd+Enter in the message starts the thread; a plain Enter only adds a line", async () => {
+    serve();
+    const user = userEvent.setup();
+    renderForm();
+    await fillRequired(user);
+    await user.click(screen.getByRole("combobox", { name: /Severity/ }));
+    await user.click(await screen.findByRole("option", { name: "S1" }));
+    await user.click(screen.getByRole("textbox", { name: /First message/ }));
+    await user.keyboard("{Enter}more");
+    expect(screen.getByRole("textbox", { name: /First message/ })).toHaveValue("db-3 is at 100%\nmore");
+    expect(posts()).toHaveLength(0);
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/rooms/12/threads/7"));
+    expect(posts()).toHaveLength(1);
+  });
+
+  test("Cmd+Enter starts the thread too, and a required field still empty refuses it", async () => {
+    serve();
+    const user = userEvent.setup();
+    renderForm();
+    await fillRequired(user);
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(await screen.findByText("This field is required")).toBeInTheDocument();
+    expect(posts()).toEqual([]);
+  });
+
   test("a started thread clears the draft", async () => {
     serve();
     const user = userEvent.setup();

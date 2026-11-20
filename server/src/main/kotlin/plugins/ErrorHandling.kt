@@ -2,6 +2,7 @@ package ch.nokillswit.plugins
 
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.ConflictException
+import ch.nokillswit.authz.TypedBadRequestException
 import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.TooManyRequestsException
@@ -234,6 +235,9 @@ fun Application.configureErrorHandling() {
         // this exception; give the 413 the RFC 7807 body every other error carries.
         exception<PayloadTooLargeException> { call, _ ->
             call.respondProblem(HttpStatusCode.PayloadTooLarge, "Request body exceeds the size limit")
+        }
+        exception<TypedBadRequestException> { call, cause ->
+            call.respondProblem(HttpStatusCode.BadRequest, cause.message ?: "Bad request", type = cause.problemType)
         }
         exception<BadRequestException> { call, cause ->
             call.respondProblem(HttpStatusCode.BadRequest, clientSafeBadRequestDetail(cause))

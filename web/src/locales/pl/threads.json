@@ -54,7 +54,7 @@
     "title": "Nowy wątek",
     "titleLabel": "Tytuł",
     "bodyLabel": "Pierwsza wiadomość",
-    "bodyHint": "Możesz używać Markdowna.",
+    "bodyHint": "Możesz używać Markdowna. Ctrl+Enter lub Cmd+Enter rozpoczyna wątek, Enter dodaje wiersz.",
     "moreFields": "Więcej pól",
     "submit": "Rozpocznij wątek",
     "notMember": "Wątki mogą rozpoczynać tylko członkowie/członkinie pokoju. Najpierw dołącz do pokoju na jego stronie Członkowie/członkinie.",

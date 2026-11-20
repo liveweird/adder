@@ -18,8 +18,9 @@ import {
 
 // A t() that echoes its key, so the assertions name the vocabulary key a rule or a status maps to.
 const t = ((key: string) => key) as unknown as TFunction;
-const problem = (status: number, detail?: string) => new ApiError(status, { title: "x", status, detail });
+const problem = (status: number, detail?: string, type?: string) => new ApiError(status, { title: "x", status, detail, type });
 const GONE = "Unknown or deleted workflow template id: 7";
+const GONE_TYPE = "urn:adder:problem:template-gone";
 
 describe("room form rules", () => {
   test("the limits mirror the server's", () => {
@@ -45,9 +46,10 @@ describe("room form rules", () => {
   });
 
   test("only the unknown-or-deleted-template 400 reads as a gone template", () => {
-    expect(isTemplateGone(problem(400, GONE))).toBe(true);
+    expect(isTemplateGone(problem(400, GONE, GONE_TYPE))).toBe(true);
     expect(isTemplateGone(problem(400, "Other"))).toBe(false);
-    expect(isTemplateGone(problem(404, GONE))).toBe(false);
+    // The words do not matter, only the URI: the same sentence without the type is some other 400.
+    expect(isTemplateGone(problem(400, GONE))).toBe(false);
     expect(isTemplateGone(new TypeError("offline"))).toBe(false);
   });
 
@@ -92,7 +94,7 @@ describe("room form mappers", () => {
 describe("room save vocabularies", () => {
   test("create maps 429 and 400, and falls back per status or to the network", () => {
     expect(roomCreateErrorMessage(problem(429), t)).toBe("rooms.create.tooManyRequests");
-    expect(roomCreateErrorMessage(problem(400, GONE), t)).toBe("rooms.create.templateGone");
+    expect(roomCreateErrorMessage(problem(400, GONE, GONE_TYPE), t)).toBe("rooms.create.templateGone");
     expect(roomCreateErrorMessage(problem(400, "Description is too long"), t)).toBe("rooms.create.invalid");
     expect(roomCreateErrorMessage(problem(400), t)).toBe("rooms.create.invalid");
     expect(roomCreateErrorMessage(problem(500), t)).toBe("common.error.createFailedStatus");

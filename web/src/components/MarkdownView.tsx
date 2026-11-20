@@ -129,7 +129,7 @@ export default function MarkdownView({
         ? REMARK_PLUGINS_WITH_TAGS_AND_MENTIONS
         : REMARK_PLUGINS_WITH_MENTIONS;
   return (
-    <Typography className={message ? classes.message : undefined}>
+    <Typography className={message ? classes.message : classes.document}>
       <TagHrefContext.Provider value={message ? tagHref : undefined}>
         <MentionsContext.Provider value={context}>
           <ReactMarkdown remarkPlugins={plugins} components={message ? messageComponents : undefined}>

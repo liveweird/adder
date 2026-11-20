@@ -37,4 +37,21 @@ describe("ConfirmActionModal", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  test("a failure shows inline, under the message, in a titled alert", () => {
+    renderWithProviders(
+      <ConfirmActionModal
+        opened
+        onClose={() => {}}
+        title="Apply?"
+        message="Apply to all matching."
+        cancelLabel="Not now"
+        confirmLabel="Apply"
+        onConfirm={() => {}}
+        error="Could not apply."
+        errorTitle="Failed"
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("FailedCould not apply.");
+  });
 });

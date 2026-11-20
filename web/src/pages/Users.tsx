@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink } from "react-router-dom";
-import { Badge, Button, Group, Menu, Modal, Select, Stack, Table, Text } from "@mantine/core";
+import { Badge, Button, Group, Menu, Select, Stack, Table, Text } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconKey, IconPencil, IconPlus, IconToggleLeft, IconTrash, IconUsers } from "@tabler/icons-react";
@@ -8,6 +8,7 @@ import { deleteUser, listUsers, type UserResponse } from "../api/users";
 import { getUserId } from "../api/session";
 import { useAdmin } from "../auth";
 import ClearableTextInput from "../components/ClearableTextInput";
+import ConfirmActionModal from "../components/ConfirmActionModal";
 import ConfirmDeleteModal from "../components/ConfirmDeleteModal";
 import EmptyState from "../components/EmptyState";
 import FilterPanel from "../components/FilterPanel";
@@ -26,7 +27,6 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { MAX_EMAIL_LENGTH, MAX_USER_NAME_LENGTH } from "../utils/userForm";
 import { editUserPath, newUserPath, userFeaturesPath } from "../utils/userLinks";
 import ErrorAlert from "../components/ErrorAlert";
-import FormErrorAlert from "../components/FormErrorAlert";
 
 const SORT_FIELDS = ["name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -265,33 +265,19 @@ export default function Users() {
         )}
       />
 
-      <Modal closeButtonProps={{ "aria-label": t("common.action.close") }}
+      <ConfirmActionModal
         opened={reset.target !== null}
-        onClose={() => {
-          if (!reset.pending) reset.clearTarget();
-        }}
+        onClose={reset.clearTarget}
         title={t("users.resetTitle")}
-        centered
-      >
-        {reset.target && (
-          <Stack gap="md">
-            <Text>{t("users.resetBody", { name: reset.target.name })}</Text>
-            {reset.error && (
-              <FormErrorAlert title={t("users.resetFailedTitle")}>
-                {reset.error}
-              </FormErrorAlert>
-            )}
-            <Group justify="flex-end" gap="sm">
-              <Button variant="default" onClick={reset.clearTarget} disabled={reset.pending}>
-                {t("common.action.cancel")}
-              </Button>
-              <Button onClick={() => void reset.confirm()} loading={reset.pending}>
-                {t("users.resetConfirm")}
-              </Button>
-            </Group>
-          </Stack>
-        )}
-      </Modal>
+        message={reset.target ? t("users.resetBody", { name: reset.target.name }) : null}
+        cancelLabel={t("common.action.cancel")}
+        confirmLabel={t("users.resetConfirm")}
+        confirmColor="adder"
+        onConfirm={() => void reset.confirm()}
+        loading={reset.pending}
+        error={reset.error}
+        errorTitle={t("users.resetFailedTitle")}
+      />
 
       <OneTimePasswordModal
         reveal={reset.revealed}

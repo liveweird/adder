@@ -45,6 +45,7 @@ export default function RoomPage({ idParam, tab, children }: { idParam: string |
     <Stack gap="md">
       <PageHeader
         title={room.name}
+        documentTitle={tab === "home" ? room.name : `${t(`rooms.tabs.${tab}`)} · ${room.name}`}
         description={
           <>
             {room.description && (

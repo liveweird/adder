@@ -1,8 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { Button, Group, Pagination, Stack, Text, Timeline } from "@mantine/core";
+import { Button, Group, Stack, Text, Timeline } from "@mantine/core";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
+import Pager from "./Pager";
 
 // A recorded title or value with no break opportunity (a hostname, a path) wraps instead of widening the side panel.
 const WRAP = { overflowWrap: "anywhere" } as const;
@@ -60,15 +61,7 @@ export default function EventTimeline({
   const pager =
     total > pageSize ? (
       <Group justify="center">
-        <Pagination
-          size="sm"
-          value={page}
-          onChange={onPageChange}
-          total={Math.ceil(total / pageSize)}
-          siblings={0}
-          // Icon-only controls need names (WCAG 4.1.2; the axe e2e spec pins it).
-          getControlProps={(control) => ({ "aria-label": t(`common.table.${control}Page`) })}
-        />
+        <Pager size="sm" page={page} pages={Math.ceil(total / pageSize)} onChange={onPageChange} siblings={0} />
       </Group>
     ) : null;
 

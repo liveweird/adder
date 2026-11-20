@@ -12,6 +12,7 @@ import { useDiscardGuard } from "../hooks/useDiscardGuard";
 import { useThreadDrafts } from "../hooks/useThreadDrafts";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { charCountDescription } from "../utils/charCount";
+import { isSendShortcut } from "../utils/messageForm";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
 import { focusThreadPaneState, roomPath, threadPath, withListParams } from "../utils/roomLinks";
@@ -122,6 +123,13 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
             maxLength={MAX_MESSAGE_BODY_LENGTH}
             inputWrapperOrder={["label", "input", "description", "error"]}
             disabled={submitting}
+            // Ctrl/Cmd+Enter starts the thread, as it posts in the composer; Enter stays a newline (and picks, while the mention list is open).
+            onKeyDown={(event) => {
+              if (isSendShortcut(event) && !submitting) {
+                event.preventDefault();
+                void form.onSubmit(submit, onInvalid)();
+              }
+            }}
             {...form.getInputProps("body")}
           />
           {required.map(renderField)}

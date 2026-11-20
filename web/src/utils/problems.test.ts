@@ -18,6 +18,7 @@ describe("problems", () => {
       searchBusy: "urn:adder:problem:search-busy",
       readTimeout: "urn:adder:problem:read-timeout",
       readBusy: "urn:adder:problem:read-busy",
+      templateGone: "urn:adder:problem:template-gone",
     });
   });
 

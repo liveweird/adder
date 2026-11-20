@@ -44,7 +44,9 @@ function Hit({ hit, statuses, showRoom, zone }: { hit: ThreadSearchHit; statuses
         </Title>
         <Group gap="xs">
           {showRoom ? (
-            <StatusPill color={hit.closed ? "gray" : "blue"} dot size="sm">
+            // Neutral gray for both: with no workflow at hand there is no status colour to show, and blue means "in progress"
+            // (web/CLAUDE.md); gray is what a room's initial "Open" status wears. The word, not the hue, tells the two apart.
+            <StatusPill color="gray" dot size="sm">
               {t(hit.closed ? "search.results.closed" : "search.results.open")}
             </StatusPill>
           ) : (

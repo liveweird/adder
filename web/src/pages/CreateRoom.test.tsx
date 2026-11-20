@@ -137,7 +137,7 @@ describe("CreateRoom page", () => {
   });
 
   test("a template deleted meanwhile (400) forgets the pick and says so", async () => {
-    serve(mockFetch, () => jsonResponse(400, { title: "Bad Request", status: 400, detail: "Unknown or deleted workflow template id: 1" }));
+    serve(mockFetch, () => jsonResponse(400, { title: "Bad Request", status: 400, detail: "Unknown or deleted workflow template id: 1", type: "urn:adder:problem:template-gone" }));
     const user = userEvent.setup();
     renderCreate();
     await pickTemplate(user, "Default");

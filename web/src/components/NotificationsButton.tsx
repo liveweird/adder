@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore, type MouseEvent } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Anchor, Box, Button, Drawer, Group, Indicator, Pagination, Stack, Text, VisuallyHidden } from "@mantine/core";
+import { ActionIcon, Anchor, Box, Button, Drawer, Group, Indicator, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { IconBell, IconBellOff, IconChecks } from "@tabler/icons-react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
@@ -17,6 +17,7 @@ import EmptyState from "./EmptyState";
 import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
 import LoadingBlock from "./LoadingBlock";
+import Pager from "./Pager";
 
 const PAGE_SIZE = 20;
 
@@ -170,14 +171,7 @@ export default function NotificationsButton() {
           )}
           {total > PAGE_SIZE && (
             <Group justify="center">
-              <Pagination
-                size="sm"
-                value={page}
-                onChange={setPage}
-                total={Math.ceil(total / PAGE_SIZE)}
-                // The previous/next controls are icon-only; without names they fail WCAG 4.1.2 (as in PaginationBar).
-                getControlProps={(control) => ({ "aria-label": t(`common.table.${control}Page`) })}
-              />
+              <Pager size="sm" page={page} pages={Math.ceil(total / PAGE_SIZE)} onChange={setPage} />
             </Group>
           )}
         </Stack>

@@ -2,6 +2,7 @@ package ch.nokillswit.rooms
 
 import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.TooManyRequestsException
+import ch.nokillswit.authz.TypedBadRequestException
 import ch.nokillswit.infra.ProblemTypes
 
 /**
@@ -12,6 +13,12 @@ const val ROOM_ARCHIVED_PROBLEM_TYPE = ProblemTypes.ROOM_ARCHIVED
 
 /** An archived room is read-only for name, description and workflow (and, from 0.3, content); unarchive it first. */
 fun roomArchived(): ConflictException = ConflictException("The room is archived", problemType = ROOM_ARCHIVED_PROBLEM_TYPE)
+
+const val TEMPLATE_GONE_PROBLEM_TYPE = ProblemTypes.TEMPLATE_GONE
+
+/** The template a room is created from is unknown or deleted (a client-supplied id: a 400, never a 500). */
+fun templateGone(templateId: UInt): TypedBadRequestException =
+    TypedBadRequestException("Unknown or deleted workflow template id: $templateId", problemType = TEMPLATE_GONE_PROBLEM_TYPE)
 
 const val LAST_OWNER_PROBLEM_TYPE = ProblemTypes.LAST_OWNER
 

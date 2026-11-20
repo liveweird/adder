@@ -7,6 +7,7 @@ import RoomMembers from "./RoomMembers";
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
+import { pinBrowserTimeZone } from "../test/timeZone";
 import { FakeClock } from "../test/socket";
 import { createLiveInvalidator } from "../utils/liveKeys";
 
@@ -26,7 +27,7 @@ const ROOM = {
   updatedAt: 1,
 };
 const ROSTER = [
-  { userId: 7, name: "Olga Owner", email: "olga@example.test", role: "OWNER", addedAt: Date.UTC(2026, 10, 1) },
+  { userId: 7, name: "Olga Owner", email: "olga@example.test", role: "OWNER", addedAt: Date.UTC(2026, 9, 31, 20) },
   { userId: 8, name: "Max Member", email: "max@example.test", role: "MEMBER", addedAt: Date.UTC(2026, 10, 2) },
   { userId: 9, name: "Otto Second", email: "otto@example.test", role: "OWNER", addedAt: Date.UTC(2026, 10, 3) },
 ];
@@ -145,14 +146,17 @@ async function openRowMenu(user: ReturnType<typeof userEvent.setup>, name: strin
 
 describe("RoomMembers page", () => {
   let mockFetch: FetchMock;
+  let zone: ReturnType<typeof pinBrowserTimeZone>;
 
   beforeEach(() => {
     mockFetch = vi.fn();
     vi.stubGlobal("fetch", mockFetch);
     signIn(7);
+    zone = pinBrowserTimeZone("Pacific/Auckland");
   });
 
   afterEach(() => {
+    zone.mockRestore();
     vi.unstubAllGlobals();
     localStorage.clear();
   });
@@ -167,12 +171,15 @@ describe("RoomMembers page", () => {
     const own = within(table).getByRole("row", { name: /Olga Owner/ });
     expect(within(own).getByText("You")).toBeInTheDocument();
     expect(within(own).getByText("Owner")).toBeInTheDocument();
+    // Added 2026-10-31T20:00Z: the 1st in the pinned zone (Auckland), the reader's day rather than UTC's.
     expect(within(own).getByText("2026-11-01")).toBeInTheDocument();
     // Leaving is the section's one button, not a row action: the own row carries neither it nor a menu.
     expect(within(own).queryByRole("button")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Leave room" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Operations for Max Member" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
+    // The tab names the room's page, not just the room (WCAG 2.4.2).
+    expect(document.title).toBe("Members · Night Shift · Adder");
     expect(headingOutline()).toEqual([
       [2, "Night Shift"],
       [3, "Add people"],

@@ -34,6 +34,12 @@ open class ConflictException(
 ) : RuntimeException(message)
 
 /**
+ * A malformed or unacceptable request a client must tell apart from the other `400`s → 400 with the given detail and its RFC 7807
+ * [problemType] (a `urn:adder:problem:…` URI): the SPA branches on the URI, never on the detail text.
+ */
+class TypedBadRequestException(message: String, val problemType: String) : RuntimeException(message)
+
+/**
  * Caller-specific throttling (e.g. the per-account login lockout) → 429 with the given detail.
  * Distinct from the per-IP RateLimit plugin's bodiless 429, which the StatusPages
  * `status(TooManyRequests)` handler completes with a generic problem body. A throttle a client must tell apart names its RFC 7807

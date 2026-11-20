@@ -6,14 +6,18 @@ import Rooms from "./Rooms";
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
+import { pinBrowserTimeZone } from "../test/timeZone";
 
 const ROLES_KEY = "adder.auth.roles";
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
+// 20:00 UTC is already the next calendar day in Auckland, the zone these tests pin: the list prints the reader's day, not UTC's.
+const EVENING = 20 * 3_600_000;
+
 const PAGE = {
   items: [
-    { id: 1, name: "Night Shift", description: "Handover notes", archived: false, role: "OWNER", memberCount: 3, lastActivityAt: 86_400_000, createdAt: 172_800_000 },
+    { id: 1, name: "Night Shift", description: "Handover notes", archived: false, role: "OWNER", memberCount: 3, lastActivityAt: 86_400_000 + EVENING, createdAt: 172_800_000 + EVENING },
     { id: 2, name: "Old Incident", description: null, archived: true, role: "MEMBER", memberCount: 1, lastActivityAt: 0, createdAt: 0 },
     { id: 3, name: "Someone Else's", description: null, archived: false, role: null, memberCount: 12, lastActivityAt: 0, createdAt: 0 },
   ],
@@ -35,14 +39,17 @@ const listUrls = (mockFetch: FetchMock) => mockFetch.mock.calls.map(([url]) => S
 
 describe("Rooms page", () => {
   let mockFetch: FetchMock;
+  let zone: ReturnType<typeof pinBrowserTimeZone>;
 
   beforeEach(() => {
     mockFetch = vi.fn(() => Promise.resolve(jsonResponse(200, PAGE)));
     vi.stubGlobal("fetch", mockFetch);
     localStorage.setItem("adder.auth.token", "fake-token");
+    zone = pinBrowserTimeZone("Pacific/Auckland");
   });
 
   afterEach(() => {
+    zone.mockRestore();
     vi.unstubAllGlobals();
     localStorage.clear();
   });
@@ -55,8 +62,9 @@ describe("Rooms page", () => {
     const row = screen.getByRole("row", { name: /Night Shift/ });
     expect(within(row).getByText("Owner")).toBeInTheDocument();
     expect(within(row).getByText("3")).toBeInTheDocument();
-    expect(within(row).getByText("1970-01-02")).toBeInTheDocument();
+    // 1970-01-02T20:00Z and 1970-01-03T20:00Z, read in the pinned zone (Auckland, a day ahead of UTC by then).
     expect(within(row).getByText("1970-01-03")).toBeInTheDocument();
+    expect(within(row).getByText("1970-01-04")).toBeInTheDocument();
     // An archived row is marked in words; an ADMIN's non-member row has no role.
     expect(within(screen.getByRole("row", { name: /Old Incident/ })).getByText("Archived")).toBeInTheDocument();
     expect(within(screen.getByRole("row", { name: /Someone Else's/ })).getByText("—")).toBeInTheDocument();

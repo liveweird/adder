@@ -53,9 +53,12 @@ object ProblemTypes {
     /** The caller already holds their per-user maximum of live sockets (429, `Retry-After`). */
     const val LIVE_SOCKET_LIMIT = "urn:adder:problem:live-socket-limit"
 
+    /** The workflow template a room is created from is unknown or deleted (400). */
+    const val TEMPLATE_GONE = "urn:adder:problem:template-gone"
+
     /** Every registered URI; the spec's list and the main sources are diffed against it. */
     val ALL: Set<String> = setOf(
         REVISION_CONFLICT, LAST_OWNER, ROOM_ARCHIVED, THREAD_CLOSED, STATUS_IN_USE, FIELD_TYPE_IMMUTABLE, ROOM_BUSY, PIN_LIMIT,
-        REACTION_LIMIT, SEARCH_TIMEOUT, SEARCH_BUSY, READ_TIMEOUT, READ_BUSY, LIVE_UNAVAILABLE, LIVE_SOCKET_LIMIT,
+        REACTION_LIMIT, SEARCH_TIMEOUT, SEARCH_BUSY, READ_TIMEOUT, READ_BUSY, LIVE_UNAVAILABLE, LIVE_SOCKET_LIMIT, TEMPLATE_GONE,
     )
 }

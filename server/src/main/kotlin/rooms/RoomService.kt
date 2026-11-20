@@ -18,7 +18,6 @@ import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService
 import ch.nokillswit.workflows.WorkflowDefinition
 import ch.nokillswit.workflows.WorkflowTemplateService
-import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
@@ -171,7 +170,7 @@ class RoomService(
     suspend fun create(callerUserId: UInt, request: RoomCreateRequest): UInt = suspendTransaction(database) {
         validateRoomCreate(request) // re-checked service-side so direct callers stay guarded
         val template = templates.read(request.templateId)
-            ?: throw BadRequestException("Unknown or deleted workflow template id: ${request.templateId}")
+            ?: throw templateGone(request.templateId)
         val stamp = nowMillis()
         val id = Rooms.insert {
             it[name] = request.name

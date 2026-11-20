@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.MAX_ROOM_NAME_LENGTH
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
+import ch.nokillswit.rooms.TEMPLATE_GONE_PROBLEM_TYPE
 import ch.nokillswit.rooms.RoomCreateRequest
 import ch.nokillswit.rooms.RoomPageResponse
 import ch.nokillswit.rooms.RoomResponse
@@ -152,10 +153,10 @@ class RoomTest {
 
         assertEquals(before, owner.client.workflow(room.id))
         // ...and the deleted template can no longer be copied.
-        assertEquals(
-            HttpStatusCode.BadRequest,
-            owner.client.postJson(rooms, RoomCreateRequest("Late ${marker()}", templateId)).status,
-        )
+        val late = owner.client.postJson(rooms, RoomCreateRequest("Late ${marker()}", templateId))
+        assertEquals(HttpStatusCode.BadRequest, late.status)
+        // ...as a typed problem the SPA tells apart from every other 400 by its URI, never by the detail text.
+        assertEquals(TEMPLATE_GONE_PROBLEM_TYPE, late.body<ProblemDetail>().type)
     }
 
     @Test

@@ -16,12 +16,14 @@
   overflow-wrap: anywhere;
 }
 
+/* The dark hover surface is the quiet tint (dark-6), not Mantine's default-hover (dark-5): the row's dimmed ink is only 4.44:1 on the latter
+   (themeVariables.ts), under AA. */
 .row:hover {
-  background: var(--mantine-color-default-hover);
+  background: light-dark(var(--mantine-color-default-hover), var(--adder-surface-tint));
 }
 
 .row[aria-current="page"] {
-  background: var(--mantine-color-default-hover);
+  background: light-dark(var(--mantine-color-default-hover), var(--adder-surface-tint));
   border-left-color: var(--mantine-primary-color-filled);
 }
 

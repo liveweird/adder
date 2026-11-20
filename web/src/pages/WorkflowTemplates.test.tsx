@@ -5,6 +5,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import WorkflowTemplates from "./WorkflowTemplates";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
+import { pinBrowserTimeZone } from "../test/timeZone";
 
 const TOKEN_KEY = "adder.auth.token";
 const ROLES_KEY = "adder.auth.roles";
@@ -13,8 +14,8 @@ type FetchMock = ReturnType<typeof vi.fn>;
 
 const PAGE = {
   items: [
-    { id: 1, name: "Default", description: "A plain open-to-done flow", statusCount: 3, fieldCount: 0, revision: 1, updatedAt: Date.UTC(2026, 10, 17) },
-    { id: 2, name: "Incident", description: null, statusCount: 5, fieldCount: 2, revision: 4, updatedAt: Date.UTC(2026, 10, 18) },
+    { id: 1, name: "Default", description: "A plain open-to-done flow", statusCount: 3, fieldCount: 0, revision: 1, updatedAt: Date.UTC(2026, 10, 16, 20) },
+    { id: 2, name: "Incident", description: null, statusCount: 5, fieldCount: 2, revision: 4, updatedAt: Date.UTC(2026, 10, 17, 20) },
   ],
   page: 1,
   pageSize: 20,
@@ -51,15 +52,18 @@ function renderPage() {
 
 describe("WorkflowTemplates page", () => {
   let mockFetch: FetchMock;
+  let zone: ReturnType<typeof pinBrowserTimeZone>;
 
   beforeEach(() => {
     mockFetch = vi.fn();
     vi.stubGlobal("fetch", mockFetch);
     localStorage.setItem(TOKEN_KEY, "fake-token");
     localStorage.setItem(ROLES_KEY, JSON.stringify(["ADMIN"]));
+    zone = pinBrowserTimeZone("Pacific/Auckland");
   });
 
   afterEach(() => {
+    zone.mockRestore();
     vi.unstubAllGlobals();
     localStorage.clear();
   });
@@ -69,6 +73,7 @@ describe("WorkflowTemplates page", () => {
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Workflow templates" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Open workflow template Incident" })).toHaveAttribute("href", "/workflow-templates/2/edit");
+    // Updated 2026-11-17T20:00Z: the 18th in the pinned zone (Auckland), the reader's day rather than UTC's.
     const incident = screen.getByRole("row", { name: /Incident/ });
     expect(within(incident).getAllByRole("cell").map((c) => c.textContent)).toEqual(["Incident", "—", "5", "2", "2026-11-18", ""]);
     expect(within(screen.getByRole("row", { name: /Default/ })).getByText("A plain open-to-done flow")).toBeInTheDocument();

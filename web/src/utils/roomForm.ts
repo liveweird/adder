@@ -1,8 +1,8 @@
 import type { TFunction } from "i18next";
-import { ApiError } from "../api/http";
 import type { RoomCreateBody, RoomResponse, RoomUpdateBody } from "../api/rooms";
 import type { SupportedLanguage } from "../i18n";
 import { descriptionRule, nameRule } from "./formRules";
+import { PROBLEM_TYPES, isProblem } from "./problems";
 import { saveErrorMessage } from "./saveError";
 
 // Server limits (rooms/Room.kt) mirrored client-side.
@@ -57,9 +57,9 @@ export function isRoomDetailsDirty(values: RoomDetails, room: RoomDetails): bool
   return values.name.trim() !== room.name.trim() || values.description.trim() !== room.description.trim();
 }
 
-/** The server's 400 for a `templateId` that is unknown or deleted (`RoomService.create`); any other 400 is something else. */
+/** The server's typed 400 for a `templateId` that is unknown or deleted (`RoomService.create`); any other 400 is something else. */
 export function isTemplateGone(err: unknown): boolean {
-  return err instanceof ApiError && err.status === 400 && (err.detail?.startsWith("Unknown or deleted workflow template") ?? false);
+  return isProblem(err, PROBLEM_TYPES.templateGone);
 }
 
 /** The create save vocabulary; a 409 (the name clash) is handled by the caller as a field error. */

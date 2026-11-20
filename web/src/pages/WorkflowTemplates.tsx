@@ -14,7 +14,7 @@ import RowActionsMenu from "../components/RowActionsMenu";
 import SortHeader from "../components/SortHeader";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
-import { formatDate } from "../utils/formatDate";
+import { browserTimeZone, formatDate } from "../utils/formatDate";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { saveErrorMessage } from "../utils/saveError";
 import { MAX_TEMPLATE_NAME_LENGTH } from "../utils/workflowTemplateForm";
@@ -120,7 +120,7 @@ export default function WorkflowTemplates() {
               <Text size="sm">{template.fieldCount}</Text>
             </Table.Td>
             <Table.Td>
-              <Text size="sm">{formatDate(template.updatedAt)}</Text>
+              <Text size="sm">{formatDate(template.updatedAt, "—", browserTimeZone())}</Text>
             </Table.Td>
             <Table.Td style={{ width: 1 }} ta="right">
               <RowActionsMenu label={t("common.table.operationsAria", { name: template.name })}>

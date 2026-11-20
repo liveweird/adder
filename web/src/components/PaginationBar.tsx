@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { Group, Pagination, Select, Text } from "@mantine/core";
+import { Group, Select, Text } from "@mantine/core";
 import { PAGE_SIZE_OPTIONS } from "../hooks/usePagedSort";
+import Pager from "./Pager";
 
 /**
  * The shared list footer: total count, rows-per-page picker, and the pager. A list whose page size is fixed (the thread rail: 50, which
@@ -44,16 +45,7 @@ export default function PaginationBar({
             w={110}
           />
         )}
-        <Pagination
-          value={page}
-          onChange={onPageChange}
-          total={totalPages}
-          siblings={1}
-          withEdges
-          // The edge/arrow controls are icon-only; without names they fail WCAG 4.1.2
-          // (the axe e2e spec pins this).
-          getControlProps={(control) => ({ "aria-label": t(`common.table.${control}Page`) })}
-        />
+        <Pager page={page} pages={totalPages} onChange={onPageChange} siblings={1} withEdges />
       </Group>
     </Group>
   );

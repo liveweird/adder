@@ -641,7 +641,7 @@ export interface paths {
          *     and has no link back: a later template edit or delete never touches the room. When per-label resolution would clash within a list,
          *     that whole list is copied in EN.
          *
-         *     An unknown or deleted `templateId` and an unsupported `language` are `400`. A case-insensitive name clash with a non-deleted
+         *     An unknown or deleted `templateId` is a `400` of type `urn:adder:problem:template-gone`; an unsupported `language` is a plain `400`. A case-insensitive name clash with a non-deleted
          *     room is `409` (archived rooms keep their names; a deleted room frees its own). Rides a per-USER rate bucket of 30 per minute
          *     shared with the rename (`429` beyond it). The name may not contain invisible formatting characters (`400`).
          */
@@ -2248,7 +2248,7 @@ export interface components {
             description?: string | null;
             /**
              * Format: int32
-             * @description The workflow template to copy; unknown or deleted is a `400`.
+             * @description The workflow template to copy; unknown or deleted is a `400` of type `urn:adder:problem:template-gone`.
              */
             templateId: number;
             language?: components["schemas"]["Language"];
@@ -2460,6 +2460,7 @@ export interface components {
              *     - `urn:adder:problem:search-busy` (429, `Retry-After`): the server is at its maximum of concurrent searches.
              *     - `urn:adder:problem:live-socket-limit` (429, `Retry-After`): the caller already holds their maximum of live sockets.
              *     - `urn:adder:problem:live-unavailable` (503, `Retry-After`): the live channel is stopping, full or without its listener.
+             *     - `urn:adder:problem:template-gone` (400): the workflow template a room is created from is unknown or deleted.
              * @default about:blank
              */
             type: string;

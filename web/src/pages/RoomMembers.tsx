@@ -20,7 +20,7 @@ import RowActionsMenu from "../components/RowActionsMenu";
 import SortHeader from "../components/SortHeader";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
 import { isOneOfOrNull, useStoredState } from "../hooks/useStoredState";
-import { formatDate } from "../utils/formatDate";
+import { browserTimeZone, formatDate } from "../utils/formatDate";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
@@ -222,7 +222,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
                   <Text size="sm">{t(`rooms.role.${member.role}`)}</Text>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm">{formatDate(member.addedAt)}</Text>
+                  <Text size="sm">{formatDate(member.addedAt, "—", browserTimeZone())}</Text>
                 </Table.Td>
                 <Table.Td style={{ width: 1 }} ta="right">
                   {/* A manager changes or removes the others (the server guards both); leaving is the section's own button. */}

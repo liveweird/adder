@@ -12,7 +12,7 @@ import RegistryListTable from "../components/RegistryListTable";
 import SortHeader from "../components/SortHeader";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
 import { isBoolean, isOneOf, useStoredState } from "../hooks/useStoredState";
-import { formatDate } from "../utils/formatDate";
+import { browserTimeZone, formatDate } from "../utils/formatDate";
 import { MAX_ROOM_NAME_LENGTH } from "../utils/roomForm";
 import { newRoomPath, roomPath } from "../utils/roomLinks";
 import { roomKeys } from "../utils/roomKeys";
@@ -141,10 +141,10 @@ export default function Rooms() {
               <Text size="sm">{room.memberCount}</Text>
             </Table.Td>
             <Table.Td>
-              <Text size="sm">{formatDate(room.lastActivityAt)}</Text>
+              <Text size="sm">{formatDate(room.lastActivityAt, "—", browserTimeZone())}</Text>
             </Table.Td>
             <Table.Td>
-              <Text size="sm">{formatDate(room.createdAt)}</Text>
+              <Text size="sm">{formatDate(room.createdAt, "—", browserTimeZone())}</Text>
             </Table.Td>
           </Table.Tr>
         ))}

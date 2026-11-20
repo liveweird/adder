@@ -86,7 +86,8 @@ shell is the precedent) — plus, since 0.2.0, the ADMIN workflow-template pages
 - **Page chrome**: every page is a `Stack gap="md"` on the canvas starting with
   `components/PageHeader.tsx` (`title` → the `order={2}` heading tests locate, `description?`,
   `backTo?`, right-aligned `actions?` — the ONE place a page's primary "New …" button lives — and
-  a `toolbar?` row).
+  a `toolbar?` row). `PageHeader` also titles the browser tab ("{title} · Adder", `hooks/useDocumentTitle.ts`; `documentTitle?` when the tab needs more than
+  the heading, as a room's tabs do; `AuthCard` does the same for the signed-out pages), so a new page gets its title by having a header.
   No `Container` and no page-wrapping `Paper`; widths come from
   `utils/layout.ts`: full-bleed lists, `Box maw={CONTENT_MAX_WIDTH}` for registry tables and the
   changelog, `Paper withBorder p="xl" maw={FORM_MAX_WIDTH}` (left-aligned) for the simple field
@@ -183,7 +184,9 @@ Every list page composes the same ported Lettuce blocks — copy `pages/Users.ts
   alone may reuse a pre-mutation response. Keep refresh out of failed mutation paths.
   **`ConfirmActionModal`** is the non-destructive sibling (Lettuce's, ported with the
   feature-flags bulk actions) — a message plus a neutral cancel and a confirm button whose
-  `loading` blocks cancel/close while the action runs; labels arrive already translated.
+  `loading` blocks cancel/close while the action runs; labels arrive already translated; an action that can fail in place passes
+  `error` (+ `errorTitle`) for the inline alert (the Users page's password reset). One page-number control, `components/Pager.tsx`, serves
+  `PaginationBar` and the narrow pagers (the notification drawer, the history).
 - **An entity's NAME is the way into its detail page** — a `RouterLink` `Anchor` with an
   interpolated accessible name (`common.action.editAria` = "Edit {{name}}", or an area-specific
   `openAria`), which is what tests and e2e locate. A real link, not an onClick: cmd/middle-click
@@ -237,7 +240,9 @@ Passwords are generated client-side and revealed exactly once (`components/OneTi
 The ADMIN telemetry panel (`components/Telemetry*.tsx`, the shell's right-hand aside: memory, storage, requests, JVM) is the only chart surface in 0.1.0. Rules that apply to every page:
 
 - **Charts** (any page): charts live only in lazy chunks, each chart component imports `@mantine/charts/styles.css` itself, a legend for two or more series, one axis (never dual), every chart has its numbers in a table beside it, colour is never the only carrier of identity, and colours come from the existing vocabulary in `utils/chartColors.ts` (no new hue for meaningful series; series keyed by arbitrary names — statuses, columns, people — draw from its `CATEGORY_PALETTE`; every mark clears WCAG 1.4.11, ≥ 3:1). Tests mock `@mantine/charts`. 
-- **Dates** render deterministically (`YYYY-MM-DD` / `YYYY-MM-DD HH:mm` via `utils/formatDate.ts`), never `toLocaleString()`.
+- **Dates** render deterministically (`YYYY-MM-DD` / `YYYY-MM-DD HH:mm` via `utils/formatDate.ts`), never `toLocaleString()`, and in the reader's
+  own zone (`browserTimeZone()`) on every list and in the chat; only the telemetry panel and reports read a configured or UTC zone. Tests that print a
+  date pin the zone with `test/timeZone.ts`'s `pinBrowserTimeZone`.
 - **Failures render inline, never as a toast** (see "Error handling"); success toasts use the fixed vocabulary only.
 
 ## Internationalization (i18n)

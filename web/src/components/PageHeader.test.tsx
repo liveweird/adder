@@ -25,4 +25,11 @@ describe("PageHeader", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Users" })).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
+
+  test("titles the browser tab from the heading, or from an explicit documentTitle", () => {
+    const { rerender } = renderWithProviders(<PageHeader title="Users" />);
+    expect(document.title).toBe("Users · Adder");
+    rerender(<PageHeader title="Night Shift" documentTitle="Members · Night Shift" />);
+    expect(document.title).toBe("Members · Night Shift · Adder");
+  });
 });
