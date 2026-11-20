@@ -74,10 +74,13 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `login.lockout` (the throttle tripping) / `login.rejected_locked` (an attempt against a locked
   account) / `login.capacity_rejected` (an unseen identity cannot be admitted into the full
   throttle); login audits use `email` for ordinary identities and a fixed-size `emailDigest` for
-  oversized submissions,
+  oversized submissions. The same three events are also written, with `userId` and `source` (`mfa` or `password_change`)
+  instead of the email, when a wrong MFA code or a wrong current password on the self password change trips, meets or
+  cannot be admitted into that one throttle (`auth/AccountLockout.kt`),
 - `login.mfa_challenge` (email/userId — correct credentials, second factor pending) /
   `login.mfa_success` / `login.mfa_failure` (with `reason`:
-  unknown_challenge/expired/wrong_code/too_many_attempts/user_gone/credential_changed) /
+  unknown_challenge/expired/wrong_code/too_many_attempts/user_gone/credential_changed, and `userId` whenever the challenge was
+  found, i.e. every reason but unknown_challenge) /
   `login.mfa_unavailable` (MFA enabled on a mail-less deployment → 503) /
   `login.mfa_capacity_rejected` (the pending challenge store is full → 429, no code sent) /
   `login.mfa_send_failed` (email/errorType),
@@ -103,7 +106,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `refresh.replay_grace` (userId — a rotated refresh token presented again inside the grace
   (`security.refresh.replayGraceSeconds`) and answered with a fresh pair, at most twice per token; a lost response or a racing tab, or a replay),
 - `password.changed` (targetUserId/byUserId/selfChange) / `password.change_denied` (wrong or
-  missing current password),
+  missing current password; a wrong one also counts into the login lockout) / `password.change_rejected_locked`
+  (userId/source — a self change refused because the account is locked out, before any password check),
 - `user.features_changed` (byUserId/targetUserId/featuresFrom/featuresTo — only on an actual
   change),
 - `user.notification_preferences_changed` (byUserId/targetUserId/`from`/`to` as sorted `TYPE:CHANNEL` lists; only on an actual change; the switches of the notices' digest email, V22; `NotificationPreferencesTest`),
@@ -179,13 +183,13 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (Flow's `crypto.reencrypted` boot-backfill event comes back with `EncryptedAtRest`/`Reencrypt`, `security.md` "Encryption at rest"),
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
-- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `read-state`, `live-ticket` and `search` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
-  password-reset, password-reset-confirm, mfa, ready; per-user telemetry, directory, room-name, room-members, chat-post, chat-write, live-ticket and search) rejected the request with a 429, emitted from the 429 status handler in
+- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `read-state`, `live-ticket`, `search` and `password-change` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
+  password-reset, password-reset-confirm, mfa, ready; per-user telemetry, directory, room-name, room-members, chat-post, chat-write, live-ticket, search and password-change) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
   (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
   since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one
-  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `live-ticket` and `search` buckets are keyed by
-  `telemetry:<userId>` / `directory:<userId>` / `room-name:<userId>` / `room-members:<userId>` / `chat-post:<userId>` / `chat-write:<userId>` / `live-ticket:<userId>` / `search:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
+  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `live-ticket`, `search` and `password-change` buckets are keyed by
+  `password-change:<userId>` / `telemetry:<userId>` / `directory:<userId>` / `room-name:<userId>` / `room-members:<userId>` / `chat-post:<userId>` / `chat-write:<userId>` / `live-ticket:<userId>` / `search:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
   account reaches that key, so the key space is the account count. The client address is deliberately NOT a field
   (it is `X-Forwarded-For`-derived behind a proxy, i.e. attacker-chosen text; the ingress log has it), and neither is the
   query string. The per-account lockout's 429s are their own `login.lockout`/`login.rejected_locked` events and do not

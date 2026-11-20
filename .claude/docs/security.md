@@ -158,7 +158,8 @@ cost-12 hash so its 401 takes as long as a wrong password's — without it, resp
 account-enumeration oracle (the reset path equalizes via async processing; login equalizes
 in-line).
 
-**Per-account login lockout** (`auth/LoginThrottle.kt`, wired in `configureAuthRoutes`): after
+**Per-account login lockout** (`auth/LoginThrottle.kt`, built by `configureLoginThrottle` in `auth/AccountLockout.kt`, published as
+`LoginThrottleKey`; the module loads BEFORE the user routes, which share it): after
 `security.lockout.threshold` (default 5, `$LOGIN_LOCKOUT_THRESHOLD`) consecutive failures for one
 submitted email, `/login` answers `429` for `security.lockout.durationSeconds` (default 900,
 `$LOGIN_LOCKOUT_DURATION_SECONDS`) — even with the correct password, and regardless of whether the
@@ -176,6 +177,34 @@ which rotating hosts sidestep. The 429 is **thrown** (`TooManyRequestsException`
 429, so only the exception path keeps the specific detail. Tests: `LoginThrottleTest` (unit,
 injected clock) + `LoginLockoutTest` (route). The SPA shows a neutral temporary sign-in limit for
 either 429 cause.
+
+**ONE counter for every guess at an account's credentials (C-SEC-2, C-SEC-3).** A wrong password at `/login`, a wrong emailed code at
+`/login/mfa` and a wrong `currentPassword` on the self password change (`PUT /users/{id}/password`) all feed the same
+`LoginThrottle` counter, so N wrong guesses across the three lock the account exactly as N failed logins would
+(`AccountGuess` in `auth/AccountLockout.kt`). What each answers: the locking failure answers what
+that route always answers (401 at login and the MFA step, 403 on the change); every LATER attempt answers the lockout's specific
+`429` (thrown, see above), the change BEFORE any bcrypt (preflight), and an unseen identity at a full store the audited capacity
+`429` - **except the self password change**, where a full store lets the signed-in caller through UNCOUNTED (still audited as
+`login.capacity_rejected`, a wrong password still a plain 403): an anonymous caller can fill the store, and refusing there would
+refuse every signed-in user's change; the per-user `password-change` bucket (5/min) bounds those uncounted guesses. `/login` and
+the MFA step keep the refusal. A correct password (non-MFA), a correct code or a correct current password clears the counter; a MISSING `currentPassword`
+is a plain 403 that does not count (nothing was guessed). An admin resetting ANOTHER user's password verifies nothing, so it neither
+counts nor is refused by the target's lock; the cost is that a locked owner with a live session cannot change their own
+password until the window ends. For an MFA account the password step does NOT clear the counter (it is only the first factor: a
+caller holding the password could otherwise log in afresh after every few wrong codes and never lock); an accepted code does.
+**Pending MFA challenges and a lock:** a lock tripped by the MFA step (or met by a wrong code there) drops the account's pending
+challenges; a lock tripped by wrong passwords at `/login` or on the change does NOT, but no pending code can finish a sign-in
+during it (a correct code answers the lockout's `429`, `AccountGuess.recordSuccess`) and the challenges expire on their own TTL.
+**The long-run bound, stated honestly (accepted; a progressive lock is a product decision):** when a lock expires the counter
+restarts at 0, so someone who HOLDS the password gets `threshold` (5) code guesses per lock window (15 min) indefinitely:
+35,040 windows a year x 5 = about 175,000 guesses against a 6-digit code (10^-6 each), roughly a 16 % chance per year of getting
+in, at the price of about 35,000 sign-in code emails to the owner (one challenge per window, since the per-challenge cap equals
+the default threshold; about 96 a day) and a `login.lockout` audit line every 15 minutes: a loud, continuous signal to the owner
+and the operator. It needs the password (the first factor); it is not reachable from an email address alone. A progressive lock (a
+longer window per repeated lockout) would shrink it but would let an attacker who knows only an email address keep the owner
+locked out of `/login` for longer, so it is not implemented.
+Audit: `login.lockout`/`login.rejected_locked`/`login.capacity_rejected` (with `userId` and `source` for the MFA and change
+routes), `password.change_rejected_locked`. Tests: `AccountGuessTest` (the race branches), `PasswordChangeTest`, `MfaLockoutTest`.
 
 
 **Self-service password reset by confirm link** (`auth/PasswordResetRoutes.kt`, `auth/PasswordResetService.kt`, V8; SPA:
@@ -243,7 +272,7 @@ the full link roundtrip incl. the session revocation), `PasswordResetThrottleTes
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, `live-connect` (below), and the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `chat-read`, `read-state`, `live-ticket` and `search` below): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, `live-connect` (below), and the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `chat-read`, `read-state`, `live-ticket`, `search` and `password-change` below): blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence
@@ -316,6 +345,8 @@ rendered without HTML by the SPA (Markdown without raw HTML, images as links, he
 
 **Notices (`/api/v1/notifications`, V18, 0.6.0; `chat-model.md` "Notifications (V18)").** The surface is the caller's OWN rows, so it needs no guard and has nothing to disclose; what it must never do is show a room to someone who is not in it. (1) **A notice is ids only**: no name, title or body is stored (Lettuce's row kept `params` and a `link`), so none can leak after a leave or a moderator's delete, none needs scrubbing, and none can reach a log; the room's name, the thread's title and the actor's name are read at request time, in the list's own transaction, for the page only. (2) **The leak rule is in the schema**: `(room_id, recipient_id)` references `room_members ON DELETE CASCADE`, so removing a member deletes that person's notices of the room and a notice for a non-member cannot be inserted (23503); the list also keeps only the caller's ACTIVE rooms, so a deleted room's notices are hidden and an ADMIN who is not a member has none. (3) **Flooding is bounded by what already bounds the write**: at most 20 distinct mentions count per message and a notice is made inside a `chat-post` or `chat-write` write (120 and 240 a minute per user, the room lock), the insert is ONE multi-row `INSERT ... SELECT FROM unnest(...) ON CONFLICT DO NOTHING RETURNING recipient_id` with constant text (one statement under the lock whatever the recipient count), and the live hint is ONE per write to at most 20 targets. **A recipient's rows are not capped, so their READS are:** the list's count reads at most 1,001 rows and the API answers `total` capped at 1000 (`MAX_COUNTED_NOTICES`), so no read grows with a person's history, and a page that starts at row 1000 or later (`(page - 1) * pageSize >= 1000`) is answered EMPTY without the OFFSET running; `seen-all` works in chunks of 1,000 rows, each its own short transaction (120 mention-posts a minute could make about 172,800 rows a day for one target; retention is what removes them). (4) **The live hint goes to its targets only** (`Audience.TARGETS`): never to a subscriber of the room. (5) Rows are deleted with their message, with the membership and 90 days after they were made (`notifications.retentionDays`, 1..3650; an hourly sweep in its own scope, never inside a chat write). **The purge is batched**, 1,000 rows per short transaction with `FOR UPDATE SKIP LOCKED`, read in `created_at` order off `idx_notifications_created`: one big `DELETE` would hold its locks while a member removal or a message delete waited, under the room lock, into `room-busy`. (6) The kind is a persisted enum name with no CHECK: a name this build does not know is invisible, never fatal.
 
+**`password-change`, 5/min (`RateLimits.PASSWORD_CHANGE`, C-SEC-2),** per signed-in user, fixed in every mode (the telemetry idiom, no config key): `PUT /api/v1/users/{id}/password`, mounted INSIDE `authenticate {}` by `configureUserRoutes`. The self change runs a bcrypt verify of `currentPassword` per request, so the bucket stops a stolen session guessing at dispatcher speed and any user occupying the small default dispatcher; the per-account lockout above is the actual guessing bound. The bucket sits BEFORE the guards (a refused or invalid change spends a token; it is also an admin's budget for resetting others, a few a minute at the very most). Rejection: the generic `429` problem plus the coalesced `rate_limit.exceeded` (bucket `password-change`, `byUserId`). Pinned by `PasswordChangeTest`.
+
 **`live-ticket`, 60/min (`RateLimits.LIVE_TICKET`, 0.4.0 S3),** per signed-in user, fixed in every mode: `POST /api/v1/live/tickets`, the exchange of a bearer for a single-use socket ticket (`live.md` "Tickets"). `configureLive` mounts it INSIDE `authenticate {}` (the telemetry idiom), so the key is the verified user id; a tab mints one ticket per (re)connect, so 60 a minute stops a reconnect loop or a script long before it can fill the store. The rejection is the generic `429` problem plus the coalesced `rate_limit.exceeded` audit event (bucket `live-ticket`, `byUserId`). `LiveTicketTest` pins 60 then `429`, its audit line and another account untouched.
 
 **Socket tickets** (`live/LiveTickets.kt`, ported from `auth/MfaChallenges.kt`; redeemed by the socket, `live/LiveSocket.kt`, 0.4.0 S4). A ticket is 32 `SecureRandom` bytes (43 base64url characters) bound to the caller and to the access token that asked (`authz/AccessToken.kt`: `jti`, `exp`, `credentialRevision`; `plugins/Security.kt` stashes it on the call only after the per-request account check answered LIVE). It is valid 30 s and works ONCE (redeeming is an atomic remove; unknown, used and expired are one answer). Only its SHA-256 is stored, so a heap dump holds no usable ticket, and the lookup is a map equality on the digest (the password-reset idiom). **It travels in the socket's FIRST FRAME, never in a URL** (API-AUTH-002: a query credential lands in every proxy access log), is never logged (`LiveTicketTest` renders every event of every logger; `IssuedTicket`, `LiveTicketResponse` and the binding mask it in `toString`, `SecretToStringTest`) and the `Authorization` header never reaches the socket. The store is capacity-bounded (`live.maxTickets`, `$LIVE_MAX_TICKETS`, default 10,000, boot-validated 1..100,000 (about 50 MB at the ceiling)): expired entries are swept on every mint, then a full store answers `429` with `Retry-After: 30` and audits `live.ticket_saturated` (coalesced per user, one line a minute with `suppressed`), never evicting a held ticket. A ticket also never outlives its token: its deadline is the earlier of the 30 s TTL and the token's `exp`. In memory and per instance, like the MFA challenges: the single replica; a restart only invalidates the tickets in flight (the socket mints again). A ticket authorizes no room: subscriptions are judged per room when they are made (below).
@@ -350,26 +381,33 @@ so MFA is OFF until an admin removes the row via the features PUT (the per-user 
 omits `MFA` ENABLES it, including the "empty array re-enables everything" idiom). With MFA
 enabled, `POST /login` with correct credentials normally answers
 `200 MfaChallengeResponse {mfaRequired, challengeId, expiresAt}` instead of tokens (the branch runs
-AFTER `verifyPassword`, so nothing about enumeration or lockout changes; `login.success` is
-deliberately NOT emitted); a 6-digit code (`generateMfaCode`, `auth/Passwords.kt`) is held in the
+AFTER `verifyPassword`, so nothing about enumeration changes; the lockout counter is checked but NOT cleared there, see "ONE counter"
+above; `login.success` is deliberately NOT emitted); a 6-digit code (`generateMfaCode`, `auth/Passwords.kt`) is held in the
 in-memory challenge store (config `security.mfa.codeTtlSeconds` default 300
 `$MFA_CODE_TTL_SECONDS`, `security.mfa.maxAttempts` default 5 `$MFA_MAX_ATTEMPTS`; per-instance
 like the throttles — a restart just means signing in again) and emailed in the user's stored
 language (V1 `users.language`, EN fallback). Its hard `security.mfa.maxTracked` limit (default
 10,000, `$MFA_MAX_TRACKED`) first drops expired challenges, then rejects new issuance with an
 audited `429` at capacity; existing codes remain verifiable and no rejected code is emailed. A
-failed or cancelled delivery discards its challenge so a retry can use that slot.
+failed or cancelled delivery discards its challenge so a retry can use that slot. **An account holds at most 3 live
+challenges** (`MfaChallenges.DEFAULT_MAX_PER_USER`, a constant, no config key): a further login REPLACES the oldest (refusing would
+let anyone holding the password stop the owner signing in; the replacement needs no spare capacity). The per-challenge attempt cap bounds
+one code; **every wrong code also counts into the per-account lockout** (`auth/MfaRoutes.kt`, "ONE counter"), so the guesses across
+challenges add up and a fresh login never resets them. The failure that locks the account, and every later wrong code, also drops the account's pending
+challenges (`discardUser`), and a correct code arriving while the account is locked is refused with the lockout's `429`
+(the counter restarts when a lock expires: the long-run bound is stated in "ONE counter").
+Consequence: with the default threshold 5, five wrong codes (the default per-challenge cap) lock the account for 15 minutes.
 `POST /api/v1/login/mfa` `{challengeId, code}` (own per-IP bucket `"mfa"`, hardcoded 10/min in
 every mode) exchanges it for the ordinary `LoginResponse` — one fresh `userService.read` first
 (the `/refresh` precedent: current roles/flags; a user deleted in between → the uniform 401
 `user_gone`); every failure mode (unknown/expired/wrong code/attempt cap) is a **uniform 401**,
-reasons live only in the `login.mfa_failure` audit event; challenges are single-use and bound to
+reasons live only in the `login.mfa_failure` audit event (which names the account by `userId` whenever the challenge was found); challenges are single-use and bound to
 the credential revision verified at the password step; a subsequent password change/reset
 invalidates the pending challenge. **Mail-less deployments fail closed**: on
 `MAIL_TRANSPORT=disabled` an MFA-enabled login answers `503` (`login.mfa_unavailable`) — don't
 enable MFA flags on the k8s default `disabled` transport; the features PUT keeps working, so an
 admin can always flip the flag back. SPA: the Login card's second step (`PinInput`, `auth.mfa*`
-keys). Tests: `MfaChallengesTest` (pure store) + `MfaLoginTest` (route matrix); e2e `mfa.spec.ts`
+keys). Tests: `MfaChallengesTest` (pure store) + `MfaLoginTest` (route matrix) + `MfaLockoutTest` (the lockout, the per-user cap, the audit `userId`); e2e `mfa.spec.ts`
 drives the emailed code through Mailpit.
 
 **Swagger/OpenAPI gate** (`plugins/Routing.kt`): `/openapi` (UI + spec) is served only in development

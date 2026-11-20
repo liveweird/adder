@@ -1,7 +1,6 @@
 package ch.nokillswit.auth
 
 import ch.nokillswit.audit.audit
-import ch.nokillswit.authz.TooManyRequestsException
 import ch.nokillswit.authz.UnauthorizedException
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
@@ -43,7 +42,7 @@ internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 /** Ceiling for the in-memory throttle/challenge stores' `maxTracked` capacities — bounds the memory an operator can commit. */
 internal const val MAX_TRACKED_IDENTITIES = 1_000_000
 
-private fun JwtConfig.authResponse(userId: UInt, user: User): LoginResponse {
+internal fun JwtConfig.authResponse(userId: UInt, user: User): LoginResponse {
     val roles = user.additionalRoles
     val access = issueAccessToken(userId, user.email, roles, user.disabledFeatures, user.credentialRevision)
     val refresh = issueRefreshToken(
@@ -97,19 +96,10 @@ fun Application.configureAuthRoutes() {
         jwtConfig = jwtConfig,
         userService = attributes[UserServiceKey],
         blocklist = attributes[TokenBlocklistServiceKey],
-        // Per-account lockout, complementing the per-IP bucket (which rotating hosts sidestep):
-        // N consecutive failures for one email → locked for the configured window.
-        loginThrottle = LoginThrottle(
-            threshold = requireConfigInt(environment.config, "security.lockout.threshold", min = 1),
-            // Bounded above (30 days) as well as below: an unbounded value survives the *1000
-            // millis conversion right up until it doesn't — a durationSeconds near Long.MAX_VALUE
-            // overflows into a negative millis figure, which would silently DISABLE the lockout
-            // instead of refusing to start.
-            lockoutMillis = requireConfigLong(
-                environment.config, "security.lockout.durationSeconds", min = 1, max = MAX_DURATION_SECONDS,
-            ) * 1000,
-            maxTracked = requireConfigInt(environment.config, "security.lockout.maxTracked", min = 1, max = MAX_TRACKED_IDENTITIES),
-        ),
+        // Per-account lockout, complementing the per-IP bucket (which rotating hosts sidestep): N consecutive failures (a wrong
+        // password here or on the password change, a wrong MFA code) for one email → locked for the configured window. Built by
+        // configureLoginThrottle (auth/AccountLockout.kt), which runs before the user routes that share it.
+        loginThrottle = attributes[LoginThrottleKey],
         mailer = mailer(),
         // Email MFA: pending challenges for MFA-enabled accounts mid-login. In-memory, per-instance,
         // like the throttles above. The issuance helper lives beside the email content (auth/MfaEmail.kt).
@@ -129,7 +119,9 @@ fun Application.configureAuthRoutes() {
     // The buckets are installed by plugins/RateLimits.kt; each public step rides its own.
     routing {
         rateLimit(RateLimitName(RateLimits.LOGIN)) { login(deps) }
-        rateLimit(RateLimitName(RateLimits.MFA)) { mfa(deps) }
+        rateLimit(RateLimitName(RateLimits.MFA)) {
+            mfaVerify(deps.jwtConfig, deps.userService, deps.mfaChallenges, deps.loginThrottle)
+        }
         rateLimit(RateLimitName(RateLimits.REFRESH)) { refresh(deps) }
         authenticate { logout(deps) }
     }
@@ -152,21 +144,8 @@ private fun Route.login(deps: AuthDeps) {
         // account (and keeps sharing one lockout bucket).
         val email = canonicalEmail(req.email)
         val auditIdentity = loginAuditIdentity(email)
-        when (loginThrottle.preflight(email)) {
-            LoginThrottle.Preflight.ALLOWED -> Unit
-            LoginThrottle.Preflight.LOCKED -> {
-                audit(EVENT_LOGIN_REJECTED_LOCKED, auditIdentity)
-                // Thrown (not respondProblem) so StatusPages marks the call handled and its
-                // generic 429 status handler cannot replace this specific detail.
-                throw TooManyRequestsException(
-                    "Too many failed login attempts for this account — try again later",
-                )
-            }
-            LoginThrottle.Preflight.CAPACITY_EXCEEDED -> {
-                audit(EVENT_LOGIN_CAPACITY_REJECTED, auditIdentity)
-                throw TooManyRequestsException("Too many sign-in identities are being tracked — try again later")
-            }
-        }
+        val guess = AccountGuess(loginThrottle, email, listOf(auditIdentity))
+        guess.requireNotLocked()
         val record = userService.findWithIdByEmail(email)
         // The unknown-email branch pays a full (discarded) bcrypt verify so its latency
         // matches the wrong-password branch — without it the fast 401 is a timing oracle
@@ -179,90 +158,27 @@ private fun Route.login(deps: AuthDeps) {
                 verifyPassword(req.password, record.second.passwordHash)
             }
         if (record == null || !credentialsValid) {
-            val failureResult = loginThrottle.recordFailure(email)
-            when (failureResult) {
-                LoginThrottle.FailureResult.CAPACITY_EXCEEDED -> {
-                    audit(EVENT_LOGIN_CAPACITY_REJECTED, auditIdentity)
-                    throw TooManyRequestsException("Too many sign-in identities are being tracked — try again later")
-                }
-                LoginThrottle.FailureResult.ALREADY_LOCKED -> {
-                    audit(EVENT_LOGIN_REJECTED_LOCKED, auditIdentity)
-                    throw TooManyRequestsException(
-                        "Too many failed login attempts for this account — try again later",
-                    )
-                }
-                LoginThrottle.FailureResult.RECORDED,
-                LoginThrottle.FailureResult.LOCKED_NOW,
-                -> Unit
-            }
+            guess.recordFailure()
             audit(
                 "login.failure",
                 auditIdentity,
                 "reason" to if (record == null) "unknown_email" else "wrong_password",
             )
-            if (failureResult == LoginThrottle.FailureResult.LOCKED_NOW) {
-                audit("login.lockout", auditIdentity)
-            }
             throw UnauthorizedException("Unknown email or wrong password")
         }
         val (userId, user) = record
-        if (loginThrottle.recordSuccess(email) == LoginThrottle.SuccessResult.LOCKED) {
-            audit(EVENT_LOGIN_REJECTED_LOCKED, auditIdentity)
-            throw TooManyRequestsException(
-                "Too many failed login attempts for this account — try again later",
-            )
-        }
-        // Email MFA (opt-in via the MFA feature flag, read straight off the DB record —
-        // no JWT exists yet): correct credentials answer with a challenge, not tokens.
+        // Email MFA (opt-in via the MFA feature flag, read straight off the DB record - no JWT exists yet): correct credentials
+        // answer with a challenge, not tokens. The failure counter is NOT cleared here: the password is only the first factor, and
+        // a caller holding it could otherwise log in afresh after every few wrong codes and never reach the lockout. The counter
+        // clears when the code is accepted (auth/MfaRoutes.kt); until then a lock that tripped since the preflight still refuses.
         if (Feature.MFA !in user.disabledFeatures) {
+            guess.requireNotLocked()
             issueMfaChallenge(call, mfaChallenges, mailer, mfaTtlMinutes, userId, user)
             return@post
         }
+        guess.recordSuccess()
         audit("login.success", "email" to user.email, "userId" to userId.toLong())
         call.respond(HttpStatusCode.OK, jwtConfig.authResponse(userId, user))
-    }
-}
-
-private fun Route.mfa(deps: AuthDeps) {
-    val jwtConfig = deps.jwtConfig
-    val userService = deps.userService
-    val mfaChallenges = deps.mfaChallenges
-    // Second login step for MFA-enabled accounts: exchange the challenge id + the
-    // emailed code for the ordinary token pair. Not behind `authenticate` — there is
-    // no token yet.
-    post("/api/v1/login/mfa") {
-        val req = call.receive<MfaVerifyRequest>()
-        when (val outcome = mfaChallenges.verify(req.challengeId, req.code)) {
-            is MfaChallenges.Outcome.Failure -> {
-                audit(EVENT_LOGIN_MFA_FAILURE, "reason" to outcome.reason)
-                // Uniform for every failure mode — a guesser learns nothing about
-                // whether the challenge exists, expired, or the code was wrong.
-                throw UnauthorizedException("Invalid or expired sign-in code")
-            }
-            is MfaChallenges.Outcome.Success -> {
-                val userId = outcome.userId
-                // One read (the /refresh precedent): the user must still exist and be
-                // active, and the pair is minted from their current roles/flags.
-                val user = userService.read(userId)
-                if (user == null) {
-                    audit(EVENT_LOGIN_MFA_FAILURE, "reason" to "user_gone", "userId" to userId.toLong())
-                    throw UnauthorizedException("Invalid or expired sign-in code")
-                }
-                if (outcome.credentialRevision != user.credentialRevision) {
-                    audit(
-                        EVENT_LOGIN_MFA_FAILURE,
-                        "reason" to "credential_changed",
-                        "userId" to userId.toLong(),
-                    )
-                    throw UnauthorizedException("Invalid or expired sign-in code")
-                }
-                audit("login.mfa_success", "email" to user.email, "userId" to userId.toLong())
-                call.respond(
-                    HttpStatusCode.OK,
-                    jwtConfig.authResponse(userId, user),
-                )
-            }
-        }
     }
 }
 

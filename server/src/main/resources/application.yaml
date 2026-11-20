@@ -43,6 +43,8 @@ ktor:
       # the database/monitoring seams it reads.
       - ch.nokillswit.telemetry.TelemetryKt.configureTelemetry
       # — features
+      # The per-account failure counter (login lockout) BEFORE the user routes: the self password change shares it with /login and /login/mfa.
+      - ch.nokillswit.auth.AccountLockoutKt.configureLoginThrottle
       - ch.nokillswit.users.UserRoutesKt.configureUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
       - ch.nokillswit.workflows.WorkflowTemplateRoutesKt.configureWorkflowTemplateRoutes

@@ -10,7 +10,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 
 /**
- * The per-account lockout (auth/LoginThrottle.kt wired in AuthRoutes): after `threshold`
+ * The per-account lockout (auth/LoginThrottle.kt, built by auth/AccountLockout.kt): after `threshold`
  * consecutive failures for one email, further attempts — even with the correct password —
  * answer 429 for the lockout window. Independent of the per-IP rate limit.
  */

@@ -153,7 +153,11 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     (`MAX_PASSWORD_BYTES`, `auth/Passwords.kt` — the bcrypt ceiling), else `400`. A **self-change**
     (even by an admin) additionally requires a correct `currentPassword` in the body (else `403`,
     audited `password.change_denied`) — checked BEFORE the length validation, so 403 wins over
-    400 (the convention everywhere); an admin resetting **another** user's password does not. A
+    400 (the convention everywhere); an admin resetting **another** user's password does not. The route rides the
+    per-user `password-change` bucket (5 a minute, before the guards) and a wrong `currentPassword` counts into the
+    account's login lockout (`security.md` "Per-account login lockout"): a locked account's self change answers the
+    lockout's `429`, after the guard and BEFORE any password check; the admin-resets-another path neither counts nor is
+    refused by the target's lock. Tests: `PasswordChangeTest`. A
     successful change stamps `users.password_changed_at` and atomically increments
     `users.credential_revision`, which invalidates all outstanding refresh tokens and pending MFA
     challenges (see "Session auto-extension") and, through the per-request revision check, every outstanding

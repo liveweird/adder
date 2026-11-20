@@ -78,7 +78,8 @@ internal class RateLimitAuditThrottle(
 
 /**
  * Every token bucket the routes ride (per client IP, the live-connect included, except [TELEMETRY], [DIRECTORY], [ROOM_NAME],
- * [ROOM_MEMBERS], [CHAT_POST], [CHAT_WRITE], [CHAT_READ], [READ_STATE], [LIVE_TICKET] and [SEARCH]: per signed-in user), named in one place
+ * [ROOM_MEMBERS], [CHAT_POST], [CHAT_WRITE], [CHAT_READ], [READ_STATE], [LIVE_TICKET], [SEARCH] and [PASSWORD_CHANGE]: per signed-in
+ * user), named in one place
  * so a
  * feature module never has to know another's constant (the auth module used to import the try-it bucket's name — a layering
  * inversion the checkup removed). Route files reference these names; only this plugin installs them.
@@ -173,6 +174,15 @@ object RateLimits {
      */
     const val SEARCH = "search"
     /**
+     * `PUT /api/v1/users/{id}/password` rides a per-USER bucket (the [TELEMETRY] idiom): 5/min in every mode. The self change verifies
+     * `currentPassword` with a bcrypt per request, so without a bound a stolen session guesses the password at dispatcher speed and any
+     * user can occupy the small default dispatcher; the per-account lockout (`auth/LoginThrottle.kt`, a wrong current password counts
+     * like a failed login) is the real brute-force defence, the bucket is the per-request one. A person changes a password a few times
+     * a YEAR, an ADMIN resetting others a few a minute at the very most. The bucket sits BEFORE the guards, so a refused or invalid
+     * change spends a token too.
+     */
+    const val PASSWORD_CHANGE = "password-change"
+    /**
      * `GET /api/v1/live` - the WebSocket upgrade - rides a per-IP bucket (default 600/min, `security.rateLimit.liveConnectPerMinute`, a
      * number pins it). The route is public at the HTTP layer (the socket authenticates in its first frame), so the client address is
      * the only key there is; a tab opens one socket per (re)connect, so even a NAT'd office stays far under it, while a script cannot
@@ -199,6 +209,7 @@ object RateLimits {
     private const val READ_STATE_PER_MINUTE = 240
     private const val LIVE_TICKET_PER_MINUTE = 60
     private const val SEARCH_PER_MINUTE = 60
+    private const val PASSWORD_CHANGE_PER_MINUTE = 5
     private const val MFA_PER_MINUTE = 10
     private const val PASSWORD_RESET_CONFIRM_PER_MINUTE = 10
     private const val LOGIN_PER_MINUTE_PRODUCTION = 10
@@ -237,13 +248,14 @@ object RateLimits {
     internal fun readStateLimit() = READ_STATE_PER_MINUTE
     internal fun liveTicketLimit() = LIVE_TICKET_PER_MINUTE
     internal fun searchLimit() = SEARCH_PER_MINUTE
+    internal fun passwordChangeLimit() = PASSWORD_CHANGE_PER_MINUTE
     internal fun mfaLimit() = MFA_PER_MINUTE
     internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
 }
 
 /**
  * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER telemetry, directory,
- * room-name, room-members, chat-post, chat-write, chat-read, read-state, live-ticket and search buckets.
+ * room-name, room-members, chat-post, chat-write, chat-read, read-state, live-ticket, search and password-change buckets.
  * Login and password-reset follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
  * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before
@@ -273,6 +285,7 @@ fun Application.configureRateLimits() {
             READ_STATE to readStateLimit(),
             LIVE_TICKET to liveTicketLimit(),
             SEARCH to searchLimit(),
+            PASSWORD_CHANGE to passwordChangeLimit(),
         )
     }
     install(RateLimit) {
@@ -288,7 +301,7 @@ fun Application.configureRateLimits() {
             }
         }
         // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post, chat-write, chat-read, read-state, live-ticket,
-        // search).
+        // search, password-change).
         // The routes mount them INSIDE `authenticate {}` (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt,
         // threads/ThreadRoutes.kt, live/LiveRoutes.kt, threads/ThreadSearchRoutes.kt, notifications/NotificationRoutes.kt), so this key
         // runs only for a verified token:
