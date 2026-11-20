@@ -43,6 +43,7 @@ enum class LiveKind {
     @SerialName("message.deleted") MESSAGE_DELETED,
     @SerialName("message.reaction_changed") MESSAGE_REACTION_CHANGED,
     @SerialName("room.pin_changed") ROOM_PIN_CHANGED,
+    @SerialName("notification.created") NOTIFICATION_CREATED,
 }
 
 /**

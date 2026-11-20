@@ -11,7 +11,8 @@ import kotlin.test.Test
  * pattern, for `jwt.*ExpiresInSeconds` (`plugins/Security.kt`), the three `maxTracked` capacities and
  * `mfa.codeTtlSeconds` (`auth/AuthRoutes.kt`), `mail.smtp.port` (`infra/mail/Mail.kt`) and the per-IP
  * `security.rateLimit.*PerMinute` overrides (`plugins/RateLimits.kt`), the `live.*` bounds (`live/LiveConfig.kt`) and
- * `search.timeoutSeconds`, `search.maxConcurrent`, `threads.readTimeoutSeconds` and `threads.readMaxConcurrent` (`infra/db/Database.kt`).
+ * `search.timeoutSeconds`, `search.maxConcurrent`, `threads.readTimeoutSeconds` and `threads.readMaxConcurrent` (`infra/db/Database.kt`)
+ * and `notifications.retentionDays` and `notifications.sweepIntervalSeconds` (`notifications/NotificationSweep.kt`).
  */
 class NumericConfigBoundsTest {
 
@@ -65,6 +66,17 @@ class NumericConfigBoundsTest {
     @Test
     fun `a malformed or out-of-range list read concurrency cap refuses to start`() {
         assertRefused("threads.readMaxConcurrent", "0", "-1", "abc", "17")
+    }
+
+    @Test
+    fun `a malformed or out-of-range notification retention or sweep interval refuses to start`() {
+        assertRefused("notifications.retentionDays", "0", "-1", "abc", "3651")
+        assertRefused("notifications.sweepIntervalSeconds", "9", "0", "abc", "3601")
+    }
+
+    @Test
+    fun `a malformed notification sweep switch refuses to start`() {
+        assertRefused("notifications.sweepEnabled", "yes", "1", "")
     }
 
     @Test

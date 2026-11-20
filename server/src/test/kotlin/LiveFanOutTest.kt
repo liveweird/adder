@@ -24,6 +24,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -115,6 +116,39 @@ class LiveFanOutTest {
                 socket.nextNonResync(),
             )
             socket.close()
+        }
+    }
+
+    @Test
+    fun `a notice reaches the mentioned member's socket on another instance, subscribed or not, and no subscriber`() = testApplication {
+        usePostgresTestcontainer()
+        val scene = scene()
+        val bobEmail = uniqueEmail("fanout-bob")
+        val bobId = TestUsers.seed(email = bobEmail, password = "pw").also { users += it }
+        TestRooms.addMember(scene.room, bobId)
+        val bob = Scene(RoomActor(bobId, authedClient(bobEmail, "pw")), scene.room, scene.thread, bobEmail, "pw")
+        withSecondInstance { other ->
+            val writerSocket = openOn(other, scene)
+            writerSocket.subscribe(scene.room)
+            assertTrue(writerSocket.nextNonResync() is LiveServerFrame.Subscribed)
+            val bobSocket = openOn(other, bob) // never subscribes: the notice is addressed to the person, not to the room
+            awaitListenerUp(other.application.attributes[LiveHubKey])
+
+            val posted = scene.writer.client.postJson(
+                "/api/v1/rooms/${scene.room}/threads/${scene.thread}/messages",
+                MessageRequest("Hello <@$bobId>"),
+            )
+            assertEquals(HttpStatusCode.Created, posted.status)
+            val id = posted.body<MessageResponse>().id
+            assertEquals(LiveServerFrame.Event(LiveKind.MESSAGE_POSTED, scene.room, scene.thread, id), writerSocket.nextNonResync())
+            assertEquals(
+                LiveServerFrame.Event(LiveKind.NOTIFICATION_CREATED, scene.room, scene.thread, id),
+                bobSocket.nextNonResync(),
+                "the mentioned member's socket hears the notice although it never subscribed to the room",
+            )
+            assertNull(writerSocket.nextFrameOrNull(500), "a subscriber of the room that is not the target hears nothing of it")
+            bobSocket.close()
+            writerSocket.close()
         }
     }
 

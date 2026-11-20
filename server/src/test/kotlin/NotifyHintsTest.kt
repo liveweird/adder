@@ -306,6 +306,88 @@ class NotifyHintsTest {
         }
 
     @Test
+    fun `a post that mentions someone emits message posted and then notification created for the mentioned alone`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("hint-nown2")
+        val author = actor("hint-nauth")
+        val bob = actor("hint-nbob")
+        val room = room(owner, template())
+        TestRooms.addMember(room, author.id)
+        TestRooms.addMember(room, bob.id)
+        TestThreads.seed(room, author.id)
+        NotifyCapture().use { capture ->
+            val messageId = arrayOfNulls<UInt>(1)
+            val hints = capture.during {
+                // The author is mentioned too: she is shown, never notified, so the targets are bob alone.
+                val posted = author.client.postJson("$rooms/$room/threads/1/messages", MessageRequest("hi <@${author.id}> <@${bob.id}>"))
+                posted.expect(HttpStatusCode.Created)
+                messageId[0] = posted.body<MessageResponse>().id
+                // A post that mentions nobody is ONE hint, as before.
+                author.client.postJson("$rooms/$room/threads/1/messages", MessageRequest("no mention")).expect(HttpStatusCode.Created)
+            }
+            val first = messageId[0]!!
+            assertEquals(3, hints.size, "the mentioning post emits two hints, the plain one")
+            assertEquals(
+                listOf(
+                    hint(LiveKind.MESSAGE_POSTED, room, thread = 1, message = first),
+                    hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = first, targets = listOf(bob.id)),
+                ),
+                hints.take(2),
+                "the wire order is the write's own hint, then what it caused",
+            )
+            assertEquals(LiveKind.MESSAGE_POSTED, hints[2].kind)
+        }
+    }
+
+    @Test
+    fun `a thread, an edit and a hand-over emit their own hint and then the notice's, a delete and a self-assignment none`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val owner = actor("hint-aown")
+            val ann = actor("hint-aann")
+            val bob = actor("hint-abob")
+            val room = room(owner, template())
+            TestRooms.addMember(room, ann.id)
+            TestRooms.addMember(room, bob.id)
+            NotifyCapture().use { capture ->
+                val messageIds = arrayOfNulls<UInt>(1)
+                val hints = capture.during {
+                    val body = ThreadCreateRequest("Mention", "Opening <@${bob.id}>", mapOf("severity" to JsonPrimitive("s1")))
+                    val created = ann.client.postJson("$rooms/$room/threads", body)
+                    created.expect(HttpStatusCode.Created)
+                    val posted = ann.client.postJson("$rooms/$room/threads/1/messages", MessageRequest("A reply"))
+                    messageIds[0] = posted.body<MessageResponse>().id
+                    // The edit newly mentions the owner: message edited, then the notice. An unchanged mention adds nothing.
+                    ann.client.putJson("$rooms/$room/messages/${messageIds[0]}", MessageRequest("A reply <@${owner.id}>"))
+                        .expect(HttpStatusCode.NoContent)
+                    ann.client.putJson("$rooms/$room/messages/${messageIds[0]}", MessageRequest("A reply again <@${owner.id}>"))
+                        .expect(HttpStatusCode.NoContent)
+                    ann.client.delete("$rooms/$room/messages/${messageIds[0]}").expect(HttpStatusCode.NoContent)
+                    // The hand-over: thread owner changed, then the notice; taking the thread oneself is one hint.
+                    owner.client.putJson("$rooms/$room/threads/1/owner", ThreadOwnerRequest(bob.id)).expect(HttpStatusCode.NoContent)
+                    owner.client.putJson("$rooms/$room/threads/1/owner", ThreadOwnerRequest(owner.id)).expect(HttpStatusCode.NoContent)
+                }
+                val message = messageIds[0]!!
+                val opening = TestThreads.rawMessages(TestThreads.rawAll(room).single().id).first().id
+                assertEquals(
+                    listOf(
+                        hint(LiveKind.THREAD_CREATED, room, thread = 1),
+                        hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = opening, targets = listOf(bob.id)),
+                        hint(LiveKind.MESSAGE_POSTED, room, thread = 1, message = message),
+                        hint(LiveKind.MESSAGE_EDITED, room, thread = 1, message = message),
+                        hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = message, targets = listOf(owner.id)),
+                        hint(LiveKind.MESSAGE_EDITED, room, thread = 1, message = message),
+                        hint(LiveKind.MESSAGE_DELETED, room, thread = 1, message = message),
+                        hint(LiveKind.THREAD_OWNER_CHANGED, room, thread = 1),
+                        hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, targets = listOf(bob.id)),
+                        hint(LiveKind.THREAD_OWNER_CHANGED, room, thread = 1),
+                    ),
+                    hints,
+                )
+            }
+        }
+
+    @Test
     fun `a no-op write emits nothing`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("hint-nown")

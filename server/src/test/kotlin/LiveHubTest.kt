@@ -451,6 +451,7 @@ class LiveHubTest {
         // The hub follows `audience()`: a kind not named here is for the room's subscribers alone.
         val named = mapOf(
             LiveKind.ROOM_CREATED to Audience.TARGETS,
+            LiveKind.NOTIFICATION_CREATED to Audience.TARGETS,
             LiveKind.ROOM_MEMBER_ADDED to Audience.SUBSCRIBERS_AND_TARGETS,
             LiveKind.ROOM_MEMBER_ROLE_CHANGED to Audience.SUBSCRIBERS_AND_TARGETS,
         )
@@ -473,6 +474,27 @@ class LiveHubTest {
         assertEquals(listOf(event(7u, LiveKind.ROOM_CREATED)), creator.drain())
         assertEquals(listOf(event(7u, LiveKind.ROOM_UPDATED)), subscriber.drain(), "a subscriber is not a target of room.created")
         assertEquals(emptyList(), target.drain())
+    }
+
+    @Test
+    fun `a notice reaches every socket of its target, subscribed or not, and no other socket`() = withHub {
+        val target = socket(1u)
+        val targetOtherTab = socket(1u)
+        val subscriber = socket(2u)
+        val stranger = socket(3u)
+        listOf(target, targetOtherTab, subscriber, stranger).forEach { register(it) }
+        subscribe(target, 7u)
+        subscribe(subscriber, 7u)
+        listOf(target, targetOtherTab, subscriber, stranger).forEach { it.drain() }
+
+        val notice = LiveHint(LiveKind.NOTIFICATION_CREATED, 7u, threadNumber = 3, messageId = 11u, targetUserIds = listOf(1u))
+        val frame = LiveServerFrame.Event(LiveKind.NOTIFICATION_CREATED, 7u, 3, 11u)
+        deliver(notice)
+        barrier(target)
+        assertEquals(listOf(frame), target.drain(), "the target that is also a subscriber gets ONE frame")
+        assertEquals(listOf(frame), targetOtherTab.drain(), "a socket of the target that never subscribed")
+        assertEquals(emptyList(), subscriber.drain(), "a subscriber of the room is not a target: a notice is personal")
+        assertEquals(emptyList(), stranger.drain())
     }
 
     @Test

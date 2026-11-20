@@ -39,10 +39,11 @@ val MESSAGE_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
  * write under the room lock ([withThreadWrite], [withMessageWrite]; the room row lock is the thread lock, `chat-model.md` "Guard order and
  * locking"). A message is soft-deleted (`marked_as_deleted`) to a LISTED tombstone: the body is scrubbed to '' and `deleted_by` records who
  * removed it, the author's own delete included. Reads use `users` for display names only (soft-deleted accounts included) and room data
- * only through the `rooms/` services. Everything derived from a body or a delete that is not a hashtag (the mention index first) follows
- * the write through the [followers] ([MessageFollower]): each runs inside the write, after the row's own statement, so a follower must
- * not rely on `message_count` or the activity stamps (they are written after it) and, on an edit, sees only the NEW body (the row is
- * already overwritten): it diffs against its own derived rows.
+ * only through the `rooms/` services. Everything derived from a body or a delete that is not a hashtag (the mention index first, and
+ * through it the notices) follows the write through the [followers] ([MessageFollower]): each runs inside the write, AFTER the row's own
+ * statement, the counters and the message's own live hint, so a follower's own hint (`notification.created`) always follows
+ * `message.posted` on the wire, and on an edit a follower sees only the NEW body (the row is already overwritten): it diffs against its
+ * own derived rows.
  */
 class MessageService internal constructor(
     private val database: R2dbcDatabase,
@@ -78,10 +79,11 @@ class MessageService internal constructor(
     }
 
     /**
-     * Inserts a message inside the caller's transaction (the thread write under the room lock) and returns its id. The ONE chokepoint of a
+     * Inserts a message inside the caller's transaction (the thread write under the room lock) and returns it. The ONE chokepoint of a
      * new body (a post and a thread's opening message both come here), so its hashtags are indexed here, in the same transaction.
      * [hashtags] is [parseHashtags] of [body], parsed by the caller BEFORE it took the room lock (a parse is work, and the lock is held).
-     * [threadNumber] is the thread's per-room number, for the followers. Answers the id and the people the followers notified.
+     * [threadNumber] is the thread's per-room number, for the followers. The followers do NOT run here: the caller runs them with
+     * [followPosted] once it has written the counters and the write's own live hint, so a follower's hint comes after it.
      */
     internal suspend fun insertInTransaction(
         roomId: UInt,
@@ -102,9 +104,16 @@ class MessageService internal constructor(
             it[tagsVersion] = TAGS_VERSION
         }.single()[Messages.id].value
         tags.insertInTransaction(id, threadId, roomId, hashtags)
-        val ref = MessageRef(roomId, threadId, threadNumber, id)
-        return InsertedMessage(id, followers.flatMap { it.posted(ref, authorId, body, at) }.distinct())
+        return InsertedMessage(id, MessageRef(roomId, threadId, threadNumber, id), authorId, body, at)
     }
+
+    /**
+     * Runs every follower's `posted` for a message [insertInTransaction] wrote, INSIDE the same write and AFTER the caller's counters and
+     * its own live hint (a follower may emit hints of its own, and the wire order is "the write, then what it caused"). Answers the
+     * union of the people the followers notified. A post and a thread's opening message both call it.
+     */
+    internal suspend fun followPosted(message: InsertedMessage): List<UInt> =
+        followers.flatMap { it.posted(message.ref, message.authorId, message.body, message.at) }.distinct()
 
     /**
      * One page of thread [threadId]'s messages (its per-room [number] rides on every row), tombstones included. [idLt] keeps only the
@@ -202,7 +211,8 @@ class MessageService internal constructor(
             write.requireThreadOpen()
             val authorId = write.caller.userId
             val stamp = nowMillis()
-            val (id, notified) = insertInTransaction(roomId, write.thread.id, number, authorId, request.body, hashtags, stamp)
+            val inserted = insertInTransaction(roomId, write.thread.id, number, authorId, request.body, hashtags, stamp)
+            val id = inserted.id
             val threads = ThreadService.Threads
             threads.update({ threads.id eq write.thread.id }) {
                 it[messageCount] = messageCount + 1
@@ -210,6 +220,7 @@ class MessageService internal constructor(
             }
             rooms.touchActivity(roomId, stamp)
             notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
+            val notified = followPosted(inserted)
             val name = userNames(listOf(authorId)).getValue(authorId)
             val mentioned = if (request.body.contains("<@")) mentions.mentionsOf(listOf(id))[id].orEmpty() else emptyList()
             val response = MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp, mentioned, emptyList())
@@ -243,9 +254,9 @@ class MessageService internal constructor(
             if (write.message.tagsVersion < TAGS_VERSION || tagKeysDiffer(write.message.body, newTags)) {
                 tags.replaceInTransaction(messageId, write.thread.id, roomId, newTags)
             }
+            notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
             val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId)
             val notified = followers.flatMap { it.edited(ref, write.message.authorId, request.body) }.distinct()
-            notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
             MessageEdit(write.thread.id, messageId, notified)
         }
     }
@@ -271,9 +282,9 @@ class MessageService internal constructor(
                 it[deletedBy] = remover
             }
             tags.clearInTransaction(messageId)
+            notifyLive(LiveHint(LiveKind.MESSAGE_DELETED, roomId, threadNumber = write.thread.number, messageId = messageId))
             val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId)
             followers.forEach { it.deleted(ref) }
-            notifyLive(LiveHint(LiveKind.MESSAGE_DELETED, roomId, threadNumber = write.thread.number, messageId = messageId))
             MessageRemoval(write.thread.id, messageId, write.message.authorId, moderated = remover != write.message.authorId)
         }
 
@@ -301,5 +312,5 @@ class MessageService internal constructor(
     }
 }
 
-/** The row [id] of a message just inserted and the people its followers [notified]. */
-internal data class InsertedMessage(val id: UInt, val notified: List<UInt>)
+/** A message just inserted: its row [id] and what [MessageService.followPosted] needs to tell the followers about it. */
+internal class InsertedMessage(val id: UInt, val ref: MessageRef, val authorId: UInt, val body: String, val at: Long)

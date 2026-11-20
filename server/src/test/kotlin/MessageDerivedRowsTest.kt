@@ -158,7 +158,8 @@ class MessageDerivedRowsTest {
     private class Services(followers: List<MessageFollower>) {
         private val database = sharedDatabaseForTests()
         private val members = RoomMemberService(database, TeamService(database))
-        val messages = MessageService(database, TestRooms.service, MessageTagService(database), MessageMentionService(members), followers)
+        val mentions = MessageMentionService(members, TestThreads.notices)
+        val messages = MessageService(database, TestRooms.service, MessageTagService(database), mentions, followers)
         val threads = ThreadService(database, TestRooms.service, TestRooms.workflows, members, TestThreads.events, messages)
     }
 
@@ -166,18 +167,17 @@ class MessageDerivedRowsTest {
      * Tables whose rows this test arranges for the message it deletes. A table the catalog lists that is not here has no proof it was ever
      * populated, so the test fails until the line that gives a message a row in it is added.
      */
-    private val arrangedByTheBody = setOf(
-        "message_tags", // the body's `#derived-row`
-        "message_mentions", // its mention of the owner
-        "room_pins", // the pin the test puts on the message
-        "message_reactions", // the reaction the test seeds on the message
-    )
+    // The body's `#derived-row`, its mentions of the owner and of a peer in the room, the peer's notice (never the author's own), the
+    // pin the test puts on the message and the reaction it seeds on it.
+    private val arrangedByTheBody = setOf("message_tags", "message_mentions", "notifications", "room_pins", "message_reactions")
 
     @Test
     fun `a deleted message keeps no row in any table that references messages`() = runBlocking {
         val w = world()
+        val peer = TestUsers.seed(uniqueEmail("derived-peer"), "pw", role = UserRole.USER).also { mintedUsers += it }
+        TestRooms.addMember(w.room, peer)
         val seeded = TestThreads.seed(w.room, w.owner)
-        val body = MessageRequest("Derived #derived-row <@${w.owner}>")
+        val body = MessageRequest("Derived #derived-row <@${w.owner}> <@$peer>")
         val id = TestThreads.messages.post(w.room, seeded.number, w.caller, body).message.id
         TestThreads.pins.setMessagePin(w.room, id, w.caller, true)
         PostgresTestSupport.connect().use { c ->

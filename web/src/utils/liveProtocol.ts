@@ -24,6 +24,7 @@ export const LIVE_EVENT_KINDS = [
   "message.deleted",
   "message.reaction_changed",
   "room.pin_changed",
+  "notification.created",
 ] as const;
 
 export type LiveEventKind = (typeof LIVE_EVENT_KINDS)[number];

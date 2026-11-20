@@ -27,12 +27,18 @@ internal data class MentionChange(val added: List<UInt>, val removed: List<UInt>
  * person. It is the first [MessageFollower] of a message write: the three writes run INSIDE the message's own transaction under the
  * room lock, after the row's own statement, so a body and its mentions commit or roll back together and a delete cannot leave a mention
  * behind a scrubbed body. The table is hard-deleted (`persistence.md` "Mentions (V17)"). Ids only: a body or a name never reaches a log.
+ * It is also the one place the chat tells the notification feature about a mention ([notices], the [ThreadNotices] port): a post notifies
+ * the members it mentions, an edit only the newly mentioned (and drops the notice of a mention it removed) and a delete removes every
+ * notice of the message, all in the same transaction.
  *
  * Only an ACTIVE member of the room, at the moment of the write ([RoomMemberService.activeMemberIds], inside the write), is mentioned; any
  * other id is plain text, no row, never a refusal. [edited] gets only the NEW body (the row has already been overwritten when a follower
  * runs), so it diffs the new body against its OWN rows, never against the old body.
  */
-internal class MessageMentionService(private val members: RoomMemberService) : MessageFollower {
+internal class MessageMentionService(
+    private val members: RoomMemberService,
+    private val notices: ThreadNotices,
+) : MessageFollower {
     /** The derived index. There is no soft delete and no id of its own. */
     object MessageMentions : Table("message_mentions") {
         val messageId = reference("message_id", MessageService.Messages)
@@ -46,17 +52,19 @@ internal class MessageMentionService(private val members: RoomMemberService) : M
         override val primaryKey = PrimaryKey(messageId, userId)
     }
 
-    override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): List<UInt> {
-        indexInTransaction(ref, body)
-        return emptyList()
-    }
+    override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): List<UInt> =
+        notices.mentioned(ref, authorId, indexInTransaction(ref, body))
 
     override suspend fun edited(ref: MessageRef, authorId: UInt, body: String): List<UInt> {
-        replaceInTransaction(ref, body)
-        return emptyList()
+        val change = replaceInTransaction(ref, body)
+        notices.mentionsDropped(ref.messageId, change.removed)
+        return notices.mentioned(ref, authorId, change.added)
     }
 
-    override suspend fun deleted(ref: MessageRef) = clearInTransaction(ref.messageId)
+    override suspend fun deleted(ref: MessageRef) {
+        clearInTransaction(ref.messageId)
+        notices.messageRemoved(ref.messageId)
+    }
 
     /** Indexes the mentions of a NEW message [ref] (no row exists yet) and answers the members mentioned, in order of appearance. */
     suspend fun indexInTransaction(ref: MessageRef, body: String): List<UInt> {

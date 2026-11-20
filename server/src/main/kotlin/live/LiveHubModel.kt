@@ -91,7 +91,7 @@ internal enum class Audience {
  * room and send `revoked`), so the hub gives them their own branches before it asks; their entry here is the default.
  */
 internal fun LiveKind.audience(): Audience = when (this) {
-    LiveKind.ROOM_CREATED -> Audience.TARGETS
+    LiveKind.ROOM_CREATED, LiveKind.NOTIFICATION_CREATED -> Audience.TARGETS
     LiveKind.ROOM_MEMBER_ADDED, LiveKind.ROOM_MEMBER_ROLE_CHANGED -> Audience.SUBSCRIBERS_AND_TARGETS
     else -> Audience.SUBSCRIBERS
 }

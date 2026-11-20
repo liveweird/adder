@@ -233,6 +233,75 @@ class ThreadSchemaTest {
         }
     }
 
+    @Test
+    fun `notifications key on the membership, are unique per message, recipient and kind, and go with their message and their member`() {
+        val marker = UUID.randomUUID().toString().take(8)
+        PostgresTestSupport.connect().use { c ->
+            val user = c.scalar(
+                "INSERT INTO users (\"name\", email, password_hash) VALUES ('Schema', ?, 'x') RETURNING id",
+                "schema-notice-$marker@test",
+            )
+            val other = c.scalar(
+                "INSERT INTO users (\"name\", email, password_hash) VALUES ('Schema', ?, 'x') RETURNING id",
+                "schema-notice-other-$marker@test",
+            )
+            val room = c.scalar(
+                "INSERT INTO rooms (\"name\", last_activity_at, created_at, updated_at) VALUES (?, 1, 1, 1) RETURNING id",
+                "Schema notices $marker",
+            )
+            try {
+                c.exec(
+                    "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position) " +
+                        "VALUES (?, 'open', 'Open', 'BLUE', 'OPEN', TRUE, 0)",
+                    room,
+                )
+                val thread = c.scalar(
+                    "INSERT INTO threads (room_id, \"number\", title, status_key, owner_id, created_by, " +
+                        "last_activity_at, created_at, updated_at) VALUES (?, 1, 'T', 'open', ?, ?, 1, 1, 1) RETURNING id",
+                    room, user, user,
+                )
+                val message = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "one", false, null)
+                val member = "INSERT INTO room_members (room_id, user_id, \"role\", added_at) VALUES (?, ?, 'MEMBER', 1)"
+                assertEquals(1, c.exec(member, room, user))
+                val insert = "INSERT INTO notifications " +
+                    "(recipient_id, room_id, notification_type, actor_id, thread_id, message_id, created_at) VALUES (?, ?, ?, ?, ?, ?, 1)"
+
+                assertState(FK_VIOLATION, "a notice needs its recipient's membership of the room") {
+                    c.exec(insert, other, room, "MENTIONED", user, thread, message)
+                }
+                assertEquals(1, c.exec(insert, user, room, "MENTIONED", other, thread, message))
+                assertState(UNIQUE_VIOLATION, "one notice per message, recipient and kind") {
+                    c.exec(insert, user, room, "MENTIONED", other, thread, message)
+                }
+                assertEquals(1, c.exec(insert, user, room, "A_KIND_FROM_THE_FUTURE", other, thread, message), "the kind carries no CHECK")
+                assertEquals(1, c.exec(insert, user, room, "THREAD_ASSIGNED", other, thread, null))
+                val again = c.exec(insert, user, room, "THREAD_ASSIGNED", other, thread, null)
+                assertEquals(1, again, "a hand-over has no message to be unique by")
+                assertState(FK_VIOLATION, "a notice needs its message") {
+                    c.exec(insert, user, room, "MENTIONED", other, thread, Int.MAX_VALUE)
+                }
+                assertState(FK_VIOLATION, "a notice needs its actor") {
+                    c.exec(insert, user, room, "MENTIONED", Int.MAX_VALUE, thread, null)
+                }
+                assertEquals(4, c.scalar("SELECT count(*) FROM notifications WHERE room_id = ?", room))
+
+                assertEquals(1, c.exec("DELETE FROM messages WHERE id = ?", message))
+                assertEquals(2, c.scalar("SELECT count(*) FROM notifications WHERE room_id = ?", room), "a message's notices go with it")
+                // Removing the member takes every notice of that person in the room: the leak rule is in the schema.
+                assertEquals(1, c.exec("DELETE FROM room_members WHERE room_id = ? AND user_id = ?", room, user))
+                assertEquals(0, c.scalar("SELECT count(*) FROM notifications WHERE room_id = ?", room))
+                // The room's hard delete (the test purge) cascades through the members and the threads.
+                assertEquals(1, c.exec(member, room, user))
+                assertEquals(1, c.exec(insert, user, room, "THREAD_ASSIGNED", other, thread, null))
+                assertEquals(1, c.exec("DELETE FROM rooms WHERE id = ?", room))
+                assertEquals(0, c.scalar("SELECT count(*) FROM notifications WHERE room_id = ?", room))
+            } finally {
+                c.exec("DELETE FROM rooms WHERE id = ?", room)
+                c.exec("DELETE FROM users WHERE id IN (?, ?)", user, other)
+            }
+        }
+    }
+
     private fun Connection.text(sql: String, vararg args: Any?): String? = prepareStatement(sql).use { st ->
         args.forEachIndexed { index, arg -> st.setObject(index + 1, arg) }
         st.executeQuery().use { rs ->

@@ -12,9 +12,11 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.post
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
@@ -171,6 +173,57 @@ class ChatLogHygieneTest {
             assertTrue("message.posted" in names && "message.edited" in names && "message.deleted" in names, "captured: $names")
             val leaked = capture.events.filter { tag in it.rendered() || tag.uppercase() in it.rendered() }
             assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a hashtag")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    /**
+     * A notice holds ids only, so no title or body can reach a log through it: the mention that makes one, the list that shows it (it
+     * reads the room's name, the thread's title and the actor's name), the two "seen" writes, a hand-over's notice, an edit that drops
+     * the mention and the delete that takes the notice leave the marker planted in the thread title and the message bodies in no log
+     * line of any logger, the `notification.created` audit line included (ids and a kind only).
+     */
+    @Test
+    fun `no log line carries a title or a body through a notice - made, listed, seen, dropped or deleted`() = testApplication {
+        val marker = "HYGNOTE-${UUID.randomUUID()}"
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            usePostgresTestcontainer()
+            val owner = seedActor("hyg-nown").also { mintedUsers += it.id }
+            val member = seedActor("hyg-nmem").also { mintedUsers += it.id }
+            val template = TestThreads.seedTemplate().also { mintedTemplates += it }
+            val room = TestRooms.seed(owner.id, template, "Hyg ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
+            TestRooms.addMember(room, member.id)
+            val created = member.client.raw(
+                HttpMethod.Post, "$rooms/$room/threads",
+                """{"title":"T $marker-title","body":"B $marker-body <@${owner.id}>","fields":{"severity":"s1"}}""",
+            )
+            assertEquals(HttpStatusCode.Created, created.status)
+            val body = """{"body":"P $marker-post <@${owner.id}>"}"""
+            val posted = member.client.raw(HttpMethod.Post, "$rooms/$room/threads/1/messages", body)
+            assertEquals(HttpStatusCode.Created, posted.status)
+            val messageId = posted.body<MessageResponse>().id
+            val listed = owner.client.get("/api/v1/notifications")
+            assertEquals(HttpStatusCode.OK, listed.status)
+            val shown = listed.bodyAsText()
+            assertTrue(marker in shown, "the response is the one place a title is read (it is not a log)")
+            val firstNotice = Regex("\"id\":(\\d+)").find(shown)!!.groupValues[1]
+            assertEquals(HttpStatusCode.NoContent, owner.client.post("/api/v1/notifications/$firstNotice/seen").status)
+            assertEquals(HttpStatusCode.NoContent, owner.client.post("/api/v1/notifications/seen-all").status)
+            val owned = "$rooms/$room/threads/1/owner"
+            assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, owned, """{"userId":${member.id}}""").status)
+            assertEquals(HttpStatusCode.NoContent, member.client.raw(HttpMethod.Put, owned, """{"userId":${owner.id}}""").status)
+            assertEquals(
+                HttpStatusCode.NoContent,
+                member.client.raw(HttpMethod.Put, "$rooms/$room/messages/$messageId", """{"body":"E $marker-edit"}""").status,
+            )
+            assertEquals(HttpStatusCode.NoContent, member.client.delete("$rooms/$room/messages/$messageId").status)
+
+            val names = capture.events.map { it.message }
+            assertTrue("notification.created" in names && "message.edited" in names && "thread.owner_changed" in names, "captured: $names")
+            val leaked = capture.events.filter { marker in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a title or a body")
         } finally {
             capture.detach()
         }

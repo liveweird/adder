@@ -3,7 +3,7 @@ import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query
 import { FakeClock } from "../test/socket";
 import { createLiveInvalidator, keysForFrame } from "./liveKeys";
 import { LIVE_EVENT_KINDS, type LiveServerFrame } from "./liveProtocol";
-import { roomKeys, searchAllKey } from "./roomKeys";
+import { notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
 
 const event = (kind: string, roomId: number, threadNumber?: number, messageId?: number): LiveServerFrame => ({
   type: "event",
@@ -147,6 +147,11 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame({ type: "pong" })).toEqual([]);
   });
 
+  test("a notice is personal: it re-reads the notifications and nothing of the room", () => {
+    expect(keysForFrame(event("notification.created", 5, 7, 99))).toEqual([["notifications"]]);
+    expect(keysForFrame(event("notification.created", 5))).toEqual([["notifications"]]);
+  });
+
   test("every kind the protocol lists has a row (none falls through to the unknown-kind answer)", () => {
     for (const kind of LIVE_EVENT_KINDS) {
       const keys = keysForFrame(event(kind, 5, 7, 99));
@@ -179,6 +184,7 @@ describe("the keys and the readers cannot drift apart", () => {
     roomKeys.messages(5, 7),
     [...roomKeys.search(5), "term", "all", 1],
     [...searchAllKey, "term", "all", 1],
+    [...notificationsKey, "unseen"], // the bell reads under this prefix
   ];
 
   test("the room's tag options sit under the thread-list prefix, so every hint that refreshes the list refreshes them", () => {

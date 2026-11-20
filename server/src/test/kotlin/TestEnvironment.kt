@@ -66,6 +66,9 @@ fun TestApplicationBuilder.configureApp(vararg overrides: Pair<String, String>) 
                 // Likewise the boot reindex of the hashtag index (V15) would walk every message of the shared database; its own tests
                 // opt in with "threads.tagReindexOnBoot" to "true". (The purge of deleted messages' tag rows runs at every boot.)
                 "threads.tagReindexOnBoot" to "false",
+                // Likewise the retention sweep of the notices (V18) would delete rows of the shared database from every booted app; its own
+                // tests opt in with "notifications.sweepEnabled" to "true".
+                "notifications.sweepEnabled" to "false",
                 *overrides,
             )
         )

@@ -211,6 +211,7 @@ One WebSocket per tab, opened by `useLiveUpdates` (`hooks/useLiveUpdates.ts`) in
 | `message.reaction_changed` | messages R/N only, with the 3 s gap (a reaction moves no count, order or rail) |
 | `message.deleted` | messages R/N, thread detail R/N, threads list R, pins R (a deleted message loses its pin) |
 | `room.pin_changed` | pins R (`["rooms","pins",R]`) |
+| `notification.created` | `["notifications"]` (outside `["rooms"]`, like `["search"]`; the recipient's sockets only) |
 | `room.created` | rail, rooms list |
 | `room.updated`, `archived`, `unarchived` | room detail R, rail, rooms list |
 | `room.workflow_updated` | workflow R, workflow-edit R, threads list R, `["rooms","threads",R,"detail"]`, `["rooms","threads",R,"events"]` |

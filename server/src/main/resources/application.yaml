@@ -56,6 +56,10 @@ ktor:
       - ch.nokillswit.threads.ReactionRoutesKt.configureReactionRoutes
       # The room's pins (V21): the list and the two pin PUTs, after the message routes whose path family they extend.
       - ch.nokillswit.threads.PinRoutesKt.configurePinRoutes
+      # Notices (V18): the caller's own notifications and the two "seen" writes, then the retention sweep (on ApplicationStarted, own scope;
+      # `notifications.sweepEnabled` below). After the thread routes (the notices are made inside their writes), before the catch-all.
+      - ch.nokillswit.notifications.NotificationRoutesKt.configureNotificationRoutes
+      - ch.nokillswit.notifications.NotificationSweepKt.configureNotificationSweep
       # The full-text search (V16): after the thread routes (it reads the room service they share), before the catch-all.
       - ch.nokillswit.threads.ThreadSearchRoutesKt.configureThreadSearchRoutes
       # The boot reindex of the hashtag index (V15): after the routes, on ApplicationStarted, in its own scope; `threads.tagReindexOnBoot` below.
@@ -266,6 +270,15 @@ rooms:
   # room write holds the lock for a few milliseconds, so 3 s is ~1000x a normal hold and still far below the pool's 10 s acquire
   # timeout. 100..30000.
   lockWaitMillis: "$ROOM_LOCK_WAIT_MILLIS:3000"
+
+notifications:
+  # How long a notice is kept (`notifications/NotificationSweep.kt`): older rows are deleted, at most once an hour, in the sweep's own scope
+  # (never inside a chat write). 1..3650 days.
+  retentionDays: "$NOTIFICATIONS_RETENTION_DAYS:90"
+  # How often the sweep wakes (it purges when the last purge is an hour old). 10..3600 seconds.
+  sweepIntervalSeconds: "$NOTIFICATIONS_SWEEP_INTERVAL_SECONDS:60"
+  # Off keeps the sweep from starting (the test harness: no booted app purges the shared database); the keys above are validated either way.
+  sweepEnabled: "$NOTIFICATIONS_SWEEP_ENABLED:true"
 
 search:
   # The budget of a search REQUEST (`threads/SearchBudget.kt`, one deadline for all its statements: each statement's `queryTimeout` is the

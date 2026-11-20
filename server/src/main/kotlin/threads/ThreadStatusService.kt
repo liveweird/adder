@@ -27,12 +27,13 @@ val ThreadStatusServiceKey = AttributeKey<ThreadStatusService>("ThreadStatusServ
  * (`chat-model.md` "History"), and every change stamps its event, the activity bump and `updated_at` with ONE instant. The thread
  * row's own `revision` (the details PUT's token) is NOT bumped by either.
  */
-class ThreadStatusService(
+class ThreadStatusService internal constructor(
     private val database: R2dbcDatabase,
     private val rooms: RoomService,
     private val workflows: RoomWorkflowService,
     private val members: RoomMemberService,
     private val events: ThreadEventService,
+    private val notices: ThreadNotices,
 ) {
     /**
      * Moves thread [number] to the status [targetKey], in this order: the target must be an ACTIVE status of the room (an unknown or
@@ -75,8 +76,8 @@ class ThreadStatusService(
      * Passes thread [number] to [newOwnerId]: the steward guard on the FRESH caller and row ([requireThreadSteward], a `403`), an
      * archived room `409`, a closed thread `409` (reopen it first), the current owner again is null (a `204` with no write, even
      * if they have left), else the new owner must be an ACTIVE member of the room (`400`). Records `OWNER_CHANGED` (ids plus the
-     * names as they are now) and bumps the thread and the room. A removed or deleted owner keeps the thread, inert, until a
-     * steward does this.
+     * names as they are now) and bumps the thread and the room, then tells the new owner ([OwnerMove.notified]: no notice when the caller
+     * took the thread themself). A removed or deleted owner keeps the thread, inert, until a steward does this.
      */
     suspend fun setOwner(roomId: UInt, number: Int, caller: CallerPrincipal, newOwnerId: UInt): OwnerMove? =
         database.withThreadWrite(
@@ -106,12 +107,13 @@ class ThreadStatusService(
             )
             rooms.touchActivity(roomId, stamp)
             notifyLive(LiveHint(LiveKind.THREAD_OWNER_CHANGED, roomId, threadNumber = number))
-            OwnerMove(thread.id, thread.ownerId, newOwnerId)
+            val notified = notices.ownerAssigned(roomId, thread.id, number, caller.userId, newOwnerId)
+            OwnerMove(thread.id, thread.ownerId, newOwnerId, notified)
         }
 }
 
 /** What a status move wrote, for the route's audit line. */
 data class StatusMove(val threadId: UInt, val from: String, val to: String, val transition: StatusTransition)
 
-/** What an owner hand-over wrote, for the route's audit line. */
-data class OwnerMove(val threadId: UInt, val fromUserId: UInt, val toUserId: UInt)
+/** What an owner hand-over wrote, for the route's audit lines; [notified] says whether the new owner got a notice. */
+data class OwnerMove(val threadId: UInt, val fromUserId: UInt, val toUserId: UInt, val notified: Boolean)

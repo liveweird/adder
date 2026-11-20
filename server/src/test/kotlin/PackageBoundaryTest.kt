@@ -25,18 +25,19 @@ class PackageBoundaryTest {
 
     /**
      * Composition-root exceptions to "infra never references a feature": `infra/db/Database.kt` builds and publishes the feature
-     * services (`teams`, `users`, `auth`, `workflows`, `rooms`, `threads`) and `infra/db/Bootstrap.kt` seeds the admin through
+     * services (`teams`, `users`, `auth`, `workflows`, `rooms`, `threads`, `notifications`) and `infra/db/Bootstrap.kt` seeds the admin
+     * through
      * `users`/`auth`.
      * Keyed by file name, valued by the feature packages that file may import;
      * a listed package the file no longer uses fails the test (a stale exception is dead permission).
      */
     private val infraCompositionRoot: Map<String, Set<String>> = mapOf(
-        "Database.kt" to setOf("auth", "rooms", "teams", "threads", "users", "workflows"),
+        "Database.kt" to setOf("auth", "notifications", "rooms", "teams", "threads", "users", "workflows"),
         "Bootstrap.kt" to setOf("auth", "users"),
     )
 
     private val featurePackages = listOf(
-        "teams", "users", "auth", "authz", "telemetry", "workflows", "rooms", "threads", "live",
+        "teams", "users", "auth", "authz", "telemetry", "workflows", "rooms", "threads", "live", "notifications",
     )
 
     private fun packageOf(text: String): String? =
@@ -82,6 +83,36 @@ class PackageBoundaryTest {
             } else {
                 forbiddenReferences(text, listOf("live")).map { "${file.name} $it" }
             }
+        }
+        assertEquals(emptyList(), violations)
+    }
+
+    @Test
+    fun `no package outside notifications references notifications but the composition root`() {
+        // notifications/ is a top layer above threads/ (it implements the `ThreadNotices` port threads/ declares and reads threads/,
+        // rooms/ and users/): the chat reaches it only through that port, `infra/db/Database.kt` constructs it, and application.yaml names
+        // its modules by string. The scan must see the package, or an empty result proves nothing.
+        val declared = mainSources.any { packageOf(it.readText()) == "ch.nokillswit.notifications" }
+        assertTrue(declared, "no source declares ch.nokillswit.notifications")
+        val violations = mainSources.flatMap { file ->
+            val text = file.readText()
+            if (packageOf(text) == "ch.nokillswit.notifications" || file.name == "Database.kt") {
+                emptyList()
+            } else {
+                forbiddenReferences(text, listOf("notifications")).map { "${file.name} $it" }
+            }
+        }
+        assertEquals(emptyList(), violations)
+    }
+
+    @Test
+    fun `threads and rooms never reference notifications`() {
+        // The chat tells the notification feature what happened through `ThreadNotices` and imports nothing of it (the `WorkflowUsage`
+        // precedent, mirrored): the dependency points one way, notifications -> threads -> rooms.
+        val chat = mainSources.filter { packageOf(it.readText()) in setOf("ch.nokillswit.threads", "ch.nokillswit.rooms") }
+        assertTrue(chat.size >= 20, "the scan saw only ${chat.size} chat sources")
+        val violations = chat.flatMap { file ->
+            forbiddenReferences(file.readText(), listOf("notifications")).map { "${file.name} $it" }
         }
         assertEquals(emptyList(), violations)
     }

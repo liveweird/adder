@@ -1102,7 +1102,8 @@ export interface paths {
          *
          *     Naming the current owner again is `204` with no history entry, no activity bump and no audit line. Otherwise an `OWNER_CHANGED`
          *     history entry is recorded and the thread and the room are bumped in the activity order. A single-value set: the last writer
-         *     wins, and the history records each change; the thread's `revision` is not moved.
+         *     wins, and the history records each change; the thread's `revision` is not moved. The new owner gets a `THREAD_ASSIGNED`
+         *     notification (`listNotifications`) and the live `notification.created` event, unless the caller took the thread themself.
          *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["setThreadOwner"];
@@ -1176,7 +1177,8 @@ export interface paths {
          *     `body` is Markdown of 1 to 8,000 UTF-16 units after line endings are normalised, leading blank lines and trailing whitespace
          *     are dropped and the first line's indentation stays (`\n` and `\t` allowed, every other control character and the hidden
          *     direction characters are a `400`). It is stored raw and rendered without HTML. The message, `messageCount + 1` and the
-         *     activity bump of the thread and the room commit together. Rides the per-USER `chat-post` bucket of 120 per minute shared with
+         *     activity bump of the thread and the room commit together, and so does a `MENTIONED` notification (`listNotifications`) for each
+         *     member the body mentions with `<@id>` (never the author). Rides the per-USER `chat-post` bucket of 120 per minute shared with
          *     the thread POST (`429` beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The
          *     request body is at most 64 KiB (`413` beyond it), and the write waits at most about 3 seconds for the room's write lock before it is
          *     answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
@@ -1215,7 +1217,7 @@ export interface paths {
          *
          *     The body rules are those of the post. Sending the body the message already has (after normalising) is `204` with no write and
          *     no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
-         *     order are untouched. Last writer wins: the author alone writes it and the room lock serialises their own requests.
+         *     order are untouched. Only the people the edit NEWLY mentions are notified, and the notification of a mention the edit removed is deleted. Last writer wins: the author alone writes it and the room lock serialises their own requests.
          *     The body is at most 64 KiB (`413` beyond it). Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["editMessage"];
@@ -1229,8 +1231,8 @@ export interface paths {
          *     moderator's delete included; a steward reopens the thread, deletes and closes it again).
          *
          *     The body is scrubbed, the row is marked deleted and `deleted_by` records the caller. The message stays in the thread's list
-         *     as a tombstone (`deletedByModerator` tells an author's own delete from a moderator's); `messageCount` never goes down. A
-         *     deleted message is `404` for every further read or write.
+         *     as a tombstone (`deletedByModerator` tells an author's own delete from a moderator's); `messageCount` never goes down. Every
+         *     notification about the message is deleted with it. A deleted message is `404` for every further read or write.
          *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         delete: operations["deleteMessage"];
@@ -1421,6 +1423,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's own notifications
+         * @description Any authenticated caller, no further guard and no bucket: the list is the caller's OWN notices, so there is nothing to hide and
+         *     nobody to probe. A notice is listed only while its recipient is an ACTIVE member of its room and the room is active (a deleted
+         *     room's notices are hidden; an archived room's are listed, and its link opens it read-only), **an `ADMIN` included**: an `ADMIN`
+         *     who is not a member of a room has none of its notices. A member who is removed from a room, or leaves it, loses that room's
+         *     notices for good (they are deleted with the membership, so rejoining starts clean), and a deleted message, or a mention an edit
+         *     removed, takes its notice with it. A caller who belongs to no room gets an empty page.
+         *
+         *     A notice is made INSIDE the write that caused it, in two kinds (`NotificationType`): `MENTIONED` (a post, a thread's opening
+         *     message or an edit that newly mentions the caller with `<@id>`; never for a mention of oneself) and `THREAD_ASSIGNED` (someone
+         *     else made the caller the owner of a thread; nothing when a steward takes the thread themself). Each one reaches the caller's open
+         *     tabs as the live `notification.created` event, on every socket the caller has, subscribed to the room or not; the SPA then re-reads
+         *     this list. Notices older than the retention (90 days by default) are deleted.
+         *
+         *     An item holds ids only on the server: `actorName`, `roomName` and `threadTitle` are read when the page is read, so a rename shows at
+         *     once and nothing stored can outlive a leave or a delete. `messageId` is `null` for `THREAD_ASSIGNED`.
+         *
+         *     - Sortable fields: `id` (time order), `createdAt`. Default `-id` (newest first; `id` breaks ties).
+         *     - Filter: `wasSeen` (strict `true` or `false`; omitted = both; a repeated key is a `400`).
+         *     - A notice of a kind this server does not know is not listed and not counted.
+         *     - `total` is CAPPED at 1000: the server counts at most 1000 rows, so a recipient with more notices than that (or more unseen ones)
+         *       reads `1000`, and the bell shows it as "many". Pages beyond the first 1000 rows are still read by `page` and `pageSize`.
+         */
+        get: operations["listNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/seen-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark every unseen notification of the caller seen
+         * @description Any authenticated caller: every unseen notice of the CALLER, nobody else's. A `204` even when none was unseen. Rides the per-USER
+         *     `read-state` bucket of 240 per minute (`429` beyond it; spent before anything else). View state: it is not audited and emits no
+         *     live event; the caller's other tabs catch up on focus. No request body.
+         */
+        post: operations["markAllNotificationsSeen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/{id}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark one notification seen
+         * @description Any authenticated caller, scoped to their OWN notices: someone else's notice is the same `404` as one that does not exist (there
+         *     is no `403` to probe with). Seen again is a `204` that changes nothing. Rides the per-USER `read-state` bucket of 240 per minute
+         *     (`429` beyond it; spent before anything else, so an id sweep costs tokens). View state: it is not audited and emits no live
+         *     event. No request body.
+         */
+        post: operations["markNotificationSeen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/live/tickets": {
         parameters: {
             query?: never;
@@ -1491,12 +1580,15 @@ export interface paths {
          *     **Events** (`event.kind`, `LiveEventKind`; the wire name equals the audit event of the write): `room.created`, `room.updated`,
          *     `room.archived`, `room.unarchived`, `room.deleted`, `room.member_added`, `room.member_role_changed`, `room.member_removed`,
          *     `room.workflow_updated`, `thread.created`, `thread.updated`, `thread.status_changed`, `thread.owner_changed` (these carry `threadNumber`
-         *     for the thread kinds), `message.posted`, `message.edited`, `message.deleted` and `message.reaction_changed` (these carry `threadNumber` and `messageId`) and
-         *     `room.pin_changed` (a pin or unpin; it carries `threadNumber`, and `messageId` for a message pin). An event says
+         *     for the thread kinds), `message.posted`, `message.edited`, `message.deleted` and `message.reaction_changed` (these carry `threadNumber` and `messageId`),
+         *     `room.pin_changed` (a pin or unpin; it carries `threadNumber`, and `messageId` for a message pin) and `notification.created`
+         *     (`threadNumber`, and `messageId` for a mention; only the people it is for hear it). An event says
          *     THAT something changed, never what: it carries ids only, and the client refetches through the ordinary REST reads, so authorization stays
          *     where it is. **Delivery semantics:** a socket receives the events of the rooms it is subscribed to, in commit order per room, plus the events about
          *     the person itself on every socket it has, subscribed or not (`room.created` for the creator; `room.member_added` and
-         *     `room.member_role_changed` for the person concerned); removal from a room and deletion of a room arrive as `revoked` instead (an `ADMIN`
+         *     `room.member_role_changed` for the person concerned; `notification.created` reaches ONLY the recipients of the new notice, on every
+         *     socket they have, and no subscriber of the room: a mention that is posted emits `message.posted`, then `notification.created`, and a
+         *     hand-over of a thread emits `thread.owner_changed`, then `notification.created` unless the steward took the thread themself); removal from a room and deletion of a room arrive as `revoked` instead (an `ADMIN`
          *     who is merely removed from a room keeps it and gets the `room.member_removed` event); delivery is
          *     AT MOST ONCE with no replay (a missed hint is covered by `resync` and by the refetch after each `subscribed`); an event is emitted only for
          *     a real change (a no-op write emits nothing); a socket gets at most one frame per hint. A user may subscribe to the rooms they can read (an
@@ -1667,7 +1759,7 @@ export interface components {
          * @description What changed; the wire name equals the audit event of the write (the catalog is in the `connectLive` description).
          * @enum {string}
          */
-        LiveEventKind: "room.created" | "room.updated" | "room.archived" | "room.unarchived" | "room.deleted" | "room.member_added" | "room.member_role_changed" | "room.member_removed" | "room.workflow_updated" | "thread.created" | "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "message.posted" | "message.edited" | "message.deleted" | "message.reaction_changed" | "room.pin_changed";
+        LiveEventKind: "room.created" | "room.updated" | "room.archived" | "room.unarchived" | "room.deleted" | "room.member_added" | "room.member_role_changed" | "room.member_removed" | "room.workflow_updated" | "thread.created" | "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "message.posted" | "message.edited" | "message.deleted" | "message.reaction_changed" | "room.pin_changed" | "notification.created";
         /** @description The FIRST frame of a socket, within 2 seconds, exactly once. */
         LiveAuthFrame: {
             /**
@@ -2594,6 +2686,60 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        /**
+         * @description The kind of a notice (persisted, never renamed): `MENTIONED` (the caller was mentioned in a message) and `THREAD_ASSIGNED`
+         *     (someone else made the caller the owner of a thread). A client treats a value it does not know as plain text.
+         * @enum {string}
+         */
+        NotificationType: "MENTIONED" | "THREAD_ASSIGNED";
+        /** @description One notice of the caller. The row holds ids only; the names and the title are read when the list is read. */
+        Notification: {
+            /**
+             * Format: int32
+             * @description Ascending in time.
+             */
+            id: number;
+            type: components["schemas"]["NotificationType"];
+            wasSeen: boolean;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+            /**
+             * Format: int32
+             * @description Who mentioned the caller, or handed the thread over.
+             */
+            actorId: number;
+            /** @description The actor's CURRENT display name (a soft-deleted account keeps its last one). */
+            actorName: string;
+            /** Format: int32 */
+            roomId: number;
+            /** @description The room's current name. */
+            roomName: string;
+            /**
+             * Format: int32
+             * @description The per-room number of the thread.
+             */
+            threadNumber: number;
+            /** @description The thread's current title. */
+            threadTitle: string;
+            /**
+             * Format: int32
+             * @description The message that mentions the caller; `null` for `THREAD_ASSIGNED`.
+             */
+            messageId: number | null;
+        };
+        NotificationPage: {
+            items: components["schemas"]["Notification"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description The caller's notices matching the filter, CAPPED at 1000 (the unseen total is the bell's badge).
+             */
+            total: number;
+        };
         TelemetryCurrent: {
             /**
              * Format: int64
@@ -2926,7 +3072,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the `search-timeout`, `read-timeout` and `read-busy` 429s, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the two notification "seen" writes (`POST /api/v1/notifications/{id}/seen`, `POST /api/v1/notifications/seen-all`) the per-USER read-state bucket (shared by both) is exhausted (240/min), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the `search-timeout`, `read-timeout` and `read-busy` 429s, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 /** @description Seconds to wait before retrying; sent with `room-busy`, `search-timeout`, `read-timeout`, `read-busy` and the rate-limit bucket 429s. */
@@ -5074,6 +5220,90 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: {
+                /** @description `true` = only seen notices, `false` = only unseen ones; omitted = both. */
+                wasSeen?: boolean;
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's notices, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    markAllNotificationsSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Marked (or nothing was unseen) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    markNotificationSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Marked (or already seen) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };

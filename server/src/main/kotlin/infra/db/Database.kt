@@ -6,6 +6,8 @@ import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.auth.TokenBlocklistServiceKey
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.notifications.NotificationService
+import ch.nokillswit.notifications.NotificationServiceKey
 import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.rooms.RoomMemberServiceKey
 import ch.nokillswit.rooms.RoomService
@@ -331,9 +333,13 @@ suspend fun Application.configureDatabase() {
     )
     val messageTagService = MessageTagService(database, readLimiter)
     attributes.put(MessageTagServiceKey, messageTagService)
+    // The notices (V18) are made inside the chat's own writes through the `ThreadNotices` port `threads/` declares: this root hands the
+    // implementation to the services that call it (`notifications/` imports `threads/`, never the reverse).
+    val notificationService = NotificationService(database, roomService)
+    attributes.put(NotificationServiceKey, notificationService)
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
-    val messageMentionService = MessageMentionService(roomMemberService)
+    val messageMentionService = MessageMentionService(roomMemberService, notificationService)
     // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.
     val reactionService = MessageReactionService(database)
     attributes.put(MessageReactionServiceKey, reactionService)
@@ -367,7 +373,7 @@ suspend fun Application.configureDatabase() {
     )
     attributes.put(
         ThreadStatusServiceKey,
-        ThreadStatusService(database, roomService, roomWorkflowService, roomMemberService, threadEventService),
+        ThreadStatusService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, notificationService),
     )
     // The workflow's thread-usage port (S6): rooms/ declares it and never imports threads/, so this root registers the implementation.
     attributes.put(WorkflowUsageKey, ThreadWorkflowUsage(roomWorkflowService, threadEventService))

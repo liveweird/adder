@@ -4,7 +4,7 @@
 
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { LiveClock } from "./liveClient";
-import { roomKeys, searchAllKey } from "./roomKeys";
+import { notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
 
 const { rail: RAIL, list: ROOM_LIST, detail, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
@@ -61,6 +61,9 @@ function eventKeys(kind: LiveEventKind, r: number, n: number | undefined): Query
     case "room.member_role_changed":
     case "room.member_removed":
       return [members(r), detail(r), RAIL, ROOM_LIST];
+    case "notification.created":
+      // Personal: it reaches the recipient's sockets whether or not they subscribed to the room, and names no page of the room.
+      return [notificationsKey];
     default:
       return threadKeys(kind, r, n);
   }

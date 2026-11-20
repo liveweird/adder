@@ -59,3 +59,5 @@ pattern with the first filterable list that needs them.
 **Keyset inside the envelope:** `GET .../messages?id[lt]=` (the first bracket filter; `optionalUInt`; default `-id`): `total` counts AFTER it, so `total > items.length` means older rows exist.
 
 A room's members, threads and a thread's history are the paged sub-collections (whitelists, filters, caps): `chat-model.md` "Paged lists of a room". The thread list also sorts by `status` (workflow order) and filters by repeated `status`, `ownerId`, `field=key:value` and `tag`; the room's tags are a paged list too (`GET /rooms/{id}/tags`).
+
+**The notification list** (`GET /notifications`): the caller's own rows (`recipient_id`), `wasSeen` strict boolean, sort `id`, `createdAt`, default `-id`; unbucketed.

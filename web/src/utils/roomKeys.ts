@@ -10,6 +10,12 @@
  */
 export const searchAllKey = ["search"] as const;
 
+/**
+ * The caller's notices (`["notifications", ...]`), OUTSIDE `["rooms"]` like the search: a notice is personal, not a page of a room. The live
+ * `notification.created` event is the only frame that names it; the bell that reads it reads under this prefix.
+ */
+export const notificationsKey = ["notifications"] as const;
+
 export const roomKeys = {
   /** Everything about rooms: the blunt refresh after a refusal, and a live `resync`. */
   all: ["rooms"] as const,
