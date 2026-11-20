@@ -204,6 +204,31 @@ class ConnectionPoolTest {
         assertStartupFails("postgres.pool.initialSize") { startApplication() }
     }
 
+    // Production mode only (the tests above run tiny pools on purpose): the list reads and the searches each hold one connection while
+    // they run, so their process caps (10 + 4 by default) together must stay BELOW the pool. The boundary is the pool size 14 -> 15.
+    @Test
+    fun `production mode refuses a pool the list reads and the searches could take whole`() = testApplication {
+        configureApp(
+            "jwt.secret" to strongJwtSecret(), "security.encryption.key" to strongEncryptionKey(), "mail.transport" to "disabled",
+            "postgres.pool.maxSize" to "14",
+        )
+        serverConfig { developmentMode = false }
+        withSeedRestored {
+            assertStartupFails("\"threads.readMaxConcurrent\" (10) + \"search.maxConcurrent\" (4) must stay below") { startApplication() }
+        }
+    }
+
+    @Test
+    fun `production mode passes the pool check one connection above the caps`() = testApplication {
+        configureApp(
+            "jwt.secret" to strongJwtSecret(), "security.encryption.key" to strongEncryptionKey(), "mail.transport" to "disabled",
+            "postgres.pool.maxSize" to "15",
+        )
+        serverConfig { developmentMode = false }
+        // The pool check passed: the boot reaches the NEXT fail-closed check (the seed password), not this one.
+        withSeedRestored { assertStartupFails("seed password") { startApplication() } }
+    }
+
     // The bounds go through the shared infra/config helpers, so a non-numeric value is a config
     // error naming the key (it would otherwise escape as a raw NumberFormatException), and the
     // Long bounds honour their upper limit too.

@@ -20,6 +20,7 @@ import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.MessageServiceKey
 import ch.nokillswit.threads.MessageTagService
 import ch.nokillswit.threads.MessageTagServiceKey
+import ch.nokillswit.threads.ReadLimiter
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadEventServiceKey
 import ch.nokillswit.threads.ThreadSearchService
@@ -263,6 +264,18 @@ internal fun connectPooledDatabase(
     return R2dbcDatabase.connect(connectionFactory = pool, databaseConfig = databaseConfig) to pool
 }
 
+/**
+ * The fail-closed pool check of production mode: the list reads and the searches each hold ONE pooled connection while they run, so their
+ * process caps together must stay below the pool, or a flood of them could take every connection (the rest of the app, the room-write
+ * path included, would then wait for the pool). Development mode skips it: tests run tiny pools on purpose (`ConnectionPoolTest`).
+ */
+internal fun requireReadersUnderPool(readMaxConcurrent: Int, searchMaxConcurrent: Int, poolMaxSize: Int) {
+    check(readMaxConcurrent + searchMaxConcurrent < poolMaxSize) {
+        "Config \"threads.readMaxConcurrent\" ($readMaxConcurrent) + \"search.maxConcurrent\" ($searchMaxConcurrent) must stay below " +
+            "\"postgres.pool.maxSize\" ($poolMaxSize), so list reads and searches together can never take the whole pool"
+    }
+}
+
 private fun connectPooledDatabase(options: ConnectionFactoryOptions, bounds: PoolBounds) = connectPooledDatabase(
     options,
     maxSize = bounds.maxSize,
@@ -279,6 +292,10 @@ private fun connectPooledDatabase(options: ConnectionFactoryOptions, bounds: Poo
  * are always present.
  */
 suspend fun Application.configureDatabase() {
+    // Both are boot-validated here, once: the list reads' and the searches' process caps (`ReadLimiter`, `ThreadSearchService`).
+    val readMaxConcurrent = requireConfigInt(environment.config, "threads.readMaxConcurrent", min = 1, max = 16)
+    val searchMaxConcurrent = requireConfigInt(environment.config, "search.maxConcurrent", min = 1, max = 16)
+    if (!developmentMode) requireReadersUnderPool(readMaxConcurrent, searchMaxConcurrent, readPoolBounds(environment.config).maxSize)
     val database = connectPooled()
     // The bound on a room write's wait for the room lock (rooms/RoomLock.kt), boot-validated like the pool's own bounds.
     database.useRoomLockWait(requireConfigInt(environment.config, "rooms.lockWaitMillis", min = 100, max = 30_000))
@@ -300,13 +317,27 @@ suspend fun Application.configureDatabase() {
     val threadEventService = ThreadEventService(database)
     attributes.put(ThreadEventServiceKey, threadEventService)
     // The hashtag index (V15) is written inside the message writes, so the message service holds it; a boot reindex reads it back.
-    val messageTagService = MessageTagService(database)
+    // The filtered thread list and the tag list share one limiter: ONE `threads.readTimeoutSeconds` deadline per read and at most
+    // `threads.readMaxConcurrent` reads at once in the process (both boot-validated).
+    val readLimiter = ReadLimiter(
+        timeoutSeconds = requireConfigInt(environment.config, "threads.readTimeoutSeconds", min = 1, max = 30),
+        maxConcurrent = readMaxConcurrent,
+    )
+    val messageTagService = MessageTagService(database, readLimiter)
     attributes.put(MessageTagServiceKey, messageTagService)
     val messageService = MessageService(database, roomService, messageTagService)
     attributes.put(MessageServiceKey, messageService)
     attributes.put(
         ThreadServiceKey,
-        ThreadService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, messageService),
+        ThreadService(
+            database,
+            roomService,
+            roomWorkflowService,
+            roomMemberService,
+            threadEventService,
+            messageService,
+            readLimiter,
+        ),
     )
     // The full-text search (V16): one read transaction under ONE `search.timeoutSeconds` deadline, at most `search.maxConcurrent` at once
     // (both boot-validated).
@@ -316,7 +347,7 @@ suspend fun Application.configureDatabase() {
             database,
             roomService,
             requireConfigInt(environment.config, "search.timeoutSeconds", min = 1, max = 30),
-            requireConfigInt(environment.config, "search.maxConcurrent", min = 1, max = 16),
+            searchMaxConcurrent,
         ),
     )
     attributes.put(

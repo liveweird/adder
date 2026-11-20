@@ -68,6 +68,7 @@ class ThreadService(
     private val members: RoomMemberService,
     private val events: ThreadEventService,
     private val messages: MessageService,
+    private val readLimiter: ReadLimiter = ReadLimiter(),
 ) {
     object Threads : UIntIdTable("threads") {
         val roomId = reference("room_id", RoomService.Rooms)
@@ -95,35 +96,41 @@ class ThreadService(
      * One page of the room's threads: one predicate ([predicate]) for the count and the rows, in one transaction. The rows select only
      * the columns a [ThreadListItem] shows: never `fields`, the jsonb document that can be tens of kilobytes per thread (page size 100
      * would otherwise load megabytes the list never reads). The room's workflow snapshot is read only when a `field` filter or
-     * `sort=status` needs it, so the plain list keeps its two queries.
+     * `sort=status` needs it, so the plain list keeps its two queries. The whole read runs through the [readLimiter]:
+     * ONE deadline (`threads.readTimeoutSeconds`, past it the audited `429` `read-timeout`) and the in-flight caps (`read-busy`).
      */
-    suspend fun list(roomId: UInt, filter: ThreadListFilter, paging: PageRequest): ThreadListResult = suspendTransaction(database) {
-        val sortsByStatus = paging.sort.any { it.name == STATUS_SORT }
-        val workflow = if (filter.needsWorkflow || sortsByStatus) workflows.snapshot(roomId) else null
-        val predicate = filter.predicate(roomId, workflow)
-        val columns: Map<String, Expression<*>> = workflow?.takeIf { sortsByStatus }
-            ?.let { SORTABLE_COLUMNS + (STATUS_SORT to statusOrder(it)) } ?: SORTABLE_COLUMNS
-        val total = Threads.selectAll().where { predicate }.count()
-        val rows = Threads.select(LIST_COLUMNS).where { predicate }.applyPaging(paging, columns).toList()
-        val names = userNames(rows.map { it[Threads.ownerId].value })
-        ThreadListResult(
-            items = rows.map {
-                ThreadListItem(
-                    id = it[Threads.id].value,
-                    number = it[Threads.number],
-                    title = it[Threads.title],
-                    status = it[Threads.statusKey],
-                    closed = it[Threads.closedAt] != null,
-                    ownerId = it[Threads.ownerId].value,
-                    ownerName = names.getValue(it[Threads.ownerId].value),
-                    messageCount = it[Threads.messageCount],
-                    lastActivityAt = it[Threads.lastActivityAt],
-                    createdAt = it[Threads.createdAt],
-                )
-            },
-            total = total,
-        )
-    }
+    suspend fun list(callerUserId: UInt, roomId: UInt, filter: ThreadListFilter, paging: PageRequest): ThreadListResult =
+        readLimiter.run(database, callerUserId, roomId, "threads") { budget ->
+            val sortsByStatus = paging.sort.any { it.name == STATUS_SORT }
+            budget.arm(this)
+            val workflow = if (filter.needsWorkflow || sortsByStatus) workflows.snapshot(roomId) else null
+            val predicate = filter.predicate(roomId, workflow)
+            val columns: Map<String, Expression<*>> = workflow?.takeIf { sortsByStatus }
+                ?.let { SORTABLE_COLUMNS + (STATUS_SORT to statusOrder(it)) } ?: SORTABLE_COLUMNS
+            budget.arm(this)
+            val total = Threads.selectAll().where { predicate }.count()
+            budget.arm(this)
+            val rows = Threads.select(LIST_COLUMNS).where { predicate }.applyPaging(paging, columns).toList()
+            budget.arm(this)
+            val names = userNames(rows.map { it[Threads.ownerId].value })
+            ThreadListResult(
+                items = rows.map {
+                    ThreadListItem(
+                        id = it[Threads.id].value,
+                        number = it[Threads.number],
+                        title = it[Threads.title],
+                        status = it[Threads.statusKey],
+                        closed = it[Threads.closedAt] != null,
+                        ownerId = it[Threads.ownerId].value,
+                        ownerName = names.getValue(it[Threads.ownerId].value),
+                        messageCount = it[Threads.messageCount],
+                        lastActivityAt = it[Threads.lastActivityAt],
+                        createdAt = it[Threads.createdAt],
+                    )
+                },
+                total = total,
+            )
+        }
 
     /** The thread [number] of room [roomId] as its ACTIVE fields show it, or null when there is none. */
     suspend fun read(roomId: UInt, number: Int): ThreadResponse? = suspendTransaction(database) {
@@ -181,6 +188,7 @@ class ThreadService(
         // Sanitised AND validated service-side (both idempotent after the route): a direct caller can never hand a control character on.
         val request = sanitizedThreadCreate(raw)
         validateThreadCreate(request)
+        val hashtags = parseHashtags(request.body) // before the room lock
         return database.withRoomWrite(roomId, caller, memberGuard) { _, standing ->
             if (standing.archived) throw roomArchived()
             val snapshot = workflows.snapshot(roomId)
@@ -202,7 +210,7 @@ class ThreadService(
                 it[createdAt] = stamp
                 it[updatedAt] = stamp
             }[Threads.id].value
-            val messageId = messages.insertInTransaction(roomId, threadId, caller.userId, request.body, stamp)
+            val messageId = messages.insertInTransaction(roomId, threadId, caller.userId, request.body, hashtags, stamp)
             events.record(threadId, caller.userId, threadCreatedEvent(request.title, initial.key, initial.label), stamp)
             rooms.touchActivity(roomId, stamp)
             // The opening message is part of this hint, never a `message.posted` of its own.

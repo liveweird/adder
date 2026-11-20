@@ -64,7 +64,7 @@ fun TestApplicationBuilder.configureApp(vararg overrides: Pair<String, String>) 
                 // every booted app); its tests build the sampler directly or opt in with "telemetry.enabled" to "true".
                 "telemetry.enabled" to "false",
                 // Likewise the boot reindex of the hashtag index (V15) would walk every message of the shared database; its own tests
-                // opt in with "threads.tagReindexOnBoot" to "true".
+                // opt in with "threads.tagReindexOnBoot" to "true". (The purge of deleted messages' tag rows runs at every boot.)
                 "threads.tagReindexOnBoot" to "false",
                 *overrides,
             )

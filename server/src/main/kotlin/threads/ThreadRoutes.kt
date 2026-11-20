@@ -73,7 +73,8 @@ fun Application.configureThreadRoutes() {
     routing {
         authenticate {
             // The guard order of every thread route (chat-model.md "Guard order and locking"): 401 from `authenticate`; the per-user
-            // `chat-post` bucket on the POST and the per-user `chat-write` bucket on every other write; visibility (`visibleStanding`:
+            // `chat-post` bucket on the POST, the per-user `chat-write` bucket on every other write and the per-user `chat-read` bucket on
+            // the thread and tag lists; visibility (`visibleStanding`:
             // 404 for a missing room and a non-member alike, audited `room.access_denied`); the pre-check (member: 403); the body
             // (400); then the service re-runs the guard under the room lock.
             threadReads(roomService, threadService, eventService)
@@ -87,13 +88,17 @@ fun Application.configureThreadRoutes() {
 }
 
 private fun Route.threadReads(roomService: RoomService, threadService: ThreadService, eventService: ThreadEventService) {
-    get<ThreadsRoute> { route ->
-        val roomId = route.parent.id
-        roomService.visibleStanding(call.caller(), roomId)
-        val paging = call.parsePaging(sortable = THREAD_SORT_FIELDS)
-        val params = call.request.queryParameters
-        val result = threadService.list(roomId, params.threadListFilter(params.optionalBoolean("closed")), paging)
-        call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+    // The thread list rides the per-USER `chat-read` bucket (with the tag list), before the visibility guard like every bucket.
+    rateLimit(RateLimitName(RateLimits.CHAT_READ)) {
+        get<ThreadsRoute> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.id
+            roomService.visibleStanding(caller, roomId)
+            val paging = call.parsePaging(sortable = THREAD_SORT_FIELDS)
+            val params = call.request.queryParameters
+            val result = threadService.list(caller.userId, roomId, params.threadListFilter(params.optionalBoolean("closed")), paging)
+            call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+        }
     }
     get<ThreadsRoute.Number> { route ->
         val roomId = route.parent.parent.id
@@ -111,19 +116,23 @@ private fun Route.threadReads(roomService: RoomService, threadService: ThreadSer
 }
 
 /**
- * `GET /rooms/{id}/tags` (reader, no bucket: bounded by the room): the guard order of every read - 401, visibility (404), then the `400`s
- * (paging, then the substring). The substring is at most [MAX_TAG_FILTER_LENGTH] characters (a longer one could match no tag).
+ * `GET /rooms/{id}/tags` (reader, the per-USER `chat-read` bucket shared with the thread list): the guard order of every read - 401,
+ * the bucket, visibility (404), then the `400`s (paging, then the substring). The substring is at most [MAX_TAG_FILTER_LENGTH]
+ * characters (a longer one could match no tag).
  */
 private fun Route.roomTags(roomService: RoomService, tagService: MessageTagService) {
-    get<RoomTagsRoute> { route ->
-        roomService.visibleStanding(call.caller(), route.parent.id)
-        val paging = call.parsePaging(sortable = ROOM_TAG_SORT_FIELDS, defaultSort = ROOM_TAG_DEFAULT_SORT)
-        val tag = call.request.queryParameters.optionalString("tag")
-        if (tag != null && tag.codePointCount(0, tag.length) > MAX_TAG_FILTER_LENGTH) {
-            throw BadRequestException("tag must be at most $MAX_TAG_FILTER_LENGTH characters")
+    rateLimit(RateLimitName(RateLimits.CHAT_READ)) {
+        get<RoomTagsRoute> { route ->
+            val caller = call.caller()
+            roomService.visibleStanding(caller, route.parent.id)
+            val paging = call.parsePaging(sortable = ROOM_TAG_SORT_FIELDS, defaultSort = ROOM_TAG_DEFAULT_SORT)
+            val tag = call.request.queryParameters.optionalString("tag")
+            if (tag != null && tag.codePointCount(0, tag.length) > MAX_TAG_FILTER_LENGTH) {
+                throw BadRequestException("tag must be at most $MAX_TAG_FILTER_LENGTH characters")
+            }
+            val result = tagService.list(caller.userId, route.parent.id, RoomTagListFilter(tag), paging)
+            call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
         }
-        val result = tagService.list(route.parent.id, RoomTagListFilter(tag), paging)
-        call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }
 }
 

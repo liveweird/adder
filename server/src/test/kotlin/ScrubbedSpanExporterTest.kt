@@ -81,6 +81,29 @@ class ScrubbedSpanExporterTest {
     }
 
     @Test
+    fun `a request's query string never reaches the exporter, whichever attribute carries it`() {
+        val marker = "TERM-${UUID.randomUUID()}"
+        val collected = CollectingSpanExporter()
+        val provider = SdkTracerProvider.builder().addSpanProcessor(SimpleSpanProcessor.create(ScrubbedSpanExporter(collected))).build()
+        try {
+            val span = provider.get("test").spanBuilder("GET /api/v1/rooms/{id}/search").startSpan()
+            span.setAttribute("http.request.method", "GET")
+            span.setAttribute("url.path", "/api/v1/rooms/7/search")
+            span.setAttribute("url.query", "q=$marker&tag=$marker")
+            span.setAttribute("url.full", "http://host/api/v1/rooms/7/search?q=$marker")
+            span.setAttribute("http.url", "http://host/api/v1/rooms/7/search?q=$marker")
+            span.setAttribute("http.target", "/api/v1/rooms/7/search?q=$marker")
+            span.end()
+        } finally {
+            provider.close()
+        }
+        val exported = collected.spans.single()
+        val keys = exported.attributes.asMap().keys.map { it.key }
+        assertEquals(listOf("http.request.method", "url.path"), keys.sorted(), "only the query-free attributes stay")
+        assertTrue(marker !in exported.attributes.toString(), "the term reached the exporter")
+    }
+
+    @Test
     fun `the SDK getOpenTelemetry builds wraps whichever exporter OTEL_TRACES_EXPORTER selects`() {
         val marker = "SPAN-${UUID.randomUUID()}"
         val previous = System.getProperty("otel.traces.exporter")

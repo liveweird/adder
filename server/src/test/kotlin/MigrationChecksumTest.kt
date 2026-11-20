@@ -15,7 +15,8 @@ import kotlin.test.assertEquals
  * existing database refuse to boot with a checksum mismatch. This gate turns that silent
  * production-only failure into a red test: editing a listed file fails here, and the fix is
  * to revert the edit (a comment clarification belongs in `.claude/docs/persistence.md`), never
- * to update the pinned value. Adding a NEW migration adds one line — compute it with the same
+ * to update the pinned value. The one exception is a migration no RELEASED version has applied yet (`persistence.md` "unreleased
+ * migration"): it may change and be re-pinned in the same commit. Adding a NEW migration adds one line — compute it with the same
  * algorithm below, or read it from `flyway_schema_history` after the first local run.
  */
 class MigrationChecksumTest {
@@ -35,7 +36,7 @@ class MigrationChecksumTest {
         "V13__create_rooms.sql" to -108017395,
         "V14__create_threads.sql" to 35270631,
         "V15__create_message_tags.sql" to -717285948,
-        "V16__create_search.sql" to 932940522,
+        "V16__create_search.sql" to 1149414218,
     )
 
     @Test

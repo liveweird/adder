@@ -68,8 +68,9 @@ class MessageService(
     /**
      * Inserts a message inside the caller's transaction (the thread write under the room lock) and returns its id. The ONE chokepoint of a
      * new body (a post and a thread's opening message both come here), so its hashtags are indexed here, in the same transaction.
+     * [hashtags] is [parseHashtags] of [body], parsed by the caller BEFORE it took the room lock (a parse is work, and the lock is held).
      */
-    suspend fun insertInTransaction(roomId: UInt, threadId: UInt, authorId: UInt, body: String, at: Long): UInt {
+    suspend fun insertInTransaction(roomId: UInt, threadId: UInt, authorId: UInt, body: String, hashtags: List<String>, at: Long): UInt {
         // `insertReturning(id)`, not `insert`: a plain insert answers `RETURNING *`, which would send the generated `search` vector (about
         // as large as the body, V16) back on every post. The generated column is never in this table object, so only the id returns.
         val id = Messages.insertReturning(listOf(Messages.id)) {
@@ -79,7 +80,7 @@ class MessageService(
             it[createdAt] = at
             it[tagsVersion] = TAGS_VERSION
         }.single()[Messages.id].value
-        tags.insertInTransaction(id, threadId, roomId, body)
+        tags.insertInTransaction(id, threadId, roomId, hashtags)
         return id
     }
 
@@ -125,12 +126,13 @@ class MessageService(
     suspend fun post(roomId: UInt, number: Int, caller: CallerPrincipal, raw: MessageRequest): PostedMessage {
         val request = sanitizedMessage(raw)
         validateMessage(request)
+        val hashtags = parseHashtags(request.body) // before the room lock
         return database.withThreadWrite(roomId, number, caller, memberGuard) { write ->
             write.requireRoomActive()
             write.requireThreadOpen()
             val authorId = write.caller.userId
             val stamp = nowMillis()
-            val id = insertInTransaction(roomId, write.thread.id, authorId, request.body, stamp)
+            val id = insertInTransaction(roomId, write.thread.id, authorId, request.body, hashtags, stamp)
             val threads = ThreadService.Threads
             threads.update({ threads.id eq write.thread.id }) {
                 it[messageCount] = messageCount + 1
@@ -152,6 +154,7 @@ class MessageService(
     suspend fun edit(roomId: UInt, messageId: UInt, caller: CallerPrincipal, raw: MessageRequest): MessageEdit? {
         val request = sanitizedMessage(raw)
         validateMessage(request)
+        val newTags = parseHashtags(request.body) // the new body is parsed ONCE, before the room lock
         return database.withMessageWrite(
             roomId, messageId, caller, readerGuard,
             actGuard = { fresh, standing, message -> requireMessageAuthor(fresh, standing, message.authorId) },
@@ -164,8 +167,9 @@ class MessageService(
                 it[editedAt] = nowMillis()
                 it[tagsVersion] = TAGS_VERSION
             }
-            if (write.message.tagsVersion < TAGS_VERSION || tagKeysDiffer(write.message.body, request.body)) {
-                tags.replaceInTransaction(messageId, write.thread.id, roomId, request.body)
+            // The old body is parsed only when the version is current (a stale one rewrites without comparing).
+            if (write.message.tagsVersion < TAGS_VERSION || tagKeysDiffer(write.message.body, newTags)) {
+                tags.replaceInTransaction(messageId, write.thread.id, roomId, newTags)
             }
             notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
             MessageEdit(write.thread.id, messageId)

@@ -34,7 +34,10 @@ ALTER TEXT SEARCH CONFIGURATION public.adder_search
     ALTER MAPPING FOR hword, hword_part, word, numword, numhword, hword_numpart
     WITH public.unaccent, pg_catalog.simple;
 
+-- `pg_catalog.to_tsvector`, schema-qualified: a generated column's expression is STORED PARSED (as function OIDs), so the search_path
+-- matters only when the text is parsed: this migration, a later `SET EXPRESSION`, or a dump restore. Qualified, none of them can
+-- resolve the name to a function of another schema that sits ahead of `pg_catalog`.
 ALTER TABLE messages ADD COLUMN search tsvector
-    GENERATED ALWAYS AS (to_tsvector('public.adder_search'::regconfig, body)) STORED;
+    GENERATED ALWAYS AS (pg_catalog.to_tsvector('public.adder_search'::regconfig, body)) STORED;
 ALTER TABLE threads ADD COLUMN search tsvector
-    GENERATED ALWAYS AS (to_tsvector('public.adder_search'::regconfig, title)) STORED;
+    GENERATED ALWAYS AS (pg_catalog.to_tsvector('public.adder_search'::regconfig, title)) STORED;

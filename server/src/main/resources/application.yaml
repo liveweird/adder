@@ -9,8 +9,10 @@ ktor:
     # Ktor cancels module loading after `startupTimeoutMillis` (default 10 s) — which cut the cold-start
     # Flyway retry wait (up to ~103 s at the maximum 15 retries, infra/db/Flyway.kt) short and crashed the
     # pod once on every fresh deploy (checkup 2, live k8s). 140 s outlasts that wait plus boot and stays
-    # inside the k8s startupProbe (~150 s); FlywayConnectRetriesTest pins both bounds.
-    startupTimeoutMillis: 140000
+    # inside the k8s startupProbe (~150 s); FlywayConnectRetriesTest pins both bounds of this DEFAULT. A database whose V16 backfill
+    # (about 7 s per 100,000 messages, `persistence.md` "Search (V16)") outruns it cannot boot: raise it with KTOR_STARTUP_TIMEOUT_MILLIS
+    # AND the startupProbe's `failureThreshold` (k8s/app-deployment.yaml) together; raising one alone only moves the kill.
+    startupTimeoutMillis: "$KTOR_STARTUP_TIMEOUT_MILLIS:140000"
     modules:
       # — base plugins
       - ch.nokillswit.plugins.HttpKt.configureHttp
@@ -273,8 +275,17 @@ search:
   maxConcurrent: "$SEARCH_MAX_CONCURRENT:4"
 
 threads:
+  # The budget of a filtered thread-list or tag-list READ (`threads/ReadLimiter.kt`, one deadline for all its statements: each statement's
+  # `queryTimeout` is the whole seconds left): a read past it is cancelled and answered 429 `read-timeout` with `Retry-After: 2`. A normal
+  # list takes milliseconds (up to 20 `field` containment checks per row is the worst a caller can ask), so 5 s is a runaway's ceiling. 1..30.
+  readTimeoutSeconds: "$THREADS_READ_TIMEOUT_SECONDS:5"
+  # The most filtered thread-list and tag-list reads this process runs AT ONCE (`threads/ReadLimiter.kt`, `ReadLimiter`): a read waits at most
+  # 1 s for a permit, then is answered 429 `read-busy` with `Retry-After: 1`, before any pool connection is asked for. Keep it well below
+  # `postgres.pool.maxSize` (20): a read holds ONE connection. (At most 8 reads per user are in flight besides, and the boot refuses a value that with `search.maxConcurrent` would reach the pool size.) 1..16.
+  readMaxConcurrent: "$THREADS_READ_MAX_CONCURRENT:10"
   # Index the hashtags of messages written before the index (V15, `messages.tags_version` 0) once after boot, in batches, without blocking
-  # the start (`threads/MessageTagReindex.kt`). Off leaves them unindexed until a boot that has it on; a grammar bump needs it on.
+  # the start (`threads/MessageTagReindex.kt`). Off leaves them unindexed until a boot that has it on; a grammar bump needs it on. The switch
+  # covers the reindex ONLY: the purge of the tag rows of deleted messages runs at every boot (it only deletes rows that must not exist).
   tagReindexOnBoot: "$THREADS_TAG_REINDEX_ON_BOOT:true"
 
 postgres:

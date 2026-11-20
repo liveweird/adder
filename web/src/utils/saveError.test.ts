@@ -46,6 +46,8 @@ describe("loadErrorMessage", () => {
     expect(loadErrorMessage(new ApiError(502, null), t)).toBe("Load failed (502)");
     expect(loadErrorMessage(new ApiError(429, null), t)).toBe("Too many requests. Wait a minute and try again.");
     expect(loadErrorMessage(new ApiError(429, { type: "urn:adder:problem:room-busy" }), t)).toBe(t("common.error.roomBusy"));
+    expect(loadErrorMessage(new ApiError(429, { type: "urn:adder:problem:read-timeout" }), t)).toBe("The list took too long. Narrow the filter or try again.");
+    expect(loadErrorMessage(new ApiError(429, { type: "urn:adder:problem:read-busy" }), t)).toBe("The server is busy. Try again in a moment.");
     expect(loadErrorMessage(timeout, t)).toBe(t("common.error.timeout"));
     expect(loadErrorMessage(new Error("net"), t)).toBe(t("common.error.network"));
   });

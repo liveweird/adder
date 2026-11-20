@@ -862,6 +862,13 @@ export interface paths {
          *     - Sortable fields: `tag`, `threadCount`. Default `-threadCount` (the most used first; ties by `tag`).
          *     - Filter: `tag`, a case- and accent-insensitive substring of the tag (for a picker), at most 50 characters (`400` beyond). A
          *       repeated key is a `400`.
+         *
+         *     Rides the per-USER `chat-read` bucket of 300 per minute shared with the thread list (`429` beyond it; the bucket is spent
+         *     before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
+         *     list past it is answered `429` of type `urn:adder:problem:read-timeout` with `Retry-After: 2`, audited without the filter value.
+         *     At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list and the tag list together, a read
+         *     waits about 1 second for a slot): past either it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
+         *     (the server is loaded; retry shortly, nothing to narrow).
          */
         get: operations["listRoomTags"];
         put?: never;
@@ -950,6 +957,12 @@ export interface paths {
          *       order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
          *       what the caller may read.
          *     - A row carries the status KEY; labels and colours come from the room's workflow (`GET /rooms/{id}/workflow`).
+         *     - Rides the per-USER `chat-read` bucket of 300 per minute shared with `GET /rooms/{id}/tags` (`429` beyond it; the bucket is spent
+         *       before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
+         *       list past it is answered `429` of type `urn:adder:problem:read-timeout` with `Retry-After: 2`, audited without the filter values.
+         *       At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list and the tag list together, a read
+         *       waits about 1 second for a slot): past either it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
+         *       (the server is loaded; retry shortly, nothing to narrow).
          */
         get: operations["listThreads"];
         put?: never;
@@ -2697,10 +2710,10 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the `search-timeout` 429, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete) the per-USER chat-write bucket (shared by all five) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with the `room-busy` 429, the `search-timeout`, `read-timeout` and `read-busy` 429s, the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
-                /** @description Seconds to wait before retrying; sent with `room-busy`, `search-timeout` and the rate-limit bucket 429s. */
+                /** @description Seconds to wait before retrying; sent with `room-busy`, `search-timeout`, `read-timeout`, `read-busy` and the rate-limit bucket 429s. */
                 "Retry-After"?: number;
                 [name: string]: unknown;
             };
@@ -2744,7 +2757,8 @@ export interface components {
         /**
          * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
          *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-         *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+         *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+         *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
          *     always appended as a deterministic tiebreaker.
          */
         Sort: string;
@@ -3026,7 +3040,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -3110,7 +3125,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -3366,7 +3382,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -3572,7 +3589,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -3730,7 +3748,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -4003,7 +4022,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -4142,7 +4162,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -4168,6 +4189,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -4184,7 +4206,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -4223,7 +4246,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -4257,6 +4281,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -4445,7 +4470,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -4485,7 +4511,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
@@ -4660,7 +4687,8 @@ export interface operations {
                 /**
                  * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
                  *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
-                 *     sortable-field whitelist; unknown fields are rejected with `400`. `id` ascending is
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];

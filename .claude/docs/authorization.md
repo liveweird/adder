@@ -218,7 +218,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     | Operation | outsider | member | thread owner (plain member) | room owner | admin (non-member) |
     |---|---|---|---|---|---|
     | `GET /rooms/{id}/threads`, `GET .../threads/{number}`, `GET .../threads/{number}/events` | 404 | 200 | 200 | 200 | 200 |
-    | `GET /rooms/{id}/tags` (the room's hashtags, 0.5.0; a reader, no bucket) | 404 | 200 | 200 | 200 | 200 |
+    | `GET /rooms/{id}/tags` (the room's hashtags, 0.5.0; a reader, the per-user `chat-read` bucket) | 404 | 200 | 200 | 200 | 200 |
     | `GET /rooms/{id}/search` (full-text search, 0.5.0; a reader; the per-user `search` bucket first, so a 429 can precede the 404; the matrix also pins a member's `400` for a bad `q`) | 404 | 200 | 200 | 200 | 200 |
     | `POST /rooms/{id}/threads` (201 + `Location`) | 404 | 201 | 201 | 201 | 403 |
     | `PUT .../threads/{number}` (details, `X-Expected-Revision`) | 404 | 204 | 204 | 204 | 204 |

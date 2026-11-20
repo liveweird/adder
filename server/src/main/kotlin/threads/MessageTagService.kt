@@ -71,7 +71,7 @@ WHERE char_length(f.k) >= 1
 ON CONFLICT DO NOTHING"""
 
 /** A message whose body is to be (re)indexed: where it lives and what it says. */
-private class TaggedMessage(val messageId: UInt, val threadId: UInt, val roomId: UInt, val body: String)
+private class TaggedMessage(val messageId: UInt, val threadId: UInt, val roomId: UInt, val tags: List<String>)
 
 /**
  * The derived hashtag index (V15 `message_tags`, `chat-model.md` "Hashtags (V15)"): what the thread list's `tag` filter and the room's
@@ -81,7 +81,10 @@ private class TaggedMessage(val messageId: UInt, val threadId: UInt, val roomId:
  * table is hard-deleted (it is rebuilt from the bodies; `persistence.md` "Hashtags (V15)"). [reindexStale] indexes the messages older
  * than the index at boot and [purgeDeletedTags] removes the rows a deleted message left. Tags are never logged.
  */
-class MessageTagService(private val database: R2dbcDatabase) {
+class MessageTagService(
+    private val database: R2dbcDatabase,
+    private val readLimiter: ReadLimiter = ReadLimiter(),
+) {
     /** The derived index. A tag is stored folded; there is no soft delete and no id of its own. */
     object MessageTags : Table("message_tags") {
         val messageId = reference("message_id", MessageService.Messages)
@@ -93,14 +96,17 @@ class MessageTagService(private val database: R2dbcDatabase) {
         override val primaryKey = PrimaryKey(messageId, tag)
     }
 
-    /** Indexes the hashtags of a NEW message [messageId] of thread [threadId] in room [roomId] (no row exists yet, so none is deleted). */
-    suspend fun insertInTransaction(messageId: UInt, threadId: UInt, roomId: UInt, body: String) =
-        insertTags(listOf(TaggedMessage(messageId, threadId, roomId, body)))
+    /**
+     * Indexes [tags] (the body's hashtags, from [parseHashtags], parsed by the caller BEFORE it took the room lock) of a NEW message
+     * [messageId] of thread [threadId] in room [roomId] (no row exists yet, so none is deleted).
+     */
+    suspend fun insertInTransaction(messageId: UInt, threadId: UInt, roomId: UInt, tags: List<String>) =
+        insertTags(listOf(TaggedMessage(messageId, threadId, roomId, tags)))
 
-    /** Replaces the tags of message [messageId] with those of [body]: an edit whose tag set changed. */
-    suspend fun replaceInTransaction(messageId: UInt, threadId: UInt, roomId: UInt, body: String) {
+    /** Replaces the tags of message [messageId] with [tags] (parsed by the caller before the lock): an edit whose tag set changed. */
+    suspend fun replaceInTransaction(messageId: UInt, threadId: UInt, roomId: UInt, tags: List<String>) {
         MessageTags.deleteWhere { MessageTags.messageId eq messageId }
-        insertTags(listOf(TaggedMessage(messageId, threadId, roomId, body)))
+        insertTags(listOf(TaggedMessage(messageId, threadId, roomId, tags)))
     }
 
     /** Removes every tag of message [messageId]: its delete, a moderator's included. Run AFTER the message row's own update (the lock). */
@@ -115,7 +121,7 @@ class MessageTagService(private val database: R2dbcDatabase) {
      * skipped). A message without a hashtag writes nothing.
      */
     private suspend fun insertTags(messages: List<TaggedMessage>) {
-        val rows = messages.flatMap { message -> parseHashtags(message.body).map { message to foldedTag(it) } }
+        val rows = messages.flatMap { message -> message.tags.map { message to foldedTag(it) } }
         if (rows.isEmpty()) return
         val ints = ArrayColumnType<Int, List<Int>>(IntegerColumnType())
         val texts = ArrayColumnType<String, List<String>>(TextColumnType())
@@ -133,20 +139,24 @@ class MessageTagService(private val database: R2dbcDatabase) {
     /**
      * One page of the room's tags: one predicate for the count and the rows, in one transaction, over `idx_message_tags_room_tag` (the
      * room's rows only, an index-only scan). A tag's [RoomTagResponse.threadCount] counts distinct threads. Deleted messages hold no
-     * rows, so every row is a live one.
+     * rows, so every row is a live one. Both statements run through the [readLimiter]: ONE
+     * deadline (`threads.readTimeoutSeconds`, past it the audited `429` `read-timeout`) and the in-flight caps (`read-busy`).
      */
-    suspend fun list(roomId: UInt, filter: RoomTagListFilter, paging: PageRequest): RoomTagListResult = suspendTransaction(database) {
-        val tags = MessageTags
-        var predicate: Op<Boolean> = tags.roomId eq roomId
-        filter.tag?.takeIf { it.isNotBlank() }?.let { predicate = predicate and tags.tag.containsNormalized(it) }
-        val threadCount = tags.threadId.countDistinct()
-        val total = tags.select(tags.tag).where { predicate }.groupBy(tags.tag).count()
-        val rows = tags.select(tags.tag, threadCount).where { predicate }.groupBy(tags.tag)
-            .applyPaging(paging, TAG_SORT_FIELDS_COLUMNS)
-            .map { RoomTagResponse(it[tags.tag], it[threadCount]) }
-            .toList()
-        RoomTagListResult(rows, total)
-    }
+    suspend fun list(callerUserId: UInt, roomId: UInt, filter: RoomTagListFilter, paging: PageRequest): RoomTagListResult =
+        readLimiter.run(database, callerUserId, roomId, "tags") { budget ->
+            val tags = MessageTags
+            var predicate: Op<Boolean> = tags.roomId eq roomId
+            filter.tag?.takeIf { it.isNotBlank() }?.let { predicate = predicate and tags.tag.containsNormalized(it) }
+            val threadCount = tags.threadId.countDistinct()
+            budget.arm(this)
+            val total = tags.select(tags.tag).where { predicate }.groupBy(tags.tag).count()
+            budget.arm(this)
+            val rows = tags.select(tags.tag, threadCount).where { predicate }.groupBy(tags.tag)
+                .applyPaging(paging, TAG_SORT_FIELDS_COLUMNS)
+                .map { RoomTagResponse(it[tags.tag], it[threadCount]) }
+                .toList()
+            RoomTagListResult(rows, total)
+        }
 
     /**
      * Indexes every LIVE message whose `tags_version` is below [TAGS_VERSION] (the messages older than the index, a grammar bump, or a
@@ -177,7 +187,10 @@ class MessageTagService(private val database: R2dbcDatabase) {
             .orderBy(messages.id)
             .limit(REINDEX_BATCH)
             .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate(ForUpdateOption.PostgreSQL.MODE.SKIP_LOCKED, messages))
-            .map { TaggedMessage(it[messages.id].value, it[messages.threadId].value, it[threads.roomId].value, it[messages.body]) }
+            .map {
+                val body = it[messages.body]
+                TaggedMessage(it[messages.id].value, it[messages.threadId].value, it[threads.roomId].value, parseHashtags(body))
+            }
             .toList()
         val ids = stale.map { it.messageId }
         if (ids.isNotEmpty()) {

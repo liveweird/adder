@@ -49,6 +49,8 @@
     "loadFailedStatus": "Load failed ({{status}})",
     "tooManyRequests": "Too many requests. Wait a minute and try again.",
     "roomBusy": "The room is busy right now — try again in a moment.",
+    "readTimeout": "The list took too long. Narrow the filter or try again.",
+    "readBusy": "The server is busy. Try again in a moment.",
     "actionFailed": "Action failed. Check your connection and try again.",
     "actionFailedStatus": "Action failed ({{status}})",
     "createFailedStatus": "Create failed ({{status}})",

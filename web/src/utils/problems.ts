@@ -1,6 +1,6 @@
 import { ApiError } from "../api/http";
 
-/** The RFC 7807 problem `type` URIs the server answers 409, and the typed 429s (`room-busy`, `search-timeout`, `search-busy`), with (`openapi/documentation.yaml`, `chat-model.md`). */
+/** The RFC 7807 problem `type` URIs the server answers 409, and the typed 429s (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`), with (`openapi/documentation.yaml`, `chat-model.md`). */
 export const PROBLEM_TYPES = {
   revisionConflict: "urn:adder:problem:revision-conflict",
   lastOwner: "urn:adder:problem:last-owner",
@@ -13,6 +13,10 @@ export const PROBLEM_TYPES = {
   searchTimeout: "urn:adder:problem:search-timeout",
   /** The server already runs its maximum of searches: nothing to narrow, retry shortly. */
   searchBusy: "urn:adder:problem:search-busy",
+  /** A filtered thread list or a room's tag list outran its deadline: narrow the filter or retry. */
+  readTimeout: "urn:adder:problem:read-timeout",
+  /** The caller or the server already runs its maximum of list reads: nothing to narrow, retry shortly. */
+  readBusy: "urn:adder:problem:read-busy",
 } as const;
 
 export type ProblemType = (typeof PROBLEM_TYPES)[keyof typeof PROBLEM_TYPES];

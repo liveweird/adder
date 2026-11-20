@@ -19,6 +19,9 @@ const val MAX_TAG_LENGTH = 50
 /** The most distinct values of the thread list's `tag` filter, counted after case folding. */
 const val MAX_TAG_FILTER_VALUES = 10
 
+/** The longest RAW `tag` filter value, in code points, that is normalised at all: four times a stored key, a bound on the work. */
+private const val MAX_RAW_FILTER_LENGTH = 4 * MAX_STORED_TAG_LENGTH
+
 /** The most distinct RAW `tag` values a request may carry before folding collapses them (a bound on the work, not on the meaning). */
 const val MAX_RAW_TAG_VALUES = 50
 
@@ -55,7 +58,8 @@ private const val MAX_DESTINATION = 2_000
  * the first spelling wins), at most [MAX_TAGS_PER_MESSAGE]. The stored key is the folded form: [foldedTag] here and `public.unaccent` in
  * SQL (`MessageTagService`). Text in code (fenced, inline), link destinations, `<autolinks>` and bare URLs is not searched, which
  * approximates "the text outside code and links" the SPA's Markdown tree shows; a Markdown construct this does not see (an indented
- * code block, raw HTML) can disagree with it, and the shared case table pins the common cases.
+ * code block, raw HTML) can disagree with it, and the shared case table pins the common cases. The NFC pass is bounded by the caller: a
+ * body is at most 8,000 UTF-16 units, where canonical reordering of the worst run of misordered combining marks takes about 10 to 20 ms.
  */
 fun parseHashtags(body: String): List<String> {
     if (!body.contains('#')) return emptyList()
@@ -73,9 +77,12 @@ fun parseHashtags(body: String): List<String> {
 }
 
 /** Whether [old] and [new] carry different tag sets once folded: the edit's test for rewriting the index (the same set writes nothing). */
-fun tagKeysDiffer(old: String, new: String): Boolean = foldedKeys(old) != foldedKeys(new)
+fun tagKeysDiffer(old: String, new: String): Boolean = tagKeysDiffer(old, parseHashtags(new))
 
-private fun foldedKeys(body: String): Set<String> = parseHashtags(body).mapTo(LinkedHashSet(), ::foldedTag)
+/** The same test with the new body already parsed ([newTags], from [parseHashtags]): the edit parses it once, before the room lock. */
+fun tagKeysDiffer(old: String, newTags: List<String>): Boolean = foldedKeys(parseHashtags(old)) != foldedKeys(newTags)
+
+private fun foldedKeys(tags: List<String>): Set<String> = tags.mapTo(LinkedHashSet(), ::foldedTag)
 
 /**
  * Whether the `#` at [hash] follows a character that forbids a tag. Checked here, not as a regex lookbehind: Java's lookbehind reads one
@@ -97,8 +104,12 @@ fun foldedTag(tag: String): String = tag.lowercase()
  * A value that matches no stored key matches nothing. The offending value is echoed bounded (`shown`), as every rejected filter key is.
  */
 fun requireTagFilter(raw: String): String {
-    val tag = Normalizer.normalize(raw, Normalizer.Form.NFC)
-    val valid = tag.codePointCount(0, tag.length) in 1..MAX_STORED_TAG_LENGTH &&
+    // The length is bounded BEFORE the normalisation (canonical reordering is quadratic in a run of misordered combining marks). NFC
+    // shrinks a text by at most 4:1 (it composes at most four code points into one: the longest canonical decomposition has four), so a
+    // value that normalises to the 150 a key may hold is at most 600 raw code points: no valid value is cut here.
+    val bounded = raw.codePointCount(0, raw.length) <= MAX_RAW_FILTER_LENGTH
+    val tag = if (bounded) Normalizer.normalize(raw, Normalizer.Form.NFC) else raw
+    val valid = bounded && tag.codePointCount(0, tag.length) in 1..MAX_STORED_TAG_LENGTH &&
         tag.codePoints().noneMatch { Character.isISOControl(it) || it == '#'.code }
     if (!valid) {
         throw BadRequestException("Tag '${raw.shown()}' must be 1-$MAX_STORED_TAG_LENGTH characters without '#' or control characters")

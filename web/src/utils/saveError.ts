@@ -53,6 +53,9 @@ export function isLastAdminConflict(err: unknown): boolean {
 /** The list-load counterpart: status-tagged for ApiErrors, generic otherwise. */
 export function loadErrorMessage(err: unknown, t: TFunction): string {
   if (isProblem(err, PROBLEM_TYPES.roomBusy)) return t("common.error.roomBusy");
+  // The two typed 429s of the list reads (`read-timeout`: narrow the filter; `read-busy`: retry shortly), apart from the bucket's.
+  if (isProblem(err, PROBLEM_TYPES.readTimeout)) return t("common.error.readTimeout");
+  if (isProblem(err, PROBLEM_TYPES.readBusy)) return t("common.error.readBusy");
   // 429: the per-user rate-limit bucket (security.md) — say what to do, not just the status.
   if (err instanceof ApiError && err.status === 429) return t("common.error.tooManyRequests");
   if (err instanceof ApiError) return t("common.error.loadFailedStatus", { status: err.status });

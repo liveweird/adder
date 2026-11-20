@@ -343,12 +343,20 @@ class ChatLogHygieneTest {
     }
 
     /**
-     * Two loggers print a failure's message below INFO (Exposed's retry DEBUG line `Transaction attempt #N failed: ${cause.message}`,
-     * StatusPages' TRACE line with the URI and `cause.toString()`); `logback.xml` pins both so a root-level change cannot switch them on.
+     * Loggers that print a failure's message or a request's value below INFO: Exposed's retry DEBUG line `Transaction attempt #N failed:
+     * ${cause.message}`, StatusPages' TRACE line with the URI and `cause.toString()`, the R2DBC driver (every bound value at DEBUG, its
+     * `QUERY` and `PARAM` children inherit the pin) and Ktor's authentication and rate-limit loggers (the request URI at TRACE);
+     * `logback.xml` pins them so a root-level change cannot switch them on.
      */
     @Test
-    fun `the loggers that print a failure's message below INFO are pinned to INFO`() {
-        listOf("Exposed", "io.ktor.server.plugins.statuspages").forEach { name ->
+    fun `the loggers that print a value or a failure's message below INFO are pinned to INFO`() {
+        listOf(
+            "Exposed",
+            "io.ktor.server.plugins.statuspages",
+            "io.r2dbc.postgresql",
+            "io.ktor.server.auth.Authentication",
+            "io.ktor.server.plugins.ratelimit.RateLimit",
+        ).forEach { name ->
             assertEquals(Level.INFO, (LoggerFactory.getLogger(name) as Logger).level, name)
         }
     }

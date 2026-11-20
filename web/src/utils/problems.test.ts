@@ -14,6 +14,8 @@ describe("problems", () => {
       roomBusy: "urn:adder:problem:room-busy",
       searchTimeout: "urn:adder:problem:search-timeout",
       searchBusy: "urn:adder:problem:search-busy",
+      readTimeout: "urn:adder:problem:read-timeout",
+      readBusy: "urn:adder:problem:read-busy",
     });
   });
 

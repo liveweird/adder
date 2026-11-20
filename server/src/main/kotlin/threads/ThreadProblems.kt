@@ -43,3 +43,35 @@ fun searchBusy(): TooManyRequestsException = TooManyRequestsException(
     problemType = SEARCH_BUSY_PROBLEM_TYPE,
     retryAfterSeconds = SEARCH_BUSY_RETRY_AFTER_SECONDS,
 )
+
+const val READ_TIMEOUT_PROBLEM_TYPE = "urn:adder:problem:read-timeout"
+
+/** Seconds the `Retry-After` header of a [readTimeout] answer names: a list that was too slow is not helped by an instant retry. */
+const val READ_TIMEOUT_RETRY_AFTER_SECONDS = 2
+
+/**
+ * A filtered thread list or a room's tag list outran its statement budget (`threads.readTimeoutSeconds`): a `429` with `Retry-After`,
+ * typed APART from [searchTimeout] (a client that shows "narrow your search" for that one must not show it for a list) and from a
+ * rate-limit bucket; the one type serves both reads. The detail names no parameter value.
+ */
+fun readTimeout(): TooManyRequestsException = TooManyRequestsException(
+    "The list took too long - retry in a moment, or narrow the filter",
+    problemType = READ_TIMEOUT_PROBLEM_TYPE,
+    retryAfterSeconds = READ_TIMEOUT_RETRY_AFTER_SECONDS,
+)
+
+const val READ_BUSY_PROBLEM_TYPE = "urn:adder:problem:read-busy"
+
+/** Seconds the `Retry-After` header of a [readBusy] answer names: a permit frees within a read's own budget, usually in milliseconds. */
+const val READ_BUSY_RETRY_AFTER_SECONDS = 1
+
+/**
+ * The caller already has its maximum of reads in flight, or the process runs its maximum (`threads.readMaxConcurrent`) and none freed
+ * within a short wait: a `429` with `Retry-After`, typed APART from [readTimeout] because the remedy differs (this is load, not the
+ * query: retry shortly, nothing to narrow). Sent before any pool connection is asked for. The detail names no parameter value.
+ */
+fun readBusy(): TooManyRequestsException = TooManyRequestsException(
+    "The server is busy with other lists - retry in a moment",
+    problemType = READ_BUSY_PROBLEM_TYPE,
+    retryAfterSeconds = READ_BUSY_RETRY_AFTER_SECONDS,
+)

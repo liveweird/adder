@@ -8,6 +8,7 @@ import ch.nokillswit.users.UserRole
 import ch.qos.logback.classic.Logger
 import io.ktor.client.request.delete
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import kotlin.test.AfterTest
@@ -90,6 +91,10 @@ class MessageTagReindexTest {
 
     private val service: MessageTagService by lazy { MessageTagService(sharedDatabaseForTests()) }
 
+    /** Waits for the boot task (the purge runs at every boot, the reindex only when switched on), so it cannot race a test's own rows. */
+    private suspend fun ApplicationTestBuilder.awaitBootRun(): Int? =
+        withTimeout(60_000) { application.attributes[MessageTagReindexKey].await() }
+
     @Test
     fun `messages older than the index are indexed once`() = testApplication {
         usePostgresTestcontainer()
@@ -165,6 +170,7 @@ class MessageTagReindexTest {
     @Test
     fun `the purge removes the tag rows a 0_4_0 delete left behind and nothing else`() = testApplication {
         usePostgresTestcontainer()
+        awaitBootRun()
         val f = fixture("reidx-purge")
         val live = TestThreads.post(f.room, 1, f.author, "live #kept")
         val gone = TestThreads.post(f.room, 1, f.author, "creds in #leak-db-pw")
@@ -180,6 +186,7 @@ class MessageTagReindexTest {
     @Test
     fun `the purge runs in batches`() = testApplication {
         usePostgresTestcontainer()
+        awaitBootRun()
         val f = fixture("reidx-purge-many")
         // 1,050 tombstones with one tag row each: more than one purge batch (1,000 messages).
         PostgresTestSupport.connect().use { c ->
@@ -278,8 +285,25 @@ class MessageTagReindexTest {
 
     @Test
     fun `the harness leaves the boot reindex off`() = testApplication {
-        usePostgresTestcontainer()
-        assertTrue(!application.attributes.contains(MessageTagReindexKey))
+        configureApp()
+        val f = fixture("reidx-off")
+        val message = f.staleMessage("stays stale #off")
+        startApplication()
+        assertEquals(0, awaitBootRun(), "the boot task indexed nothing")
+        assertEquals(emptyList(), tagsOf(message))
+        assertEquals(0, versionOf(message), "the stale message stays unindexed")
+    }
+
+    @Test
+    fun `the purge of deleted messages' tag rows runs at boot even with the reindex off`() = testApplication {
+        configureApp("threads.tagReindexOnBoot" to "false")
+        val f = fixture("reidx-purge-off")
+        val gone = TestThreads.post(f.room, 1, f.author, "creds in #leak-off")
+        assertEquals(listOf("leak-off"), tagsOf(gone))
+        tombstone(gone, f.author) // the 0.4.0 delete: the tag row stays
+        startApplication()
+        assertEquals(0, awaitBootRun(), "nothing was reindexed")
+        assertEquals(emptyList(), tagsOf(gone), "the purge ran although the reindex is off")
     }
 
     @Test

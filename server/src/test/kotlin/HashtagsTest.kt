@@ -12,6 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.measureTime
 import kotlinx.serialization.Serializable
@@ -81,6 +82,42 @@ class HashtagsTest {
         for (bad in listOf("", "#a", "x#y", "a\u0000", "a\nb", "a\u007f", "x".repeat(MAX_STORED_TAG_LENGTH + 1))) {
             assertFailsWith<BadRequestException>("'$bad' must be refused") { requireTagFilter(bad) }
         }
+    }
+
+    @Test
+    fun `a decomposed tag is normalised to NFC`() {
+        assertEquals(listOf("\u00e9t\u00e9"), parseHashtags("#e\u0301te\u0301"))
+        // The first mark composes into the letter and the rest are no tag characters, so the tag ends before them.
+        val run = "\u0301\u0316".repeat(20)
+        assertEquals(listOf("\u00e1"), parseHashtags("#a$run"))
+        assertEquals(listOf("\u00e1", "b"), parseHashtags("#a$run #b"))
+    }
+
+    /**
+     * Canonical reordering sorts a run of combining marks by insertion: quadratic in the run. The body cap (8,000 UTF-16 units, checked
+     * before the parser) bounds it: measured 10 to 20 ms for the worst bodies AT the cap, so the bound here is generous for a busy CI.
+     */
+    @Test
+    fun `worst-case runs of misordered combining marks at the body cap parse within the budget`() {
+        val cap = 8_000
+        val hostile = mapOf(
+            "misordered marks" to "#a" + "\u0301\u0316".repeat(cap / 2),
+            "reversed runs" to "#a" + "\u0301".repeat(cap / 2) + "\u0316".repeat(cap / 2),
+            "marks between tags" to "#a\u0301\u0316 ".repeat(cap / 5),
+        )
+        for ((name, body) in hostile) {
+            assertTrue(body.length <= cap + 2, "$name is at the cap (${body.length})")
+            val took = measureTime { parseHashtags(body) }
+            assertTrue(took < 500.milliseconds, "$name (${body.length} units) took $took")
+        }
+    }
+
+    @Test
+    fun `a tag filter value is bounded before it is normalised`() {
+        val hostile = "a" + "\u0301\u0316".repeat(100_000)
+        val took = measureTime { assertFailsWith<BadRequestException> { requireTagFilter(hostile) } }
+        assertTrue(took < 500.milliseconds, "the over-long value was refused in $took")
+        assertEquals("\u00e9t\u00e9", requireTagFilter("e\u0301te\u0301"))
     }
 
     @Test

@@ -11,7 +11,8 @@
   with count + page rows in the **same `suspendTransaction`**; cursor paging is a documented
   per-endpoint opt-in [API-LIST-001/002, API-STRUCT-004].
 - Sorting: `sort=field`/`-field`, comma-separated multi-field, validated against a per-endpoint
-  whitelist → `400`; `id` asc always appended as tiebreaker; default `id` asc documented
+  whitelist → `400`; a field named twice (with or without `-`) or a list longer than the whitelist is a `400`
+  (a computed sort costs SQL per entry); `id` asc always appended as tiebreaker; default `id` asc documented
   [API-LIST-003].
 - Filtering: whitelisted equality filters on the field's own name plus `field[gte|gt|lte|lt]`
   bracket operators only where needed; strict `true`/`false` booleans; enums by string name; a repeated
