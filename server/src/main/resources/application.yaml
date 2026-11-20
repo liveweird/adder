@@ -298,6 +298,11 @@ notifications:
     # released). The digest shares the mailer with MFA codes and password resets, and this budget is what keeps a flood of notices from
     # exhausting the provider's quota for them. A per-day global cap is deliberately absent: it would block those mails. 1..1000.
     maxPerRun: "$NOTIFICATIONS_EMAIL_MAX_PER_RUN:100"
+    # The most DISTINCT people one actor's mentions and hand-overs can make eligible for the digest in a UTC day (`notifications/
+    # NotificationEmailBudget.kt`, V24; the first N reached stay eligible for the day, the same person counts once). Over it the bell
+    # notice is still made and only its email is withheld, with one `notification.email_budget_exceeded` audit line per actor and day.
+    # Without it any room owner could enrol anyone and cause a digest email naming a room of their choosing. An ADMIN is not exempt. 1..1000.
+    maxRecipientsPerActorPerDay: "$NOTIFICATIONS_EMAIL_MAX_RECIPIENTS_PER_ACTOR_PER_DAY:20"
 
 search:
   # The budget of a search REQUEST (`threads/SearchBudget.kt`, one deadline for all its statements: each statement's `queryTimeout` is the

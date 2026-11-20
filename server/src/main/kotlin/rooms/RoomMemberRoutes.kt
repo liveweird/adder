@@ -100,43 +100,49 @@ private fun Route.memberAdd(roomService: RoomService, memberService: RoomMemberS
 }
 
 private fun Route.memberRole(roomService: RoomService, memberService: RoomMemberService) {
-    put<RoomsRoute.Id.Members.User> { route ->
-        val caller = call.caller()
-        val roomId = route.parent.parent.id
-        requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
-        val request = call.receive<RoomMemberRoleRequest>()
-        // Idempotent: the same role again is a 204 with no write and no audit line.
-        val roleFrom = memberService.setRole(roomId, route.userId, caller, managerGuard, request.role)
-        if (roleFrom != null) {
-            audit(
-                "room.member_role_changed",
-                "byUserId" to caller.userId.toLong(),
-                "roomId" to roomId.toLong(),
-                "targetUserId" to route.userId.toLong(),
-                "roleFrom" to roleFrom.name,
-                "roleTo" to request.role.name,
-            )
+    // Per-USER `chat-write` bucket (240/min) before every guard: the role change takes the room's write lock (`security.md`).
+    rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
+        put<RoomsRoute.Id.Members.User> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.id
+            requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
+            val request = call.receive<RoomMemberRoleRequest>()
+            // Idempotent: the same role again is a 204 with no write and no audit line.
+            val roleFrom = memberService.setRole(roomId, route.userId, caller, managerGuard, request.role)
+            if (roleFrom != null) {
+                audit(
+                    "room.member_role_changed",
+                    "byUserId" to caller.userId.toLong(),
+                    "roomId" to roomId.toLong(),
+                    "targetUserId" to route.userId.toLong(),
+                    "roleFrom" to roleFrom.name,
+                    "roleTo" to request.role.name,
+                )
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
-        call.respond(HttpStatusCode.NoContent)
     }
 }
 
 private fun Route.memberRemove(roomService: RoomService, memberService: RoomMemberService) {
-    delete<RoomsRoute.Id.Members.User> { route ->
-        val caller = call.caller()
-        val roomId = route.parent.parent.id
-        val self = route.userId == caller.userId
-        val standing = roomService.visibleStanding(caller, roomId)
-        // Leaving needs only the reader's standing (a plain member may leave); removing someone else is a manager's act.
-        if (!self) requireRoomManager(caller, standing)
-        memberService.remove(roomId, route.userId, caller, if (self) readerGuard else managerGuard)
-        audit(
-            "room.member_removed",
-            "byUserId" to caller.userId.toLong(),
-            "roomId" to roomId.toLong(),
-            "targetUserId" to route.userId.toLong(),
-            "self" to self,
-        )
-        call.respond(HttpStatusCode.NoContent)
+    // Per-USER `chat-write` bucket (240/min) before every guard: a removal (or a leave) takes the room's write lock (`security.md`).
+    rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
+        delete<RoomsRoute.Id.Members.User> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.id
+            val self = route.userId == caller.userId
+            val standing = roomService.visibleStanding(caller, roomId)
+            // Leaving needs only the reader's standing (a plain member may leave); removing someone else is a manager's act.
+            if (!self) requireRoomManager(caller, standing)
+            memberService.remove(roomId, route.userId, caller, if (self) readerGuard else managerGuard)
+            audit(
+                "room.member_removed",
+                "byUserId" to caller.userId.toLong(),
+                "roomId" to roomId.toLong(),
+                "targetUserId" to route.userId.toLong(),
+                "self" to self,
+            )
+            call.respond(HttpStatusCode.NoContent)
+        }
     }
 }

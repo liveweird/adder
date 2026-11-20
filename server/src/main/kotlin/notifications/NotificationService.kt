@@ -69,7 +69,14 @@ INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, t
 SELECT u.r, CAST(? AS int4), CAST(? AS varchar), CAST(? AS int8), CAST(? AS int4), CAST(? AS int4), CAST(? AS int8)
 FROM unnest(CAST(? AS int8[])) AS u(r)
 ON CONFLICT DO NOTHING
-RETURNING recipient_id"""
+RETURNING recipient_id, id"""
+
+/**
+ * The email of these notices is withheld (the per-actor digest budget, V24): `emailed_at` is stamped with the notice's own instant,
+ * V22's "settled, never mailed" (the digest's claim and settle skip it). It never touches `seen_at`: the bell is unchanged.
+ */
+private const val WITHHOLD_EMAIL = """
+UPDATE notifications SET emailed_at = created_at WHERE id = ANY(CAST(? AS int4[]))"""
 
 /**
  * The unseen notices of one person in one thread up to a message become seen (the read marker's write, run without the room lock): the
@@ -100,6 +107,8 @@ val NOTIFICATION_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 internal class NotificationService(
     private val database: R2dbcDatabase,
     private val rooms: RoomService,
+    /** The per-actor digest budget (V24); the default is the config default, a test or the composition root passes its own. */
+    private val emailBudget: NotificationEmailBudget = NotificationEmailBudget(DEFAULT_EMAIL_BUDGET_PER_ACTOR, ::nowMillis),
 ) : ThreadNotices {
     /** The notices. Ids only: there is no text column and no soft delete. */
     object Notifications : UIntIdTable("notifications") {
@@ -159,7 +168,8 @@ internal class NotificationService(
     /**
      * ONE multi-row `INSERT ... SELECT FROM unnest(...) ON CONFLICT DO NOTHING RETURNING recipient_id` ([INSERT_NOTICES]) under the
      * caller's room lock: answers the people a row was made for (a notice of the same message and kind that already exists is not made
-     * twice). `created_at` is the write's own instant ([nowMillis]).
+     * twice). `created_at` is the write's own instant ([nowMillis]). Every notice is made (the bell), but the ones past the actor's
+     * daily digest budget ([NotificationEmailBudget]) are stamped `emailed_at` at once, so the digest never mails them.
      */
     private suspend fun insertNotices(
         roomId: UInt,
@@ -178,10 +188,18 @@ internal class NotificationService(
             LongColumnType() to nowMillis(),
             ArrayColumnType<Long, List<Long>>(LongColumnType()) to recipients.map { it.toLong() },
         )
-        return TransactionManager.current()
+        val rows = TransactionManager.current()
             .exec(INSERT_NOTICES, arguments, explicitStatementType = StatementType.SELECT) { row ->
-                row.get(0, Long::class.javaObjectType)!!.toUInt()
+                row.get(0, Long::class.javaObjectType)!!.toUInt() to row.get(1, Int::class.javaObjectType)!!
             }?.toList().orEmpty().filterNotNull()
+        // In the order the people were reached, not the order the statement answers them: the budget admits the first ones.
+        val made = recipients.filter { r -> rows.any { it.first == r } }
+        val over = emailBudget.withheld(actorId, roomId, made)
+        if (over.isNotEmpty()) {
+            val ids = rows.filter { it.first in over }.map { it.second }
+            TransactionManager.current().exec(WITHHOLD_EMAIL, listOf(ArrayColumnType<Int, List<Int>>(IntegerColumnType()) to ids))
+        }
+        return made
     }
 
     /** ONE `notification.created` hint to [recipients] (nothing for nobody), inside the write's own transaction. */
@@ -305,6 +323,8 @@ internal class NotificationService(
             total += deleted
             if (deleted > 0) onBatch(deleted)
         } while (deleted == batchSize)
+        // The digest budget's days before the cutoff's (V24): a few tiny rows per actor and day, one short transaction.
+        suspendTransaction(database) { emailBudget.purgeBefore(cutoffMillis) }
         return total
     }
 

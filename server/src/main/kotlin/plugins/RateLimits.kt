@@ -125,13 +125,15 @@ object RateLimits {
     /**
      * `POST /api/v1/rooms/{id}/threads` and `POST /api/v1/rooms/{id}/threads/{number}/messages` share ONE bucket per signed-in user:
      * the two writes that put speech into a room. 120/min in every mode (the [DIRECTORY] idiom): a person types a few messages a
-     * minute, so the bound is for a runaway client or a script flooding a room. Edits, deletes and metadata writes stay unbucketed
-     * (guard-gated, one row each). The bucket sits BEFORE the guards, so a refused or invalid POST spends a token too.
+     * minute, so the bound is for a runaway client or a script flooding a room. Every other room-lock write rides [CHAT_WRITE] (or
+     * [ROOM_NAME] / [ROOM_MEMBERS]). The bucket sits BEFORE the guards, so a refused or invalid POST spends a token too.
      */
     const val CHAT_POST = "chat-post"
     /**
      * The thread and message writes that are not a POST share ONE bucket per signed-in user: the thread details PUT, the status PUT,
-     * the owner PUT, the message edit (PUT), the message DELETE, the reaction PUT and the thread and message pin PUTs. Each takes the
+     * the owner PUT, the message edit (PUT), the message DELETE, the reaction PUT and the thread and message pin PUTs, and (1.0.0
+     * checkup C-SEC-7) the room-lock writes that are not a name or an enrolment write: the room archive, unarchive and delete, a
+     * member's role PUT and removal (a leave included) and the room workflow PUT. Each takes the
      * room's write lock (`rooms/RoomLock.kt`) and a pooled connection for as long as it waits, so one member's script could otherwise
      * queue writers behind a room and hold the pool. 240/min in every mode (the [CHAT_POST] idiom, twice its figure): a person edits,
      * moves and deletes a few times a minute at the very most (4 a second is a script, not a hand), while the SPA's own bursts (a status

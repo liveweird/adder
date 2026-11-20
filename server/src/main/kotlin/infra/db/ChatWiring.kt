@@ -1,6 +1,8 @@
 package ch.nokillswit.infra.db
 
 import ch.nokillswit.infra.config.requireConfigInt
+import ch.nokillswit.notifications.MAX_EMAIL_BUDGET_PER_ACTOR
+import ch.nokillswit.notifications.NotificationEmailBudget
 import ch.nokillswit.notifications.NotificationService
 import ch.nokillswit.notifications.NotificationServiceKey
 import ch.nokillswit.rooms.RoomMemberService
@@ -58,7 +60,15 @@ internal fun Application.publishChatServices(
     attributes.put(MessageTagServiceKey, messageTagService)
     // The notices (V18) are made inside the chat's own writes through the `ThreadNotices` port `threads/` declares: this root hands the
     // implementation to the services that call it (`notifications/` imports `threads/`, never the reverse).
-    val notificationService = NotificationService(database, roomService)
+    // The per-actor digest budget (V24, boot-validated): the most distinct people one actor's mentions and hand-overs can make eligible for
+    // the email digest in a UTC day; the bell is untouched.
+    val emailBudget = NotificationEmailBudget(
+        perDay = requireConfigInt(
+            environment.config, "notifications.email.maxRecipientsPerActorPerDay", min = 1, max = MAX_EMAIL_BUDGET_PER_ACTOR,
+        ),
+        clock = ::nowMillis,
+    )
+    val notificationService = NotificationService(database, roomService, emailBudget)
     attributes.put(NotificationServiceKey, notificationService)
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.

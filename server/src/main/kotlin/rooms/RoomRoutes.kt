@@ -139,36 +139,40 @@ private fun Route.roomWrites(roomService: RoomService) {
             call.respond(HttpStatusCode.NoContent)
         }
     }
-    post<RoomsRoute.Id.Archive> { route ->
-        val caller = call.caller()
-        val roomId = route.parent.id
-        requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
-        // Idempotent: archiving an archived room is a 204 with no write and no audit line.
-        if (roomService.setArchived(roomId, caller, managerGuard, archived = true)) {
-            audit("room.archived", "byUserId" to caller.userId.toLong(), "roomId" to roomId.toLong())
+    // The room-lock writes that are not a name write (archive, unarchive, delete) ride the per-USER `chat-write` bucket (240/min, the
+    // thread and message writes' bucket), BEFORE every guard: each takes the room's write lock and a pooled connection while it waits.
+    rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
+        post<RoomsRoute.Id.Archive> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.id
+            requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
+            // Idempotent: archiving an archived room is a 204 with no write and no audit line.
+            if (roomService.setArchived(roomId, caller, managerGuard, archived = true)) {
+                audit("room.archived", "byUserId" to caller.userId.toLong(), "roomId" to roomId.toLong())
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
-        call.respond(HttpStatusCode.NoContent)
-    }
-    post<RoomsRoute.Id.Unarchive> { route ->
-        val caller = call.caller()
-        val roomId = route.parent.id
-        requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
-        if (roomService.setArchived(roomId, caller, managerGuard, archived = false)) {
-            audit("room.unarchived", "byUserId" to caller.userId.toLong(), "roomId" to roomId.toLong())
+        post<RoomsRoute.Id.Unarchive> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.id
+            requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
+            if (roomService.setArchived(roomId, caller, managerGuard, archived = false)) {
+                audit("room.unarchived", "byUserId" to caller.userId.toLong(), "roomId" to roomId.toLong())
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
-        call.respond(HttpStatusCode.NoContent)
-    }
-    delete<RoomsRoute.Id> { route ->
-        val caller = call.caller()
-        // Reader first (a non-member gets the 404 and cannot learn that the room exists), THEN the ADMIN-only 403.
-        roomService.visibleStanding(caller, route.id)
-        requireAdmin(caller)
-        roomService.delete(route.id, caller) { fresh, standing ->
-            requireRoomReader(fresh, standing)
-            requireAdmin(fresh)
+        delete<RoomsRoute.Id> { route ->
+            val caller = call.caller()
+            // Reader first (a non-member gets the 404 and cannot learn that the room exists), THEN the ADMIN-only 403.
+            roomService.visibleStanding(caller, route.id)
+            requireAdmin(caller)
+            roomService.delete(route.id, caller) { fresh, standing ->
+                requireRoomReader(fresh, standing)
+                requireAdmin(fresh)
+            }
+            audit("room.deleted", "byUserId" to caller.userId.toLong(), "roomId" to route.id.toLong())
+            call.respond(HttpStatusCode.NoContent)
         }
-        audit("room.deleted", "byUserId" to caller.userId.toLong(), "roomId" to route.id.toLong())
-        call.respond(HttpStatusCode.NoContent)
     }
 }
 

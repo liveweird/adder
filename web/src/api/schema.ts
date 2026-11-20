@@ -683,7 +683,7 @@ export interface paths {
          * Delete a room (soft)
          * @description `ADMIN` only, but the visibility check comes first: a non-member who is not an `ADMIN` gets the `404`, a member who is not an
          *     `ADMIN` (the room's OWNER included) gets `403`. Soft delete - the room stops reading as active and frees its name; there is no
-         *     restore. An archived room can be deleted.
+         *     restore. An archived room can be deleted. Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token).
          */
         delete: operations["deleteRoom"];
         options?: never;
@@ -733,7 +733,7 @@ export interface paths {
          * Archive a room
          * @description The room's OWNER or an `ADMIN` (visibility `404`, then role `403`). Idempotent: archiving an archived room is a `204` that
          *     changes nothing. An archived room is read-only for its name, description and workflow; its members can still be managed.
-         *     No request body.
+         *     No request body. Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token).
          */
         post: operations["archiveRoom"];
         delete?: never;
@@ -756,7 +756,7 @@ export interface paths {
         /**
          * Unarchive a room
          * @description The room's OWNER or an `ADMIN` (visibility `404`, then role `403`). Idempotent: unarchiving an active room is a `204` that
-         *     changes nothing. No request body.
+         *     changes nothing. No request body. Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token).
          */
         post: operations["unarchiveRoom"];
         delete?: never;
@@ -803,6 +803,8 @@ export interface paths {
          *     `STATUS_REPLACED` event to its history; the thread keeps its `closedAt` (the replacement has the same category), its
          *     `lastActivityAt` and its details `revision` are not bumped, and only its `updatedAt` moves. Every successful PUT stores
          *     `workflowRevision + 1`; read the workflow again for it.
+         *
+         *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token).
          */
         put: operations["updateRoomWorkflow"];
         post?: never;
@@ -869,7 +871,7 @@ export interface paths {
          * @description The room's OWNER or an `ADMIN` (visibility `404`, role `403`, the body `400`, then under the room lock the guard again). Allowed
          *     on an archived room. Idempotent: the role the member already has is a `204` that changes nothing and is not audited
          *     (`room.member_role_changed` fires on a change only). A user who is not an active member is `404`. Demoting the room's last
-         *     `OWNER` whose user is active is a `409` of type `urn:adder:problem:last-owner`: promote someone else first.
+         *     `OWNER` whose user is active is a `409` of type `urn:adder:problem:last-owner`: promote someone else first. Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token).
          */
         put: operations["setRoomMemberRole"];
         post?: never;
@@ -879,7 +881,7 @@ export interface paths {
          *     the room's OWNER or an `ADMIN` removes someone else (a plain member removing another is `403`). Allowed on an archived room.
          *     `404` for a user who is not an active member. Removing the room's last `OWNER` whose user is active - a leave included - is a
          *     `409` of type `urn:adder:problem:last-owner`. Audited `room.member_removed` (with `self`). A hard delete: the person can be added
-         *     again.
+         *     again. Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token).
          */
         delete: operations["removeRoomMember"];
         options?: never;
@@ -1615,7 +1617,9 @@ export interface paths {
          *     per person per 15 minutes (`notifications.email.minIntervalSeconds`; a person inside it gets everything in one later email),
          *     in the person's language. The email names WHO did it, the room, the thread number and a link; it never carries a thread title or any
          *     message text. A notice is mailed at most once and never when it is older than a day, when the person has left the room or been
-         *     deleted, or when its kind is switched off at that moment.
+         *     deleted, or when its kind is switched off at that moment. One actor can make at most 20 distinct people a day
+         *     (`notifications.email.maxRecipientsPerActorPerDay`, UTC days) eligible for the digest through their @mentions and hand-overs:
+         *     over that budget the in-app notice is still made and only its email is withheld.
          *
          *     **Target user or `ADMIN`** (`403` otherwise, before anything else is read); an unknown or deleted user is `404`. Unbucketed.
          */
@@ -3273,7 +3277,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) the per-USER chat-write bucket (shared by all eight) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, the two notification "seen" POSTs and the notification-preferences PUT) the per-USER read-state bucket (shared by all five) is exhausted (240/min), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) and on the room-lock writes that are not a name or an enrolment write (the room archive, unarchive and delete, a member's role PUT and removal, and the room workflow PUT) the per-USER chat-write bucket (shared by all fourteen) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, the two notification "seen" POSTs and the notification-preferences PUT) the per-USER read-state bucket (shared by all five) is exhausted (240/min), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 /** @description Seconds to wait before retrying; sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the rate-limit bucket 429s and the live-ticket store's full 429; not with the login lockout. */

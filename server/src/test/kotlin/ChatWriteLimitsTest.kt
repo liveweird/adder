@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.plugins.ProblemDetail
+import ch.nokillswit.rooms.RoomUpdateRequest
 import ch.nokillswit.threads.MessagePageResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
@@ -14,6 +15,7 @@ import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -113,6 +115,50 @@ class ChatWriteLimitsTest {
             assertEquals(HttpStatusCode.NoContent, otherMove.status)
             assertEquals(HttpStatusCode.OK, limited.client.get("$rooms/$room/threads/1").status, "reads are not bucketed")
             assertEquals(HttpStatusCode.Created, limited.client.postJson("$rooms/$room/threads/1/messages", MessageRequest("x")).status)
+        }
+    }
+
+    /**
+     * The room-lock writes that ride `chat-write` since the 1.0.0 checkup (C-SEC-7): each a request that is refused or a no-op, so 240 of
+     * them in any order change nothing the next one needs. Archive and unarchive alternate, ending unarchived.
+     */
+    private fun roomWrites(room: UInt, memberId: UInt): List<suspend HttpClient.() -> HttpResponse> = listOf(
+        { post("$rooms/$room/archive") }, // 204
+        { post("$rooms/$room/unarchive") }, // 204
+        { delete("$rooms/$room") }, // 403: the owner is not an ADMIN
+        { putJson("$rooms/$room/members/$memberId", mapOf("role" to "MEMBER")) }, // 204: the role it has
+        { delete("$rooms/$room/members/2000000000") }, // 404: not a member
+        { raw(HttpMethod.Put, "$rooms/$room/workflow", "{}") }, // 400: the revision header is missing
+    )
+
+    @Test
+    fun `the room-lock writes spend the chat-write bucket - 240 a minute per user across the six, then 429`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("cw-room")
+        val member = actor("cw-room-mem")
+        val room = room(owner, member)
+        val writes = roomWrites(room, member.id)
+
+        withAuditCapture { capture ->
+            repeat(chatWritePerMinute) { n ->
+                val response = writes[n % writes.size](owner.client)
+                assertTrue(response.status != HttpStatusCode.TooManyRequests, "request ${n + 1}: ${response.status}")
+            }
+            val rejected = writes.map { write -> write(owner.client) }
+            assertTrue(
+                rejected.all { it.status == HttpStatusCode.TooManyRequests },
+                "every one of the six spends the same bucket: ${rejected.map { it.status }}",
+            )
+            assertEquals(429, rejected.first().body<ProblemDetail>().status)
+            assertNotNull(rejected.first().headers["Retry-After"], "the bucket 429 says when to retry")
+            val event = capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "chat-write") }
+            assertNotNull(event)
+            assertTrue(event.hasKeyValue("byUserId", owner.id.toLong()))
+            // Another account is untouched, and so are the room's name write (its own bucket) and the reads.
+            assertEquals(HttpStatusCode.NoContent, member.client.delete("$rooms/$room/members/${member.id}").status, "another user's leave")
+            assertEquals(HttpStatusCode.OK, owner.client.get("$rooms/$room").status, "reads are not bucketed")
+            val rename = owner.client.putJson("$rooms/$room", RoomUpdateRequest("Renamed ${UUID.randomUUID().toString().substring(0, 8)}"))
+            assertEquals(HttpStatusCode.NoContent, rename.status, "the rename rides the room-name bucket, not chat-write")
         }
     }
 
