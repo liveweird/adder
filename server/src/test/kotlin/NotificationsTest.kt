@@ -55,29 +55,10 @@ class NotificationsTest {
         mintedTeams.forEach { TestTeams.service.delete(it) }
     }
 
-    /** A room owned by `owner` with `ann` and `bob` as members, and thread #1 opened by `owner`; `outsider` is no member. */
-    private class Cast(
-        val owner: RoomActor,
-        val ann: RoomActor,
-        val bob: RoomActor,
-        val outsider: RoomActor,
-        val room: UInt,
-        val thread: UInt,
-    )
+    private val minted = MintedIds(mintedUsers, mintedTemplates, mintedRooms)
 
-    private suspend fun ApplicationTestBuilder.cast(prefix: String): Cast {
-        suspend fun actor(suffix: String) = seedActor("$prefix-$suffix", name = "Name-$suffix").also { mintedUsers += it.id }
-        val owner = actor("own")
-        val ann = actor("ann")
-        val bob = actor("bob")
-        val outsider = actor("out")
-        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        val room = TestRooms.seed(owner.id, template, "Not ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
-        TestRooms.addMember(room, ann.id)
-        TestRooms.addMember(room, bob.id)
-        val thread = TestThreads.seed(room, owner.id).id
-        return Cast(owner, ann, bob, outsider, room, thread)
-    }
+    /** A room owned by `owner` with `ann` and `bob` as members, and thread #1 opened by `owner`; `outsider` is no member. */
+    private suspend fun ApplicationTestBuilder.cast(prefix: String): PairCast = seedPairCast(prefix, "Not", minted, withThread = true)
 
     private fun token(vararg actors: RoomActor): String = actors.joinToString(" ") { "<@${it.id}>" }
 

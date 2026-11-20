@@ -6,7 +6,7 @@ Owns: how to run the suite against a named stack, the parallel state-ownership r
 
 - The tests treat the app as a **blackbox**: a real Chromium against the whole stack (SPA + server + Flyway + Postgres) served single-origin, **a stack you started and named** (see "Run"). The package is fully isolated from `web/`: it imports none of the app source and only speaks HTTP/DOM.
 - **Playwright runs only against a stack somebody named.** The suite starts, builds, stops and tears down nothing, and never removes a service or a volume. Tests clean up only the records they own; existing data stays intact.
-- **A new or behaviorally changed test lands with its scenario file and its line in "What's covered" in the same commit.** The scenario file is the design, the line is the coverage map. `npm run check:scenarios` enforces the parity mechanically (both directions, orphan files included); `accessibility.spec.ts` is its registered skip.
+- **A new or behaviorally changed test lands with its scenario file and its line in "What's covered" in the same commit.** The scenario file is the design, the line is the coverage map. `npm run check:scenarios` enforces the parity mechanically (both directions, orphan files included); a backtick title with `${…}` holes (`accessibility.spec.ts`) is a template: a scenario heading must fit it.
 - **Every spec file owns its server-side state exclusively.** The serial unit is the spec file; different files run concurrently. Each spec's scenario file declares its **Owns** line ("nothing — read-only" when applicable); a new or edited spec satisfies the rulebook in "Parallel execution".
 - Artifacts are unique-named, and list asserts are filter- or sort-anchored, never bare page-1 assumptions.
 - Every e2e-created entity's name and every e2e-created user's email contains `e2e`, and nothing that must SURVIVE runs is ever named that way. Each spec deletes its own state, so the rule is satisfied by self-cleanup; add a `sweep-residue` global-setup pass if aborted runs start leaving residue that self-cleanup misses.
@@ -41,7 +41,7 @@ npm run check:scenarios       # spec ↔ scenario parity: files exist, test() ti
 npm run test:setup            # the refusal without a named stack, the readiness check, the source pins
 ```
 
-`check:scenarios` enforces the same-commit rule mechanically (both directions, orphan files included); `accessibility.spec.ts` is its registered skip — the parameterized-title carve-out in [`scenarios/README.md`](scenarios/README.md).
+`check:scenarios` enforces the same-commit rule mechanically (both directions, orphan files included); every spec is covered, and a template title (`accessibility.spec.ts`) is satisfied by a heading that fits it — the parameterized-title carve-out in [`scenarios/README.md`](scenarios/README.md).
 
 Reports/artifacts land in `playwright-report/` and `test-results/` (git-ignored).
 

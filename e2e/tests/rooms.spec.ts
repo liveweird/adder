@@ -4,8 +4,7 @@
 // team (`e2e-room-team-*`) and users, removed through the API in an `afterEach` (rooms first, then the team, then the users). The seeded Default and Incident templates
 // are shared and read-only here: rooms only copy them. Every room is created by a throwaway user (the room-name bucket is
 // per user, 30 a minute, and the member add has its own per-user bucket: this file stays far below both), so the seed administrator is never a member of any of them.
-import type { Page } from "@playwright/test";
-import { apiAsAdmin, deleteViaApi, expect, login, openFilters, rowOperation, signOut, test, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, createRoomViaUi, deleteViaApi, expect, login, openFilters, rail, rowOperation, signOut, test, throwawayUser, uniqueText } from "./helpers";
 
 // API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
 const cleanup: string[] = [];
@@ -14,26 +13,7 @@ test.afterEach(async () => {
 });
 
 const ROOMS_API = /\/api\/v1\/rooms(\/\d+)?(\/(archive|unarchive))?$/;
-/** The sidebar's Rooms section: the static "All rooms" leaf and the caller's rooms rail. */
-const rail = (page: Page) => page.getByRole("group", { name: "Rooms", exact: true });
 const NOT_A_MEMBER = "This room does not exist, or you are not a member of it.";
-
-/** Create a room from the create form as the signed-in user and register its cleanup; leaves the browser on the new room. */
-async function createRoomViaUi(page: Page, name: string, template: string): Promise<number> {
-  await page.goto("/rooms/new");
-  await page.getByRole("textbox", { name: "Name", exact: true }).fill(name);
-  await page.getByRole("combobox", { name: "Workflow template" }).click();
-  await page.getByRole("option", { name: template, exact: true }).click();
-  const [created] = await Promise.all([
-    page.waitForResponse((r) => r.request().method() === "POST" && ROOMS_API.test(r.url()) && r.status() === 201),
-    page.getByRole("button", { name: "Create", exact: true }).click(),
-  ]);
-  const id = ((await created.json()) as { id: number }).id;
-  cleanup.unshift(`/api/v1/rooms/${id}`);
-  await expect(page).toHaveURL(new RegExp(`/rooms/${id}$`));
-  await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
-  return id;
-}
 
 test("a user creates a room from the Incident template and finds it in the rooms rail", async ({ page }) => {
   await login(page);
@@ -135,7 +115,7 @@ test("the owner adds a person and a whole team, hands over ownership and leaves"
 
   await login(page, owner.email, owner.password);
   const name = uniqueText("e2e-room");
-  const id = await createRoomViaUi(page, name, "Default");
+  const id = await createRoomViaUi(page, name, "Default", cleanup);
   await page.getByRole("link", { name: "Members", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${id}/members$`));
   await expect(page.getByRole("link", { name: "Members", exact: true })).toHaveAttribute("aria-current", "page");
@@ -227,7 +207,7 @@ test("a non-member cannot open a room while an administrator can", async ({ page
 
   await login(page, owner.email, owner.password);
   const name = uniqueText("e2e-room");
-  const id = await createRoomViaUi(page, name, "Default");
+  const id = await createRoomViaUi(page, name, "Default", cleanup);
   await signOut(page);
 
   // The outsider gets the same answer as for a room that does not exist, and the room is in none of their lists.
@@ -264,7 +244,7 @@ test("an owner archives and unarchives a room and an administrator deletes it", 
 
   await login(page, owner.email, owner.password);
   const name = uniqueText("e2e-room");
-  const id = await createRoomViaUi(page, name, "Default");
+  const id = await createRoomViaUi(page, name, "Default", cleanup);
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   const nameBox = page.getByRole("textbox", { name: "Name", exact: true });
   await expect(nameBox).toBeEditable();

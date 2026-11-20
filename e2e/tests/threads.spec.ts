@@ -6,7 +6,7 @@
 // by a throwaway user, so the seed administrator is never a member of one; the per-user `room-name` (30 a minute), `room-members` (60) and
 // `chat-post` (120) buckets are far from reached. Threads are never deleted: a room's removal hides its threads with it.
 import type { Page } from "@playwright/test";
-import { deleteViaApi, expect, login, signOut, test, throwawayUser, uniqueText } from "./helpers";
+import { conversation, createRoomViaUi, deleteViaApi, expect, login, rail, signOut, test, throwawayUser, uniqueText } from "./helpers";
 
 // API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
 const cleanup: string[] = [];
@@ -14,7 +14,6 @@ test.afterEach(async () => {
   await deleteViaApi(cleanup.splice(0));
 });
 
-const ROOMS_API = /\/api\/v1\/rooms(\/\d+)?$/;
 const MEMBERS_API = /\/api\/v1\/rooms\/\d+\/members(\/\d+)?$/;
 const THREADS_API = /\/api\/v1\/rooms\/\d+\/threads$/;
 const MESSAGES_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/messages$/;
@@ -25,29 +24,8 @@ const OWNER_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/owner$/;
 /** The "edited" marker carries the edit time as visible text. */
 const EDITED_MARKER = /^edited \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 
-/** The sidebar's Rooms section (the rail lists the caller's rooms). */
-const rail = (page: Page) => page.getByRole("group", { name: "Rooms", exact: true });
-/** The conversation's scroller: its messages are the list items inside it. */
-const conversation = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 const messageNamed = (page: Page, text: string) => conversation(page).getByRole("listitem").filter({ hasText: text });
 const kebab = (item: ReturnType<typeof messageNamed>) => item.getByRole("button", { name: /^Operations for message by / });
-
-/** Create a room from a seeded template (Default unless told) as the signed-in user and register its cleanup; leaves the browser on the new room. */
-async function createRoomViaUi(page: Page, name: string, template: "Default" | "Incident" = "Default"): Promise<number> {
-  await page.goto("/rooms/new");
-  await page.getByRole("textbox", { name: "Name", exact: true }).fill(name);
-  await page.getByRole("combobox", { name: "Workflow template" }).click();
-  await page.getByRole("option", { name: template, exact: true }).click();
-  const [created] = await Promise.all([
-    page.waitForResponse((r) => r.request().method() === "POST" && ROOMS_API.test(r.url()) && r.status() === 201),
-    page.getByRole("button", { name: "Create", exact: true }).click(),
-  ]);
-  const id = ((await created.json()) as { id: number }).id;
-  cleanup.unshift(`/api/v1/rooms/${id}`);
-  await expect(page).toHaveURL(new RegExp(`/rooms/${id}$`));
-  await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
-  return id;
-}
 
 /** The room owner adds one person from the directory on the Members tab; leaves the browser there. */
 async function addMemberViaUi(page: Page, roomId: number, person: { name: string; email: string }): Promise<void> {
@@ -141,7 +119,7 @@ test("a member starts a thread from the room view and another member replies to 
   // The owner makes the room, adds the teammate and starts a thread: the first message is the thread's opener, and the pane opens on it.
   await login(page, owner.email, owner.password);
   const roomName = uniqueText("e2e-thr");
-  const roomId = await createRoomViaUi(page, roomName);
+  const roomId = await createRoomViaUi(page, roomName, "Default", cleanup);
   await addMemberViaUi(page, roomId, mate);
   const title = uniqueText("Disk full");
   await startThreadViaUi(page, roomId, title, "The **replica** is out of space.");
@@ -204,7 +182,7 @@ test("an author edits and deletes their own message and a room owner removes ano
   await signOut(page);
 
   await login(page, owner.email, owner.password);
-  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"));
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"), "Default", cleanup);
   await addMemberViaUi(page, roomId, mate);
   const title = uniqueText("Pager storm");
   await startThreadViaUi(page, roomId, title, "Opening note from the owner.");
@@ -294,7 +272,7 @@ test("a member moves a thread between open statuses but cannot close it, its own
   await signOut(page);
 
   await login(page, owner.email, owner.password);
-  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"));
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"), "Default", cleanup);
   await addMemberViaUi(page, roomId, mate);
   const title = uniqueText("Latency spike");
   await startThreadViaUi(page, roomId, title, "p99 doubled after the deploy.");
@@ -369,7 +347,7 @@ test("the owner passes the thread on, the new owner edits its details, and the h
 
   // The Incident template carries the optional fields (Severity, Component, Jira link, ETA) the new owner will fill in.
   await login(page, owner.email, owner.password);
-  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"), "Incident");
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"), "Incident", cleanup);
   await addMemberViaUi(page, roomId, mate);
   const title = uniqueText("Queue backlog");
   await startThreadViaUi(page, roomId, title, "The ingest queue is growing.");

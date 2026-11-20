@@ -15,7 +15,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.net.URLEncoder
-import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,21 +40,9 @@ class MessageMentionsTest {
         mintedTemplates.forEach { TestTemplates.delete(it) }
     }
 
-    /** A room owned by `owner` with `ann` and `bob` in it; `outsider` is no member. */
-    private class Cast(val owner: RoomActor, val ann: RoomActor, val bob: RoomActor, val outsider: RoomActor, val room: UInt)
+    private val minted = MintedIds(mintedUsers, mintedTemplates, mintedRooms)
 
-    private suspend fun ApplicationTestBuilder.cast(prefix: String): Cast {
-        suspend fun actor(suffix: String) = seedActor("$prefix-$suffix", name = "Name-$suffix").also { mintedUsers += it.id }
-        val owner = actor("own")
-        val ann = actor("ann")
-        val bob = actor("bob")
-        val outsider = actor("out")
-        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        val room = TestRooms.seed(owner.id, template, "Men ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
-        TestRooms.addMember(room, ann.id)
-        TestRooms.addMember(room, bob.id)
-        return Cast(owner, ann, bob, outsider, room)
-    }
+    private suspend fun ApplicationTestBuilder.cast(prefix: String): PairCast = seedPairCast(prefix, "Men", minted)
 
     private fun encoded(value: String): String = URLEncoder.encode(value, Charsets.UTF_8)
 

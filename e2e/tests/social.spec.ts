@@ -7,7 +7,7 @@
 // The per-user `live-ticket`, `chat-post`, `chat-write` and `read-state` buckets are only ever spent by throwaway users, far below their limits.
 import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { apiAsUser, deleteViaApi, expect, login, test, throwawayUser, uniqueText } from "./helpers";
+import { apiAsUser, conversation, deleteViaApi, expect, login, rail, test, threadList, throwawayUser, uniqueText } from "./helpers";
 
 const cleanup: string[] = [];
 const apis: APIRequestContext[] = [];
@@ -55,11 +55,8 @@ interface Scene {
   api: APIRequestContext;
 }
 
-const threadList = (page: Page) => page.getByRole("navigation", { name: "Threads", exact: true });
 const threadLink = (page: Page, title: string) => threadList(page).getByRole("link", { name: new RegExp(title) });
-const conversation = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 const messageNamed = (page: Page, text: string) => conversation(page).getByRole("listitem").filter({ hasText: text });
-const rail = (page: Page) => page.getByRole("group", { name: "Rooms", exact: true });
 /** The header bell: its name carries the unseen count ("Notifications (1 unseen)"). */
 const bell = (page: Page) => page.getByRole("button", { name: /^Notifications \(/ });
 const unseenBell = (count: number) => new RegExp(`^Notifications \\(${count} unseen\\)$`);

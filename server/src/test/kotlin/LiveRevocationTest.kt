@@ -445,17 +445,26 @@ class LiveRevocationTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             LiveSweep(
-                hub, blocklist, application.attributes[RoomServiceKey], intervalMillis = 600, retryDelayMillis = 50,
+                hub, blocklist, application.attributes[RoomServiceKey], intervalMillis = RETRY_TEST_INTERVAL_MILLIS, retryDelayMillis = 50,
                 judge = { checks ->
                     calls += System.nanoTime() / 1_000_000
                     if (calls.size == 1) error("a blip") else blocklist.accessVerdicts(checks)
                 },
             ).start(scope)
-            socket.expectClose(4003)
+            // The first run waits one interval (the sweep sleeps before its first pass), so the close needs more than the default 5 s wait.
+            assertEquals(4003, assertNotNull(socket.awaitClose(2 * RETRY_TEST_INTERVAL_MILLIS)).code)
             assertEquals(2, calls.size, "one failure, one retry")
-            assertTrue(calls[1] - calls[0] < 400, "retried ${calls[1] - calls[0]} ms later; the interval is 600 ms")
+            // The retry is 50 ms after the failure, the next tick a whole interval: the bound sits far from both, so a loaded runner
+            // cannot cross it without the retry having been skipped.
+            assertTrue(
+                calls[1] - calls[0] < RETRY_TEST_INTERVAL_MILLIS * 2 / 3,
+                "retried ${calls[1] - calls[0]} ms later; the interval is $RETRY_TEST_INTERVAL_MILLIS ms",
+            )
         } finally {
             scope.cancel()
         }
     }
 }
+
+/** The sweep tick of the retry test: long enough that the retry (50 ms later) and the next tick are far apart under load. */
+private const val RETRY_TEST_INTERVAL_MILLIS = 3_000L

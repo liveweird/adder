@@ -9,7 +9,6 @@ import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.THREAD_CLOSED_PROBLEM_TYPE
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadResponse
-import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -57,34 +56,10 @@ class MessageTest {
         mintedTemplates.forEach { TestTemplates.delete(it) }
     }
 
-    private class Cast(
-        val owner: RoomActor,
-        val author: RoomActor,
-        val member: RoomActor,
-        val outsider: RoomActor,
-        val admin: RoomActor,
-        val room: UInt,
-        val threadId: UInt,
-        /** The opening message of thread #1, written by `author`. */
-        val opener: UInt,
-    )
+    private val minted = MintedIds(mintedUsers, mintedTemplates, mintedRooms)
 
     /** A room owned by `owner` with thread #1 started by `author` (a plain member); `member` is another one, `admin` is no member. */
-    private suspend fun ApplicationTestBuilder.cast(prefix: String): Cast {
-        suspend fun actor(suffix: String, role: UserRole = UserRole.USER, name: String = "Test") =
-            seedActor("$prefix-$suffix", role, name).also { mintedUsers += it.id }
-        val owner = actor("own", name = "Olivia")
-        val author = actor("aut", name = "Alina")
-        val member = actor("mem", name = "Marek")
-        val outsider = actor("out")
-        val admin = actor("adm", UserRole.ADMIN)
-        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        val room = TestRooms.seed(owner.id, template, "Msg ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
-        TestRooms.addMember(room, author.id)
-        TestRooms.addMember(room, member.id)
-        val thread = TestThreads.seed(room, author.id)
-        return Cast(owner, author, member, outsider, admin, room, thread.id, thread.messageId)
-    }
+    private suspend fun ApplicationTestBuilder.cast(prefix: String): ThreadCast = seedThreadCast(prefix, "Msg", minted)
 
     private suspend fun HttpClient.send(method: HttpMethod, path: String, json: String?): HttpResponse = request(path) {
         this.method = method
@@ -105,9 +80,9 @@ class MessageTest {
 
     private suspend fun HttpClient.message(room: UInt, id: UInt): HttpResponse = get("$rooms/$room/messages/$id")
 
-    private fun rawMessage(cast: Cast, id: UInt) = runBlocking { TestThreads.rawMessages(cast.threadId).single { it.id == id } }
+    private fun rawMessage(cast: ThreadCast, id: UInt) = runBlocking { TestThreads.rawMessages(cast.threadId).single { it.id == id } }
 
-    private fun count(cast: Cast) = runBlocking { TestThreads.raw(cast.room, 1)!!.messageCount }
+    private fun count(cast: ThreadCast) = runBlocking { TestThreads.raw(cast.room, 1)!!.messageCount }
 
     @Test
     fun `a member posts - 201 with Location, the count and both activity stamps share the message's instant`() = testApplication {

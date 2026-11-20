@@ -33,6 +33,38 @@ once both the list and the pane have loaded; the side panel is scanned open (bel
 The 0.6.0 overlays are scanned scoped to their dialog, once the dialog has settled at full opacity: the header's notification drawer (opened from the bell; the
 admin has no notices, so it shows its empty state) and the fixture room's pinned panel (opened from **Pinned (n)**, listing the pinned thread and the pinned message).
 
+## Scenario: the reset-password page has no WCAG A/AA violations
+
+1. An anonymous visitor opens `/reset-password` and waits for the "Reset password" heading.
+   - *Expected*: an axe scan (same tags) reports zero violations.
+2. The visitor opens `/reset-password/confirm` with a well-formed fragment token (nothing is submitted, so nothing is consumed) and waits for the "Set new password" button.
+   - *Expected*: the axe scan reports zero violations.
+
+## Scenario: the not-found page has no WCAG A/AA violations
+
+1. The admin signs in and opens a path that matches no route (a unique `nowhere` segment) and waits for the first heading.
+   - *Expected*: an axe scan (same tags) reports zero violations.
+
+## Scenario: the room leave dialog has no WCAG A/AA violations
+
+1. The admin signs in and opens the fixture room's members page, then clicks **Leave room** (the admin owns the fixture room, so the button is there; the dialog is only opened, never confirmed).
+   - *Expected*: the dialog settles at full opacity with the heading "Leave this room?" and an axe scan scoped to the dialog reports zero violations.
+
+## Scenario: the notification drawer has no WCAG A/AA violations
+
+1. The admin signs in, opens `/` and clicks the header's **Notifications (n)** bell.
+   - *Expected*: the drawer settles at full opacity with the heading "Notifications" and the empty state "You have no notifications."; an axe scan scoped to the dialog reports zero violations.
+
+## Scenario: the pinned panel has no WCAG A/AA violations
+
+1. The admin signs in, opens the fixture room and clicks **Pinned (n)**.
+   - *Expected*: the panel settles at full opacity, lists the pinned thread (`#<number> <title>`) and the pinned message, and an axe scan scoped to the dialog reports zero violations.
+
+## Scenario: a team editor modal has no WCAG A/AA violations
+
+1. The admin signs in, opens `/teams` and clicks **New team**.
+   - *Expected*: the modal settles at full opacity with the heading "New team" and an axe scan scoped to the dialog reports zero violations.
+
 ## Scenario: `<path>` has no WCAG A/AA violations in the dark scheme
 
 1. The browser context emulates the dark colour scheme (Playwright `colorScheme: "dark"`; the

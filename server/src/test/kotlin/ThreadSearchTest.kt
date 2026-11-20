@@ -46,19 +46,9 @@ class ThreadSearchTest {
         mintedTemplates.forEach { TestTemplates.delete(it) }
     }
 
-    private class Cast(val owner: RoomActor, val member: RoomActor, val outsider: RoomActor, val room: UInt)
+    private val minted = MintedIds(mintedUsers, mintedTemplates, mintedRooms)
 
-    /** A room owned by `owner` with `member` in it; `outsider` is no member. */
-    private suspend fun ApplicationTestBuilder.cast(prefix: String): Cast {
-        suspend fun actor(suffix: String, role: UserRole = UserRole.USER) = seedActor("$prefix-$suffix", role).also { mintedUsers += it.id }
-        val owner = actor("own")
-        val member = actor("mem")
-        val outsider = actor("out")
-        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        val room = TestRooms.seed(owner.id, template, "Srch ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
-        TestRooms.addMember(room, member.id)
-        return Cast(owner, member, outsider, room)
-    }
+    private suspend fun ApplicationTestBuilder.cast(prefix: String): RoomCast = seedRoomCast(prefix, "Srch", minted)
 
     private fun encoded(value: String): String = URLEncoder.encode(value, Charsets.UTF_8)
 

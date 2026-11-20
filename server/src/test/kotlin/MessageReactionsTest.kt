@@ -9,7 +9,6 @@ import ch.nokillswit.threads.REACTION_LIMIT_PROBLEM_TYPE
 import ch.nokillswit.threads.THREAD_CLOSED_PROBLEM_TYPE
 import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ReactionSummary
-import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -59,35 +58,15 @@ class MessageReactionsTest {
         mintedTemplates.forEach { TestTemplates.delete(it) }
     }
 
-    private class Cast(
-        val owner: RoomActor,
-        val author: RoomActor,
-        val member: RoomActor,
-        val outsider: RoomActor,
-        /** An ADMIN who is NOT a member of the room. */
-        val admin: RoomActor,
-        val room: UInt,
-        val threadId: UInt,
-        /** A message of thread #1 written by `author`. */
-        val message: UInt,
-    )
+    private val minted = MintedIds(mintedUsers, mintedTemplates, mintedRooms)
+
+    /** The shared thread cast plus `message`, a message of thread #1 written by `author`. */
+    private class Cast(base: ThreadCast, val message: UInt) : ThreadCast(base)
 
     /** A room owned by Olivia with thread #1 started by Alina and Marek as the third member; the ADMIN and the outsider are not members. */
     private suspend fun ApplicationTestBuilder.cast(prefix: String): Cast {
-        suspend fun actor(suffix: String, role: UserRole = UserRole.USER, name: String = "Test") =
-            seedActor("$prefix-$suffix", role, name).also { mintedUsers += it.id }
-        val owner = actor("own", name = "Olivia")
-        val author = actor("aut", name = "Alina")
-        val member = actor("mem", name = "Marek")
-        val outsider = actor("out")
-        val admin = actor("adm", UserRole.ADMIN, name = "Adam")
-        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        val room = TestRooms.seed(owner.id, template, "Rx ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
-        TestRooms.addMember(room, author.id)
-        TestRooms.addMember(room, member.id)
-        val thread = TestThreads.seed(room, author.id)
-        val message = TestThreads.post(room, 1, author.id, "React to this")
-        return Cast(owner, author, member, outsider, admin, room, thread.id, message)
+        val base = seedThreadCast(prefix, "Rx", minted, adminName = "Adam")
+        return Cast(base, TestThreads.post(base.room, 1, base.author.id, "React to this"))
     }
 
     private fun path(room: UInt, message: UInt) = "$rooms/$room/messages/$message/reaction"

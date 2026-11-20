@@ -120,12 +120,13 @@ class LiveSocketTest {
 
     @Test
     fun `a ticket redeemed after its access token expired closes 4401`() = testApplication {
-        // A ticket never outlives its token (`LiveTickets` clamps it), so a 1 s token makes a ticket already expired a second later.
-        configureApp("jwt.accessExpiresInSeconds" to "1")
+        // A ticket never outlives its token (`LiveTickets` clamps it), so a 3 s token makes a ticket already expired 3 s later. 3 s, not 1:
+        // the login and the mint must both land inside the token's life, or the mint is a 401 on a slow runner.
+        configureApp("jwt.accessExpiresInSeconds" to "3")
         startApplication()
         val user = actor("live-expired")
         val ticket = user.client.mintLiveTicket().ticket
-        delay(1_300)
+        delay(3_300)
         val socket = openLive(liveClient())
         socket.auth(ticket)
         socket.expectClose(4401)

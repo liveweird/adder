@@ -279,3 +279,38 @@ export type Scheme = "light" | "dark";
 export async function expectScheme(page: Page, scheme: Scheme): Promise<void> {
   await expect(page.locator("html")).toHaveAttribute("data-mantine-color-scheme", scheme);
 }
+
+/** The sidebar's Rooms section: the static "All rooms" leaf and the caller's rooms rail. */
+export const rail = (page: Page) => page.getByRole("group", { name: "Rooms", exact: true });
+/** The conversation's scroller: its messages are the list items inside it. */
+export const conversation = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
+/** A room's thread list (the navigation beside the conversation). */
+export const threadList = (page: Page) => page.getByRole("navigation", { name: "Threads", exact: true });
+
+const ROOM_CREATE_API = /\/api\/v1\/rooms$/;
+
+/**
+ * Create a room from the create form as the signed-in user and register its cleanup (`cleanup` is the spec's teardown list, rooms
+ * first: `unshift`); leaves the browser on the new room. `labels` are the form's own words for a UI that speaks another language.
+ */
+export async function createRoomViaUi(
+  page: Page,
+  name: string,
+  template: string,
+  cleanup: string[],
+  labels = { name: "Name", template: "Workflow template", create: "Create" },
+): Promise<number> {
+  await page.goto("/rooms/new");
+  await page.getByRole("textbox", { name: labels.name, exact: true }).fill(name);
+  await page.getByRole("combobox", { name: labels.template }).click();
+  await page.getByRole("option", { name: template, exact: true }).click();
+  const [created] = await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && ROOM_CREATE_API.test(r.url()) && r.status() === 201),
+    page.getByRole("button", { name: labels.create, exact: true }).click(),
+  ]);
+  const id = ((await created.json()) as { id: number }).id;
+  cleanup.unshift(`/api/v1/rooms/${id}`);
+  await expect(page).toHaveURL(new RegExp(`/rooms/${id}$`));
+  await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
+  return id;
+}

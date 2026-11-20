@@ -7,7 +7,7 @@
 // (the thread POSTs share a per-user `chat-post` bucket of 120 a minute, far from reached).
 import { type Page, request as playwrightRequest } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { accountMenu, apiAsAdmin, deleteViaApi, expect, login, loginViaForm, signOut, test, throwawayUser, uniqueText } from "./helpers";
+import { accountMenu, apiAsAdmin, createRoomViaUi, deleteViaApi, expect, login, loginViaForm, signOut, test, throwawayUser, uniqueText } from "./helpers";
 
 // API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
 const cleanup: string[] = [];
@@ -15,25 +15,8 @@ test.afterEach(async () => {
   await deleteViaApi(cleanup.splice(0));
 });
 
-const ROOMS_API = /\/api\/v1\/rooms(\/\d+)?$/;
 const WORKFLOW_API = /\/api\/v1\/rooms\/\d+\/workflow$/;
 const statusRow = (page: Page, n: number) => page.getByRole("group", { name: `Status ${n}`, exact: true });
-
-/** The create form as the signed-in user (in whatever language its UI speaks): `labels` are the form's own words. */
-async function createRoomViaUi(page: Page, name: string, template: string, labels = { name: "Name", template: "Workflow template", create: "Create" }): Promise<number> {
-  await page.goto("/rooms/new");
-  await page.getByRole("textbox", { name: labels.name, exact: true }).fill(name);
-  await page.getByRole("combobox", { name: labels.template }).click();
-  await page.getByRole("option", { name: template, exact: true }).click();
-  const [created] = await Promise.all([
-    page.waitForResponse((r) => r.request().method() === "POST" && ROOMS_API.test(r.url()) && r.status() === 201),
-    page.getByRole("button", { name: labels.create, exact: true }).click(),
-  ]);
-  const id = ((await created.json()) as { id: number }).id;
-  cleanup.unshift(`/api/v1/rooms/${id}`);
-  await expect(page).toHaveURL(new RegExp(`/rooms/${id}$`));
-  return id;
-}
 
 /** Sign in as the owner of a fresh room made from `template`, and land on its Workflow tab. */
 async function ownerOnWorkflowTab(page: Page, template: string): Promise<{ roomId: number; roomName: string; owner: { email: string; password: string } }> {
@@ -42,7 +25,7 @@ async function ownerOnWorkflowTab(page: Page, template: string): Promise<{ roomI
   await signOut(page);
   await login(page, owner.email, owner.password);
   const roomName = uniqueText("e2e-room");
-  const roomId = await createRoomViaUi(page, roomName, template);
+  const roomId = await createRoomViaUi(page, roomName, template, cleanup);
   await page.getByRole("link", { name: "Workflow", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/workflow$`));
   await expect(page.getByRole("heading", { level: 2, name: roomName })).toBeVisible();
@@ -212,7 +195,7 @@ test("a room created by a Polish-speaking user gets the Polish labels of the tem
 
   // Creating a room in Polish copies the template's Polish labels (a room's labels are plain text in its creator's language).
   const roomName = uniqueText("e2e-room");
-  const roomId = await createRoomViaUi(page, roomName, "Incident", { name: "Nazwa", template: "Szablon przepływu pracy", create: "Utwórz" });
+  const roomId = await createRoomViaUi(page, roomName, "Incident", cleanup, { name: "Nazwa", template: "Szablon przepływu pracy", create: "Utwórz" });
   await page.getByRole("link", { name: "Przepływ pracy", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/workflow$`));
   const labels = ["Triaż", "Analiza", "Mitygacja", "Monitorowanie", "Rozwiązane"];

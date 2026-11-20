@@ -5,7 +5,7 @@
 // seeded Default template. Threads and messages are never deleted: a room's removal hides them. The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket.
 import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { apiAsUser, deleteViaApi, expect, login, rowOperation, test, throwawayUser, uniqueText } from "./helpers";
+import { apiAsUser, conversation, deleteViaApi, expect, login, rail, rowOperation, test, threadList, throwawayUser, uniqueText } from "./helpers";
 
 const cleanup: string[] = [];
 const apis: APIRequestContext[] = [];
@@ -51,12 +51,7 @@ interface Scene {
   api: APIRequestContext;
 }
 
-/** The sidebar's Rooms section (the rail lists the caller's rooms). */
-const rail = (page: Page) => page.getByRole("group", { name: "Rooms", exact: true });
-/** The conversation's scroller: its messages are the list items inside it. */
-const conversation = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 const messageNamed = (page: Page, text: string) => conversation(page).getByRole("listitem").filter({ hasText: text });
-const threadList = (page: Page) => page.getByRole("navigation", { name: "Threads", exact: true });
 const statusSelect = (page: Page) => page.getByRole("combobox", { name: "Thread status", exact: true });
 
 /** The admin (signed in on `page`) mints the owner and the teammate; the owner then makes a room and adds the teammate, all through the API. */

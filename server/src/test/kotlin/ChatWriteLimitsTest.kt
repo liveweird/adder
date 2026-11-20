@@ -26,7 +26,6 @@ import io.ktor.http.encodedPath
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.util.UUID
-import kotlin.system.measureTimeMillis
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -154,7 +153,7 @@ class ChatWriteLimitsTest {
         }
 
     @Test
-    fun `fields of the wrong shape is a 400 with a fixed detail BEFORE the room lock - held, and the answer is still immediate`() =
+    fun `fields of the wrong shape is a 400 with a fixed detail BEFORE the room lock - held, so a 400 and not a lock-wait 429`() =
         testApplication {
             usePostgresTestcontainer()
             val owner = actor("cw-shape")
@@ -174,22 +173,21 @@ class ChatWriteLimitsTest {
 
             TestThreads.holdingRoomLock(room) {
                 for (fields in bad) {
-                    val elapsed = measureTimeMillis {
-                        val createBody = """{"title":"T","body":"B","fields":$fields}"""
-                        val create = member.client.raw(HttpMethod.Post, "$rooms/$room/threads", createBody)
-                        assertEquals(HttpStatusCode.BadRequest, create.status, fields)
-                        val detail = create.body<ProblemDetail>().detail.orEmpty()
-                        assertTrue("single value" in detail || "at most 20 fields" in detail, detail)
-                        assertTrue("a1" !in detail && "k21" !in detail, "the detail echoes nothing: $detail")
-                        val update = member.client.request("$rooms/$room/threads/1") {
-                            method = HttpMethod.Put
-                            headers.append("X-Expected-Revision", revision.toString())
-                            contentType(ContentType.Application.Json)
-                            setBody("""{"title":"T","fields":$fields}""")
-                        }
-                        assertEquals(HttpStatusCode.BadRequest, update.status, fields)
+                    // A write that waited for the held room lock would answer the typed 429 `room-busy` once its lock wait ran out, never
+                    // this 400: the status is the proof that the shape was refused first (no wall-clock bound to flake under load).
+                    val createBody = """{"title":"T","body":"B","fields":$fields}"""
+                    val create = member.client.raw(HttpMethod.Post, "$rooms/$room/threads", createBody)
+                    assertEquals(HttpStatusCode.BadRequest, create.status, fields)
+                    val detail = create.body<ProblemDetail>().detail.orEmpty()
+                    assertTrue("single value" in detail || "at most 20 fields" in detail, detail)
+                    assertTrue("a1" !in detail && "k21" !in detail, "the detail echoes nothing: $detail")
+                    val update = member.client.request("$rooms/$room/threads/1") {
+                        method = HttpMethod.Put
+                        headers.append("X-Expected-Revision", revision.toString())
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"title":"T","fields":$fields}""")
                     }
-                    assertTrue(elapsed < 1500, "refused without waiting for the lock ($elapsed ms): $fields")
+                    assertEquals(HttpStatusCode.BadRequest, update.status, fields)
                 }
             }
             assertEquals(1, TestThreads.rawAll(room).size, "nothing was written")

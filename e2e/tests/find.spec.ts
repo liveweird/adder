@@ -7,7 +7,7 @@
 // Every user runs a handful of searches, far below the per-user `search` bucket (60 a minute) that no other spec's account shares.
 import type { APIRequestContext, Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { apiAsAdmin, apiAsUser, deleteViaApi, expect, login, test, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, test, threadList, throwawayUser, uniqueText } from "./helpers";
 
 const cleanup: string[] = [];
 const apis: APIRequestContext[] = [];
@@ -28,9 +28,7 @@ interface Person {
 }
 
 /** The thread list is the labelled `nav`, the conversation the labelled region. */
-const threadList = (page: Page) => page.getByRole("navigation", { name: "Threads", exact: true });
 const threadLink = (page: Page, title: string) => threadList(page).getByRole("link", { name: new RegExp(title) });
-const conversation = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 const messageNamed = (page: Page, text: string) => conversation(page).getByRole("listitem").filter({ hasText: text });
 const filtersToggle = (page: Page) => page.getByRole("button", { name: /^Filters/ });
 

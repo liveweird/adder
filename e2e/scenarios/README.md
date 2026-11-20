@@ -36,4 +36,5 @@ Rules:
   The registered exception: a spec that generates tests from a list (today only
   `accessibility.spec.ts`, one `test(`\`${path} has no WCAG A/AA violations\``)` per page) keeps a
   single scenario section whose heading uses the template placeholder (`<path>`), since there is
-  no literal title to mirror.
+  no literal title to mirror; `check:scenarios` accepts a heading that fits the template (each `${…}` hole matching
+  any text) and still demands a heading for every literal title of that spec.

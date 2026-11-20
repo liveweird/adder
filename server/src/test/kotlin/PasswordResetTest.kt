@@ -259,8 +259,17 @@ class PasswordResetTest {
             contentType(ContentType.Application.Json)
             setBody(PasswordResetRequest(email))
         }
-        assertEquals(HttpStatusCode.Accepted, request().status)
-        assertEquals(HttpStatusCode.TooManyRequests, request().status)
+        val auditEvents = LogCapture("ch.nokillswit.audit")
+        try {
+            assertEquals(HttpStatusCode.Accepted, request().status)
+            assertEquals(HttpStatusCode.TooManyRequests, request().status)
+            assertNotNull(
+                auditEvents.awaitEvent { it.message == "password_reset.throttled" && it.hasKeyValue("email", email) },
+                "the cooldown refusal is audited",
+            )
+        } finally {
+            auditEvents.detach()
+        }
     }
 
     @Test

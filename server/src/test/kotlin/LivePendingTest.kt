@@ -154,6 +154,7 @@ class LivePendingTest {
         startApplication()
         val hub = application.attributes[LiveHubKey]
         val ws = liveClient()
+        val opened = System.nanoTime()
         val sockets = (1..8).map { openLive(ws) { header(HttpHeaders.XForwardedFor, "203.0.113.77") } }
         hub.awaitPending(8)
         val ninth = jsonClient().get(path) {
@@ -161,10 +162,10 @@ class LivePendingTest {
             header(HttpHeaders.XForwardedFor, "203.0.113.77")
         }
         assertEquals(HttpStatusCode.ServiceUnavailable, ninth.status)
-        val started = System.nanoTime()
         sockets.first().expectClose(4401)
-        val seconds = (System.nanoTime() - started) / 1_000_000_000.0
-        assertTrue(seconds < 4.0, "the default deadline is 2 s, took $seconds s")
+        val seconds = (System.nanoTime() - opened) / 1_000_000_000.0
+        // The deadline runs from the upgrade, so it can never fire before 2 s after `opened`; the upper bound is five times that.
+        assertTrue(seconds in 1.9..10.0, "the default deadline is 2 s, took $seconds s")
         sockets.forEach { it.close() }
     }
 
@@ -230,19 +231,19 @@ class LivePendingTest {
         startApplication()
         val hub = application.attributes[LiveHubKey]
         val socket = openLive(liveClient())
-        val started = System.nanoTime()
         coroutineScope {
+            // Pings keep flowing for 20 s. A deadline that they moved would close the socket only when they stopped, past the 10 s
+            // wait below; the close itself is the assertion (a send on the closed socket just ends the loop).
             val pinger = async {
                 runCatching {
-                    repeat(40) {
+                    repeat(400) {
                         socket.session.outgoing.send(Frame.Ping(ByteArray(0)))
                         delay(50)
                     }
                 }
             }
-            socket.expectClose(4401)
-            val millis = (System.nanoTime() - started) / 1_000_000
-            assertTrue(millis < 1_800, "closed after $millis ms; the deadline is 600 ms and pings (every 50 ms for 2 s) must not move it")
+            val reason = assertNotNull(socket.awaitClose(10_000), "the server closed with no reason")
+            assertEquals(4401, reason.code, "close code (reason: ${reason.message})")
             pinger.cancel()
         }
         hub.awaitPending(0)
