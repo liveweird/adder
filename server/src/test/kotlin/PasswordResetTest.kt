@@ -264,8 +264,10 @@ class PasswordResetTest {
             assertEquals(HttpStatusCode.Accepted, request().status)
             assertEquals(HttpStatusCode.TooManyRequests, request().status)
             assertNotNull(
-                auditEvents.awaitEvent { it.message == "password_reset.throttled" && it.hasKeyValue("email", email) },
-                "the cooldown refusal is audited",
+                auditEvents.awaitEvent { it.message == "password_reset.throttled" &&
+                        it.hasKeyValue("emailDigest", testAuditDigest(email))
+                },
+                "the cooldown refusal is audited under the keyed digest (no account behind the address)",
             )
         } finally {
             auditEvents.detach()
