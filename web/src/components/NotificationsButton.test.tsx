@@ -101,7 +101,7 @@ describe("NotificationsButton", () => {
     unseenPage = page([notice()], 3);
     renderBell();
     expect(await screen.findByRole("button", { name: "Notifications (3 unseen)" })).toBeInTheDocument();
-    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("3").closest("[data-unread-cue=count]")).not.toBeNull();
     // It asks for the unseen ones only, a page of 100, newest first by the server's default.
     expect(calls).toContain("GET /api/v1/notifications?page=1&pageSize=100&seen=false");
   });
@@ -143,6 +143,9 @@ describe("NotificationsButton", () => {
     const mention = await within(drawer).findByRole("link", { name: /<b>Ada<\/b> mentioned you in #42 \*\*Awaria\*\*/ });
     expect(mention).toHaveTextContent(`Payments outage · ${formatDateTime(AT, ZONE)}`);
     expect(within(mention).getByText("Unseen")).toBeInTheDocument();
+    // The unseen row carries the shared blue dot; the seen one has none.
+    expect(mention.querySelectorAll("[data-unread-cue=dot]")).toHaveLength(1);
+    expect(within(drawer).getByRole("link", { name: /Bob made you/ }).querySelector("[data-unread-cue]")).toBeNull();
     expect(within(drawer).getByRole("link", { name: /Bob made you the owner of #5 Runbook/ })).toHaveTextContent("Ops ·");
     expect(drawer.querySelector("b")).toBeNull();
     // A seen one has no "Unseen" word.

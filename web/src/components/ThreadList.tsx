@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Badge, Button, Group, SegmentedControl, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
+import { Button, Group, SegmentedControl, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { IconAt, IconMessages, IconPinFilled, IconPlus } from "@tabler/icons-react";
 import { listThreads } from "../api/threads";
@@ -20,6 +20,7 @@ import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import PaginationBar from "./PaginationBar";
 import ThreadStatusPill from "./ThreadStatusPill";
+import UnreadCue from "./UnreadCue";
 import { roomKeys } from "../utils/roomKeys";
 import { activeFilterCount, ORDERS, pruneFieldEntries, SCOPES, toApiQuery, type Order, type Scope } from "../utils/threadListParams";
 import { getUserId } from "../api/session";
@@ -147,8 +148,8 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                         </Text>
                         {(unread || notice) && (
                           <Group gap={4} wrap="nowrap" aria-hidden="true">
-                            {notice && <IconAt size={14} />}
-                            {unread && <Badge size="sm">{unreadBadge(thread.unreadCount)}</Badge>}
+                            {notice && <IconAt size={14} color="var(--adder-unread-fill)" />}
+                            {unread && <UnreadCue>{unreadBadge(thread.unreadCount)}</UnreadCue>}
                           </Group>
                         )}
                       </Group>

@@ -38,7 +38,7 @@ export default function FilterPanel({
           rightSection={
             <Group gap={6} wrap="nowrap" component="span">
               {activeFilterCount > 0 && (
-                <Badge size="sm" circle variant="filled">
+                <Badge size="sm" circle variant="filled" color="gray">
                   {activeFilterCount}
                 </Badge>
               )}

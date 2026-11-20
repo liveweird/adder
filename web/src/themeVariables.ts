@@ -28,6 +28,9 @@ export const LIGHT_TOKENS = {
   // The brand hue where it must be PERCEIVED against the canvas (nav marker, hover underline,
   // focus) — the light primary (8-shade) here, the 4-shade in the dark scheme (see theme.ts).
   accentInk: "#586715",
+  // The unread/unseen cue (UnreadCue.tsx): blue-8 under white text (5.0:1), and itself 4.7:1 on the canvas.
+  unreadFill: "#1971c2",
+  unreadOn: "#ffffff",
 } as const;
 
 export const DARK_TOKENS = {
@@ -42,6 +45,9 @@ export const DARK_TOKENS = {
   inkWarning: "#ffc078",
   inkError: "#ff8787",
   accentInk: "#b2cc3c",
+  // Blue-4 under dark-9 text (7.4:1), and itself 6.7:1 on the canvas.
+  unreadFill: "#4dabf7",
+  unreadOn: "#141414",
 } as const;
 
 /** Light-scheme inks for `variant="light"` surfaces, per hue — each replaces the stock 9-shade
@@ -76,6 +82,8 @@ function schemeVariables(tokens: typeof LIGHT_TOKENS | typeof DARK_TOKENS): Reco
     "--adder-ink-warning": tokens.inkWarning,
     "--adder-ink-error": tokens.inkError,
     "--adder-accent-ink": tokens.accentInk,
+    "--adder-unread-fill": tokens.unreadFill,
+    "--adder-unread-on": tokens.unreadOn,
   };
 }
 

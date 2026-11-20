@@ -73,10 +73,16 @@ describe("RoomsRail unread marks", () => {
     expect(screen.getByRole("link", { name: "Day Shift" })).not.toHaveAttribute("aria-describedby");
   });
 
+  test("a new room and a notice count are both the shared blue cue (a dot and a count badge)", () => {
+    const { container } = renderRail([room({ id: 1, name: "Night Shift", unread: true })], { mentions: new Map([[1, 4]]) });
+    expect(container.querySelectorAll("[data-unread-cue=dot]")).toHaveLength(1);
+    expect(container.querySelector("[data-unread-cue=count]")).toHaveTextContent("4");
+  });
+
   test("the icon rail shows a dot for a room that only holds unseen notices", () => {
     const { container } = renderRail([room({ id: 1, name: "Night Shift" }), room({ id: 2, name: "Day Shift" })], { collapsed: true, mentions: new Map([[1, 1]]) });
     expect(screen.getByRole("link", { name: "Night Shift" })).toHaveAccessibleDescription("1 unseen notification");
-    // One Indicator dot, on the room that has something to say.
-    expect(container.querySelectorAll(".mantine-Indicator-indicator")).toHaveLength(1);
+    // One unread-cue dot, on the room that has something to say.
+    expect(container.querySelectorAll("[data-unread-cue=dot]")).toHaveLength(1);
   });
 });

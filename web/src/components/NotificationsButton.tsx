@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore, type MouseEvent } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Anchor, Box, Button, Drawer, Group, Indicator, Stack, Text, VisuallyHidden } from "@mantine/core";
+import { ActionIcon, Anchor, Box, Button, Drawer, Group, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { IconBell, IconBellOff, IconChecks } from "@tabler/icons-react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
@@ -18,6 +18,7 @@ import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import Pager from "./Pager";
+import UnreadCue, { UnreadAnchor } from "./UnreadCue";
 
 const PAGE_SIZE = 20;
 
@@ -49,9 +50,9 @@ function NoticeRow({ n, zone, onOpen }: { n: NotificationItem; zone: string; onO
       >
         <Group align="flex-start" wrap="nowrap" gap="sm">
           {/* The dot is a shape for sighted users; the hidden word carries "unseen" for the rest. */}
-          <Indicator size={9} offset={3} disabled={n.seen} position="middle-start" inline>
-            <Box w={12} />
-          </Indicator>
+          <Box w={8} pt={6} style={{ flex: "none" }}>
+            {!n.seen && <UnreadCue />}
+          </Box>
           <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
             {!n.seen && <VisuallyHidden>{t("notifications.unseenRow")}</VisuallyHidden>}
             <Text size="sm" fw={n.seen ? 400 : 600} c={n.seen ? "dimmed" : undefined} style={{ overflowWrap: "anywhere" }}>
@@ -120,7 +121,7 @@ export default function NotificationsButton() {
   const anyUnseen = unseen.total > 0 || items.some((n) => !n.seen);
   return (
     <>
-      <Indicator inline size={18} offset={4} color="red" label={<span aria-hidden="true">{badgeText(unseen.total)}</span>} disabled={unseen.total === 0}>
+      <UnreadAnchor show={unseen.total > 0} count={badgeText(unseen.total)}>
         <ActionIcon
           variant="subtle"
           color="gray"
@@ -137,7 +138,7 @@ export default function NotificationsButton() {
         >
           <IconBell size={18} />
         </ActionIcon>
-      </Indicator>
+      </UnreadAnchor>
       <Drawer
         opened={drawerOpen}
         onClose={() => setOpened(false)}

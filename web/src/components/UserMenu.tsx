@@ -6,7 +6,6 @@ import {
   Badge,
   Box,
   Group,
-  Indicator,
   Menu,
   SegmentedControl,
   Text,
@@ -22,6 +21,7 @@ import { flagSignedOut, useAdmin } from "../auth";
 import { asSupportedLanguage, NATIVE_LANGUAGE_NAMES, SUPPORTED_LANGUAGES } from "../i18n";
 import { useChangelogUnseen } from "../hooks/useChangelogSeen";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "../hooks/useTelemetryPanel";
+import UnreadCue, { UnreadAnchor } from "./UnreadCue";
 
 const IDENTITY_STALE_MS = 5 * 60_000;
 
@@ -88,13 +88,7 @@ export default function UserMenu() {
     <Menu width={260}>
       {/* The Indicator wraps the TARGET, not the other way round: Menu.Target clones its child
           with aria-expanded/aria-controls, which are only allowed on the button. */}
-      <Indicator
-        color="red"
-        size={8}
-        offset={4}
-        disabled={!changelogUnseen}
-        title={changelogUnseen ? t("changelog.whatsNew") : undefined}
-      >
+      <UnreadAnchor show={changelogUnseen} title={changelogUnseen ? t("changelog.whatsNew") : undefined}>
         <Menu.Target>
           {/* No aria-label: the name is the visible name plus a visually hidden "Account menu" (WCAG 2.5.3 Label in Name — a label
               that replaces the visible words fails axe's label-content-name-mismatch). The initials are decoration for the name beside them. */}
@@ -110,10 +104,11 @@ export default function UserMenu() {
               )}
               <IconChevronDown size={14} />
               <VisuallyHidden>{t("appShell.userMenu.open")}</VisuallyHidden>
+              {changelogUnseen && <VisuallyHidden>{`(${t("changelog.whatsNew")})`}</VisuallyHidden>}
             </Group>
           </UnstyledButton>
         </Menu.Target>
-      </Indicator>
+      </UnreadAnchor>
       <Menu.Dropdown>
         <Box px="sm" py="xs">
           <Text size="sm" fw={500} truncate>
@@ -170,14 +165,12 @@ export default function UserMenu() {
           to="/changelog"
           leftSection={<IconHistory size={14} />}
           rightSection={
-            changelogUnseen ? (
-              <Badge size="xs" color="red" variant="filled">
-                {t("changelog.newBadge")}
-              </Badge>
-            ) : undefined
+            changelogUnseen ? <UnreadCue size="xs">{t("changelog.newBadge")}</UnreadCue> : undefined
           }
         >
           {t("appShell.nav.changelog")}
+          {/* The cue is aria-hidden; this carries it for a screen reader (the item's name becomes "Changelog (What's new)"). */}
+          {changelogUnseen && <VisuallyHidden>{` (${t("changelog.whatsNew")})`}</VisuallyHidden>}
         </Menu.Item>
         {admin && (
           // ADMIN only. A toggle: the check mark says it is on (aria-current, the language items' idiom: Mantine fixes the role).

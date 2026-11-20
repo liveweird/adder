@@ -176,6 +176,7 @@ Every list page composes the same ported Lettuce blocks — copy `pages/Users.ts
   active nav item, focus); red = hard/blocking (validation errors, destructive confirm buttons, a failed row, a violated
   constraint); orange = warning / waived (a soft finding, drift); gray = neutral state; blue = in progress; grape = waiting;
   teal = success (success toasts and notices) — never green or lime, which sit beside the olive. A new status colour goes through that vocabulary, not a page-local pick.
+  **Unread and unseen cues are blue, drawn by `components/UnreadCue.tsx` and nothing else** (rail dot and count, thread-list count and `@` mark, the conversation's "New" marker, the bell, the drawer's unseen dot, the what's-new dot): never red (red = blocking), never olive; the cue is `aria-hidden` and the host carries the words (`web-internals.md` "Unread"). A `Badge` with no `color` is **gray** by the theme default, so a meaning is always a hue passed on purpose.
 - **Delete**: `useDeleteConfirm` + `ConfirmDeleteModal` — the hook owns modal state and the
   success toast, the page owns cache refresh. For mutations while a list remains mounted, use
   `refreshQueriesAfterMutation(queryClient, ["area"], ...)` from `utils/queryRefresh.ts` after
@@ -291,7 +292,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
   `utils/chartColors.ts`'s): olive marks only primary CTAs, the active nav item (a light tint + a
   3px accent bar) and focus — it is the interactive accent and nothing else (see the colour vocabulary). Everything else
   is neutral BY THEME DEFAULT — `Anchor` is text-coloured with a
-  hover underline, `Chip` is `variant="light"`, `Badge` is `variant="light"`, `ActionIcon` is
+  hover underline, `Chip` is `variant="light"`, `Badge` is `variant="light"` and gray, `ActionIcon` is
   `variant="subtle" color="gray"` (destructive ones pass `color="red"`), `Menu` is bottom-end in a
   portal, tables are `verticalSpacing="xs"` (≈40px rows). Pages never pass those props back. Teal
   is the SUCCESS colour, red the BLOCKING one, orange the warning one (soft findings, waived); the ADMIN role badge is
@@ -334,9 +335,9 @@ suite. Release convention:
 - Keep dates descending (same-day releases are fine — newest stays on top), versions unique, and
   both bodies non-empty — pinned by `src/changelog/entries.test.ts`.
 - Complete publication with the annotated version tag and bilingual GitHub release described in
-  [the application release process](../.claude/docs/app-releases.md). Every user-visible PR bumps
-  the version with its own entry (minor for a feature, patch for a fix). Documentation/test-only
-  changes may retain the version; published tags never move.
+  [the application release process](../.claude/docs/app-releases.md). One version per milestone: the
+  milestone's release commit bumps `APP_VERSION` and adds the one entry; work inside a milestone does not bump
+  (`app-releases.md` has the rule and the patch exception); published tags never move.
 - Keep phrases that tests assert on in plain text runs: markdown formatting splits text nodes,
   and testing-library's `getByText` matches direct text nodes only.
 

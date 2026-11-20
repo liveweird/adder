@@ -77,6 +77,28 @@ describe("theme colour tokens (WCAG AA)", () => {
     }
   });
 
+  it("the unread cue (UnreadCue.tsx) is legible text on its fill and visible against every surface, in both schemes", () => {
+    expect(contrast(LIGHT_TOKENS.unreadOn, LIGHT_TOKENS.unreadFill)).toBeGreaterThanOrEqual(AA);
+    expect(contrast(DARK_TOKENS.unreadOn, DARK_TOKENS.unreadFill)).toBeGreaterThanOrEqual(AA);
+    // The dot has no text, so the 3:1 non-text floor applies to it; the count badge is held to the same surfaces.
+    for (const surface of [WHITE, LIGHT_TOKENS.canvas, LIGHT_TOKENS.surfaceTint]) {
+      expect(contrast(LIGHT_TOKENS.unreadFill, surface), `unread fill on ${surface}`).toBeGreaterThanOrEqual(3);
+    }
+    for (const surface of [DEFAULT_THEME.colors.dark[7], DEFAULT_THEME.colors.dark[6], DARK_TOKENS.canvas, DARK_TOKENS.surfaceTint]) {
+      expect(contrast(DARK_TOKENS.unreadFill, surface), `unread fill on ${surface}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("the unread cue is a blue (not the brand, red or teal)", () => {
+    const blue = DEFAULT_THEME.colors.blue;
+    expect(blue).toContain(LIGHT_TOKENS.unreadFill);
+    expect(blue).toContain(DARK_TOKENS.unreadFill);
+  });
+
+  it("a colourless Badge is gray, never the brand", () => {
+    expect(theme.components!.Badge!.defaultProps).toMatchObject({ color: "gray", variant: "light" });
+  });
+
   it("index.css paints the first-paint canvas with the same hexes as the canvas tokens", () => {
     // The bundle's CSS variables don't exist before Mantine mounts, so index.css repeats the
     // two canvas hexes literally — keep them in lockstep with themeVariables.ts.
@@ -94,6 +116,10 @@ describe("cssVariablesResolver", () => {
     expect(vars.light["--adder-canvas"]).toBe(LIGHT_TOKENS.canvas);
     expect(vars.light["--mantine-color-adder-light-color"]).toBe(LIGHT_VARIANT_INKS.adder);
     expect(vars.dark["--adder-accent-ink"]).toBe(DARK_TOKENS.accentInk);
+    expect(vars.light["--adder-unread-fill"]).toBe(LIGHT_TOKENS.unreadFill);
+    expect(vars.light["--adder-unread-on"]).toBe(LIGHT_TOKENS.unreadOn);
+    expect(vars.dark["--adder-unread-fill"]).toBe(DARK_TOKENS.unreadFill);
+    expect(vars.dark["--adder-unread-on"]).toBe(DARK_TOKENS.unreadOn);
     expect(vars.dark["--mantine-color-adder-light-color"]).toBeUndefined();
   });
 });

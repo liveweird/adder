@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { Anchor, Avatar, Badge, Box, Divider, Group, Indicator, NavLink, Switch, Text, ThemeIcon, Tooltip, VisuallyHidden } from "@mantine/core";
+import { Anchor, Avatar, Box, Divider, Group, NavLink, Switch, Text, ThemeIcon, Tooltip, VisuallyHidden } from "@mantine/core";
 import { IconAlertCircle, IconAt, IconHash } from "@tabler/icons-react";
 import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -11,6 +11,7 @@ import { initialsOf } from "../utils/text";
 import { unreadBadge } from "../utils/unread";
 import classes from "../theme.module.css";
 import FormErrorAlert from "./FormErrorAlert";
+import UnreadCue, { UnreadAnchor } from "./UnreadCue";
 
 const NO_MENTIONS: ReadonlyMap<number, number> = new Map();
 
@@ -71,11 +72,11 @@ export default function RoomsRail({
               aria-label={room.name}
               aria-describedby={noteId}
               leftSection={
-                <Indicator size={8} offset={2} color="var(--mantine-color-text)" disabled={note === ""}>
+                <UnreadAnchor show={note !== ""} ring={false}>
                   <Avatar size={24} radius="xl" variant="light" color="gray">
                     {initialsOf(room.name)}
                   </Avatar>
-                </Indicator>
+                </UnreadAnchor>
               }
               className={classes.railLink}
               c={dimmed ? "dimmed" : undefined}
@@ -99,11 +100,9 @@ export default function RoomsRail({
           rightSection={
             note === "" ? undefined : (
               <Group gap={6} wrap="nowrap" aria-hidden="true">
-                {isNew && <Box component="span" w={8} h={8} bg="var(--mantine-color-text)" style={{ borderRadius: "50%" }} />}
+                {isNew && <UnreadCue />}
                 {notices > 0 && (
-                  <Badge size="xs" leftSection={<IconAt size={10} />}>
-                    {unreadBadge(notices)}
-                  </Badge>
+                  <UnreadCue size="xs" icon={<IconAt size={10} />}>{unreadBadge(notices)}</UnreadCue>
                 )}
               </Group>
             )

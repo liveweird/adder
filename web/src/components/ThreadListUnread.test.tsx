@@ -73,6 +73,9 @@ describe("ThreadList", () => {
       const unread = await screen.findByRole("link", { name: /Disk full on db-3/ });
       expect(unread).toHaveAccessibleDescription("4 unread messages");
       expect(within(unread).getByText("4").closest("[aria-hidden='true']")).not.toBeNull();
+      // The count is the shared blue unread cue, and only the unread row has one.
+      expect(within(unread).getByText("4").closest("[data-unread-cue=count]")).not.toBeNull();
+      expect(within(screen.getByRole("link", { name: /Old alert/ })).queryByText("0")).toBeNull();
       expect(titleOf(unread).closest("p")).toHaveStyle({ fontWeight: "700" });
       const read = screen.getByRole("link", { name: /Old alert/ });
       expect(read).not.toHaveAttribute("aria-describedby");

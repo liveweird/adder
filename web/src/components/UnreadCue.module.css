@@ -1,0 +1,36 @@
+/* The unread/unseen cue: ONE blue, drawn the same way everywhere (UnreadCue.tsx). The fill and its text come from the AA-tested
+   `--adder-unread-*` tokens (themeVariables.ts), per scheme. */
+.dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--adder-unread-fill);
+}
+
+/* The count: painted here, not through Mantine's private --badge-* variables. The attribute selector outranks the Badge's own
+   single-class rule, so the order the two stylesheets load in does not matter. */
+.count[data-variant] {
+  background: var(--adder-unread-fill);
+  color: var(--adder-unread-on);
+}
+
+.anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Pinned to the top right corner of what it flags. */
+.corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  transform: translate(35%, -35%);
+}
+
+/* A ring in the body colour keeps it apart from the avatar or icon underneath; off where the host row is tinted (the rail's active or hovered
+   link), where the body-coloured ring would show as a halo. */
+.ring {
+  box-shadow: 0 0 0 2px var(--mantine-color-body);
+}

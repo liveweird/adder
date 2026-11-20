@@ -106,7 +106,9 @@ export const theme = createTheme({
     Autocomplete: Autocomplete.extend({ defaultProps: { filter: foldedOptionsFilter } }),
     MultiSelect: MultiSelect.extend({ defaultProps: { filter: foldedOptionsFilter } }),
     TagsInput: TagsInput.extend({ defaultProps: { filter: foldedOptionsFilter } }),
-    Badge: Badge.extend({ defaultProps: { radius: "sm", variant: "light" } }),
+    // A colourless Badge is GRAY (neutral), never the brand: olive is the interactive accent only. Meaning is always a
+    // hue passed on purpose (StatusPill, the red/orange telemetry badges) or the unread cue (UnreadCue.tsx, blue).
+    Badge: Badge.extend({ defaultProps: { radius: "sm", variant: "light", color: "gray" } }),
     // Form sections (contract and registry forms): flat, headed by a small caps
     // legend over a hairline — the fieldset/legend semantics stay, the boxes go.
     Fieldset: Fieldset.extend({

@@ -72,6 +72,19 @@ describe("UserMenu", () => {
     expect(screen.getByRole("menuitem", { name: /Changelog/ })).toHaveAttribute("href", "/changelog");
   });
 
+  test("an unseen changelog is said in words too: on the trigger's name and on the Changelog item's, beside the blue cue", async () => {
+    stubFetch(() => undefined);
+    const user = userEvent.setup();
+    renderMenu();
+    const trigger = screen.getByRole("button", { name: /account menu/i });
+    expect(trigger).toHaveAccessibleName(expect.stringContaining("(What's new)"));
+    expect(trigger.closest("[title=\"What's new\"]")?.querySelector("[data-unread-cue=dot]")).not.toBeNull();
+    await user.click(trigger);
+    const item = await screen.findByRole("menuitem", { name: /Changelog/ });
+    expect(item).toHaveAccessibleName("Changelog (What's new)");
+    expect(item.querySelector("[data-unread-cue=count][data-size=xs]")).toHaveTextContent("New");
+  });
+
   test("an admin's menu has the Telemetry panel toggle: a check mark and aria-current while it is on, off again on the next pick", async () => {
     stubFetch(() => undefined);
     const user = userEvent.setup();

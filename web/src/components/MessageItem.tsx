@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Box, Divider, Group, Menu, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ import MessageEditForm from "./MessageEditForm";
 import MessagePinMenuItem from "./MessagePinMenuItem";
 import MessageReactions from "./MessageReactions";
 import RowActionsMenu from "./RowActionsMenu";
+import UnreadCue from "./UnreadCue";
 
 /**
  * One message of the conversation: its author (a bold run, never a heading), when it was posted (the browser's zone), an "edited" marker,
@@ -98,11 +99,9 @@ export default function MessageItem({
           mb="xs"
           labelPosition="left"
           aria-label={t("threads.unread.separatorAria")}
-          label={
-            <Text component="span" size="xs" fw={700} c="dimmed">
-              {t("threads.unread.separator")}
-            </Text>
-          }
+          // The rule and the word are the unread blue (UnreadCue.tsx); the separator's aria-label carries the words.
+          style={{ "--divider-color": "var(--adder-unread-fill)" } as CSSProperties}
+          label={<UnreadCue>{t("threads.unread.separator")}</UnreadCue>}
         />
       )}
       <Stack gap={4}>

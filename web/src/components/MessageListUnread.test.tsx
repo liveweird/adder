@@ -87,6 +87,8 @@ describe("MessageList: unread", () => {
       await screen.findByRole("region", { name: "Messages" });
       const separator = within(item(20)).getByRole("separator", { name: "New messages" });
       expect(separator).toHaveTextContent("New");
+      // The word is the shared blue unread cue, not a dimmed run.
+      expect(within(separator).getByText("New").closest("[data-unread-cue=count]")).not.toBeNull();
       expect(screen.getAllByRole("separator")).toHaveLength(1);
       // Inside the message's own item, so the list stays a list of messages.
       expect(item(20).firstElementChild).toBe(separator);

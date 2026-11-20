@@ -365,9 +365,12 @@ describe("App shell", () => {
       renderApp("/");
       expect(await screen.findByTitle("Build version")).toHaveAttribute("href", "/changelog");
       // The what's-new dot rides the account-menu trigger while the version is unseen.
-      expect(screen.getByTitle("What's new")).toBeInTheDocument();
+      expect(screen.getByTitle("What's new").querySelector("[data-unread-cue=dot]")).not.toBeNull();
       await user.click(screen.getByRole("button", { name: /account menu/i }));
-      expect(await screen.findByRole("menuitem", { name: /Changelog/ })).toHaveAttribute("href", "/changelog");
+      const changelog = await screen.findByRole("menuitem", { name: /Changelog/ });
+      expect(changelog).toHaveAttribute("href", "/changelog");
+      // The menu item's "New" marker is the same blue cue.
+      expect(changelog.querySelector("[data-unread-cue=count]")).toHaveTextContent("New");
     });
 
     test("opening the changelog clears the what's-new dot immediately", async () => {
