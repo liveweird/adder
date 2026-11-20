@@ -1,3 +1,4 @@
+import { matchPath } from "react-router-dom";
 import { listSearch, writeThreadListParams } from "./threadListParams";
 
 /** The ONE place the room route family is spelled out — never hand-assemble a room URL. */
@@ -10,6 +11,20 @@ export const roomSettingsPath = (id: number) => `${roomPath(id)}/settings`;
 /** Search: one room's, and the one across the caller's rooms. */
 export const roomSearchPath = (id: number) => `${roomPath(id)}/search`;
 export const searchPath = "/search";
+
+/**
+ * Whether `pathname` is the Threads tab of a room: the list at `/rooms/:id`, a thread's pane or the new-thread form beside it. Only there do the
+ * URL's `scope`, `order` and `page` mean the thread list's; on the Search tab (and Members, Workflow, Settings) the same keys are another page's.
+ */
+export function isThreadListRoute(pathname: string): boolean {
+  const match = matchPath({ path: `${roomsPath}/:id`, end: true }, pathname) ?? matchPath(`${roomsPath}/:id/threads/*`, pathname);
+  return match !== null && parseRoomId(match.params.id) !== null;
+}
+
+/** `search` when `pathname` is the Threads tab of a room (its list keys are the thread list's), else the empty query. */
+export function listRouteSearch(pathname: string, search: string): string {
+  return isThreadListRoute(pathname) ? search : "";
+}
 
 /** The numeric id of a `:id` route parameter, or null when it is not a plain positive int32 (`12abc`, `1e3`, `0`, `-1`): such a room cannot exist. */
 export function parseRoomId(param: string | undefined): number | null {
@@ -43,8 +58,9 @@ export function tagFilterPath(roomId: number, number: number, tag: string): stri
 
 /**
  * A found message's link: the thread that holds it, with `message=<id>` naming the message to jump to (the thread view reads it). `search`, the
- * current URL's query, passes the thread list's keys through [listSearch] when the link should keep the reader's list state; a search page's own
- * keys (`q`, `page`...) are never carried.
+ * current URL's query, passes the thread list's keys through [listSearch] when the link should keep the reader's list state. [listSearch] keeps
+ * `scope` and `page` too, and the search tab has its own (`/rooms/:id/search?scope=closed&page=3`): a caller that is not on the thread list's
+ * route passes `listRouteSearch(pathname, search)`, never the raw query.
  */
 export function threadMessagePath(roomId: number, number: number, messageId: number, search?: string | URLSearchParams): string {
   const query = new URLSearchParams({ message: String(messageId) });

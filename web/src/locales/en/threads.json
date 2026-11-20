@@ -232,7 +232,7 @@
       "forbidden": "Only members of the room can pin or unpin.",
       "gone": "This thread or message no longer exists, or you no longer have access to its room — reload the page",
       "archived": "This room was archived in the meantime, so its pins can no longer be changed.",
-      "limit": "This room already has 50 pins. Unpin one first.",
+      "limit": "This room already has {{count}} pins. Unpin one first.",
       "conflict": "The room changed in the meantime. Reload the page and try again.",
       "tooManyRequests": "You are changing things too quickly. Wait a minute and try again."
     }

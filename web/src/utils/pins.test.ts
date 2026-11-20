@@ -1,7 +1,9 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import i18n from "../i18n";
 import { ApiError } from "../api/http";
-import { canPin, pinErrorMessage } from "./pins";
+import { PIN_LIMIT } from "../api/pins";
+import { canPin, pinErrorMessage, refreshAfterPinFailure } from "./pins";
 import { PROBLEM_TYPES } from "./problems";
 
 const t = i18n.t.bind(i18n);
@@ -32,5 +34,42 @@ describe("pinErrorMessage", () => {
 
   test("a busy room is its own message, whatever the status vocabulary says", () => {
     expect(pinErrorMessage(new ApiError(429, { type: PROBLEM_TYPES.roomBusy }), t)).toBe("The room is busy right now — try again in a moment.");
+  });
+});
+
+describe("the pin limit in the words", () => {
+  test("the number comes from PIN_LIMIT, in English and in Polish", async () => {
+    expect(pinErrorMessage(new ApiError(409, { type: PROBLEM_TYPES.pinLimit }), t)).toContain(` ${PIN_LIMIT} pins`);
+    await i18n.changeLanguage("pl");
+    try {
+      expect(pinErrorMessage(new ApiError(409, { type: PROBLEM_TYPES.pinLimit }), i18n.t.bind(i18n))).toBe(`Ten pokój ma już ${PIN_LIMIT} przypięć. Najpierw odepnij któreś.`);
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
+});
+
+describe("refreshAfterPinFailure", () => {
+  const reread = async (err: unknown) => {
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    await refreshAfterPinFailure(queryClient, 12, err);
+    return invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+  };
+
+  test("the limit re-reads only the pins", async () => {
+    expect(await reread(new ApiError(409, { type: PROBLEM_TYPES.pinLimit }))).toEqual([["rooms", "pins", 12]]);
+  });
+
+  test("a 403, a 404 and any other 409 re-read the rooms prefix", async () => {
+    for (const err of [new ApiError(403, null), new ApiError(404, null), new ApiError(409, { type: PROBLEM_TYPES.roomArchived }), new ApiError(409, null)]) {
+      expect(await reread(err)).toEqual([["rooms"]]);
+    }
+  });
+
+  test("a busy room, a rate limit and a network failure re-read nothing", async () => {
+    for (const err of [new ApiError(429, { type: PROBLEM_TYPES.roomBusy }), new ApiError(429, null), new ApiError(500, null), new Error("offline")]) {
+      expect(await reread(err)).toEqual([]);
+    }
   });
 });

@@ -55,6 +55,8 @@ describe("MessageEditForm", () => {
     expect(JSON.parse(puts()[0][1].body as string)).toEqual({ body: "first  \n\n!" });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "rail"] });
+    // The pinned panel shows the body, so an edit re-reads the pins too.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "pins", 12] });
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["rooms"] });
   });
 

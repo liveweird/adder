@@ -1,6 +1,8 @@
+import { useEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { useLocation } from "react-router-dom";
+import { QueryClient } from "@tanstack/react-query";
 import { screen, waitFor, within } from "@testing-library/react";
 import PinnedPanel from "./PinnedPanel";
 import type { RoomPin } from "../api/pins";
@@ -10,6 +12,8 @@ import { SOME_TIME, makeMessage, makeRoom } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
 import { SIDE_WORKFLOW } from "../test/sideFixtures";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
+import { keysForFrame } from "../utils/liveKeys";
+import { wantsThreadPaneFocus } from "../utils/roomLinks";
 
 const ZONE = browserTimeZone();
 const THREAD_PIN: RoomPin = {
@@ -43,6 +47,18 @@ function Where() {
   return <output aria-label="where">{pathname + search}</output>;
 }
 
+/** Stands in for the thread pane: it takes focus when the navigation asks for it, like `ThreadPane` does. */
+function PaneStub() {
+  const { state, key } = useLocation();
+  const pane = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (wantsThreadPaneFocus(state)) pane.current?.focus();
+  }, [state, key]);
+  return <div ref={pane} tabIndex={-1} aria-label="pane" />;
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+
 describe("PinnedPanel", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   let pins: RoomPin[];
@@ -56,13 +72,14 @@ describe("PinnedPanel", () => {
       return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
     });
   }
-  const renderPanel = (room: RoomResponse = makeRoom()) =>
+  const renderPanel = (room: RoomResponse = makeRoom(), route = "/rooms/12", queryClient?: QueryClient) =>
     renderWithProviders(
       <>
         <PinnedPanel room={room} />
         <Where />
+        <PaneStub />
       </>,
-      { route: "/rooms/12" },
+      { route, queryClient },
     );
   const openPanel = async (user: ReturnType<typeof userEvent.setup>) => {
     await user.click(await screen.findByRole("button", { name: /^Pinned/ }));
@@ -107,6 +124,49 @@ describe("PinnedPanel", () => {
     await user.click(link);
     expect(screen.getByLabelText("where")).toHaveTextContent("/rooms/12/threads/42");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("on the Threads tab a thread link keeps the list's URL keys, the message link too", async () => {
+    const user = userEvent.setup();
+    serve();
+    renderPanel(makeRoom(), "/rooms/12/threads/5?scope=closed&page=3");
+    const dialog = await openPanel(user);
+    expect(await within(dialog).findByRole("link", { name: "#42 Awaria bazy" })).toHaveAttribute("href", "/rooms/12/threads/42?scope=closed&page=3");
+    expect(within(dialog).getByRole("link", { name: "Open in thread #7 Runbook" })).toHaveAttribute("href", "/rooms/12/threads/7?message=991&scope=closed&page=3");
+  });
+
+  test("on the Search tab the search's own scope and page are not carried onto the thread links", async () => {
+    const user = userEvent.setup();
+    serve();
+    renderPanel(makeRoom(), "/rooms/12/search?q=disk&scope=closed&page=3");
+    const dialog = await openPanel(user);
+    expect(await within(dialog).findByRole("link", { name: "#42 Awaria bazy" })).toHaveAttribute("href", "/rooms/12/threads/42");
+    expect(within(dialog).getByRole("link", { name: "Open in thread #7 Runbook" })).toHaveAttribute("href", "/rooms/12/threads/7?message=991");
+  });
+
+  test("following a thread link hands focus to the pane and the drawer does not take it back to the button", async () => {
+    const user = userEvent.setup();
+    serve();
+    renderPanel();
+    const trigger = await screen.findByRole("button", { name: "Pinned (2)" });
+    const dialog = await openPanel(user);
+    await user.click(await within(dialog).findByRole("link", { name: "#42 Awaria bazy" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await settle();
+    expect(screen.getByLabelText("pane")).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
+  });
+
+  test("following Open in thread does not return focus to the button either", async () => {
+    const user = userEvent.setup();
+    serve();
+    renderPanel();
+    const trigger = await screen.findByRole("button", { name: "Pinned (2)" });
+    const dialog = await openPanel(user);
+    await user.click(await within(dialog).findByRole("link", { name: "Open in thread #7 Runbook" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await settle();
+    expect(trigger).not.toHaveFocus();
   });
 
   test("a message pin shows the message as Markdown and its thread, and Open in thread carries message=", async () => {
@@ -207,5 +267,71 @@ describe("PinnedPanel", () => {
     const dialog = await screen.findByRole("dialog", { name: "Pinned in this room" });
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // Closing it without going anywhere still gives focus back to the button.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pinned (2)" })).toHaveFocus());
+  });
+
+  test("an open drawer drops a row after room.pin_changed and a re-read", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    serve();
+    renderPanel(makeRoom(), "/rooms/12", queryClient);
+    const dialog = await openPanel(user);
+    await within(dialog).findByRole("link", { name: "#42 Awaria bazy" });
+    pins = [MESSAGE_PIN];
+    for (const queryKey of keysForFrame({ type: "event", kind: "room.pin_changed", roomId: 12 })) await queryClient.invalidateQueries({ queryKey });
+    await waitFor(() => expect(within(dialog).queryByRole("link", { name: "#42 Awaria bazy" })).not.toBeInTheDocument());
+    expect(within(dialog).getByRole("link", { name: "Open in thread #7 Runbook" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pinned (1)" })).toBeInTheDocument();
+  });
+
+  test("an open drawer shows an edited body after message.edited, never the old one", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    serve();
+    renderPanel(makeRoom(), "/rooms/12", queryClient);
+    const dialog = await openPanel(user);
+    await within(dialog).findByText("replica");
+    pins = [{ ...MESSAGE_PIN, message: makeMessage({ id: 991, threadNumber: 7, authorName: "Cy Author", body: "redacted" }) }];
+    for (const queryKey of keysForFrame({ type: "event", kind: "message.edited", roomId: 12, threadNumber: 7, messageId: 991 })) await queryClient.invalidateQueries({ queryKey });
+    expect(await within(dialog).findByText("redacted")).toBeInTheDocument();
+    expect(within(dialog).queryByText("replica")).not.toBeInTheDocument();
+  });
+
+  test("a message pin whose message is missing does nothing on Unpin: it never unpins the thread instead", async () => {
+    const user = userEvent.setup();
+    pins = [{ ...MESSAGE_PIN, message: null }];
+    serve();
+    renderPanel();
+    const dialog = await openPanel(user);
+    await user.click(await within(dialog).findByRole("button", { name: "Unpin #7 Runbook" }));
+    await settle();
+    expect(puts()).toEqual([]);
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  test("a busy room is told apart from a rate limit", async () => {
+    const user = userEvent.setup();
+    serve(() => jsonResponse(429, { type: "urn:adder:problem:room-busy", status: 429, title: "Busy" }));
+    renderPanel();
+    const dialog = await openPanel(user);
+    await user.click(await within(dialog).findByRole("button", { name: "Unpin #42 Awaria bazy" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("The room is busy right now — try again in a moment.");
+  });
+
+  test("the pin limit re-reads only the pins; a 403 re-reads the whole rooms prefix", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    serve(() => jsonResponse(409, { type: "urn:adder:problem:pin-limit", status: 409, title: "Pin limit" }));
+    renderPanel(makeRoom(), "/rooms/12", queryClient);
+    const dialog = await openPanel(user);
+    await user.click(await within(dialog).findByRole("button", { name: "Unpin #42 Awaria bazy" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("This room already has 50 pins. Unpin one first.");
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "pins", 12] });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["rooms"] });
+    serve(() => jsonResponse(403, { title: "Forbidden", status: 403 }));
+    await user.click(within(dialog).getByRole("button", { name: "Unpin #42 Awaria bazy" }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms"] }));
   });
 });

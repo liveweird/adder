@@ -52,8 +52,8 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame(event("message.posted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], RAIL]);
   });
 
-  test("message.edited re-reads the conversation and the thread list (an edit can add or drop a hashtag), not the thread itself", () => {
-    expect(keysForFrame(event("message.edited", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"]]);
+  test("message.edited re-reads the conversation, the thread list (an edit can add or drop a hashtag) and the room's pins (a redacted body must not linger in the panel), not the thread itself", () => {
+    expect(keysForFrame(event("message.edited", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
   });
 
   test("message.deleted re-reads the conversation, the thread, the thread list and the room's pins (not the rail)", () => {
@@ -406,8 +406,8 @@ describe("createLiveInvalidator", () => {
 
   test("a key being fetched is NOT cancelled or re-read: it is tried again until it is idle", () => {
     const t = setup();
-    // The conversation and the list are both being fetched: neither is re-read, nor cancelled, until it is idle.
-    t.fetching.mockImplementation((filters) => (keyOf(filters)[3] === "messages" || keyOf(filters)[3] === "list" ? 1 : 0));
+    // The conversation, the list and the pins are all being fetched: none is re-read, nor cancelled, until it is idle.
+    t.fetching.mockImplementation((filters) => (keyOf(filters)[3] === "messages" || keyOf(filters)[3] === "list" || keyOf(filters)[1] === "pins" ? 1 : 0));
     t.invalidator.handle(event("message.edited", 5, 7, 1));
     t.clock.advanceBy(300);
     t.clock.advanceBy(300);
@@ -415,7 +415,7 @@ describe("createLiveInvalidator", () => {
     expect(t.flushed()).toEqual([]);
     t.fetching.mockReturnValue(0);
     t.clock.advanceBy(300);
-    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"]]);
+    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
     // Nothing was ever asked to cancel.
     expect(t.queryClient.isFetching()).toBe(0);
   });

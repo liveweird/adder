@@ -64,7 +64,7 @@ export default function MessageEditForm({
     setSaving(true);
     try {
       await editMessage(roomId, message.id, normalizeBody(text));
-      await refreshAfterMessageWrite(queryClient, roomId);
+      await refreshAfterMessageWrite(queryClient, roomId, { pins: true });
       onDone();
     } catch (err) {
       onError(messageErrorMessage(err, t));

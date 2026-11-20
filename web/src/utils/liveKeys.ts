@@ -30,8 +30,9 @@ function threadKeys(kind: ThreadScopedKind, r: number, n: number | undefined): Q
     case "message.posted":
       return [messages(r, n), threadDetail(r, n), threadList(r), RAIL];
     case "message.edited":
-      // The conversation, and the list: an edit can add or drop a hashtag, which a tag filter would show or hide.
-      return [messages(r, n), threadList(r)];
+      // The conversation, the list (an edit can add or drop a hashtag, which a tag filter would show or hide) and the room's pins (a pinned
+      // message's body shows in the panel; a redacted one must not linger there).
+      return [messages(r, n), threadList(r), pins(r)];
     default:
       // message.deleted: the tombstone, the count on the thread and its row, and the room's pins (a deleted message loses its pin).
       return [messages(r, n), threadDetail(r, n), threadList(r), pins(r)];

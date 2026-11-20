@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { useLocation } from "react-router-dom";
+import { QueryClient } from "@tanstack/react-query";
 import { screen, waitFor, within } from "@testing-library/react";
 import MessageItem from "./MessageItem";
 import { jsonResponse } from "../test/http";
@@ -152,6 +153,18 @@ describe("MessageItem", () => {
     await waitFor(() => expect(dialog).not.toBeVisible());
   });
 
+  test("a delete re-reads the room's pins: a removed message loses its pin and its body leaves the panel", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    renderWithProviders(list(makeMessage({ id: 9 }), { edit: true, remove: "delete" }), { queryClient });
+    await user.click(screen.getByRole("button", { name: NAME }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Delete this message?" })).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "pins", 12] }));
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["rooms"] });
+  });
+
   test("a moderator's confirm says Remove, in its own words", async () => {
     const user = userEvent.setup();
     renderItem(makeMessage({ id: 9 }), { edit: false, remove: "moderate" });
@@ -265,13 +278,38 @@ describe("MessageItem", () => {
       expect(JSON.parse(calls("PUT")[0][1].body as string)).toEqual({ pinned: false });
     });
 
-    test("the room's 51st pin says so under the message", async () => {
+    test("the menu item flips from Pin to Unpin once the pins are read again", async () => {
       const user = userEvent.setup();
-      servePins([], () => jsonResponse(409, { type: "urn:adder:problem:pin-limit", status: 409, title: "Pin limit" }));
+      let items: unknown[] = [];
+      mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+        if (init?.method === "PUT") {
+          items = [messagePin];
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        if (url.startsWith("/api/v1/rooms/12/pins?")) return Promise.resolve(jsonResponse(200, pinsPage(items)));
+        return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+      });
       renderItem(makeMessage({ id: 9 }), { edit: false, remove: null, pin: true });
       await user.click(screen.getByRole("button", { name: NAME }));
       await user.click(await screen.findByRole("menuitem", { name: "Pin" }));
+      await waitFor(() => expect(calls("PUT")).toHaveLength(1));
+      await waitFor(() => expect(screen.queryByRole("menuitem")).not.toBeInTheDocument());
+      await user.click(screen.getByRole("button", { name: NAME }));
+      expect(await screen.findByRole("menuitem", { name: "Unpin" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Pin" })).not.toBeInTheDocument();
+    });
+
+    test("the room's 51st pin says so under the message, and only the pins are read again", async () => {
+      const user = userEvent.setup();
+      servePins([], () => jsonResponse(409, { type: "urn:adder:problem:pin-limit", status: 409, title: "Pin limit" }));
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+      renderWithProviders(list(makeMessage({ id: 9 }), { edit: false, remove: null, pin: true }), { queryClient });
+      await user.click(screen.getByRole("button", { name: NAME }));
+      await user.click(await screen.findByRole("menuitem", { name: "Pin" }));
       expect(await screen.findByText("This room already has 50 pins. Unpin one first.")).toBeInTheDocument();
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "pins", 12] });
+      expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["rooms"] });
     });
 
     test("without the pin action there is no Pin item", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSearchPath, roomSettingsPath, roomWorkflowPath, roomsPath, searchPath, threadMessagePath, threadPath, focusThreadPaneState, tagFilterPath, wantsThreadPaneFocus, withListParams } from "./roomLinks";
+import { isThreadListRoute, listRouteSearch, newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSearchPath, roomSettingsPath, roomWorkflowPath, roomsPath, searchPath, threadMessagePath, threadPath, focusThreadPaneState, tagFilterPath, wantsThreadPaneFocus, withListParams } from "./roomLinks";
 
 describe("roomLinks", () => {
   test("builds the list, create, room, members, workflow and settings paths", () => {
@@ -52,7 +52,14 @@ describe("roomLinks", () => {
     expect(threadMessagePath(7, 42, 991)).toBe("/rooms/7/threads/42?message=991");
   });
 
-  test("threadMessagePath carries the list's keys only when asked, normalized, and never a search page's own keys", () => {
+  test("only the Threads tab's URL keys are the thread list's: the list, a pane and the new-thread form, not Search, Members, Workflow or Settings", () => {
+    for (const path of ["/rooms/12", "/rooms/12/", "/rooms/12/threads/5", "/rooms/12/threads/new"]) expect(isThreadListRoute(path)).toBe(true);
+    for (const path of ["/rooms/12/search", "/rooms/12/members", "/rooms/12/workflow", "/rooms/12/settings", "/search", "/rooms", "/rooms/new"]) expect(isThreadListRoute(path)).toBe(false);
+    expect(listRouteSearch("/rooms/12/threads/5", "?scope=closed&page=3")).toBe("?scope=closed&page=3");
+    expect(listRouteSearch("/rooms/12/search", "?q=disk&scope=closed&page=3")).toBe("");
+  });
+
+  test("threadMessagePath carries the list's keys only when asked, normalized, and never a search page's own `q`", () => {
     expect(threadMessagePath(7, 42, 991, "?scope=closed&order=number&page=3&q=outage&message=5")).toBe("/rooms/7/threads/42?message=991&scope=closed&order=number&page=3");
     expect(threadMessagePath(7, 42, 991, new URLSearchParams("tag=a&tag=b&scope=junk"))).toBe("/rooms/7/threads/42?message=991&tag=a&tag=b");
     expect(threadMessagePath(7, 42, 991, "")).toBe("/rooms/7/threads/42?message=991");

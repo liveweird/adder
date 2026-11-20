@@ -9,10 +9,8 @@ import type { RoomResponse, RoomWorkflow } from "../api/rooms";
 import { useRoomPins } from "../hooks/useRoomPins";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
-import { canPin, pinErrorMessage, refreshAfterPinWrite } from "../utils/pins";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { isAccessRefusal } from "../utils/roomAccess";
-import { tagFilterPath, threadMessagePath, threadPath, withListParams } from "../utils/roomLinks";
+import { canPin, pinErrorMessage, refreshAfterPinFailure, refreshAfterPinWrite } from "../utils/pins";
+import { focusThreadPaneState, listRouteSearch, tagFilterPath, threadMessagePath, threadPath, withListParams } from "../utils/roomLinks";
 import EmptyState from "./EmptyState";
 import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
@@ -25,27 +23,41 @@ import ThreadStatusPill from "./ThreadStatusPill";
  * status pill, a link to the thread) and the message pins (the thread they belong to, the message as Markdown, "Open in thread" with `message=`),
  * newest first, each with "Unpin" for a member of a live room (any member, 0.6 D4). The list mounts when the drawer opens, so it re-reads the
  * pins (a pinned thread's title or status may have moved); `room.pin_changed` keeps an open drawer current. The pinned text is Markdown or text,
- * never HTML.
+ * never HTML. Following a link closes the drawer WITHOUT returning focus to the button: the destination (the thread's pane, the message) takes
+ * focus itself, and the drawer's return would pull it back over it. The thread link keeps the list's URL keys only from the Threads tab
+ * (`listRouteSearch`): the Search tab's `scope` and `page` are not the list's.
  */
 export default function PinnedPanel({ room }: { room: RoomResponse }) {
   const { t } = useTranslation();
   const [opened, setOpened] = useState(false);
+  const [returnFocus, setReturnFocus] = useState(true);
   const pins = useRoomPins(room.id);
   const label = pins.data ? t("rooms.pins.button", { count: pins.data.items.length }) : t("rooms.pins.buttonNoCount");
   return (
     <>
-      <Button variant="default" size="xs" leftSection={<IconPin size={14} />} aria-haspopup="dialog" onClick={() => setOpened(true)}>
+      <Button variant="default" size="xs" leftSection={<IconPin size={14} />} aria-haspopup="dialog" onClick={() => {
+          setReturnFocus(true);
+          setOpened(true);
+        }}
+      >
         {label}
       </Button>
       <Drawer
         opened={opened}
         onClose={() => setOpened(false)}
+        returnFocus={returnFocus}
         position="right"
         size="lg"
         title={t("rooms.pins.title")}
         closeButtonProps={{ "aria-label": t("common.action.close") }}
       >
-        <PinnedList room={room} onNavigate={() => setOpened(false)} />
+        <PinnedList
+          room={room}
+          onNavigate={() => {
+            setReturnFocus(false);
+            setOpened(false);
+          }}
+        />
       </Drawer>
     </>
   );
@@ -61,6 +73,8 @@ function PinnedList({ room, onNavigate }: { room: RoomResponse; onNavigate: () =
   const mayUnpin = canPin(room);
 
   async function unpin(pin: RoomPin) {
+    // A message pin without its message cannot be addressed; it must never fall through to unpinning the THREAD.
+    if (pin.kind === "MESSAGE" && !pin.message) return;
     setFailure(null);
     setBusyId(pin.id);
     try {
@@ -69,7 +83,7 @@ function PinnedList({ room, onNavigate }: { room: RoomResponse; onNavigate: () =
       await refreshAfterPinWrite(queryClient, room.id);
     } catch (err) {
       setFailure(pinErrorMessage(err, t));
-      if (isAccessRefusal(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
+      await refreshAfterPinFailure(queryClient, room.id, err);
     } finally {
       setBusyId(null);
     }
@@ -118,7 +132,8 @@ function PinnedItem({
   onNavigate: () => void;
 }) {
   const { t } = useTranslation();
-  const { search } = useLocation();
+  const { pathname, search: currentSearch } = useLocation();
+  const search = listRouteSearch(pathname, currentSearch);
   const zone = browserTimeZone();
   const message = pin.kind === "MESSAGE" ? pin.message : null;
   const threadName = `#${pin.threadNumber} ${pin.threadTitle}`;
@@ -134,7 +149,7 @@ function PinnedItem({
               <Text span c="dimmed" inherit>{` · ${when}`}</Text>
             </>
           ) : (
-            <Anchor component={RouterLink} to={withListParams(threadPath(room.id, pin.threadNumber), search)} onClick={onNavigate} inherit>
+            <Anchor component={RouterLink} to={withListParams(threadPath(room.id, pin.threadNumber), search)} onClick={onNavigate} state={focusThreadPaneState} inherit>
               {threadName}
             </Anchor>
           )}

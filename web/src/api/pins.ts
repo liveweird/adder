@@ -10,7 +10,7 @@ type RoomPinPage = paths["/api/v1/rooms/{id}/pins"]["get"]["responses"]["200"]["
 export type RoomPin = RoomPinPage["items"][number];
 
 /** The server's cap on a room's pins; the page asked for is exactly this big, so it is the whole set. */
-const PIN_LIMIT = 50;
+export const PIN_LIMIT = 50;
 
 /** The whole set, newest pin first (the server's default order). */
 export async function listRoomPins(roomId: number): Promise<RoomPinPage> {

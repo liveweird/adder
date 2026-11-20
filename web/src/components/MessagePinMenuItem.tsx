@@ -4,9 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { IconPin, IconPinnedOff } from "@tabler/icons-react";
 import { setMessagePin } from "../api/pins";
 import { useRoomPins } from "../hooks/useRoomPins";
-import { pinErrorMessage, refreshAfterPinWrite } from "../utils/pins";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { isAccessRefusal } from "../utils/roomAccess";
+import { pinErrorMessage, refreshAfterPinFailure, refreshAfterPinWrite } from "../utils/pins";
 
 /**
  * "Pin" or "Unpin" in a message's menu, by whether the room's pins query lists the message (the message carries no flag). Any member of a live
@@ -26,7 +24,7 @@ export default function MessagePinMenuItem({ roomId, messageId, onError }: { roo
       await refreshAfterPinWrite(queryClient, roomId);
     } catch (err) {
       onError(pinErrorMessage(err, t));
-      if (isAccessRefusal(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
+      await refreshAfterPinFailure(queryClient, roomId, err);
     }
   }
 

@@ -6,9 +6,7 @@ import { IconPin, IconPinFilled } from "@tabler/icons-react";
 import { setThreadPin } from "../api/pins";
 import type { RoomResponse } from "../api/rooms";
 import { useRoomPins } from "../hooks/useRoomPins";
-import { canPin, pinErrorMessage, refreshAfterPinWrite } from "../utils/pins";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { isAccessRefusal } from "../utils/roomAccess";
+import { canPin, pinErrorMessage, refreshAfterPinFailure, refreshAfterPinWrite } from "../utils/pins";
 import FormErrorAlert from "./FormErrorAlert";
 
 /**
@@ -33,7 +31,7 @@ export default function ThreadPinButton({ room, threadNumber }: { room: RoomResp
       await refreshAfterPinWrite(queryClient, room.id);
     } catch (err) {
       setError(pinErrorMessage(err, t));
-      if (isAccessRefusal(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
+      await refreshAfterPinFailure(queryClient, room.id, err);
     } finally {
       setBusy(false);
     }

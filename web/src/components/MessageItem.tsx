@@ -75,7 +75,7 @@ export default function MessageItem({
       await deleteMessage(roomId, message.id);
       refocusTombstone.current = true;
       setConfirming(false);
-      await refreshAfterMessageWrite(queryClient, roomId);
+      await refreshAfterMessageWrite(queryClient, roomId, { pins: true });
     } catch (err) {
       // The failure shows under the message, so the dialog goes (its message is a paragraph, which holds no alert).
       setConfirming(false);

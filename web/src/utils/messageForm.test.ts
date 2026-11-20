@@ -1,8 +1,9 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
 import type { KeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import { ApiError } from "../api/http";
-import { isSendShortcut, messageErrorMessage } from "./messageForm";
+import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from "./messageForm";
 import { PROBLEM_TYPES } from "./problems";
 import { messageBodyError } from "./threadForm";
 
@@ -64,5 +65,22 @@ describe("messageBodyError", () => {
     expect(messageBodyError("a\u0007b", t)).toBe("threads.validation.bodyControl");
     expect(messageBodyError("a‮b", t)).toBe("threads.validation.bodyControl");
     expect(messageBodyError("a b", t)).toBe("threads.validation.bodyControl");
+  });
+});
+
+describe("refreshAfterMessageWrite", () => {
+  const refreshed = async (options?: { pins?: boolean }) => {
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    await refreshAfterMessageWrite(queryClient, 12, options);
+    return invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+  };
+
+  test("a post re-reads the room's threads and the rail, and nothing of the pins", async () => {
+    expect(await refreshed()).toEqual([["rooms", "threads", 12], ["rooms", "rail"]]);
+  });
+
+  test("an edit or a delete also re-reads the room's pins: a pinned body shows in the panel", async () => {
+    expect(await refreshed({ pins: true })).toEqual([["rooms", "threads", 12], ["rooms", "rail"], ["rooms", "pins", 12]]);
   });
 });
