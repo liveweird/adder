@@ -37,7 +37,7 @@
   {
     "name": "a keycap without its selector",
     "emoji": "1\u20e3",
-    "accepted": true
+    "accepted": false
   },
   {
     "name": "a number sign keycap",

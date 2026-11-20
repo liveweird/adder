@@ -75,6 +75,53 @@ internal fun plainName(text: String): String = buildString {
     }
 }.trim()
 
+/** U+2024 ONE DOT LEADER: reads as a full stop, is not one (no mail client links across it). */
+private const val DOT_LOOKALIKE = '․'
+
+/** U+2215 DIVISION SLASH: reads as a slash, is not one. */
+private const val SLASH_LOOKALIKE = '∕'
+
+/** U+FF20 FULLWIDTH COMMERCIAL AT: reads as an at sign, is not an address separator. */
+private const val AT_LOOKALIKE = '＠'
+
+/** The full stops a domain name is written with: ASCII, the ideographic and the fullwidth ones (IDNA treats all of them as a dot). */
+private fun isDot(c: Int): Boolean = c == '.'.code || c == 0x3002 || c == 0xFF0E || c == 0xFF61
+
+/**
+ * Text chosen by someone else (a room's name, a person's name) made safe for Adder's OWN mail, where a mail client turns a bare address
+ * or domain into a link: the result can contain no address and no link. Deterministic, after [plainName]:
+ *
+ * - `@` becomes U+FF20 (fullwidth at), so no `user@host` survives;
+ * - the two slashes of `://` become U+2215 (division slash), so no scheme survives;
+ * - every full stop (ASCII, ideographic, fullwidth) with a letter or digit on BOTH sides, in any script, becomes U+2024 (one dot
+ *   leader), so no bare domain (`evil.example.com`, `www.x.y`, an IDN such as `пример.рф`) survives. A full stop at the end of a
+ *   sentence or beside a space is left alone; `3.14` reads `3.14` with a dot leader.
+ *
+ * The text keeps its length and stays readable; what it can no longer do is be clicked.
+ */
+internal fun mailSafe(text: String): String {
+    val plain = plainName(text)
+    val out = StringBuilder(plain.length)
+    var i = 0
+    while (i < plain.length) {
+        val c = plain.codePointAt(i)
+        if (c == '/'.code && plain.startsWith("//", i) && out.endsWith(":")) {
+            out.append(SLASH_LOOKALIKE).append(SLASH_LOOKALIKE)
+            i += 2
+            continue
+        }
+        val betweenWordChars = isDot(c) && i > 0 && i + 1 < plain.length &&
+            Character.isLetterOrDigit(plain.codePointBefore(i)) && Character.isLetterOrDigit(plain.codePointAt(i + 1))
+        when {
+            c == '@'.code -> out.append(AT_LOOKALIKE)
+            betweenWordChars -> out.append(DOT_LOOKALIKE)
+            else -> out.appendCodePoint(c)
+        }
+        i += Character.charCount(c)
+    }
+    return out.toString()
+}
+
 /**
  * The digest of [entries] (at least one, oldest first) for [name], in [language] (English for anything unknown). Pure: names and
  * numbers in,
@@ -85,12 +132,12 @@ internal fun plainName(text: String): String = buildString {
 internal fun notificationEmail(name: String, entries: List<DigestEntry>, appUrl: String?, language: String): DigestEmail {
     require(entries.isNotEmpty()) { "a digest lists at least one notice" }
     val body = buildString {
-        appendLine("${GREETING.of(language)} ${plainName(name)},")
+        appendLine("${GREETING.of(language)} ${mailSafe(name)},")
         appendLine()
         appendLine(INTRO.of(language))
         appendLine()
         for (entry in entries.take(DIGEST_MAX_ENTRIES)) {
-            val text = fmt(entryText(entry.type).of(language), plainName(entry.actorName), entry.threadNumber, plainName(entry.roomName))
+            val text = fmt(entryText(entry.type).of(language), mailSafe(entry.actorName), entry.threadNumber, mailSafe(entry.roomName))
             appendLine("- $text")
             if (appUrl != null) {
                 val message = entry.messageId?.let { "?message=$it" }.orEmpty()

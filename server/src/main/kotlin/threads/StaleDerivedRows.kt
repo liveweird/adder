@@ -6,6 +6,14 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
+/**
+ * One batch's statement budget, whole seconds (the transaction's `queryTimeout`: the only way a statement timeout is set,
+ * `persistence.md`).
+ * The candidates are read through each derived table's message index, so a batch is milliseconds at today's sizes; a statement past this is
+ * cancelled and the boot task logs it scrubbed ([bootRun]: class names and the SQLSTATE) and leaves the rows to the next boot.
+ */
+private const val STALE_STATEMENT_TIMEOUT_SECONDS = 30
+
 /** Messages a purge batch handles (the [MessageTagService.purgeDeletedTags] batch). */
 private const val STALE_BATCH = 1_000
 
@@ -60,6 +68,7 @@ class StaleDerivedRows(private val database: R2dbcDatabase, batchSize: Int = STA
         val rounds = mutableListOf<Int>()
         while (true) {
             val purged = suspendTransaction(database) {
+                queryTimeout = STALE_STATEMENT_TIMEOUT_SECONDS
                 TransactionManager.current().exec(
                     sql,
                     emptyList(),

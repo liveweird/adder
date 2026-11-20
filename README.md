@@ -217,6 +217,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `MAIL_APP_URL` | *(blank)* | The deployment's public **origin** (`https://host[:port]` in production — `http` only in development; no path, query or credentials) — the self-service password reset emails a link built from it. A malformed value refuses startup; blank = the reset answers 503. The notification digest builds its links from it too (none when blank). |
 | `NOTIFICATIONS_EMAIL_DELAY_SECONDS` | `300` | A notice still unseen after this many seconds is emailed in a digest (0..86400). With `MAIL_TRANSPORT=disabled` nothing is mailed. |
 | `NOTIFICATIONS_EMAIL_MIN_INTERVAL_SECONDS` | `900` | At most one digest per person per this many seconds, per process (0..86400); what arrives meanwhile waits for the next one. |
+| `NOTIFICATIONS_EMAIL_MAX_PER_RUN` | `100` | The most digest emails one sweep tick sends (1..1000). The digest shares the mailer with MFA codes and password resets, so this budget protects them; the people beyond it wait for the next tick. |
 | `POSTGRES_JDBC_URL` | `jdbc:postgresql://localhost:5439/adder` | Flyway's JDBC URL. |
 | `POSTGRES_R2DBC_URL` | `r2dbc:postgresql://localhost:5439/adder` | The runtime R2DBC URL. |
 | `POSTGRES_USER` | `adder` | Database user. |

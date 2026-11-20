@@ -151,7 +151,8 @@ object RateLimits {
     const val CHAT_READ = "chat-read"
     /**
      * The writes that only move the caller's OWN view of what they have read share ONE bucket per signed-in user: the two notification
-     * "seen" POSTs now, the read-marker and room-seen writes later. 240/min in every mode (the [CHAT_WRITE] figure): the SPA marks a
+     * "seen" POSTs, the thread read marker and the room "seen" write (`threads/ThreadReadRoutes.kt`, `rooms/RoomMemberRoutes.kt`) and
+     * the notification-preferences PUT. 240/min in every mode (the [CHAT_WRITE] figure): the SPA marks a
      * notice seen on a click and acknowledges what its reader scrolled to a few times a minute, so 4 a second is a script. They take
      * no room lock and emit no hint, so the bound is for a runaway client, not for the room. The bucket sits BEFORE the guards, so a
      * refused or unknown-id write spends a token too (an id sweep is throttled).

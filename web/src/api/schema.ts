@@ -1420,8 +1420,8 @@ export interface paths {
          *     caller's on it; joining an emoji already on the message is never the first, and removing is never refused).
          *
          *     `emoji` must be ONE emoji in its one fully qualified spelling: 1 to 32 UTF-16 units and at most 10 code points, exactly one extended
-         *     grapheme cluster, and then a flag (a PAIR of regional indicators), a keycap (`0-9`, `#` or `*`, an optional variation selector, the
-         *     combining keycap), one of the three tag flags (England, Scotland, Wales) or one or more elements joined by single zero-width joiners
+         *     grapheme cluster, and then a flag (a PAIR of regional indicators), a keycap (`0-9`, `#` or `*`, the variation selector, the
+         *     combining keycap: the selector is required), one of the three tag flags (England, Scotland, Wales) or one or more elements joined by single zero-width joiners
          *     (never first, last or doubled), each element an emoji followed by nothing, by one skin tone (after an emoji that takes one) or by its
          *     variation selector once (only after an emoji that has no emoji presentation of its own: a heart needs it, a thumbs up refuses it).
          *     A digit, a letter, a heart without its variation selector, two emoji, an emoji with a combining accent, a stray selector, joiner, skin
@@ -1514,7 +1514,8 @@ export interface paths {
          *     - Filter: `wasSeen` (strict `true` or `false`; omitted = both; a repeated key is a `400`).
          *     - A notice of a kind this server does not know is not listed and not counted.
          *     - `total` is CAPPED at 1000: the server counts at most 1000 rows, so a recipient with more notices than that (or more unseen ones)
-         *       reads `1000`, and the bell shows it as "many". Pages beyond the first 1000 rows are still read by `page` and `pageSize`.
+         *       reads `1000`, and the bell shows it as "many". A page that starts at row 1000 or later (`(page - 1) * pageSize >= 1000`) is EMPTY
+         *       (`items: []`, `total` as above): the server never skips that many rows.
          */
         get: operations["listNotifications"];
         put?: never;
@@ -1602,7 +1603,7 @@ export interface paths {
          *     channel is `EMAIL`. Order of refusals: `403` (not the target user and not `ADMIN`), then `400` (an unknown kind or channel, a pair
          *     listed twice), then `404` (an unknown or deleted user). A same-set PUT is a `204` that changes nothing. Audited as
          *     `user.notification_preferences_changed` (`from` and `to` as sorted `TYPE:CHANNEL` lists) on an actual change only. The change applies to
-         *     notices not yet mailed. Unbucketed; the body is capped at 16 KiB.
+         *     notices not yet mailed. Rides the per-user `read-state` bucket (240 a minute, checked before the guards; `429` with `Retry-After`); the body is capped at 16 KiB.
          */
         put: operations["setNotificationPreferences"];
         post?: never;
@@ -5588,6 +5589,7 @@ export interface operations {
             404: components["responses"]["NotFound"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };

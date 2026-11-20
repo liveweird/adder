@@ -79,6 +79,7 @@ class NumericConfigBoundsTest {
     fun `a malformed or out-of-range notification email delay or interval refuses to start`() {
         assertRefused("notifications.email.delaySeconds", "-1", "abc", "86401", "")
         assertRefused("notifications.email.minIntervalSeconds", "-1", "abc", "86401", "")
+        assertRefused("notifications.email.maxPerRun", "0", "-1", "abc", "1001", "")
     }
 
     @Test

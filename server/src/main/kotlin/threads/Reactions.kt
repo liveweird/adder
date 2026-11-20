@@ -41,9 +41,10 @@ private val TAG_FLAGS = setOf("gbeng", "gbsct", "gbwls")
  *
  * 1. 1 to [MAX_REACTION_UNITS] UTF-16 units and at most [MAX_REACTION_CODE_POINTS] code points, and exactly one extended grapheme cluster
  *    ([BreakIterator.getCharacterInstance]);
- * 2. then exactly one of: a flag (a PAIR of regional indicators); a keycap (`0-9`, `#` or `*`, an optional variation selector, the
- *    combining keycap, last); one of the three tag flags ([TAG_FLAGS]: a black flag, its tag characters, the cancel tag); or one or
- *    more emoji ELEMENTS joined by single zero-width joiners (never first, last or doubled);
+ * 2. then exactly one of: a flag (a PAIR of regional indicators); a keycap (`0-9`, `#` or `*`, the variation selector U+FE0F, the
+ *    combining keycap, last: the selector is REQUIRED, the unqualified `1` + U+20E3 is refused); one of the three tag flags
+ *    ([TAG_FLAGS]: a black flag, its tag characters, the cancel tag); or one or more emoji ELEMENTS joined by single zero-width
+ *    joiners (never first, last or doubled);
  * 3. an element is an emoji that is not ASCII, not a skin-tone modifier and not a regional indicator, followed by nothing, or by ONE skin
  *    tone (only after an emoji modifier base), or by the variation selector once (only after an emoji that has no emoji presentation of
  *    its own, where it is required, so a heart needs it and a thumbs up refuses it). A skin tone and a selector never meet.
@@ -62,11 +63,11 @@ fun isSingleEmoji(value: String): Boolean {
 
 private fun isFlag(cps: IntArray): Boolean = cps.size == 2 && cps.all { it in REGIONAL_INDICATORS }
 
+/** The fully qualified keycap: base, U+FE0F, U+20E3. Without the selector it is the unqualified spelling, a second value for one emoji. */
 private fun isKeycap(cps: IntArray): Boolean {
-    val short = cps.size == 2
-    if (!short && !(cps.size == 3 && cps[1] == VARIATION_SELECTOR_16)) return false
+    if (cps.size != 3 || cps[1] != VARIATION_SELECTOR_16 || cps[2] != COMBINING_KEYCAP) return false
     val base = cps[0]
-    return (base in '0'.code..'9'.code || base == '#'.code || base == '*'.code) && cps.last() == COMBINING_KEYCAP
+    return base in '0'.code..'9'.code || base == '#'.code || base == '*'.code
 }
 
 private fun isTagFlag(cps: IntArray): Boolean {

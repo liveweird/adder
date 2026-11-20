@@ -178,6 +178,40 @@ class NotificationsTest {
         assertEquals(100, page.items.size)
         assertEquals(MAX_COUNTED_NOTICES.toLong(), cast.bob.client.notices("?wasSeen=false").total, "a filtered count is capped too")
         assertEquals(0L, cast.bob.client.notices("?wasSeen=true").total)
+        // The last page inside the cap is read; a page that starts at the cap or past it is empty (no OFFSET runs) and keeps the total.
+        assertEquals(100, cast.bob.client.notices("?pageSize=100&page=10").items.size)
+        val beyond = cast.bob.client.notices("?pageSize=100&page=11")
+        assertTrue(beyond.items.isEmpty())
+        assertEquals(MAX_COUNTED_NOTICES.toLong(), beyond.total)
+        assertTrue(cast.bob.client.notices("?pageSize=100&page=2000000").items.isEmpty())
+    }
+
+    @Test
+    fun `seen-all works in chunks and touches nothing newer than its start or anybody else's`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("nt-chunk")
+        PostgresTestSupport.connect().use { c ->
+            c.prepareStatement(
+                "INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, created_at) " +
+                    "SELECT ?, ?, 'THREAD_ASSIGNED', ?, ?, g FROM generate_series(1, ?) g",
+            ).use { st ->
+                for ((who, n) in listOf(cast.bob.id to 5, cast.ann.id to 2)) {
+                    st.setLong(1, who.toLong())
+                    st.setInt(2, cast.room.toInt())
+                    st.setLong(3, cast.owner.id.toLong())
+                    st.setInt(4, cast.thread.toInt())
+                    st.setInt(5, n)
+                    assertEquals(n, st.executeUpdate())
+                }
+            }
+        }
+        assertEquals(5, TestThreads.notices.markAllSeen(cast.bob.id, System.currentTimeMillis(), chunk = 2), "three chunks: 2, 2, 1")
+        assertEquals(0L, cast.bob.client.notices("?wasSeen=false").total)
+        assertEquals(5L, cast.bob.client.notices("?wasSeen=true").total)
+        assertEquals(2L, cast.ann.client.notices("?wasSeen=false").total, "somebody else's notices stay unseen")
+        assertEquals(0, TestThreads.notices.markAllSeen(cast.bob.id, System.currentTimeMillis(), chunk = 2), "nothing left is zero")
+        val annMoved = TestThreads.notices.markAllSeen(cast.ann.id, System.currentTimeMillis(), chunk = 2)
+        assertEquals(2, annMoved, "an exact multiple of the chunk ends")
     }
 
     @Test

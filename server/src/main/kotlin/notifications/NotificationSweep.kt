@@ -35,6 +35,9 @@ private const val PURGE_EVERY_MILLIS = 3_600_000L
 /** The ceiling of both digest timings: one day (the digest mails nothing older than that anyway). */
 private const val MAX_EMAIL_SECONDS = 86_400L
 
+/** The ceiling of `notifications.email.maxPerRun`. */
+private const val MAX_EMAIL_PER_RUN = 1000
+
 /**
  * Published once the sweep has started and has run its first pass: how many notices that pass purged, or null when it failed. A TEST seam
  * (`NotificationSweepTest` awaits it); nothing in the application reads it. Absent while `notifications.sweepEnabled` is false.
@@ -96,6 +99,8 @@ fun Application.configureNotificationSweep() {
     val intervalSeconds = requireConfigInt(config, "notifications.sweepIntervalSeconds", min = 10, max = 3600)
     val delaySeconds = requireConfigLong(config, "notifications.email.delaySeconds", min = 0, max = MAX_EMAIL_SECONDS)
     val minIntervalSeconds = requireConfigLong(config, "notifications.email.minIntervalSeconds", min = 0, max = MAX_EMAIL_SECONDS)
+    // The most mails one run sends: the digest shares the Mailer with MFA codes and password resets, and this budget is what protects them.
+    val maxPerRun = requireConfigInt(config, "notifications.email.maxPerRun", min = 1, max = MAX_EMAIL_PER_RUN)
     // A notice is mailed only inside [delay, a day): a delay or a spacing that, with one tick, reaches a day makes every notice either
     // too young or too old, and the digest would silently mail nothing.
     check(maxOf(delaySeconds, minIntervalSeconds) + intervalSeconds < MAX_EMAIL_SECONDS) {
@@ -113,6 +118,7 @@ fun Application.configureNotificationSweep() {
             appUrl = app.mailAppUrl(),
             delayMillis = delaySeconds * 1000,
             minIntervalMillis = minIntervalSeconds * 1000,
+            maxPerRun = maxPerRun,
         )
         val sweep = NotificationSweep(
             retentionDays * MILLIS_PER_DAY,

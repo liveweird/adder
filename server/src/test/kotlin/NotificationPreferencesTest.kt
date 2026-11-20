@@ -194,4 +194,21 @@ class NotificationPreferencesTest {
         assertTrue(client.switches(id).values.all { it }, "an unknown kind or channel switches nothing off")
         assertEquals(HttpStatusCode.NoContent, client.putJson(path(id), NotificationPreferencesUpdateRequest(emptyList())).status)
     }
+
+    @Test
+    fun `the 241st preferences PUT in a minute is 429 on the read-state bucket and the GET is not bucketed`() = testApplication {
+        usePostgresTestcontainer()
+        val actor = seedActor("pref-bucket").also { minted += it.id }
+        withAuditCapture { capture ->
+            repeat(240) { n ->
+                assertEquals(HttpStatusCode.NoContent, actor.client.rawPut(actor.id, """{"disabled":[]}""").status, "write ${n + 1}")
+            }
+            val rejected = actor.client.rawPut(actor.id, """{"disabled":[]}""")
+            assertEquals(HttpStatusCode.TooManyRequests, rejected.status)
+            assertNotNull(rejected.headers["Retry-After"])
+            val event = assertNotNull(capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "read-state") })
+            assertTrue(event.hasKeyValue("byUserId", actor.id.toLong()))
+            assertEquals(HttpStatusCode.OK, actor.client.get(path(actor.id)).status, "the GET is not bucketed")
+        }
+    }
 }

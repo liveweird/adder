@@ -289,6 +289,10 @@ notifications:
     # At most one email per person per this many seconds, per process (kept in memory, so a restart forgets it); a person inside it waits
     # and gets everything in ONE later email. 0..86400 (0 = no spacing). Nothing older than a day is ever mailed.
     minIntervalSeconds: "$NOTIFICATIONS_EMAIL_MIN_INTERVAL_SECONDS:900"
+    # The most digest emails ONE run (one sweep tick) sends; the people beyond it keep their notices for the next tick (the claims are
+    # released). The digest shares the mailer with MFA codes and password resets, and this budget is what keeps a flood of notices from
+    # exhausting the provider's quota for them. A per-day global cap is deliberately absent: it would block those mails. 1..1000.
+    maxPerRun: "$NOTIFICATIONS_EMAIL_MAX_PER_RUN:100"
 
 search:
   # The budget of a search REQUEST (`threads/SearchBudget.kt`, one deadline for all its statements: each statement's `queryTimeout` is the

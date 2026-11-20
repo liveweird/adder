@@ -20,6 +20,7 @@ import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.TextColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
@@ -28,6 +29,7 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -50,6 +52,9 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
  * (`security.md` "Notices").
  */
 const val MAX_COUNTED_NOTICES = 1000
+
+/** Rows one "mark everything seen" chunk updates, each chunk its own short transaction. */
+internal const val SEEN_BATCH = 1000
 
 /** Rows one retention batch deletes, each batch its own short transaction (the `MessageTagService.reindexStale` shape). */
 internal const val PURGE_BATCH = 1000
@@ -187,7 +192,8 @@ internal class NotificationService(
 
     /**
      * One page of the caller's notices, newest first by default: ONE predicate for the count and the rows in ONE transaction. The
-     * `total` is CAPPED at [MAX_COUNTED_NOTICES] (the count reads at most that many plus one row).
+     * `total` is CAPPED at [MAX_COUNTED_NOTICES] (the count reads at most that many plus one row), and a page starting at or past the cap
+     * is empty without the rows being read (no OFFSET over a flooded recipient's history).
      * [wasSeen] null is both. The caller's active rooms come first as one array argument (the global search's shape), and no rooms is an
      * empty page.
      */
@@ -203,6 +209,10 @@ internal class NotificationService(
             // Capped: the count reads at most MAX_COUNTED_NOTICES + 1 rows, so it never grows with a recipient's history.
             val counted = n.select(n.id).where { predicate }.limit(MAX_COUNTED_NOTICES + 1).count()
             val total = counted.coerceAtMost(MAX_COUNTED_NOTICES.toLong())
+            // A page that starts at or past the cap holds nothing the capped count admits: the OFFSET never runs.
+            if ((paging.page - 1).toLong() * paging.pageSize >= MAX_COUNTED_NOTICES) {
+                return@suspendTransaction NotificationListResult(emptyList(), total)
+            }
             val rows = n.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
             if (rows.isEmpty()) return@suspendTransaction NotificationListResult(emptyList(), total)
 
@@ -243,10 +253,29 @@ internal class NotificationService(
         moved > 0 || n.select(n.id).where { (n.id eq id) and (n.recipientId eq callerUserId) }.toList().isNotEmpty()
     }
 
-    /** Marks every unseen notice of the caller seen at [at]; answers how many. Nobody else's row is touched. */
-    suspend fun markAllSeen(callerUserId: UInt, at: Long): Int = suspendTransaction(database) {
+    /**
+     * Marks every unseen notice of the caller seen at [at], in chunks of [SEEN_BATCH] rows each in its own short transaction (one
+     * `UPDATE` over a flooded recipient's thousands of rows would hold its locks and its connection for as long); answers how many.
+     * Notices made while it runs (a higher id than the newest at the start) stay unseen, as they would after one statement. Nobody
+     * else's row is touched.
+     */
+    suspend fun markAllSeen(callerUserId: UInt, at: Long, chunk: Int = SEEN_BATCH): Int {
         val n = Notifications
-        n.update({ (n.recipientId eq callerUserId) and n.seenAt.isNull() }) { it[seenAt] = at }
+        val ceiling = suspendTransaction(database) {
+            n.select(n.id).where { (n.recipientId eq callerUserId) and n.seenAt.isNull() }
+                .orderBy(n.id, SortOrder.DESC).limit(1).map { it[n.id].value }.toList().singleOrNull()
+        } ?: return 0
+        var total = 0
+        do {
+            val moved = suspendTransaction(database) {
+                val ids = n.select(n.id)
+                    .where { (n.recipientId eq callerUserId) and n.seenAt.isNull() and (n.id lessEq ceiling) }
+                    .limit(chunk).map { it[n.id].value }.toList()
+                if (ids.isEmpty()) 0 else n.update({ (n.id inList ids) and n.seenAt.isNull() }) { it[seenAt] = at }
+            }
+            total += moved
+        } while (moved == chunk)
+        return total
     }
 
     /**

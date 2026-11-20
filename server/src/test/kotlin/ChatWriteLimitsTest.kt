@@ -227,10 +227,20 @@ class ChatWriteLimitsTest {
             val junk = """{"email":"a@b.c","password":"${"p".repeat(20 * 1024)}"}"""
             assertEquals(HttpStatusCode.PayloadTooLarge, plain.rawEncoded(HttpMethod.Post, "/api/v1/%6Cogin", junk).status)
             assertEquals(HttpStatusCode.PayloadTooLarge, plain.rawEncoded(HttpMethod.Post, "/api/v1//login/", junk).status)
+            // The notification-preferences PUT, plain and with every digit of the user id percent-encoded (the routed path is the same).
+            val preferences = """{"disabled":[],${" ".repeat(20 * 1024)}"x":1}"""
+            assertEquals(
+                HttpStatusCode.PayloadTooLarge,
+                plain.rawEncoded(HttpMethod.Put, "/api/v1/users/${encodedDigits(owner.id)}/notification-preferences", preferences).status,
+            )
+            assertEquals(
+                HttpStatusCode.PayloadTooLarge,
+                plain.rawEncoded(HttpMethod.Put, "/api/v1/users/${owner.id}/notification-preferences", preferences).status,
+            )
         }
 
     @Test
-    fun `the status, owner, read-marker and reaction PUTs take at most 16 KiB`() = testApplication {
+    fun `the status, owner, read-marker, reaction and preferences PUTs take at most 16 KiB`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("cw-small")
         val room = room(owner)
@@ -247,5 +257,8 @@ class ChatWriteLimitsTest {
         assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, reaction, thumbsUp).status)
         val small = owner.client.raw(HttpMethod.Put, "$rooms/$room/threads/1/status", """{"status":"open"}""")
         assertEquals(HttpStatusCode.NoContent, small.status)
+        val preferences = "/api/v1/users/${owner.id}/notification-preferences"
+        assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, preferences, big).status)
+        assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, preferences, """{"disabled":[]}""").status)
     }
 }

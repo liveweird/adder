@@ -3,10 +3,12 @@ package ch.nokillswit
 import ch.nokillswit.notifications.DIGEST_MAX_ENTRIES
 import ch.nokillswit.notifications.DigestEntry
 import ch.nokillswit.notifications.NotificationType
+import ch.nokillswit.notifications.mailSafe
 import ch.nokillswit.notifications.notificationEmail
 import ch.nokillswit.notifications.plainName
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -88,11 +90,11 @@ class NotificationEmailTest {
 
     @Test
     fun `a name cannot break a line or the subject`() {
-        val evil = "Eve\r\nBcc: victim@example.com - Mallory made you the owner‮"
+        val evil = "Eve\r\nBcc: victim@example.com\u2028- Mallory made you the owner\u202E"
         val mail = notificationEmail(evil, listOf(entry(actor = evil, room = evil)), appUrl, "en")
         assertFalse(mail.subject.contains('\n') || mail.subject.contains('\r') || mail.subject.contains("Eve"))
         assertTrue(mail.body.lines().none { it.startsWith("Bcc:") || it.startsWith("- Mallory") }, mail.body)
-        assertFalse(mail.body.any { it == '\r' || it == ' ' || it == '‮' })
+        assertFalse(mail.body.any { it == '\r' || it == '\u2028' || it == '\u202E' })
         assertEquals("Eve  Bcc: victim@example.com - Mallory made you the owner", plainName(evil))
     }
 
@@ -100,5 +102,56 @@ class NotificationEmailTest {
     fun `a link is built from the configured origin and ids only`() {
         val mail = notificationEmail("Ada", listOf(entry(room = "x/../evil", messageId = 7u, roomId = 3u)), appUrl, "en")
         assertTrue(mail.body.lines().contains("  $appUrl/rooms/3/threads/42?message=7"))
+    }
+
+    /** What a mail client could link in [text]: a scheme, an address, a `www.` host or a dot between two word characters, in any script. */
+    private fun linkable(text: String): Boolean =
+        text.contains("://") || text.contains('@') || text.contains("www.", ignoreCase = true) ||
+            Regex("[\\p{L}\\p{N}][.\\u3002\\uFF0E\\uFF61][\\p{L}\\p{N}]").containsMatchIn(text)
+
+    @Test
+    fun `a name or a room cannot make an address or a link`() {
+        val hostile = listOf(
+            "evil.example.com/login",
+            "https://x.y",
+            "a@b.c",
+            "www.x.y",
+            "WWW.X.Y",
+            "\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444", // an IDN: a Cyrillic name and TLD
+            "b\u00fccher.de",
+            "\u4f8b\u3048\u3002jp", // an ideographic full stop
+            "x\uFF0Ey", // a fullwidth full stop
+            "mailto:a@b.c",
+        )
+        for (text in hostile) {
+            assertTrue(linkable(text), "the fixture $text is linkable to begin with")
+            val safe = mailSafe(text)
+            assertFalse(linkable(safe), "$text -> $safe")
+            val mail = notificationEmail(text, listOf(entry(actor = text, room = text)), appUrl, "en")
+            // Only the configured origin's own links may remain: every other line of the mail is free of anything linkable.
+            val foreign = mail.body.lines().filterNot { it.startsWith("  $appUrl/") || it.startsWith("Change which emails") }
+            assertTrue(foreign.none { linkable(it) }, "$text -> ${mail.body}")
+        }
+    }
+
+    @Test
+    fun `mailSafe is deterministic, keeps the text readable and leaves ordinary names alone`() {
+        assertEquals("evil\u2024example\u2024com/login", mailSafe("evil.example.com/login"))
+        assertEquals("https:\u2215\u2215x\u2024y", mailSafe("https://x.y"))
+        assertEquals("a\uFF20b\u2024c", mailSafe("a@b.c"))
+        assertEquals("Payments outage", mailSafe("Payments outage"))
+        assertEquals("Ada Lovelace-Smith (ops).", mailSafe("Ada Lovelace-Smith (ops)."), "a final full stop and a hyphen stay")
+        assertEquals("Z\u00f3\u0142w", mailSafe("Z\u00f3\u0142w"))
+        assertNotEquals("a@b.c", mailSafe("a@b.c"))
+        assertEquals(mailSafe("a@b.c"), mailSafe("a@b.c"))
+        assertEquals("1 \u2024 2", mailSafe("1 \u2024 2"))
+        assertEquals("v. 2", mailSafe("v. 2"), "a full stop beside a space is no domain")
+        assertEquals("", mailSafe(" \u202E "))
+    }
+
+    @Test
+    fun `the room name keeps its words in the mail line`() {
+        val mail = notificationEmail("Ada", listOf(entry(room = "Outage on shop.example.com", actor = "bob@evil.io")), appUrl, "en")
+        assertTrue("- bob\uFF20evil\u2024io mentioned you in #42 (Outage on shop\u2024example\u2024com)" in mail.body.lines(), mail.body)
     }
 }

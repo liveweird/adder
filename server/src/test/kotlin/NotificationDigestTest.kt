@@ -3,6 +3,8 @@ package ch.nokillswit
 import ch.nokillswit.infra.mail.LogMailer
 import ch.nokillswit.infra.mail.Mailer
 import ch.nokillswit.notifications.DIGEST_BATCH
+import ch.nokillswit.notifications.DIGEST_MAX_NOTICES_PER_RECIPIENT
+import ch.nokillswit.notifications.DIGEST_MAX_PER_RUN
 import ch.nokillswit.notifications.NotificationDigest
 import ch.nokillswit.notifications.NotificationSweep
 import ch.nokillswit.users.UserRole
@@ -147,6 +149,7 @@ class NotificationDigestTest {
         now: () -> Long = { s.now },
         appUrl: String? = APP_URL,
         batchSize: Int = DIGEST_BATCH,
+        maxPerRun: Int = DIGEST_MAX_PER_RUN,
         afterClaim: suspend () -> Unit = {},
         failMemberRooms: (suspend (UInt) -> List<ch.nokillswit.rooms.RoomSummary>)? = null,
     ) = NotificationDigest(
@@ -158,6 +161,7 @@ class NotificationDigestTest {
         minIntervalMillis = INTERVAL_SECONDS * SECOND,
         clock = now,
         batchSize = batchSize,
+        maxPerRun = maxPerRun,
         afterClaim = afterClaim,
     )
 
@@ -588,5 +592,107 @@ class NotificationDigestTest {
 
         assertEquals(5, calls)
         assertEquals(0, run.released)
+    }
+
+    private fun switchOff(user: Person, type: String) {
+        sql("INSERT INTO user_notification_preferences (user_id, notification_type, channel) VALUES (?, ?, 'EMAIL')") { st ->
+            st.setLong(1, user.id.toLong()); st.setString(2, type); st.executeUpdate()
+        }
+    }
+
+    @Test
+    fun `notices of a switched-off kind or a deleted account are settled and never fill a batch`() = runBlocking {
+        val s = setup()
+        val off = s.member()
+        val gone = s.member()
+        val live = s.member()
+        switchOff(off, "THREAD_ASSIGNED")
+        // The oldest notices there are: they would be the whole batch of one, if they could be claimed.
+        val offIds = List(5) { i -> s.notice(off, ageMillis = DAY - 10 * SECOND - i * SECOND) }
+        val goneId = s.notice(gone, ageMillis = DAY - 20 * SECOND)
+        TestUsers.softDelete(gone.id)
+        val liveId = s.notice(live, ageMillis = DAY - 30 * SECOND)
+        val mailer = RecordingMailer()
+
+        val run = digest(mailer, s, batchSize = 1).run()
+
+        assertEquals(1, run.claimed, "the one slot goes to the person who can be mailed")
+        assertEquals(1, mailer.to(live.email).size)
+        assertTrue(mailer.to(off.email).isEmpty() && mailer.to(gone.email).isEmpty())
+        assertTrue(offIds.all { emailedAt(it) != null }, "the switched-off kind is settled in the claim's transaction")
+        assertNotNull(emailedAt(goneId), "a deleted account's notice is settled")
+        assertTrue(emailedAt(liveId) != null)
+    }
+
+    @Test
+    fun `a claim picks per person, oldest first, so one flooded backlog does not crowd out the rest`() = runBlocking {
+        val s = setup()
+        val flooded = s.member()
+        val second = s.member()
+        val third = s.member()
+        val floodIds = List(DIGEST_MAX_NOTICES_PER_RECIPIENT + 10) { i -> s.notice(flooded, ageMillis = DAY - 10 * SECOND - i * 10L) }
+        val secondId = s.notice(second, ageMillis = DAY - 20 * SECOND)
+        val thirdId = s.notice(third, ageMillis = DAY - 30 * SECOND)
+        val mailer = RecordingMailer()
+        val digest = digest(mailer, s, batchSize = 2)
+
+        val first = digest.run()
+
+        assertEquals(DIGEST_MAX_NOTICES_PER_RECIPIENT + 1, first.claimed, "the flooded person's 50 oldest and the next person's one")
+        assertEquals("Adder: $DIGEST_MAX_NOTICES_PER_RECIPIENT unseen notifications", mailer.to(flooded.email).single().subject)
+        assertEquals(1, mailer.to(second.email).size)
+        assertTrue(mailer.to(third.email).isEmpty() && emailedAt(thirdId) == null, "the third person waits for the next run")
+        val claimedOfFlood = floodIds.count { emailedAt(it) != null }
+        assertEquals(DIGEST_MAX_NOTICES_PER_RECIPIENT, claimedOfFlood, "the backlog beyond 50 is left for a later digest")
+        assertNotNull(emailedAt(secondId))
+
+        digest.run()
+        assertEquals(1, mailer.to(third.email).size, "the flooded person is inside the interval: the slot goes to the next one")
+        assertEquals(1, mailer.to(flooded.email).size)
+    }
+
+    @Test
+    fun `a run sends at most the budget and releases the claims beyond it`() = runBlocking {
+        val s = setup()
+        val people = List(5) { s.member() }
+        val ids = people.mapIndexed { i, p -> s.notice(p, ageMillis = DAY - 10 * SECOND - i * SECOND) }
+        val mailer = RecordingMailer()
+
+        val run = digest(mailer, s, batchSize = 5, maxPerRun = 2).run()
+
+        assertEquals(2, mailer.attempts, "the budget is the run's cap")
+        assertEquals(5, run.claimed)
+        assertEquals(2, run.sent)
+        assertEquals(3, run.released)
+        assertEquals(listOf(true, true, false, false, false), ids.map { emailedAt(it) != null }, "the untried claims are released")
+
+        val next = digest(mailer, s, batchSize = 5, maxPerRun = 2).run()
+        assertEquals(2, next.sent, "the next tick carries on with the rest")
+        assertEquals(listOf(true, true, true, true, false), ids.map { emailedAt(it) != null })
+    }
+
+    @Test
+    fun `a recipient skipped at send time is remembered and does not claim a slot again`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val first = s.notice(ann)
+        val mailer = RecordingMailer()
+        var clock = s.now
+        var armed = true
+        val digest = digest(mailer, s, now = { clock }, afterClaim = {
+            if (armed) { armed = false; markSeen(first, s.now) } // seen between the claim and the send: nothing to mail
+        })
+
+        digest.run()
+        assertTrue(mailer.to(ann.email).isEmpty())
+        val second = s.notice(ann, ageMillis = (DELAY_SECONDS + 1) * SECOND)
+
+        digest.run()
+        assertNull(emailedAt(second), "inside the interval the skipped person is not a candidate")
+        assertTrue(mailer.to(ann.email).isEmpty())
+
+        clock += INTERVAL_SECONDS * SECOND
+        digest.run()
+        assertEquals(1, mailer.to(ann.email).size, "after the interval the new notice is mailed")
     }
 }

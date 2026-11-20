@@ -48,6 +48,8 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
   writer's socket (or a client id) so that tab can skip it.
 - [new] **E2E: the live-ticket bucket is shared across a full parallel run.** The seed admin's `live-ticket` bucket (60/min per user) is shared by every Playwright
   worker that signs in as it, so live specs use throwaway users; a new live spec must do the same.
+- [new] **Notifications: bound what one recipient can pile up.** A per-recipient cap on UNSEEN notices (the list's `total` is capped at 1000, the rows are not), and batching the two writes that still touch every row in one statement: `threadRead` (marks a thread's notices seen) and the removal cascade of a leaving member's notices. `seen-all` is already chunked by 1,000 rows, one short transaction each.
+- [new] **Boot purge: probe each derived table through its message index.** `StaleDerivedRows` finds the deleted messages that still carry a mention, reaction, pin or notice by a `UNION` over the four tables (30 s statement budget). At a very large size, probe each table through its `message_id` index per candidate batch instead of one union.
 
 ## Foundation follow-ups
 

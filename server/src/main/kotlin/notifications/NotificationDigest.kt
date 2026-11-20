@@ -33,8 +33,20 @@ import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("ch.nokillswit.notifications.NotificationDigest")
 
-/** Notices one run claims at most: the batch AND the run's cap (the rest wait for the next tick; a flood cannot make a run unbounded). */
+/**
+ * PEOPLE one run claims at most (the rest wait for the next tick): the claim picks per recipient, oldest waiting first, so one flooded
+ * person's backlog cannot crowd out everybody else.
+ */
 internal const val DIGEST_BATCH = 500
+
+/** Notices of ONE person a claim takes at most (a digest lists [DIGEST_MAX_ENTRIES]); a longer backlog rides the next digest. */
+internal const val DIGEST_MAX_NOTICES_PER_RECIPIENT = 50
+
+/** Switched-off or orphaned notices one run settles at most (the claim excludes them anyway; settling keeps them out of the scan). */
+internal const val DIGEST_SETTLE_BATCH = 1000
+
+/** Mails one run sends at most when `notifications.email.maxPerRun` is not given (`security.md`: the digest shares the `Mailer`). */
+internal const val DIGEST_MAX_PER_RUN = 100
 
 /**
  * People remembered as "mailed within the interval". A run that finds the memory this full claims nothing and says so (fail closed: a
@@ -51,23 +63,57 @@ internal const val DIGEST_MAX_REMEMBERED = 50_000
 internal const val DIGEST_MAX_CONSECUTIVE_FAILURES = 3
 
 /**
- * The claim (`persistence.md` "Notices"): ONE statement, constant text. The candidates are picked in `created_at` order off
- * `idx_notifications_email_due` and locked `FOR UPDATE SKIP LOCKED` (a row another process has claimed, or is claiming, is skipped, never
- * waited for), then stamped `emailed_at` in the same statement: a notice is claimed, hence mailed, at most once. The candidates are the
- * unseen, unclaimed notices that are older than the delay, younger than a day (nothing older is ever mailed) and not of a person already
- * mailed within the interval (their notices stay unclaimed and ride one later email). `MATERIALIZED` keeps the pick to one evaluation, so
- * `LIMIT` is a real bound. Every parameter is cast.
+ * The notices a digest may mail, one fragment for the claim (alias `c`, three parameters: the delay cutoff, the day floor, the people
+ * inside the interval): unseen, unclaimed, older than the delay, younger than a day (nothing older is ever mailed), of an ACTIVE
+ * account, of a kind the person has NOT switched off for email, and not of a person already mailed within the interval (their notices
+ * stay unclaimed and ride one later email).
  */
-private const val CLAIM = """
-WITH picked AS MATERIALIZED (
-    SELECT c.id FROM notifications c
-    WHERE c.seen_at IS NULL AND c.emailed_at IS NULL
+private const val DUE = """c.seen_at IS NULL AND c.emailed_at IS NULL
       AND c.created_at <= CAST(? AS int8) AND c.created_at > CAST(? AS int8)
       AND c.recipient_id <> ALL(CAST(? AS int8[]))
-    ORDER BY c.created_at LIMIT CAST(? AS int4) FOR UPDATE SKIP LOCKED)
+      AND EXISTS (SELECT 1 FROM users u WHERE u.id = c.recipient_id AND u.marked_as_deleted = false)
+      AND NOT EXISTS (SELECT 1 FROM user_notification_preferences p
+                      WHERE p.user_id = c.recipient_id AND p.channel = 'EMAIL' AND p.notification_type = c.notification_type)"""
+
+/**
+ * The claim (`persistence.md` "Notices"): ONE statement, constant text. [DUE] notices are grouped by person and the people taken in
+ * the order of their OLDEST waiting notice (at most `?` people: a flooded backlog is one person's slot, never everybody's), each with at
+ * most `?` of their oldest notices; those rows are locked `FOR UPDATE SKIP LOCKED` (a row another process has claimed, or is claiming,
+ * is skipped, never waited for), then stamped `emailed_at` in the same statement: a notice is claimed, hence mailed, at most once.
+ * `MATERIALIZED` keeps each step to one evaluation, so the limits are real bounds. Every parameter is cast.
+ */
+private const val CLAIM = """
+WITH eligible AS MATERIALIZED (
+    SELECT c.id, c.recipient_id, c.created_at FROM notifications c WHERE $DUE),
+people AS MATERIALIZED (
+    SELECT recipient_id, MIN(created_at) AS oldest FROM eligible
+    GROUP BY recipient_id ORDER BY oldest, recipient_id LIMIT CAST(? AS int4)),
+ranked AS MATERIALIZED (
+    SELECT e.id, row_number() OVER (PARTITION BY e.recipient_id ORDER BY e.created_at, e.id) AS rn
+    FROM eligible e JOIN people ON people.recipient_id = e.recipient_id),
+picked AS MATERIALIZED (
+    SELECT n.id FROM notifications n
+    WHERE n.id IN (SELECT id FROM ranked WHERE rn <= CAST(? AS int4)) AND n.seen_at IS NULL AND n.emailed_at IS NULL
+    ORDER BY n.id FOR UPDATE SKIP LOCKED)
 UPDATE notifications n SET emailed_at = CAST(? AS int8)
 FROM picked WHERE n.id = picked.id
 RETURNING n.id, n.recipient_id, n.room_id, n.thread_id, n.message_id, n.notification_type, n.actor_id"""
+
+/**
+ * The settle, in the claim's transaction, before the claim: the due notices a digest can never mail (the kind switched off for email,
+ * or an account that is gone) are stamped `emailed_at` (at most `?`, oldest first), so they leave `idx_notifications_email_due` for
+ * good and never fill a batch or a scan again. A person who switches the kind back on gets the notices made from then on.
+ */
+private const val SETTLE = """
+UPDATE notifications n SET emailed_at = CAST(? AS int8)
+WHERE n.id IN (
+    SELECT c.id FROM notifications c
+    WHERE c.seen_at IS NULL AND c.emailed_at IS NULL AND c.created_at <= CAST(? AS int8) AND c.created_at > CAST(? AS int8)
+      AND (NOT EXISTS (SELECT 1 FROM users u WHERE u.id = c.recipient_id AND u.marked_as_deleted = false)
+           OR EXISTS (SELECT 1 FROM user_notification_preferences p
+                      WHERE p.user_id = c.recipient_id AND p.channel = 'EMAIL' AND p.notification_type = c.notification_type))
+    ORDER BY c.created_at LIMIT CAST(? AS int4) FOR UPDATE SKIP LOCKED)
+RETURNING n.id"""
 
 /** One claimed notice: ids and its kind, nothing else (a notice has nothing else). */
 internal data class ClaimedNotice(
@@ -86,12 +132,17 @@ internal data class DigestRun(val claimed: Int, val sent: Int, val failed: Int, 
 /**
  * The email digest of unseen notices (`chat-model.md` "Notifications (V18)", `security.md` "Outbound email"). A run (the sweep's tick):
  *
- * 1. **Claims**, one short transaction ([CLAIM]): the notices still unseen after [delayMillis], at most [DIGEST_BATCH], marked BEFORE any
- *    send, so a notice is mailed at most once and a failed send is not retried (it is audited).
- * 2. **Sends**, outside every transaction, one email per recipient. Right before each send the recipient is RE-CHECKED in one short
+ * 1. **Settles and claims**, one short transaction ([SETTLE], then [CLAIM]): notices of a switched-off kind or a gone account are
+ *    settled; then the notices still unseen after [delayMillis] of at most [batchSize] PEOPLE (oldest waiting first, at most
+ *    [DIGEST_MAX_NOTICES_PER_RECIPIENT] each) are marked BEFORE any send, so a notice is mailed at most once and a failed send is not
+ *    retried (it is audited).
+ * 2. **Sends**, outside every transaction, one email per recipient, at most [maxPerRun] mails a run (the budget the MFA and password-reset
+ *    mails are protected by: they share the `Mailer`; the claims beyond it are released). Right before each send the recipient is
+ *    RE-CHECKED in one short
  *    read transaction: the account is active, the notice still exists unseen (a removed member's notices are deleted with the membership,
  *    a deleted message's with it), the room is an active room the person is an active member of, and the kind is not switched off. What
- *    fails the check is skipped silently and stays claimed (never mailed later). A pooled connection is never held across the send.
+ *    fails the check is skipped silently and stays claimed (never mailed later); the person is remembered like a mailed one, so a
+ *    skipped recipient does not claim a slot again at the next tick. A pooled connection is never held across the send.
  * 3. **Audits** `notification.email_sent` (userId, count) or `notification.email_failed` (userId, errorType: the class name only). A
  *    failure of the re-check is audited the same way as a failure of the send: the recipient was attempted and is not retried.
  * 4. **Releases** the claims of recipients that were never ATTEMPTED when the run ends early (cancelled, or
@@ -112,7 +163,10 @@ internal class NotificationDigest(
     private val delayMillis: Long,
     private val minIntervalMillis: Long,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** People per claim ([DIGEST_BATCH]). */
     private val batchSize: Int = DIGEST_BATCH,
+    /** Mails per run ([DIGEST_MAX_PER_RUN]; `notifications.email.maxPerRun`). */
+    private val maxPerRun: Int = DIGEST_MAX_PER_RUN,
     /** A TEST seam: runs after a non-empty claim and before the first send (the gap the send-time re-check exists for). */
     private val afterClaim: suspend () -> Unit = {},
 ) {
@@ -150,7 +204,7 @@ internal class NotificationDigest(
         var released = 0
         try {
             afterClaim()
-            while (queue.isNotEmpty() && inARow < DIGEST_MAX_CONSECUTIVE_FAILURES) {
+            while (queue.isNotEmpty() && inARow < DIGEST_MAX_CONSECUTIVE_FAILURES && sent + failed < maxPerRun) {
                 val (recipientId, notices) = queue.first()
                 val leave = { if (queue.firstOrNull()?.key == recipientId) queue.removeFirst() else null }
                 val outcome = deliver(mailer, recipientId, notices, now) { leave() }
@@ -186,8 +240,8 @@ internal class NotificationDigest(
         try {
             val mail = resolve(recipientId, notices)
             attempted()
+            mailedAt[recipientId] = now // a skipped person too: nothing to mail now, no slot in the next claim for one interval
             if (mail == null) return Delivery.SKIPPED
-            mailedAt[recipientId] = now
             mailer.send(mail.email, mail.subject, mail.body)
             audit("notification.email_sent", "userId" to recipientId.toLong(), "count" to mail.count)
             return Delivery.SENT
@@ -219,11 +273,20 @@ internal class NotificationDigest(
     }
 
     private suspend fun claim(now: Long): List<ClaimedNotice> = suspendTransaction(database) {
+        val cutoff = LongColumnType() to now - delayMillis
+        val floor = LongColumnType() to now - MILLIS_PER_DAY
+        val settled = TransactionManager.current().exec(
+            SETTLE,
+            listOf(LongColumnType() to now, cutoff, floor, IntegerColumnType() to DIGEST_SETTLE_BATCH),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Int::class.javaObjectType) }?.toList().orEmpty().size
+        if (settled > 0) log.info("notification email digest: {} notice(s) of a switched-off kind or a gone account settled", settled)
         val arguments = listOf(
-            LongColumnType() to now - delayMillis,
-            LongColumnType() to now - MILLIS_PER_DAY,
+            cutoff,
+            floor,
             ArrayColumnType<Long, List<Long>>(LongColumnType()) to mailedAt.keys.map { it.toLong() },
             IntegerColumnType() to batchSize,
+            IntegerColumnType() to DIGEST_MAX_NOTICES_PER_RECIPIENT,
             LongColumnType() to now,
         )
         TransactionManager.current().exec(CLAIM, arguments, explicitStatementType = StatementType.SELECT) { row ->
