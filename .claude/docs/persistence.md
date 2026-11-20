@@ -102,7 +102,8 @@ go through R2DBC.
   (`ConnectionPoolTest` pins the ~2×). A caller that waits past the acquire deadline fails with the pool's timeout
   exception, which `plugins/ErrorHandling.kt`'s catch-all renders as a logged `500` — deliberately NOT a new declared status, since the
   OpenAPI conformance gate would need it on every operation. The pool is disposed on `ApplicationStopped`, so every `testApplication` the
-  suite boots releases its connections. Exposed's `R2dbcDatabase.connect(connectionFactory, databaseConfig)` derives the dialect from
+  suite boots releases its connections. Every background loop (notification sweep, telemetry sampler, tag reindex, the live channel) therefore
+  lives in an `Application.backgroundScope(...)` (`infra/BackgroundScope.kt`), which cancels AND joins it (2 s) on `ApplicationStopping`, earlier. Exposed's `R2dbcDatabase.connect(connectionFactory, databaseConfig)` derives the dialect from
   `databaseConfig.connectionFactoryOptions` alone, so the parsed options (still `driver=postgresql`) are threaded into the config
   unchanged while traffic goes through the pool. The same config pins `defaultMaxAttempts = 1`: Exposed would otherwise retry ANY
   `R2dbcException` three times, and the pool's acquire timeout is one — a saturated pool would cost 3 × the acquire budget per request.

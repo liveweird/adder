@@ -6,6 +6,7 @@ import ch.nokillswit.authz.TooManyRequestsException
 import ch.nokillswit.authz.accessToken
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.isAdmin
+import ch.nokillswit.infra.backgroundScope
 import ch.nokillswit.infra.db.NotifyConnectionFactoryKey
 import ch.nokillswit.infra.maskedSecret
 import ch.nokillswit.infra.notify.LiveStats
@@ -18,7 +19,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopPreparing
-import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.auth.authenticate
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.RateLimitName
@@ -30,11 +30,7 @@ import io.ktor.server.routing.method
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.webSocket
 import io.ktor.util.AttributeKey
-import kotlinx.coroutines.CoroutineName
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 
@@ -69,22 +65,21 @@ data class LiveTicketResponse(val ticket: String, val expiresAt: Long) {
  * (`authz/AccessToken.kt`) and
  * proves nothing about any room: subscriptions are judged per room when they are made. The hub's LISTEN connection starts lazily (the
  * first mint), and everything ends with the application (`ApplicationStopPreparing` closes every socket 1001 within 2 s,
- * `ApplicationStopped` stops the listener).
+ * `ApplicationStopping` then stops the listener and cancels and joins the live scope).
  * Registered with the feature routes in `application.yaml`.
  */
 fun Application.configureLive() {
     val config = readLiveConfig()
     val tickets = LiveTickets(maxTickets = config.maxTickets)
     attributes.put(LiveTicketsKey, tickets)
-    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default + CoroutineName("adder-live"))
-    val hub = LiveHub(scope, config.maxSockets, config.maxSocketsPerUser, attributes[NotifyConnectionFactoryKey])
+    // The hub (actor, listener, hints, deaf watcher), the sweep and the recheck loop all run in this ONE scope. On ApplicationStopping it
+    // is cancelled AND joined (bounded), after the hub closed the LISTEN connection and before the pool is disposed on ApplicationStopped.
+    var hubToStop: LiveHub? = null
+    val scope = backgroundScope("adder-live", Dispatchers.Default) { hubToStop?.stop() }
+    val hub = LiveHub(scope, config.maxSockets, config.maxSocketsPerUser, attributes[NotifyConnectionFactoryKey]).also { hubToStop = it }
     attributes.put(LiveHubKey, hub)
     attributes.put(LiveStatsKey) { LiveStats(hub.socketCount, hub.listener.let { if (it.isStarted) it.isUp else null }) }
     monitor.subscribe(ApplicationStopPreparing) { runBlocking { hub.shutdown() } }
-    monitor.subscribe(ApplicationStopped) {
-        runBlocking { hub.stop() }
-        scope.cancel()
-    }
     val audits = LiveAudit()
     val sweep = LiveSweep(hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey], audits = audits)
     attributes.put(LiveSweepKey, sweep)

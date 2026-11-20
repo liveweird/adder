@@ -11,6 +11,7 @@ import io.r2dbc.spi.ConnectionFactory
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -215,12 +216,15 @@ class LiveHub internal constructor(
         }
     }
 
-    /** Ends the actor and the listener (`ApplicationStopped`); the caller cancels the scope. */
+    /** Ends the actor and the listener (`backgroundScope`'s `beforeCancel`, on `ApplicationStopping`); the scope is joined after. */
     suspend fun stop() {
         isStopping = true
         inbox.close()
         listener.stop()
     }
+
+    /** A TEST seam: the root job of the scope the hub's coroutines (and, through `configureLive`, the sweep) run in. */
+    internal val scopeJob: Job get() = checkNotNull(scope.coroutineContext[Job])
 
     /** A TEST seam: awaited before each command is handled, so a test can hold the actor still. Null in production. */
     @Volatile internal var beforeCommand: (suspend () -> Unit)? = null

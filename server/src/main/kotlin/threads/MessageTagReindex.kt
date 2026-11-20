@@ -1,26 +1,17 @@
 package ch.nokillswit.threads
 
+import ch.nokillswit.infra.backgroundScope
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.plugins.scrubbedSummary
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
-import io.ktor.server.application.ApplicationStopping
 import io.ktor.util.AttributeKey
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("ch.nokillswit.threads.MessageTagReindex")
-
-private const val SHUTDOWN_JOIN_TIMEOUT_MS = 2_000L
 
 /**
  * Published once the boot task has started: how many messages it indexed (0 when the reindex is switched off), or null when it
@@ -49,16 +40,11 @@ fun Application.configureMessageTagReindex() {
     monitor.subscribe(ApplicationStarted) { app ->
         val tags = app.attributes[MessageTagServiceKey]
         val stale = StaleDerivedRows(app.attributes[R2dbcDatabaseKey])
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val scope = app.backgroundScope("adder-tag-reindex")
         app.attributes.put(
             MessageTagReindexKey,
             scope.async { bootRun(tags::purgeDeletedTags, stale::purge) { if (reindex) tags.reindexStale() else 0 } },
         )
-        app.monitor.subscribe(ApplicationStopping) {
-            val rootJob = scope.coroutineContext[Job]
-            scope.cancel()
-            if (rootJob != null) runBlocking { withTimeoutOrNull(SHUTDOWN_JOIN_TIMEOUT_MS) { rootJob.join() } }
-        }
     }
 }
 

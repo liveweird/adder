@@ -159,7 +159,7 @@ per process.
   `503 live-unavailable` (audited `live.refused reason=listener-down`), and a watcher (checking every second) closes every open socket 1013, again on every
   check while the outage lasts so a socket that registered meanwhile goes too. The client's badge appears (the socket is down) and it retries with backoff;
   when the listener is back the next mint works and the reconnect's `ready` refetch is the backfill. Shorter outages stay covered by the `resync`.
-- **Logs:** WARN once per outage, INFO on recovery, nothing per notification, no audit. `ApplicationStopped` closes the connection.
+- **Logs:** WARN once per outage, INFO on recovery, nothing per notification, no audit. `ApplicationStopping` closes the connection (`LiveHub.stop()`, before the scope is cancelled).
 
 ## Tickets
 
@@ -192,8 +192,11 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
   Membership removal and room deletion are pushed at once (`revoked`); the same pass ALSO re-checks memberships (one query over the non-ADMIN sockets' (user, room) pairs: the ACTIVE member row, the user and the room both active) and pushes `revoked` for a subscription whose membership is gone (audited, one `live.revoked reason=membership` line per user per pass), because a hint lost in a listener gap would otherwise leave a removed member subscribed. A gap triggers that re-check straight away (coalesced), so the bound is **immediate normally, at most 60 s after a gap**. ADMIN sockets are skipped: they read every room. `sweepNow()` is an internal test seam. **New** subscriptions never trust the ticket-time role: `readableRoomIds` reads the stored role of the ACTIVE user, so a demoted or deleted ADMIN cannot gain new rooms (its existing ones last until the sweep, A13).
 - **Gap:** `onGap` sends `resync` to every socket (one atomic flag coalesces concurrent gaps; the listener starts with the first ticket mint, so a socket registered before its first LISTEN completes hears that LISTEN's own `resync`).
 - **Delivery:** a hint goes to the ACTIVE subscribers of its room and, for `room.created`, `room.member_added` and `room.member_role_changed`, to every socket of each target, subscribed or not (`room.created` and `notification.created` to their targets ONLY: a new room has no subscribers, and a notice is personal; `live/LiveHubModel.kt` `LiveKind.audience()` names each kind's class); the hub never widens on `targetUserIds` of any other kind. `room.member_removed` drops the room from each non-ADMIN target socket (ACTIVE or PENDING) and sends it `revoked`; an ADMIN target socket keeps the room and hears the removal as an `event` (also when not subscribed). `room.deleted` drops the room from every subscriber and target socket and sends each `revoked`, and voids every subscribe still PENDING for it (the readable check ran before the delete, so it must not activate afterwards). Every socket gets one frame per hint. A full socket queue loses its events (and a pending pong) to ONE `resync` but keeps `ready`, `subscribed` and `revoked` (the socket is closed 1013 if even that cannot fit). Hints wait for the actor in a bounded count (`MAX_QUEUED_HINTS` 1024; past it a hint is a gap, i.e. a `resync`), while commands (register, unregister, subscribe) are never dropped. A session that is cancelled while it waits to register still unregisters (its socket is recorded first; the inbox is FIFO).
-- **Shutdown:** `ApplicationStopPreparing` refuses admissions and mints with 503, then closes every socket with 1001 within 2 s; `ApplicationStopped`
-  cancels the scope and closes the listener.
+- **Shutdown:** `ApplicationStopPreparing` refuses admissions and mints with 503, then closes every socket with 1001 within 2 s; `ApplicationStopping`
+  (the `backgroundScope` hook, `infra/BackgroundScope.kt`) closes the hub and its listener (bounded, 2 s), then CANCELS AND JOINS (bounded, 2 s) the one live scope that
+  holds the hub actor, the hint consumer, the deaf watcher, the 60 s sweep and the recheck loop. That is before `ApplicationStopped` disposes the pool, so
+  no live coroutine runs against a disposed pool or a test application's dead class loader (the old `ApplicationStopped` cancel had no join and ran after
+  the pool's own dispose). `BackgroundScopeTest` pins it.
 
 ## Bounds
 

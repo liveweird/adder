@@ -1,5 +1,6 @@
 package ch.nokillswit.notifications
 
+import ch.nokillswit.infra.backgroundScope
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
@@ -11,25 +12,16 @@ import ch.nokillswit.plugins.scrubbedSummary
 import ch.nokillswit.rooms.RoomServiceKey
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
-import io.ktor.server.application.ApplicationStopping
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("ch.nokillswit.notifications.NotificationSweep")
 
-private const val SHUTDOWN_JOIN_TIMEOUT_MS = 2_000L
 private const val PURGE_EVERY_MILLIS = 3_600_000L
 
 /** The ceiling of both digest timings: one day (the digest mails nothing older than that anyway). */
@@ -89,9 +81,9 @@ internal class NotificationSweep(
 /**
  * The sweep's module: `notifications.*` is validated on every boot, enabled or not; the sweep itself starts on [ApplicationStarted] in
  * its own scope when `notifications.sweepEnabled` is true (the test harness turns it off, so no booted app purges the shared database
- * or mails a notice) and is cancelled on [ApplicationStopping], before the pool is disposed. Each tick also runs the email digest
- * ([NotificationDigest]); with `mail.transport=disabled` there is no mailer, the digest does nothing and logs it once, and startup is
- * never refused for it. `mail.appUrl` (the origin the password reset uses) builds the digest's links.
+ * or mails a notice) and is cancelled and joined on `ApplicationStopping`, before the pool is disposed. Each tick also runs the email
+ * digest ([NotificationDigest]); with `mail.transport=disabled` there is no mailer, the digest does nothing and logs it once, and
+ * startup is never refused for it. `mail.appUrl` (the origin the password reset uses) builds the digest's links.
  */
 fun Application.configureNotificationSweep() {
     val config = environment.config
@@ -125,7 +117,7 @@ fun Application.configureNotificationSweep() {
             purge = { app.attributes[NotificationServiceKey].purgeOlderThan(it) },
             digest = { digest.run() },
         )
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val scope = app.backgroundScope("adder-notification-sweep")
         val first = CompletableDeferred<Int?>()
         app.attributes.put(NotificationSweepKey, first)
         scope.launch {
@@ -134,11 +126,6 @@ fun Application.configureNotificationSweep() {
                 delay(intervalSeconds * 1000L)
                 sweep.tick()
             }
-        }
-        app.monitor.subscribe(ApplicationStopping) {
-            val rootJob = scope.coroutineContext[Job]
-            scope.cancel()
-            if (rootJob != null) runBlocking { withTimeoutOrNull(SHUTDOWN_JOIN_TIMEOUT_MS) { rootJob.join() } }
         }
     }
 }
