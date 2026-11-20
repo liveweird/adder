@@ -103,7 +103,7 @@ The plan put six decisions to the user. The user was asked for numbers and gave 
 - Each room owns its own copy of its workflow, copied at creation from an ADMIN-curated template (seeded *Default* and *Incident*).
 - Mentions are stored as `<@userId>` tokens and rendered with the current name (rename-safe).
 - Flow's integration service tokens are not ported in 0.1.0: with nothing to serve they would be dead weight (backlog: bots posting into rooms).
-- The coverage floors were re-baselined after the trim (lines 97, branches 81; Flow's 98/85 relied on tests of the cut features) raised to 98/85 for 0.4.0, 98/86 for 0.5.0, 98/87 for 0.6.0 and 98/88 after the 1.0.0 checkup follow-ups (the line floor waits for the merged-tree re-measure).
+- The coverage floors were re-baselined after the trim (lines 97, branches 81; Flow's 98/85 relied on tests of the cut features) raised to 98/85 for 0.4.0, 98/86 for 0.5.0, 98/87 for 0.6.0 and 99/88 after the 1.0.0 checkup follow-ups (actuals 99.19/88.28 on the merged tree).
 
 ### 0.2.0 rooms and workflows
 

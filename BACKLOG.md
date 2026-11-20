@@ -52,28 +52,18 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 
 ## 1.0.0 checkup (2026-11-20)
 
-The record, with evidence and the proposed fix per id: `.claude/docs/audit-status.md` "1.0.0 checkup". The checkup's fix-before-1.0.0 tier is done ("Fixed so far" there); what is left can follow the tag or waits on a decision.
+The record, with evidence and the proposed fix per id: `.claude/docs/audit-status.md` "1.0.0 checkup". The fix-before-1.0.0 tier, the can-follow tier and every decision are done ("Fixed so far" there); what is left below can follow the tag.
 
-- [new] **Tests: timing margins and the weakest-covered paths (C-TEST-1 to 4).** Wall-clock upper bounds of 350 ms to 2 s; branch coverage of `LiveSocket`, `AuthRoutes`, `ErrorHandling`; `password_reset.throttled`; a populated-upgrade migration test; `check:scenarios` skipping `accessibility.spec.ts`.
-- [new] **DRY: bounded name filter, TTL index, search budget, test fixtures (C-DRY-1, 2, 4, 5, 6).**
-- [new] **UI: per-route page titles, list dates in the browser's zone, a wider axe sweep, polish (C-UI-2 to 5).**
-- [new] **Hardening lows (C-SEC-6, 8, 9; C-ARCH-3, 5; C-API-8; C-CONV-1) and deferred refactors (C-CPX-1).**
-- [new] **Decision: required checks on master (C-GATE-1, C-GATE-2).** Nothing requires a green run; three of six releases were tagged on red commits.
-- [new] **Decision: the k8s front door (C-SEC-4).** An Ingress, or ship `HTTP_BEHIND_PROXY=false` until one exists.
-- [new] **Decision: thread-history growth (C-SEC-5, C-SEC-6).** Cap events per thread, stop storing raw TEXT/URL values, or redact; settles the "Scrub a leaked secret" item too.
-- [new] **Decision: API names before 1.0.0 freezes them (C-API-5, C-API-6).** One style for person references and booleans; one meaning for `tag`.
-- [new] **Decision: the release process (C-DOC-6).** Per-PR version bumps as `app-releases.md` says, or per milestone as practised; patch versions for fixes after a release commit.
-- [new] **Decision: room enrolment and digest mail (C-SEC-7).** Any room owner can add any user and cause a digest every 15 minutes naming a room of their choosing; consent-gated mail or a per-actor budget, and buckets on the five room-lock writes.
-- [new] **Decision: GitHub advisory and secret scanning on the public repo, and Dependabot automation (C-GATE-5, C-GATE-6).**
-- [new] **Decision: unused surface and production defaults (C-ARCH-4).** `infra/crypto` has no consumer but production requires its key; dev mode is the default outside the image; production tolerates the default DB password.
-- [new] **Decision: a progressive lockout.** A lock restarts at zero when it expires, so someone holding the password gets five MFA code guesses every 15 minutes indefinitely (about 16 % a year, at about 35,000 code emails to the owner; `security.md` "ONE counter"). A lock that lengthens on each re-lock closes that, but would also let someone who knows only the email lock the owner out of `/login` for longer.
-- [new] **Decision: a backup and restore runbook (C-ARCH-2).**
-- [new] **Decision: one unread and "new" cue (C-UI-1).** Colourless badges render olive and counts red against the colour rules; unread is drawn four ways.
+- [new] **Deferred refactors (C-CPX-1).** Donor-sized machinery (`MultiRowInsert.kt`, the 400-line `server/build.gradle.kts` block, `AuthRoutes.kt` login, `NotificationDigest.kt` on the 400-line cap).
+- [new] **A populated-upgrade migration test (C-TEST-3, the part left).** Migrate a database holding rows of every chat table from the previous release's schema, not only an empty one.
+- [new] **A per-(actor, recipient) digest limit.** The V24 budget caps how many distinct people one actor can make email-eligible per day, not how often an admitted recipient is mailed (one digest per 15 minutes while notices keep coming; the remedy today is the per-kind email switch). Add a pair limit if that proves insufficient.
+- [new] **Friendly 429 text on room writes.** A rate-limited workflow save reads "Save failed (429)" and archive/unarchive the generic action error; the room-name 429 behaves the same. Give the `chat-write` refusals their own message.
+- [new] **The seed admin's live-ticket bucket in a full e2e run.** The ~57 seed-admin sign-ins across the specs exceed 60 mints a minute at 4 workers (a `rate_limit.exceeded bucket=live-ticket` in the server log, no test failed), and each page load mints twice. Find why a load mints two tickets, and move more specs to throwaway users.
+- [new] **`testing.md` says backend tests live flat,** but `server/src/test/kotlin/auth/` holds several (`LoginThrottleTest`, `PasswordsTest` and, with the 1.0.0 lockout, `LoginThrottleProgressiveTest`). Align the doc or the directory.
 
 ## Foundation follow-ups
 
 - [new] **Sign-out fires a stray 401 refetch.** `bindSessionQueryCache` clears the query cache while the old page is still mounted, so the rail (`useRailRooms`) and room header (`RoomPage`) queries refetch once without a token. Harmless console noise; gate those queries on a live session or unmount before clearing.
-- [new] **Scrub a leaked secret from a thread's history (0.3.0 audit M4).** `thread_events` is append-only: a credential pasted into a title or a TEXT/URL field survives an edit as `TITLE_CHANGED.from`/`FIELD_CHANGED.from`, served to every current and future reader, and only SQL removes it. The moderator message delete (D2) exists for exactly this leak. Options: an audited per-event redaction of free-text params by a steward or ADMIN (`thread.history_redacted`), or recording title and TEXT/URL changes without their raw values. A product call.
 - [new] **A test flake: `IllegalAccessError` at `LiveSweep.kt:71`.** Seen once during a 0.6.0 `koverXmlReport` run (`UserRoutesTest` "admin creates a user who can log in with the supplied password"), green on rerun: likely the live sweep's coroutine outliving `testApplication`'s class loader. The likely cause is fixed (the live scope is now joined on `ApplicationStopping`, before the pool is disposed; `infra/BackgroundScope.kt`); remove this item after a week of green nightlies without it.
 - [new] **`ChatLogHygieneTest` does not plant a pin.** The 0.6.0 plan wanted every chat write in it; reactions and the digest are covered (the digest in `NotificationDigestTest`), pins only by `PinsTest`'s audit assertions.
 - [new] **`RowLockVersusDeriveTest` (0.3.0 audit).** `persistence.md` promised it back "with the first long chat transaction"; the workflow PUT's `moveThreads` under the room lock is one. Port Flow's test shape.

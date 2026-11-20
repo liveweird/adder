@@ -38,7 +38,7 @@ Paths: `S/` = `server/src/main/kotlin/`, `T/` = `server/src/test/kotlin/`, `D/` 
 | C-SEC-1 | high | `S/plugins/Http.kt:242` | `install(Compression)` decodes request bodies by default (`maxDecodedContentLength = -1`) after the wire-byte body limit, so one anonymous gzip `POST /login` under 16 KiB can inflate past the heap. Confirmed from source and bytecode, not executed. | `mode = CompressResponse`; gzip and gzip-of-gzip tests in `PayloadValidationTest`/`ChatWriteLimitsTest`; a line in `security.md`. |
 | C-SEC-2 | medium | `S/users/UserRoutes.kt:301-332` | Self password change: a bcrypt verify per request, no bucket, no lockout. | Per-user bucket + count wrong `currentPassword` in `LoginThrottle`; spec 429. |
 | C-SEC-3 | medium | `S/auth/MfaChallenges.kt:61-71`, `S/auth/AuthRoutes.kt:233-241` | MFA attempts bounded per challenge only; a fresh login gives a fresh challenge, the account never locks; `login.mfa_failure` has no user id. | Cap live challenges per user, count failed codes into the lockout, add `userId`. |
-| C-SEC-4 | medium | `S/plugins/RateLimits.kt:282-287`, `S/plugins/Http.kt:287-302`, `k8s/app-deployment.yaml:88-91` | Per-IP keys are the raw forwarded text; the manifest trusts the proxy behind a bare LoadBalancer, so a client picks its own key. | Key through `pendingAddressKey`; manifest half waits for a decision. |
+| C-SEC-4 | medium | `S/plugins/RateLimits.kt:282-287`, `S/plugins/Http.kt:287-302`, `k8s/app-deployment.yaml:88-91` | Per-IP keys are the raw forwarded text; the manifest trusts the proxy behind a bare LoadBalancer, so a client picks its own key. | Key through `pendingAddressKey`; manifest half: an Ingress (decided 2026-11-20). |
 | C-SEC-5 | medium | `S/threads/ThreadService.kt:270-275`, `V14__create_threads.sql:57` | Details PUTs append raw from/to values into append-only history inside a 240/min bucket; a member can fill the volume (computed). | A product decision (with the M4 "scrub a leaked secret" item). |
 | C-SEC-6 | low | `S/threads/ThreadRoutes.kt:109-116` vs `D/chat-model.md:65` | A retired field's values stay readable in the history. | Filter at read time or state the exemption. |
 | C-SEC-7 | low | `S/rooms/RoomRoutes.kt:143,153`, `RoomMemberRoutes.kt:106,128`, `RoomWorkflowRoutes.kt:32` | Five room-lock writes carry no bucket (deliberate per `security.md:311`). | Decision. |
@@ -104,9 +104,12 @@ Paths: `S/` = `server/src/main/kotlin/`, `T/` = `server/src/test/kotlin/`, `D/` 
 - **Before tagging 1.0.0:** C-SEC-1; C-SEC-2 + C-SEC-3; C-ARCH-1 with C-DRY-3; C-SEC-4 (code half); C-GATE-1, 3, 7, 8; dead code and residue (C-SMELL-1, C-SMELL-2, C-GATE-10,
   C-DOC-10); the docs (C-DOC-1 to 5, 7 to 9, 11; C-GATE-4); spec prose (C-API-1, 2, 3, 4, 7).
 - **Can follow:** C-TEST-1 to 3; C-DRY-1, 2, 4, 5, 6; C-UI-2 to 5; C-SEC-6, 8, 9; C-ARCH-3, 5; C-API-8; C-CONV-1; C-CPX-1.
-- **Decisions for the user:** required checks on master (C-GATE-1); the k8s front door (C-SEC-4); thread-history growth and redaction (C-SEC-5, C-SEC-6, BACKLOG M4); API
-  names before the freeze (C-API-5, C-API-6); the release process (C-DOC-6); room enrolment and digest mail with the unbucketed room writes (C-SEC-7); GitHub scanning (C-GATE-5);
-  unused surface in 1.0.0 (`infra/crypto`, dev-mode default, default DB password; C-ARCH-4); backups (C-ARCH-2); Dependabot automation (C-GATE-6); the unread cue (C-UI-1).
+- **Decisions for the user** (settled 2026-11-20, in brackets): required checks on master (C-GATE-1: a release-checklist rule, no ruleset); the k8s front door (C-SEC-4: an
+  ingress-nginx Ingress); thread-history growth and redaction (C-SEC-5, C-SEC-6, BACKLOG M4: no raw TEXT/URL or title values); API names before the freeze (C-API-5, C-API-6:
+  unify now); the release process (C-DOC-6: one version per milestone, patches after); room enrolment and digest mail with the unbucketed room writes (C-SEC-7: a per-actor
+  budget); GitHub scanning and Dependabot automation (C-GATE-5, C-GATE-6: alerts on, manual Gradle rounds); unused surface (C-ARCH-4: refuse the default DB password only);
+  backups (C-ARCH-2: a runbook); the unread cue (C-UI-1: blue everywhere); a progressive lockout (MFA-tripped only, a confirmed reset lifts it); raw unknown login
+  identities in the audit log (C-SEC-9 item 6: a keyed digest).
 
 ## Fixed so far
 
@@ -123,4 +126,22 @@ The 1.0.0 checkup's fix-before-1.0.0 tier, on `fix/1.0.0-checkup` (2026-11-20):
 | C-SEC-2, C-SEC-3 | `43e3557` | a `password-change` bucket and one per-account lockout for wrong current passwords and wrong MFA codes; at most three live challenges per account |
 | C-SEC-3 (rest), branch audit M1, L1-L7 | `4fed5b9` | a known account's wrong code or password counts even at a full lockout store; security headers on the early 415/400; join bounds fit the 20 s stop window; the AppCDS list regenerated |
 
-Still open: the rest are `BACKLOG.md` items under "1.0.0 checkup" (the can-follow tier and the decisions).
+The can-follow tier and the decisions, on `fix/1.0.0-followups` (2026-11-20):
+
+| ids | commit | what |
+|---|---|---|
+| C-DOC-6, C-GATE-2 | `a11ebf4` | one version per milestone, a patch for a later fix; a green `gh run` on the exact commit before a tag |
+| C-DRY-1, 2, 4, 6; C-API-8; C-CONV-1 | `218157a` | one bounded name filter, `infra/ExpiringIndex`, one budgeted transaction; spec bounds; derived sort whitelists |
+| C-SEC-5, C-SEC-6, BACKLOG M4 | `8655f0f` | history keeps no raw TEXT/URL or title values; V23 scrubs old rows; retired fields' values hidden at read time |
+| C-ARCH-4, C-ARCH-2 | `50851b9` | production refuses the default DB password; tested `scripts/db-backup.sh`/`db-restore.sh` and the runbook |
+| C-GATE-5, C-GATE-6 | `65d0366` | the six npm alerts cleared; alerts, secret scanning and push protection on; Gradle bumps in manual rounds |
+| C-TEST-1, 2, 3 (part), 4; C-DRY-5 | `d12c665` | steadier timing bounds; live-socket fault, error-mapping, principal and refresh-claim tests; shared casts and e2e helpers |
+| C-UI-2 to 5 | `27514b0` | page titles, local-zone list dates, a wider axe sweep on its own admin, `template-gone`, one `Pager` |
+| C-SEC-8, C-SEC-9, C-ARCH-3, C-ARCH-5 | `79c1f89`, `fc29297` | hardening lows; mail TLS; COOP/CORP; https-only origins; unknown login identities as a keyed digest; direct-memory cap; preStop |
+| C-API-5, C-API-6 | `43b2fb4` | `<role>Id`, bare booleans, `q` for free text (`managerId`, `ownerId`, `actor*`, `mentionedId`, `seen`) |
+| C-SEC-7 | `48865f7` | V24 per-actor digest budget; every room-lock write bucketed |
+| C-UI-1 | `e6e47dc` | one blue unread cue; gray as the badge default |
+| C-SEC-4 (manifest half) | `b15e01e` | an ingress-nginx Ingress as the only front door, verified live on OrbStack |
+| progressive lockout; C-SEC-9 item 6 follow-up | `8cb7eaf` | wrong-code locks double to 24 h (wrong passwords stay flat), a 24 h code counter, one-step decay; a confirmed reset lifts it |
+
+Still open: C-CPX-1 (deferred) and the populated-upgrade migration test (C-TEST-3), plus the follow-ups the fixes surfaced; `BACKLOG.md` "1.0.0 checkup".
