@@ -14,7 +14,7 @@ else fails any build that runs the `test` task; default 1; CI and `scripts/gates
 Each fork is its own JVM with its OWN container and fixture singletons, so every "shared suite" rule in this doc holds
 per fork, never across forks: a test must never assume another class ran before it on the same JVM, or that a class
 ran at all in this one. Class order is not a contract (with `-Pforks>=2` the classes are weight-balanced from
-`server/test-weights.tsv`; refresh it with `node scripts/timings/local-times.mjs test-weights` after a full run — the committed file is the donor's, pruned, until re-measured).
+`server/test-weights.tsv`; refresh it with `node scripts/timings/local-times.mjs test-weights` after a full run — last measured 2026-11-20).
 `PostgresTestSupport` migrates the container itself on start, so a fixture or raw-JDBC helper never needs its own
 "has Flyway run yet?" guard. Test classes are selected by file name (`**/*Test.class`, `TestClassNamingTest`).
 **A hung fork is thread-dumped and killed, not waited for** (`-PtestStallMinutes`, 1..60, default 5; dumps in
@@ -69,7 +69,7 @@ file order is the bug, not the config.
 
 **Fork warm-up.** `ForkWarmup<k>Test` (k = 1..`-Pforks`) is pinned as the FIRST class of fork k, so the one-time Postgres + Flyway +
 first-boot cost lands outside `testApplication`'s hard 60 s limit and outside any real test; a full run fails if a warm-up did not run first in its own JVM
-(`test-fixtures.md` "Fork warm-up"). There are no shared heavyweight fixtures in v0.1.0: when a chat increment adds one, a class that reads it
+(`test-fixtures.md` "Fork warm-up"). There are no shared heavyweight fixtures so far: when a chat increment adds one, a class that reads it
 warms it in a `@BeforeClass` and a guard test fails a class that forgets (Flow's `SyncedStubFixture`/`StubFixtureWarmupGuardTest` pair is the donor shape).
 
 **Runtime OpenAPI conformance.** Every `/api/` interaction in the server suite is validated against

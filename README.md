@@ -5,9 +5,26 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (0.4.0 — live updates, on the 0.3.0 threads and messages, the 0.2.0 rooms and the 0.1.0 foundation)
+## What's here today (0.6.0 — social, on 0.5.0 find, 0.4.0 live updates, 0.3.0 threads and messages, 0.2.0 rooms and the 0.1.0 foundation)
 
-Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 0.4.0 makes the rooms live:
+Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 0.6.0 makes the rooms social:
+
+- **Mentions** — type `@` in the composer and pick a room member; the mention shows as the person's current name (`<@id>` in the stored body), and the thread list's "Mentions me" filter shows only the threads that mention you.
+- **Notifications** — a bell in the header counts your unseen notices (someone mentioned you, or handed a thread over to you); a click opens the message, "Mark all as seen" clears the count, and new ones arrive live. A notice is ids only
+  (`GET /api/v1/notifications`), kept for 90 days. A notice still unseen after five minutes is summed up in **one email digest** (at most one every 15 minutes; who, the room and the thread number with a link, never the message), switched off per kind under "Notification emails" in the
+  account menu; it needs `MAIL_TRANSPORT=smtp` and `MAIL_APP_URL`.
+- **Unread** — a dot in the rooms rail, unread counts in the thread list and a "New" line in the conversation where you stopped reading, with a jump to it.
+- **Reactions** — one emoji per reaction, shown with its count and the first few people; press it again to take yours back (20 distinct emoji per message, 5 per person).
+- **Pins** — pin threads and messages to a room (any member; 50 a room); the room header's pinned panel lists them.
+
+0.5.0 made a busy room findable:
+
+- **Filters and sorts in the URL** — filter a room's threads by status, owner, hashtag and the room's choice and person fields, and sort by activity, newest, number or workflow order; the address bar carries the filter, so a link shows the same list to whoever opens it.
+- **#hashtags** — written in messages, each is a link to the room's threads that use it; the room's tag list is paged.
+- **Full-text search** of one room or of all your rooms (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`): words match from their beginning (from three letters), ignore accents and case, and the hits are threads with the matching words highlighted.
+- **Jump to a message** (`?message=`) from a search hit or a notice, and the **focus view** (the thread list hidden, the conversation at full width).
+
+0.4.0 made the rooms live:
 
 - **Live updates** over a WebSocket (`GET /api/v1/live`; `.claude/docs/live.md`) — the browser trades its bearer for a single-use ticket (`POST /api/v1/live/tickets`) and sends it in the socket's first frame. Every
   chat write emits one PostgreSQL `NOTIFY` hint (ids only) inside its transaction; one `LISTEN` connection per process fans the hints out to the sockets subscribed to a room, and the page refetches what changed. Threads,
@@ -45,7 +62,7 @@ The 0.1.0 foundation:
 
 ## Roadmap
 
-0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (shipped) · 0.5.0 filters, sort, search, hashtags · 0.6.0 mentions, reactions, pins, unread · 1.0.0 checkup.
+0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (shipped) · 0.5.0 find: filters, sort, search, hashtags (shipped) · 0.6.0 social: mentions, notifications, reactions, pins, unread (shipped) · next, the 1.0.0 checkup.
 The scope of each version and the decisions behind it: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`; open items: `BACKLOG.md`. `CLAUDE.md`'s "Product" and
 "Donors" sections say which sibling project each capability ports from.
 
@@ -173,6 +190,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | Variable | Default | Purpose |
 |---|---|---|
 | `KTOR_DEVELOPMENT` | `true` | Development mode (`true`) vs production mode — HSTS/HTTPS redirect and the fail-closed startup checks. The image ships `false`. |
+| `KTOR_STARTUP_TIMEOUT_MILLIS` | `140000` | How long Ktor lets module loading take before it cancels startup. The default outlasts the cold-start Flyway retry wait and stays inside the k8s startup probe; a database whose V16 search backfill outruns it needs this AND the probe's `failureThreshold` (`k8s/app-deployment.yaml`) raised together. |
 | `LOGIN_LOCKOUT_THRESHOLD` | `5` | Consecutive failures per account before `/login` answers 429. |
 | `LOGIN_LOCKOUT_DURATION_SECONDS` | `900` | How long a locked account stays locked. |
 | `LOGIN_LOCKOUT_MAX_TRACKED` | `10000` | Maximum in-memory login identities; new identities receive 429 at capacity while active counters and locks remain. |
@@ -188,6 +206,12 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `MFA_MAX_ATTEMPTS` | `5` | Wrong-code attempts before a challenge dies. |
 | `MFA_MAX_TRACKED` | `10000` | Maximum pending email-MFA challenges; new issuance receives 429 at capacity. |
 | `LIVE_MAX_TICKETS` | `10000` | Maximum unexpired live-update socket tickets held (1–100000); a mint receives 429 at capacity (`.claude/docs/live.md`). |
+| `LIVE_MAX_SOCKETS` | `1000` | Authenticated live-update sockets at once, the whole process (1–10000); past it an upgrade and a ticket mint answer 503 `live-unavailable`. |
+| `LIVE_MAX_SOCKETS_PER_USER` | `16` | Sockets one user may hold, one per tab (1–64); past it a mint answers 429 `live-socket-limit` and a redeem closes the socket 4429. |
+| `LIVE_MAX_PENDING_AUTH` | `256` | Sockets that have upgraded but not yet sent a good `auth` frame, the only unauthenticated connections the server holds (1–10000); past it an upgrade answers 503. |
+| `LIVE_MAX_PENDING_PER_ADDRESS` | `8` | Of those, how many one client address may hold (1–10000; an IPv6 address counts by its /64). |
+| `LIVE_AUTH_TIMEOUT_MILLIS` | `2000` | How long an unauthenticated socket lives before it is closed 4401 (100–30000 ms; the first frame must carry the ticket). |
+| `LIVE_CONNECT_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP bucket on the WebSocket upgrade `GET /api/v1/live`; blank = 600 in every mode. |
 | `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored credentials (none stored yet; reserved for the first stored credential) — the dev default is burned, production refuses it. Back it up apart from the database. |
 | `DATA_ENCRYPTION_KEY_PREVIOUS` | *(blank)* | Decrypt-only fallback during a key rotation (boot once, then remove). |
 | `SECURITY_CSRF_ENABLED` | `false` | CSRF plugin gate — off (bearer JWT, no cookies). |
@@ -218,6 +242,14 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `NOTIFICATIONS_EMAIL_DELAY_SECONDS` | `300` | A notice still unseen after this many seconds is emailed in a digest (0..86400). With `MAIL_TRANSPORT=disabled` nothing is mailed. |
 | `NOTIFICATIONS_EMAIL_MIN_INTERVAL_SECONDS` | `900` | At most one digest per person per this many seconds, per process (0..86400); what arrives meanwhile waits for the next one. |
 | `NOTIFICATIONS_EMAIL_MAX_PER_RUN` | `100` | The most digest emails one sweep tick sends (1..1000). The digest shares the mailer with MFA codes and password resets, so this budget protects them; the people beyond it wait for the next tick. |
+| `NOTIFICATIONS_RETENTION_DAYS` | `90` | How long a notice is kept before the sweep deletes it, at most once an hour (1..3650). |
+| `NOTIFICATIONS_SWEEP_INTERVAL_SECONDS` | `60` | How often the notification sweep wakes (10..3600); the email digest rides the same tick. |
+| `NOTIFICATIONS_SWEEP_ENABLED` | `true` | `false` keeps the sweep (purge and digest) from starting; the test harness turns it off. |
+| `SEARCH_TIMEOUT_SECONDS` | `5` | The budget of one search request (all its statements); past it the search is cancelled and answers 429 `search-timeout` (1..30). |
+| `SEARCH_MAX_CONCURRENT` | `4` | The most searches this process runs at once; the next answers 429 `search-busy` (1..16). With `THREADS_READ_MAX_CONCURRENT` it must stay below `POSTGRES_POOL_MAX_SIZE`, or a production-mode startup is refused. |
+| `THREADS_READ_TIMEOUT_SECONDS` | `5` | The budget of one filtered thread-list or tag-list read; past it the read is cancelled and answers 429 `read-timeout` (1..30). |
+| `THREADS_READ_MAX_CONCURRENT` | `10` | The most filtered thread-list and tag-list reads this process runs at once; the next answers 429 `read-busy` (1..16). |
+| `THREADS_TAG_REINDEX_ON_BOOT` | `true` | Index the hashtags of messages written before the index, once after boot and without blocking the start; `false` leaves them unindexed until a boot that has it on. |
 | `POSTGRES_JDBC_URL` | `jdbc:postgresql://localhost:5439/adder` | Flyway's JDBC URL. |
 | `POSTGRES_R2DBC_URL` | `r2dbc:postgresql://localhost:5439/adder` | The runtime R2DBC URL. |
 | `POSTGRES_USER` | `adder` | Database user. |

@@ -1,6 +1,6 @@
 ### Test fixtures and harness internals
 
-The binding one-line rules are in `testing.md`; this file is the reference behind them. v0.1.0 has the harness, the OpenAPI conformance layer, the fork warm-up and the
+The binding one-line rules are in `testing.md`; this file is the reference behind them. Adder has the harness, the OpenAPI conformance layer, the fork warm-up and the
 watchdogs, the weight-balanced fork order and the fixture-tripwire machinery — Flow's domain fixtures (the synced and derived stub fixtures, the normalized-layer sweep)
 were not ported. When a chat increment adds a shared fixture, its rules (warm in a `@BeforeClass`, read-only vs clone, the guard test, the tripwire) are added here in the same commit.
 
@@ -70,8 +70,8 @@ set equals the plain tree's. The order comes from `balancedCandidateOrder`: clas
 (ties by name), dealt greedily to the least loaded fork that still has a free slot (each fork's slot count is capped
 at its round-robin share, so the interleaving reproduces the plan), then position `p` takes fork `p % forks`'s next
 class. The weights are `server/test-weights.tsv` (`<FQN><TAB><seconds>`, suite time minus the fixture-cost markers,
-written by `local-times.mjs test-weights` from a full run; the committed file is the donor's, pruned to Adder's classes — re-measure it once the suite has run on
-this repository). Degradation: a missing or unparseable file warns once and keeps the alphabetical order; a class not in the file weighs the average; a deleted class's row is
+written by `local-times.mjs test-weights` from a full run; the committed file was re-measured from a full run on 2026-11-20 — refresh it at every milestone check
+and when the CI summary's fork-balance block warns). Degradation: a missing or unparseable file warns once and keeps the alphabetical order; a class not in the file weighs the average; a deleted class's row is
 ignored. `--tests` filters work unchanged. The file is not a task input (only the class trees are). A red local rerun is reordered by Gradle's `RunPreviousFailedFirst` (failed
 classes go first), so the balance is off for that rerun. `slow-tests --forks N --weights server/test-weights.tsv` prints the fork-balance block (span vs sum / N, drift of measured
 against recorded weights; the CI `server` job and `scripts/gates.sh` run it).
@@ -101,7 +101,7 @@ class-name dedupe). The throwaway boot runs `Bootstrap` on a fresh database befo
 **Fixture tripwires.** `FixtureTripwire.kt` (pinned by `FixtureTripwireTest`) is the machinery for a shared, read-only fixture connection: the fixture arms it with the baseline it captures
 when its own init completes, and every later `connectionId()` call re-snapshots the connection and compares, so a consumer that mutates the shared state fails the NEXT test that asks
 for it, whatever class order the fork runs in (`perCallerClass` re-checks an expensive snapshot only when the calling test class changes; after a failure the baseline is re-captured,
-so one mutation fails ONE test). No fixture uses it in v0.1.0 (Flow's synced and derived stub fixtures did); the first shared chat fixture arms it and adds its explicit tripwire test here.
+so one mutation fails ONE test). No fixture uses it yet (Flow's synced and derived stub fixtures did); the first shared chat fixture arms it and adds its explicit tripwire test here.
 
 **Coverage gates.** Backend Kover enforces line- and branch-coverage floors in
 `server/build.gradle.kts` (the `minBound` line/branch floors, wired into `check` via
@@ -115,7 +115,7 @@ coverage improves, never to lower them for new code: `check` runs only `koverVer
 Kover costs roughly a tenth of the test wall and stays on everywhere `check` runs — the floors are a gate. There is **no
 Gradle property to switch it off**; for a timing run or a tight dev loop over `:server:test` alone, temporarily add
 `kover { currentProject { instrumentation { disabledForTestTasks.add("test") } } }` to `server/build.gradle.kts` and never commit
-it (no `test.ic` is written, so `koverVerify` would have nothing to check). The floors (lines 98, branches 86) were re-baselined after the trim (97/81) and raised for 0.4.0 and 0.5.0, and rise again as the chat features add tests. Frontend vitest enforces thresholds in
+it (no `test.ic` is written, so `koverVerify` would have nothing to check). The floors (lines 98, branches 87) were re-baselined after the trim (97/81) and raised for 0.4.0, 0.5.0 and 0.6.0, and rise again as coverage improves. Frontend vitest enforces thresholds in
 `web/vite.config.ts` (`test.coverage.thresholds`, same re-measure convention — the current
 actuals are noted in a comment beside them); run `cd web && npm run test:coverage`.
 

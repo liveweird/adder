@@ -197,7 +197,7 @@ Four groups (D1 and D2 are the architect's recommendations, taken as assumptions
 
 ### API (rule form; the spec is `documentation.yaml`, the matrix `authorization.md`, the events `observability.md`)
 
-- `GET /rooms/{id}/threads?closed=`: reader; paged; sortable `id`, `number`, `title`, `lastActivityAt`, `createdAt`; `closed` is the only filter (a strict
+- `GET /rooms/{id}/threads?closed=`: reader; paged; sortable `id`, `number`, `title`, `lastActivityAt`, `createdAt`, `status` (0.5, workflow order); `closed` is the only filter (a strict
   boolean on `closed_at`; omitted = both; 0.5 adds the rest: "Find (0.5)"). `POST` (member, `chat-post` bucket) takes `{title, body, fields?}` and answers `201` +
   `Location`; it starts in the initial status with the creator as owner, required fields must be supplied, and the opening message is part of the create.
 - `GET /rooms/{id}/threads/{number}`: reader. `PUT` takes `{title, fields}` under `X-Expected-Revision` (REQUIRED; `204`, a no-op when nothing changed and
@@ -267,7 +267,7 @@ is the destination. The user's decisions 0.5 D1-0.5 D5 (2026-11-19) and the assu
 
 A room's members are the first paged sub-collection: `GET /rooms/{id}/members` (reader; `{userId,name,email,role,addedAt}` rows; sortable `id` = the user id, `name`, `role`, `addedAt`; filters `role` (enum, `400` on an unknown name) and `name` (`containsNormalized` on the display name, at most 100 characters); ACTIVE users only, count and rows over ONE predicate in one transaction, in `rooms/RoomMemberService`). A room holds at most 500 members, so the page envelope is bounded by that cap, never unbounded.
 
-A room's threads and a thread's history are the next two: `GET /rooms/{id}/threads` (reader; sortable `id`, `number`, `title`, `lastActivityAt`, `createdAt`; the strict boolean filter `closed`; in `threads/ThreadService`) and `GET .../threads/{number}/events` (sortable `id`, `createdAt`, default `-createdAt,-id`, the shared `EVENT_LOG_*` of `infra/db/EventLog.kt`, so an old sort name such as `timestamp` is a `400`). 0.5 extends the thread list (below) and adds the room's tags and the two searches.
+A room's threads and a thread's history are the next two: `GET /rooms/{id}/threads` (reader; sortable `id`, `number`, `title`, `lastActivityAt`, `createdAt`, `status`; the strict boolean filter `closed`; in `threads/ThreadService`) and `GET .../threads/{number}/events` (sortable `id`, `createdAt`, default `-createdAt,-id`, the shared `EVENT_LOG_*` of `infra/db/EventLog.kt`, so an old sort name such as `timestamp` is a `400`). 0.5 extends the thread list (below) and adds the room's tags and the two searches.
 
 ### The thread list: filters and sorts
 

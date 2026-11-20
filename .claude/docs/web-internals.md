@@ -104,7 +104,7 @@ started thread carries `focusThreadPaneState` (`utils/roomLinks.ts`) and the pan
 never pulls it back); a deep link or a reload leaves focus alone, and so does anything that is not a push of its own: a `replace` (a list filter write, the focus toggle) never asks for it, even though a filter write keeps `location.state` (`useNavigationType`), and neither does a jump to a message (`?message=`), whose message takes the focus instead. **Queries:** `["rooms", "threads", roomId, "list", …]` (the rail: 50 a page, Open by default and `-lastActivityAt`; **the list's state lives in the URL**, see "The list's state in the URL" below;
 the previous filter's rows stay dimmed and `aria-busy` while the new one loads, and an empty state is only ever the current filter's answer; the page-size picker is left out of
 `PaginationBar` by omitting `onPageSizeChange`) and `["rooms", "threads", roomId, "detail", number]`; **the focus view**: `?focus=1` on a thread route sets `data-focus` on the layout grid, which hides the list column at every width (`display: none`: out of the tab order, still mounted, so leaving the view loses nothing) and gives the pane the whole row; the room's own route and the new-thread form ignore it. The pane header's "Focus on this thread" button (`aria-pressed`, a stable name; the pressed state is the signal) writes `focus` by `replace`, keeping the other keys (and the focus on the button: it carries no pane-focus state); the URL is the state, so a reload and a shared link keep it, and nothing remembers it. The list is hidden by the route alone, so a pane that has no thread to show (missing, unreadable, failed) carries its own "Show the thread list" button while the view is on: never a dead end. The workflow is the ONE shared `["rooms", "workflow", roomId]` read
-(`hooks/useRoomWorkflow.ts`) for the status pills and the form's fields. A write refreshes the whole `["rooms"]` prefix (threads, rail, workflow `threadCount`s, the room's own header).
+(`hooks/useRoomWorkflow.ts`) for the status pills and the form's fields. A room-level write (create, settings, members, a new thread) refreshes the whole `["rooms"]` prefix (threads, rail, workflow `threadCount`s, the room's own header); a thread or message write refreshes narrow keys (`roomKeys.threads`, `roomKeys.rail`, plus `workflow` for a status move and `pins` for an edit or delete), and the whole prefix only after an access refusal (`isAccessRefusal`).
 **The new-thread draft** is kept per room in memory above the routes (`components/ThreadDraftsProvider.tsx` in the shell, inside the session boundary so a new sign-in starts with none;
 `hooks/useThreadDrafts.ts`), written as the form changes while it holds something, so a list row, a tab or "Back to threads" does not lose it; coming back restores it laid over the
 room's current fields (`reconcileThreadDraft`), and a started thread or a confirmed discard clears it. `NewThreadForm` seeds its field set ONCE from the workflow read (a background
@@ -236,7 +236,7 @@ One WebSocket per tab, opened by `useLiveUpdates` (`hooks/useLiveUpdates.ts`) in
 | `room.member_added`, `member_role_changed`, `member_removed` | `["rooms","members",R]` (table and picker), room detail R, rail, rooms list |
 | `revoked {R}` | what `room.deleted` re-reads (next row), `["search","room",R]` and `["search"]` (an open search across rooms), `["notifications"]` |
 | `room.deleted` | room detail R, `["rooms","threads",R]`, members R, workflow R, workflow-edit R, pins R, rail, rooms list, `["search","room",R]`, `["notifications"]` |
-| an unknown kind with a room | the same, without the search key |
+| an unknown kind with a room | room detail R, `["rooms","threads",R]`, members R, workflow R, workflow-edit R, pins R, rail, rooms list (`roomGone`: no search key and no notifications) |
 | `subscribed` (per acked R) | room detail R, `["rooms","threads",R]`, members R, workflow R, workflow-edit R |
 | `ready` | rail, rooms list, `["notifications"]` (a notice may have been minted while the socket was down) |
 | `resync` | `["rooms"]`, `["notifications"]` |
@@ -308,7 +308,7 @@ Rendering & UI wiring:
   page). `components/MarkdownView.tsx` (Typography + react-markdown + remark-gfm/gemoji, all
   lazy-chunk-only deps) is the one markdown renderer — reuse it for future markdown content. **Two variants** (`variant`, default `"document"`): `document` is plain react-markdown output
   (the changelog; real headings, plain links), `message` is for chat bodies, where many user-written bodies share one page: headings render as BOLD PARAGRAPHS (50 messages cannot flood the heading
-  outline; the room page's h1/h2/h3 outline is the page's own), an image renders as a LINK to its address labelled by its alt text (the CSP is `img-src 'self' data:`, so a remote image would be
+  outline; the room page's h2/h3/h4 outline is the page's own), an image renders as a LINK to its address labelled by its alt text (the CSP is `img-src 'self' data:`, so a remote image would be
   blocked anyway; an unsafe `src` that react-markdown's default `urlTransform` blanks stays as plain alt text), and every link opens with `target="_blank" rel="noopener noreferrer"`. Neither variant
   renders raw HTML (no `rehype-raw`; never add it). The CSP is not changed. `MarkdownView.module.css` carries the `message` styling only.
 - **The emoji trio** (Lettuce's, ported in 0.3.0): `EmojiTextarea` (a Mantine `Textarea` taking `value`/`onChange(string)`, with the picker in its right section, the emoji spliced in at the caret
@@ -354,7 +354,7 @@ offers Reload, which re-seeds the draft only on the user's click. The shared pie
 
 ## Storage keys, Web Locks and telemetry (reference)
 
-- **localStorage:** `adder.auth.*` (session), `adder.viewSettings.*` (`useStoredState`), `adder.lang`, `adder.changelog`, `adder.chunkReloadedAt` (the one-shot reload after a failed lazy chunk, `main.tsx`). **Web Lock:** `adder.auth.refresh`. **CSS variables:** `--adder-*`. None of Flow's `flow.*` keys exist; there are no legacy redirects.
+- **localStorage:** `adder.auth.*` (session), `adder.viewSettings.*` (`useStoredState`), `adder.lang`, `adder.changelog`. **sessionStorage:** `adder.chunkReloadedAt` (the one-shot reload after a failed lazy chunk, at most one a minute, `main.tsx`). **Web Lock:** `adder.auth.refresh`. **CSS variables:** `--adder-*`. None of Flow's `flow.*` keys exist; there are no legacy redirects.
 - **Telemetry panel** (`components/Telemetry*.tsx`, `hooks/useTelemetryPanel.ts`, `utils/telemetry*.ts`): the memory, storage, requests and jvm groups only (`GET /api/v1/telemetry/history?group=`), and one process role, `app` (`utils/telemetryRole.ts`). Flow's sync and derive sections are gone.
 - **`components/TableDisclosure.tsx`** (Flow's `DailyTableDisclosure`) is the collapsible accessible-table twin of a chart; use it for every chart that carries data a screen-reader user needs.
 - The Polish user-facing noun for Users is "Użytkownicy/czki" (EN "Users").

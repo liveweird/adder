@@ -128,7 +128,7 @@ subscribed or not (it may not be subscribed yet).
   member) emits nothing. A refused or rolled-back write emits nothing. The opening message is part of `thread.created`. `moveThreads` (covered by
   `room.workflow_updated`) and `touchActivity` emit nothing. Team, user and auth writes emit no hint.
 - **[changed] No single hook.** The 2026-11-17 text said "every write issues `pg_notify`". There is no common write path (`RoomService.create` is not under
-  `withRoomWrite`, and several writes return early on a no-op), so each of the 15 change branches calls `notifyLive` itself, right before returning,
+  `withRoomWrite`, and several writes return early on a no-op), so each of the 19 change branches (`notifyLive` call sites) calls `notifyLive` itself, right before returning,
   inside the same transaction.
 - **Event catalog and semantics** (API-CACHE-004) live in the `connectLive` description in the spec, copied from this section.
 
@@ -180,8 +180,8 @@ The route needs the token's `jti`, `exp` and `credentialRevision`, which `Caller
 ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub only ever `trySend`s, and on overflow clears that queue and enqueues one
 `resync`.
 
-- **Subscribe is race-free:** (1) the actor registers the rooms as PENDING; (2) outside the actor, `RoomService.readableRoomIds(userId, isAdmin, ids)` runs
-  one query (ADMIN: every existing, non-deleted id; others: active membership, the same `active()` predicate as `readStanding`), returning `readable` and
+- **Subscribe is race-free:** (1) the actor registers the rooms as PENDING; (2) outside the actor, `RoomService.readableRoomIds(userId, ids)` runs
+  one query (it reads the stored role of the ACTIVE user, never a role the socket carries; ADMIN: every existing, non-deleted id; others: active membership, the same `active()` predicate as `readStanding`), returning `readable` and
   `deniedExisting` (the latter is audited); (3) the actor activates only the ids still PENDING, so a `room.member_removed` or `room.deleted` processed in
   between has already dropped them; (4) the ack goes out. Hints for a PENDING room are dropped; the client's refetch on the ack covers them.
 - **Subscriptions** are the caller's rooms only; an ADMIN may subscribe to any existing room, and a demoted ADMIN keeps those subscriptions until the next

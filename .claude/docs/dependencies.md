@@ -17,8 +17,7 @@ their pins need individual compatibility review before integration. Exclusion fr
 not ignore an update or exempt it from review.
 
 Dependabot vulnerability alerts and security update PRs are separate GitHub repository settings
-from the version-update configuration, and are not set up here: Adder has no GitHub remote yet (`BACKLOG.md`), and Flow's were **disabled** when last checked (2026-10-06). Once
-`liveweird/adder` exists, check `gh api repos/liveweird/adder --jq .security_and_analysis` and the `vulnerability-alerts` endpoint; enabling them is the owner's call.
+from the version-update configuration, and are not set up here: on `liveweird/adder` (public) they are **not enabled yet** (checked 2026-11-20 with `gh api repos/liveweird/adder --jq .security_and_analysis`, where Dependabot security updates and secret scanning with push protection read `disabled`, and the `vulnerability-alerts` endpoint answers `404`); whether to enable them is the owner's open decision (`audit-status.md` C-GATE-5).
 Once on, security updates still need the normal checks; never auto-merge a breaking migration to
 clear an alert.
 

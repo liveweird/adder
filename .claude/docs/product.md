@@ -99,7 +99,7 @@ The plan put six decisions to the user. The user was asked for numbers and gave 
 - Each room owns its own copy of its workflow, copied at creation from an ADMIN-curated template (seeded *Default* and *Incident*).
 - Mentions are stored as `<@userId>` tokens and rendered with the current name (rename-safe).
 - Flow's integration service tokens are not ported in 0.1.0: with nothing to serve they would be dead weight (backlog: bots posting into rooms).
-- The coverage floors were re-baselined after the trim (lines 97, branches 81; Flow's 98/85 relied on tests of the cut features) raised to 98/85 for 0.4.0 and to 98/86 for 0.5.0.
+- The coverage floors were re-baselined after the trim (lines 97, branches 81; Flow's 98/85 relied on tests of the cut features) raised to 98/85 for 0.4.0, 98/86 for 0.5.0 and 98/87 for 0.6.0.
 
 ### 0.2.0 rooms and workflows
 
@@ -259,21 +259,30 @@ bootstrap (2026-10-31) set. Flow itself was copied from Covenant and trimmed; Le
 reinvent**: when Adder needs a capability a sibling repo already has, port its implementation.
 
 - **Flow** (`~/Sources/flow`, the primary donor): the whole foundation — stack, API design, UI/UX, testing, gates, versioning, deployment, the
-  telemetry panel. Planned for 0.5.0: `web/src/hooks/useLiveSearchParams.ts` (URL-held list state, with its test); Flow's `reportFilter.ts`/`useReportFilter.ts` (772 lines) are too heavy.
+  telemetry panel. Ported in 0.5.0: `web/src/hooks/useLiveSearchParams.ts` (URL-held list state, with its test); Flow's `reportFilter.ts`/`useReportFilter.ts` (772 lines) are too heavy.
 - **Astrolabe** (`~/Sources/astrolabe`): the trim recipe — the single-process deployment, `users/` (not `flowusers/`), the V1–V9 foundation
   migrations, the trimmed telemetry and teams, the bootstrap docs.
 - **Lettuce** (`~/Sources/lettuce`): `infra/mail`, `infra/crypto`, `infra/paging`, the connection pool (through Flow); ported in 0.3.0: `MarkdownView` (the message variant),
-  `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `infra/db/EventLog.kt`; planned for 0.5.0: `FilterMultiSelect.tsx` and `accessiblePill.tsx`; planned for 0.6.0: the shape of `notifications/NotificationService` (`list` with `wasSeen`, `markSeen`, `markAllSeen`, the unknown-type rule) and its per-user preferences model (disabled pairs, a wholesale-replace PUT) with their test titles; reference only: `NotificationEmailer` and the per-language email builder (the mirror itself is replaced by the digest); next: the dictionary whole-document PUT.
+  `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `infra/db/EventLog.kt`; ported in 0.5.0: `FilterMultiSelect.tsx` and `accessiblePill.tsx`; ported in 0.6.0: the shape of `notifications/NotificationService` (`list` with `wasSeen`, `markSeen`, `markAllSeen`, the unknown-type rule) and its per-user preferences model (disabled pairs, a wholesale-replace PUT) with their test titles; reference only: `NotificationEmailer` and the per-language email builder (the mirror itself is replaced by the digest); next: the dictionary whole-document PUT.
 - **Toadie** (`~/Sources/toadie`): `X-Expected-Revision` optimistic concurrency (ported in 0.2.0, `infra/revision/` and its `web/` half; the workflow-template and room-workflow PUTs consume it);
   `lockingTransaction` deliberately NOT ported (a room write takes one `FOR NO KEY UPDATE` row lock on the room instead, `rooms/RoomLock.kt`); next:
   `blueprints/` `PropertyDefinition` as the reference for typed workflow fields.
-- **Covenant** (`~/Sources/covenant`): planned for 0.6.0: the compact notification bell (`NotificationsButton.tsx`, 239 lines, itself Lettuce's; polling replaced by the live hint) and the in-transaction insert (`createAllInCurrentTransaction`); planned for 0.5.0: the pass-through group of `CommandPalette.tsx` and the shape of `useReviewInboxFilters.ts` (validate, omit defaults, `replace`); its facets (`ContractService.kt`) are a reference only (no facets in 0.5.0); next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
+- **Covenant** (`~/Sources/covenant`): ported in 0.6.0: the compact notification bell (`NotificationsButton.tsx`, itself Lettuce's; polling replaced by the live hint), while its in-transaction insert became the `ThreadNotices` port (`chat-model.md`); ported in 0.5.0: the pass-through group of `CommandPalette.tsx` and the shape of `useReviewInboxFilters.ts` (validate, omit defaults, `replace`); its facets (`ContractService.kt`) are a reference only (no facets so far); next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
 
 Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `identities/`, `metrics/`, `reports/`, `integration/` (service tokens),
 `infra/outbound/` (the SSRF guard — port it with the first server-initiated call other than SMTP), `plugins/Role.kt`, `EncryptedAtRest`/`Reencrypt`.
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v0.6.0 — social (2026-11-20)
+
+Social on `master` (tagged at `ba1bfd9`; two notification-digest fixes landed after the release commit `333dee9`). Migrations V17 (`message_mentions`), V18 (`notifications`), V19 (read state: a per-member room baseline and thread read markers), V20 (`message_reactions`), V21 (`room_pins`) and V22 (the notification email preferences and the digest's claim column). Shipped:
+`<@id>` mentions (an autocomplete over the room's members, names read at request time, at most 20 counted per message) and the thread list's `mentionedUserId` filter ("Mentions me", moved from 0.5.0); notices (ids only, `MENTIONED` and `THREAD_ASSIGNED`) made INSIDE the write's transaction through the `ThreadNotices` port and pushed live to
+their recipient only, the header bell with `GET /api/v1/notifications` and the two "seen" POSTs, an hourly retention sweep (90 days) and a leaver's notices gone with the membership; the email digest (a notice unseen for 5 minutes, at most one email per person per 15 minutes, names, room and thread number only, never content; a per-user, per-kind opt-out under
+`/users/{id}/notification-preferences`); per-member unread (a rooms-rail dot, thread counts capped at "99+", a "New" line with a jump); one-emoji reactions (20 distinct per message, 5 per person, members only); room pins of threads and messages, any member, 50 a room. New per-user bucket `read-state` (240/min); the reaction and pin writes ride `chat-write`; new audit events `notification.created`, `notification.email_sent`, `notification.email_failed`,
+`message.reaction_changed` and `room.pin_changed`; the read-state writes are deliberately unaudited view state. New optional settings `NOTIFICATIONS_RETENTION_DAYS`, `NOTIFICATIONS_SWEEP_INTERVAL_SECONDS`, `NOTIFICATIONS_SWEEP_ENABLED` and `NOTIFICATIONS_EMAIL_DELAY_SECONDS`, `NOTIFICATIONS_EMAIL_MIN_INTERVAL_SECONDS`, `NOTIFICATIONS_EMAIL_MAX_PER_RUN`. Upgrade notes for operators (V19 sets every membership's baseline in one statement under a lock on `room_members`,
+about 1 to 3 s per 250,000 memberships; the digest needs `MAIL_TRANSPORT=smtp` and `MAIL_APP_URL`; the rollback runbook to 0.5.x): the GitHub release and `persistence.md` "Rollback below 0.6.0". Decisions 0.6 D1-D6 are the user's (2026-11-20); A1-A31 were taken without asking. Donors: Lettuce's notification service and preferences shape, Covenant's bell; mentions, reactions, pins and read markers are greenfield. Open follow-ups (the reactors' full list, search snippets that show `<@id>`, account changes over the per-user channel): `BACKLOG.md`. Detail: `chat-model.md` "Mentions, notifications, unread, reactions, pins (0.6)".
 
 ### v0.5.0 — find (2026-11-20)
 
@@ -292,7 +301,7 @@ and tag reads) and `search` (60/min); new audit events `search.busy`, `search.ti
 Live updates on `feat/0.4.0-live`; no migration. Shipped: single-use socket tickets (`POST /api/v1/live/tickets`, 30 s, in memory), the `GET /api/v1/live` WebSocket that
 authenticates in its first frame (D1), every chat write emitting one `pg_notify('adder_live', …)` hint inside its transaction, one non-pooled LISTEN connection per process
 with a bounded drain and a jittered reconnect, the hub (subscribe per room, `resync` on any gap, `revoked` when a membership is lost), the 60 s account sweep and the close at the token's
-`exp` (D2), the bounds (16 sockets per user, 1000 per process, a 5 s auth deadline, D3's 5-minute hidden-tab close), the SPA's targeted query invalidation, the header "Reconnecting…" and
+`exp` (D2), the bounds (16 sockets per user, 1000 per process, a 2 s auth deadline, D3's 5-minute hidden-tab close), the SPA's targeted query invalidation, the header "Reconnecting…" and
 "Live updates off" indicator, views that stay put under a live refresh (room settings and the thread form keep their drafts), the telemetry panel's live-socket and listener gauges and the NOTIFY queue usage (the early warning before a full queue fails commits)
 and a two-browser e2e. New per-user bucket `live-ticket` (60/min) and per-IP `live-connect`; new audit events `live.ticket_saturated`, `live.refused` and `live.revoked`. Decisions D1-D3 are
 the user's (2026-11-19); A1-A13 were taken without asking. Donors: none (greenfield). Reverse-proxy notes: `live.md` "Deploy and proxies", `ci.md`. Open follow-ups: `BACKLOG.md`.

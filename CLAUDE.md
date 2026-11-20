@@ -66,10 +66,10 @@ Kubernetes (OrbStack) `adder` namespace: `.claude/docs/ci.md` "Running the full 
 
 ## Architecture
 
-Adder is Flow's generic foundation under a chat domain that is still to be built. The foundation: **JWT auth**
+Adder is Flow's generic foundation under the chat domain (0.2.0 to 0.6.0). The foundation: **JWT auth**
 with a sliding refresh pair and a server-side revocation blocklist, opt-in **email MFA**, self-service password reset,
 per-account lockout and per-IP rate limits, **ADMIN-managed users** (`/api/v1/users`, `UserRole`) with per-user **feature flags**
-and a synced UI/email **language** (EN/PL), flat **teams** with an optional manager (a room will add a whole team at once), the ADMIN
+and a synced UI/email **language** (EN/PL), flat **teams** with an optional manager (a room adds a whole team at once), the ADMIN
 **telemetry** panel, and the React shell (nav model, palette, theme, changelog). Every feature follows the feature template below.
 
 Multi-module Gradle build (Kotlin DSL) defined in `settings.gradle.kts` with two Kotlin modules
@@ -93,8 +93,7 @@ application is wired declaratively in `server/src/main/resources/application.yam
 `ktor.application.modules` — each entry is a fully-qualified extension function on `Application`
 (e.g. `ch.nokillswit.plugins.HttpKt.configureHttp`). **Module order is load-bearing**: base plugins
 (Http → SecurityHeaders → Monitoring → Serialization → Security → RateLimits → ErrorHandling → OpenTelemetry → AutoHeadResponse → Resources → Sockets) →
-infra (Mail → Crypto → Flyway → Database → Bootstrap → Health) → Telemetry (the sampler) → feature route modules (users, teams, auth, password
-reset, telemetry reads, live; the reaction route, the pin routes, the notification routes and sweep, then the search routes follow the message routes, then `configureMessageTagReindex`) → `RoutingKt.configureRouting` strictly last (the SPA catch-all). `configureDatabase` publishes the services into
+infra (Mail → Crypto → Flyway → Database → Bootstrap → Health) → Telemetry (the sampler) → feature route modules (users, teams, workflow templates, rooms ×3, threads, messages, reactions, read markers, pins, notifications ×3, search, `configureMessageTagReindex`, live, auth, password reset, telemetry reads) → `RoutingKt.configureRouting` strictly last (the SPA catch-all). `configureDatabase` publishes the services into
 `Application.attributes` via `AttributeKey`s. To add a cross-cutting concern, create a `configureXxx()` extension under `plugins/` and register it
 in `application.yaml`; do not call it from `main.kt`. There is no DI framework — services travel via `attributes`.
 
@@ -170,7 +169,7 @@ disagree, the doc wins. The always-loaded set (this file plus the two imports) s
 | `.claude/docs/dependencies.md` | any dependency, image or runtime-pin change |
 | `.claude/docs/dependency-reproducibility.md` | lockfiles or `gradle/verification-metadata.xml` (the empty-`GRADLE_USER_HOME` rule) |
 | `.claude/docs/app-releases.md` | a version bump, changelog entry, tag or GitHub release |
-| `.claude/docs/build-times.md` | any CI/build/test-time change; when a gate gets slower (`scripts/timings/`, budgets — PROVISIONAL until re-baselined) |
+| `.claude/docs/build-times.md` | any CI/build/test-time change; when a gate gets slower (`scripts/timings/`, budgets, re-baselined 2026-11-20) |
 | `.claude/docs/audit-status.md` | the checkup record (audited, fixed, parked); start the 1.0.0 checkup here |
 
 A new doc under `.claude/docs/` gets a row here, not an `@` import.

@@ -1,5 +1,5 @@
 {
-  "_readme": "The ONE place for time budgets (seconds). target = what it SHOULD take; alarm = hard ceiling. ALL targets are PROVISIONAL until measured at v0.1.0 (carried over from the donor project, not re-measured here). A breach or a rising trend is an investigation entry in .claude/docs/build-times.md, never a reason to raise a number here silently.",
+  "_readme": "The ONE place for time budgets (seconds). target = what it SHOULD take; alarm = hard ceiling. Re-baselined 2026-11-20 from the 1.0.0 checkup's measurements (.claude/docs/build-times.md \"Status check, 2026-11-20\"): a row whose why says \"Measured\" carries a target set from that series, a row that still says PROVISIONAL has no series yet. A breach or a rising trend is an investigation entry in .claude/docs/build-times.md, never a reason to raise a number here silently.",
   "trend": {
     "window": 5,
     "ratio": 1.25,
@@ -17,51 +17,51 @@
       "changes": {
         "target": 15,
         "alarm": 30,
-        "why": "PROVISIONAL until measured at v0.1.0: one checkout + one git diff"
+        "why": "Measured 2026-11-20 (6 master runs): median 7 s, 4-11 s; one checkout + one git diff. Target kept."
       },
       "server-tests": {
         "target": 180,
         "alarm": 480,
-        "why": "PROVISIONAL until measured at v0.1.0: the test task alone on 4 vCPU; leaves headroom of the server job for setup, compile, detekt and Kover"
+        "why": "PROVISIONAL, not measured by the checkup (the CI job summary prints it): the test task alone on 4 vCPU; leaves headroom of the server job for setup, compile, detekt and Kover"
       },
       "server": {
         "target": 300,
         "alarm": 600,
-        "why": "PROVISIONAL until measured at v0.1.0: compile + detekt + tests + Kover on 4 vCPU; a small foundation suite with a tiny DB should not need more"
+        "why": "Measured 2026-11-20 (6 master runs): median 4m44s, 4m35s-5m29s, 94 % of it the one Gradle check step; compile + detekt + tests + Kover on 4 vCPU. Target kept; the resolve-retry step added after this measurement will shift it (re-read at the next status check)."
       },
       "gradle-vulnerability-scan": {
-        "target": 60,
+        "target": 75,
         "alarm": 120,
-        "why": "PROVISIONAL until measured at v0.1.0: resolve lockfiles + one trivy run on a few thousand lines of lockfile"
+        "why": "Measured 2026-11-20 (6 master runs): median of the last 5 1m06s, 42-79 s; the settings-plugin audit (~28 s) plus the lockfile scan (~17 s) on a runner draw. Target 60 s -> 75 s (Adder WHY 3)."
       },
       "web": {
-        "target": 90,
-        "alarm": 180,
-        "why": "PROVISIONAL until measured at v0.1.0: npm ci (cached) + lint + knip + vitest + vite build of a small SPA"
+        "target": 150,
+        "alarm": 240,
+        "why": "Measured 2026-11-20 (6 master runs): median of the last 5 2m16s, 1m33s-3m02s; the shuffled-order coverage run is about half, npm ci a third. Target 90 s -> 150 s, alarm 180 s -> 240 s (Adder WHY 2)."
       },
       "e2e-static": {
         "target": 30,
         "alarm": 60,
-        "why": "PROVISIONAL until measured at v0.1.0: npm ci (cached) + eslint + knip + tsc over a handful of specs"
+        "why": "Measured 2026-11-20 (6 master runs): median 28 s, 23-63 s; npm ci (cached) + eslint + knip + tsc over the specs. Target kept."
       },
       "images": {
-        "target": 150,
+        "target": 195,
         "alarm": 240,
-        "why": "PROVISIONAL until measured at v0.1.0: multi-stage docker build (gradle installDist + vite build) as a plain compose build, plus the Trivy image scan; the floor is Gradle in Docker plus the Trivy databases"
+        "why": "Measured 2026-11-20 (6 master runs): median of the last 5 3m03s, 2m50s-3m14s; the plain compose build is 2m14s of it, the Trivy scan 42 s. Target 150 s -> 195 s (Adder WHY 1)."
       },
       "k8s-static": {
         "target": 20,
         "alarm": 45,
-        "why": "PROVISIONAL until measured at v0.1.0: one checkout + a kubeconform download + validation of the small manifest set, twice (raw and rendered)"
+        "why": "Measured 2026-11-20 (6 master runs): median 13 s, 5-16 s; one checkout + a kubeconform download + validation of the small manifest set, twice (raw and rendered). Target kept."
       },
       "e2e": {
-        "target": 420,
+        "target": 480,
         "alarm": 900,
-        "why": "PROVISIONAL until measured at v0.1.0: nightly: images build + compose up + Playwright over a tiny stack"
+        "why": "Measured 2026-11-20 (3 nightly runs on master): median 7m46s (6m45s, 7m46s, 13m10s); the images build (~2 min), the Trivy scan, the stack start and Playwright. Target 7 min -> 8 min (Adder WHY 4)."
       }
     },
     "ci-steps": {
-      "_readme": "Per-step budgets, keyed '<job>/<step name>' exactly as the workflow names the step; ci-times.mjs --steps <job> shows them beside each step's time. Same rules as above: a breach is a WHY entry, never a silent raise.",
+      "_readme": "Per-step budgets, keyed '<job>/<step name>' exactly as the workflow names the step; ci-times.mjs --steps <job> shows them beside each step's time. Same rules as above: a breach is a WHY entry, never a silent raise. The steps are still PROVISIONAL: one nightly run's steps were read on 2026-11-20 (Run E2E 2m59s, Build images 1m52s, Install Playwright browser 37s, Start the stack 16s, Install e2e deps 4s), too few to set a target from.",
       "e2e/Install e2e deps": {
         "target": 15,
         "alarm": 45,
@@ -90,29 +90,29 @@
     },
     "local": {
       "server-build": {
-        "target": 180,
-        "alarm": 360,
-        "why": "PROVISIONAL until measured at v0.1.0: ./gradlew cleanTest check :server:installDist -Pforks=2 (scripts/gates.sh default): compile, detekt, all tests, Kover, alignment"
+        "target": 150,
+        "alarm": 300,
+        "why": "Measured 2026-11-20 (63 full runs of the series): median 86 s, last 30 median 92 s, 61-126 s on 18 cores; ./gradlew cleanTest check :server:installDist -Pforks=2 (scripts/gates.sh default). Target 180 s -> 150 s, alarm 360 s -> 300 s."
       },
       "server-test": {
         "target": 120,
         "alarm": 300,
-        "why": "PROVISIONAL until measured at v0.1.0: ./gradlew :server:test against one shared Postgres container"
+        "why": "PROVISIONAL, no series: ./gradlew :server:test against one shared Postgres container (scripts/gates.sh does not record it separately)"
       },
       "web-gates": {
-        "target": 90,
-        "alarm": 180,
-        "why": "PROVISIONAL until measured at v0.1.0: lint:api + check:api + lint + knip + test:coverage + build"
+        "target": 45,
+        "alarm": 90,
+        "why": "Measured 2026-11-20 (132 successful runs): median 18 s, last 30 median 23 s, 16-37 s; lint:api + check:api + lint + knip + test:coverage + build. Target 90 s -> 45 s, alarm 180 s -> 90 s (Adder WHY 5)."
       },
       "e2e-static": {
-        "target": 30,
-        "alarm": 60,
-        "why": "PROVISIONAL until measured at v0.1.0: lint + knip + typecheck + check:scenarios"
+        "target": 10,
+        "alarm": 30,
+        "why": "Measured 2026-11-20 (30 runs): median 2.3 s, 1.8-3.5 s; lint + knip + typecheck + check:scenarios. Target 30 s -> 10 s, alarm 60 s -> 30 s."
       },
       "e2e-playwright": {
         "target": 300,
         "alarm": 600,
-        "why": "PROVISIONAL until measured at v0.1.0: blackbox suite against a running compose stack"
+        "why": "PROVISIONAL, no series: blackbox suite against a running compose stack (Playwright is not part of scripts/gates.sh)"
       }
     }
   }

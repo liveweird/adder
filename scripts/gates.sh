@@ -31,7 +31,7 @@ esac
 
 record=(node "$root/scripts/timings/local-times.mjs" record)
 
-# The fork count the server gate runs with (-Pforks, 1..3; default 2: the weight-balanced two-fork run, build-times.md "Budgets";
+# The fork count the server gate runs with (-Pforks, 1..8; default 2: the weight-balanced two-fork run, build-times.md "Budgets";
 # ADDER_FORKS=1 is the single test JVM). Past 1 the fork-balance report follows the gate.
 server_forks="${ADDER_FORKS:-2}"
 
