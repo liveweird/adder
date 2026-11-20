@@ -11,9 +11,9 @@ at first, passable like a Jira assignee); a thread in a CLOSED-category status i
 or an ADMIN reopens it. Room content is filterable, sortable and searchable; the usual chat affordances apply (pins, @mentions, reactions, emoji,
 #hashtags). Updates reach open browsers live over a WebSocket.
 
-**Roadmap:** **0.6.0 (current) = social** (@mentions, the notification bell and its email digest, unread marks, reactions, pins) on **0.5.0 find** (thread filters and sorts in the URL, #hashtags, full-text search, jump to a message, the focus view) on **0.4.0 live updates** (a WebSocket per tab turns id-only hints into refetches) on **0.3.0 threads + messages** (numbered threads, Markdown/emoji messages) on **0.2.0 rooms + workflows** (the ADMIN workflow-template registry, members-only rooms with a copied, editable workflow, the rooms rail) and **the 0.1.0 foundation**, Flow trimmed to its generic core: auth + email MFA, password reset, users, feature flags, teams
-with a manager, EN/PL, light/dark, changelog, the ADMIN telemetry panel, the olive brand and the "Strike" logo. Next: a 1.0.0
-checkup. Per-version scope, the user's decisions and the assumptions: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`;
+**Roadmap:** **1.0.0 (current) = the checkup** on **0.6.0 social** (@mentions, the notification bell and its email digest, unread marks, reactions, pins) on **0.5.0 find** (thread filters and sorts in the URL, #hashtags, full-text search, jump to a message, the focus view) on **0.4.0 live updates** (a WebSocket per tab turns id-only hints into refetches) on **0.3.0 threads + messages** (numbered threads, Markdown/emoji messages) on **0.2.0 rooms + workflows** (the ADMIN workflow-template registry, members-only rooms with a copied, editable workflow, the rooms rail) and **the 0.1.0 foundation**, Flow trimmed to its generic core: auth + email MFA, password reset, users, feature flags, teams
+with a manager, EN/PL, light/dark, changelog, the ADMIN telemetry panel, the olive brand and the "Strike" logo.
+Per-version scope, the user's decisions and the assumptions: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`;
 the live protocol: `.claude/docs/live.md`. Open items: `BACKLOG.md`.
 
 Brand: olive / venom chartreuse (the `adder` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`); the logo "Strike" is a

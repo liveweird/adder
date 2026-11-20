@@ -17,6 +17,32 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.0.0",
+    date: "2026-11-21",
+    en: `**Adder 1.0.0: the checkup.**
+
+- Every browser tab names its page ("Members · Night Shift · Adder"), and the room, member and template lists show dates in your own time zone.
+- Unread and unseen things share one blue cue: the dot and counts in the rooms rail and the thread list, the "New" line in the conversation, the bell and "What's new". Other counters are gray.
+- Press Ctrl+Enter (Cmd+Enter on a Mac) to start a new thread from its form.
+- Thread history no longer keeps the old and new values of text and link fields or of the title, so a pasted secret does not stay there after you edit it away. It still says what changed and who changed it.
+- Emailed sign-in codes are harder to guess: after repeated wrong codes the account is locked for longer each time, from 15 minutes up to a day. Resetting your password by email lifts the lock.
+- If you change a room too fast (its name, settings, members or workflow, or archive it), Adder asks you to wait a few seconds instead of reporting an error.
+- One person can cause notification emails to at most 20 other people a day; everyone still sees the bell.
+- For integrations: the API's names are consistent before the 1.0 freeze. A person is \`<role>Id\` (\`managerId\`, \`ownerId\`, \`actorId\`, \`mentionedId\`), a yes/no flag is a plain word (\`seen\`), and free-text filters are \`q\`.
+- For administrators: production refuses to start with the default database password, backup and restore scripts are tested, and the Kubernetes manifests serve the app through an Ingress.`,
+    pl: `**Adder 1.0.0: przegląd.**
+
+- Każda karta przeglądarki pokazuje nazwę strony („Członkowie · Night Shift · Adder”), a listy pokoi, członków i szablonów pokazują daty w Twojej strefie czasowej.
+- Nieprzeczytane i nowe rzeczy mają jeden niebieski znak: kropkę i liczniki na liście pokoi i liście wątków, linię „Nowe” w rozmowie, dzwonek i „Co nowego”. Pozostałe liczniki są szare.
+- Naciśnij Ctrl+Enter (Cmd+Enter na Macu), aby założyć nowy wątek z formularza.
+- Historia wątku nie przechowuje już starych i nowych wartości pól tekstowych i linków ani tytułu, więc wklejony sekret nie zostaje w niej po usunięciu. Nadal widać, co się zmieniło i kto to zmienił/a.
+- Kody logowania z e-maila trudniej odgadnąć: po kolejnych błędnych kodach konto blokuje się za każdym razem na dłużej, od 15 minut do doby. Reset hasła przez e-mail zdejmuje blokadę.
+- Gdy zmieniasz pokój zbyt szybko (nazwę, ustawienia, członków, przepływ pracy albo archiwizację), Adder prosi o kilka sekund przerwy zamiast zgłaszać błąd.
+- Jedna osoba może wywołać e-maile z powiadomieniami do najwyżej 20 innych osób dziennie; dzwonek widzą wszyscy.
+- Dla integracji: nazwy w API są spójne przed zamrożeniem wersji 1.0. Osoba to \`<rola>Id\` (\`managerId\`, \`ownerId\`, \`actorId\`, \`mentionedId\`), flaga tak/nie to proste słowo (\`seen\`), a filtry tekstowe to \`q\`.
+- Dla administratorów/ek: wersja produkcyjna nie uruchomi się z domyślnym hasłem bazy danych, skrypty kopii zapasowej i odtwarzania są przetestowane, a manifesty Kubernetes udostępniają aplikację przez Ingress.`,
+  },
+  {
     version: "0.6.0",
     date: "2026-11-20",
     en: `**Adder 0.6.0: social.**
