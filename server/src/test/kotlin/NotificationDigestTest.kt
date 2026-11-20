@@ -3,7 +3,12 @@ package ch.nokillswit
 import ch.nokillswit.infra.mail.LogMailer
 import ch.nokillswit.infra.mail.Mailer
 import ch.nokillswit.notifications.DIGEST_BATCH
+import ch.nokillswit.notifications.DIGEST_MAX_ENTRIES
 import ch.nokillswit.notifications.DIGEST_MAX_NOTICES_PER_RECIPIENT
+import ch.nokillswit.notifications.DIGEST_SCAN_CAP
+import ch.nokillswit.notifications.DigestBounds
+import ch.nokillswit.notifications.DIGEST_STATEMENT_TIMEOUT_SECONDS
+import ch.nokillswit.notifications.peopleToClaim
 import ch.nokillswit.notifications.DIGEST_MAX_PER_RUN
 import ch.nokillswit.notifications.NotificationDigest
 import ch.nokillswit.notifications.NotificationSweep
@@ -151,6 +156,8 @@ class NotificationDigestTest {
         batchSize: Int = DIGEST_BATCH,
         maxPerRun: Int = DIGEST_MAX_PER_RUN,
         afterClaim: suspend () -> Unit = {},
+        scanCap: Int = DIGEST_SCAN_CAP,
+        statementTimeoutSeconds: Int = DIGEST_STATEMENT_TIMEOUT_SECONDS,
         failMemberRooms: (suspend (UInt) -> List<ch.nokillswit.rooms.RoomSummary>)? = null,
     ) = NotificationDigest(
         database = sharedDatabaseForTests(),
@@ -163,6 +170,7 @@ class NotificationDigestTest {
         batchSize = batchSize,
         maxPerRun = maxPerRun,
         afterClaim = afterClaim,
+        bounds = DigestBounds(scanCap, statementTimeoutSeconds),
     )
 
     @Test
@@ -638,17 +646,103 @@ class NotificationDigestTest {
 
         val first = digest.run()
 
-        assertEquals(DIGEST_MAX_NOTICES_PER_RECIPIENT + 1, first.claimed, "the flooded person's 50 oldest and the next person's one")
-        assertEquals("Adder: $DIGEST_MAX_NOTICES_PER_RECIPIENT unseen notifications", mailer.to(flooded.email).single().subject)
+        val expected = DIGEST_MAX_NOTICES_PER_RECIPIENT + 10 + 1
+        assertEquals(expected, first.claimed, "the flooded person's whole backlog and the next person's one")
+        assertEquals("Adder: ${DIGEST_MAX_NOTICES_PER_RECIPIENT + 10} unseen notifications", mailer.to(flooded.email).single().subject)
         assertEquals(1, mailer.to(second.email).size)
         assertTrue(mailer.to(third.email).isEmpty() && emailedAt(thirdId) == null, "the third person waits for the next run")
-        val claimedOfFlood = floodIds.count { emailedAt(it) != null }
-        assertEquals(DIGEST_MAX_NOTICES_PER_RECIPIENT, claimedOfFlood, "the backlog beyond 50 is left for a later digest")
+        assertTrue(floodIds.all { emailedAt(it) != null }, "the backlog is stamped with the digest, not left for one more mail a tick")
         assertNotNull(emailedAt(secondId))
 
         digest.run()
         assertEquals(1, mailer.to(third.email).size, "the flooded person is inside the interval: the slot goes to the next one")
         assertEquals(1, mailer.to(flooded.email).size)
+    }
+
+    @Test
+    fun `a person with 120 due notices gets one mail of 10 listed and 110 more, and the next run finds nothing for them`() = runBlocking {
+        val s = setup()
+        val flooded = s.member()
+        val ids = List(120) { i -> s.notice(flooded, ageMillis = DAY - 10 * SECOND - i * 10L) }
+        val mailer = RecordingMailer()
+        val digest = digest(mailer, s)
+
+        val first = digest.run()
+
+        val mail = mailer.to(flooded.email).single()
+        assertEquals(120, first.claimed)
+        assertEquals("Adder: 120 unseen notifications", mail.subject)
+        assertEquals(DIGEST_MAX_ENTRIES, mail.body.lines().count { it.startsWith("- ") }, "ten listed")
+        assertTrue(mail.body.lines().contains("...and 110 more"), mail.body)
+        assertTrue(ids.all { emailedAt(it) != null }, "the whole backlog is stamped in the same claim")
+
+        val later = s.notice(flooded, ageMillis = (DELAY_SECONDS + 1) * SECOND)
+        assertEquals(0, digest.run().claimed, "nothing for them")
+        assertNull(emailedAt(later), "inside the interval a newer notice waits for its own mail")
+        assertEquals(1, mailer.to(flooded.email).size)
+    }
+
+    @Test
+    fun `a scan reads at most the cap, oldest first, and the rest waits for a later tick`() = runBlocking {
+        val s = setup()
+        val flooded = s.member()
+        val other = s.member()
+        val floodIds = List(6) { i -> s.notice(flooded, ageMillis = DAY - 10 * SECOND - i * 10L) }
+        val otherId = s.notice(other, ageMillis = DAY - 20 * SECOND)
+        val mailer = RecordingMailer()
+
+        val run = digest(mailer, s, scanCap = 4).run()
+
+        assertEquals(4, run.claimed, "the cap bounds what one claim stamps")
+        assertEquals(listOf(true, true, true, true, false, false), floodIds.map { emailedAt(it) != null })
+        assertNull(emailedAt(otherId), "a person behind the cap waits for a later tick")
+        assertEquals("Adder: 4 unseen notifications", mailer.to(flooded.email).single().subject)
+    }
+
+    @Test
+    fun `a claim takes the send budget plus a margin of people, not the whole batch`() = runBlocking {
+        assertEquals(12, peopleToClaim(batchSize = 500, maxPerRun = 2), "budget 2 plus the minimum margin of 10")
+        assertEquals(120, peopleToClaim(batchSize = 500, maxPerRun = 100), "budget 100 plus a fifth")
+        assertEquals(3, peopleToClaim(batchSize = 3, maxPerRun = 100), "never more than the batch")
+        val s = setup()
+        val people = List(15) { s.member() }
+        val ids = people.mapIndexed { i, p -> s.notice(p, ageMillis = DAY - 10 * SECOND - i * SECOND) }
+        val mailer = RecordingMailer()
+
+        val run = digest(mailer, s, maxPerRun = 2).run()
+
+        assertEquals(12, run.claimed, "2 sends plus the margin, not all 15 people")
+        assertEquals(2, run.sent)
+        assertEquals(10, run.released, "the margin goes back")
+        assertEquals(2, ids.count { emailedAt(it) != null })
+    }
+
+    @Test
+    fun `a claim past its statement budget is logged scrubbed and the run ends with nothing claimed`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val id = s.notice(ann)
+        val mailer = RecordingMailer()
+        val capture = LogCapture("ch.nokillswit.notifications.NotificationDigest")
+        val blocker = PostgresTestSupport.connect()
+        try {
+            blocker.autoCommit = false
+            blocker.createStatement().use { it.execute("LOCK TABLE notifications IN ACCESS EXCLUSIVE MODE") }
+
+            val run = digest(mailer, s, statementTimeoutSeconds = 1).run()
+
+            assertEquals(0, run.claimed)
+            assertTrue(mailer.sent.isEmpty())
+            val line = capture.events.single { it.formattedMessage.contains("could not claim") }
+            assertFalse(line.everything().contains(s.roomName), "scrubbed: no value in the line")
+        } finally {
+            blocker.rollback()
+            blocker.close()
+            capture.detach()
+        }
+        assertNull(emailedAt(id), "nothing was stamped")
+        digest(mailer, s).run()
+        assertEquals(1, mailer.to(ann.email).size, "the next tick mails it")
     }
 
     @Test

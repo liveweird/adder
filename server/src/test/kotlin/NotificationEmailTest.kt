@@ -149,6 +149,55 @@ class NotificationEmailTest {
         assertEquals("", mailSafe(" \u202E "))
     }
 
+    /** A blunt oracle, not the implementation's rule: no full stop of any kind continues into a non-space, and no `@`. */
+    private fun hasLiveDotOrAt(text: String): Boolean {
+        if ('@' in text) return true
+        val dots = setOf('.', '。', '．', '｡')
+        return text.windowed(2).any { it[0] in dots && it[1] != ' ' }
+    }
+
+    @Test
+    fun `no real dot survives a combining mark, a format character or a no-break space beside it`() {
+        val hostile = listOf(
+            "evilé.com", // a combining acute before the dot
+            "shop­.example­.com", // soft hyphens around the dots
+            "evil.́com", // a combining mark after the dot
+            "evil​.​example​.​com", // zero-width spaces around the dots
+            "evil‍.com‌.uk", // zero-width joiner and non-joiner
+            "evil. com", // a no-break space after a dot is no space
+            "evil。́com",
+            "evil．­com",
+            "evil｡com",
+            "a‮.‬b@c.d",
+            "x.y...z",
+        )
+        for (text in hostile) {
+            val safe = mailSafe(text)
+            assertFalse(hasLiveDotOrAt(safe), "$text -> $safe")
+            assertTrue(safe.none { Character.getType(it) == Character.FORMAT.toInt() }, "no format character is left in $safe")
+            val mail = notificationEmail(text, listOf(entry(actor = text, room = text)), appUrl, "en")
+            val foreign = mail.body.lines().filterNot { it.startsWith("  $appUrl/") || it.startsWith("Change which emails") }
+            assertFalse(foreign.any { hasLiveDotOrAt(it) }, "$text -> ${mail.body}")
+        }
+    }
+
+    @Test
+    fun `claimed notices that are not listed count in the subject and in and N more`() {
+        val mail = notificationEmail("Ada", List(10) { entry(number = it + 1) }, appUrl, "en", unlisted = 110)
+        assertEquals("Adder: 120 unseen notifications", mail.subject)
+        assertTrue(mail.body.lines().contains("...and 110 more"), mail.body)
+        val some = notificationEmail("Ada", List(12) { entry(number = it + 1) }, appUrl, "en", unlisted = 8)
+        assertTrue(some.body.lines().contains("...and 10 more"), "the entries beyond ten and the unlisted add up")
+    }
+
+    @Test
+    fun `a final full stop and a full stop before a space stay`() {
+        assertEquals("J․K. Rowling", mailSafe("J.K. Rowling"))
+        assertEquals("The end.", mailSafe("The end."))
+        assertEquals("é․x", mailSafe("é.x"), "the text is NFC-normalised first")
+        assertEquals("shop․example", mailSafe("shop­.example"), "a soft hyphen is dropped, the dot still read")
+    }
+
     @Test
     fun `the room name keeps its words in the mail line`() {
         val mail = notificationEmail("Ada", listOf(entry(room = "Outage on shop.example.com", actor = "bob@evil.io")), appUrl, "en")

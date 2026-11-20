@@ -9,7 +9,9 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /**
  * One batch's statement budget, whole seconds (the transaction's `queryTimeout`: the only way a statement timeout is set,
  * `persistence.md`).
- * The candidates are read through each derived table's message index, so a batch is milliseconds at today's sizes; a statement past this is
+ * The candidate SQL is a UNION of the message ids of the four derived tables (each read in full: the statement is only as cheap as
+ * those tables are small) joined to `messages` and filtered on its deleted flag (no index on that flag, so `messages` is probed by
+ * primary key per candidate, or scanned if the planner prefers it). That is milliseconds at today's sizes; a statement past this is
  * cancelled and the boot task logs it scrubbed ([bootRun]: class names and the SQLSTATE) and leaves the rows to the next boot.
  */
 private const val STALE_STATEMENT_TIMEOUT_SECONDS = 30
@@ -26,8 +28,8 @@ val STALE_DERIVED_TABLES: Set<String> = setOf("message_mentions", "message_react
 /**
  * ONE batch: up to [batch] (an Int, never input) DELETED messages that still carry a derived row, locked `FOR NO KEY UPDATE OF m SKIP
  * LOCKED` (a writer holding a message is skipped and found by the next boot), and every mention, reaction, pin and notice row of them
- * removed by data-modifying CTEs; the answer is the number of rows removed. The candidates come from the derived tables (never a scan of
- * `messages` for its deleted flag, which has no index). Constant text per batch size.
+ * removed by data-modifying CTEs; the answer is the number of rows removed. The candidates are a UNION over the four derived tables,
+ * then checked against `messages` for the deleted flag (which has no index; see the budget above). Constant text per batch size.
  */
 private fun purgeStaleSql(batch: Int) = """
 WITH stale AS (

@@ -105,3 +105,15 @@ private fun endOfElement(cps: IntArray, start: Int): Int {
 fun requireReactionEmoji(value: String) {
     if (!isSingleEmoji(value)) throw BadRequestException("emoji must be a single emoji")
 }
+
+/**
+ * The check for REMOVING a reaction: only the input bounds ([MAX_REACTION_UNITS] units, [MAX_REACTION_CODE_POINTS] code points, not
+ * empty), because the value is looked up by its stored bytes. A value stored while an earlier or looser rule was in force (the
+ * unqualified keycap, say) must stay removable by the person who put it there; whether it is "an emoji" is for adding only. The same
+ * fixed `400` detail that echoes nothing.
+ */
+fun requireReactionLookup(value: String) {
+    if (value.isEmpty() || value.length > MAX_REACTION_UNITS || value.codePointCount(0, value.length) > MAX_REACTION_CODE_POINTS) {
+        throw BadRequestException("emoji must be a single emoji")
+    }
+}

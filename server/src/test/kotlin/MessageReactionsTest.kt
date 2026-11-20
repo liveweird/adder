@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
+import ch.nokillswit.threads.MAX_REACTION_UNITS
 import ch.nokillswit.threads.MessagePageResponse
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.REACTION_LIMIT_PROBLEM_TYPE
@@ -145,6 +146,24 @@ class MessageReactionsTest {
                 assertTrue(it.hasKeyValue("messageId", cast.message.toLong()))
                 assertTrue(it.keyValuePairs.none { pair -> THUMBS_UP in pair.value.toString() }, "an audit line never carries the emoji")
             }
+        }
+    }
+
+    @Test
+    fun `a stored value the rule would refuse today can still be removed`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("rx-legacy")
+        val unqualifiedKeycap = "1\u20E3" // refused as a new reaction (the selector is required), stored raw as an older rule could have
+        seedRaw(cast.message, cast.member.id, unqualifiedKeycap)
+        assertEquals(1, rawRows(cast.message))
+        val adding = cast.member.client.react(cast.room, cast.message, unqualifiedKeycap)
+        assertEquals(HttpStatusCode.BadRequest, adding.status, "adding is judged")
+
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.react(cast.room, cast.message, unqualifiedKeycap, reacted = false).status)
+
+        assertEquals(0, rawRows(cast.message), "the row is gone")
+        for (value in listOf("", "a".repeat(MAX_REACTION_UNITS + 1))) {
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.react(cast.room, cast.message, value, reacted = false).status)
         }
     }
 

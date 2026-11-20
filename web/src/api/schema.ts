@@ -1427,6 +1427,8 @@ export interface paths {
          *     A digit, a letter, a heart without its variation selector, two emoji, an emoji with a combining accent, a stray selector, joiner, skin
          *     tone or regional indicator, or any other arrangement of the same code points is `400`, so one emoji has one stored value. It is stored
          *     as sent. What the rule cannot check is membership of the official emoji list.
+         *     That rule judges ADDING (`reacted: true`). Removing (`reacted: false`) looks the value up as stored and checks only the bounds
+         *     (1 to 32 units, at most 10 code points), so a value an earlier rule let in stays removable.
          *
          *     A reaction is speech, not activity: no rail bump, no unread, no notice. The change is announced by one `message.reaction_changed`
          *     hint. `reacted: true` adds the caller's reaction, `false` removes it. Like every write of the room, it waits at most about
@@ -2758,7 +2760,7 @@ export interface components {
             messageId: number;
         };
         ReactionRequest: {
-            /** @description ONE emoji; any other text is `400`. */
+            /** @description ONE emoji when adding, any other text is `400`; when removing, the stored value within the length bounds. */
             emoji: string;
             /** @description `true` adds the caller's reaction, `false` removes it. */
             reacted: boolean;

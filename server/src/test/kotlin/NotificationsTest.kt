@@ -215,6 +215,38 @@ class NotificationsTest {
     }
 
     @Test
+    fun `seen-all goes on when a row of a full chunk was seen by somebody else between the select and the update`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("nt-race")
+        PostgresTestSupport.connect().use { c ->
+            c.prepareStatement(
+                "INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, created_at) " +
+                    "SELECT ?, ?, 'THREAD_ASSIGNED', ?, ?, g FROM generate_series(1, 5) g",
+            ).use { st ->
+                st.setLong(1, cast.bob.id.toLong())
+                st.setInt(2, cast.room.toInt())
+                st.setLong(3, cast.owner.id.toLong())
+                st.setInt(4, cast.thread.toInt())
+                assertEquals(5, st.executeUpdate())
+            }
+        }
+        var raced = false
+        val moved = TestThreads.notices.markAllSeen(cast.bob.id, System.currentTimeMillis(), chunk = 2) { selected ->
+            if (!raced) {
+                raced = true
+                PostgresTestSupport.connect().use { c ->
+                    c.prepareStatement("UPDATE notifications SET seen_at = 1 WHERE id = ?").use { st ->
+                        st.setInt(1, selected.first().toInt())
+                        assertEquals(1, st.executeUpdate())
+                    }
+                }
+            }
+        }
+        assertEquals(4, moved, "the one somebody else saw is not ours to count, the other four are")
+        assertEquals(0L, cast.bob.client.notices("?wasSeen=false").total, "a short update does not end the loop with rows left")
+    }
+
+    @Test
     fun `the persisted kind names are the ones the chat declares`() {
         assertEquals(NOTICE_MENTIONED, NotificationType.MENTIONED.name)
         assertEquals(NOTICE_THREAD_ASSIGNED, NotificationType.THREAD_ASSIGNED.name)

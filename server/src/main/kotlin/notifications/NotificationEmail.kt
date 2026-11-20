@@ -1,6 +1,7 @@
 package ch.nokillswit.notifications
 
 import ch.nokillswit.infra.mail.LocalizedText
+import java.text.Normalizer
 import java.util.Locale
 
 /** Entries one digest lists; the rest are a count ("and 4 more"). */
@@ -89,37 +90,47 @@ private fun isDot(c: Int): Boolean = c == '.'.code || c == 0x3002 || c == 0xFF0E
 
 /**
  * Text chosen by someone else (a room's name, a person's name) made safe for Adder's OWN mail, where a mail client turns a bare address
- * or domain into a link: the result can contain no address and no link. Deterministic, after [plainName]:
+ * or domain into a link: the result can contain no address and no link. Deterministic:
  *
+ * - every format character (Unicode category `Cf`: zero-width spaces and joiners, the soft hyphen, bidirectional controls) is DROPPED,
+ *   then the text is NFC-normalised, then [plainName] runs. A soft hyphen or zero-width character beside a dot cannot hide it from the
+ *   rule below (a linkifier and IDNA ignore them and still resolve the dot);
  * - `@` becomes U+FF20 (fullwidth at), so no `user@host` survives;
  * - the two slashes of `://` become U+2215 (division slash), so no scheme survives;
- * - every full stop (ASCII, ideographic, fullwidth) with a letter or digit on BOTH sides, in any script, becomes U+2024 (one dot
- *   leader), so no bare domain (`evil.example.com`, `www.x.y`, an IDN such as `пример.рф`) survives. A full stop at the end of a
- *   sentence or beside a space is left alone; `3.14` reads `3.14` with a dot leader.
+ * - EVERY full stop (ASCII, ideographic U+3002, fullwidth U+FF0E, halfwidth ideographic U+FF61) that is not followed by a plain space or
+ *   the end of the text becomes U+2024 (one dot leader), whatever stands on either side: the rule is "a dot that continues into anything
+ *   is not a dot", never "a dot between letters" (a combining mark beside the dot defeated that), so no bare domain
+ *   (`evil.example.com`, an IDN) survives. A full stop that ends a sentence is left alone; "J.K. Rowling" reads "J․K. Rowling" (a
+ *   no-break space was made a plain space by [plainName], so "evil.&nbsp;com" reads "evil. com", which links to nothing).
  *
- * The text keeps its length and stays readable; what it can no longer do is be clicked.
+ * The text stays readable; what it can no longer do is be clicked.
  */
 internal fun mailSafe(text: String): String {
-    val plain = plainName(text)
+    val plain = plainName(Normalizer.normalize(dropFormatCharacters(text), Normalizer.Form.NFC))
     val out = StringBuilder(plain.length)
     var i = 0
     while (i < plain.length) {
         val c = plain.codePointAt(i)
+        val next = i + Character.charCount(c)
         if (c == '/'.code && plain.startsWith("//", i) && out.endsWith(":")) {
             out.append(SLASH_LOOKALIKE).append(SLASH_LOOKALIKE)
             i += 2
             continue
         }
-        val betweenWordChars = isDot(c) && i > 0 && i + 1 < plain.length &&
-            Character.isLetterOrDigit(plain.codePointBefore(i)) && Character.isLetterOrDigit(plain.codePointAt(i + 1))
+        val continuesPastDot = isDot(c) && next < plain.length && plain[next] != ' '
         when {
             c == '@'.code -> out.append(AT_LOOKALIKE)
-            betweenWordChars -> out.append(DOT_LOOKALIKE)
+            continuesPastDot -> out.append(DOT_LOOKALIKE)
             else -> out.appendCodePoint(c)
         }
-        i += Character.charCount(c)
+        i = next
     }
     return out.toString()
+}
+
+/** [text] without its `Cf` (format) characters. */
+private fun dropFormatCharacters(text: String): String = buildString(text.length) {
+    text.codePoints().forEach { if (Character.getType(it) != Character.FORMAT.toInt()) appendCodePoint(it) }
 }
 
 /**
@@ -127,9 +138,16 @@ internal fun mailSafe(text: String): String {
  * numbers in,
  * text out. The subject carries a count and no name. The body lists at most [DIGEST_MAX_ENTRIES] entries, then "and N more"; a link follows
  * each entry, and the preferences link ends the mail, only when [appUrl] (the configured `mail.appUrl` origin, never a request's
- * `Host`) is set.
+ * `Host`) is set. [unlisted] is the person's further due notices that were claimed in the same digest but are not given as entries (a
+ * flooded backlog): they count in the subject and in "and N more".
  */
-internal fun notificationEmail(name: String, entries: List<DigestEntry>, appUrl: String?, language: String): DigestEmail {
+internal fun notificationEmail(
+    name: String,
+    entries: List<DigestEntry>,
+    appUrl: String?,
+    language: String,
+    unlisted: Int = 0,
+): DigestEmail {
     require(entries.isNotEmpty()) { "a digest lists at least one notice" }
     val body = buildString {
         appendLine("${GREETING.of(language)} ${mailSafe(name)},")
@@ -144,11 +162,12 @@ internal fun notificationEmail(name: String, entries: List<DigestEntry>, appUrl:
                 appendLine("  $appUrl/rooms/${entry.roomId}/threads/${entry.threadNumber}$message")
             }
         }
-        if (entries.size > DIGEST_MAX_ENTRIES) appendLine(fmt(MORE.of(language), entries.size - DIGEST_MAX_ENTRIES))
+        val more = maxOf(entries.size - DIGEST_MAX_ENTRIES, 0) + unlisted
+        if (more > 0) appendLine(fmt(MORE.of(language), more))
         if (appUrl != null) {
             appendLine()
             appendLine("${PREFERENCES.of(language)} $appUrl/notification-preferences")
         }
     }
-    return DigestEmail(SUBJECT_PREFIX.of(language) + countPhrase(entries.size, language), body)
+    return DigestEmail(SUBJECT_PREFIX.of(language) + countPhrase(entries.size + unlisted, language), body)
 }

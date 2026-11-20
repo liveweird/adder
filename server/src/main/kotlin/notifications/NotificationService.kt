@@ -259,7 +259,13 @@ internal class NotificationService(
      * Notices made while it runs (a higher id than the newest at the start) stay unseen, as they would after one statement. Nobody
      * else's row is touched.
      */
-    suspend fun markAllSeen(callerUserId: UInt, at: Long, chunk: Int = SEEN_BATCH): Int {
+    suspend fun markAllSeen(
+        callerUserId: UInt,
+        at: Long,
+        chunk: Int = SEEN_BATCH,
+        /** A TEST seam: runs between a chunk's select and its update (the gap a concurrent "seen" or delete falls into). */
+        afterSelect: suspend (List<UInt>) -> Unit = {},
+    ): Int {
         val n = Notifications
         val ceiling = suspendTransaction(database) {
             n.select(n.id).where { (n.recipientId eq callerUserId) and n.seenAt.isNull() }
@@ -267,14 +273,17 @@ internal class NotificationService(
         } ?: return 0
         var total = 0
         do {
-            val moved = suspendTransaction(database) {
+            // The loop runs while the chunk SELECTED was full, not while it UPDATED a full chunk: a row seen or deleted by someone
+            // else between the two statements makes the update short, and stopping there would leave the rest unseen.
+            val (selected, moved) = suspendTransaction(database) {
                 val ids = n.select(n.id)
                     .where { (n.recipientId eq callerUserId) and n.seenAt.isNull() and (n.id lessEq ceiling) }
-                    .limit(chunk).map { it[n.id].value }.toList()
-                if (ids.isEmpty()) 0 else n.update({ (n.id inList ids) and n.seenAt.isNull() }) { it[seenAt] = at }
+                    .orderBy(n.id).limit(chunk).map { it[n.id].value }.toList()
+                afterSelect(ids)
+                ids.size to if (ids.isEmpty()) 0 else n.update({ (n.id inList ids) and n.seenAt.isNull() }) { it[seenAt] = at }
             }
             total += moved
-        } while (moved == chunk)
+        } while (selected == chunk)
         return total
     }
 

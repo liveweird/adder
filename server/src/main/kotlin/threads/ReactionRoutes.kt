@@ -54,7 +54,8 @@ private fun Route.messageReaction(roomService: RoomService, reactionService: Mes
             val roomId = route.parent.parent.parent.id
             requireRoomMember(caller, roomService.visibleStanding(caller, roomId))
             val request = call.receive<ReactionRequest>()
-            requireReactionEmoji(request.emoji)
+            // Adding is judged by the one-emoji rule; removing looks the stored value up within the input bounds only.
+            if (request.reacted) requireReactionEmoji(request.emoji) else requireReactionLookup(request.emoji)
             val change = reactionService.set(roomId, route.parent.messageId, caller, request.emoji, request.reacted)
             if (change != null) {
                 audit(
