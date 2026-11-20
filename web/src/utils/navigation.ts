@@ -1,5 +1,5 @@
 import type { ParseKeys } from "i18next";
-import { IconDoor, IconHistory, IconHome2, IconKey, IconListCheck, IconSearch, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
+import { IconDoor, IconHistory, IconHome2, IconKey, IconListCheck, IconMail, IconSearch, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
 import { roomsPath, searchPath } from "./roomLinks";
 import { teamsPath } from "./teamLinks";
 import { usersPath } from "./userLinks";
@@ -68,6 +68,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
 /** Account-scoped leaves: the header user menu and the palette render them, the sidebar never. */
 export const ACCOUNT_NAV: ReadonlyArray<NavLeaf> = [
   { to: "/change-password", label: "appShell.nav.changePassword", icon: IconKey },
+  { to: "/notification-preferences", label: "appShell.nav.notificationPreferences", icon: IconMail },
   { to: "/changelog", label: "appShell.nav.changelog", icon: IconHistory },
 ];
 

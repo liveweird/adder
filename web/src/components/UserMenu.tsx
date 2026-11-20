@@ -14,7 +14,7 @@ import {
   useMantineColorScheme,
   VisuallyHidden,
 } from "@mantine/core";
-import { IconActivity, IconCheck, IconChevronDown, IconHistory, IconKey, IconLogout } from "@tabler/icons-react";
+import { IconActivity, IconCheck, IconChevronDown, IconHistory, IconKey, IconLogout, IconMail } from "@tabler/icons-react";
 import { logout } from "../api/auth";
 import { getUserId } from "../api/session";
 import { getUser, setUserLanguage } from "../api/users";
@@ -161,6 +161,9 @@ export default function UserMenu() {
         <Menu.Divider />
         <Menu.Item component={RouterLink} to="/change-password" leftSection={<IconKey size={14} />}>
           {t("appShell.nav.changePassword")}
+        </Menu.Item>
+        <Menu.Item component={RouterLink} to="/notification-preferences" leftSection={<IconMail size={14} />}>
+          {t("appShell.nav.notificationPreferences")}
         </Menu.Item>
         <Menu.Item
           component={RouterLink}

@@ -47,6 +47,7 @@ describe("CommandPalette", () => {
     await user.click(screen.getByRole("button", { name: /^Search or jump to a page…/ }));
     expect(await screen.findByRole("button", { name: /Home/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Change password/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Notification emails/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Teams$/ })).toBeInTheDocument();
     // A regular session never sees the admin pages.
     expect(screen.queryByRole("button", { name: /^Users$/ })).not.toBeInTheDocument();

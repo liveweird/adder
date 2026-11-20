@@ -11,6 +11,22 @@
   "unseen_many": "{{count}} nieprzeczytanych",
   "unseen_other": "{{count}} nieprzeczytanego",
   "inRoom": "{{room}} · {{when}}",
+  "toast": {
+    "preferencesSaved": "Zapisano powiadomienia e-mailem"
+  },
+  "preferences": {
+    "title": "Powiadomienia e-mailem",
+    "description": "Wybierz, które powiadomienia dostajesz też e-mailem.",
+    "section": "Wyślij mi e-mail, gdy",
+    "kind": {
+      "MENTIONED": "ktoś o mnie wspomni",
+      "THREAD_ASSIGNED": "ktoś przekaże mi wątek"
+    },
+    "emailOff": "Ten serwer nie wysyła e-maili, więc żadne powiadomienia e-mailem nie wychodzą. Twoje wybory zostają zapisane.",
+    "inAppHint": "Powiadomienia pod dzwonkiem zawsze do Ciebie docierają. E-mail wysyłamy tylko o powiadomieniu, którego nie przeczytasz w ciągu kilku minut: jedna wiadomość wymienia, kto, w którym pokoju i w którym wątku.",
+    "saveFailedStatus": "Zapis wyborów nie powiódł się ({{status}})",
+    "saveFailedNetwork": "Zapis wyborów nie powiódł się. Sprawdź połączenie i spróbuj ponownie."
+  },
   "event": {
     "MENTIONED": "{{actor}} wspomina o Tobie w #{{number}} {{title}}",
     "THREAD_ASSIGNED": "{{actor}} przekazuje Ci wątek #{{number}} {{title}}"

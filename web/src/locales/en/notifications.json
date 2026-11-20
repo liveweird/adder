@@ -9,6 +9,22 @@
   "unseen_one": "{{count}} unseen",
   "unseen_other": "{{count}} unseen",
   "inRoom": "{{room}} · {{when}}",
+  "toast": {
+    "preferencesSaved": "Notification emails saved"
+  },
+  "preferences": {
+    "title": "Notification emails",
+    "description": "Choose which notifications are also sent to you by email.",
+    "section": "Email me when",
+    "kind": {
+      "MENTIONED": "Someone mentions me",
+      "THREAD_ASSIGNED": "Someone makes me the owner of a thread"
+    },
+    "emailOff": "Email is off on this server, so no notification emails are sent. Your choices are kept.",
+    "inAppHint": "Notifications under the bell always arrive. An email follows only for a notification you have not seen after a few minutes, as one message listing who, the room and the thread number.",
+    "saveFailedStatus": "Saving the choices failed ({{status}})",
+    "saveFailedNetwork": "Saving the choices failed. Check your connection and try again."
+  },
   "event": {
     "MENTIONED": "{{actor}} mentioned you in #{{number}} {{title}}",
     "THREAD_ASSIGNED": "{{actor}} made you the owner of #{{number}} {{title}}"

@@ -54,6 +54,7 @@ const CreateUser = lazy(() => import("./pages/CreateUser"));
 const EditUser = lazy(() => import("./pages/EditUser"));
 const ChangePassword = lazy(() => import("./pages/ChangePassword"));
 const Changelog = lazy(() => import("./pages/Changelog"));
+const NotificationPreferences = lazy(() => import("./pages/NotificationPreferences"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 function RouteFallback() {
@@ -299,6 +300,7 @@ export default function App() {
               <Route path="workflow-templates/:id/edit" element={<EditWorkflowTemplate />} />
             </Route>
             <Route path="change-password" element={<ChangePassword />} />
+            <Route path="notification-preferences" element={<NotificationPreferences />} />
             <Route path="changelog" element={<Changelog />} />
             {/* The authenticated catch-all — LAST child, never feature-gated. */}
             <Route path="*" element={<NotFound />} />
