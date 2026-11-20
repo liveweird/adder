@@ -37,7 +37,7 @@ ran at all in this one. Class order is not a contract (with `-Pforks>=2` the cla
 - **Many failed logins** (rate limit, proxy trust): freshly seeded accounts with a wrong password (~1 ms; an UNKNOWN email costs ~225 ms), soft-deleted afterwards.
 - `TestSeedState.restoreSeedAccounts()` — bootstrap/production-mode tests rotate the seed admin's password in the
   SHARED container; call it afterwards. Production-mode boots must also override `"mail.transport" to "disabled"` and
-  `"security.encryption.key" to strongEncryptionKey()`; the checks fire in module order (JWT → mail → crypto → seed
+  `"security.encryption.key" to strongEncryptionKey()`; the checks fire in module order (JWT → mail → crypto → DB password → seed
   passwords), so a test asserting a later check must satisfy every earlier one.
 
 **Coverage gates.** Backend Kover enforces line- and branch-coverage floors in `server/build.gradle.kts` (the

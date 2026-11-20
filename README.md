@@ -103,6 +103,12 @@ On a cold start the app waits for Postgres rather than exiting: Flyway retries i
 (`POSTGRES_CONNECT_RETRIES`, default 10 — about a minute of backing-off attempts; see "Configuration"),
 so `docker compose up` and Kubernetes restarts need no manual ordering.
 
+**Backup and restore.** `scripts/db-backup.sh` dumps the database (`pg_dump -Fc`, taken inside the Postgres container, so
+nothing to install) and `scripts/db-restore.sh` loads a dump into an EMPTY database — it refuses a non-empty one unless you
+pass `--replace`. Both also work against Kubernetes (`ADDER_PG_EXEC='kubectl -n adder exec -i deploy/postgres --'`). The
+runbook, with the restore order and what a dump does not hold (`DATA_ENCRYPTION_KEY`, `JWT_SECRET`), is in
+`.claude/docs/persistence.md` "Backup and restore".
+
 ## Running on Kubernetes (local)
 
 Two Deployments, each a single replica with `Recreate` updates (the old pod stops before the
@@ -253,7 +259,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `POSTGRES_JDBC_URL` | `jdbc:postgresql://localhost:5439/adder` | Flyway's JDBC URL. |
 | `POSTGRES_R2DBC_URL` | `r2dbc:postgresql://localhost:5439/adder` | The runtime R2DBC URL. |
 | `POSTGRES_USER` | `adder` | Database user. |
-| `POSTGRES_PASSWORD` | `adder` | Database password. |
+| `POSTGRES_PASSWORD` | `adder` | Database password. Production mode (`KTOR_DEVELOPMENT=false`) **refuses to start** on this default, on a blank value and on the k8s `CHANGE-ME` placeholder: set a private one on the database and the app (`openssl rand -hex 16`). The compose demo runs in development mode and keeps `adder`. |
 | `POSTGRES_CONNECT_RETRIES` | `10` | How many times Flyway retries its boot connection (doubling waits capped at 8 s, ~63 s at 10) so a cold start waits for Postgres instead of crash-looping; `0` fails fast (0..15 — 15 is ~2 min, inside the k8s startup-probe budget). |
 | `POSTGRES_POOL_MAX_SIZE` | `20` | Ceiling on concurrent pooled R2DBC connections for this instance (1..1000). |
 | `POSTGRES_POOL_INITIAL_SIZE` | `2` | Connections the pool fills up to on its first acquire (0..maxSize). |

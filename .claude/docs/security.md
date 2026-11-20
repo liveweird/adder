@@ -34,6 +34,18 @@ checks**:
   the k8s template placeholder included) refuses in ANY mode. See "Encryption at rest" below.
   Covered by `CryptoBootTest`; every production-mode boot test overrides
   `security.encryption.key` with `strongEncryptionKey()`.
+- **Postgres password** (`infra/db/DatabasePassword.kt`, called at the head of `configureFlyway`, the first module to open a
+  connection, so nothing ever connects with a public password; checkup C-ARCH-4): a blank password, the shipped default `adder`
+  (the `postgres.password` default in `application.yaml` and the compose demo database) or the k8s template placeholder
+  `CHANGE-ME` (also `changeme`; trimmed, case-insensitive) → warn in development, **refuse to start** in production. The
+  message names `POSTGRES_PASSWORD`, never the value. Compose is unaffected: it runs development mode (`KTOR_DEVELOPMENT=true`) on the
+  `adder` demo password, so `docker compose up --build` still works untouched; a real deployment creates the database with a
+  private `POSTGRES_PASSWORD` (k8s: the `adder-secrets` Secret, `openssl rand -hex 16`) and an existing database whose role
+  still has `adder` needs `ALTER ROLE adder PASSWORD '…'` first. The test container's password is deliberately NOT `adder`
+  (`PostgresTestSupport`), so production-mode boot tests reach the later checks; `DatabasePasswordBootTest` pins this one.
+- **Deliberate, kept by the owner (2026-11-20 checkup):** `DATA_ENCRYPTION_KEY` stays required in production even though no column
+  is encrypted yet (so the first encrypted column never ships on a burned key), and development mode keeps tolerating every
+  burned default above with a warning (the clone-and-run demo). Neither is a gap to close.
 
 **JWT model** (`auth/Tokens.kt` + `plugins/Security.kt`): login issues an access/refresh **pair**,
 both carrying `email`, `userId`, a `roles` array, a `typ` claim (`"access"`/`"refresh"`), a

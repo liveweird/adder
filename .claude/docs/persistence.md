@@ -564,3 +564,50 @@ listener itself is built and started by the live feature (`live.md` "The listene
   non-throwing (S4: an atomic flag or a conflated channel `trySend`).
 - **Not config.** The capacity, heartbeat, step timeout and backoff are `NotifyListenerTimings` defaults, constructor parameters only so `NotifyListenerTest` (no app, shared container: committed vs rolled-back, a terminated
   backend, a full channel, a stalled heartbeat, the `-live` name and close on stop) can shrink them. Logs: `observability.md`.
+
+### Backup and restore
+
+A manual runbook (checkup C-ARCH-2, decided 2026-11-20: no scheduled job). The unit is `pg_dump -Fc` of the `adder` database,
+taken INSIDE the Postgres container/pod and streamed out, so the host needs no Postgres client and no password (the image's
+local socket trusts the in-container user). `scripts/db-backup.sh [OUT.dump]` and `scripts/db-restore.sh DUMP.dump [--replace]`
+wrap it; both take the command that reaches the container from `ADDER_PG_EXEC` (also `ADDER_DB_USER`/`ADDER_DB_NAME`,
+default `adder`/`adder`; the value is word-split on purpose):
+
+| Where | `ADDER_PG_EXEC` |
+|---|---|
+| compose, default project | unset (default `docker exec -i adder-postgres`) |
+| compose, another project | `docker compose -p NAME exec -T postgres` (a container name changed by an override: `docker exec -i THAT-NAME`) |
+| Kubernetes (`adder` namespace) | `kubectl -n adder exec -i deploy/postgres --` |
+
+- **Backup** (live, the app may keep running: one transaction, a consistent snapshot): `scripts/db-backup.sh`. The file is written
+  `0600` (it holds every user, message and password hash; treat it like the database), never over an existing file, and only
+  kept if `pg_restore --list` reads it and finds table data. The bare equivalent is
+  `(umask 077; docker exec adder-postgres pg_dump -U adder -d adder -Fc > adder.dump)`.
+- **Restore into an EMPTY database** (a new machine, a lost volume): bring up ONLY Postgres, restore, then start the app.
+  Compose: `docker compose up -d --wait postgres && scripts/db-restore.sh adder.dump && docker compose up -d app`.
+  Kubernetes: scale the app to zero (`kubectl -n adder scale deploy/app --replicas=0`), make sure the `postgres` pod runs on a
+  fresh PVC, restore, scale the app back to 1. The app must NOT have booted against the empty database first: Flyway and the
+  seed admin would have made it non-empty, and the script refuses (see below). On start the app finds the schema current
+  (`Current version of schema "public": 22`, nothing applied). The restore is one transaction (`--single-transaction
+  --exit-on-error`): all or nothing, and `--no-owner --no-acl` leaves everything owned by the connecting role.
+- **Safe by default:** the restore refuses unless the target has NO table, view or sequence outside the system schemas AND no other
+  client is connected (`pg_stat_activity`: the app still running; `--force-connected` overrides, for a client you know is idle), and
+  changes nothing when it refuses. `--replace` is the explicit way over a non-empty database and DESTROYS what is there: in ONE
+  explicit transaction it drops every extension (bar `plpgsql`) and every non-system schema (`public`, `ops`; V4 puts `unaccent` in
+  `public`, V9 creates `ops`) with `CASCADE`, recreates an empty `public`, and replays the dump rendered by `pg_restore -f -`, so
+  the result is exactly the dump even when the live database is AHEAD of it (a newer table with a foreign key into `rooms`, a higher
+  Flyway history row; `pg_restore --clean` would trip over the first and leave the second). The script is fed to `psql` without `-1`
+  and ends in `COMMIT;`, so a cut stream rolls back instead of committing half a restore (the rendered SQL goes through a `0600`
+  temp file first, so a failed `pg_restore` never reaches the database). A future migration that creates another schema or an
+  extension needs no change here: the drop is by catalog, not by name. Stop the app first (compose `docker compose stop app`; k8s
+  scale to 0). To restore beside the data instead, make a scratch database (`ADDER_DB_NAME=adder_restored` after `createdb`) and compare.
+- **Not in the dump:** `DATA_ENCRYPTION_KEY` and `JWT_SECRET` (the Secret / compose env). An encrypted column is unreadable without
+  its key (no column is encrypted yet, `security.md`); keep the key apart from the dump. A restored database keeps its users'
+  password hashes and `credential_revision`s, so every outstanding token stays valid or not as the live system decided. In-memory state (lockouts, MFA codes, refresh rotations) starts empty.
+- **A dump restores into the same or a newer app version** (Flyway migrates forward on boot). An OLDER app against a newer database is
+  not refused by Flyway (its default ignores `*:future` migrations; the config is unchanged), so never roll the app back past the
+  schema without restoring a dump of that older schema. Restore into the same Postgres major (18).
+- **Tested** 2026-11-20 against a throwaway compose project (own `-p`, ports, volume): seed rows through the API, dump, `down -v`,
+  fresh Postgres, restore, app start (Flyway "Current version … 22", 0 migrations applied), same row counts and logins; the
+  non-empty and app-still-running refusals, and `--replace` over a database AHEAD of the dump (an extra table with a foreign key into `rooms`
+  plus a fake higher Flyway row: afterwards exactly the dump, app boots). Repeat that drill after a migration that adds a schema or extension.

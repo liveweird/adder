@@ -228,7 +228,7 @@ above any legitimate statement (a lock wait behind another transaction) and belo
   pristine V3 state. Production-mode boots must also override `"mail.transport" to "disabled"` —
   the dev-default `log` transport is refused in production (`MailTransportTest`) — and
   `"security.encryption.key" to strongEncryptionKey()` — the dev-default data-encryption key is
-  burned (`CryptoBootTest`); the checks fire in module order (JWT → mail → crypto → seed
+  burned (`CryptoBootTest`); the checks fire in module order (JWT → mail → crypto → DB password → seed
   passwords), so a test asserting a later check must satisfy every earlier one.
 
 **Frontend test internals** (moved from `testing.md`; the binding rules stay there).

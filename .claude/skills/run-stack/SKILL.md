@@ -96,7 +96,15 @@ side on one machine; host ports bind to 127.0.0.1:
   `POSTGRES_USER`/`POSTGRES_PASSWORD`, `DATA_ENCRYPTION_KEY`, `ADMIN_INITIAL_PASSWORD`, optional
   `SMTP_USER`/`SMTP_PASSWORD`); `k8s/secret.yaml` is a placeholder **template** — applying it
   verbatim fail-closes at startup (the placeholder JWT value is on the burned list in
-  `plugins/Security.kt`).
+  `plugins/Security.kt`; the `CHANGE-ME` and `adder` Postgres passwords are refused in production by
+  `infra/db/DatabasePassword.kt`; compose runs development mode and keeps its `adder` demo password).
+
+- **Backup and restore:** `scripts/db-backup.sh [OUT.dump]` and `scripts/db-restore.sh DUMP.dump [--replace]` (dump taken inside the
+  Postgres container; the restore refuses a non-empty database without `--replace`). Default target is the compose container
+  `adder-postgres`; point `ADDER_PG_EXEC` elsewhere (`docker compose -p NAME exec -T postgres`, or
+  `kubectl -n adder exec -i deploy/postgres --`). Restore into a stack where ONLY Postgres is up, then start the app. To drill it,
+  use a throwaway compose project (own `-p`, an override file for `container_name` and host ports, the pattern of
+  `scripts/cds-classlist.mjs`), never the default project. Runbook: `.claude/docs/persistence.md` "Backup and restore".
 
 The root `Dockerfile` is a 3-stage build: (1) Node 24.22.3 builds `web/dist` (`npm ci
 --legacy-peer-deps`), (2) Temurin 21.0.13+9 JDK on Ubuntu 24.04 Noble runs `:server:installDist`
