@@ -176,7 +176,7 @@ in-line).
 `LoginThrottleKey`; the module loads BEFORE the user routes, which share it): after
 `security.lockout.threshold` (default 5, `$LOGIN_LOCKOUT_THRESHOLD`) consecutive failures for one
 submitted email, `/login` answers `429` for `security.lockout.durationSeconds` (default 900,
-`$LOGIN_LOCKOUT_DURATION_SECONDS`) — even with the correct password, and regardless of whether the
+`$LOGIN_LOCKOUT_DURATION_SECONDS`; longer when wrong emailed codes tripped it, see "progressive for MFA codes ONLY" below) — even with the correct password, and regardless of whether the
 account exists (no enumeration signal). A success resets the counter. The in-memory, per-instance (so the app runs ONE replica — `ci.yml` `k8s-static` pins it)
 store has a hard `security.lockout.maxTracked` limit (default 10,000,
 `$LOGIN_LOCKOUT_MAX_TRACKED`): expired state is reclaimed through an expiry index (`infra/ExpiringIndex.kt`, the one TTL index the reset cooldown, the MFA challenges and the live tickets share), but fresh
@@ -216,16 +216,62 @@ caller holding the password could otherwise log in afresh after every few wrong 
 **Pending MFA challenges and a lock:** a lock tripped by the MFA step (or met by a wrong code there) drops the account's pending
 challenges; a lock tripped by wrong passwords at `/login` or on the change does NOT, but no pending code can finish a sign-in
 during it (a correct code answers the lockout's `429`, `AccountGuess.recordSuccess`) and the challenges expire on their own TTL.
-**The long-run bound, stated honestly (accepted; a progressive lock is a product decision):** when a lock expires the counter
-restarts at 0, so someone who HOLDS the password gets `threshold` (5) code guesses per lock window (15 min) indefinitely:
-35,040 windows a year x 5 = about 175,000 guesses against a 6-digit code (10^-6 each), roughly a 16 % chance per year of getting
-in, at the price of about 35,000 sign-in code emails to the owner (one challenge per window, since the per-challenge cap equals
-the default threshold; about 96 a day) and a `login.lockout` audit line every 15 minutes: a loud, continuous signal to the owner
-and the operator. It needs the password (the first factor); it is not reachable from an email address alone. A progressive lock (a
-longer window per repeated lockout) would shrink it but would let an attacker who knows only an email address keep the owner
-locked out of `/login` for longer, so it is not implemented.
-Audit: `login.lockout`/`login.rejected_locked` (with `userId` and `source` for the MFA and change
-routes; on `/login` the identity is the `email` of an account that exists and the keyed `emailDigest` (HMAC under a key derived from the JWT secret, `observability.md`) of a guess at none, C-SEC-9), `login.capacity_rejected` (`/login` only), `password.change_rejected_locked` (`targetUserId`/`byUserId`). Tests: `AccountGuessTest` (the race branches), `PasswordChangeTest`, `MfaLockoutTest`.
+**The lock is progressive for MFA codes ONLY (the owner's 2026-11-20 checkup decision; `LoginThrottle`).** Someone who HOLDS the
+password and guesses emailed codes used to get `threshold` (5) guesses per flat 15-minute window indefinitely (about 175,000 guesses
+a year against a 6-digit code, roughly a 16 % chance per year). Now a lock whose failure window held ANY wrong emailed code
+(`AccountGuess.mfaCode`, set by the MFA step alone; `State.codeFailed`) doubles per consecutive such lock: the n-th lasts `durationSeconds x 2^(n-1)`
+(900 s, 1800, 3600, ... ), capped at `security.lockout.mfaMaxDurationSeconds` (`$LOGIN_LOCKOUT_MFA_MAX_DURATION_SECONDS`, default
+86,400 = 24 h, never below `durationSeconds`, 1..30 days boot-validated). **The bound that results (with the pacing
+counter of rule (6) and the one-step decay of rule (2)):** the climb to the top costs 7 locks (15 min ... 16 h, about 32 h in all,
+35 guesses); after that every lock is the 24 h cap, and a guess round is either a lock (5 guesses, then 24 h) or a paced period (4
+guesses, no lock, 24 h): the best mix is 5 + 4 guesses per 48 h, about 4.5 a day, about 1,650 a year against a 6-digit code (10^-6
+each), roughly a 0.17 % chance per year, down from the roughly 16 % of the flat window (35,000 windows x 5 guesses). Waiting does
+not buy the cheap bottom of the ladder back: the level loses one step per quiet day, so a guesser who waits a day and climbs again is
+back at the top. Each guess round also costs a
+fresh login and a sign-in code email to the owner and a `login.lockout` line with a rising `escalationLevel`. **A lock whose window held wrong passwords ONLY (`/login`, the password change) is ALWAYS the
+flat `durationSeconds`**: a username alone must never buy a longer lock-out of the real owner, because a wrong code needs a live
+challenge, which needs the password. **Rules:** (1) the level is the count of consecutive code-escalated locks and lives in
+its OWN map with its own `ExpiringIndex` (`escalations`/`escalationExpiries`), because the lock entry is pruned the instant the lock
+ends; (2) it **decays ONE STEP per full `security.lockout.mfaDecaySeconds`** (`$LOGIN_LOCKOUT_MFA_DECAY_SECONDS`, default 86,400 = 24 h,
+1..30 days) without an escalated lock, counted from the END of the last one (computed lazily from that instant; the expiry slot is
+`end + level x decay`, where the level reaches 0 and the entry goes), not straight to 0: dropping to 0 let a guesser wait one period and
+climb the cheap bottom of the ladder again, about 22 guesses a day, roughly 0.8 % a year. It is dropped at once by a
+confirmed password reset (below) or a success that clears the counter: the accepted code (the full login), and also a correct password for a non-MFA account or a
+correct current password on the change, both of which prove a full sign-in or a live session; a success REFUSED by an active lock
+clears nothing; (3) a password-only window neither escalates NOR resets the level (decided: no reset, no escalation: otherwise the
+holder of an MFA-escalated account could reset the ladder with five wrong passwords), and a failure that meets an active lock
+(`ALREADY_LOCKED`) changes nothing; (4) **the window decides, not the tripping failure**: the counter remembers whether ANY of its
+failures was a wrong code (`State.codeFailed`, dropped with the counter: when it trips, expires or a success clears it), and a
+window with one escalates whatever failure then trips it. Otherwise a password holder would send four wrong codes and trip the lock
+with a wrong password at `/login`, staying on the flat 15 minutes forever. This is safe for the owner: a wrong code needs a live
+challenge, so someone who knows only the username cannot START an escalating window. They can CONTINUE one the owner left open with a
+single code typo, but only inside that typo's 15-minute window and for at most one level per owner typo; (5) **memory**: the escalation map and the code
+counter of rule (6) are written only by `recordFailure(mfaCode = true)`, which requires a `knownAccount` (the MFA challenge's
+subject), so their key space is the user table (one digest per email an account held during an escalated lock or a code failure, each
+entry gone `lock + decay` / `decay` later through its own `ExpiringIndex`, like the above-cap entries), and neither counts against
+`maxTracked`: the capacity rule for unknown identities is unchanged; (6) **pacing**: the shared counter's window is only the flat
+15 minutes, so a guesser who stays one short of the threshold and waits would never trip a lock. A SEPARATE per-account counter of
+wrong CODES only (`codeGuesses`) closes that: it lives `mfaDecaySeconds` from the FIRST code failure of its period (a fixed window,
+deliberately not sliding: a sliding one would let two typos a day apart keep it alive for ever), and at `threshold` it trips an
+escalated lock whatever the shared counter says, then starts over. So pacing buys at most `threshold - 1` guesses per decay period
+before an escalating lock. A success, a confirmed reset (`clear`) and an escalated lock drop it. The shared counter is NOT given a
+longer life: with that, an owner's single typo would let a username-only attacker escalate them with wrong passwords for 24 h. The owner
+cost: five mistyped codes within 24 h (not within 15 minutes) earn the first, 15-minute escalated lock; (7) **stale challenges**: a
+challenge minted before a password change or a confirmed reset is dead ("invalidates any pending MFA challenge"): its wrong
+codes are NOT counted (`MfaRoutes.challengeStillCurrent`, one primary-key read per wrong code; audited `login.mfa_failure`
+`reason=credential_changed`, the challenge dropped), so an old challenge cannot re-lock the owner right after a reset lifted the lock. The level counter is clamped (32) and the doubling is step-wise against the cap,
+so nothing overflows. **Nothing new is disclosed:** the 429 is the same `accountLockedException` for every cause and carries no
+`Retry-After` today either; only the audit line carries the length and level. **Cost, accepted:** a real owner who mistypes codes
+repeatedly can sit locked out for up to 24 h; the ways out are the lock's end, a restart of the single replica and **a confirmed
+password reset (the owner's 2026-11-20 decision: it lifts the lock AND the level)**: the reset link goes to the same mailbox as the
+sign-in codes, so completing it proves the very factor a code guesser lacks (`LoginThrottle.clear`, keyed on the account's email,
+called by the confirm route after `PasswordResetService.complete` succeeded, keyed on the email `complete` verified under the user-row
+lock, `PasswordResetService.Completion`; the audit says so with `lockoutCleared`, below). Only
+the CONFIRM does this: an unconfirmed `POST /password-reset` mails a link and clears nothing, so asking for mail cannot lift a lock;
+`login.lockout` with `escalationLevel >= 2` is the operator's signal that a password
+holder is guessing codes.
+Audit: `login.lockout` (now with `lockSeconds` and `escalationLevel`, below)/`login.rejected_locked` (with `userId` and `source` for the MFA and change
+routes; on `/login` the identity is the `email` of an account that exists and the keyed `emailDigest` (HMAC under a key derived from the JWT secret, `observability.md`) of a guess at none, C-SEC-9), `login.capacity_rejected` (`/login` only), `password.change_rejected_locked` (`targetUserId`/`byUserId`). Tests: `AccountGuessTest` (the race branches), `PasswordChangeTest`, `MfaLockoutTest`, `LoginThrottleProgressiveTest` (the ladder, the flat password lock, reset, decay, capacity, overflow on an injected clock).
 
 
 **Self-service password reset by confirm link** (`auth/PasswordResetRoutes.kt`, `auth/PasswordResetService.kt`, V8; SPA:
@@ -272,8 +318,9 @@ winner. An unknown, malformed, expired, used or stale grant is one uniform `401`
 with **no auto-login**: the `credential_revision` bump signs every other session out through the per-request access check and
 kills pending refresh tokens and MFA challenges, while MFA stays as it was, so the next login still asks for the code. A
 best-effort localized notice ("your password was reset, sessions signed out"; no token, no password) is emailed after the
-response; its failure (`password_reset.notification_failed`) cannot undo the reset. A confirmed reset does **not** clear the
-per-account lockout (in-memory, at most 15 minutes, per instance). A lost 204 can make a retry answer `401`: sign in with the
+response; its failure (`password_reset.notification_failed`) cannot undo the reset. A confirmed reset **clears the
+per-account lockout** (the counter, an active lock of ANY cause and the MFA escalation level; owner decision 2026-11-20, "Per-account login
+lockout" above; the `password_reset.completed` line carries `lockoutCleared`). A lost 204 can make a retry answer `401`: sign in with the
 chosen password or request another link.
 
 Throttling: per submitted email - one request per `security.passwordReset.minIntervalSeconds` (default 60,

@@ -49,9 +49,15 @@ class MfaChallenges(
 
         /**
          * [reason] feeds the audit trail only — the HTTP answer stays a uniform 401. [subject] is set whenever the challenge was
-         * found (so the audit line can name the account); [wrongCode] marks a guess that must count into the account lockout.
+         * found (so the audit line can name the account); [wrongCode] marks a guess that must count into the account lockout, and
+         * [credentialRevision] is the revision the challenge was minted at (the route counts the guess only while it is still current).
          */
-        data class Failure(val reason: String, val subject: Subject? = null, val wrongCode: Boolean = false) : Outcome
+        data class Failure(
+            val reason: String,
+            val subject: Subject? = null,
+            val wrongCode: Boolean = false,
+            val credentialRevision: Long? = null,
+        ) : Outcome
     }
 
     private data class Challenge(
@@ -106,10 +112,10 @@ class MfaChallenges(
         val attempts = challenge.attempts + 1
         if (attempts >= maxAttempts) {
             removeChallenge(challengeId)
-            Outcome.Failure("too_many_attempts", challenge.subject, wrongCode = true)
+            Outcome.Failure("too_many_attempts", challenge.subject, wrongCode = true, credentialRevision = challenge.credentialRevision)
         } else {
             challenges[challengeId] = challenge.copy(attempts = attempts)
-            Outcome.Failure("wrong_code", challenge.subject, wrongCode = true)
+            Outcome.Failure("wrong_code", challenge.subject, wrongCode = true, credentialRevision = challenge.credentialRevision)
         }
     }
 

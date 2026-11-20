@@ -91,7 +91,11 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `login.lockout` and `login.rejected_locked` are also written, with `userId` and `source` (`mfa` or
   `password_change`) instead of the email, when a wrong MFA code or a wrong current password on the self password change trips or
   meets that one throttle (`auth/AccountLockout.kt`); those two routes act on a KNOWN account, which the throttle counts even at a
-  full store, so they never write `login.capacity_rejected`,
+  full store, so they never write `login.capacity_rejected`. **`login.lockout` also carries `lockSeconds` (the length of the lock just
+  set, a number) and `escalationLevel`** (0 = the flat window, a window of wrong passwords only at `/login` or on the change; n >= 1 = the
+  n-th consecutive lock whose window held a wrong emailed code, whichever failure tripped it, whose length doubles per level up to the cap: `security.md` "progressive for
+  MFA codes ONLY"). These two fields exist only in this audit line; the 429 answer is identical for every cause and discloses neither,
+  and `login.rejected_locked` is unchanged. An `escalationLevel` of 2 or more means someone holding the password is guessing codes,
 - `login.mfa_challenge` (email/userId — correct credentials, second factor pending) /
   `login.mfa_success` / `login.mfa_failure` (with `reason`:
   unknown_challenge/expired/wrong_code/too_many_attempts/user_gone/credential_changed, and `userId` whenever the challenge was
@@ -108,7 +112,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   unexpired links: nothing minted, nothing sent, the request still answered 202) / `password_reset.stale_account` (userId - the
   account changed between the async task's lookup and the grant insert: nothing minted, nothing sent) / `password_reset.send_failed` (email, or emailDigest if the lookup had not found the account yet / errorType - the link never left; its grant is
   revoked) / `password_reset.rejected` (no fields - a confirm against an invalid, expired, used or stale grant, uniform) /
-  `password_reset.completed` (userId - the confirm) / `password_reset.notification_failed` (userId/errorType - the post-reset
+  `password_reset.completed` (userId, `lockoutCleared` - the confirm; true when it also lifted a held failure counter, lock or MFA escalation level of the account, `security.md`) / `password_reset.notification_failed` (userId/errorType - the post-reset
   notice; the reset stands) - the self-service reset trail, none of it carrying a token or a password; the async task's events
   double as test barriers,
 - `refresh.rejected` (with `reason`: invalid_or_expired/wrong_token_type/revoked/malformed/

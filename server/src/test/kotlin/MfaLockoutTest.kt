@@ -3,6 +3,8 @@ package ch.nokillswit
 import ch.nokillswit.auth.LoginRequest
 import ch.nokillswit.auth.MfaChallengeResponse
 import ch.nokillswit.auth.MfaVerifyRequest
+import ch.nokillswit.auth.PasswordResetConfirmRequest
+import ch.nokillswit.auth.PasswordResetRequest
 import ch.nokillswit.users.UserFeaturesUpdateRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
@@ -56,6 +58,86 @@ class MfaLockoutTest {
     private fun wrongOf(code: String) = if (code == "000000") "000001" else "000000"
 
     @Test
+    fun `a confirmed password reset lifts an escalated lock and its level, an unconfirmed request does not`() = testApplication {
+        configureApp("security.lockout.threshold" to "3")
+        startApplication()
+        val email = uniqueEmail("mfa-reset")
+        val userId = seedMfaUser(email)
+        val mail = LogCapture("ch.nokillswit.mail")
+        val audit = LogCapture("ch.nokillswit.audit")
+        try {
+            val client = jsonClient()
+            suspend fun lockByWrongCodes(mails: Int, password: String) {
+                val challenge = client.login(email, password).body<MfaChallengeResponse>()
+                val code = mail.codes(email, mails).last()
+                repeat(3) { assertEquals(HttpStatusCode.Unauthorized, client.verify(challenge.challengeId, wrongOf(code)).status) }
+            }
+            fun lockouts() = audit.events.filter { it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) }
+            lockByWrongCodes(1, "pw-123456789")
+            assertEquals(HttpStatusCode.TooManyRequests, client.login(email, "pw-123456789").status)
+
+            // An unconfirmed request (the 202 path, a link merely sent) clears nothing.
+            assertEquals(HttpStatusCode.Accepted, client.postJson("/api/v1/password-reset", PasswordResetRequest(email)).status)
+            assertNotNull(audit.awaitEvent { it.message == "password_reset.link_sent" && it.hasKeyValue("email", email) })
+            assertEquals(HttpStatusCode.TooManyRequests, client.login(email, "pw-123456789").status)
+
+            // The confirmed reset (the link proves the mailbox) lifts the lock, and says so.
+            val token = assertNotNull(newPasswordResetService().issueToken(userId, 0, email))
+            assertEquals(
+                HttpStatusCode.NoContent,
+                client.postJson("/api/v1/password-reset/confirm", PasswordResetConfirmRequest(token, "chosen-password-1")).status,
+            )
+            assertNotNull(
+                audit.awaitEvent { it.message == "password_reset.completed" && it.hasKeyValue("lockoutCleared", true) },
+            )
+            assertTrue(client.login(email, "chosen-password-1").body<MfaChallengeResponse>().mfaRequired, "no 429: the lock is gone")
+
+            // ...and the escalation level too: the next code-tripped lock is level 1 (900 s) again, not level 2.
+            lockByWrongCodes(3, "chosen-password-1")
+            assertNotNull(audit.awaitEvent { e -> lockouts().size == 2 && e.message == "login.lockout" })
+            assertEquals(listOf(1, 1), lockouts().map { e -> e.keyValuePairs.first { it.key == "escalationLevel" }.value })
+            assertEquals(listOf(900L, 900L), lockouts().map { e -> e.keyValuePairs.first { it.key == "lockSeconds" }.value })
+        } finally {
+            mail.detach()
+            audit.detach()
+        }
+    }
+
+    @Test
+    fun `wrong codes on a challenge minted before a password reset neither count nor lock the owner again`() = testApplication {
+        configureApp("security.lockout.threshold" to "2")
+        startApplication()
+        val email = uniqueEmail("mfa-stale")
+        val userId = seedMfaUser(email)
+        val mail = LogCapture("ch.nokillswit.mail")
+        val audit = LogCapture("ch.nokillswit.audit")
+        try {
+            val client = jsonClient()
+            val old = client.login(email, "pw-123456789").body<MfaChallengeResponse>()
+            val oldCode = mail.codes(email, 1).single()
+            val token = assertNotNull(newPasswordResetService().issueToken(userId, 0, email))
+            assertEquals(
+                HttpStatusCode.NoContent,
+                client.postJson("/api/v1/password-reset/confirm", PasswordResetConfirmRequest(token, "chosen-password-1")).status,
+            )
+            // The old challenge is dead: wrong codes on it (more than the threshold) answer the uniform 401 and lock nobody.
+            repeat(3) { assertEquals(HttpStatusCode.Unauthorized, client.verify(old.challengeId, wrongOf(oldCode)).status) }
+            assertNotNull(
+                audit.awaitEvent { it.message == "login.mfa_failure" && it.hasKeyValue("reason", "credential_changed") },
+            )
+            assertEquals(
+                0,
+                audit.events.count { it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) },
+                "nothing counted",
+            )
+            assertTrue(client.login(email, "chosen-password-1").body<MfaChallengeResponse>().mfaRequired, "no 429")
+        } finally {
+            mail.detach()
+            audit.detach()
+        }
+    }
+
+    @Test
     fun `wrong codes across fresh challenges add up and lock the account`() = testApplication {
         configureApp("security.lockout.threshold" to "3")
         startApplication()
@@ -75,7 +157,13 @@ class MfaLockoutTest {
             val secondCode = mail.codes(email, 2).last()
             // ...so the third wrong code, on the NEW challenge, trips the lock (the locking failure itself is the uniform 401).
             assertEquals(HttpStatusCode.Unauthorized, client.verify(second.challengeId, wrongOf(secondCode)).status)
-            assertNotNull(audit.awaitEvent { it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) })
+            // The first MFA-tripped lock is the flat window (900 s) at escalation level 1.
+            assertNotNull(
+                audit.awaitEvent {
+                    it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) &&
+                        it.hasKeyValue("lockSeconds", 900L) && it.hasKeyValue("escalationLevel", 1)
+                },
+            )
 
             // Locked: the right password answers 429, and no pending challenge can finish a sign-in, its right code included.
             assertEquals(HttpStatusCode.TooManyRequests, client.login(email, "pw-123456789").status)

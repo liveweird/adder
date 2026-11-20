@@ -30,6 +30,13 @@ fun Application.configureLoginThrottle() {
                 environment.config, "security.lockout.durationSeconds", min = 1, max = MAX_DURATION_SECONDS,
             ) * 1000,
             maxTracked = requireConfigInt(environment.config, "security.lockout.maxTracked", min = 1, max = MAX_TRACKED_IDENTITIES),
+            // The progressive lock for MFA-tripped locks only (LoginThrottle): the same 30-day ceiling, for the same overflow reason.
+            mfaMaxLockoutMillis = requireConfigLong(
+                environment.config, "security.lockout.mfaMaxDurationSeconds", min = 1, max = MAX_DURATION_SECONDS,
+            ) * 1000,
+            mfaDecayMillis = requireConfigLong(
+                environment.config, "security.lockout.mfaDecaySeconds", min = 1, max = MAX_DURATION_SECONDS,
+            ) * 1000,
         ),
     )
 }
@@ -64,6 +71,8 @@ internal class AccountGuess(
     /** The fields of [lockedEvent], when it is not a `login.*` event and so follows its own naming (`observability.md` "Field-naming"). */
     private val lockedFields: List<Pair<String, Any?>> = auditFields,
     private val knownAccount: Boolean = false,
+    /** True where a failure is a wrong emailed code (the MFA step): a lock it trips is progressive, see [LoginThrottle]. */
+    private val mfaCode: Boolean = false,
     private val onLocked: () -> Unit = {},
 ) {
     private fun audited(event: String) = audit(event, *auditFields.toTypedArray())
@@ -91,7 +100,8 @@ internal class AccountGuess(
      * preflight cannot see) or, for an unknown identity only, a full store.
      */
     fun recordFailure() {
-        when (throttle.recordFailure(email, knownAccount)) {
+        val outcome = throttle.recordFailureOutcome(email, knownAccount, mfaCode)
+        when (outcome.result) {
             LoginThrottle.FailureResult.CAPACITY_EXCEEDED -> {
                 audited(EVENT_LOGIN_CAPACITY_REJECTED)
                 throw lockoutCapacityException()
@@ -103,7 +113,11 @@ internal class AccountGuess(
             }
             LoginThrottle.FailureResult.LOCKED_NOW -> {
                 onLocked()
-                audited(EVENT_LOGIN_LOCKOUT)
+                // The length and level are audit-only: the 429 stays the one uniform answer, no factor is disclosed.
+                audit(
+                    EVENT_LOGIN_LOCKOUT, *auditFields.toTypedArray(),
+                    "lockSeconds" to outcome.lockMillis / 1000, "escalationLevel" to outcome.level,
+                )
             }
             LoginThrottle.FailureResult.RECORDED -> Unit
         }

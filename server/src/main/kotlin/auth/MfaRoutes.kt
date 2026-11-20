@@ -32,6 +32,15 @@ internal fun Route.mfaVerify(
                 val subject = outcome.subject
                 // The account is named whenever the challenge was found; an unknown id names nobody (no userId field at all).
                 val named = subject?.let { arrayOf("userId" to it.userId.toLong()) } ?: emptyArray()
+                val staleReason = if (outcome.wrongCode && subject != null) staleChallengeReason(userService, outcome) else null
+                if (staleReason != null) {
+                    // A password change or a confirmed reset since the challenge was minted ends it ("invalidates any pending MFA
+                    // challenge"): its wrong codes neither count into the lockout nor can ever succeed, so an old challenge cannot be
+                    // used to re-lock the owner right after a reset lifted the lock. The challenge is dropped.
+                    mfaChallenges.discard(req.challengeId)
+                    audit(EVENT_LOGIN_MFA_FAILURE, "reason" to staleReason, *named)
+                    throw UnauthorizedException("Invalid or expired sign-in code")
+                }
                 audit(EVENT_LOGIN_MFA_FAILURE, "reason" to outcome.reason, *named)
                 if (outcome.wrongCode && subject != null) mfaGuess(loginThrottle, mfaChallenges, subject).recordFailure()
                 // Uniform for every failure mode — a guesser learns nothing about
@@ -67,6 +76,17 @@ internal fun Route.mfaVerify(
     }
 }
 
+/**
+ * Why the failed challenge is dead, or null while the account still exists at the credential revision it was minted at:
+ * `user_gone` (deleted since) or `credential_changed` (a password change or reset). One primary-key read, made only for a WRONG code
+ * (the per-IP `mfa` bucket and the per-challenge attempt cap bound those), never for a right one.
+ */
+private suspend fun staleChallengeReason(userService: UserService, failure: MfaChallenges.Outcome.Failure): String? {
+    val subject = failure.subject ?: return null
+    val user = userService.read(subject.userId) ?: return "user_gone"
+    return if (user.credentialRevision == failure.credentialRevision) null else "credential_changed"
+}
+
 /** The MFA step's guess at [subject]'s account: a lock (now or already) also drops the account's pending challenges. */
 private fun mfaGuess(throttle: LoginThrottle, challenges: MfaChallenges, subject: MfaChallenges.Subject) = AccountGuess(
     throttle,
@@ -74,5 +94,7 @@ private fun mfaGuess(throttle: LoginThrottle, challenges: MfaChallenges, subject
     listOf("userId" to subject.userId.toLong(), "source" to "mfa"),
     // The challenge was minted for a real account: a wrong code counts even at a full lockout store.
     knownAccount = true,
+    // A lock a wrong code trips escalates (progressive for MFA only); the password step and the change keep the flat lock.
+    mfaCode = true,
     onLocked = { challenges.discardUser(subject.userId) },
 )

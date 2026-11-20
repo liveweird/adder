@@ -149,7 +149,13 @@ class PasswordChangeTest {
                 )
                 assertEquals(HttpStatusCode.Forbidden, wrong.status, "guess ${n + 1}")
             }
-            assertNotNull(capture.awaitEvent { it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) })
+            // A password-tripped lock is the flat window and never escalates.
+            assertNotNull(
+                capture.awaitEvent {
+                    it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) &&
+                        it.hasKeyValue("lockSeconds", 900L) && it.hasKeyValue("escalationLevel", 0)
+                },
+            )
 
             // Locked: even the CORRECT current password is refused, with the lockout's specific 429, before any bcrypt.
             val locked = client.putJson(
