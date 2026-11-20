@@ -223,6 +223,15 @@
     "ownerChanged": "Passed the thread from {{from}} to {{to}}",
     "fieldChanged": "Changed {{field}}"
   },
+  "reaction": {
+    "group": "Reactions",
+    "add": "Add a reaction",
+    "chip": "{{emoji}} {{total}}",
+    "chipReacted": "{{emoji}} {{total}}, you reacted",
+    "names_one": "{{names}} and {{count}} more",
+    "names_other": "{{names}} and {{count}} more",
+    "limit": "This message cannot take another reaction."
+  },
   "pin": {
     "thread": "Pin this thread",
     "pin": "Pin",

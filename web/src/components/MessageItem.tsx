@@ -15,13 +15,15 @@ import FormErrorAlert from "./FormErrorAlert";
 import MarkdownView from "./MarkdownView";
 import MessageEditForm from "./MessageEditForm";
 import MessagePinMenuItem from "./MessagePinMenuItem";
+import MessageReactions from "./MessageReactions";
 import RowActionsMenu from "./RowActionsMenu";
 
 /**
  * One message of the conversation: its author (a bold run, never a heading), when it was posted (the browser's zone), an "edited" marker,
  * and its body as `message`-variant Markdown. A tombstone shows who removed it instead of the body. `actions` says what the caller may do
  * (`utils/messageAccess.ts`): Edit and Delete for the author, Remove for a room OWNER or an ADMIN (D2), and Pin or Unpin for any member (`pin`, even in
- * a closed thread: `MessagePinMenuItem`), under a kebab menu; Edit swaps the body
+ * a closed thread: `MessagePinMenuItem`), under a kebab menu; `react` shows the emoji picker under the body, where the reactions sit
+ * (`MessageReactions`; without it they are read-only, and a tombstone has none); Edit swaps the body
  * for the inline editor, and Delete/Remove asks first. A write re-reads the room's thread queries and the rail, and a refusal (403, 404, 409)
  * re-reads the whole `["rooms"]` prefix, so the controls follow the truth. The failure of an edit or a delete shows under the message: it
  * lives HERE, so it outlives an editor that the refusal takes away (the thread closed), and `editing` resets when the edit action goes.
@@ -152,6 +154,7 @@ export default function MessageItem({
             {message.body}
           </MarkdownView>
         )}
+        {!editing && <MessageReactions roomId={roomId} message={message} canReact={actions.react === true} onError={setError} />}
         {error && <FormErrorAlert>{error}</FormErrorAlert>}
       </Stack>
       <ConfirmActionModal

@@ -60,6 +60,10 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame(event("message.deleted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
   });
 
+  test("message.reaction_changed re-reads the conversation, and nothing else: a reaction moves no count, order or rail", () => {
+    expect(keysForFrame(event("message.reaction_changed", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7]]);
+  });
+
   test("room.pin_changed re-reads the room's pins, and nothing else", () => {
     expect(keysForFrame(event("room.pin_changed", 5, 7, 99))).toEqual([["rooms", "pins", 5]]);
   });
@@ -391,6 +395,38 @@ describe("createLiveInvalidator", () => {
     expect(lists()).toHaveLength(1);
     t.clock.advanceBy(1);
     expect(lists()).toHaveLength(2);
+    expect(t.flushedMessages()).toHaveLength(2);
+  });
+
+  test("reaction hints re-read a conversation at most once per 3 s, and a post in between still re-reads it within a second", () => {
+    const t = setup();
+    t.holdListBusy();
+    t.invalidator.handle(event("message.reaction_changed", 5, 7, 1));
+    t.clock.advanceBy(300);
+    expect(t.flushedMessages()).toHaveLength(1);
+    // A storm of reactions: one re-read, three seconds after the last one.
+    t.invalidator.handle(event("message.reaction_changed", 5, 7, 1));
+    t.invalidator.handle(event("message.reaction_changed", 5, 7, 2));
+    t.clock.advanceBy(2_699);
+    expect(t.flushedMessages()).toHaveLength(1);
+    // A post for the same conversation brings the re-read forward: within its own settle time, not three seconds.
+    t.invalidator.handle(event("message.posted", 5, 7, 3));
+    t.clock.advanceBy(299);
+    expect(t.flushedMessages()).toHaveLength(1);
+    t.clock.advanceBy(1);
+    expect(t.flushedMessages()).toHaveLength(2);
+    // Nothing is left over for the reactions' original due time.
+    t.clock.advanceBy(3_000);
+    expect(t.flushedMessages()).toHaveLength(2);
+  });
+
+  test("a post alone is never spaced, whatever reactions went before: only the reaction hint keeps the gap", () => {
+    const t = setup();
+    t.holdListBusy();
+    t.invalidator.handle(event("message.reaction_changed", 5, 7, 1));
+    t.clock.advanceBy(300);
+    t.invalidator.handle(event("message.posted", 5, 7, 2));
+    t.clock.advanceBy(300);
     expect(t.flushedMessages()).toHaveLength(2);
   });
 

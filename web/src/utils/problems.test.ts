@@ -13,6 +13,7 @@ describe("problems", () => {
       fieldTypeImmutable: "urn:adder:problem:field-type-immutable",
       roomBusy: "urn:adder:problem:room-busy",
       pinLimit: "urn:adder:problem:pin-limit",
+      reactionLimit: "urn:adder:problem:reaction-limit",
       searchTimeout: "urn:adder:problem:search-timeout",
       searchBusy: "urn:adder:problem:search-busy",
       readTimeout: "urn:adder:problem:read-timeout",

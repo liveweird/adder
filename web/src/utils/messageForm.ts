@@ -7,25 +7,27 @@ import { saveErrorMessage } from "./saveError";
 import { roomKeys } from "./roomKeys";
 
 /**
- * The failure vocabulary of every message write (post, edit, delete). The two 409s are told apart by their problem type (a closed thread and
+ * The failure vocabulary of every message write (post, edit, delete, react). The 409s are told apart by their problem type (a closed thread and
  * an archived room need different words); the caller re-reads the room and the thread on a 403, 404 or 409 (`isAccessRefusal`), so the notices
  * and the controls follow the truth.
  */
 export function messageErrorMessage(err: unknown, t: TFunction): string {
-  const conflict = isProblem(err, PROBLEM_TYPES.threadClosed)
-    ? "threads.message.error.closed"
-    : isProblem(err, PROBLEM_TYPES.roomArchived)
-      ? "threads.message.error.archived"
-      : "threads.message.error.conflict";
   return saveErrorMessage(err, t, {
     forbidden: "threads.message.error.forbidden",
     notFound: "threads.message.error.gone",
-    conflict,
+    conflict: conflictKey(err),
     tooManyRequests: "threads.message.error.tooManyRequests",
     invalid: "threads.message.error.invalid",
     failedStatus: "common.error.actionFailedStatus",
     failed: "common.error.actionFailed",
   });
+}
+
+/** The words of a 409, by its problem type: a closed thread, an archived room and a message that takes no more reactions each need their own. */
+function conflictKey(err: unknown) {
+  if (isProblem(err, PROBLEM_TYPES.threadClosed)) return "threads.message.error.closed";
+  if (isProblem(err, PROBLEM_TYPES.roomArchived)) return "threads.message.error.archived";
+  return isProblem(err, PROBLEM_TYPES.reactionLimit) ? "threads.reaction.limit" : "threads.message.error.conflict";
 }
 
 /** Ctrl+Enter or Cmd+Enter sends (a plain Enter is a newline); a key pressed while an IME composition is open never does. */

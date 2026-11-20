@@ -33,6 +33,9 @@ function threadKeys(kind: ThreadScopedKind, r: number, n: number | undefined): Q
       // The conversation, the list (an edit can add or drop a hashtag, which a tag filter would show or hide) and the room's pins (a pinned
       // message's body shows in the panel; a redacted one must not linger there).
       return [messages(r, n), threadList(r), pins(r)];
+    case "message.reaction_changed":
+      // Only the conversation shows reactions: no count, no list order and no rail moves with one (a reaction is not activity). Spaced: `isSlowFrame`.
+      return [messages(r, n)];
     default:
       // message.deleted: the tombstone, the count on the thread and its row, and the room's pins (a deleted message loses its pin).
       return [messages(r, n), threadDetail(r, n), threadList(r), pins(r)];
@@ -84,8 +87,11 @@ export function keysForFrame(frame: LiveServerFrame): QueryKey[] {
   }
 }
 
-/** The pages that list or count (the rail, the rooms list, a room's thread list) change on almost every hint: they refresh at most this often. */
-const AGGREGATE_MIN_GAP_MS = 3_000;
+/**
+ * The pages that list or count (the rail, the rooms list, a room's thread list) change on almost every hint: they refresh at most this often.
+ * So does a conversation that a "slow" frame names (`isSlowFrame`: a reaction hint), which a post still re-reads within the settle time.
+ */
+const SPACED_MIN_GAP_MS = 3_000;
 /** A burst settles for this long before its keys are re-read... */
 const SETTLE_MS = 300;
 /** ...but never longer than this from its first hint. */
@@ -114,9 +120,18 @@ function coveredAggregates(key: QueryKey): string[] {
   return [];
 }
 
+/**
+ * A frame whose keys keep the gap of the aggregates even though they are no aggregate: a reaction is cheap chatter (a thumbs-up storm under one
+ * message), so it re-reads its conversation at most every three seconds. A `message.posted` for the same key is not slow and brings the re-read forward.
+ */
+function isSlowFrame(frame: LiveServerFrame): boolean {
+  return frame.type === "event" && frame.kind === "message.reaction_changed";
+}
+
 interface Pending {
   key: QueryKey;
-  aggregate: boolean;
+  /** An aggregate, or named by a slow frame: kept at least SPACED_MIN_GAP_MS from its last spaced re-read. */
+  spaced: boolean;
   firstAt: number;
   dueAt: number;
 }
@@ -156,35 +171,40 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
         continue;
       }
       pending.delete(id);
-      // Only the aggregates are spaced, so only they need a stamp; a wider re-read stamps the aggregates it covers (the 3 s guarantee holds).
-      if (entry.aggregate) lastFlushedAt.set(id, now);
+      // Only the spaced keys need a stamp; a wider re-read stamps the aggregates it covers (the 3 s guarantee holds).
+      if (entry.spaced) lastFlushedAt.set(id, now);
       for (const covered of coveredAggregates(entry.key)) lastFlushedAt.set(covered, now);
       void queryClient.invalidateQueries({ queryKey: entry.key });
     }
     arm();
   }
 
-  function queue(key: QueryKey, spread: boolean): void {
+  function queue(key: QueryKey, spread: boolean, slow: boolean): void {
     const id = idOf(key);
     const now = clock.now();
-    const aggregate = isAggregate(key);
+    const spaced = slow || isAggregate(key);
     const existing = pending.get(id);
-    if (aggregate || spread) {
+    if (spaced || spread) {
       // A fixed place (the spread, or the settle) kept to the gap since the last re-read; a later hint can only bring it forward.
       const wait = spread ? clock.random() * SPREAD_MS : SETTLE_MS;
-      const dueAt = Math.max(now + wait, aggregate ? (lastFlushedAt.get(id) ?? -Infinity) + AGGREGATE_MIN_GAP_MS : -Infinity);
-      if (!existing || dueAt < existing.dueAt) pending.set(id, { key, aggregate, firstAt: existing?.firstAt ?? now, dueAt });
+      const dueAt = Math.max(now + wait, spaced ? (lastFlushedAt.get(id) ?? -Infinity) + SPACED_MIN_GAP_MS : -Infinity);
+      if (!existing || dueAt < existing.dueAt) pending.set(id, { key, spaced, firstAt: existing?.firstAt ?? now, dueAt });
+    } else if (existing?.spaced) {
+      // A hint that is no reaction (a post) for a conversation waiting out the gap: it settles on its own clock, and only ever brings the re-read forward.
+      existing.dueAt = Math.min(existing.dueAt, now + SETTLE_MS);
+      existing.firstAt = now;
     } else if (existing) {
       existing.dueAt = Math.min(now + SETTLE_MS, existing.firstAt + MAX_WAIT_MS);
     } else {
-      pending.set(id, { key, aggregate, firstAt: now, dueAt: now + SETTLE_MS });
+      pending.set(id, { key, spaced, firstAt: now, dueAt: now + SETTLE_MS });
     }
   }
 
   return {
     handle(frame) {
       const spread = frame.type === "resync" || frame.type === "ready" || frame.type === "subscribed";
-      for (const key of keysForFrame(frame)) queue(key, spread);
+      const slow = isSlowFrame(frame);
+      for (const key of keysForFrame(frame)) queue(key, spread, slow);
       arm();
     },
     dispose() {

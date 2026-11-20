@@ -227,6 +227,17 @@
     "ownerChanged": "Przekazał/a wątek: {{from}} → {{to}}",
     "fieldChanged": "Zmienił/a pole {{field}}"
   },
+  "reaction": {
+    "group": "Reakcje",
+    "add": "Dodaj reakcję",
+    "chip": "{{emoji}} {{total}}",
+    "chipReacted": "{{emoji}} {{total}}, w tym Twoja reakcja",
+    "names_one": "{{names}} i {{count}} inna osoba",
+    "names_few": "{{names}} i {{count}} inne osoby",
+    "names_many": "{{names}} i {{count}} innych osób",
+    "names_other": "{{names}} i {{count}} innej osoby",
+    "limit": "Ta wiadomość nie przyjmie kolejnej reakcji."
+  },
   "pin": {
     "thread": "Przypnij ten wątek",
     "pin": "Przypnij",

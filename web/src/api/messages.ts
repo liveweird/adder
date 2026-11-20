@@ -27,6 +27,18 @@ export async function postMessage(roomId: number, threadNumber: number, body: st
   return jsonRequest<MessageResponse>(`/api/v1/rooms/${roomId}/threads/${threadNumber}/messages`, { method: "POST", body: JSON.stringify(payload) });
 }
 
+export type ReactionSummary = MessageResponse["reactions"][number];
+type ReactionBody = paths["/api/v1/rooms/{id}/messages/{messageId}/reaction"]["put"]["requestBody"]["content"]["application/json"];
+
+/**
+ * Sets whether the caller has this one emoji on a message (`reacted`), idempotent: 204 whether or not it changed. The emoji travels in the body,
+ * never in a path. Members only; 409 `thread-closed`, `room-archived` or `reaction-limit` (20 distinct emoji on a message, 5 of the caller's).
+ */
+export async function setMessageReaction(roomId: number, messageId: number, emoji: string, reacted: boolean): Promise<void> {
+  const payload: ReactionBody = { emoji, reacted };
+  return voidRequest(`/api/v1/rooms/${roomId}/messages/${messageId}/reaction`, { method: "PUT", body: JSON.stringify(payload) });
+}
+
 /** The author's own message, while a member; an unchanged body is a server-side no-op (204). */
 export async function editMessage(roomId: number, messageId: number, body: string): Promise<void> {
   const payload: MessageEditBody = { body };

@@ -18,9 +18,9 @@ export function messageComposeBlock(room: Pick<RoomResponse, "role" | "archived"
 
 /**
  * What the caller may do to one message: edit it, and remove it — as its author ("delete") or as a room OWNER or an ADMIN ("moderate") — and
- * pin or unpin it (`pin`; absent reads as false). The first two are the message's own writes; `pin` is the room's.
+ * pin or unpin it (`pin`) and react to it (`react`); both absent read as false. The first two are the message's own writes; `pin` is the room's.
  */
-export type MessageActions = { edit: boolean; remove: "delete" | "moderate" | null; pin?: boolean };
+export type MessageActions = { edit: boolean; remove: "delete" | "moderate" | null; pin?: boolean; react?: boolean };
 
 type OwnWrites = Pick<MessageActions, "edit" | "remove">;
 const NO_ACTIONS: OwnWrites = { edit: false, remove: null };
@@ -36,7 +36,12 @@ type MessageActionsInput = {
 /** 0.6 D4: any member pins and unpins a live message, in a closed thread too (a pin is the room's); a tombstone and an archived room refuse. UX only. */
 export function messageActions(args: MessageActionsInput): MessageActions {
   const { room, message } = args;
-  return { ...ownWrites(args), pin: room.role !== null && !room.archived && !message.deleted };
+  return { ...ownWrites(args), pin: room.role !== null && !room.archived && !message.deleted, react: canReact(args) };
+}
+
+/** 0.6 A24: a reaction is speech: members only, refused in a closed thread and an archived room, and a tombstone has none. UX only; the server guards. */
+function canReact({ room, thread, message }: MessageActionsInput): boolean {
+  return room.role !== null && !room.archived && !thread.closed && !message.deleted;
 }
 
 /**
