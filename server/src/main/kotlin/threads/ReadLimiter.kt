@@ -1,13 +1,11 @@
 package ch.nokillswit.threads
 
 import ch.nokillswit.audit.audit
-import ch.nokillswit.plugins.isQueryCanceled
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** The default of `threads.readTimeoutSeconds`: a normal list answers in milliseconds, so this is a runaway's ceiling. */
 const val DEFAULT_READ_TIMEOUT_SECONDS = 5
@@ -75,30 +73,17 @@ class ReadLimiter(
         try {
             if (!waitFor(deadline) { permits.tryAcquire() }) busy(callerUserId, roomId, resource, "process")
             try {
-                return withinBudget(database, callerUserId, roomId, resource, block)
+                return budgetedTransaction(
+                    database,
+                    timeoutSeconds,
+                    onTimeout = { timedOut(callerUserId, roomId, resource) },
+                    block = block,
+                )
             } finally {
                 permits.release()
             }
         } finally {
             leaveUser(callerUserId)
-        }
-    }
-
-    private suspend fun <T> withinBudget(
-        database: R2dbcDatabase,
-        callerUserId: UInt,
-        roomId: UInt,
-        resource: String,
-        block: suspend R2dbcTransaction.(SearchBudget) -> T,
-    ): T {
-        val budget = SearchBudget(timeoutSeconds)
-        try {
-            return suspendTransaction(database) { block(budget) }
-        } catch (_: BudgetSpent) {
-            timedOut(callerUserId, roomId, resource)
-        } catch (failure: Exception) {
-            if (!failure.isQueryCanceled()) throw failure
-            timedOut(callerUserId, roomId, resource)
         }
     }
 

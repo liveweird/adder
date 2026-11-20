@@ -265,7 +265,7 @@ is the destination. The user's decisions 0.5 D1-0.5 D5 (2026-11-19) and the assu
 
 ### Paged lists of a room
 
-A room's members are the first paged sub-collection: `GET /rooms/{id}/members` (reader; `{userId,name,email,role,addedAt}` rows; sortable `id` = the user id, `name`, `role`, `addedAt`; filters `role` (enum, `400` on an unknown name) and `name` (`containsNormalized` on the display name, at most 100 characters); ACTIVE users only, count and rows over ONE predicate in one transaction, in `rooms/RoomMemberService`). A room holds at most 500 members, so the page envelope is bounded by that cap, never unbounded.
+A room's members are the first paged sub-collection: `GET /rooms/{id}/members` (reader; `{userId,name,email,role,addedAt}` rows; sortable `id` = the user id, `name`, `role`, `addedAt`; filters `role` (enum, `400` on an unknown name) and `name` (`containsNormalized` on the display name, at most 50 characters: the user name column's own limit); ACTIVE users only, count and rows over ONE predicate in one transaction, in `rooms/RoomMemberService`). A room holds at most 500 members, so the page envelope is bounded by that cap, never unbounded.
 
 A room's threads and a thread's history are the next two: `GET /rooms/{id}/threads` (reader; sortable `id`, `number`, `title`, `lastActivityAt`, `createdAt`, `status`; the strict boolean filter `closed`; in `threads/ThreadService`) and `GET .../threads/{number}/events` (sortable `id`, `createdAt`, default `-createdAt,-id`, the shared `EVENT_LOG_*` of `infra/db/EventLog.kt`, so an old sort name such as `timestamp` is a `400`). 0.5 extends the thread list (below) and adds the room's tags and the two searches.
 

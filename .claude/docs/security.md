@@ -165,7 +165,7 @@ submitted email, `/login` answers `429` for `security.lockout.durationSeconds` (
 `$LOGIN_LOCKOUT_DURATION_SECONDS`) — even with the correct password, and regardless of whether the
 account exists (no enumeration signal). A success resets the counter. The in-memory, per-instance (so the app runs ONE replica — `ci.yml` `k8s-static` pins it)
 store has a hard `security.lockout.maxTracked` limit (default 10,000,
-`$LOGIN_LOCKOUT_MAX_TRACKED`): expired state is reclaimed through an expiry index, but fresh
+`$LOGIN_LOCKOUT_MAX_TRACKED`): expired state is reclaimed through an expiry index (`infra/ExpiringIndex.kt`, the one TTL index the reset cooldown, the MFA challenges and the live tickets share), but fresh
 counters and active locks are never evicted to admit a new identity. At capacity, an untracked
 identity receives an audited `429` before password verification, so saturation cannot bypass the
 account throttle; tracked identities can still finish their normal flow. A fixed-size digest of

@@ -23,6 +23,7 @@ import { isString, useStoredState } from "../hooks/useStoredState";
 import { saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { MAX_EMAIL_LENGTH, MAX_USER_NAME_LENGTH } from "../utils/userForm";
 import { editUserPath, newUserPath, userFeaturesPath } from "../utils/userLinks";
 import ErrorAlert from "../components/ErrorAlert";
 import FormErrorAlert from "../components/FormErrorAlert";
@@ -99,12 +100,14 @@ export default function Users() {
           value={nameFilter}
           onChange={setNameFilter}
           clearLabel={t("common.filter.clearName")}
+          maxLength={MAX_USER_NAME_LENGTH}
         />
         <ClearableTextInput
           label={t("common.field.email")}
           value={emailFilter}
           onChange={setEmailFilter}
           clearLabel={t("users.clearEmailFilter")}
+          maxLength={MAX_EMAIL_LENGTH}
         />
         <Select
           label={t("common.field.role")}

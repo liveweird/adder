@@ -1,9 +1,10 @@
 package ch.nokillswit.auth
 
+import ch.nokillswit.infra.ExpiringIndex
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.maskedSecret
 import java.security.MessageDigest
 import java.security.SecureRandom
-import java.util.TreeMap
 
 /**
  * In-memory store of pending email-MFA challenges (Lettuce's, ported): a login with correct
@@ -26,7 +27,7 @@ class MfaChallenges(
     private val maxAttempts: Int,
     private val maxTracked: Int = 10_000,
     private val maxPerUser: Int = DEFAULT_MAX_PER_USER,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = ::nowMillis,
 ) {
     init {
         require(maxTracked > 0) { "maxTracked must be positive" }
@@ -66,7 +67,7 @@ class MfaChallenges(
     }
 
     private val challenges = mutableMapOf<String, Challenge>()
-    private val expiryIndex = TreeMap<Long, MutableSet<String>>()
+    private val expiries = ExpiringIndex<String>()
 
     /** Each account's live challenge ids, oldest first (every challenge has the same TTL, so issue order is expiry order). */
     private val byUser = mutableMapOf<UInt, ArrayDeque<String>>()
@@ -86,7 +87,7 @@ class MfaChallenges(
         val code = generateMfaCode()
         val expiresAt = now + ttlMillis
         challenges[id] = Challenge(Subject(userId, email), credentialRevision, code, expiresAt, attempts = 0)
-        expiryIndex.getOrPut(expiresAt) { mutableSetOf() }.add(id)
+        expiries.add(expiresAt, id)
         byUser.getOrPut(userId) { ArrayDeque() }.addLast(id)
         IssuedChallenge(id, code, expiresAt)
     }
@@ -123,21 +124,15 @@ class MfaChallenges(
     }
 
     private fun pruneExpired(now: Long) {
-        while (expiryIndex.firstEntry()?.key?.let { it <= now } == true) {
-            val (expiresAt, ids) = expiryIndex.pollFirstEntry()
-            ids.forEach { id ->
-                // Not removeChallenge(): the index entry is already polled; only the maps are left to clear.
-                if (challenges[id]?.expiresAt == expiresAt) dropFromMaps(id)
-            }
+        expiries.pruneExpired(now) { id, expiresAt ->
+            // Not removeChallenge(): the index entry is already polled; only the maps are left to clear.
+            if (challenges[id]?.expiresAt == expiresAt) dropFromMaps(id)
         }
     }
 
     private fun removeChallenge(id: String): Boolean {
         val removed = dropFromMaps(id) ?: return false
-        expiryIndex[removed.expiresAt]?.let { ids ->
-            ids.remove(id)
-            if (ids.isEmpty()) expiryIndex.remove(removed.expiresAt)
-        }
+        expiries.remove(removed.expiresAt, id)
         return true
     }
 

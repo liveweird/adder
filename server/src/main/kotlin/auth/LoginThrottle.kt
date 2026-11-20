@@ -1,7 +1,8 @@
 package ch.nokillswit.auth
 
-import java.security.MessageDigest
-import java.util.TreeMap
+import ch.nokillswit.infra.ExpiringIndex
+import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.json.sha256Hex
 
 /**
  * Per-account login throttle: after [threshold] consecutive failures for the same submitted
@@ -17,7 +18,7 @@ class LoginThrottle(
     private val threshold: Int,
     private val lockoutMillis: Long,
     private val maxTracked: Int = 10_000,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = ::nowMillis,
 ) {
     init {
         require(maxTracked > 0) { "maxTracked must be positive" }
@@ -44,7 +45,7 @@ class LoginThrottle(
     private data class State(val failures: Int, val lockedUntil: Long, val expiresAt: Long)
 
     private val states = mutableMapOf<String, State>()
-    private val expiryIndex = TreeMap<Long, MutableSet<String>>()
+    private val expiries = ExpiringIndex<String>()
     private val lock = Any()
 
     private fun key(email: String) = loginIdentityKey(email)
@@ -118,30 +119,20 @@ class LoginThrottle(
     private fun putState(key: String, state: State) {
         removeState(key)
         states[key] = state
-        expiryIndex.getOrPut(state.expiresAt) { mutableSetOf() }.add(key)
+        expiries.add(state.expiresAt, key)
     }
 
     private fun removeState(key: String) {
         val removed = states.remove(key) ?: return
-        expiryIndex[removed.expiresAt]?.let { keys ->
-            keys.remove(key)
-            if (keys.isEmpty()) expiryIndex.remove(removed.expiresAt)
-        }
+        expiries.remove(removed.expiresAt, key)
     }
 
     private fun pruneExpired(now: Long) {
-        while (expiryIndex.firstEntry()?.key?.let { it <= now } == true) {
-            val (expiresAt, keys) = expiryIndex.pollFirstEntry()
-            keys.forEach { key ->
-                if (states[key]?.expiresAt == expiresAt) states.remove(key)
-            }
+        expiries.pruneExpired(now) { key, expiresAt ->
+            if (states[key]?.expiresAt == expiresAt) states.remove(key)
         }
     }
-
 }
 
 /** Fixed-size, non-reversible key so an arbitrarily long submitted identity is never retained. */
-internal fun loginIdentityKey(email: String): String {
-    val canonical = email.trim().lowercase().toByteArray(Charsets.UTF_8)
-    return MessageDigest.getInstance("SHA-256").digest(canonical).joinToString("") { "%02x".format(it) }
-}
+internal fun loginIdentityKey(email: String): String = sha256Hex(email.trim().lowercase())

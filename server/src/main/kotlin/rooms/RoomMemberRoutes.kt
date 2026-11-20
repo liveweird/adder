@@ -7,14 +7,14 @@ import ch.nokillswit.authz.requireRoomManager
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.optionalEnum
-import ch.nokillswit.infra.paging.optionalString
+import ch.nokillswit.infra.paging.optionalBoundedString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.plugins.RateLimits
+import ch.nokillswit.users.MAX_NAME_LENGTH
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
-import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
@@ -67,10 +67,7 @@ private fun Route.memberList(roomService: RoomService, memberService: RoomMember
         roomService.visibleStanding(caller, route.parent.id)
         val paging = call.parsePaging(sortable = ROOM_MEMBER_SORT_FIELDS)
         val params = call.request.queryParameters
-        val name = params.optionalString("name")
-        if (name != null && name.codePointCount(0, name.length) > MAX_MEMBER_NAME_FILTER_LENGTH) {
-            throw BadRequestException("name must be at most $MAX_MEMBER_NAME_FILTER_LENGTH characters")
-        }
+        val name = params.optionalBoundedString("name", MAX_NAME_LENGTH)
         val filter = RoomMemberListFilter(role = params.optionalEnum("role"), name = name)
         val result = memberService.list(route.parent.id, filter, paging)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))

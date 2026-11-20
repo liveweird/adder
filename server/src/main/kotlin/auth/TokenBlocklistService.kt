@@ -1,5 +1,6 @@
 package ch.nokillswit.auth
 
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService.Users
 import ch.nokillswit.users.asAdditionalRoles
@@ -60,7 +61,7 @@ enum class AccessVerdict {
 
 class TokenBlocklistService(
     private val database: R2dbcDatabase,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = ::nowMillis,
     private val replayGraceMillis: Long = REFRESH_REPLAY_GRACE_MS,
 ) {
     object RevokedTokens : Table("revoked_tokens") {
@@ -112,7 +113,7 @@ class TokenBlocklistService(
     // [onInserted] runs inside the transaction, right after this call's insert took the row and before the commit.
     private suspend fun insertRevocation(jti: String, expiresAtEpochMillis: Long, onInserted: () -> Unit): Boolean =
         suspendTransaction(database) {
-            RevokedTokens.deleteWhere { expiresAt less System.currentTimeMillis() }
+            RevokedTokens.deleteWhere { expiresAt less nowMillis() }
             val inserted = RevokedTokens.insertIgnore {
                 it[RevokedTokens.jti] = jti
                 it[RevokedTokens.expiresAt] = expiresAtEpochMillis

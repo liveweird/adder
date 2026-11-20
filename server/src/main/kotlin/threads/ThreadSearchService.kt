@@ -10,7 +10,6 @@ import ch.nokillswit.infra.db.ftsRowVector
 import ch.nokillswit.infra.db.ftsVector
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
-import ch.nokillswit.plugins.isQueryCanceled
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomSummary
 import io.ktor.util.AttributeKey
@@ -28,7 +27,6 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.selectAll
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 val ThreadSearchServiceKey = AttributeKey<ThreadSearchService>("ThreadSearchService")
 
@@ -37,6 +35,9 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
     "lastActivityAt" to ThreadService.Threads.lastActivityAt,
     "createdAt" to ThreadService.Threads.createdAt,
 )
+
+/** The sortable whitelist of a search: derived from the column map, so the two cannot disagree. */
+val SEARCH_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
 /** The columns a hit reads of its thread (never `fields`: the jsonb document can be tens of kilobytes). */
 private val HIT_COLUMNS: List<Column<*>> = with(ThreadService.Threads) {
@@ -99,13 +100,7 @@ class ThreadSearchService(
             throw searchBusy()
         }
         try {
-            val budget = SearchBudget(timeoutSeconds, clock)
-            return suspendTransaction(database) { block(budget) }
-        } catch (_: BudgetSpent) {
-            timedOut(callerUserId, roomId)
-        } catch (failure: Exception) {
-            if (!failure.isQueryCanceled()) throw failure
-            timedOut(callerUserId, roomId)
+            return budgetedTransaction(database, timeoutSeconds, clock, onTimeout = { timedOut(callerUserId, roomId) }, block = block)
         } finally {
             permits.release()
         }

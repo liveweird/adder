@@ -3,6 +3,7 @@ package ch.nokillswit.plugins
 import ch.nokillswit.authz.caller
 import ch.nokillswit.infra.clientAddressKey
 import ch.nokillswit.infra.config.requireConfigInt
+import ch.nokillswit.infra.db.nowMillis
 import io.ktor.server.application.*
 import io.ktor.server.plugins.ratelimit.RateLimit
 import io.ktor.server.plugins.ratelimit.RateLimitName
@@ -30,7 +31,7 @@ internal val RateLimitUserKey = AttributeKey<UInt>("RateLimitUser")
  */
 internal class RateLimitAuditThrottle(
     private val intervalMs: Long = DEFAULT_INTERVAL_MS,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = ::nowMillis,
 ) {
     private class Window(var lastEmitMs: Long, var suppressed: Long)
 

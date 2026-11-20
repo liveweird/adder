@@ -27,8 +27,7 @@ const val MAX_SEARCH_PAGE_SIZE = 20
 /** How many of a thread's newest matching messages a hit carries; `matchCount` counts them all. */
 const val SEARCH_MESSAGES_PER_THREAD = 3
 
-/** The sortable whitelist of a search and its default: the most recently active thread first (ties by `id`). */
-val SEARCH_SORT_FIELDS: Set<String> = setOf("lastActivityAt", "createdAt", "id")
+/** The default sort of a search (its whitelist, `SEARCH_SORT_FIELDS`, is the column map's keys): newest activity first, ties by `id`. */
 val SEARCH_DEFAULT_SORT: List<SortField> = listOf(SortField("lastActivityAt", descending = true))
 
 /** One run of a snippet: plain [text], never markup (the client renders it as text), and [hit] when it matched the query. */

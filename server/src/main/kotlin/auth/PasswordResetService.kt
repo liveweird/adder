@@ -3,6 +3,7 @@ package ch.nokillswit.auth
 import ch.nokillswit.users.UserService.Users
 import ch.nokillswit.users.updatePasswordInTransaction
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.sha256Hex
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
@@ -33,7 +34,7 @@ internal val RESET_TOKEN_PATTERN = Regex("[A-Za-z0-9_-]{43}")
 class PasswordResetService(
     private val database: R2dbcDatabase,
     val ttlMillis: Long = DEFAULT_RESET_TTL_MILLIS,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = ::nowMillis,
 ) {
     init { require(ttlMillis in 1..MAX_RESET_TTL_MILLIS) { "Password reset TTL must be positive and at most one hour" } }
 

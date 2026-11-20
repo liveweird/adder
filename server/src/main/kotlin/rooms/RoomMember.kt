@@ -53,6 +53,3 @@ fun validateRoomMembersAdd(request: RoomMembersAddRequest) {
     if (ids.isEmpty() && request.teamId == null) throw BadRequestException("Name at least one of userIds and teamId")
     if (ids.size > MAX_USER_IDS_PER_ADD) throw BadRequestException("userIds takes at most $MAX_USER_IDS_PER_ADD ids")
 }
-
-/** The `name` filter of the member list: a substring, so anything longer than a 50-character user name plus slack is a `400`. */
-const val MAX_MEMBER_NAME_FILTER_LENGTH = 100

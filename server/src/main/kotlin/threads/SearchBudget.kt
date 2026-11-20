@@ -1,6 +1,9 @@
 package ch.nokillswit.threads
 
+import ch.nokillswit.plugins.isQueryCanceled
+import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
  * One DEADLINE for the whole database work of a search request. A transaction's `queryTimeout` bounds each STATEMENT, and a search runs
@@ -27,6 +30,30 @@ internal class SearchBudget(totalSeconds: Int, private val clock: () -> Long = S
 
     private companion object {
         const val NANOS_PER_SECOND = 1_000_000_000L
+    }
+}
+
+/**
+ * The ONE budgeted read transaction (the search's and the two list reads'): [block] runs in a single transaction under a fresh
+ * [SearchBudget] of [timeoutSeconds]. A statement the budget cancelled (SQLSTATE `57014`) or a deadline spent between two statements
+ * calls [onTimeout], which audits and throws the caller's typed `429`; any other failure propagates untouched. The cancelled statement's
+ * cause is deliberately dropped (a database failure's message can echo a bound value).
+ */
+internal suspend fun <T> budgetedTransaction(
+    database: R2dbcDatabase,
+    timeoutSeconds: Int,
+    clock: () -> Long = System::nanoTime,
+    onTimeout: () -> Nothing,
+    block: suspend R2dbcTransaction.(SearchBudget) -> T,
+): T {
+    val budget = SearchBudget(timeoutSeconds, clock)
+    try {
+        return suspendTransaction(database) { block(budget) }
+    } catch (_: BudgetSpent) {
+        onTimeout()
+    } catch (failure: Exception) {
+        if (!failure.isQueryCanceled()) throw failure
+        onTimeout()
     }
 }
 

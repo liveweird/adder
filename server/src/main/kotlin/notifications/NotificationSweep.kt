@@ -5,6 +5,7 @@ import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.mail.mailAppUrl
 import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
@@ -44,7 +45,7 @@ internal val NotificationSweepKey = AttributeKey<Deferred<Int?>>("NotificationSw
  */
 internal class NotificationSweep(
     private val retentionMillis: Long,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = ::nowMillis,
     /** Deletes the notices created before the cutoff (epoch millis) and answers how many went: [NotificationService.purgeOlderThan]. */
     private val purge: suspend (cutoffMillis: Long) -> Int,
     /** The email digest's run ([NotificationDigest.run]), every tick; a no-op where nothing mails (a test, mail disabled). */

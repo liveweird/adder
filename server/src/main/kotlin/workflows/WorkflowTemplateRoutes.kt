@@ -5,7 +5,7 @@ import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.infra.db.orVanished
-import ch.nokillswit.infra.paging.optionalString
+import ch.nokillswit.infra.paging.optionalBoundedString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.infra.revision.expectedRevision
@@ -14,7 +14,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
-import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.request.receive
 import io.ktor.server.resources.delete
 import io.ktor.server.resources.get
@@ -46,11 +45,9 @@ fun Application.configureWorkflowTemplateRoutes() {
             get<WorkflowTemplatesRoute> {
                 call.caller()
                 val paging = call.parsePaging(sortable = WORKFLOW_TEMPLATE_SORT_FIELDS)
-                val name = call.request.queryParameters.optionalString("name")
-                if (name != null && name.length > MAX_TEMPLATE_NAME_LENGTH) {
-                    throw BadRequestException("name must be at most $MAX_TEMPLATE_NAME_LENGTH characters")
-                }
-                val filter = WorkflowTemplateListFilter(name = name)
+                val filter = WorkflowTemplateListFilter(
+                    name = call.request.queryParameters.optionalBoundedString("name", MAX_TEMPLATE_NAME_LENGTH),
+                )
                 val result = service.list(filter, paging)
                 call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
             }

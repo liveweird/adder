@@ -1812,6 +1812,7 @@ export interface components {
         };
         LoginRequest: {
             email: string;
+            /** @description A password longer than 71 UTF-8 bytes (the bcrypt ceiling) never matches an account: the same `401` as a wrong one. */
             password: string;
         };
         LoginResponse: {
@@ -2917,7 +2918,7 @@ export interface components {
             channel: components["schemas"]["NotificationChannel"];
         };
         NotificationPreferencesUpdate: {
-            /** @description The pairs to switch OFF (everything else is on). A pair listed twice is a `400`. */
+            /** @description The pairs to switch OFF (everything else is on). A pair listed twice is a `400`, and so is a list longer than the number of pairs there are (notification types x channels, 2 today: the bound the server enforces, `MAX_DISABLED_PAIRS`). */
             disabled: components["schemas"]["DisabledNotificationPreference"][];
         };
         NotificationPage: {
@@ -3603,7 +3604,9 @@ export interface operations {
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
+                /** @description Trimmed first; at most 50 characters (code points) after trimming, `400` past that. */
                 name?: string;
+                /** @description Trimmed first; at most 254 characters (code points) after trimming, `400` past that. */
                 email?: string;
                 role?: "ADMIN" | "USER";
                 /** @description Feature-flag state filter — must be paired with `featureEnabled` (400 otherwise). */
@@ -3946,6 +3949,7 @@ export interface operations {
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
+                /** @description Trimmed first; at most 100 characters (code points) after trimming, `400` past that. */
                 name?: string;
             };
             header?: never;
@@ -4153,6 +4157,7 @@ export interface operations {
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
+                /** @description Trimmed first; at most 100 characters (code points) after trimming, `400` past that. */
                 name?: string;
             };
             header?: never;
@@ -4312,6 +4317,7 @@ export interface operations {
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
+                /** @description Trimmed first; at most 80 characters (code points) after trimming, `400` past that. */
                 name?: string;
                 archived?: boolean;
                 member?: boolean;
@@ -4471,6 +4477,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -4612,6 +4619,7 @@ export interface operations {
                  */
                 sort?: components["parameters"]["Sort"];
                 role?: components["schemas"]["RoomRole"];
+                /** @description Trimmed first; at most 50 characters (code points) after trimming, `400` past that. */
                 name?: string;
             };
             header?: never;

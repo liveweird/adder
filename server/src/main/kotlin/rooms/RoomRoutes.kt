@@ -10,7 +10,7 @@ import ch.nokillswit.authz.requireRoomReader
 import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoolean
-import ch.nokillswit.infra.paging.optionalString
+import ch.nokillswit.infra.paging.optionalBoundedString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.plugins.RateLimits
@@ -21,7 +21,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
-import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
@@ -88,11 +87,11 @@ private fun Route.roomReads(roomService: RoomService) {
         val caller = call.caller()
         val paging = call.parsePaging(sortable = ROOM_SORT_FIELDS)
         val params = call.request.queryParameters
-        val name = params.optionalString("name")
-        if (name != null && name.length > MAX_ROOM_NAME_LENGTH) {
-            throw BadRequestException("name must be at most $MAX_ROOM_NAME_LENGTH characters")
-        }
-        val filter = RoomListFilter(name = name, archived = params.optionalBoolean("archived"), member = params.optionalBoolean("member"))
+        val filter = RoomListFilter(
+            name = params.optionalBoundedString("name", MAX_ROOM_NAME_LENGTH),
+            archived = params.optionalBoolean("archived"),
+            member = params.optionalBoolean("member"),
+        )
         val result = roomService.list(caller.userId, caller.isAdmin(), filter, paging)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }

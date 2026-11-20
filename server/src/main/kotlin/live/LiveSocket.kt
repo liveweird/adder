@@ -3,6 +3,7 @@ package ch.nokillswit.live
 import ch.nokillswit.auth.AccessVerdict
 import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.infra.clientAddressKey
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.rooms.RoomService
 import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.websocket.CloseReason
@@ -35,7 +36,7 @@ internal class LiveSessionDeps(
     val blocklist: TokenBlocklistService,
     val rooms: RoomService,
     val audits: LiveAudit,
-    val clock: () -> Long = System::currentTimeMillis,
+    val clock: () -> Long = ::nowMillis,
 )
 
 private sealed interface Next {

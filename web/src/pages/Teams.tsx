@@ -17,6 +17,7 @@ import TeamEditorModal from "../components/TeamEditorModal";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
 import { saveErrorMessage } from "../utils/saveError";
+import { MAX_TEAM_NAME_LENGTH } from "../utils/teamForm";
 import { teamPath } from "../utils/teamLinks";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 
@@ -81,6 +82,7 @@ export default function Teams() {
           value={nameFilter}
           onChange={setNameFilter}
           clearLabel={t("common.filter.clearName")}
+          maxLength={MAX_TEAM_NAME_LENGTH}
         />
       </FilterPanel>
 

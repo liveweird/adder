@@ -24,6 +24,19 @@ fun Parameters.singleValue(name: String): String? {
 /** The param's value, or null when absent or blank. */
 fun Parameters.optionalString(name: String): String? = singleValue(name)?.takeIf { it.isNotBlank() }
 
+/**
+ * A free-text filter param (the `?name=` / `?email=` shape): null when absent or blank, otherwise the TRIMMED value, 400 when it is
+ * longer than [maxLength] CODE POINTS after trimming (an emoji is one, though two UTF-16 units; the spec's `maxLength` counts the
+ * same way). The bound keeps an oversized needle out of the `LIKE`; pass the stored column's own limit.
+ */
+fun Parameters.optionalBoundedString(name: String, maxLength: Int): String? {
+    val value = optionalString(name)?.trim() ?: return null
+    if (value.codePointCount(0, value.length) > maxLength) {
+        throw BadRequestException("$name must be at most $maxLength characters")
+    }
+    return value
+}
+
 /** An unsigned-id param (the `?teamId=` shape): null when absent, 400 when not a non-negative integer. */
 fun Parameters.optionalUInt(name: String): UInt? =
     optionalString(name)?.let { it.toUIntOrNull() ?: throw BadRequestException("Invalid $name: $it") }

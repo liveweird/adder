@@ -1,11 +1,12 @@
 package ch.nokillswit.live
 
+import ch.nokillswit.infra.ExpiringIndex
+import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.infra.maskedSecret
 import io.ktor.util.AttributeKey
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
-import java.util.TreeMap
 
 /** The ticket store, published on `Application.attributes` by `configureLive` (the socket step redeems from it). */
 val LiveTicketsKey = AttributeKey<LiveTickets>("LiveTickets")
@@ -47,7 +48,7 @@ data class LiveTicketBinding(
 class LiveTickets(
     private val maxTickets: Int,
     private val ttlMillis: Long = LIVE_TICKET_TTL_MILLIS,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = ::nowMillis,
 ) {
     init {
         require(maxTickets > 0) { "maxTickets must be positive" }
@@ -61,7 +62,7 @@ class LiveTickets(
     }
 
     private val tickets = mutableMapOf<String, LiveTicketBinding>()
-    private val expiryIndex = TreeMap<Long, MutableSet<String>>()
+    private val expiries = ExpiringIndex<String>()
     private val lock = Any()
 
     /**
@@ -97,7 +98,7 @@ class LiveTickets(
         if (tickets.size >= maxTickets) throw CapacityExceededException()
         val expiresAt = minOf(now + ttlMillis, tokenExpiresAtMillis)
         tickets[digest] = LiveTicketBinding(userId, isAdmin, roles, jti, credentialRevision, tokenExpiresAtMillis, expiresAt)
-        expiryIndex.getOrPut(expiresAt) { mutableSetOf() }.add(digest)
+        expiries.add(expiresAt, digest)
         return IssuedTicket(ticket, expiresAt)
     }
 
@@ -111,20 +112,14 @@ class LiveTickets(
     fun size(): Int = synchronized(lock) { tickets.size }
 
     private fun pruneExpired(now: Long) {
-        while (expiryIndex.firstEntry()?.key?.let { it <= now } == true) {
-            val (expiresAt, digests) = expiryIndex.pollFirstEntry()
-            digests.forEach { digest ->
-                if (tickets[digest]?.expiresAtMillis == expiresAt) tickets.remove(digest)
-            }
+        expiries.pruneExpired(now) { digest, expiresAt ->
+            if (tickets[digest]?.expiresAtMillis == expiresAt) tickets.remove(digest)
         }
     }
 
     private fun removeTicket(digest: String): LiveTicketBinding? {
         val removed = tickets.remove(digest) ?: return null
-        expiryIndex[removed.expiresAtMillis]?.let { digests ->
-            digests.remove(digest)
-            if (digests.isEmpty()) expiryIndex.remove(removed.expiresAtMillis)
-        }
+        expiries.remove(removed.expiresAtMillis, digest)
         return removed
     }
 
@@ -139,7 +134,6 @@ class LiveTickets(
             return encoder.encodeToString(bytes)
         }
 
-        fun digestOf(ticket: String): String =
-            MessageDigest.getInstance("SHA-256").digest(ticket.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        fun digestOf(ticket: String): String = sha256Hex(ticket)
     }
 }

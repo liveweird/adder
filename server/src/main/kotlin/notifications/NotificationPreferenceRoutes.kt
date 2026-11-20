@@ -12,7 +12,6 @@ import io.ktor.resources.Resource
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.auth.authenticate
-import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
@@ -26,9 +25,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 @Resource("/api/v1/users/{id}/notification-preferences")
 class UserNotificationPreferencesRoute(val id: UInt)
-
-/** Every `(kind, channel)` pair there is: a longer list repeats one (and is refused as that). */
-private val MAX_DISABLED_PAIRS = NotificationType.entries.size * NotificationChannel.entries.size
 
 /**
  * `GET` and `PUT /users/{id}/notification-preferences`. Both: `requireSelfOrAdmin` FIRST (`403` before anything is read), then the body
@@ -54,11 +50,9 @@ fun Application.configureNotificationPreferenceRoutes() {
                     val caller = call.caller()
                     requireSelfOrAdmin(caller, route.id)
                     val requested = call.receive<NotificationPreferencesUpdateRequest>().disabled
-                    val wanted = requested.toSet()
-                    if (requested.size > MAX_DISABLED_PAIRS || wanted.size != requested.size) {
-                        throw BadRequestException("A notification preference is listed more than once")
-                    }
-                    val before = preferences.replace(route.id, wanted).orNotFound("User")
+                    // Validated here (a 400 wins over the target's 404) and again by the service, which takes the raw list.
+                    val wanted = validateNotificationPreferences(requested)
+                    val before = preferences.replace(route.id, requested).orNotFound("User")
                     if (before != wanted) {
                         audit(
                             "user.notification_preferences_changed",

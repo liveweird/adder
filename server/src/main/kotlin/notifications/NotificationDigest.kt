@@ -2,6 +2,7 @@ package ch.nokillswit.notifications
 
 import ch.nokillswit.audit.audit
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.mail.Mailer
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.rooms.RoomSummary
@@ -33,10 +34,7 @@ import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("ch.nokillswit.notifications.NotificationDigest")
 
-/**
- * PEOPLE one run claims at most (the rest wait for the next tick): the claim picks per recipient, oldest waiting first, so one flooded
- * person's backlog cannot crowd out everybody else.
- */
+/** PEOPLE one run claims at most (the rest wait): oldest waiting first per recipient, so one flooded backlog crowds out nobody. */
 internal const val DIGEST_BATCH = 500
 
 /** Notices of ONE person a mail reads as entries (it lists [DIGEST_MAX_ENTRIES]); the re-check's survivors beyond are only counted. */
@@ -204,7 +202,7 @@ internal class NotificationDigest(
     private val appUrl: String?,
     private val delayMillis: Long,
     private val minIntervalMillis: Long,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = ::nowMillis,
     /** The most people per claim ([DIGEST_BATCH]); the claim takes [peopleToClaim] of them. */
     private val batchSize: Int = DIGEST_BATCH,
     /** Mails per run ([DIGEST_MAX_PER_RUN]; `notifications.email.maxPerRun`). */

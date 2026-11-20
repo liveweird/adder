@@ -2,6 +2,7 @@ import { Select } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { FEATURES, type Feature } from "../api/session";
 import { FEATURE_FLAGS_KEY, type FeatureFlagFilters as Filters } from "../hooks/useFeatureFlagFilters";
+import { MAX_EMAIL_LENGTH, MAX_USER_NAME_LENGTH } from "../utils/userForm";
 import ClearableTextInput from "./ClearableTextInput";
 import FilterPanel from "./FilterPanel";
 
@@ -35,12 +36,14 @@ export default function FeatureFlagFilters({ filters }: { filters: Filters }) {
         value={filters.name}
         onChange={filters.setName}
         clearLabel={t("common.filter.clearName")}
+        maxLength={MAX_USER_NAME_LENGTH}
       />
       <ClearableTextInput
         label={t("common.field.email")}
         value={filters.email}
         onChange={filters.setEmail}
         clearLabel={t("users.clearEmailFilter")}
+        maxLength={MAX_EMAIL_LENGTH}
       />
     </FilterPanel>
   );

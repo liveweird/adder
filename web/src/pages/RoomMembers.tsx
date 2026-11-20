@@ -27,6 +27,7 @@ import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { roomsPath } from "../utils/roomLinks";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
+import { MAX_USER_NAME_LENGTH } from "../utils/userForm";
 import { roomKeys } from "../utils/roomKeys";
 
 const SORT_FIELDS = ["name", "role", "addedAt"] as const;
@@ -35,8 +36,6 @@ type SortField = (typeof SORT_FIELDS)[number];
 const ROLES: readonly RoomRole[] = ["OWNER", "MEMBER"];
 /** The view-settings namespace; each room has its own (`roomMembers.<id>`), so one room's filter never hides another's members. */
 const SETTINGS_KEY = "roomMembers";
-/** The server's cap on the name filter (longer is a 400). */
-const MAX_NAME_FILTER_LENGTH = 100;
 
 /** The words for a failed role change, removal or leave: the last-owner refusal says what to do, the rest map by status. */
 function memberErrorMessage(error: unknown, t: TFunction, self: boolean): string {
@@ -164,7 +163,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
             value={nameFilter}
             onChange={setNameFilter}
             clearLabel={t("common.filter.clearName")}
-            maxLength={MAX_NAME_FILTER_LENGTH}
+            maxLength={MAX_USER_NAME_LENGTH}
           />
           <Select
             label={t("common.field.role")}

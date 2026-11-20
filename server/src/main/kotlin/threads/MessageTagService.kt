@@ -1,6 +1,8 @@
 package ch.nokillswit.threads
 
+import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
+import ch.nokillswit.infra.db.deleted
 import ch.nokillswit.infra.db.unaccent
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.SortField
@@ -46,8 +48,8 @@ private val TAG_SORT_FIELDS_COLUMNS: Map<String, Expression<*>> = mapOf(
     "id" to MessageTagService.MessageTags.tag,
 )
 
-/** The ONE sortable whitelist of the room tag list: `tag` and `threadCount` (the tiebreaker `id` maps to `tag`, not a public sort name). */
-val ROOM_TAG_SORT_FIELDS: Set<String> = setOf("tag", "threadCount")
+/** The ONE sortable whitelist of the room tag list, derived from the column map: `tag`, `threadCount` (not the `id` tiebreaker). */
+val ROOM_TAG_SORT_FIELDS: Set<String> = TAG_SORT_FIELDS_COLUMNS.keys - "id"
 
 /** The room tag list's default order: the most used tags first. */
 val ROOM_TAG_DEFAULT_SORT: List<SortField> = listOf(SortField("threadCount", descending = true))
@@ -183,7 +185,7 @@ class MessageTagService(
         val threads = ThreadService.Threads
         val stale = messages.join(threads, JoinType.INNER, messages.threadId, threads.id)
             .select(messages.id, messages.threadId, threads.roomId, messages.body)
-            .where { (messages.markedAsDeleted eq false) and (messages.tagsVersion less TAGS_VERSION) and (messages.id greater after) }
+            .where { messages.active() and (messages.tagsVersion less TAGS_VERSION) and (messages.id greater after) }
             .orderBy(messages.id)
             .limit(REINDEX_BATCH)
             .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate(ForUpdateOption.PostgreSQL.MODE.SKIP_LOCKED, messages))
@@ -216,7 +218,7 @@ class MessageTagService(
                 val messages = MessageService.Messages
                 val ids = tags.join(messages, JoinType.INNER, tags.messageId, messages.id)
                     .select(tags.messageId)
-                    .where { messages.markedAsDeleted eq true }
+                    .where { messages.deleted() }
                     .withDistinct()
                     .limit(PURGE_BATCH)
                     .map { it[tags.messageId].value }

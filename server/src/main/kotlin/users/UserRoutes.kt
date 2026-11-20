@@ -14,6 +14,7 @@ import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.authz.requireSelfOrAdmin
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoolean
+import ch.nokillswit.infra.paging.optionalBoundedString
 import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.SortField
@@ -139,8 +140,8 @@ private fun Route.userList(userService: UserService) {
             throw BadRequestException("feature and featureEnabled must be supplied together")
         }
         val filter = UserListFilter(
-            name = params.optionalString("name"),
-            email = params.optionalString("email"),
+            name = params.optionalBoundedString("name", MAX_NAME_LENGTH),
+            email = params.optionalBoundedString("email", MAX_EMAIL_LENGTH),
             role = params.optionalEnum<UserRole>("role"),
             feature = feature,
             featureEnabled = featureEnabled,
