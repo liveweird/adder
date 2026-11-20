@@ -1,13 +1,14 @@
 # Accessibility smoke (axe, WCAG A/AA)
 
 - **Spec**: [tests/accessibility.spec.ts](../tests/accessibility.spec.ts)
-- **Actors**: a throwaway administrator (`e2e-axe-admin-*`, minted through the seed administrator's API in a
-  file-level `beforeAll` and deleted last) for the authenticated pages, so the ~80 page loads spend its
-  per-user `live-ticket` bucket and not the seed administrator's, which the other specs share; an anonymous
-  visitor for the login screen
+- **Actors**: four throwaway administrators (`e2e-axe-admin-*`, `specAdmins`: minted through the seed administrator's API
+  in a file-level `beforeAll` and deleted last) for the authenticated pages, taken in turn, so the ~90 page loads (each signs in
+  straight onto the page it scans, one load a test) spend THEIR per-user `live-ticket` buckets and not the seed
+  administrator's; the first is the fixture room's owner, the other three are plain members of it and read the pages in turn, and the pages whose scanned state depends on the reader (a member's unread marks and role, the first one's own row, messages and reactions: the room home, the thread views, the members page, the user pages, the notification drawer, the unread marker) are opened by the first, so a page is always opened by the same account; an anonymous visitor for
+  the login screen
 - **Owns** (exclusive server-side state): one fixture team (unique `e2e-axe-*` name), created
   through the API before the detail-page block and deleted after it, and one fixture room
-  (unique `e2e-axe-room-*` name, a copy of the seeded Default template, the throwaway administrator its owner) with one thread in it
+  (unique `e2e-axe-room-*` name, a copy of the seeded Default template, the first throwaway administrator its owner and the other three its members) with one thread in it
   (`e2e-axe-thread-*`, started through the API; threads are never deleted, the room's deletion hides it) which is pinned together with its
   opening message through the API (the pinned panel's content; the pins go with the room), an archived twin of it
   (for the read-only workflow page), and one fixture teammate (a plain user, unique `e2e-axe-mate-*` name, a member of the fixture room, deleted
@@ -50,7 +51,7 @@ teammate's message mentions the admin, so it lists that notice) and the fixture 
 
 ## Scenario: the room leave dialog has no WCAG A/AA violations
 
-1. The admin signs in and opens the fixture room's members page, then clicks **Leave room** (the admin owns the fixture room, so the button is there; the dialog is only opened, never confirmed).
+1. The admin signs in and opens the fixture room's members page, then clicks **Leave room** (every sweep administrator is a member of the fixture room, so the button is there; the dialog is only opened, never confirmed).
    - *Expected*: the dialog settles at full opacity with the heading "Leave this room?" and an axe scan scoped to the dialog reports zero violations.
 
 ## Scenario: the notification drawer has no WCAG A/AA violations

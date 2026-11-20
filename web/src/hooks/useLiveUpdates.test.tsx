@@ -69,6 +69,27 @@ describe("useLiveUpdates", () => {
     expect(subscribes(socket)).toEqual([{ type: "subscribe", roomIds: [12, 3, 4] }]);
   });
 
+  test("mints exactly one ticket per connect: routes, the rail and a token rotation never mint again", async () => {
+    // The per-user `live-ticket` bucket is 60 a minute and a full page load is ONE connect, so a mint per render, route or rotation would
+    // spend it (the 1.0.0 follow-up that looked for a second mint per page load found none in the build; this pins it).
+    const t = setup("/rooms/12", [3]);
+    await act(settle);
+    expect(t.mintTicket).toHaveBeenCalledTimes(1);
+    act(() => makeLive(lastSocket()));
+    t.rerender({ rooms: [3, 4, 5] });
+    act(() => router.navigate("/rooms/9/threads/2"));
+    act(() => router.navigate("/search"));
+    localStorage.setItem("adder.auth.token", "rotated-token");
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "adder.auth.token" }));
+    });
+    // Past the subscription coalescing, short of the 25 s ping (an unanswered ping is a reconnect, and a reconnect IS a mint).
+    act(() => t.clock.advanceBy(1000));
+    await act(settle);
+    expect(t.mintTicket).toHaveBeenCalledTimes(1);
+    expect(SocketStub.instances).toHaveLength(1);
+  });
+
   test("a route that is not a room contributes nothing, and the set follows the rail and the route as they change", async () => {
     const t = setup("/rooms/new", [3]);
     await act(settle);

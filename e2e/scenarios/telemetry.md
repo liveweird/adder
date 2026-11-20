@@ -1,8 +1,8 @@
 # The ADMIN telemetry panel
 
 - **Spec**: [tests/telemetry.spec.ts](../tests/telemetry.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`) and one throwaway regular user
-- **Owns** (exclusive server-side state): one throwaway user (the fourth test, deleted
+- **Actors**: its own throwaway administrator (`e2e-telemetry-admin-*`, `specAdmins`) and one throwaway regular user
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-telemetry-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), one throwaway user (the fourth test, deleted
   by the test and by the afterEach). The panel's open flag, expanded sections and range are DEVICE-level
   localStorage. Every test first waits, through the API (bounded, 90 s), until the sampler has taken its
   first sample and the first storage measurement (the first tick comes seconds after the app starts): the sample is the NEWEST live (non-stale) process's, by `startedAt`. The staleness rule is a liveness bound, not a topology claim, so an app-only rebuild on an existing volume leaves the previous container's process live for up to 15 minutes and the panel can list two; the Memory locators are scoped to the newest instance by name.

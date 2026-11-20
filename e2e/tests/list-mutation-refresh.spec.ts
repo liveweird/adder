@@ -1,5 +1,8 @@
 import type { Page, Route } from "@playwright/test";
-import { apiAsAdmin, expect, login, openFilters, rowOperation, test, uniqueText } from "./helpers";
+import { apiAsAdmin, expect, openFilters, rowOperation, specAdmins, test, uniqueText } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-list-mutation-refresh-admin");
 
 type Registry = "users" | "teams";
 
@@ -48,7 +51,7 @@ async function verifyPendingListDelete(page: Page, registry: Registry) {
   }
   try {
     const id = await seed();
-    await login(page);
+    await admin.login(page);
     await page.goto(`/${registry}`);
     const row = page.getByRole("row", { name: new RegExp(name) });
     await openFilters(page);
@@ -129,7 +132,7 @@ test("a pending Feature Flags filter cannot undo a successful toggle", async ({ 
     expect(created.status()).toBe(201);
     userId = (await created.json() as { id: number }).id;
     expect((await api.put(`/api/v1/users/${userId}/features`, { data: { disabledFeatures: ["MFA"] } })).status()).toBe(204);
-    await login(page);
+    await admin.login(page);
     await page.goto("/feature-flags");
     await openFilters(page);
     const prefix = name.slice(0, -1);

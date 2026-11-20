@@ -1,10 +1,10 @@
 # Find: filters, hashtags, search and the focus view
 
 - **Spec**: [tests/find.spec.ts](../tests/find.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`, who only mints the throwaway users); throwaway regular users per scenario (a room's owner
+- **Actors**: its own throwaway administrator (`e2e-find-admin-*`, `specAdmins`, who only mints the throwaway users); throwaway regular users per scenario (a room's owner
   and, where it matters, a teammate), signed in without the form; one throwaway ADMINISTRATOR in the search-across-rooms scenario, minted through the
   seed administrator's API
-- **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-find-*` names, created and filled through the owners' API sessions) and its
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-find-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), its throwaway rooms (unique `e2e-find-*` names, created and filled through the owners' API sessions) and its
   users, removed through the API in an `afterEach` (rooms first, then the users, so a failing step leaves nothing behind). The seeded Default and
   Incident templates are shared and read-only: rooms only copy them. Every room is created by a throwaway user, so the seed administrator is never a
   member of one. Threads and messages are never deleted through the API: a room's removal hides them with it. The per-user `search` bucket (60 a

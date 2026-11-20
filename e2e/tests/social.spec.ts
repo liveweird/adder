@@ -7,7 +7,10 @@
 // The per-user `live-ticket`, `chat-post`, `chat-write` and `read-state` buckets are only ever spent by throwaway users, far below their limits.
 import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { apiAsUser, conversation, deleteViaApi, expect, login, rail, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsUser, conversation, deleteViaApi, expect, login, rail, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-social-admin");
 
 const cleanup: string[] = [];
 const apis: APIRequestContext[] = [];
@@ -66,7 +69,7 @@ const pinnedDrawer = (page: Page) => page.getByRole("dialog", { name: "Pinned in
 
 /** The admin (signed in on `page`) mints the owner and the teammate; the owner then makes a room and adds the teammate, all through the API. */
 async function scene(page: Page, { addMate = true }: { addMate?: boolean } = {}): Promise<Scene> {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Soc Owner", cleanup);
   const mate = await throwawayUser(page, "E2E Soc Mate", cleanup);
   const { api } = await apiAsUser(owner.email, owner.password);
@@ -440,7 +443,7 @@ test("a member removed from a room loses its notifications", async ({ page, brow
 });
 
 test("the Notification emails page saves a switch and keeps it after a reload", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const user = await throwawayUser(page, "E2E Soc Prefs", cleanup);
   await login(page, user.email, user.password);
   await page.goto("/notification-preferences");

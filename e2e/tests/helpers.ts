@@ -71,12 +71,18 @@ function sessionEntries(body: LoginBody): [string, string][] {
  * server-side, so one reused across tests would be a revoked one. A refused login (wrong password, an MFA challenge, a rate limit) or a
  * session the shell does not accept falls back to the real form, which then reports what is wrong. Pass credentials as a regular
  * user to read as one; the specs whose subject is a credential call `loginViaForm`.
+ *
+ * **Every full page load of the SPA mints one live-socket ticket** (`useLiveUpdates` opens the tab's socket once the shell mounts), and
+ * the mint rides a per-user bucket of 60 a minute, so a test that signs in and then `goto`s its page loads twice. `landOn` is the path
+ * that single load opens instead of `/`: a test that goes straight to a page signs in with it and spends one ticket, not two.
  */
-export async function login(page: Page, email = ADMIN, password = PASSWORD): Promise<void> {
+export async function login(page: Page, email = ADMIN, password = PASSWORD, landOn = "/"): Promise<void> {
   const minted = await page.request.post("/api/v1/login", { data: { email, password } });
   const body = minted.ok() ? ((await minted.json()) as Partial<LoginBody>) : undefined;
   if (body?.token === undefined || body.refreshToken === undefined || body.roles === undefined || body.userId === undefined) {
-    return loginViaForm(page, email, password);
+    await loginViaForm(page, email, password);
+    if (landOn !== "/") await page.goto(landOn);
+    return;
   }
   // `localStorage` needs a document on the app's origin; a fresh page is about:blank, and a static asset is the cheapest document
   // the origin serves (the SPA is not booted for it).
@@ -85,12 +91,13 @@ export async function login(page: Page, email = ADMIN, password = PASSWORD): Pro
     localStorage.clear();
     for (const [key, value] of entries) localStorage.setItem(key, value);
   }, sessionEntries(body as LoginBody));
-  await page.goto("/");
+  await page.goto(landOn);
   try {
     await expect(accountMenu(page)).toBeVisible({ timeout: 15_000 });
   } catch {
     // Drift in the persisted keys costs one slow sign-in here, never a red spec that is not about signing in.
     await loginViaForm(page, email, password);
+    if (landOn !== "/") await page.goto(landOn);
   }
 }
 
@@ -229,6 +236,94 @@ export async function apiAsUser(email: string, password: string): Promise<{ api:
   await anonymous.dispose();
   const api = await playwrightRequest.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
   return { api, userId };
+}
+
+/** A throwaway administrator minted by `specAdmins`. */
+interface SpecAdmin {
+  id: number;
+  email: string;
+  password: string;
+}
+
+/** The handle `specAdmins` returns. */
+export interface SpecAdmins {
+  /** The first administrator (the one that owns what the spec seeds); valid from the spec's `beforeAll` on. */
+  readonly first: SpecAdmin;
+  /** Every administrator of the pool, the first included; valid from the spec's `beforeAll` on. */
+  readonly all: readonly SpecAdmin[];
+  /** Signs `page` in as the first administrator (`login`'s `landOn`: the one path that single load opens). */
+  login(page: Page, landOn?: string): Promise<void>;
+  /** Signs `page` in as the next administrator of the pool after the first, in turn (the only one of a pool of one): for pages whose reader does not matter, so no one user spends the bucket. */
+  loginNext(page: Page, landOn?: string): Promise<void>;
+}
+
+/**
+ * Throwaway ADMINISTRATORS for the calling spec file, in place of the seed administrator: call it once at the top of the file. The
+ * suite's page loads each mint a live-socket ticket (see `login`), and that bucket is per USER (60 a minute), so seventeen specs
+ * signing in as the one seed administrator spent it in a full run. Each file therefore mints its own `count` administrators in
+ * `beforeAll` (through the seed administrator's API: no browser, no ticket) and deletes them in `afterAll`, after the file's own
+ * `afterEach` teardown has removed the rooms and teams they own. Every one is attempted, whatever the others answer, and a
+ * partly failed mint still deletes the ones that exist. 204 and 404 pass. Use more than one only for a file that opens dozens of
+ * pages in a minute (the accessibility sweep); the random password never leaves this process.
+ */
+export function specAdmins(prefix: string, count = 1): SpecAdmins {
+  const admins: SpecAdmin[] = [];
+  let turn = 0;
+  test.beforeAll(async () => {
+    const { api } = await apiAsAdmin();
+    try {
+      for (let i = 0; i < count; i++) {
+        const name = uniqueText(prefix);
+        const email = `${name.toLowerCase().replace(/[^a-z0-9-]/g, "-")}@adder.local`;
+        const password = `E2e-${randomUUID()}`.slice(0, 40);
+        const minted = await api.post("/api/v1/users", { data: { name, email, password, roles: ["ADMIN"] } });
+        expect(minted.status(), await minted.text()).toBe(201);
+        admins.push({ id: ((await minted.json()) as { id: number }).id, email, password });
+      }
+    } finally {
+      await api.dispose();
+    }
+  });
+  test.afterAll(async () => {
+    if (admins.length === 0) return;
+    // The ids leave `admins` only once the client exists: a seed-administrator login that fails here must not leak ADMIN accounts silently.
+    let api: APIRequestContext;
+    try {
+      ({ api } = await apiAsAdmin());
+    } catch (error) {
+      throw new Error(`spec administrators LEAKED (delete them by hand): ids ${admins.map((admin) => admin.id).join(", ")}; the seed login failed`, { cause: error });
+    }
+    const minted = admins.splice(0);
+    const failures: string[] = [];
+    try {
+      for (const admin of minted) {
+        try {
+          const status = (await api.delete(`/api/v1/users/${admin.id}`)).status();
+          if (status !== 204 && status !== 404) failures.push(`/api/v1/users/${admin.id} -> ${status}`);
+        } catch (error) {
+          failures.push(`/api/v1/users/${admin.id} -> ${String(error)}`);
+        }
+      }
+    } finally {
+      await api.dispose();
+    }
+    expect(failures, "spec administrator teardown DELETEs that answered neither 204 nor 404").toEqual([]);
+  });
+  const signInAs = (admin: SpecAdmin, page: Page, landOn?: string) => login(page, admin.email, admin.password, landOn);
+  return {
+    get first() {
+      return admins[0];
+    },
+    get all() {
+      return admins;
+    },
+    login: (page, landOn) => signInAs(admins[0], page, landOn),
+    // A pool leaves the first administrator (the owner of what the spec seeds) to the pages that are about it.
+    loginNext: (page, landOn) => {
+      const readers = admins.length > 1 ? admins.slice(1) : admins;
+      return signInAs(readers[turn++ % readers.length], page, landOn);
+    },
+  };
 }
 
 /**

@@ -1,9 +1,9 @@
 # Rooms
 
 - **Spec**: [tests/rooms.spec.ts](../tests/rooms.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`); throwaway regular users created through the Users page
+- **Actors**: its own throwaway administrator (`e2e-rooms-admin-*`, `specAdmins`); throwaway regular users created through the Users page
   (a room's creator and owner, an outsider, the people the owner adds)
-- **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-room-*` names), one throwaway team
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-rooms-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), its throwaway rooms (unique `e2e-room-*` names), one throwaway team
   (`e2e-room-team-*`, seeded through the API) and its users, removed through the API in an `afterEach` (rooms first, then
   the team, then the users, so a failing step leaves nothing behind). The seeded Default and Incident templates
   are shared and read-only: rooms only copy them. Every room is created by a throwaway user, so the seed administrator is

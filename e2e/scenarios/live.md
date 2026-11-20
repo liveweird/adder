@@ -1,14 +1,13 @@
 # Live updates across two browsers
 
 - **Spec**: [tests/live.spec.ts](../tests/live.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`, who only mints the throwaway users); two throwaway regular users per scenario
+- **Actors**: its own throwaway administrator (`e2e-live-admin-*`, `specAdmins`, who only mints the throwaway users); two throwaway regular users per scenario
   (a room's owner and a teammate the owner adds), each in its own browser context; one throwaway user in the last scenario
-- **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-live-*` names, created and filled through the owner's API session)
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-live-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), its throwaway rooms (unique `e2e-live-*` names, created and filled through the owner's API session)
   and its users, removed through the API in an `afterEach` (rooms first, then the users, so a failing step leaves nothing behind). The seeded
   Default template is shared and read-only: rooms only copy it. Every room is created by a throwaway user, so the seed administrator is never a
-  member of one. The last scenario owns one throwaway user and no room (the seed administrator is every other spec's account, and the ticket mint is a
-  per-user bucket). The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints
-  one ticket. Threads and messages are never deleted through the API: a room's removal hides them with it.
+  member of one. The last scenario owns one throwaway user and no room (the socket under test is that user's own, so its ticket bucket is untouched).
+  The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket. Threads and messages are never deleted through the API: a room's removal hides them with it.
 
 Every scenario that watches a change first waits until the page's own socket has been acknowledged for the room (the `subscribed` frame), so the
 change can only arrive by being pushed, and marks the document, so "without a reload" is checked rather than assumed.

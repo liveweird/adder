@@ -5,12 +5,12 @@
 // (the burger); every set runs in the light scheme and again in the dark one. Owns: the fixture team
 // (unique `e2e-axe-*` name), the fixture room (unique `e2e-axe-room-*` name, a copy of the seeded Default template, with one thread
 // in it, pinned together with its opening message, with a teammate's messages and reactions) and an archived twin of it, and the
-// teammate (unique `e2e-axe-mate-*` name, a plain user), created and deleted via the API. Every signed-in test acts as ONE throwaway
-// administrator (`e2e-axe-admin-*`, minted through the seed administrator's API): the sweep opens ~80 pages, each minting a live-socket
-// ticket, and the per-user `live-ticket` bucket (60 a minute) is too small to share the seed administrator with the parallel specs.
+// teammate (unique `e2e-axe-mate-*` name, a plain user), created and deleted via the API. Every signed-in test acts as one of four throwaway
+// administrators (`e2e-axe-admin-*`, `specAdmins`, minted through the seed administrator's API): every page load mints a live-socket ticket
+// and the per-user `live-ticket` bucket is 60 a minute, so the sweep (~90 signed-in loads) takes its readers in turn (the owner opens only the pages that are about it) and signs in straight
+// onto the page it scans (`login`'s `landOn`), one load a test, never a page load for the sign-in and another for the page.
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
-import { randomUUID } from "node:crypto";
-import { apiAsAdmin, apiAsUser, axeViolations, expect, expectScheme, login, openFilters, type Scheme, test, uniqueText } from "./helpers";
+import { apiAsUser, axeViolations, expect, expectScheme, openFilters, type Scheme, specAdmins, test, uniqueText } from "./helpers";
 
 // No waivers: the theme's text/dimmed/ink tokens are AA-tested in web/src/theme.test.ts, so
 // the color-contrast rule runs for real here (Lettuce's posture, not Toadie's waiver). Fix a
@@ -20,37 +20,15 @@ async function scan(page: Page, include?: string): Promise<void> {
   expect(await axeViolations(page, include)).toEqual([]);
 }
 
-/** The sweep's one administrator: the fixture room's owner and the account every signed-in test acts as. */
-const sweepAdmin = { id: 0, name: "", email: "", password: "" };
-
-test.beforeAll(async () => {
-  sweepAdmin.name = uniqueText("e2e-axe-admin");
-  sweepAdmin.email = `${sweepAdmin.name.toLowerCase().replace(/[^a-z0-9-]/g, "-")}@adder.local`;
-  sweepAdmin.password = `E2e-${randomUUID()}`.slice(0, 40);
-  const { api: seedApi } = await apiAsAdmin();
-  try {
-    const minted = await seedApi.post("/api/v1/users", { data: { name: sweepAdmin.name, email: sweepAdmin.email, password: sweepAdmin.password, roles: ["ADMIN"] } });
-    expect(minted.status(), await minted.text()).toBe(201);
-    sweepAdmin.id = (await minted.json() as { id: number }).id;
-  } finally {
-    await seedApi.dispose();
-  }
-});
-
-// The detail block's own teardown (its rooms, team and teammate) runs first; the administrator that owned them goes last.
-test.afterAll(async () => {
-  if (sweepAdmin.id === 0) return;
-  const { api: seedApi } = await apiAsAdmin();
-  try {
-    const response = await seedApi.delete(`/api/v1/users/${sweepAdmin.id}`);
-    expect([204, 404], `the sweep administrator -> ${response.status()}`).toContain(response.status());
-  } finally {
-    await seedApi.dispose();
-  }
-});
-
-/** Signs in as the sweep's administrator. */
-const signIn = (page: Page) => login(page, sweepAdmin.email, sweepAdmin.password);
+/**
+ * The sweep's administrators. The first owns the fixture room and the other three are added to it as plain members, so a page of the
+ * room reads the same for any of THEM (the composer, the Leave button); `signIn` takes those three in turn, `signInAsOwner` is for the
+ * pages whose scanned state depends on who reads it (`asOwner` on an entry below: the owner's own row, messages, reactions, unread marks,
+ * mention notice and role), so which account opens a page never varies from run to run.
+ */
+const admins = specAdmins("e2e-axe-admin", 4);
+const signIn = (page: Page, landOn: string) => admins.loginNext(page, landOn);
+const signInAsOwner = (page: Page, landOn: string) => admins.login(page, landOn);
 
 test("login screen has no WCAG A/AA violations", async ({ page }) => {
   await page.goto("/login");
@@ -81,8 +59,7 @@ function registerAuthedPageScans(scheme: Scheme): void {
   const suffix = scheme === "dark" ? " in the dark scheme" : "";
   for (const { path, heading } of AUTHED_PAGES) {
     test(`${path} has no WCAG A/AA violations${suffix}`, async ({ page }) => {
-      await signIn(page);
-      await page.goto(path);
+      await signIn(page, path);
       // The page title is the first heading.
       await expect(page.getByRole("heading", { name: heading }).first()).toBeVisible();
       await expectScheme(page, scheme);
@@ -107,8 +84,7 @@ test.describe("dark scheme", () => {
 function registerMobileShellScan(scheme: Scheme): void {
   const suffix = scheme === "dark" ? " in the dark scheme" : "";
   test(`the app shell at a mobile width has no WCAG A/AA violations${suffix}`, async ({ page }) => {
-    await signIn(page);
-    await page.goto("/");
+    await signIn(page, "/");
     await expect(page.getByRole("heading", { name: "Adder" }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Toggle navigation" })).toBeVisible();
     await expectScheme(page, scheme);
@@ -194,7 +170,7 @@ test.describe("detail pages and overlays", () => {
   let archivedRoomId: number | undefined;
 
   test.beforeAll(async () => {
-    ({ api, userId: adminId } = await apiAsUser(sweepAdmin.email, sweepAdmin.password));
+    ({ api, userId: adminId } = await apiAsUser(admins.first.email, admins.first.password));
     teamName = uniqueText("e2e-axe-team");
     const created = await api.post("/api/v1/teams", { data: { name: teamName } });
     expect(created.status(), await created.text()).toBe(201);
@@ -209,6 +185,9 @@ test.describe("detail pages and overlays", () => {
     const room = await api.post("/api/v1/rooms", { data: { name: roomName, templateId: defaultTemplate!.id } });
     expect(room.status(), await room.text()).toBe(201);
     roomId = (await room.json() as { id: number }).id;
+    // The sweep's other administrators join as plain members, so a page of the room reads the same for each of them.
+    const joined = await api.post(`/api/v1/rooms/${roomId}/members`, { data: { userIds: admins.all.slice(1).map((admin) => admin.id) } });
+    expect(joined.status(), await joined.text()).toBe(200);
     ({ threadNumber, threadTitle } = await seedThread(api, roomId));
     await seedConversation(api, adminId, roomId, threadNumber, mate);
     const archived = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-axe-room"), templateId: defaultTemplate!.id } });
@@ -261,20 +240,22 @@ test.describe("detail pages and overlays", () => {
     /** Writes the page is about, through the API, before it is opened. */
     seed?: () => Promise<void>;
     before?: (page: Page) => Promise<void>;
+    /** What the page scans depends on WHO reads it (the owner's own row, messages, unread marks, role): the first administrator opens it every run. */
+    asOwner?: boolean;
   }[] = [
     { name: "the team page", path: () => `/teams/${teamId}`, settled: (p) => p.getByRole("heading", { name: teamName }) },
     // Settled once the thread list has loaded: the seeded thread is a link in the labelled Threads nav.
-    { name: "the room home page (the thread list)", path: () => `/rooms/${roomId}`, settled: (p) => p.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(threadTitle) }) },
+    { name: "the room home page (the thread list)", asOwner: true, path: () => `/rooms/${roomId}`, settled: (p) => p.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(threadTitle) }) },
     // The three-pane view with a thread open: the pane's heading is `#<number> <title>`; the list beside it is loaded too.
     {
-      name: "the room's thread view",
+      name: "the room's thread view", asOwner: true,
       path: () => `/rooms/${roomId}/threads/${threadNumber}`,
       settled: (p) => p.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(threadTitle) }),
       alsoSettled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
     },
     // The side panel: Status, Owner (the fixture room's admin owns the room and the thread, so the member picker is drawn), Details and History.
     {
-      name: "the thread's side panel",
+      name: "the thread's side panel", asOwner: true,
       path: () => `/rooms/${roomId}/threads/${threadNumber}`,
       settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
       before: async (p) => {
@@ -285,7 +266,7 @@ test.describe("detail pages and overlays", () => {
     },
     // The details editor open: the title and the (Default template: none) fields, the Cancel and Save buttons.
     {
-      name: "the thread's details editor",
+      name: "the thread's details editor", asOwner: true,
       path: () => `/rooms/${roomId}/threads/${threadNumber}`,
       settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
       before: async (p) => {
@@ -296,7 +277,7 @@ test.describe("detail pages and overlays", () => {
     },
     { name: "the new-thread form", path: () => `/rooms/${roomId}/threads/new`, settled: (p) => p.getByRole("textbox", { name: /Title/ }) },
     // Settled once the admin's own row (the fixture room's owner) is in the table: the list has loaded, the controls are drawn.
-    { name: "the room members page", path: () => `/rooms/${roomId}/members`, settled: (p) => p.getByRole("table", { name: "Members", exact: true }).getByText(sweepAdmin.email) },
+    { name: "the room members page", asOwner: true, path: () => `/rooms/${roomId}/members`, settled: (p) => p.getByRole("table", { name: "Members", exact: true }).getByText(admins.first.email) },
     // Settled once the editor has loaded: the first status row's label is in (the fixture room is a copy of Default, the admin its owner).
     { name: "the room workflow page", path: () => `/rooms/${roomId}/workflow`, settled: (p) => p.getByRole("group", { name: "Status 1", exact: true }).getByRole("textbox", { name: "Label" }) },
     // The read-only view: an archived room's workflow is plain text under a note.
@@ -304,7 +285,7 @@ test.describe("detail pages and overlays", () => {
     { name: "the room settings page", path: () => `/rooms/${roomId}/settings`, settled: (p) => p.getByRole("heading", { level: 2, name: roomName }) },
     // The open filter panel of the thread list (collapsed by default; the toggle persists per browser, so it is opened explicitly).
     {
-      name: "the thread list's open filter panel",
+      name: "the thread list's open filter panel", asOwner: true,
       path: () => `/rooms/${roomId}`,
       settled: (p) => p.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(threadTitle) }),
       before: async (p) => {
@@ -314,7 +295,7 @@ test.describe("detail pages and overlays", () => {
     // The conversation: the teammate's Markdown, the mention of the admin, a code block, the admin's reply and a message with two kinds of reaction;
     // the thread itself and its opening message are pinned (the pin button is pressed, the message carries its mark).
     {
-      name: "the conversation with messages, reactions and pins",
+      name: "the conversation with messages, reactions and pins", asOwner: true,
       path: () => `/rooms/${roomId}/threads/${threadNumber}`,
       settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
       before: async (p) => {
@@ -325,7 +306,7 @@ test.describe("detail pages and overlays", () => {
     },
     // The mention picker: an @ in the composer opens the room's members as a listbox over the page.
     {
-      name: "the mention picker",
+      name: "the mention picker", asOwner: true,
       path: () => `/rooms/${roomId}/threads/${threadNumber}`,
       settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
       before: async (p) => {
@@ -336,7 +317,7 @@ test.describe("detail pages and overlays", () => {
     },
     // The "New messages" line: the teammate writes AFTER the admin's last read, so the admin's open finds one unread message under the line.
     {
-      name: "the conversation with the new-messages marker",
+      name: "the conversation with the new-messages marker", asOwner: true,
       path: () => `/rooms/${roomId}/threads/${threadNumber}`,
       settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
       seed: async () => {
@@ -367,18 +348,17 @@ test.describe("detail pages and overlays", () => {
         await expect(p.getByRole("textbox", { name: "Name" }).first()).toHaveValue("Default");
       },
     },
-    { name: "the edit-user page", path: () => `/users/${adminId}/edit`, settled: (p) => p.getByRole("heading", { name: "Edit user" }) },
-    { name: "the user-features page", path: () => `/users/${adminId}/features`, settled: (p) => p.getByRole("heading", { name: "Feature flags" }) },
+    { name: "the edit-user page", asOwner: true, path: () => `/users/${adminId}/edit`, settled: (p) => p.getByRole("heading", { name: "Edit user" }) },
+    { name: "the user-features page", asOwner: true, path: () => `/users/${adminId}/features`, settled: (p) => p.getByRole("heading", { name: "Feature flags" }) },
   ];
   // Every state below runs in the light scheme and again in the dark one (Playwright's `colorScheme`, which the `auto` default follows),
   // under a suffix, so a finding names its scheme. `expectScheme` runs before each scan: the scan really is in that palette.
   function registerDetailScans(scheme: Scheme): void {
     const suffix = scheme === "dark" ? " in the dark scheme" : "";
-    for (const { name, path, settled, alsoSettled, seed, before } of DETAIL_PAGES) {
+    for (const { name, path, settled, alsoSettled, seed, before, asOwner } of DETAIL_PAGES) {
       test(`${name} has no WCAG A/AA violations${suffix}`, async ({ page }) => {
         await seed?.();
-        await signIn(page);
-        await page.goto(path());
+        await (asOwner ? signInAsOwner : signIn)(page, path());
         await expect(settled(page)).toBeVisible();
         if (alsoSettled) await expect(alsoSettled(page)).toBeVisible();
         if (before) await before(page);
@@ -399,8 +379,7 @@ test.describe("detail pages and overlays", () => {
     });
 
     test(`the not-found page has no WCAG A/AA violations${suffix}`, async ({ page }) => {
-      await signIn(page);
-      await page.goto(`/${uniqueText("nowhere")}`);
+      await signIn(page, `/${uniqueText("nowhere")}`);
       await expect(page.getByRole("heading").first()).toBeVisible();
       await expectScheme(page, scheme);
       await scan(page);
@@ -418,9 +397,8 @@ test.describe("detail pages and overlays", () => {
     }
 
     test(`the room leave dialog has no WCAG A/AA violations${suffix}`, async ({ page }) => {
-      await signIn(page);
-      await page.goto(`/rooms/${roomId}/members`);
-      // The fixture room's owner is the seed admin, so the Leave button is there; the dialog is only opened and scanned, never confirmed.
+      await signIn(page, `/rooms/${roomId}/members`);
+      // Every administrator of the sweep is a member of the fixture room, so the Leave button is there; the dialog is only opened and scanned, never confirmed.
       await page.getByRole("button", { name: "Leave room", exact: true }).click();
       const modal = await settledDialog(page);
       await expect(modal.getByRole("heading", { name: "Leave this room?" })).toBeVisible();
@@ -429,8 +407,7 @@ test.describe("detail pages and overlays", () => {
     });
 
     test(`the notification drawer has no WCAG A/AA violations${suffix}`, async ({ page }) => {
-      await signIn(page);
-      await page.goto("/");
+      await signInAsOwner(page, "/");
       await page.getByRole("button", { name: /^Notifications \(/ }).click();
       const drawer = await settledDialog(page);
       await expect(drawer.getByRole("heading", { name: "Notifications" })).toBeVisible();
@@ -441,8 +418,7 @@ test.describe("detail pages and overlays", () => {
     });
 
     test(`the pinned panel has no WCAG A/AA violations${suffix}`, async ({ page }) => {
-      await signIn(page);
-      await page.goto(`/rooms/${roomId}`);
+      await signIn(page, `/rooms/${roomId}`);
       await page.getByRole("button", { name: /^Pinned/ }).click();
       const panel = await settledDialog(page);
       // Settled once both pins (the thread and its opening message) are listed.
@@ -453,8 +429,7 @@ test.describe("detail pages and overlays", () => {
     });
 
     test(`a team editor modal has no WCAG A/AA violations${suffix}`, async ({ page }) => {
-      await signIn(page);
-      await page.goto("/teams");
+      await signIn(page, "/teams");
       await page.getByRole("button", { name: "New team" }).click();
       const modal = await settledDialog(page);
       await expect(modal.getByRole("heading", { name: "New team" })).toBeVisible();

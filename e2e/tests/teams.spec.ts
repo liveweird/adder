@@ -1,9 +1,12 @@
 // The flat-teams registry: an admin creates a team, renames it, assigns its manager and deletes it;
 // a regular user sees the read-only list; an admin manages a team's roster. Owns: its throwaway team(s) and user (unique names, deleted by the end of the file).
-import { createUserViaUi, deleteUserRow, deleteViaApi, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
+import { createUserViaUi, deleteUserRow, deleteViaApi, expect, login, openFilters, rowOperation, signOut, specAdmins, test, uniqueText } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-teams-admin");
 
 test("admin creates a team, renames it, assigns its manager, and deletes it", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const member = await createUserViaUi(page, "E2E Team Member");
   const teamName = uniqueText("e2e-team");
 
@@ -56,7 +59,7 @@ test("admin creates a team, renames it, assigns its manager, and deletes it", as
 });
 
 test("a regular user sees the read-only teams list", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const user = await createUserViaUi(page, "E2E Team Reader");
   const teamName = uniqueText("e2e-ro-team");
   await page.goto("/teams");
@@ -79,7 +82,7 @@ test("a regular user sees the read-only teams list", async ({ page }) => {
   await signOut(page);
 
   // Cleanup as the admin.
-  await login(page);
+  await admin.login(page);
   await page.goto("/teams");
   await openFilters(page);
   await page.getByLabel("Name", { exact: true }).fill(teamName);
@@ -99,7 +102,7 @@ test.describe("roster", () => {
   });
 
   test("an administrator adds a member to a team's roster and removes them", async ({ page }) => {
-    await login(page);
+    await admin.login(page);
     const member = await createUserViaUi(page, "E2E Roster Member");
     cleanup.unshift(`/api/v1/users/${member.id}`);
     const teamName = uniqueText("e2e-roster-team");

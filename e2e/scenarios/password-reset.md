@@ -1,9 +1,8 @@
 # Self-service password reset
 
 - **Spec**: [tests/password-reset.spec.ts](../tests/password-reset.spec.ts)
-- **Actors**: an anonymous visitor on the reset form; the seed administrator
-  (`admin@adder.local`) only to create/delete the throwaway account
-- **Owns** (exclusive server-side state): one throwaway user account (email carries the
+- **Actors**: an anonymous visitor on the reset form; its own throwaway administrator (`e2e-password-reset-admin-*`, `specAdmins`) only to create/delete the throwaway account
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-password-reset-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), one throwaway user account (email carries the
   `e2e` marker), deleted at the end. The reset requests use unique per-run emails, so the
   in-memory per-email throttle never collides across runs; the per-IP request bucket (5/min in
   production, lifted on dev stacks like the login bucket) and the per-IP confirm bucket (10/min) are

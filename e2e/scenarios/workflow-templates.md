@@ -1,9 +1,9 @@
 # Workflow templates (the ADMIN registry)
 
 - **Spec**: [tests/workflow-templates.spec.ts](../tests/workflow-templates.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`); one throwaway regular user
+- **Actors**: its own throwaway administrator (`e2e-workflow-templates-admin-*`, `specAdmins`); one throwaway regular user
   created through the Users page
-- **Owns** (exclusive server-side state): its throwaway templates (unique `e2e-tpl-*` names) and
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-workflow-templates-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), its throwaway templates (unique `e2e-tpl-*` names) and
   user, removed through the API in an `afterEach` so a failing step leaves nothing behind. The seeded
   Default and Incident templates are shared and read-only: this spec (and every other) never edits or
   deletes them.

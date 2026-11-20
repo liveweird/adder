@@ -1,9 +1,9 @@
 # Social: mentions, notifications, unread, reactions, pins and the notification email page
 
 - **Spec**: [tests/social.spec.ts](../tests/social.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`, who only mints the throwaway users); two throwaway regular users per scenario (a room's
+- **Actors**: its own throwaway administrator (`e2e-social-admin-*`, `specAdmins`, who only mints the throwaway users); two throwaway regular users per scenario (a room's
   owner, "the author", and a teammate the owner adds, "the reader"), each in its own browser context; one throwaway user in the last scenario
-- **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-soc-*` names, created and filled through the owner's API session) and
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-social-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), its throwaway rooms (unique `e2e-soc-*` names, created and filled through the owner's API session) and
   its users, removed through the API in an `afterEach` (browser contexts first, then rooms, then the users, so a failing step leaves nothing behind).
   The seeded Default template is shared and read-only: rooms only copy it. Every room is created by a throwaway user, so the seed administrator is
   never a member of one. The per-user `live-ticket` (60 a minute), `chat-post` (120), `chat-write` (240) and `read-state` (240) buckets are only ever

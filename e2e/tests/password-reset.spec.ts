@@ -1,5 +1,8 @@
-import { createUserViaUi, deleteUserRow, expect, login, loginViaForm, signOut, test, uniqueText } from "./helpers";
+import { createUserViaUi, deleteUserRow, expect, loginViaForm, signOut, specAdmins, test, uniqueText } from "./helpers";
 import { MAILPIT_URL } from "../playwright.config";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-password-reset-admin");
 
 // Self-service password reset: the "Forgot password?" flow on the login screen.
 // The full email roundtrip needs the stack's Mailpit catcher (E2E_MAILPIT_URL), which global setup REQUIRES (the suite refuses to
@@ -38,7 +41,7 @@ test("the forgot-password link leads to the reset form; unknown emails get the n
 });
 
 test("a reset link preserves the old password until confirmation and cannot be reused", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const user = await createUserViaUi(page, "E2E-Reset");
   try {
     await signOut(page);
@@ -112,7 +115,7 @@ test("a reset link preserves the old password until confirmation and cannot be r
     await expect(page.getByRole("link", { name: "Request another reset link" })).toBeVisible();
   } finally {
     // Cleanup: the spec owns its throwaway account.
-    await login(page);
+    await admin.login(page);
     await deleteUserRow(page, user.name);
   }
 });

@@ -1,9 +1,9 @@
 # Teams (the flat-teams registry)
 
 - **Spec**: [tests/teams.spec.ts](../tests/teams.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`); one throwaway user per test created
+- **Actors**: its own throwaway administrator (`e2e-teams-admin-*`, `specAdmins`); one throwaway user per test created
   through the Users page
-- **Owns** (exclusive server-side state): its throwaway teams (unique `e2e-team-*` /
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-teams-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), its throwaway teams (unique `e2e-team-*` /
   `e2e-ro-team-*` / `e2e-roster-team-*` names) and users — all deleted by the end of the file (the roster test
   tears down through the API in an `afterEach`, so a failing step leaves nothing behind)
 

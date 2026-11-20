@@ -1,9 +1,9 @@
 # Room workflow editor
 
 - **Spec**: [tests/room-workflow.spec.ts](../tests/room-workflow.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`); throwaway regular users created through the Users page (a room's creator
+- **Actors**: its own throwaway administrator (`e2e-room-workflow-admin-*`, `specAdmins`); throwaway regular users created through the Users page (a room's creator
   and owner, a Polish-speaking creator); the room's owner, through the API, seeds the retire scenario's threads
-- **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-room-*` names) and its users, removed through the API in
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-room-workflow-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), its throwaway rooms (unique `e2e-room-*` names) and its users, removed through the API in
   an `afterEach` (rooms first, then the users, so a failing step leaves nothing behind). The seeded Default and Incident templates are
   shared and read-only: rooms only copy them. Every room is created by a throwaway user, so the seed administrator is never a member
   of one and the per-user `room-name` bucket (30 a minute) is far from reached. The one write the administrator makes (a workflow PUT in

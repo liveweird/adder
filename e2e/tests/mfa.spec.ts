@@ -3,12 +3,15 @@ import {
   createUserViaUi,
   deleteUserRow,
   expect,
-  login,
   openFilters,
   signOut,
+  specAdmins,
   test,
 } from "./helpers";
 import { MAILPIT_URL } from "../playwright.config";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-mfa-admin");
 
 // Email MFA (opt-in via the per-user MFA feature flag) + the feature-flags admin surfaces.
 // The full sign-in roundtrip needs the stack's Mailpit catcher (E2E_MAILPIT_URL), which global setup REQUIRES
@@ -18,7 +21,7 @@ import { MAILPIT_URL } from "../playwright.config";
 test("admin toggles a user's MFA on the feature-flags screen and the per-user editor", async ({
   page,
 }) => {
-  await login(page);
+  await admin.login(page);
   const user = await createUserViaUi(page, "E2E-Flag");
 
   // The /feature-flags screen: filtered to the throwaway user, the MFA switch starts OFF
@@ -49,7 +52,7 @@ test("admin toggles a user's MFA on the feature-flags screen and the per-user ed
 });
 
 test("an MFA-enabled account signs in with the emailed code", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const user = await createUserViaUi(page, "E2E-Mfa");
 
   // Enable MFA through the per-user editor.
@@ -97,6 +100,6 @@ test("an MFA-enabled account signs in with the emailed code", async ({ page }) =
   await signOut(page);
 
   // Cleanup as the admin: the spec owns its throwaway account.
-  await login(page);
+  await admin.login(page);
   await deleteUserRow(page, user.name);
 });

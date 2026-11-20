@@ -6,7 +6,10 @@
 // by a throwaway user, so the seed administrator is never a member of one; the per-user `room-name` (30 a minute), `room-members` (60) and
 // `chat-post` (120) buckets are far from reached. Threads are never deleted: a room's removal hides its threads with it.
 import type { Page } from "@playwright/test";
-import { conversation, createRoomViaUi, deleteViaApi, expect, login, rail, signOut, test, throwawayUser, uniqueText } from "./helpers";
+import { conversation, createRoomViaUi, deleteViaApi, expect, login, rail, signOut, specAdmins, test, throwawayUser, uniqueText } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-threads-admin");
 
 // API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
 const cleanup: string[] = [];
@@ -111,7 +114,7 @@ async function moveTo(page: Page, label: string): Promise<void> {
 }
 
 test("a member starts a thread from the room view and another member replies to it", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
   const mate = await throwawayUser(page, "E2E Thread Mate", cleanup);
   await signOut(page);
@@ -176,7 +179,7 @@ test("a member starts a thread from the room view and another member replies to 
 });
 
 test("an author edits and deletes their own message and a room owner removes another member's message", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
   const mate = await throwawayUser(page, "E2E Thread Mate", cleanup);
   await signOut(page);
@@ -266,7 +269,7 @@ test("an author edits and deletes their own message and a room owner removes ano
 });
 
 test("a member moves a thread between open statuses but cannot close it, its owner closes it, and the closed thread refuses replies until the room owner reopens it", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
   const mate = await throwawayUser(page, "E2E Thread Mate", cleanup);
   await signOut(page);
@@ -340,7 +343,7 @@ test("a member moves a thread between open statuses but cannot close it, its own
 });
 
 test("the owner passes the thread on, the new owner edits its details, and the history lists every change", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
   const mate = await throwawayUser(page, "E2E Thread Mate", cleanup);
   await signOut(page);

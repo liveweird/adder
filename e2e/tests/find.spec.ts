@@ -7,7 +7,10 @@
 // Every user runs a handful of searches, far below the per-user `search` bucket (60 a minute) that no other spec's account shares.
 import type { APIRequestContext, Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-find-admin");
 
 const cleanup: string[] = [];
 const apis: APIRequestContext[] = [];
@@ -70,9 +73,9 @@ async function moveThread(api: APIRequestContext, roomId: number, number: number
   expect(moved.status(), await moved.text()).toBe(204);
 }
 
-/** The seed administrator (signed in on `page`) mints regular users through the Users page, then `page` is left signed in as the first of them. */
+/** The file's administrator (signed in on `page`) mints regular users through the Users page, then `page` is left signed in as the first of them. */
 async function people(page: Page, ...names: string[]): Promise<Person[]> {
-  await login(page);
+  await admin.login(page);
   const minted: Person[] = [];
   for (const name of names) minted.push(await throwawayUser(page, name, cleanup));
   await login(page, minted[0].email, minted[0].password);

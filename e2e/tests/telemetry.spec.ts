@@ -4,7 +4,10 @@
 // the API, bounded) until a sample and a storage measurement exist. Owns: a throwaway user in the fourth test; it is removed by the
 // test and, if a step fails first, by the afterEach below.
 import type { APIRequestContext, Page } from "@playwright/test";
-import { accountMenu, apiAsAdmin, axeViolations, createUserViaUi, deleteUserRow, deleteViaApi, expect, login, signOut, test } from "./helpers";
+import { accountMenu, apiAsAdmin, axeViolations, createUserViaUi, deleteUserRow, deleteViaApi, expect, login, signOut, specAdmins, test } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-telemetry-admin");
 
 const teardown: string[] = [];
 test.afterEach(async () => {
@@ -59,7 +62,7 @@ test("an admin opens the telemetry panel from the account menu and reads the Mem
   } finally {
     await api.dispose();
   }
-  await login(page);
+  await admin.login(page);
   const panel = await openPanelFromMenu(page);
   await expect(panel.getByRole("heading", { level: 2, name: "Telemetry" })).toBeVisible();
   // Memory is open by default; the compose stack gives the app a cgroup with a 512 MB limit.
@@ -80,7 +83,7 @@ test("the Storage section shows the database size", async ({ page }) => {
   } finally {
     await api.dispose();
   }
-  await login(page);
+  await admin.login(page);
   const panel = await openPanelFromMenu(page);
 
   await panel.getByRole("button", { name: "Storage" }).click();
@@ -89,7 +92,7 @@ test("the Storage section shows the database size", async ({ page }) => {
 });
 
 test("the open telemetry panel survives a reload and closes with its own button", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const panel = await openPanelFromMenu(page);
   await panel.getByRole("button", { name: "Storage" }).click();
   await page.reload();
@@ -106,7 +109,7 @@ test("the open telemetry panel survives a reload and closes with its own button"
 });
 
 test("a regular user has no telemetry item in the account menu", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const user = await createUserViaUi(page, "E2E Telemetry Reader");
   teardown.push(`/api/v1/users/${user.id}`);
   await signOut(page);
@@ -123,7 +126,7 @@ test("a regular user has no telemetry item in the account menu", async ({ page }
   await expect(page.getByRole("complementary", { name: "Telemetry" })).toHaveCount(0);
   await signOut(page);
 
-  await login(page);
+  await admin.login(page);
   await deleteUserRow(page, user.name);
 });
 
@@ -135,7 +138,7 @@ test("the open telemetry panel has no WCAG A/AA violations", async ({ page }) =>
   } finally {
     await api.dispose();
   }
-  await login(page);
+  await admin.login(page);
   const panel = await openPanelFromMenu(page);
   for (const section of ["Storage", "Requests", "JVM"]) {
     await panel.getByRole("button", { name: section }).click();

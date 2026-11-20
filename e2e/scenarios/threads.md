@@ -1,9 +1,9 @@
 # Threads and messages
 
 - **Spec**: [tests/threads.spec.ts](../tests/threads.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`); throwaway regular users created through the Users page (a room's owner
+- **Actors**: its own throwaway administrator (`e2e-threads-admin-*`, `specAdmins`); throwaway regular users created through the Users page (a room's owner
   and a teammate the owner adds)
-- **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-thr-*` names) and its users, removed through the API in an
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-threads-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), its throwaway rooms (unique `e2e-thr-*` names) and its users, removed through the API in an
   `afterEach` (rooms first, then the users, so a failing step leaves nothing behind). The seeded Default template is shared and
   read-only (as is Incident): rooms only copy them. Every room is created by a throwaway user, so the seed administrator is never a member of one;
   the per-user `room-name` (30 a minute), `room-members` (60 a minute) and `chat-post` (120 a minute, on the thread and message

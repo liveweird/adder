@@ -263,6 +263,12 @@ calls (`VITE_API_BASE`): empty means the page's own host (`ws:` on http, `wss:` 
 (the server then needs the page's origin in `http.corsHosts`, as for REST). **Adder's own CSP (`connect-src 'self'`) blocks such a socket, as it blocks the REST calls**: an absolute base only works when the SPA is served from somewhere else, under that host's own CSP. A base without a leading slash resolves relative to the page, as `fetch` does. After a 4001 or 4003 the client re-mints after a random 0-1 s, so a whole room
 of sockets that expired together does not mint in one instant.
 
+**One mint per connect** (measured against the compose stack, 1.0.0 follow-up): a full page load of the production build is exactly one ticket and one
+socket; client-side navigation, a rail change and a token rotation mint none (`useLiveUpdates.test.tsx` pins it). `vite dev` mints TWO per load,
+because React StrictMode runs the mount effect twice: the first client is stopped at once and never opens its socket, and its ticket expires unused after
+30 s. That is a dev-only cost, deliberately left alone. A page load is the unit that spends the 60/min `live-ticket` bucket, which is why the e2e suite
+gives each spec file its own administrator and signs in onto the page it opens (`e2e/README.md` "Rate buckets").
+
 ## Deploy and proxies
 
 Compose serves 8087 directly. The Kubernetes (OrbStack) `adder` namespace is fronted by an ingress-nginx Ingress (`k8s/ingress.yaml`: upgrade passed by the controller, `proxy-read-timeout`/`proxy-send-timeout` 120 s, TLS ended there); the 1001

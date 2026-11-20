@@ -1,9 +1,9 @@
 # Email MFA and the feature-flags surfaces
 
 - **Spec**: [tests/mfa.spec.ts](../tests/mfa.spec.ts)
-- **Actors**: the seed administrator (`admin@adder.local`) curating flags; a throwaway user
+- **Actors**: its own throwaway administrator (`e2e-mfa-admin-*`, `specAdmins`) curating flags; a throwaway user
   signing in with the second factor
-- **Owns** (exclusive server-side state): one throwaway user account per test (emails carry
+- **Owns** (exclusive server-side state): its throwaway administrator (`e2e-mfa-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), one throwaway user account per test (emails carry
   the `e2e` marker), deleted at the end. Flag toggles touch ONLY the throwaway users' rows —
   **the seed admin's MFA flag is never touched** (enabling it would make every other spec's
   login demand an emailed code). Delivered messages remain in the Mailpit catcher.

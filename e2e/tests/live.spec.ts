@@ -2,10 +2,14 @@
 // reach the other member's open page through the shell's WebSocket; the header says "Reconnecting…" while the browser is offline and the page
 // catches up when it is back; the socket opens under the stack's own Content-Security-Policy. Owns: its throwaway `e2e-live-*` rooms and users,
 // removed through the API in an `afterEach` (rooms first, then the users); the CSP test owns one throwaway user and no room. Every room is created by a throwaway user and only copies the
-// seeded Default template. Threads and messages are never deleted: a room's removal hides them. The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket.
+// seeded Default template. Threads and messages are never deleted: a room's removal hides them. The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket, and the file's own
+// administrator (`specAdmins`) spends its own bucket, never the seed administrator's.
 import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { apiAsUser, conversation, deleteViaApi, expect, login, rail, rowOperation, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsUser, conversation, deleteViaApi, expect, login, rail, rowOperation, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-live-admin");
 
 const cleanup: string[] = [];
 const apis: APIRequestContext[] = [];
@@ -56,7 +60,7 @@ const statusSelect = (page: Page) => page.getByRole("combobox", { name: "Thread 
 
 /** The admin (signed in on `page`) mints the owner and the teammate; the owner then makes a room and adds the teammate, all through the API. */
 async function scene(page: Page): Promise<Scene> {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Live Owner", cleanup);
   const mate = await throwawayUser(page, "E2E Live Mate", cleanup);
   const { api } = await apiAsUser(owner.email, owner.password);
@@ -275,9 +279,9 @@ test("the header says it is reconnecting while the browser is offline", async ({
 });
 
 test("the live socket opens under the production content security policy", async ({ page, browser }) => {
-  // A throwaway user, not the seed administrator: the ticket mint is a per-USER bucket (60 a minute) and the administrator is every
-  // other spec's account, so a full parallel run would spend it before this test signs in.
-  await login(page);
+  // The socket under test belongs to a throwaway user: the ticket mint is a per-USER bucket (60 a minute), so this user's own bucket is
+  // untouched by the administrator's sign-ins.
+  await admin.login(page);
   const user = await throwawayUser(page, "E2E Live Csp", cleanup);
   // Every violation the document reports is recorded from before the first script runs.
   const seat = await signedIn(browser, user, async (context) => {

@@ -7,7 +7,10 @@
 // (the thread POSTs share a per-user `chat-post` bucket of 120 a minute, far from reached).
 import { type Page, request as playwrightRequest } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { accountMenu, apiAsAdmin, createRoomViaUi, deleteViaApi, expect, login, loginViaForm, signOut, test, throwawayUser, uniqueText } from "./helpers";
+import { accountMenu, apiAsAdmin, createRoomViaUi, deleteViaApi, expect, login, loginViaForm, signOut, specAdmins, test, throwawayUser, uniqueText } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-room-workflow-admin");
 
 // API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
 const cleanup: string[] = [];
@@ -20,7 +23,7 @@ const statusRow = (page: Page, n: number) => page.getByRole("group", { name: `St
 
 /** Sign in as the owner of a fresh room made from `template`, and land on its Workflow tab. */
 async function ownerOnWorkflowTab(page: Page, template: string): Promise<{ roomId: number; roomName: string; owner: { email: string; password: string } }> {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Workflow Owner", cleanup);
   await signOut(page);
   await login(page, owner.email, owner.password);
@@ -178,7 +181,7 @@ test("a stale workflow save is refused and a reload recovers", async ({ page }) 
 });
 
 test("a room created by a Polish-speaking user gets the Polish labels of the template", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const user = await throwawayUser(page, "E2E Workflow Polish", cleanup);
   await signOut(page);
 

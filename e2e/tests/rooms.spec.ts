@@ -4,7 +4,10 @@
 // team (`e2e-room-team-*`) and users, removed through the API in an `afterEach` (rooms first, then the team, then the users). The seeded Default and Incident templates
 // are shared and read-only here: rooms only copy them. Every room is created by a throwaway user (the room-name bucket is
 // per user, 30 a minute, and the member add has its own per-user bucket: this file stays far below both), so the seed administrator is never a member of any of them.
-import { apiAsAdmin, createRoomViaUi, deleteViaApi, expect, login, openFilters, rail, rowOperation, signOut, test, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, createRoomViaUi, deleteViaApi, expect, login, openFilters, rail, rowOperation, signOut, specAdmins, test, throwawayUser, uniqueText } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-rooms-admin");
 
 // API teardown, so a failing step leaves neither the room nor the user behind (rooms first: they reference users).
 const cleanup: string[] = [];
@@ -16,7 +19,7 @@ const ROOMS_API = /\/api\/v1\/rooms(\/\d+)?(\/(archive|unarchive))?$/;
 const NOT_A_MEMBER = "This room does not exist, or you are not a member of it.";
 
 test("a user creates a room from the Incident template and finds it in the rooms rail", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const user = await throwawayUser(page, "E2E Room Creator", cleanup);
   await signOut(page);
   await login(page, user.email, user.password);
@@ -91,7 +94,7 @@ const MEMBERS_API = /\/api\/v1\/rooms\/\d+\/members(\/\d+)?$/;
 const LAST_OWNER = "You are the only owner of this room. Make someone else an owner before you leave.";
 
 test("the owner adds a person and a whole team, hands over ownership and leaves", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Room Owner", cleanup);
   const person = await throwawayUser(page, "E2E Room Person", cleanup);
   const mate = await throwawayUser(page, "E2E Room Teammate", cleanup);
@@ -200,7 +203,7 @@ test("the owner adds a person and a whole team, hands over ownership and leaves"
 });
 
 test("a non-member cannot open a room while an administrator can", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Room Owner", cleanup);
   const outsider = await throwawayUser(page, "E2E Room Outsider", cleanup);
   await signOut(page);
@@ -223,7 +226,7 @@ test("a non-member cannot open a room while an administrator can", async ({ page
   await signOut(page);
 
   // The administrator is not a member: their own list is empty of it, "All" finds it without a role, and it opens.
-  await login(page);
+  await admin.login(page);
   await page.goto("/rooms");
   await openFilters(page);
   await page.getByLabel("Name", { exact: true }).fill(name);
@@ -238,7 +241,7 @@ test("a non-member cannot open a room while an administrator can", async ({ page
 });
 
 test("an owner archives and unarchives a room and an administrator deletes it", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const owner = await throwawayUser(page, "E2E Room Archiver", cleanup);
   await signOut(page);
 
@@ -282,7 +285,7 @@ test("an owner archives and unarchives a room and an administrator deletes it", 
   await signOut(page);
 
   // The administrator (not a member) deletes the room from its settings, after a confirm.
-  await login(page);
+  await admin.login(page);
   await page.goto(`/rooms/${id}/settings`);
   await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
   await page.getByRole("button", { name: "Delete room" }).click();

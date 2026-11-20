@@ -2,7 +2,10 @@
 // regular user picks a template when creating a room but has no template pages. Owns: its throwaway templates (unique `e2e-tpl-*` names) and user, removed through the API in an
 // `afterEach`. The seeded Default and Incident templates are shared and read-only: no spec edits or deletes them.
 import type { Page } from "@playwright/test";
-import { createUserViaUi, deleteViaApi, expect, login, openFilters, rowOperation, signOut, test, uniqueText } from "./helpers";
+import { createUserViaUi, deleteViaApi, expect, login, openFilters, rowOperation, signOut, specAdmins, test, uniqueText } from "./helpers";
+
+/** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
+const admin = specAdmins("e2e-workflow-templates-admin");
 
 // API teardown, so a failing step leaves neither the template nor the user behind.
 const cleanup: string[] = [];
@@ -14,7 +17,7 @@ const statusRow = (page: Page, n: number) => page.getByRole("group", { name: `St
 const TEMPLATE_API = /\/api\/v1\/workflow-templates(\/\d+)?$/;
 
 test("an administrator creates a workflow template, edits its labels in both languages and deletes it", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const name = uniqueText("e2e-tpl");
 
   // The nav leaf leads to the registry; New template opens the create form with a valid two-status skeleton.
@@ -82,7 +85,7 @@ test("an administrator creates a workflow template, edits its labels in both lan
 });
 
 test("a regular user picks a template when creating a room but has no template pages", async ({ page }) => {
-  await login(page);
+  await admin.login(page);
   const user = await createUserViaUi(page, "E2E Template Reader");
   cleanup.push(`/api/v1/users/${user.id}`);
   await signOut(page);

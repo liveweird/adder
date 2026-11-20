@@ -1,7 +1,7 @@
 # List mutation refresh races
 
-The suite owns uniquely named records, created through the real API. It signs in as the seed
-administrator and never changes existing user records. Cleanup releases held responses and
+The suite owns uniquely named records, created through the real API. It signs in as its own throwaway administrator (`e2e-list-mutation-refresh-admin-*`, `specAdmins`: minted
+through the seed administrator's API in a `beforeAll`, deleted in an `afterAll`) and never changes existing user records. Cleanup releases held responses and
 deletes only owned records through normal APIs, even when an assertion fails.
 
 ## Scenario: a pending Users filter cannot restore a deleted user
