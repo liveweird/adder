@@ -101,7 +101,7 @@ log, close with 1011.
 **[changed] A hint carries `threadNumber`, never `revision`.** The 2026-11-17 text proposed `{kind, roomId, threadId, messageId?, revision}`. The SPA keys
 threads by number, and a thread's `revision` moves only on a details save, so it signals almost nothing.
 
-Sixteen kinds; the wire name equals the audit name. `Recipients` is who gets an `event`; a *target* gets the personal frame on every socket it has,
+Sixteen kinds today and three more in 0.6 (nineteen; the last three rows below); the wire name equals the audit name. `Recipients` is who gets an `event`; a *target* gets the personal frame on every socket it has,
 subscribed or not (it may not be subscribed yet).
 
 | Kind | Extras | Recipients |
@@ -116,6 +116,11 @@ subscribed or not (it may not be subscribed yet).
 | `room.workflow_updated` | | subscribers |
 | `thread.created` / `thread.updated` / `thread.status_changed` / `thread.owner_changed` | threadNumber | subscribers |
 | `message.posted` / `message.edited` / `message.deleted` | threadNumber, messageId | subscribers |
+| `notification.created` (waits for notifications) | threadNumber; messageId for a mention; targets = the recipients (at most 20) | targets only |
+| `message.reaction_changed` (waits for reactions) | threadNumber, messageId | subscribers |
+| `room.pin_changed` (waits for pins) | threadNumber; messageId for a message pin | subscribers |
+
+**The per-user channel (0.6).** A hint that names `targetUserIds` already reaches every socket of those users, subscribed to the room or not, because the hub indexes sockets by user and a socket's user is its ticket's user: "subscribing to yourself" needs no frame, no check and no new ticket rule. So 0.6 adds no second NOTIFY channel, no client frame and no change to tickets, bounds or close codes; it adds one delivery class, **targets only** (`Audience.TARGETS` in `live/LiveHubModel.kt`, next to `SUBSCRIBERS` and `SUBSCRIBERS_AND_TARGETS`: `room.created` joins `notification.created` there instead of being a special case of `fanOut`). The frame is the existing `event` (`kind`, `roomId`, `threadNumber`, `messageId`); a recipient was an active member of that room when the write committed, so the ids tell them nothing new. A post that mentions someone emits `message.posted`, then `notification.created`, in one transaction; a hand-over emits `thread.owner_changed`, then `notification.created` unless the steward took the thread themself. **Read state emits nothing** (a read marker, "room seen", "notification seen"): it is unaudited view state, and a hint per acknowledgement would multiply a busy thread's NOTIFY rate by its readers (`persistence.md` "NOTIFY"); other tabs catch up on focus. A reaction or pin that is already in the requested state emits nothing. A tab still running an older SPA treats an unknown kind as "re-read that room" (harmless). Each new kind is named after a real `audit(...)` line, which `LiveHintTest` requires. Account changes are NOT pushed over this channel (0.6 D6): the 60 s sweep stays.
 
 - A socket gets at most one frame per hint. `room.member_removed` makes each non-ADMIN target socket drop the room (ACTIVE or PENDING) and receive
   `revoked`; `room.deleted` does the same for every subscriber and target.
@@ -230,7 +235,7 @@ slot only for the round trip between the upgrade and its `auth` frame, so a reco
 
 **"Idle close"** is four mechanisms, not one timer: the protocol heartbeat, the 2 s auth deadline, the close at the token's `exp`, and the client closing a
 socket after 5 minutes hidden. A visible, authenticated socket is never closed for being quiet. **One socket per tab**; the 17th tab of a user shows "Live
-updates off" and retries every minute (a shared leader-tab socket is a deliberate non-goal for now, revisit with 0.6.0 unread counts).
+updates off" and retries every minute (a shared leader-tab socket is a deliberate non-goal: unread needs no background socket, because a hidden tab re-reads on return).
 
 **Audits** (names in `observability.md` when each lands): `live.refused` (`reason` = origin | capacity | stopping | listener-down | auth | socket-cap | subscription-cap | inbound-rate |
 bad-frame; **[changed] no `ip`**: the `rate_limit.exceeded` rule, the client address is attacker-chosen text behind a proxy and the access log has it; `byUserId` after authentication, a printable `origin` for the Origin refusal; coalesced through `RateLimitAuditThrottle`, with a `suppressed` count; **the window is per reason, and per `limit` for a refusal that names one (a

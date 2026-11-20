@@ -63,7 +63,7 @@ The architect's plan put three decisions to the user; all three took the recomme
   pushing those four account events too (five more call sites and one more reviewed surface), now a `BACKLOG.md` item.
 - **D3. One socket per tab, at most 16 per user, closed after 5 minutes hidden.** The 17th tab shows "Live updates off" and retries every minute. The
   alternative was one socket per browser through a leader tab (Web Locks plus BroadcastChannel): no cap pressure, but a second state machine and much harder
-  tests; revisit when 0.6.0 unread counts need background tabs.
+  tests; unread needs no background socket (a hidden tab re-reads on return).
 
 ### 0.5.0 Find (the user's, 2026-11-19)
 
@@ -79,6 +79,17 @@ The plan put five decisions to the user; all five took the recommended option, s
   inputs, about one more server step and two more input kinds; they are a `BACKLOG.md` item.
 - **D5. The "thread only" focus view is a layout switch kept in the URL.** The list column hides and the conversation takes the main area; it survives a reload and can be shared. The alternatives were the
   switch plus search within the thread, or deferring it (the first is a `BACKLOG.md` item).
+
+### 0.6.0 Social (the user's, 2026-11-20)
+
+The plan put six decisions to the user. The user was asked for numbers and gave none; the defaults offered were accepted, so each is a decision, not an assumption. The rules they became: `chat-model.md` "Mentions, notifications, unread, reactions, pins (0.6)".
+
+- **0.6 D1. The rooms rail shows a dot plus a count of unseen mentions.** A dot for activity since the member last looked at the room, plus the number of unseen mentions and hand-overs; one flag on the rail's own row, no extra request. The alternatives were an exact count of unread messages per room (two counters kept on every post and read, a drift risk and a large number in a busy room) and mentions only.
+- **0.6 D2. Notification emails are a 5-minute digest, on by default.** A notice still unseen after 5 minutes is mailed; at most one email per person per 15 minutes; each person switches each kind off. The alternatives were the same digest off by default, one email per notification at once, and no email in 0.6.0.
+- **0.6 D3. The email says who, the room, the thread number and a link only.** Never the thread title, never message text. The alternatives were a count and a link only, and the title plus the first 200 characters of the message.
+- **0.6 D4. Any member pins and unpins.** Fifty pins a room; every pin says who made it; each change is audited. The alternatives were the room OWNER or an ADMIN only, and any member pins while only the pinner, the room OWNER or an ADMIN unpins.
+- **0.6 D5. One release, 0.6.0,** as the roadmap says. The alternative was 0.6.0 = mentions, notifications and unread and 0.7.0 = reactions and pins, before the 1.0.0 checkup.
+- **0.6 D6. Account changes stay on the 60 s sweep.** The sweep the user chose for 0.4.0 (0.4 D2) is kept; pushing them over the per-user channel needs a hint without a room (a wire change) and five call sites in `auth/` and `users/`. The `BACKLOG.md` item stays, noting that the delivery class now exists.
 
 ## Assumptions (taken without asking; change on request)
 
@@ -158,6 +169,42 @@ Taken without asking, in the 0.5.0 plan. Detail and the rules they became: `chat
 - **A17. Jumping to a found message loads older pages until it appears,** at most 10 loads.
 - **A18. Database failures log exception classes and the SQLSTATE only,** never a message (Exposed expands bound values into it).
 
+### 0.6.0 Social
+
+Taken without asking, in the 0.6.0 plan. Detail and the rules they became: `chat-model.md` "Mentions, notifications, unread, reactions, pins (0.6)".
+
+- **0.6 A1. The mention token is `<@id>`,** stored in the body as sent; nothing rewrites a body.
+- **0.6 A2. Only an ACTIVE member of the room,** at the moment the message is written or edited, is mentioned; any other id is plain text: no row, no notice, never a refusal.
+- **0.6 A3. The first 20 distinct mentions of a message count;** the rest are ignored.
+- **0.6 A4. No `@room`, no `@here`, no mention of a non-member.**
+- **0.6 A5. A mention of oneself is shown and never notified.**
+- **0.6 A6. An edit notifies only the people it newly mentions,** and removes the notice of a mention it drops.
+- **0.6 A7. Names are read at request time.** A mention of a member who left or was deleted keeps the name.
+- **0.6 A8. The thread list's filter is `mentionedUserId`,** repeatable and any-of (the `ownerId` shape); the SPA offers "Mentions me" only.
+- **0.6 A9. The composer shows `@Name`.** A mention is one unit there (deleting into it removes it whole) and travels as `<@id>`.
+- **0.6 A10. Two notification kinds:** `MENTIONED` and `THREAD_ASSIGNED`. A steward who takes a thread themself gets none. No notice for being added to a room, for a reply or for a reaction.
+- **0.6 A11. A notice is ids only,** and is listed only while its recipient is an active member of an active room, an ADMIN too.
+- **0.6 A12. Leaving or being removed deletes the leaver's notices and read markers of that room.** Rejoining starts clean.
+- **0.6 A13. Notices are hard-deleted:** with their message, with the membership, and 90 days after they were made.
+- **0.6 A14. No "mark unseen" and no per-row delete in the bell** (Lettuce has both).
+- **0.6 A15. In-app notices cannot be switched off.** The preference is about email, per kind; no master switch (two kinds are two switches).
+- **0.6 A16. A notice is seen** when its row is clicked, when its thread is read past its message, or by "Mark all as seen".
+- **0.6 A17. Read state is a member's.** An ADMIN who is not a member has none: counts are 0 and a marker write is 403.
+- **0.6 A18. Unread starts at joining.** After the upgrade, everything already written is read for everybody.
+- **0.6 A19. A count looks at the newest 100 messages after the marker;** 100 means "100 or more" and shows as "99+". A tombstone counts.
+- **0.6 A20. Posting marks the poster's thread read up to their message.** Opening a thread at its end marks it read; the "New" line shows what was new on that visit.
+- **0.6 A21. A status, owner, title or field change makes a room "new"** (it is activity) and never a thread "unread" (only messages do).
+- **0.6 A22. Read state is not pushed and not audited.** Another tab or device catches up on focus and with the room's next hint.
+- **0.6 A23. A reaction is one emoji by the rule in `chat-model.md`,** at most 10 code points; 20 distinct per message (the roadmap), 5 per person per message.
+- **0.6 A24. A reaction is speech:** members only, refused in a closed thread and an archived room. It is not activity: no rail bump, no unread, no notice.
+- **0.6 A25. A message shows each reaction's count,** whether the reader reacted, and the first three names. The full list of reactors is a `BACKLOG.md` item.
+- **0.6 A26. A reaction's audit line carries ids only,** never the emoji.
+- **0.6 A27. A pin is of a thread or of a message; 50 per room.** A closed thread can be pinned (a pin is the room's); an archived room refuses; a deleted message loses its pin; no history event.
+- **0.6 A28. Reactions and pins ride `chat-write`** (they take the room lock); the read-state writes ride a new per-user bucket, `read-state`, 240 a minute.
+- **0.6 A29. Email:** nothing older than a day is mailed; a failed send is audited and not retried; a switched-off kind is skipped silently.
+- **0.6 A30. Search snippets show raw `<@id>` tokens for now** (a `BACKLOG.md` item).
+- **0.6 A31. No new dependency,** server or web.
+
 ### 0.3.0 threads and messages
 
 Taken without asking: the user was away (2026-11-18) and said to take the architect's recommended defaults. **D1 and D2 are the architect's recommended
@@ -193,7 +240,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 0.5.0** (shipped); next is 0.6.0.
+Each increment gets its own plan (architect) before implementation. **Current version: 0.5.0** (shipped); next is 0.6.0, whose decisions are recorded ("0.6.0 Social").
 
 | Ver | Scope |
 |---|---|
@@ -202,7 +249,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **0.3.0 Threads and messages** | Threads with a per-room number, status, owner, fields and history (`EventLog` port); messages in Markdown with emoji; edit/delete own; close/reopen with the closed-thread `409`; the three-pane room view |
 | **0.4.0 Live updates** (shipped) | `GET /api/v1/live` WebSocket with single-use tickets (sent in the first frame), subscribe/unsubscribe per room, `pg_notify` inside the write transaction, one LISTEN connection per process, bounded sockets, a 60 s account sweep; targeted query invalidation in the SPA (`live.md`) |
 | **0.5.0 Find** (shipped) | Thread filters and sorts (status, category, owner, SELECT/MULTI_SELECT/USER fields, tag, workflow order), a focus view, Postgres full-text search per room and across member rooms (`chat-model.md` "Find (0.5)"), server-parsed #hashtags |
-| **0.6.0 Mentions, reactions, pins, unread** | @mention autocomplete and notifications (Lettuce's model, pushed live; email by preference), the thread list's "mentions me" filter (moved from 0.5.0, 0.5 D1), reactions, room pins, per-member unread markers |
+| **0.6.0 Social: mentions, notifications, unread, reactions, pins** | `<@id>` mentions with an autocomplete over room members and the thread list's "mentions me" filter (moved from 0.5.0, 0.5 D1); notifications for mentions and hand-overs (Lettuce's model, ids only), pushed live over the per-user channel, with a 5-minute email digest by per-user preference (0.6 D2, 0.6 D3); per-member unread (a rail dot and mention count, thread counts, a "New" line; 0.6 D1); one-emoji reactions; room pins of threads and messages, any member (0.6 D4); one release (0.6 D5). `chat-model.md` "Mentions, notifications, unread, reactions, pins (0.6)" |
 | **1.0.0 Checkup** | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |
 
 ## Donors
@@ -216,15 +263,15 @@ reinvent**: when Adder needs a capability a sibling repo already has, port its i
 - **Astrolabe** (`~/Sources/astrolabe`): the trim recipe — the single-process deployment, `users/` (not `flowusers/`), the V1–V9 foundation
   migrations, the trimmed telemetry and teams, the bootstrap docs.
 - **Lettuce** (`~/Sources/lettuce`): `infra/mail`, `infra/crypto`, `infra/paging`, the connection pool (through Flow); ported in 0.3.0: `MarkdownView` (the message variant),
-  `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `infra/db/EventLog.kt`; planned for 0.5.0: `FilterMultiSelect.tsx` and `accessiblePill.tsx`; next: `NotificationsButton` + `notifications/`, the dictionary whole-document PUT.
+  `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `infra/db/EventLog.kt`; planned for 0.5.0: `FilterMultiSelect.tsx` and `accessiblePill.tsx`; planned for 0.6.0: the shape of `notifications/NotificationService` (`list` with `wasSeen`, `markSeen`, `markAllSeen`, the unknown-type rule) and its per-user preferences model (disabled pairs, a wholesale-replace PUT) with their test titles; reference only: `NotificationEmailer` and the per-language email builder (the mirror itself is replaced by the digest); next: the dictionary whole-document PUT.
 - **Toadie** (`~/Sources/toadie`): `X-Expected-Revision` optimistic concurrency (ported in 0.2.0, `infra/revision/` and its `web/` half; the workflow-template and room-workflow PUTs consume it);
   `lockingTransaction` deliberately NOT ported (a room write takes one `FOR NO KEY UPDATE` row lock on the room instead, `rooms/RoomLock.kt`); next:
   `blueprints/` `PropertyDefinition` as the reference for typed workflow fields.
-- **Covenant** (`~/Sources/covenant`): planned for 0.5.0: the pass-through group of `CommandPalette.tsx` and the shape of `useReviewInboxFilters.ts` (validate, omit defaults, `replace`); its facets (`ContractService.kt`) are a reference only (no facets in 0.5.0); next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
+- **Covenant** (`~/Sources/covenant`): planned for 0.6.0: the compact notification bell (`NotificationsButton.tsx`, 239 lines, itself Lettuce's; polling replaced by the live hint) and the in-transaction insert (`createAllInCurrentTransaction`); planned for 0.5.0: the pass-through group of `CommandPalette.tsx` and the shape of `useReviewInboxFilters.ts` (validate, omit defaults, `replace`); its facets (`ContractService.kt`) are a reference only (no facets in 0.5.0); next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
 
 Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `identities/`, `metrics/`, `reports/`, `integration/` (service tokens),
 `infra/outbound/` (the SSRF guard — port it with the first server-initiated call other than SMTP), `plugins/Role.kt`, `EncryptedAtRest`/`Reencrypt`.
-Greenfield (no sibling has it): WebSocket push, @mention parsing, reactions, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
+Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
 

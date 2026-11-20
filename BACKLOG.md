@@ -20,10 +20,18 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 ## Chat MVP (0.5–0.6)
 
 - [new] **0.6.0 Mentions, reactions, pins, unread.** Includes the thread list's "mentions me" filter, moved from 0.5.0 (`product.md`, 0.5 D1).
+- [new] **Mentions: `@room` and `@here`, and mentioning someone who is not a member.** 0.6.0 mentions active members only; any other id stays plain text (0.6 A4). Add the group tokens, and an offer to add the named person to the room.
+- [new] **Notices for being added to a room, for a reply in a thread one owns, and for a reaction.** 0.6.0 notifies a mention and a hand-over only (0.6 A10).
+- [new] **Reactions: the full list of who reacted.** A message shows each emoji's count and the first three names (0.6 A25); add a paged read of the reactors.
+- [new] **Reactions: the official emoji list.** The server checks that a value is one emoji grapheme by rule, not by list, so a chain of up to five pictographs joined by a zero-width joiner passes (`chat-model.md` "Reactions (V20)").
+- [new] **Unread: an "unread" filter on the thread list, and "Mark all as read" in a room.** The second would raise `read_from`, which is why that column is its own.
+- [new] **Unread: a count in the browser tab title.** Needs the hidden-tab socket rule revisited (a hidden tab closes its socket after 5 minutes, `live.md`).
+- [new] **Unread: read state pushed between a person's tabs.** A `BroadcastChannel` would do it with no server change; 0.6.0 lets another tab catch up on focus.
+- [new] **Notifications: browser push, an in-app switch per kind, and muting a thread.** 0.6.0 notices cannot be switched off in the app (0.6 A15); only the email is per kind.
 - [new] **Find: range and text filters on field values.** 0.5.0 filters SELECT, MULTI_SELECT and USER fields only (exact, any-of; 0.5 D4). Add DATE and NUMBER ranges (`field[gte]`, `field[lte]`) with their inputs, and TEXT filters.
 - [new] **Find: facet counts in the filter panel.** 0.5.0 labels only the status options with the workflow's `threadCount`. Counts per owner, tag and field value would port Covenant's lifted-predicate facets (`ContractService.kt`).
 - [new] **Find: search within one thread, and anchored message reads.** The focus view (0.5 D5) is a layout switch only. Add a flat, paged list of one thread's matching messages, and a read of the messages around an anchor so a jump needs no loop of older pages.
-- [new] **Find: search over field values, and Markdown stripped from snippets.** 0.5.0 searches message bodies and thread titles; a snippet is a fragment of the Markdown source as plain text.
+- [new] **Find: search over field values, and Markdown stripped from snippets.** 0.5.0 searches message bodies and thread titles; a snippet is a fragment of the Markdown source as plain text, so from 0.6.0 a hit near a mention shows the raw `<@id>` token; show the member's name instead.
 - [new] **Find: phrase and exclusion operators.** 0.5.0 matches all terms, as prefixes, with no operators and no ranking.
 - [new] **Find: ticket keys.** `PROD-123` indexes as `prod` and `-123`, so `123` alone does not find it. Index the key whole, or add a second configuration for it.
 - [new] **Hashtags: a thread's tags on list rows and in the side panel, and `#42` as a link.** 0.5.0 shows tags only as links in message text and in the filter panel; `#42` is a thread number and stays plain text.
@@ -34,7 +42,7 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
   hears every hint.
 - [new] **Live: push account changes.** 0.4.0 closes a socket for a logout, user deletion, password change or role change by a 60 s sweep (the user's decision D2).
   Pushing those four events (a NOTIFY the hub acts on at once, about five call sites in `auth/` and `users/`) would close the gap to zero; the sweep stays as the
-  safety net.
+  safety net. Since 0.6.0 the per-user delivery class exists (a hint's targets reach every socket of those users); what is still missing is a hint without a room.
 - [new] **Live: skip the writer tab's echo.** The tab that made a write refetches twice, once for its own mutation and once for the hint. Tag the hint with the
   writer's socket (or a client id) so that tab can skip it.
 - [new] **E2E: the live-ticket bucket is shared across a full parallel run.** The seed admin's `live-ticket` bucket (60/min per user) is shared by every Playwright
