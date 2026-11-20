@@ -116,8 +116,9 @@ function serve(mockFetch: FetchMock, opts: ServeOptions = {}) {
 }
 
 const problem = (status: number, type?: string) => jsonResponse(status, { title: "x", status, ...(type ? { type } : {}) });
+// The room's own "seen" POST (opening a room is looking at it) is view state, not one of the writes these tests count.
 const calls = (mockFetch: FetchMock, method: string) =>
-  mockFetch.mock.calls.filter(([, init]) => ((init as RequestInit | undefined)?.method ?? "GET") === method).map(([url, init]) => ({ url: url as string, body: (init as RequestInit | undefined)?.body }));
+  mockFetch.mock.calls.filter(([url, init]) => ((init as RequestInit | undefined)?.method ?? "GET") === method && !String(url).endsWith("/seen")).map(([url, init]) => ({ url: url as string, body: (init as RequestInit | undefined)?.body }));
 const detailGets = (mockFetch: FetchMock) => mockFetch.mock.calls.filter(([url, init]) => url === "/api/v1/rooms/12" && ((init as RequestInit | undefined)?.method ?? "GET") === "GET").length;
 const memberCalls = (mockFetch: FetchMock) => mockFetch.mock.calls.map(([url]) => url as string).filter((url) => url.startsWith("/api/v1/rooms/12/members?"));
 

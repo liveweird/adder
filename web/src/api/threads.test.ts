@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createThread, getThread, listRoomTags, listThreadEvents, listThreads, setThreadOwner, setThreadStatus, updateThreadDetails } from "./threads";
+import { createThread, getThread, listRoomTags, listThreadEvents, listThreads, setThreadOwner, setThreadReadMarker, setThreadStatus, updateThreadDetails } from "./threads";
 
 describe("threads API wrappers", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -87,5 +87,12 @@ describe("threads API wrappers", () => {
     mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 2, pageSize: 10, total: 12 })));
     await expect(listThreadEvents(5, 42, { page: 2, pageSize: 10 })).resolves.toMatchObject({ total: 12 });
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads/42/events?page=2&pageSize=10");
+  });
+
+  test("setThreadReadMarker PUTs the message id the reader has reached", async () => {
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    await setThreadReadMarker(5, 42, 311);
+    const [url, init] = lastCall();
+    expect([url, init.method, init.body]).toEqual(["/api/v1/rooms/5/threads/42/read-marker", "PUT", JSON.stringify({ messageId: 311 })]);
   });
 });

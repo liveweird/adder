@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { ActionIcon, AppShell, Box, Burger, Divider, Group, NavLink, ScrollArea, Text, Tooltip } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from "@tabler/icons-react";
@@ -19,9 +19,11 @@ import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
 import { KnownNamesContext, useSessionKnownNames } from "./utils/knownNames";
 import { activeNavPath, ROOMS_SECTION, visibleSections, type NavLeaf } from "./utils/navigation";
 import { roomPath } from "./utils/roomLinks";
+import { unseenByRoom } from "./utils/unread";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
 import { useLiveUpdates } from "./hooks/useLiveUpdates";
 import { useRailRooms } from "./hooks/useRailRooms";
+import { useUnseenNotifications } from "./hooks/useUnseenNotifications";
 import { isBoolean, useStoredState } from "./hooks/useStoredState";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "./hooks/useTelemetryPanel";
 import classes from "./theme.module.css";
@@ -85,6 +87,9 @@ function Shell() {
   // The caller's rooms (the rail under "All rooms"): the toggle for the archived ones is device-level, like the other view settings.
   const [showArchived, setShowArchived] = useStoredState("rooms.rail.showArchived", false, isBoolean);
   const railRooms = useRailRooms(showArchived);
+  // The unseen notices (the bell's one query, shared): their count per room is the `@` number in the rail.
+  const unseenNotices = useUnseenNotifications();
+  const mentions = useMemo(() => unseenByRoom(unseenNotices.items), [unseenNotices.items]);
   // The tab's one live socket: it follows the ACTIVE rail rooms and the open room (the archived rail and "All rooms" refresh on focus).
   const liveStatus = useLiveUpdates((railRooms.active.data?.items ?? []).map((room) => room.id));
   // The rooms join the leaves in ONE longest-prefix resolution, so /rooms/12/members lights room 12, not "All rooms".
@@ -205,6 +210,7 @@ function Shell() {
                   collapsed={rail}
                   activeTo={activeTo}
                   onNavigate={close}
+                  mentions={mentions}
                 />
               )}
             </Box>

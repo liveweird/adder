@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert, Button, Center, Loader, Stack, VisuallyHidden } from "@mantine/core";
+import { IconArrowDown, IconArrowUp } from "@tabler/icons-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { listMessages } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import type { ThreadResponse } from "../api/threads";
 import { useAdmin } from "../auth";
 import { getUserId } from "../api/session";
+import { useArrivals, useFirstUnreadOnOpen } from "../hooks/useConversationUnread";
+import { useThreadReadMarker } from "../hooks/useThreadReadMarker";
 import { browserTimeZone } from "../utils/formatDate";
 import { messageActions } from "../utils/messageAccess";
 import ErrorAlert from "./ErrorAlert";
@@ -50,24 +53,36 @@ function centreInScroller(scroller: HTMLElement, item: HTMLElement) {
  * thread has no such message, or it is further back than ten loads reach (counted from the moment the anchor arrives), a gray note above the
  * list says so and the list goes to the bottom, as on any open. A deleted message is listed as its tombstone, so the jump lands on that.
  * The jump happens once per anchor, however often the list is re-read afterwards.
+ *
+ * Unread (0.6.0): the first message that was unread when the thread opened (`thread.firstUnreadMessageId`, taken once, once the thread read has
+ * settled: `threadSettled`) gets a "New" separator above it; while it is off screen (or not loaded yet) "Jump to the first new message"
+ * takes the reader there through the same jump as `anchorId`, without touching the URL. Messages from others that arrive under a reader who
+ * is not at the end are counted in a button below the list that goes to the end (and a polite status line says so); reaching the end clears it.
+ * A MEMBER at the end of the list, in a visible tab, moves their read marker to the newest message (`useThreadReadMarker`).
  */
 export default function MessageList({
   room,
   thread,
   scrollToId,
   onScrolled,
-  anchorId = null,
+  anchorId: urlAnchorId = null,
+  threadSettled = true,
 }: {
   room: RoomResponse;
   thread: ThreadResponse;
   scrollToId: number | null;
   onScrolled: () => void;
   anchorId?: number | null;
+  /** Whether the thread read that holds `firstUnreadMessageId` has settled (no fetch in flight): the unread boundary is taken from the first settled read. */
+  threadSettled?: boolean;
 }) {
   const { t } = useTranslation();
   const admin = useAdmin();
   const userId = getUserId();
   const zone = browserTimeZone();
+  // "Jump to the first new message" asks the anchor machinery for a message of its own (it wins over the URL's only until the URL's changes).
+  const [localJump, setLocalJump] = useState<{ url: number | null; id: number } | null>(null);
+  const anchorId = localJump !== null && localJump.url === urlAnchorId ? localJump.id : urlAnchorId;
   const { data, isLoading, isError, isFetching, error, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = useInfiniteQuery({
     queryKey: roomKeys.messages(room.id, thread.number),
     queryFn: ({ pageParam }) => listMessages(room.id, thread.number, { idLt: pageParam, pageSize: MESSAGE_PAGE_SIZE }),
@@ -89,13 +104,19 @@ export default function MessageList({
   const scroller = useRef<HTMLDivElement>(null);
   const opened = useRef(false);
   // Whether the list opened on a jump: then it starts where the jump will take it, never at the bottom.
-  const openedOnAnchor = useRef(anchorId !== null);
-  // Whether the reader was within reach of the newest message the last time they (or an anchor) moved the scroller.
-  const atBottom = useRef(true);
+  const openedOnAnchor = useRef(urlAnchorId !== null);
+  // Whether the reader was within reach of the newest message the last time they (or an anchor) moved the scroller: a ref for the layout
+  // effects, and the same value as state for what is drawn and sent (the arrivals button, the read marker). A list opened on a jump starts away from the end.
+  const atBottom = useRef(urlAnchorId === null);
+  const [atEnd, setAtEnd] = useState(urlAnchorId === null);
+  const setBottom = useCallback((value: boolean) => {
+    atBottom.current = value;
+    setAtEnd(value);
+  }, []);
   const trackBottom = useCallback(() => {
     const el = scroller.current;
-    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_TOLERANCE_PX;
-  }, []);
+    if (el) setBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_TOLERANCE_PX);
+  }, [setBottom]);
   // Where the reader was before older messages were prepended, so they are not thrown to the top of a longer list.
   const anchor = useRef<{ top: number; height: number } | null>(null);
   useLayoutEffect(() => {
@@ -104,7 +125,7 @@ export default function MessageList({
     if (!opened.current) {
       opened.current = true;
       if (!openedOnAnchor.current) el.scrollTop = el.scrollHeight;
-      atBottom.current = !openedOnAnchor.current;
+      setBottom(!openedOnAnchor.current);
     } else if (anchor.current !== null) {
       el.scrollTop = anchor.current.top + (el.scrollHeight - anchor.current.height);
       anchor.current = null;
@@ -113,7 +134,7 @@ export default function MessageList({
       // The list grew under a reader at the bottom (a message from someone else): keep them there.
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages.length, trackBottom]);
+  }, [messages.length, trackBottom, setBottom]);
   // The newest message was replaced or edited (it may be taller now) under a reader at the bottom: keep them there. Only a change of the
   // newest message fires this, so loading older messages (which anchors the reader) never does.
   useLayoutEffect(() => {
@@ -124,9 +145,9 @@ export default function MessageList({
     const el = scroller.current;
     if (!el || scrollToId === null || newestId === undefined || newestId < scrollToId) return;
     el.scrollTop = el.scrollHeight;
-    atBottom.current = true;
+    setBottom(true);
     onScrolled();
-  }, [scrollToId, newestId, onScrolled]);
+  }, [scrollToId, newestId, onScrolled, setBottom]);
 
 
   // The jump: once per anchor, when its message is listed. The message is centred in the scroller (the page does not move), takes the focus
@@ -147,6 +168,8 @@ export default function MessageList({
     trackBottom();
     setSpotlight(anchorId);
   }, [anchorId, found, trackBottom]);
+  // A jump to the first new message is used up once it has landed (the spotlight is on it): the URL's anchor, if any, takes over again.
+  if (localJump !== null && spotlight === localJump.id) setLocalJump(null);
   useEffect(() => {
     if (spotlight === null) return;
     const timer = setTimeout(() => setSpotlight(null), SPOTLIGHT_MS);
@@ -165,9 +188,53 @@ export default function MessageList({
     const el = scroller.current;
     if (anchorNote === null || !el) return;
     el.scrollTop = el.scrollHeight;
-    atBottom.current = true;
-  }, [anchorNote]);
+    setBottom(true);
+  }, [anchorNote, setBottom]);
   const spotlightAuthor = messages.find((message) => message.id === spotlight)?.authorName;
+
+  // Unread. The boundary is taken once; the jump button shows while that message is not on screen (not loaded counts as not on screen).
+  const firstUnread = useFirstUnreadOnOpen(thread.firstUnreadMessageId, threadSettled);
+  const [firstOnScreen, setFirstOnScreen] = useState(false);
+  const measureFirstUnread = useCallback(() => {
+    const el = scroller.current;
+    const item = firstUnread === null ? null : el?.querySelector<HTMLElement>(`[data-message-id="${firstUnread}"]`);
+    if (!el || !item) {
+      setFirstOnScreen(false);
+      return;
+    }
+    const box = el.getBoundingClientRect();
+    const rect = item.getBoundingClientRect();
+    setFirstOnScreen(rect.bottom >= box.top && rect.top <= box.bottom);
+  }, [firstUnread]);
+  useLayoutEffect(measureFirstUnread, [measureFirstUnread, messages.length]);
+  const arrivals = useArrivals(messages, atEnd, userId);
+  // Only a settled conversation is read: the newest id of a stale cached copy (an earlier visit's) was never seen, and a re-read is about to replace it.
+  useThreadReadMarker({ roomId: room.id, threadNumber: thread.number, newestId, atEnd, enabled: room.role !== null && threadSettled && !isFetching });
+
+  function jumpToFirstUnread() {
+    if (firstUnread === null) return;
+    const el = scroller.current;
+    const item = el?.querySelector<HTMLElement>(`[data-message-id="${firstUnread}"]`);
+    if (!el || !item) {
+      // Not loaded yet: the anchor machinery loads older pages until it is listed, then lands on it. The reader is away from the end meanwhile,
+      // as when a list opens on the URL's anchor (older pages prepended must neither pull them down nor count as having seen the newest).
+      setBottom(false);
+      setLocalJump({ url: urlAnchorId, id: firstUnread });
+      return;
+    }
+    centreInScroller(el, item);
+    item.focus({ preventScroll: true });
+    trackBottom();
+    measureFirstUnread();
+    setSpotlight(firstUnread);
+  }
+  function jumpToEnd() {
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setBottom(true);
+    el.focus({ preventScroll: true });
+  }
 
   // Set when "Load older" was pressed: if that load was the last one the button goes away with the focus on it, and focus would fall to the page.
   const pressedLoad = useRef(false);
@@ -194,7 +261,9 @@ export default function MessageList({
   }
 
   // Mounted from the first render (also while loading), so the line that appears in it is announced.
-  const announcement = <VisuallyHidden role="status">{spotlightAuthor === undefined ? "" : t("threads.anchor.found", { author: spotlightAuthor })}</VisuallyHidden>;
+  const announced =
+    spotlightAuthor !== undefined ? t("threads.anchor.found", { author: spotlightAuthor }) : arrivals > 0 ? t("threads.arrivals.announce", { count: arrivals }) : "";
+  const announcement = <VisuallyHidden role="status">{announced}</VisuallyHidden>;
   if (isLoading) {
     return (
       <>
@@ -211,7 +280,22 @@ export default function MessageList({
           {t(anchorNote === "gone" ? "threads.anchor.gone" : "threads.anchor.tooFar")}
         </Alert>
       )}
-      <div ref={scroller} className={classes.scroller} role="region" aria-label={t("threads.messages.aria")} tabIndex={0} onScroll={trackBottom}>
+      {firstUnread !== null && !firstOnScreen && (
+        <Button variant="light" size="compact-sm" style={{ alignSelf: "flex-start" }} leftSection={<IconArrowUp size={14} />} onClick={jumpToFirstUnread}>
+          {t("threads.unread.jump")}
+        </Button>
+      )}
+      <div
+        ref={scroller}
+        className={classes.scroller}
+        role="region"
+        aria-label={t("threads.messages.aria")}
+        tabIndex={0}
+        onScroll={() => {
+          trackBottom();
+          measureFirstUnread();
+        }}
+      >
         {isError && (
           <Stack gap="xs" align="flex-start" pb="xs">
             <ErrorAlert error={error} title={t("threads.messages.loadFailed")} />
@@ -246,10 +330,16 @@ export default function MessageList({
               actions={messageActions({ room, thread, message, userId, admin })}
               zone={zone}
               anchored={message.id === spotlight}
+              firstNew={message.id === firstUnread}
             />
           ))}
         </ul>
       </div>
+      {arrivals > 0 && (
+        <Button variant="light" size="compact-sm" style={{ alignSelf: "flex-start" }} leftSection={<IconArrowDown size={14} />} onClick={jumpToEnd}>
+          {t("threads.arrivals.button", { count: arrivals })}
+        </Button>
+      )}
     </>
   );
 }

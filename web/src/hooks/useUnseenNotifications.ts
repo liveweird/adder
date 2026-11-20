@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { getToken } from "../api/session";
-import { listNotifications } from "../api/notifications";
+import { listNotifications, type NotificationItem } from "../api/notifications";
 import { notificationKeys } from "../utils/notificationKeys";
+
+/** One empty list for every render without rows, so a memo keyed on `items` does not recompute while nothing has loaded. */
+const NO_ITEMS: NotificationItem[] = [];
 
 /** The unseen notices the bell reads in one go (the server's page maximum). */
 const UNSEEN_PAGE_SIZE = 100;
@@ -17,5 +20,5 @@ export function useUnseenNotifications() {
     queryFn: () => listNotifications({ page: 1, pageSize: UNSEEN_PAGE_SIZE, wasSeen: false }),
     enabled: getToken() !== null,
   });
-  return { ...query, total: query.data?.total ?? 0, items: query.data?.items ?? [] };
+  return { ...query, total: query.data?.total ?? 0, items: query.data?.items ?? NO_ITEMS };
 }

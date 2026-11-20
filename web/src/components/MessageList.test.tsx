@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import MessageList from "./MessageList";
 import { jsonResponse } from "../test/http";
@@ -27,6 +27,8 @@ describe("MessageList", () => {
     localStorage.setItem("adder.auth.userId", "7");
   });
   afterEach(() => {
+    // Unmount while fetch is still stubbed: leaving a conversation sends the marker it was holding back.
+    cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     localStorage.clear();

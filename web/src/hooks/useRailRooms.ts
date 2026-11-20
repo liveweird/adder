@@ -5,7 +5,8 @@ import { roomKeys } from "../utils/roomKeys";
 /** The rail shows at most this many rooms per list; beyond it a "more rooms" link leads to the Rooms page. */
 export const RAIL_PAGE_SIZE = 100;
 
-const railQuery = (archived: boolean) => ({
+/** The rail's query options: `useRoomSeen` reads the same cache entry without fetching it (`enabled: false`). */
+export const railQuery = (archived: boolean) => ({
   queryKey: [...roomKeys.rail, archived ? "archived" : "active"],
   queryFn: () => listRooms({ page: 1, pageSize: RAIL_PAGE_SIZE, sort: "-lastActivityAt", archived, member: true }),
 });

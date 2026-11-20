@@ -167,6 +167,25 @@ describe("App shell", () => {
         expect(railCalls.map(([url]) => url)).toEqual(["/api/v1/rooms?page=1&pageSize=100&sort=-lastActivityAt&archived=false&member=true"]);
       });
 
+      test("a new room and the unseen notices of a room are marked in the rail by words, from the rooms list and the bell's query", async () => {
+        const notice = (id: number) => ({ id, type: "MENTIONED", wasSeen: false, createdAt: 1, actorId: 5, actorName: "Ann", roomId: 13, roomName: "Billing", threadNumber: 2, threadTitle: "t", messageId: 9 });
+        vi.stubGlobal(
+          "fetch",
+          vi.fn((url: string) => {
+            if (url.startsWith("/api/v1/notifications?")) return Promise.resolve(jsonResponse(200, { items: [notice(1), notice(2)], page: 1, pageSize: 100, total: 2 }));
+            if (url.startsWith("/api/v1/rooms?")) {
+              const items = ACTIVE.items.map((room) => ({ ...room, unread: room.id === 12 }));
+              return Promise.resolve(jsonResponse(200, { ...ACTIVE, items }));
+            }
+            return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+          }),
+        );
+        renderApp("/");
+        const rooms = await screen.findByRole("group", { name: "Rooms" });
+        await waitFor(() => expect(within(rooms).getByRole("link", { name: "Night Shift" })).toHaveAccessibleDescription("New activity"));
+        await waitFor(() => expect(within(rooms).getByRole("link", { name: "Billing" })).toHaveAccessibleDescription("2 unseen notifications"));
+      });
+
       test("a room's own pages highlight that room (not All rooms), including pages the app has no route for yet", async () => {
         stubRooms();
         renderApp("/rooms/12/members");

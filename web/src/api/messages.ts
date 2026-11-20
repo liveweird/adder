@@ -6,7 +6,7 @@
 import { buildQuery, jsonRequest, voidRequest } from "./http";
 import type { paths } from "./schema";
 
-type MessagePage = paths["/api/v1/rooms/{id}/threads/{number}/messages"]["get"]["responses"]["200"]["content"]["application/json"];
+export type MessagePage = paths["/api/v1/rooms/{id}/threads/{number}/messages"]["get"]["responses"]["200"]["content"]["application/json"];
 /** One message. A deleted one is a tombstone: `body` is null, `deleted` is true, `editedAt` is null and `deletedByModerator` says whose hand removed it. */
 export type MessageResponse = MessagePage["items"][number];
 export type MessageBody = paths["/api/v1/rooms/{id}/threads/{number}/messages"]["post"]["requestBody"]["content"]["application/json"];

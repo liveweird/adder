@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Box, Group, Menu, Stack, Text } from "@mantine/core";
+import { Box, Divider, Group, Menu, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconTrash } from "@tabler/icons-react";
 import { deleteMessage, type MessageResponse } from "../api/messages";
@@ -36,6 +36,7 @@ export default function MessageItem({
   actions,
   zone,
   anchored = false,
+  firstNew = false,
 }: {
   roomId: number;
   message: MessageResponse;
@@ -43,6 +44,8 @@ export default function MessageItem({
   zone: string;
   /** The message a jump landed on: marked for the list's highlight (`data-anchor`; the list finds it by `data-message-id`). */
   anchored?: boolean;
+  /** The first message that was unread when the thread opened: a "New" separator stands above it (inside the item, so the list stays a list of items). */
+  firstNew?: boolean;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -90,6 +93,18 @@ export default function MessageItem({
 
   return (
     <Box component="li" ref={item} tabIndex={-1} py="xs" data-message-id={message.id} data-anchor={anchored || undefined}>
+      {firstNew && (
+        <Divider
+          mb="xs"
+          labelPosition="left"
+          aria-label={t("threads.unread.separatorAria")}
+          label={
+            <Text component="span" size="xs" fw={700} c="dimmed">
+              {t("threads.unread.separator")}
+            </Text>
+          }
+        />
+      )}
       <Stack gap={4}>
         <Group justify="space-between" align="center" wrap="nowrap" gap="xs">
           <Group gap="xs" wrap="wrap" miw={0}>

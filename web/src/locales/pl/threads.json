@@ -256,5 +256,26 @@
       "conflict": "Pokój zmienił się w międzyczasie. Odśwież stronę i spróbuj ponownie.",
       "tooManyRequests": "Zmieniasz zbyt szybko. Odczekaj minutę i spróbuj ponownie."
     }
+  },
+  "unread": {
+    "separator": "Nowe",
+    "separatorAria": "Nowe wiadomości",
+    "jump": "Przejdź do pierwszej nowej wiadomości",
+    "row_one": "{{count}} nieprzeczytana wiadomość",
+    "row_few": "{{count}} nieprzeczytane wiadomości",
+    "row_many": "{{count}} nieprzeczytanych wiadomości",
+    "row_other": "{{count}} nieprzeczytanej wiadomości",
+    "rowCap": "100 lub więcej nieprzeczytanych wiadomości",
+    "notice": "Masz w tym wątku nieprzeczytane powiadomienie"
+  },
+  "arrivals": {
+    "button_one": "{{count}} nowa wiadomość poniżej",
+    "button_few": "{{count}} nowe wiadomości poniżej",
+    "button_many": "{{count}} nowych wiadomości poniżej",
+    "button_other": "{{count}} nowej wiadomości poniżej",
+    "announce_one": "Pojawiła się {{count}} nowa wiadomość",
+    "announce_few": "Pojawiły się {{count}} nowe wiadomości",
+    "announce_many": "Pojawiło się {{count}} nowych wiadomości",
+    "announce_other": "Pojawiło się {{count}} nowej wiadomości"
   }
 }

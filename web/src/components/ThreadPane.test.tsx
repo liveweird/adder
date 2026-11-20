@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import ThreadPane from "./ThreadPane";
 import type { RoomResponse } from "../api/rooms";
@@ -75,6 +75,8 @@ describe("ThreadPane", () => {
     localStorage.setItem("adder.auth.token", "fake-token");
   });
   afterEach(() => {
+    // Unmount while fetch is still stubbed: leaving a conversation sends the marker it was holding back.
+    cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     localStorage.clear();

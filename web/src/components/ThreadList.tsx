@@ -1,17 +1,19 @@
 import { useEffect, useId, useMemo } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Button, Group, SegmentedControl, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
+import { Badge, Button, Group, SegmentedControl, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { IconMessages, IconPinFilled, IconPlus } from "@tabler/icons-react";
+import { IconAt, IconMessages, IconPinFilled, IconPlus } from "@tabler/icons-react";
 import { listThreads } from "../api/threads";
 import type { RoomResponse } from "../api/rooms";
 import { useRoomPins } from "../hooks/useRoomPins";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
+import { useUnseenNotifications } from "../hooks/useUnseenNotifications";
 import { useThreadListParams } from "../hooks/useThreadListParams";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { focusThreadPaneState, newThreadPath, threadPath, withListParams } from "../utils/roomLinks";
 import { threadStartBlock } from "../utils/threadAccess";
+import { UNREAD_COUNT_CAP, unreadBadge, unseenThreadNumbers } from "../utils/unread";
 import classes from "./ThreadList.module.css";
 import EmptyState from "./EmptyState";
 import ErrorAlert from "./ErrorAlert";
@@ -41,7 +43,11 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
   const workflow = useRoomWorkflow(room.id);
   // A pinned thread's row carries a mark; "is it pinned" is the room's pins query (shared with the header and the pane), a failed read marks nothing.
   const pins = useRoomPins(room.id);
-  const pinNoteId = useId();
+  // A row says in words what its marks mean (a pin, unread messages, an unseen notice) through one hidden description.
+  const noteId = useId();
+  // The bell's unseen notices: a thread that holds one gets an `@` mark (a mention or a hand-over).
+  const unseen = useUnseenNotifications();
+  const noticeThreads = useMemo(() => unseenThreadNumbers(unseen.items, room.id), [unseen.items, room.id]);
   const zone = browserTimeZone();
 
   // The request: owner=me resolved to the session's id, a stale field entry dropped; null while field filters wait for the workflow.
@@ -107,39 +113,60 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
       {data && data.items.length > 0 && (
         <nav aria-label={t("threads.listAria")} aria-busy={isPlaceholderData} className={isPlaceholderData ? classes.stale : undefined}>
           <ul className={classes.list}>
-            {data.items.map((thread) => (
-              <li key={thread.id}>
-                <RouterLink
-                  to={withListParams(threadPath(room.id, thread.number), search)}
-                  state={focusThreadPaneState}
-                  className={classes.row}
-                  aria-current={thread.number === activeNumber ? "page" : undefined}
-                  aria-describedby={pins.threadNumbers.has(thread.number) ? `${pinNoteId}-${thread.number}` : undefined}
-                >
-                  <Stack gap={4}>
-                    <Text size="sm" fw={500} lh={1.3}>
-                      <Text span c="dimmed" inherit>{`#${thread.number}`}</Text> {thread.title}
-                      {pins.threadNumbers.has(thread.number) && (
-                        <>
-                          {" "}
-                          <IconPinFilled size={12} aria-hidden="true" />
-                        </>
-                      )}
-                    </Text>
-                    <Group gap="xs">
-                      <ThreadStatusPill statuses={workflow.data?.statuses} statusKey={thread.status} size="sm" />
+            {data.items.map((thread) => {
+              const unread = thread.unreadCount > 0;
+              const notice = noticeThreads.has(thread.number);
+              const pinned = pins.threadNumbers.has(thread.number);
+              const note = [
+                unread && t(thread.unreadCount >= UNREAD_COUNT_CAP ? "threads.unread.rowCap" : "threads.unread.row", { count: thread.unreadCount }),
+                notice && t("threads.unread.notice"),
+                pinned && t("threads.pin.mark"),
+              ]
+                .filter(Boolean)
+                .join(". ");
+              const describedBy = note === "" ? undefined : `${noteId}-${thread.number}`;
+              return (
+                <li key={thread.id}>
+                  <RouterLink
+                    to={withListParams(threadPath(room.id, thread.number), search)}
+                    state={focusThreadPaneState}
+                    className={classes.row}
+                    aria-current={thread.number === activeNumber ? "page" : undefined}
+                    aria-describedby={describedBy}
+                  >
+                    <Stack gap={4}>
+                      <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
+                        <Text size="sm" fw={unread ? 700 : 500} lh={1.3} miw={0}>
+                          <Text span c="dimmed" inherit>{`#${thread.number}`}</Text> {thread.title}
+                          {pinned && (
+                            <>
+                              {" "}
+                              <IconPinFilled size={12} aria-hidden="true" />
+                            </>
+                          )}
+                        </Text>
+                        {(unread || notice) && (
+                          <Group gap={4} wrap="nowrap" aria-hidden="true">
+                            {notice && <IconAt size={14} />}
+                            {unread && <Badge size="sm">{unreadBadge(thread.unreadCount)}</Badge>}
+                          </Group>
+                        )}
+                      </Group>
+                      <Group gap="xs">
+                        <ThreadStatusPill statuses={workflow.data?.statuses} statusKey={thread.status} size="sm" />
+                        <Text size="xs" c="dimmed">
+                          {thread.ownerName}
+                        </Text>
+                      </Group>
                       <Text size="xs" c="dimmed">
-                        {thread.ownerName}
+                        {t("threads.row.messages", { count: thread.messageCount })} · {formatDateTime(thread.lastActivityAt, zone)}
                       </Text>
-                    </Group>
-                    <Text size="xs" c="dimmed">
-                      {t("threads.row.messages", { count: thread.messageCount })} · {formatDateTime(thread.lastActivityAt, zone)}
-                    </Text>
-                  </Stack>
-                </RouterLink>
-                {pins.threadNumbers.has(thread.number) && <VisuallyHidden id={`${pinNoteId}-${thread.number}`}>{t("threads.pin.mark")}</VisuallyHidden>}
-              </li>
-            ))}
+                    </Stack>
+                  </RouterLink>
+                  {describedBy !== undefined && <VisuallyHidden id={describedBy}>{note}</VisuallyHidden>}
+                </li>
+              );
+            })}
           </ul>
         </nav>
       )}

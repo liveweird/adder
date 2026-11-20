@@ -40,7 +40,10 @@
     "empty": "You are not in any room yet",
     "archivedGroup": "Archived rooms",
     "more": "More rooms…",
-    "showArchived": "Show archived"
+    "showArchived": "Show archived",
+    "unread": "New activity",
+    "notices_one": "{{count}} unseen notification",
+    "notices_other": "{{count}} unseen notifications"
   },
   "create": {
     "template": "Workflow template",

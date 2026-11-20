@@ -75,6 +75,14 @@ export async function setThreadOwner(roomId: number, number: number, userId: num
   await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/owner`, { method: "PUT", body: JSON.stringify({ userId }) });
 }
 
+/**
+ * Records that the caller has read the thread up to `messageId` (204, forward only: an older id changes nothing, no live hint). It also marks
+ * the caller's notices of the thread seen and counts as looking at the room. Members only (an ADMIN outside the room is a 403).
+ */
+export async function setThreadReadMarker(roomId: number, number: number, messageId: number): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/read-marker`, { method: "PUT", body: JSON.stringify({ messageId }) });
+}
+
 /** One page of the thread's history, newest first (the server's default order). */
 export async function listThreadEvents(roomId: number, number: number, q: { page: number; pageSize: number }): Promise<ThreadEventPage> {
   const params = buildQuery({ page: q.page, pageSize: q.pageSize });

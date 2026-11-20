@@ -52,7 +52,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   const clearScrollRequest = useCallback(() => setScrollRequest(null), [setScrollRequest]);
   // Below the three-column width the side panel folds behind a "Details" toggle (collapsed by default); at that width it is always shown.
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const { data: thread, isLoading, error } = useQuery({
+  const { data: thread, isLoading, isFetching, error } = useQuery({
     queryKey: roomKeys.threadDetail(room.id, number),
     queryFn: () => getThread(room.id, number!),
     enabled: number !== null,
@@ -152,6 +152,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           scrollToId={scrollRequest?.threadNumber === thread.number ? scrollRequest.messageId : null}
           onScrolled={clearScrollRequest}
           anchorId={anchorId}
+          threadSettled={!isFetching}
         />
         <MessageComposer room={room} thread={thread} onPosted={(messageId) => setScrollRequest({ threadNumber: thread.number, messageId })} />
       </Stack>

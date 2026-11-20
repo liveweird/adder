@@ -42,7 +42,12 @@
     "empty": "Nie należysz jeszcze do żadnego pokoju",
     "archivedGroup": "Zarchiwizowane pokoje",
     "more": "Więcej pokoi…",
-    "showArchived": "Pokaż zarchiwizowane"
+    "showArchived": "Pokaż zarchiwizowane",
+    "unread": "Nowa aktywność",
+    "notices_one": "{{count}} nieprzeczytane powiadomienie",
+    "notices_few": "{{count}} nieprzeczytane powiadomienia",
+    "notices_many": "{{count}} nieprzeczytanych powiadomień",
+    "notices_other": "{{count}} nieprzeczytanego powiadomienia"
   },
   "create": {
     "template": "Szablon przepływu pracy",

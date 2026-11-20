@@ -271,4 +271,25 @@ describe("RoomHome page", () => {
     expect(await screen.findByText("This room does not exist, or you are not a member of it.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { level: 2, name: "Night Shift" })).not.toBeInTheDocument();
   });
+
+  describe("room seen", () => {
+    const seenCalls = () => mockFetch.mock.calls.filter(([url]) => String(url) === "/api/v1/rooms/12/seen");
+
+    test("opening the room as a member posts it as seen once, on any of its pages", async () => {
+      serve(mockFetch);
+      renderHome("/rooms/12/threads/7");
+      await screen.findByRole("region", { name: "#7 Disk full on db-3" });
+      await waitFor(() => expect(seenCalls()).toHaveLength(1));
+      expect((seenCalls()[0][1] as RequestInit).method).toBe("POST");
+    });
+
+    test("an administrator who is not a member sends no read state: no seen, no read marker", async () => {
+      serve(mockFetch, { ...ROOM, role: null });
+      renderHome("/rooms/12/threads/7");
+      await screen.findByRole("region", { name: "#7 Disk full on db-3" });
+      await screen.findByText(/Only members of the room can post/);
+      expect(seenCalls()).toHaveLength(0);
+      expect(mockFetch.mock.calls.some(([url]) => String(url).endsWith("/read-marker"))).toBe(false);
+    });
+  });
 });

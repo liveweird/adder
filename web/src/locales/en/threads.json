@@ -248,5 +248,20 @@
       "conflict": "The room changed in the meantime. Reload the page and try again.",
       "tooManyRequests": "You are changing things too quickly. Wait a minute and try again."
     }
+  },
+  "unread": {
+    "separator": "New",
+    "separatorAria": "New messages",
+    "jump": "Jump to the first new message",
+    "row_one": "{{count}} unread message",
+    "row_other": "{{count}} unread messages",
+    "rowCap": "100 or more unread messages",
+    "notice": "You have an unseen notification in this thread"
+  },
+  "arrivals": {
+    "button_one": "{{count}} new message below",
+    "button_other": "{{count}} new messages below",
+    "announce_one": "{{count}} new message arrived",
+    "announce_other": "{{count}} new messages arrived"
   }
 }

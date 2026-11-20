@@ -48,8 +48,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
   writer's socket (or a client id) so that tab can skip it.
 - [new] **E2E: the live-ticket bucket is shared across a full parallel run.** The seed admin's `live-ticket` bucket (60/min per user) is shared by every Playwright
   worker that signs in as it, so live specs use throwaway users; a new live spec must do the same.
-- [new] **Conversation: arrivals.** With live updates a reader scrolled up gets no sign that messages arrived. Add a "New messages below" affordance and a
-  screen-reader announcement; do it with the 0.6.0 unread markers.
 
 ## Foundation follow-ups
 

@@ -60,7 +60,9 @@ function serve(mockFetch: FetchMock, initial: Record<string, unknown> = ROOM, fa
   };
 }
 
-const calls = (mockFetch: FetchMock, method: string) => mockFetch.mock.calls.filter(([, init]) => ((init as RequestInit | undefined)?.method ?? "GET") === method);
+// The room's own "seen" POST (opening a room is looking at it) is view state, not one of the writes these tests count.
+const calls = (mockFetch: FetchMock, method: string) =>
+  mockFetch.mock.calls.filter(([url, init]) => ((init as RequestInit | undefined)?.method ?? "GET") === method && !String(url).endsWith("/seen"));
 
 describe("RoomSettings page", () => {
   let mockFetch: FetchMock;

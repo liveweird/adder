@@ -18,12 +18,15 @@ describe("ThreadPane: pinning the thread", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   let pinned: unknown[];
   let thread: ReturnType<typeof makeThread>;
-  const putCalls = () => mockFetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT") as [string, RequestInit][];
+  // Only the pin writes: the conversation also moves the reader's read marker (a PUT of its own, view state).
+  const putCalls = () =>
+    mockFetch.mock.calls.filter(([url, init]) => (init as RequestInit | undefined)?.method === "PUT" && String(url).endsWith("/pin")) as [string, RequestInit][];
   const button = () => screen.getByRole("button", { name: "Pin this thread" });
 
   function serve(put: () => Response = () => new Response(null, { status: 204 })) {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (init?.method === "PUT") return Promise.resolve(put());
+      if (init?.method === "PUT" && url.endsWith("/pin")) return Promise.resolve(put());
+      if (init?.method === "PUT") return Promise.resolve(new Response(null, { status: 204 }));
       if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, thread));
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
       if (url.startsWith("/api/v1/rooms/12/pins?")) return Promise.resolve(jsonResponse(200, { items: pinned, page: 1, pageSize: 50, total: pinned.length }));

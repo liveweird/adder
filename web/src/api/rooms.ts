@@ -72,6 +72,14 @@ export async function unarchiveRoom(id: number): Promise<void> {
   await voidRequest(`/api/v1/rooms/${id}/unarchive`, { method: "POST" });
 }
 
+/**
+ * Records that the caller has looked at the room (204, forward only, no live hint). Members only: an ADMIN outside the room is a 403 and a
+ * non-member a 404, so the SPA never sends it for one. View state, not an action: nothing is audited.
+ */
+export async function markRoomSeen(id: number): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${id}/seen`, { method: "POST" });
+}
+
 /** ADMIN only (a soft delete: the room's name is freed, there is no restore). */
 export async function deleteRoom(id: number): Promise<void> {
   await voidRequest(`/api/v1/rooms/${id}`, { method: "DELETE" });

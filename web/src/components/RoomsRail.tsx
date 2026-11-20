@@ -1,5 +1,6 @@
-import { Anchor, Avatar, Box, Divider, NavLink, Switch, Text, ThemeIcon, Tooltip } from "@mantine/core";
-import { IconAlertCircle, IconHash } from "@tabler/icons-react";
+import { useId } from "react";
+import { Anchor, Avatar, Badge, Box, Divider, Group, Indicator, NavLink, Switch, Text, ThemeIcon, Tooltip, VisuallyHidden } from "@mantine/core";
+import { IconAlertCircle, IconAt, IconHash } from "@tabler/icons-react";
 import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { RoomListItem } from "../api/rooms";
@@ -7,14 +8,22 @@ import { RAIL_PAGE_SIZE, type useRailRooms } from "../hooks/useRailRooms";
 import { roomPath, roomsPath } from "../utils/roomLinks";
 import { loadErrorMessage } from "../utils/saveError";
 import { initialsOf } from "../utils/text";
+import { unreadBadge } from "../utils/unread";
 import classes from "../theme.module.css";
 import FormErrorAlert from "./FormErrorAlert";
+
+const NO_MENTIONS: ReadonlyMap<number, number> = new Map();
 
 /**
  * The caller's rooms under the sidebar's "All rooms" leaf: one link per room (its name; `aria-current` while open), the archived
  * ones dimmed under a divider once the "Show archived" toggle is on, a compact empty/error state and a "more rooms" link when a
  * list outgrows the rail. In the icon rail each room is an initials avatar whose accessible name is the room's name, inside a
  * right-hand tooltip (the nav leaves' rule). The shell owns the queries and the active-room resolution; this only draws them.
+ *
+ * Unread (0.6.0): a room the server says is new (`unread`) and that is not the open one carries a dot, and a room with unseen notices
+ * (`mentions`: the count per room from the bell's query) an `@` count. Neither changes the link's NAME, which stays the room's name (tests, the
+ * palette and e2e find it by name): what is new is the link's DESCRIPTION (`aria-describedby` on a visually hidden text), so the marks are
+ * never colour or shape alone. The icon rail shows one dot for either and puts the words in the tooltip.
  */
 export default function RoomsRail({
   rooms,
@@ -23,6 +32,7 @@ export default function RoomsRail({
   collapsed,
   activeTo,
   onNavigate,
+  mentions = NO_MENTIONS,
 }: {
   rooms: ReturnType<typeof useRailRooms>;
   showArchived: boolean;
@@ -33,47 +43,76 @@ export default function RoomsRail({
   activeTo: string | null;
   /** A link click closes the mobile drawer. */
   onNavigate: () => void;
+  /** The caller's unseen notices per room id (`utils/unread.ts` `unseenByRoom`). */
+  mentions?: ReadonlyMap<number, number>;
 }) {
   const { t } = useTranslation();
+  const noteBase = useId();
   const { active, archived } = rooms;
 
   // Archived rooms are dimmed through the theme's dimmed ink (AA-tested), never through opacity, which would break the contrast.
   const renderRoom = (room: RoomListItem, dimmed = false) => {
     const to = roomPath(room.id);
     const current = to === activeTo;
+    const isNew = room.unread && !current;
+    const notices = mentions.get(room.id) ?? 0;
+    const note = [isNew && t("rooms.rail.unread"), notices > 0 && t("rooms.rail.notices", { count: notices })].filter(Boolean).join(". ");
+    const noteId = note === "" ? undefined : `${noteBase}-${room.id}`;
+    const noteText = noteId !== undefined && <VisuallyHidden id={noteId}>{note}</VisuallyHidden>;
     if (collapsed) {
       return (
-        <Tooltip key={room.id} label={room.name} position="right" withinPortal>
-          <NavLink
-            component={RouterLink}
-            to={to}
-            active={current}
-            aria-current={current ? "page" : undefined}
-            aria-label={room.name}
-            leftSection={
-              <Avatar size={24} radius="xl" variant="light" color="gray">
-                {initialsOf(room.name)}
-              </Avatar>
-            }
-            className={classes.railLink}
-            c={dimmed ? "dimmed" : undefined}
-            onClick={onNavigate}
-          />
-        </Tooltip>
+        <Box key={room.id}>
+          <Tooltip label={note === "" ? room.name : `${room.name}: ${note}`} position="right" withinPortal>
+            <NavLink
+              component={RouterLink}
+              to={to}
+              active={current}
+              aria-current={current ? "page" : undefined}
+              aria-label={room.name}
+              aria-describedby={noteId}
+              leftSection={
+                <Indicator size={8} offset={2} color="var(--mantine-color-text)" disabled={note === ""}>
+                  <Avatar size={24} radius="xl" variant="light" color="gray">
+                    {initialsOf(room.name)}
+                  </Avatar>
+                </Indicator>
+              }
+              className={classes.railLink}
+              c={dimmed ? "dimmed" : undefined}
+              onClick={onNavigate}
+            />
+          </Tooltip>
+          {noteText}
+        </Box>
       );
     }
     return (
-      <NavLink
-        key={room.id}
-        component={RouterLink}
-        to={to}
-        active={current}
-        aria-current={current ? "page" : undefined}
-        label={room.name}
-        leftSection={<IconHash size={16} stroke={1.5} />}
-        c={dimmed ? "dimmed" : undefined}
-        onClick={onNavigate}
-      />
+      <Box key={room.id}>
+        <NavLink
+          component={RouterLink}
+          to={to}
+          active={current}
+          aria-current={current ? "page" : undefined}
+          aria-describedby={noteId}
+          label={room.name}
+          leftSection={<IconHash size={16} stroke={1.5} />}
+          rightSection={
+            note === "" ? undefined : (
+              <Group gap={6} wrap="nowrap" aria-hidden="true">
+                {isNew && <Box component="span" w={8} h={8} bg="var(--mantine-color-text)" style={{ borderRadius: "50%" }} />}
+                {notices > 0 && (
+                  <Badge size="xs" leftSection={<IconAt size={10} />}>
+                    {unreadBadge(notices)}
+                  </Badge>
+                )}
+              </Group>
+            )
+          }
+          c={dimmed ? "dimmed" : undefined}
+          onClick={onNavigate}
+        />
+        {noteText}
+      </Box>
     );
   };
 
