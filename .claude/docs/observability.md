@@ -28,7 +28,7 @@ registers `TelemetryShutdown`'s hook instead: it waits (bounded, 20 s) for `Appl
 Ktor's stop — and only then closes the SDK. Ktor raises an event's handlers in subscription order, so the
 latch handler is subscribed from inside the `ApplicationStarted` handler (after every module has subscribed its
 own `ApplicationStopped` work — the pool dispose) and therefore runs last. The 20 s sits
-in a budget: Ktor grace + timeout ≈ 11 s by default, and 20 s + the SDK's ≤10 s `close()`
+in a budget: Ktor grace + timeout ≈ 11 s by default, plus the four background scopes (`infra/BackgroundScope.kt`: the sweep, the telemetry sampler, the tag reindex, the live channel), which stop one after another in `ApplicationStopping`, each up to two 1 s bounds (before-cancel, then the join): 4 x 2 x 1 s = 8 s at worst, 19 s in all, and 20 s + the SDK's ≤10 s `close()`
 is exactly the Kubernetes default `terminationGracePeriodSeconds` (30 s), so `k8s/app-deployment.yaml` sets 45 s
 (`JvmMemoryFlagsTest` asserts it is at least `STOP_WAIT_SECONDS` + 10 s + 15 s) — raising Ktor's shutdown timeout or
 lowering the pod's grace must revisit `STOP_WAIT_SECONDS`; if the application never finished starting (a boot failure)
@@ -73,10 +73,11 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `login.success` / `login.failure` (with `reason`: unknown_email/wrong_password) /
   `login.lockout` (the throttle tripping) / `login.rejected_locked` (an attempt against a locked
   account) / `login.capacity_rejected` (an unseen identity cannot be admitted into the full
-  throttle); login audits use `email` for ordinary identities and a fixed-size `emailDigest` for
-  oversized submissions. The same three events are also written, with `userId` and `source` (`mfa` or `password_change`)
-  instead of the email, when a wrong MFA code or a wrong current password on the self password change trips, meets or
-  cannot be admitted into that one throttle (`auth/AccountLockout.kt`),
+  throttle: `/login` only); login audits use `email` for ordinary identities and a fixed-size `emailDigest` for
+  oversized submissions. `login.lockout` and `login.rejected_locked` are also written, with `userId` and `source` (`mfa` or
+  `password_change`) instead of the email, when a wrong MFA code or a wrong current password on the self password change trips or
+  meets that one throttle (`auth/AccountLockout.kt`); those two routes act on a KNOWN account, which the throttle counts even at a
+  full store, so they never write `login.capacity_rejected`,
 - `login.mfa_challenge` (email/userId — correct credentials, second factor pending) /
   `login.mfa_success` / `login.mfa_failure` (with `reason`:
   unknown_challenge/expired/wrong_code/too_many_attempts/user_gone/credential_changed, and `userId` whenever the challenge was
@@ -107,7 +108,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (`security.refresh.replayGraceSeconds`) and answered with a fresh pair, at most twice per token; a lost response or a racing tab, or a replay),
 - `password.changed` (targetUserId/byUserId/selfChange) / `password.change_denied` (wrong or
   missing current password; a wrong one also counts into the login lockout) / `password.change_rejected_locked`
-  (userId/source — a self change refused because the account is locked out, before any password check),
+  (targetUserId/byUserId, as `password.change_denied` - a self change refused because the account is locked out, before any password check),
 - `user.features_changed` (byUserId/targetUserId/featuresFrom/featuresTo — only on an actual
   change),
 - `user.notification_preferences_changed` (byUserId/targetUserId/`from`/`to` as sorted `TYPE:CHANNEL` lists; only on an actual change; the switches of the notices' digest email, V22; `NotificationPreferencesTest`),
@@ -183,13 +184,13 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (Flow's `crypto.reencrypted` boot-backfill event comes back with `EncryptedAtRest`/`Reencrypt`, `security.md` "Encryption at rest"),
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
-- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `read-state`, `live-ticket`, `search` and `password-change` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
-  password-reset, password-reset-confirm, mfa, ready; per-user telemetry, directory, room-name, room-members, chat-post, chat-write, live-ticket, search and password-change) rejected the request with a 429, emitted from the 429 status handler in
+- `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `read-state`, `live-ticket`, `search`, `password-change` and `chat-read` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
+  password-reset, password-reset-confirm, mfa, ready, live-connect; per-user telemetry, directory, room-name, room-members, chat-post, chat-write, chat-read, read-state, live-ticket, search and password-change) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**
   (`RateLimitAuditThrottle`): at most ONE event per bucket per 60 s, `suppressed` counting the rejections folded into it
   since the previous event (0 on the first), so an unauthenticated flood writes a line a minute per bucket instead of one
-  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `live-ticket`, `search` and `password-change` buckets are keyed by
-  `password-change:<userId>` / `telemetry:<userId>` / `directory:<userId>` / `room-name:<userId>` / `room-members:<userId>` / `chat-post:<userId>` / `chat-write:<userId>` / `live-ticket:<userId>` / `search:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
+  per request; keyed by bucket only (per-IP buckets), so memory is bounded whoever floods. The per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `chat-read`, `read-state`, `live-ticket`, `search` and `password-change` buckets are keyed by
+  `password-change:<userId>` / `telemetry:<userId>` / `directory:<userId>` / `room-name:<userId>` / `room-members:<userId>` / `chat-post:<userId>` / `chat-write:<userId>` / `chat-read:<userId>` / `read-state:<userId>` / `live-ticket:<userId>` / `search:<userId>` instead and carry `byUserId` -- the server-minted claim of a verified token, never client text; only a signed-in
   account reaches that key, so the key space is the account count. The client address is deliberately NOT a field
   (it is `X-Forwarded-For`-derived behind a proxy, i.e. attacker-chosen text; the ingress log has it), and neither is the
   query string. The per-account lockout's 429s are their own `login.lockout`/`login.rejected_locked` events and do not

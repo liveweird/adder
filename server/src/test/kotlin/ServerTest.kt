@@ -4,6 +4,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.options
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.call.body
 import ch.nokillswit.plugins.ProblemDetail
 import io.ktor.client.statement.bodyAsText
@@ -43,9 +44,42 @@ class ServerTest {
         // Pinned EXACTLY: a loosened directive (script-src, connect-src, …) must be a deliberate test edit.
         assertEquals(FULL_CSP, csp)
         assertEquals(PERMISSIONS_POLICY, response.headers["Permissions-Policy"])
+        // Once each: the Plugins-phase interceptor and the early-answer helper share one once-per-call guard, so a normal response
+        // (where both could run) must never repeat a header.
+        listOf("X-Content-Type-Options", "X-Frame-Options", "Referrer-Policy", "Content-Security-Policy", "Permissions-Policy").forEach {
+            assertEquals(1, response.headers.getAll(it)?.size, "$it appears once")
+        }
         // HSTS is production-only: a plain-HTTP development answer must not carry it.
         assertNull(response.headers["Strict-Transport-Security"])
     }
+
+    @Test
+    fun `the early Setup-phase answers carry the security headers too - the 415 for an encoded body and the 400 for a malformed Host`() =
+        testApplication {
+            configureApp("http.corsHosts" to "app.example.com")
+            startApplication()
+            val client = jsonClient()
+            fun assertHardened(response: io.ktor.client.statement.HttpResponse, what: String) {
+                assertEquals("nosniff", response.headers["X-Content-Type-Options"], what)
+                assertEquals("DENY", response.headers["X-Frame-Options"], what)
+                assertEquals("no-referrer", response.headers["Referrer-Policy"], what)
+                assertEquals(FULL_CSP, response.headers["Content-Security-Policy"], what)
+                assertEquals(PERMISSIONS_POLICY, response.headers["Permissions-Policy"], what)
+            }
+            val encoded = client.post("/api/v1/login") {
+                header(HttpHeaders.ContentEncoding, "gzip")
+                setBody("{}")
+            }
+            assertEquals(HttpStatusCode.UnsupportedMediaType, encoded.status)
+            assertHardened(encoded, "the 415")
+            val badHost = client.post("/api/v1/login") {
+                header(HttpHeaders.Origin, "https://app.example.com")
+                header(HttpHeaders.Host, "localhost:abc")
+                setBody("{}")
+            }
+            assertEquals(HttpStatusCode.BadRequest, badHost.status)
+            assertHardened(badHost, "the malformed-Host 400")
+        }
 
     @Test
     fun `production mode answers over https with HSTS and the full hardening set`() = testApplication {

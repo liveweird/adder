@@ -33,21 +33,27 @@ fun Application.configureSecurityHeaders() {
     // UI is not actually mounted.
     val swaggerMounted by lazy { exposesOpenApi() }
     intercept(ApplicationCallPipeline.Plugins) {
-        val headers = call.response.headers
-        if (headers["X-Content-Type-Options"] == null) { // set once per call
-            headers.append("X-Content-Type-Options", "nosniff")
-            headers.append("X-Frame-Options", "DENY")
-            headers.append("Referrer-Policy", "no-referrer")
-            headers.append("Permissions-Policy", "geolocation=(), camera=(), microphone=(), payment=()")
-            // Swagger UI bootstraps with inline script/style, so it is exempt from the strict CSP — but ONLY
-            // where it is actually mounted (exposeOpenApi on) and only for /openapi itself or its subtree.
-            // Anywhere else `/openapi…` is an ordinary path (in production the SPA catch-all answers it with
-            // index.html), and it must carry the full CSP.
-            val path = call.request.path()
-            val swaggerPath = path == "/openapi" || path.startsWith("/openapi/")
-            if (!(swaggerMounted && swaggerPath)) {
-                headers.append("Content-Security-Policy", APP_CSP)
-            }
-        }
+        // Swagger UI bootstraps with inline script/style, so it is exempt from the strict CSP - but ONLY
+        // where it is actually mounted (exposeOpenApi on) and only for /openapi itself or its subtree.
+        // Anywhere else `/openapi...` is an ordinary path (in production the SPA catch-all answers it with
+        // index.html), and it must carry the full CSP.
+        val path = call.request.path()
+        val swaggerPath = path == "/openapi" || path.startsWith("/openapi/")
+        call.appendSecurityHeaders(strictCsp = !(swaggerMounted && swaggerPath))
     }
+}
+
+/**
+ * The security headers, once per call (a second call is a no-op). Normally the Plugins-phase interceptor above runs it; the early
+ * answers `configureHttp` gives in the Setup phase (the 415 for an encoded body, the 400 for a malformed Host) end the pipeline BEFORE
+ * that interceptor, so they call it themselves: no answer the app writes leaves without them.
+ */
+internal fun ApplicationCall.appendSecurityHeaders(strictCsp: Boolean = true) {
+    val headers = response.headers
+    if (headers["X-Content-Type-Options"] != null) return
+    headers.append("X-Content-Type-Options", "nosniff")
+    headers.append("X-Frame-Options", "DENY")
+    headers.append("Referrer-Policy", "no-referrer")
+    headers.append("Permissions-Policy", "geolocation=(), camera=(), microphone=(), payment=()")
+    if (strictCsp) headers.append("Content-Security-Policy", APP_CSP)
 }

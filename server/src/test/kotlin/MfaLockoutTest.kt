@@ -220,8 +220,8 @@ class MfaLockoutTest {
     }
 
     @Test
-    fun `a wrong code with the lockout store full is a 429, audited as capacity, and a right code still signs in`() = testApplication {
-        configureApp("security.lockout.maxTracked" to "1")
+    fun `wrong codes still count and lock with the lockout store full, and the right code is then refused`() = testApplication {
+        configureApp("security.lockout.maxTracked" to "1", "security.lockout.threshold" to "2")
         startApplication()
         val email = uniqueEmail("mfa-capacity-code")
         val userId = seedMfaUser(email)
@@ -231,19 +231,43 @@ class MfaLockoutTest {
             val client = jsonClient()
             val challenge = client.login(email, "pw-123456789").body<MfaChallengeResponse>()
             val code = mail.codes(email, 1).single()
-            // Another identity's failure takes the only slot AFTER this account's password step (which tracks nothing).
+            // Another identity's failure takes the only slot AFTER this account's password step (which tracks nothing): the store is
+            // full, which is exactly what a password holder can arrange with junk logins before guessing codes.
             assertEquals(HttpStatusCode.Unauthorized, client.login(uniqueEmail("mfa-capacity-filler"), "wrong-pw").status)
 
-            assertEquals(HttpStatusCode.TooManyRequests, client.verify(challenge.challengeId, wrongOf(code)).status)
-            assertNotNull(
-                audit.awaitEvent {
-                    it.message == "login.capacity_rejected" && it.hasKeyValue("userId", userId.toLong()) && it.hasKeyValue("source", "mfa")
-                },
+            // The account exists (the challenge proves it), so its wrong codes are counted past the cap: the second one locks.
+            assertEquals(HttpStatusCode.Unauthorized, client.verify(challenge.challengeId, wrongOf(code)).status)
+            assertEquals(HttpStatusCode.Unauthorized, client.verify(challenge.challengeId, wrongOf(code)).status)
+            assertNotNull(audit.awaitEvent { it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) })
+            // Locked: the right code no longer finishes a sign-in (the lockout's 429, or the uniform 401 once the challenge is dropped).
+            assertEquals(HttpStatusCode.Unauthorized, client.verify(challenge.challengeId, code).status)
+            assertEquals(HttpStatusCode.TooManyRequests, client.login(email, "pw-123456789").status)
+            assertTrue(
+                audit.events.none { it.message == "login.capacity_rejected" && it.hasKeyValue("userId", userId.toLong()) },
+                "a known account is never turned away as a capacity case",
             )
-            assertEquals(HttpStatusCode.OK, client.verify(challenge.challengeId, code).status)
         } finally {
             mail.detach()
             audit.detach()
+        }
+    }
+
+    @Test
+    fun `the right code still signs in with the lockout store full - an untracked account is not turned away`() = testApplication {
+        configureApp("security.lockout.maxTracked" to "1")
+        startApplication()
+        val email = uniqueEmail("mfa-capacity-ok")
+        seedMfaUser(email)
+        val mail = LogCapture("ch.nokillswit.mail")
+        try {
+            val client = jsonClient()
+            val challenge = client.login(email, "pw-123456789").body<MfaChallengeResponse>()
+            val code = mail.codes(email, 1).single()
+            // The only slot goes to another identity AFTER this account's password step: the account is untracked at a full store.
+            assertEquals(HttpStatusCode.Unauthorized, client.login(uniqueEmail("mfa-capacity-filler-ok"), "wrong-pw").status)
+            assertEquals(HttpStatusCode.OK, client.verify(challenge.challengeId, code).status)
+        } finally {
+            mail.detach()
         }
     }
 }

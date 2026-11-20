@@ -23,14 +23,14 @@ class AccountGuessTest {
     private fun guess(
         throttle: LoginThrottle,
         email: String = "a@example.test",
-        refuseAtCapacity: Boolean = true,
+        knownAccount: Boolean = false,
         onLocked: () -> Unit = {},
     ) = AccountGuess(
         throttle,
         email,
         listOf("userId" to 1L),
         lockedEvent = "test.rejected_locked",
-        refuseAtCapacity = refuseAtCapacity,
+        knownAccount = knownAccount,
         onLocked = onLocked,
     )
 
@@ -47,14 +47,18 @@ class AccountGuessTest {
     }
 
     @Test
-    fun `an untracked identity at a full store is refused or let through by the caller's choice`() {
+    fun `an unknown identity at a full store is refused, a known account is counted and can lock`() {
         val t = throttle(maxTracked = 1)
         t.recordFailure("filler@example.test")
         assertFailsWith<TooManyRequestsException> { guess(t).requireNotLocked() }
-        guess(t, refuseAtCapacity = false).requireNotLocked()
-        // The same holds for counting a failure: refused, or let through uncounted.
         assertFailsWith<TooManyRequestsException> { guess(t).recordFailure() }
-        guess(t, refuseAtCapacity = false).recordFailure()
+
+        // A known account passes the preflight and its failures count past the cap: the second one locks.
+        val known = guess(t, knownAccount = true)
+        known.requireNotLocked()
+        known.recordFailure()
+        known.recordFailure()
+        assertFailsWith<TooManyRequestsException> { guess(t, knownAccount = true).requireNotLocked() }
     }
 
     @Test

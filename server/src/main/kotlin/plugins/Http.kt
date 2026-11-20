@@ -169,6 +169,8 @@ fun Application.configureHttp() {
     // vocabulary of a wrong media type). `Compression` below is response-only for the same reason.
     intercept(ApplicationCallPipeline.Setup) {
         if (hasEncodedBody(call.request.headers.getAll(HttpHeaders.ContentEncoding))) {
+            // Setup ends before SecurityHeaders' Plugins-phase interceptor, so this early answer sets them itself.
+            call.appendSecurityHeaders()
             call.respondProblem(HttpStatusCode.UnsupportedMediaType, "Request bodies must not be encoded (Content-Encoding)")
             finish()
         }
@@ -186,6 +188,7 @@ fun Application.configureHttp() {
         // is client text, so it is judged ONCE, in the Setup phase, before the CORS hook (Plugins phase) can read it: unreadable is a 400.
         intercept(ApplicationCallPipeline.Setup) {
             if (!hostIsReadable(call)) {
+                call.appendSecurityHeaders()
                 call.respondProblem(HttpStatusCode.BadRequest, "The Host header is malformed")
                 finish()
             }

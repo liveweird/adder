@@ -72,5 +72,7 @@ private fun mfaGuess(throttle: LoginThrottle, challenges: MfaChallenges, subject
     throttle,
     subject.email,
     listOf("userId" to subject.userId.toLong(), "source" to "mfa"),
+    // The challenge was minted for a real account: a wrong code counts even at a full lockout store.
+    knownAccount = true,
     onLocked = { challenges.discardUser(subject.userId) },
 )

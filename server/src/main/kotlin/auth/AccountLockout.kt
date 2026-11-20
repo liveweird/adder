@@ -45,36 +45,41 @@ internal fun lockoutCapacityException() =
 /**
  * One credential check of one account against the shared [LoginThrottle]: what a route does around its password / code
  * verification. The three callers (`/login`, `/login/mfa`, the self password change) differ only in their audit identity, the
- * event for a refused locked account, whether a full store refuses ([refuseAtCapacity]) and what a lock must also do
- * ([onLocked], e.g. drop the account's pending MFA challenges). Every refusal is a THROWN 429, never `respondProblem`:
- * StatusPages' generic 429 handler would otherwise replace the specific detail.
+ * event for a refused locked account, whether the account is [knownAccount] and what a lock must also do ([onLocked], e.g. drop
+ * the account's pending MFA challenges). Every refusal is a THROWN 429, never `respondProblem`: StatusPages' generic 429
+ * handler would otherwise replace the specific detail.
+ *
+ * [knownAccount] is true where the route has ALREADY proven the account exists before the credential is compared (the MFA
+ * challenge's subject, the signed-in caller): its failures are counted even at a full store (the junk identities that fill a
+ * store must not buy free guesses), and the capacity refusal never applies. `/login` passes false: it cannot know before the
+ * lookup, and refusing an untracked identity BEFORE any password work (the same 429 for a known and an unknown email) is what
+ * keeps the capacity answer free of an existence signal.
  */
 internal class AccountGuess(
     private val throttle: LoginThrottle,
     private val email: String,
     private val auditFields: List<Pair<String, Any?>>,
     private val lockedEvent: String = EVENT_LOGIN_REJECTED_LOCKED,
-    /**
-     * False for a caller that is already signed in (the password change): a full store must not refuse every signed-in user's
-     * change (an anonymous caller can fill it), so an untracked identity is let through UNCOUNTED, still audited as
-     * `login.capacity_rejected`; the caller's own per-user bucket bounds those guesses.
-     */
-    private val refuseAtCapacity: Boolean = true,
+    /** The fields of [lockedEvent], when it is not a `login.*` event and so follows its own naming (`observability.md` "Field-naming"). */
+    private val lockedFields: List<Pair<String, Any?>> = auditFields,
+    private val knownAccount: Boolean = false,
     private val onLocked: () -> Unit = {},
 ) {
     private fun audited(event: String) = audit(event, *auditFields.toTypedArray())
 
-    /** BEFORE any password work: a locked identity (and, if [refuseAtCapacity], an untracked one at a full store) is refused. */
+    private fun auditedLocked() = audit(lockedEvent, *lockedFields.toTypedArray())
+
+    /** BEFORE any password work: a locked identity (and, unless [knownAccount], an untracked one at a full store) is refused. */
     fun requireNotLocked() {
-        when (throttle.preflight(email)) {
+        when (throttle.preflight(email, knownAccount)) {
             LoginThrottle.Preflight.ALLOWED -> Unit
             LoginThrottle.Preflight.LOCKED -> {
-                audited(lockedEvent)
+                auditedLocked()
                 throw accountLockedException()
             }
             LoginThrottle.Preflight.CAPACITY_EXCEEDED -> {
                 audited(EVENT_LOGIN_CAPACITY_REJECTED)
-                if (refuseAtCapacity) throw lockoutCapacityException()
+                throw lockoutCapacityException()
             }
         }
     }
@@ -82,17 +87,17 @@ internal class AccountGuess(
     /**
      * Counts one wrong guess and answers what `/login` answers to a failure: nothing on a plain or a locking failure (the caller
      * then sends its own failure; the locking one also writes `login.lockout`), a 429 on an already-active lock (the race the
-     * preflight cannot see) or a full store.
+     * preflight cannot see) or, for an unknown identity only, a full store.
      */
     fun recordFailure() {
-        when (throttle.recordFailure(email)) {
+        when (throttle.recordFailure(email, knownAccount)) {
             LoginThrottle.FailureResult.CAPACITY_EXCEEDED -> {
                 audited(EVENT_LOGIN_CAPACITY_REJECTED)
-                if (refuseAtCapacity) throw lockoutCapacityException()
+                throw lockoutCapacityException()
             }
             LoginThrottle.FailureResult.ALREADY_LOCKED -> {
                 onLocked()
-                audited(lockedEvent)
+                auditedLocked()
                 throw accountLockedException()
             }
             LoginThrottle.FailureResult.LOCKED_NOW -> {
@@ -107,7 +112,7 @@ internal class AccountGuess(
     fun recordSuccess() {
         if (throttle.recordSuccess(email) == LoginThrottle.SuccessResult.LOCKED) {
             onLocked()
-            audited(lockedEvent)
+            auditedLocked()
             throw accountLockedException()
         }
     }

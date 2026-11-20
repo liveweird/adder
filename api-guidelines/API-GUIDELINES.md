@@ -436,7 +436,7 @@ Admin bypasses are deliberate, documented exceptions — never the default.
 
 ### API-CACHE-001 — Validators on cacheable reads `[both]`
 **SHOULD** send an `ETag` (or `Last-Modified`) on cacheable `GET` responses and honor
-`If-None-Match`/`If-Modified-Since` with `304 Not Modified`. *(Registered gap — no GET offers a validator yet; the `ResponseValidators` plumbing exists for the first view endpoint, `.claude/docs/security.md` "Caching".)*
+`If-None-Match`/`If-Modified-Since` with `304 Not Modified`. *(Registered gap — no GET offers a validator yet; the unused `ETag` seam was deleted, and the first view endpoint that wants one ports it back, `.claude/docs/security.md` "Caching".)*
 **Check (spectral, hint):** `GET` `200`s declare an `ETag` header. **Check (review):**
 conditional requests yield `304`.
 
@@ -679,7 +679,7 @@ prioritized. Reviewers cite these as "registered gap"; the Spectral ruleset carr
 | API-ERR-007 | Duplicate-style `409`s identify only the failing request, not the conflicting resource | All problems carry an occurrence path in `instance`; add a conflicting-resource link where the service knows the row id and API-ERR-006 permits disclosure. The generic 23505 handler cannot safely infer it |
 | API-LIST-001/002 | `GET /notifications` caps `total` at 1000 (the count reads at most 1000 rows) and answers an empty page from row 1000 on (`(page - 1) * pageSize >= 1000`); every other list is exact | Documented on the operation; a recipient's history is unbounded and the bell needs only "many". Lift the cap with a retention window or a cursor if exact counts are ever needed (`notifications/NotificationService.kt`) |
 | API-RATE-001 | `Retry-After` is sent by the per-user bucket `429`s and `room-busy` (declared optional on the shared `TooManyRequests` response); the login lockout sends none, and no `RateLimit-*` headers exist | Set `Retry-After` on the login lockout (it knows its window); add `RateLimit-*` if clients need the budget |
-| API-CACHE-001/002 | No GET carries a validator; `Cache-Control` is CSS, `index.html` and `no-store` on `/api/` JSON | Extend the validator helper to a read whose answer has a cheap version stamp (a table `updated_at`/revision), the way Flow's report GETs used the derive stamp (`plugins/ResponseValidators.kt` is the seam) |
+| API-CACHE-001/002 | No GET carries a validator; `Cache-Control` is CSS, `index.html` and `no-store` on `/api/` JSON | Port a validator helper (Flow's `ResponseValidators`, deleted here as unused) for a read whose answer has a cheap version stamp (a table `updated_at`/revision), the way Flow's report GETs used the derive stamp |
 | API-CACHE-003 | No `If-Match`/`ETag`/`412` conditional writes anywhere; unguarded full-document writes are last-write-wins (see the inventory below) | Add `ETag` + `If-Match` handling to the concurrency-sensitive `PUT`s if contention ever materializes; a `version` column + `409` is the R2DBC-friendly alternative |
 | API-IDEM-001 | No `Idempotency-Key` handling | Domain no-duplicate `409`s cover double-submits today; adopt the header if external/retrying clients appear |
 | API-HTTP-001 | HTTP/1.1 only (Netty defaults; no edge HTTP/2) | Configure HTTP/2 at the TLS-terminating ingress when one exists |

@@ -51,9 +51,12 @@ class LoginThrottle(
 
     /**
      * Checks an identity before the account lookup and bcrypt work. Existing identities may
-     * continue at capacity; a new identity is rejected until stale state can be reclaimed.
+     * continue at capacity; a new identity is rejected until stale state can be reclaimed, unless
+     * the caller already KNOWS the account exists ([knownAccount]: the MFA challenge's subject, the
+     * signed-in password-change caller). A known account is always admitted: its key space is the
+     * user table, so the memory it can take is bounded by the number of accounts, whatever the cap.
      */
-    fun preflight(email: String): Preflight {
+    fun preflight(email: String, knownAccount: Boolean = false): Preflight {
         val k = key(email)
         return synchronized(lock) {
             val now = clock()
@@ -61,20 +64,24 @@ class LoginThrottle(
             val state = states[k]
             when {
                 state?.lockedUntil?.let { it > now } == true -> Preflight.LOCKED
-                state != null || states.size < maxTracked -> Preflight.ALLOWED
+                state != null || knownAccount || states.size < maxTracked -> Preflight.ALLOWED
                 else -> Preflight.CAPACITY_EXCEEDED
             }
         }
     }
 
-    /** Records a failure, atomically rechecking capacity after the password work. */
-    fun recordFailure(email: String): FailureResult {
+    /**
+     * Records a failure, atomically rechecking capacity after the password work. A [knownAccount] failure is
+     * ALWAYS counted, even at capacity (a guess at a code or password that was already compared must not go
+     * uncounted because someone filled the store with junk identities); only an identity nobody knows is refused.
+     */
+    fun recordFailure(email: String, knownAccount: Boolean = false): FailureResult {
         val k = key(email)
         return synchronized(lock) {
             val now = clock()
             pruneExpired(now)
             val current = states[k]
-            if (current == null && states.size >= maxTracked) {
+            if (current == null && !knownAccount && states.size >= maxTracked) {
                 return@synchronized FailureResult.CAPACITY_EXCEEDED
             }
             // A request that passed preflight just before another request tripped the lock must

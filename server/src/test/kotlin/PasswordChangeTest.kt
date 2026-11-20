@@ -10,6 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class PasswordChangeTest {
 
@@ -159,7 +160,8 @@ class PasswordChangeTest {
             assertContains(locked.bodyAsText(), "failed login attempts")
             assertNotNull(
                 capture.awaitEvent {
-                    it.message == "password.change_rejected_locked" && it.hasKeyValue("userId", userId.toLong())
+                    it.message == "password.change_rejected_locked" && it.hasKeyValue("targetUserId", userId.toLong()) &&
+                        it.hasKeyValue("byUserId", userId.toLong())
                 },
             )
             // The same lock refuses a sign-in with the right password, and nothing was changed.
@@ -239,9 +241,9 @@ class PasswordChangeTest {
         }
 
     @Test
-    fun `a full lockout store does not refuse a signed-in self change - a wrong password is still a 403, uncounted but audited`() =
+    fun `a full lockout store does not stop a wrong current password counting - the account locks, wrong stays a 403`() =
         testApplication {
-            configureApp("security.lockout.maxTracked" to "1")
+            configureApp("security.lockout.maxTracked" to "1", "security.lockout.threshold" to "2")
             startApplication()
             val email = uniqueEmail("capacity-change")
             val userId = TestUsers.seed(email = email, password = "old-password", role = UserRole.USER)
@@ -251,24 +253,35 @@ class PasswordChangeTest {
                 // Another identity's failed login takes the only slot.
                 assertEquals(HttpStatusCode.Unauthorized, jsonClient().login(uniqueEmail("capacity-filler"), "wrong-pw").status)
 
-                val wrong = client.putJson(
-                    "/api/v1/users/$userId/password",
-                    PasswordUpdateRequest(password = "brand-new-password", currentPassword = "not-it"),
+                fun body(current: String) = PasswordUpdateRequest(password = "brand-new-password", currentPassword = current)
+                // The caller is a known account: not the capacity 429, a plain 403 each time, and the failures COUNT past the cap.
+                assertEquals(HttpStatusCode.Forbidden, client.putJson("/api/v1/users/$userId/password", body("not-it")).status)
+                assertEquals(HttpStatusCode.Forbidden, client.putJson("/api/v1/users/$userId/password", body("not-it-either")).status)
+                assertNotNull(capture.awaitEvent { it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) })
+                // Locked: even the right current password is refused with the lockout's 429, before any bcrypt.
+                assertEquals(HttpStatusCode.TooManyRequests, client.putJson("/api/v1/users/$userId/password", body("old-password")).status)
+                assertTrue(
+                    capture.events.none { it.message == "login.capacity_rejected" && it.hasKeyValue("userId", userId.toLong()) },
+                    "a known account is never audited as a capacity rejection",
                 )
-                assertEquals(HttpStatusCode.Forbidden, wrong.status, "not the capacity 429: the signed-in caller is let through")
-                assertNotNull(
-                    capture.awaitEvent {
-                        it.message == "login.capacity_rejected" && it.hasKeyValue("userId", userId.toLong()) &&
-                            it.hasKeyValue("source", "password_change")
-                    },
-                )
-                val ok = client.putJson(
-                    "/api/v1/users/$userId/password",
-                    PasswordUpdateRequest(password = "brand-new-password", currentPassword = "old-password"),
-                )
-                assertEquals(HttpStatusCode.NoContent, ok.status)
             } finally {
                 capture.detach()
             }
         }
+
+    @Test
+    fun `a full lockout store does not stop the right current password - an untracked account still changes it`() = testApplication {
+        configureApp("security.lockout.maxTracked" to "1")
+        startApplication()
+        val email = uniqueEmail("capacity-change-ok")
+        val userId = TestUsers.seed(email = email, password = "old-password", role = UserRole.USER)
+        val client = authedClient(email, "old-password")
+        // Another identity's failed login takes the only slot; this account is untracked.
+        assertEquals(HttpStatusCode.Unauthorized, jsonClient().login(uniqueEmail("capacity-filler-ok"), "wrong-pw").status)
+        val ok = client.putJson(
+            "/api/v1/users/$userId/password",
+            PasswordUpdateRequest(password = "brand-new-password", currentPassword = "old-password"),
+        )
+        assertEquals(HttpStatusCode.NoContent, ok.status)
+    }
 }

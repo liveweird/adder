@@ -3197,7 +3197,11 @@ export interface components {
         };
     };
     responses: {
-        /** @description Request body must use application/json. A missing body or Content-Type remains a 400. */
+        /**
+         * @description Cross-cutting, answerable by ANY operation (a bodiless GET or DELETE included): a request that carries a
+         *     `Content-Encoding` other than `identity` (a body is never decoded; the check runs before any route), or a body
+         *     that is not `application/json`. A missing body or Content-Type remains a 400.
+         */
         UnsupportedMediaType: {
             headers: {
                 [name: string]: unknown;

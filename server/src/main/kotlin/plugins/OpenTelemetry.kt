@@ -13,7 +13,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Upper bound on how long the SDK-closing hook waits for Ktor's own stop. The budget it sits in: Ktor's
  * shutdown grace + timeout come to ~11 s with the
- * defaults, under this 20 s; and 20 s + the SDK's own <=10 s `close()` is the 30 s Kubernetes default
+ * defaults, plus the four background scopes' serial worst case (4 x 2 x 1 s = 8 s,
+ * `infra/BackgroundScope.kt`): 19 s, under this 20 s; and 20 s + the SDK's own <=10 s `close()` is the 30 s Kubernetes default
  * `terminationGracePeriodSeconds` with no margin, so the k8s Deployment sets 45 s (`JvmMemoryFlagsTest`
  * pins it against this constant), after which the pod is SIGKILLed mid-flush. Raising Ktor's shutdown timeout, this number
  * or lowering the pod's grace period must revisit the others (`observability.md` "Shutdown ordering").
