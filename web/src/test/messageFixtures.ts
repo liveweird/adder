@@ -41,6 +41,8 @@ export function makeThread(overrides: Partial<ThreadResponse> = {}): ThreadRespo
     lastActivityAt: SOME_TIME,
     createdAt: SOME_TIME,
     updatedAt: SOME_TIME,
+    unreadCount: 0,
+    firstUnreadMessageId: null,
     ...overrides,
   };
 }

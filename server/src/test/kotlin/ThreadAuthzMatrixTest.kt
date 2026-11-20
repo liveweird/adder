@@ -4,6 +4,7 @@ import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.PinRequest
+import ch.nokillswit.threads.ReadMarkerRequest
 import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
@@ -177,6 +178,20 @@ class ThreadAuthzMatrixTest {
         // Only members speak, so the ADMIN outside the room is refused (403) before the thread is looked up.
         Operation("POST unknown thread message", notFound, notFound, notFound, notFound, forbidden) { client, base, _ ->
             client.postJson("$base/threads/99/messages", MessageRequest("Hello"))
+        },
+        // Read state is a member's own: only members, an ADMIN outside the room has none (403 before any lookup); the thread and the
+        // message are then looked up (404), and a message of another room is no message of this thread.
+        Operation("PUT read marker", notFound, noContent, noContent, noContent, forbidden) { client, base, cast ->
+            client.putJson("$base/threads/1/read-marker", ReadMarkerRequest(cast.other))
+        },
+        Operation("PUT read marker of an unknown message", notFound, notFound, notFound, notFound, forbidden) { client, base, _ ->
+            client.putJson("$base/threads/1/read-marker", ReadMarkerRequest(999999u))
+        },
+        Operation("PUT read marker of another room's message", notFound, notFound, notFound, notFound, forbidden) { client, base, cast ->
+            client.putJson("$base/threads/1/read-marker", ReadMarkerRequest(cast.foreign))
+        },
+        Operation("PUT read marker of an unknown thread", notFound, notFound, notFound, notFound, forbidden) { client, base, cast ->
+            client.putJson("$base/threads/99/read-marker", ReadMarkerRequest(cast.other))
         },
         // Pins: any reader lists them; any MEMBER pins (no steward rule), an ADMIN outside the room is 403 before any lookup.
         Operation("GET pins", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/pins") },

@@ -672,6 +672,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that the caller has looked at a room
+         * @description A MEMBER of the room (a non-member is the uniform `404`; an `ADMIN` who is not a member is `403`: they have no read state). Moves
+         *     ONLY the caller's own `seen_at`, forward only, so the room stops being `unread` in the rooms list until someone else's next
+         *     activity. Checked in this order: authentication (`401`), the per-USER `read-state` bucket of 240 per minute (`429` beyond it;
+         *     spent before any guard), visibility (`404`), the member rule (`403`), then the caller's own membership (`404` when they were
+         *     removed meanwhile). View state: it takes no room lock, emits no live event and writes no audit line; the caller's other tabs
+         *     catch up on focus. An archived room is seen all the same. No request body.
+         */
+        post: operations["markRoomSeen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rooms/{id}/archive": {
         parameters: {
             query?: never;
@@ -1072,6 +1099,41 @@ export interface paths {
          *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["setThreadStatus"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/read-marker": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Record that the caller has read a thread up to a message
+         * @description A MEMBER of the room reads (a non-member is the uniform `404`; an `ADMIN` who is not a member is `403`: they have no read state).
+         *     A single-value set with a body: the CALLER's own marker in this thread, moved up to and including `messageId`. It moves FORWARD
+         *     only (reading an older message again is a `204` that changes nothing), and it moves nobody else's. Checked in this order:
+         *     authentication (`401`), the per-USER `read-state` bucket of 240 per minute (`429` beyond it; spent before any guard), visibility
+         *     (`404`), the member rule (`403`), the body (`400`: a `messageId` that is not a message id), then the caller's own membership (`404`
+         *     when they were removed meanwhile), the thread (`404`) and the message, which must be the thread's, a tombstone included (`404`
+         *     otherwise). The thread's notices of the caller up to that message become seen in the same transaction. Archived rooms and closed
+         *     threads are read all the same.
+         *
+         *     View state: it takes NO room lock (it locks only the caller's own membership row for the commit), emits no live event and writes no
+         *     audit line; the caller's other tabs catch up on focus. It also counts as looking at the room (`POST /rooms/{id}/seen`). The unread
+         *     count it clears is `unreadCount` of the thread read and of the thread list.
+         */
+        put: operations["setThreadReadMarker"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2157,6 +2219,8 @@ export interface components {
              * @description Epoch millis
              */
             createdAt: number;
+            /** @description New activity since the caller last looked at the room (`markRoomSeen`, a read marker, or their own activity); never `true` for someone who is not a member. */
+            unread: boolean;
         };
         RoomResponse: {
             /** Format: int32 */
@@ -2419,6 +2483,16 @@ export interface components {
              * @description Epoch millis
              */
             updatedAt: number;
+            /**
+             * Format: int32
+             * @description Messages the CALLER has not read (it counts the newest 100 after their marker, so 100 is "100 or more"); 0 for someone who is not a member.
+             */
+            unreadCount: number;
+            /**
+             * Format: int32
+             * @description The first of those messages; `null` when none is unread or the caller is not a member.
+             */
+            firstUnreadMessageId: number | null;
         };
         ThreadListItem: {
             /** Format: int32 */
@@ -2444,6 +2518,11 @@ export interface components {
              * @description Epoch millis
              */
             createdAt: number;
+            /**
+             * Format: int32
+             * @description Messages the CALLER has not read (the newest 100 after their marker are counted, so 100 is "100 or more"); 0 for someone who is not a member.
+             */
+            unreadCount: number;
         };
         ThreadPage: {
             items: components["schemas"]["ThreadListItem"][];
@@ -2629,6 +2708,13 @@ export interface components {
             reacted: boolean;
             /** @description The display names of the first three reactors by time (a soft-deleted account keeps its recorded name). */
             names: string[];
+        };
+        ReadMarkerRequest: {
+            /**
+             * Format: int32
+             * @description The message the caller has read up to, and including; one of the thread's own messages, a deleted one included.
+             */
+            messageId: number;
         };
         ReactionRequest: {
             /** @description ONE emoji; any other text is `400`. */
@@ -4258,6 +4344,31 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    markRoomSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recorded (the same answer when the room was already seen) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     archiveRoom: {
         parameters: {
             query?: never;
@@ -4785,6 +4896,40 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setThreadReadMarker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadMarkerRequest"];
+            };
+        };
+        responses: {
+            /** @description Recorded, or already read that far */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];

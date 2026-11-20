@@ -39,6 +39,7 @@ class MigrationChecksumTest {
         "V16__create_search.sql" to 1149414218,
         "V17__create_message_mentions.sql" to -1206880786,
         "V18__create_notifications.sql" to 366113831,
+        "V19__create_read_state.sql" to -328121061,
         "V20__create_message_reactions.sql" to 412426361,
         "V21__create_room_pins.sql" to 311388058,
     )

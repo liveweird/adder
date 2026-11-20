@@ -46,6 +46,11 @@ data class RoomListItem(
     val memberCount: Int,
     val lastActivityAt: Long,
     val createdAt: Long,
+    /**
+     * New activity since the caller last looked at the room (`chat-model.md` "Unread (V19)"): the room's `lastActivityAt` is later than
+     * `GREATEST(seen_at, added_at)` of the caller's membership. Always false for someone who is not a member (an ADMIN outside the room).
+     */
+    val unread: Boolean,
 )
 
 @Serializable
@@ -72,6 +77,9 @@ data class RoomListFilter(
     val archived: Boolean? = null,
     val member: Boolean? = null,
 )
+
+/** The caller's membership of a listed room: their [role] and the instant [seenSince] they last looked at it (never before they joined). */
+internal data class CallerMembership(val role: RoomRole, val seenSince: Long)
 
 data class RoomListResult(val items: List<RoomListItem>, val total: Long)
 

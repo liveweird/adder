@@ -28,8 +28,6 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
-import org.jetbrains.exposed.v1.core.lessEq
-import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -67,6 +65,17 @@ SELECT u.r, CAST(? AS int4), CAST(? AS varchar), CAST(? AS int8), CAST(? AS int4
 FROM unnest(CAST(? AS int8[])) AS u(r)
 ON CONFLICT DO NOTHING
 RETURNING recipient_id"""
+
+/**
+ * The unseen notices of one person in one thread up to a message become seen (the read marker's write, run without the room lock): the
+ * person and the thread are the two leading keys of the partial index `idx_notifications_unseen_thread` (V19), so the statement touches
+ * only that person's unseen rows of that thread however many notices they hold. A hand-over has no message and is seen with the thread.
+ * Arguments: the instant, the person, the thread, the message.
+ */
+internal const val MARK_THREAD_SEEN_SQL = """
+UPDATE notifications SET seen_at = CAST(? AS int8)
+WHERE recipient_id = CAST(? AS int8) AND thread_id = CAST(? AS int4) AND seen_at IS NULL
+  AND (message_id IS NULL OR message_id <= CAST(? AS int4))"""
 
 /** The ONE sortable whitelist of the notification list: `id` (time order) and `createdAt`. */
 val NOTIFICATION_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
@@ -131,10 +140,12 @@ internal class NotificationService(
     }
 
     override suspend fun threadRead(threadId: UInt, userId: UInt, upToMessageId: UInt, at: Long) {
-        Notifications.update({
-            (Notifications.threadId eq threadId) and (Notifications.recipientId eq userId) and Notifications.seenAt.isNull() and
-                (Notifications.messageId.isNull() or (Notifications.messageId lessEq upToMessageId))
-        }) { it[seenAt] = at }
+        val int = IntegerColumnType()
+        val long = LongColumnType()
+        TransactionManager.current().exec(
+            MARK_THREAD_SEEN_SQL,
+            listOf(long to at, long to userId.toLong(), int to threadId.toInt(), int to upToMessageId.toInt()),
+        )
     }
 
     /**

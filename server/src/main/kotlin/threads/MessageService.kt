@@ -55,9 +55,10 @@ class MessageService internal constructor(
 ) {
     /**
      * Every follower of a write, in order: the mention index first, then the [followers] the composition root adds, then the reactions'
-     * own (always on, so a delete clears a message's reactions whoever built the service).
+     * own (always on, so a delete clears a message's reactions whoever built the service) and the author's read marker, which a post
+     * moves to the new message (also always on).
      */
-    private val followers: List<MessageFollower> = listOf<MessageFollower>(mentions) + followers + reactions.follower
+    private val followers: List<MessageFollower> = listOf<MessageFollower>(mentions) + followers + reactions.follower + AuthorReadMarker
 
     object Messages : UIntIdTable("messages"), SoftDeletable {
         val threadId = reference("thread_id", ThreadService.Threads)
@@ -218,7 +219,7 @@ class MessageService internal constructor(
                 it[messageCount] = messageCount + 1
                 it[lastActivityAt] = stamp
             }
-            rooms.touchActivity(roomId, stamp)
+            rooms.touchActivity(roomId, stamp, authorId)
             notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
             val notified = followPosted(inserted)
             val name = userNames(listOf(authorId)).getValue(authorId)

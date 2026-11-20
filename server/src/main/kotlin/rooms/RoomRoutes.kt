@@ -55,6 +55,10 @@ class RoomsRoute {
         class Workflow(val parent: Id)
 
         @Serializable
+        @Resource("seen")
+        class Seen(val parent: Id)
+
+        @Serializable
         @Resource("members")
         class Members(val parent: Id) {
             @Serializable

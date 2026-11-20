@@ -53,6 +53,8 @@ data class ThreadListItem(
     val messageCount: Int,
     val lastActivityAt: Long,
     val createdAt: Long,
+    /** Messages the CALLER has not read, 0 to [MAX_UNREAD_COUNT] (that many is "that many or more"); 0 for someone who is no member. */
+    val unreadCount: Int,
 )
 
 @Serializable
@@ -80,6 +82,10 @@ data class ThreadResponse(
     val lastActivityAt: Long,
     val createdAt: Long,
     val updatedAt: Long,
+    /** Messages the CALLER has not read, 0 to [MAX_UNREAD_COUNT]; 0 for someone who is no member. */
+    val unreadCount: Int,
+    /** The first of those messages (of the newest [MAX_UNREAD_COUNT] unread), null when none is unread or the caller is no member. */
+    val firstUnreadMessageId: UInt?,
 )
 
 typealias ThreadPageResponse = PageResponse<ThreadListItem>

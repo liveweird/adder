@@ -102,8 +102,9 @@ private fun Route.threadReads(roomService: RoomService, threadService: ThreadSer
     }
     get<ThreadsRoute.Number> { route ->
         val roomId = route.parent.parent.id
-        roomService.visibleStanding(call.caller(), roomId)
-        call.respond(HttpStatusCode.OK, threadService.read(roomId, route.number.toInt()).orNotFound("Thread"))
+        val caller = call.caller()
+        roomService.visibleStanding(caller, roomId)
+        call.respond(HttpStatusCode.OK, threadService.read(roomId, route.number.toInt(), caller.userId).orNotFound("Thread"))
     }
     get<ThreadsRoute.Number.Events> { route ->
         val roomId = route.parent.parent.parent.id
@@ -159,7 +160,8 @@ private fun Route.threadCreate(roomService: RoomService, threadService: ThreadSe
             auditNoticesCreated(caller.userId, roomId, created.id, created.messageId, NOTICE_MENTIONED, created.notified)
             val location = ThreadsRoute.Number(ThreadsRoute(RoomsRoute.Id(id = roomId)), created.number.toUInt())
             call.response.header(HttpHeaders.Location, call.application.href(location))
-            call.respond(HttpStatusCode.Created, threadService.read(roomId, created.number).orVanished("Thread", created.number))
+            val thread = threadService.read(roomId, created.number, caller.userId).orVanished("Thread", created.number)
+            call.respond(HttpStatusCode.Created, thread)
         }
     }
 }

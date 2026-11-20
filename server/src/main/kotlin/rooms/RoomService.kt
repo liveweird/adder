@@ -6,6 +6,7 @@ import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
+import ch.nokillswit.infra.db.greatestOf
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
@@ -73,6 +74,12 @@ class RoomService(
         val userId = reference("user_id", UserService.Users)
         val role = varchar("role", length = 10)
         val addedAt = long("added_at")
+
+        /** When the member last looked at the room (V19; 0 = since joining: every read is `GREATEST(seenAt, addedAt)`). */
+        val seenAt = long("seen_at").default(0L)
+
+        /** The floor of the member's unread counting (V19; 0 = since joining: every read is `GREATEST(readFrom, addedAt)`). */
+        val readFrom = long("read_from").default(0L)
         override val primaryKey = PrimaryKey(roomId, userId)
     }
 
@@ -115,7 +122,7 @@ class RoomService(
             val rows = Rooms.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
             val ids = rows.map { it[Rooms.id].value }
             val counts = activeMemberCounts(ids)
-            val roles = callerRoles(ids, callerUserId)
+            val mine = callerMemberships(ids, callerUserId)
             RoomListResult(
                 items = rows.map { row ->
                     val id = row[Rooms.id].value
@@ -124,10 +131,12 @@ class RoomService(
                         name = row[Rooms.name],
                         description = row[Rooms.description],
                         archived = row[Rooms.archivedAt] != null,
-                        role = roles[id],
+                        role = mine[id]?.role,
                         memberCount = counts[id] ?: 0,
                         lastActivityAt = row[Rooms.lastActivityAt],
                         createdAt = row[Rooms.createdAt],
+                        // Only a member has read state: an ADMIN outside the room never sees a dot.
+                        unread = mine[id]?.let { row[Rooms.lastActivityAt] > it.seenSince } ?: false,
                     )
                 },
                 total = total,
@@ -144,7 +153,7 @@ class RoomService(
             description = row[Rooms.description],
             archived = row[Rooms.archivedAt] != null,
             archivedAt = row[Rooms.archivedAt],
-            role = callerRoles(listOf(id), callerUserId)[id],
+            role = callerMemberships(listOf(id), callerUserId)[id]?.role,
             memberCount = activeMemberCounts(listOf(id))[id] ?: 0,
             workflowRevision = row[Rooms.workflowRevision],
             lastActivityAt = row[Rooms.lastActivityAt],
@@ -283,10 +292,15 @@ class RoomService(
     /**
      * Bumps the room's `last_activity_at` (the rail order) to [at]: a new thread or message, a status, owner, title or field change
      * (`chat-model.md` "Activity"). Runs INSIDE the caller's transaction - the thread write, under the room lock `withRoomWrite` took -
-     * and never opens one of its own (the `readStanding` idiom).
+     * and never opens one of its own (the `readStanding` idiom). The ACTOR has seen the room at [at] too ([RoomMembers.seenAt], only ever
+     * moving forward): one's own activity never makes a room new for oneself; nobody else's row is touched (an ADMIN outside the room has
+     * no row, so there is nothing to move).
      */
-    suspend fun touchActivity(roomId: UInt, at: Long) {
+    suspend fun touchActivity(roomId: UInt, at: Long, actorUserId: UInt) {
         Rooms.update({ Rooms.id eq roomId }) { it[lastActivityAt] = at }
+        RoomMembers.update({ (RoomMembers.roomId eq roomId) and (RoomMembers.userId eq actorUserId) }) {
+            it[seenAt] = seenAt.greatestOf(at)
+        }
     }
 
     /** Every ACTIVE member of [roomId] (at most 500, the cap), one query, inside the caller's transaction. */
@@ -309,12 +323,15 @@ class RoomService(
             .toMap()
     }
 
-    /** The caller's role in each of [roomIds] they belong to (absent = not a member), one query. */
-    private suspend fun callerRoles(roomIds: List<UInt>, callerUserId: UInt): Map<UInt, RoomRole> {
+    /** The caller's role and the moment they last looked at each of [roomIds] they belong to (absent = not a member), one query. */
+    private suspend fun callerMemberships(roomIds: List<UInt>, callerUserId: UInt): Map<UInt, CallerMembership> {
         if (roomIds.isEmpty()) return emptyMap()
-        return RoomMembers.select(RoomMembers.roomId, RoomMembers.role)
+        return RoomMembers.select(RoomMembers.roomId, RoomMembers.role, RoomMembers.seenAt, RoomMembers.addedAt)
             .where { (RoomMembers.roomId inList roomIds) and (RoomMembers.userId eq callerUserId) }
-            .map { it[RoomMembers.roomId].value to RoomRole.valueOf(it[RoomMembers.role]) }
+            .map {
+                it[RoomMembers.roomId].value to
+                    CallerMembership(RoomRole.valueOf(it[RoomMembers.role]), maxOf(it[RoomMembers.seenAt], it[RoomMembers.addedAt]))
+            }
             .toList()
             .toMap()
     }

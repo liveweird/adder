@@ -6,6 +6,7 @@ import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
+import ch.nokillswit.infra.db.greatestOf
 import ch.nokillswit.infra.db.insertRows
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.notify.LiveHint
@@ -87,6 +88,28 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
             .toList()
             .toSet()
     }
+
+    /**
+     * [userId]'s floor of unread counting in room [roomId] - `GREATEST(read_from, added_at)` (V19) - or null when they are not a member
+     * (an ADMIN outside the room has no read state). One read of the person's own row, INSIDE the caller's transaction, no lock.
+     */
+    suspend fun unreadSince(roomId: UInt, userId: UInt): Long? =
+        members.select(members.readFrom, members.addedAt)
+            .where { (members.roomId eq roomId) and (members.userId eq userId) }
+            .toList().singleOrNull()?.let { maxOf(it[members.readFrom], it[members.addedAt]) }
+
+    /**
+     * [userId] looked at room [roomId] at [at]: moves ONLY their own `seen_at`, forward only, and answers whether they have a membership
+     * row (false = they are not, or no longer, a member, the route's `404`). Runs INSIDE the caller's transaction and takes NO room lock:
+     * the update locks the person's own row to the commit, so a removal (which deletes the row under the room lock) waits for it, and a
+     * removal that came first leaves nothing to update. View state: no hint, no audit line (`observability.md`).
+     */
+    suspend fun markSeenInTransaction(roomId: UInt, userId: UInt, at: Long): Boolean =
+        members.update({ (members.roomId eq roomId) and (members.userId eq userId) }) { it[seenAt] = seenAt.greatestOf(at) } > 0
+
+    /** [markSeenInTransaction] in a transaction of its own (`POST /rooms/{id}/seen`). */
+    suspend fun markSeen(roomId: UInt, userId: UInt, at: Long): Boolean =
+        suspendTransaction(database) { markSeenInTransaction(roomId, userId, at) }
 
     /**
      * Adds the named people and, when asked, the team's ACTIVE roster as it is NOW (a snapshot: a later roster edit never follows), always

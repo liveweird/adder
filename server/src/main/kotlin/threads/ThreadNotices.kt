@@ -11,7 +11,8 @@ internal const val NOTICE_THREAD_ASSIGNED = "THREAD_ASSIGNED"
  * `notifications/NotificationService` implements it, so the chat never imports the feature that sits above it (the `WorkflowUsage`
  * precedent in `rooms/`); `infra/db/Database.kt` hands the implementation to the services. EVERY call runs INSIDE the caller's
  * transaction (a post, an edit, a delete or a hand-over, under the room lock), so a notice and its live hint commit with the write that
- * caused them and a rolled-back write announces nothing. A notice is ids only.
+ * caused them and a rolled-back write announces nothing. A notice is ids only. The one exception to "under the room lock" is
+ * [threadRead]: it belongs to the read marker's own short transaction, which takes no room lock (`chat-model.md` "Unread (V19)").
  */
 internal interface ThreadNotices {
     /**
@@ -35,7 +36,8 @@ internal interface ThreadNotices {
 
     /**
      * [userId] read thread [threadId] up to message [upToMessageId] at [at]: the unseen notices of that person in the thread about a
-     * message up to there, and the thread-level ones (a hand-over has no message), become seen.
+     * message up to there, and the thread-level ones (a hand-over has no message), become seen. Runs in the read marker's transaction,
+     * WITHOUT the room lock, and touches only that person's rows.
      */
     suspend fun threadRead(threadId: UInt, userId: UInt, upToMessageId: UInt, at: Long)
 }

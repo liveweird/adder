@@ -1,8 +1,11 @@
 package ch.nokillswit.rooms
 
 import ch.nokillswit.audit.audit
+import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.requireRoomManager
+import ch.nokillswit.authz.requireRoomMember
+import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
@@ -36,6 +39,24 @@ fun Application.configureRoomMemberRoutes() {
             memberAdd(roomService, memberService)
             memberRole(roomService, memberService)
             memberRemove(roomService, memberService)
+            roomSeen(roomService, memberService)
+        }
+    }
+}
+
+/**
+ * `POST /rooms/{id}/seen`: the caller looked at the room (the rail's dot goes out). The per-USER `read-state` bucket first, then
+ * visibility (404, audited), the member guard (403: an ADMIN outside the room has no read state); only the caller's OWN `seen_at` moves,
+ * forward only, under no room lock. A person removed meanwhile is the `404`. View state: `204`, no audit line, no hint.
+ */
+private fun Route.roomSeen(roomService: RoomService, memberService: RoomMemberService) {
+    rateLimit(RateLimitName(RateLimits.READ_STATE)) {
+        post<RoomsRoute.Id.Seen> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.id
+            requireRoomMember(caller, roomService.visibleStanding(caller, roomId))
+            if (!memberService.markSeen(roomId, caller.userId, nowMillis())) throw NotFoundException("Room not found")
+            call.respond(HttpStatusCode.NoContent)
         }
     }
 }

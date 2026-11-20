@@ -34,6 +34,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -624,4 +625,37 @@ class RoomTest {
             }
         }
     }
+
+    @Test
+    fun `a room is new after someone else's activity, seen after the member says so, and never new from one's own activity`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val owner = actor("room-unread-own")
+            val member = actor("room-unread-mem")
+            val admin = actor("room-unread-adm", UserRole.ADMIN)
+            val template = TestThreads.seedTemplate().also { mintedTemplates += it }
+            val name = "Unread ${marker()}"
+            val room = TestRooms.seed(owner.id, template, name).also { mintedRooms += it }
+            TestRooms.addMember(room, member.id)
+            suspend fun HttpClient.dot() = get("$rooms?name=$name").body<RoomPageResponse>().items.single().unread
+
+            delay(5)
+            assertFalse(member.client.dot(), "a fresh member has seen the room")
+            assertFalse(owner.client.dot())
+            TestThreads.seed(room, owner.id)
+            assertTrue(member.client.dot(), "new activity by somebody else")
+            assertFalse(owner.client.dot(), "one's own activity never makes a room new")
+            assertFalse(admin.client.dot(), "an ADMIN outside the room has no read state")
+
+            delay(5)
+            assertEquals(HttpStatusCode.NoContent, member.client.postJson("$rooms/$room/seen", "").status)
+            assertFalse(member.client.dot(), "seen after the member says so")
+            delay(5)
+            TestThreads.post(room, 1, owner.id, "more")
+            assertTrue(member.client.dot(), "and new again after the next activity")
+            delay(5)
+            TestThreads.post(room, 1, member.id, "my own reply")
+            assertFalse(member.client.dot(), "the member's own activity has them seen it")
+            assertTrue(owner.client.dot(), "the member's reply is news to the owner")
+        }
 }

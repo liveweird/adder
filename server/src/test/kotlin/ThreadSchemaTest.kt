@@ -1,11 +1,15 @@
 package ch.nokillswit
 
+import ch.nokillswit.notifications.MARK_THREAD_SEEN_SQL
+import ch.nokillswit.threads.THREAD_UNREAD_SQL
+import ch.nokillswit.threads.UNREAD_COUNTS_SQL
 import java.sql.Connection
 import java.sql.SQLException
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /**
  * The V14 constraints, by raw SQL (no service exists yet): the tombstone shape of `messages`, the composite status foreign key, the
@@ -410,6 +414,80 @@ class ThreadSchemaTest {
             assertEquals("", c.text("SELECT search::text FROM messages WHERE id = ?", message))
             val second = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "findable " + "b".repeat(3000), false, null)
             assertEquals("'findable':1", c.text("SELECT search::text FROM messages WHERE id = ?", second), "only the long token is skipped")
+        }
+    }
+
+    @Test
+    fun `read state has its defaults, its membership key and goes with the member and the thread`() {
+        withThread("reads") { c, user, thread ->
+            val room = c.scalar("SELECT room_id FROM threads WHERE id = ?", thread)
+            val insertMarker =
+                "INSERT INTO thread_reads (user_id, thread_id, room_id, last_read_message_id, read_at) VALUES (?, ?, ?, ?, 1)"
+            assertState(FK_VIOLATION, "a marker needs the membership row") { c.exec(insertMarker, user, thread, room, 5) }
+            val join = "INSERT INTO room_members (room_id, user_id, \"role\", added_at) VALUES (?, ?, 'MEMBER', 7)"
+            assertEquals(1, c.exec(join, room, user))
+            val state = "SELECT %s FROM room_members WHERE room_id = ? AND user_id = ?"
+            assertEquals(0L, c.scalar(state.format("seen_at"), room, user), "0 = since joining")
+            assertEquals(0L, c.scalar(state.format("read_from"), room, user), "0 = since joining")
+            assertState(CHECK_VIOLATION, "a marker is a positive message id") { c.exec(insertMarker, user, thread, room, 0) }
+            assertEquals(1, c.exec(insertMarker, user, thread, room, 5))
+            assertState(UNIQUE_VIOLATION, "one marker per member and thread") { c.exec(insertMarker, user, thread, room, 6) }
+
+            assertEquals(1, c.exec("DELETE FROM room_members WHERE room_id = ? AND user_id = ?", room, user))
+            assertEquals(0L, c.scalar("SELECT count(*) FROM thread_reads WHERE user_id = ?", user), "the membership key took the marker")
+            assertEquals(1, c.exec(join, room, user))
+            assertEquals(1, c.exec(insertMarker, user, thread, room, 5))
+            assertEquals(1, c.exec("DELETE FROM threads WHERE id = ?", thread))
+            assertEquals(0L, c.scalar("SELECT count(*) FROM thread_reads WHERE user_id = ?", user), "the thread took the marker")
+        }
+    }
+
+    @Test
+    fun `the unread statements read idx_messages_thread, also as a generic plan`() {
+        // Each statement as a PREPARED one over its argument types, with sequential and bitmap scans off (a test table is tiny, so its
+        // statistics can make a bitmap read plus a sort look cheaper; a real thread of thousands of messages does not): the messages
+        // of a thread are read backwards through their thread index, at most 100 index entries per thread, never a table-wide scan.
+        val counts = Triple(UNREAD_COUNTS_SQL, "int8, int8, int4[], int8", "0, 1, '{1,2}', 0")
+        val one = Triple(THREAD_UNREAD_SQL, "int4, int8, int4, int8", "1, 1, 1, 0")
+        for ((sql, types, args) in listOf(counts, one)) {
+            for (mode in listOf("auto", "force_generic_plan")) {
+                val plan = explain(sql, types, args, mode)
+                assertTrue("idx_messages_thread" in plan, "$mode: the count reads messages through their thread index:\n$plan")
+                assertTrue("Index Scan Backward" in plan, "$mode: newest first, so the limit stops early:\n$plan")
+                assertTrue("Seq Scan on messages" !in plan, "$mode: never a scan of the whole table:\n$plan")
+            }
+        }
+    }
+
+    @Test
+    fun `the thread-read update finds the unseen notices through idx_notifications_unseen_thread, also as a generic plan`() {
+        // The read marker's `NotificationService.threadRead` statement: the person and the thread lead the partial index (V19), so the
+        // write reads only that person's unseen rows of that thread, never the person's whole unseen list nor the table.
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val plan = explain(MARK_THREAD_SEEN_SQL, "int8, int8, int4, int4", "5, 1, 1, 1", mode)
+            assertTrue("idx_notifications_unseen_thread" in plan, "$mode: the update uses the person-and-thread index:\n$plan")
+            assertTrue("Seq Scan on notifications" !in plan, "$mode: never a scan of the whole table:\n$plan")
+        }
+    }
+
+    private fun explain(sql: String, types: String, args: String, planCacheMode: String): String {
+        var n = 0
+        val numbered = Regex("[?]").replace(sql) { "\$${++n}" }
+        return PostgresTestSupport.connect().use { c ->
+            c.autoCommit = false
+            try {
+                c.createStatement().use { st ->
+                    st.execute("SET LOCAL plan_cache_mode = $planCacheMode")
+                    st.execute("SET LOCAL enable_seqscan = off")
+                    st.execute("SET LOCAL enable_bitmapscan = off")
+                    st.execute("PREPARE unread_plan($types) AS $numbered")
+                    buildString {
+                        st.executeQuery("EXPLAIN EXECUTE unread_plan($args)").use { rs -> while (rs.next()) appendLine(rs.getString(1)) }
+                    }
+                }
+            } finally {
+                c.rollback()
+            }
         }
     }
 }

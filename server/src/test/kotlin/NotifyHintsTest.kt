@@ -16,6 +16,7 @@ import ch.nokillswit.rooms.RoomWorkflowResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.PinRequest
+import ch.nokillswit.threads.ReadMarkerRequest
 import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
@@ -41,6 +42,7 @@ import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -157,6 +159,27 @@ class NotifyHintsTest {
                 ),
                 hints,
             )
+        }
+    }
+
+    @Test
+    fun `a read marker and a room seen write emit no hint and no audit line`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("hint-rown")
+        val member = actor("hint-rmem")
+        val room = room(owner, template())
+        TestRooms.addMember(room, member.id)
+        val opening = TestThreads.seed(room, owner.id).messageId
+        withAuditCapture { audit ->
+            NotifyCapture().use { capture ->
+                val hints = capture.during {
+                    member.client.putJson("$rooms/$room/threads/1/read-marker", ReadMarkerRequest(opening)).expect(HttpStatusCode.NoContent)
+                    member.client.postJson("$rooms/$room/seen", "").expect(HttpStatusCode.NoContent)
+                    member.client.postJson("$rooms/$room/seen", "").expect(HttpStatusCode.NoContent)
+                }
+                assertEquals(emptyList(), hints, "view state announces nothing")
+            }
+            assertTrue(audit.events.isEmpty(), "view state is not audited: ${audit.events.map { it.message }}")
         }
     }
 

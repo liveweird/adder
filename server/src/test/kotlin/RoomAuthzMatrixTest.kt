@@ -97,6 +97,8 @@ class RoomAuthzMatrixTest {
         Operation("GET room", notFound, ok, ok, ok) { it.client.get("$rooms/${it.room}") },
         Operation("GET workflow", notFound, ok, ok, ok) { it.client.get("$rooms/${it.room}/workflow") },
         Operation("GET members", notFound, ok, ok, ok) { it.client.get("$rooms/${it.room}/members") },
+        // Read state is a member's own: any member (the OWNER too), never an ADMIN outside the room (403, nothing to move).
+        Operation("POST seen", notFound, noContent, noContent, forbidden) { it.client.post("$rooms/${it.room}/seen") },
         Operation("PUT room", notFound, forbidden, noContent, noContent) { it.client.putJson("$rooms/${it.room}", update()) },
         Operation("POST archive", notFound, forbidden, noContent, noContent) { it.client.post("$rooms/${it.room}/archive") },
         // The room is archived first, so the 204s are real unarchives, not no-ops.

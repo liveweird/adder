@@ -67,7 +67,7 @@ class ThreadStatusService internal constructor(
                 threadStatusEvent(transition, current.key, current.label, target.key, target.label),
                 stamp,
             )
-            rooms.touchActivity(roomId, stamp)
+            rooms.touchActivity(roomId, stamp, caller.userId)
             notifyLive(LiveHint(LiveKind.THREAD_STATUS_CHANGED, roomId, threadNumber = number))
             StatusMove(thread.id, current.key, target.key, transition)
         }
@@ -105,7 +105,7 @@ class ThreadStatusService internal constructor(
                 threadOwnerChangedEvent(thread.ownerId, newOwnerId, names.getValue(thread.ownerId), names.getValue(newOwnerId)),
                 stamp,
             )
-            rooms.touchActivity(roomId, stamp)
+            rooms.touchActivity(roomId, stamp, caller.userId)
             notifyLive(LiveHint(LiveKind.THREAD_OWNER_CHANGED, roomId, threadNumber = number))
             val notified = notices.ownerAssigned(roomId, thread.id, number, caller.userId, newOwnerId)
             OwnerMove(thread.id, thread.ownerId, newOwnerId, notified)

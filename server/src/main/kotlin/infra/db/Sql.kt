@@ -3,10 +3,12 @@ package ch.nokillswit.infra.db
 import org.jetbrains.exposed.v1.core.CustomFunction
 import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.LikeEscapeOp
+import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.LowerCase
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.QueryBuilder
 import org.jetbrains.exposed.v1.core.TextColumnType
+import org.jetbrains.exposed.v1.core.longParam
 import org.jetbrains.exposed.v1.core.stringParam
 
 /**
@@ -67,3 +69,7 @@ private class ScalarSubquery(private val inner: Expression<String>) : Expression
  */
 fun <T> T?.orVanished(resource: String, id: Any, phase: String = "between create and re-read"): T =
     this ?: error("$resource $id vanished $phase")
+
+/** `GREATEST(column, value)`: a monotonic stamp (read state only moves forward), so a later writer's larger instant is never lowered. */
+fun Expression<Long>.greatestOf(value: Long): Expression<Long> =
+    CustomFunction("GREATEST", LongColumnType(), this, longParam(value))

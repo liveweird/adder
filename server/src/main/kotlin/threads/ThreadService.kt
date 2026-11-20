@@ -113,6 +113,10 @@ class ThreadService(
             val rows = Threads.select(LIST_COLUMNS).where { predicate }.applyPaging(paging, columns).toList()
             budget.arm(this)
             val names = userNames(rows.map { it[Threads.ownerId].value })
+            budget.arm(this)
+            // A caller who is no member (an ADMIN outside the room) has no read state: every count is 0.
+            val unread = members.unreadSince(roomId, callerUserId)
+                ?.let { unreadCountsOf(callerUserId, it, rows.map { row -> row[Threads.id].value }) }.orEmpty()
             ThreadListResult(
                 items = rows.map {
                     ThreadListItem(
@@ -126,14 +130,18 @@ class ThreadService(
                         messageCount = it[Threads.messageCount],
                         lastActivityAt = it[Threads.lastActivityAt],
                         createdAt = it[Threads.createdAt],
+                        unreadCount = unread[it[Threads.id].value] ?: 0,
                     )
                 },
                 total = total,
             )
         }
 
-    /** The thread [number] of room [roomId] as its ACTIVE fields show it, or null when there is none. */
-    suspend fun read(roomId: UInt, number: Int): ThreadResponse? = suspendTransaction(database) {
+    /**
+     * The thread [number] of room [roomId] as its ACTIVE fields show it to [callerUserId] (the unread count and the first unread message
+     * are THEIRS, 0 and null for someone who is no member), or null when there is none.
+     */
+    suspend fun read(roomId: UInt, number: Int, callerUserId: UInt): ThreadResponse? = suspendTransaction(database) {
         val row = Threads.selectAll().where { (Threads.roomId eq roomId) and (Threads.number eq number) }.toList().singleOrNull()
             ?: return@suspendTransaction null
         val activeTypes = workflows.activeFieldTypes(roomId)
@@ -141,6 +149,7 @@ class ThreadService(
         val userFieldKeys = activeTypes.filterValues { it == FieldType.USER }.keys
         val fieldUserIds = userFieldKeys.mapNotNull { (values[it] as? JsonPrimitive)?.longOrNull?.toUInt() }
         val names = userNames(listOf(row[Threads.ownerId].value, row[Threads.createdBy].value) + fieldUserIds)
+        val unread = members.unreadSince(roomId, callerUserId)?.let { unreadOfThread(callerUserId, row[Threads.id].value, it) }
         ThreadResponse(
             id = row[Threads.id].value,
             number = number,
@@ -159,6 +168,8 @@ class ThreadService(
             lastActivityAt = row[Threads.lastActivityAt],
             createdAt = row[Threads.createdAt],
             updatedAt = row[Threads.updatedAt],
+            unreadCount = unread?.count ?: 0,
+            firstUnreadMessageId = unread?.firstMessageId,
         )
     }
 
@@ -212,7 +223,7 @@ class ThreadService(
             }[Threads.id].value
             val opening = messages.insertInTransaction(roomId, threadId, number, caller.userId, request.body, hashtags, stamp)
             events.record(threadId, caller.userId, threadCreatedEvent(request.title, initial.key, initial.label), stamp)
-            rooms.touchActivity(roomId, stamp)
+            rooms.touchActivity(roomId, stamp, caller.userId)
             // The opening message is part of this hint, never a `message.posted` of its own.
             notifyLive(LiveHint(LiveKind.THREAD_CREATED, roomId, threadNumber = number))
             // The followers run after the hint, so a notice's own hint follows `thread.created` on the wire.
@@ -262,7 +273,7 @@ class ThreadService(
                 val field = snapshot.fields.single { it.key == change.key }
                 events.record(thread.id, caller.userId, threadFieldChangedEvent(field, change, names), stamp)
             }
-            rooms.touchActivity(roomId, stamp)
+            rooms.touchActivity(roomId, stamp, caller.userId)
             notifyLive(LiveHint(LiveKind.THREAD_UPDATED, roomId, threadNumber = number))
             ThreadChange(thread.id, revision, titleChanged, fieldWrite.changes.map { it.key })
         }

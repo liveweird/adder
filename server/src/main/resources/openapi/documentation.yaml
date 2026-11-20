@@ -1061,6 +1061,28 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/seen:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [rooms]
+      operationId: markRoomSeen
+      summary: Record that the caller has looked at a room
+      description: |
+        A MEMBER of the room (a non-member is the uniform `404`; an `ADMIN` who is not a member is `403`: they have no read state). Moves
+        ONLY the caller's own `seen_at`, forward only, so the room stops being `unread` in the rooms list until someone else's next
+        activity. Checked in this order: authentication (`401`), the per-USER `read-state` bucket of 240 per minute (`429` beyond it;
+        spent before any guard), visibility (`404`), the member rule (`403`), then the caller's own membership (`404` when they were
+        removed meanwhile). View state: it takes no room lock, emits no live event and writes no audit line; the caller's other tabs
+        catch up on focus. An archived room is seen all the same. No request body.
+      responses:
+        '204':
+          description: Recorded (the same answer when the room was already seen)
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/archive:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -1602,6 +1624,44 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/threads/{number}/read-marker:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/ThreadNumberPath'
+    put:
+      tags: [threads]
+      operationId: setThreadReadMarker
+      summary: Record that the caller has read a thread up to a message
+      description: |
+        A MEMBER of the room reads (a non-member is the uniform `404`; an `ADMIN` who is not a member is `403`: they have no read state).
+        A single-value set with a body: the CALLER's own marker in this thread, moved up to and including `messageId`. It moves FORWARD
+        only (reading an older message again is a `204` that changes nothing), and it moves nobody else's. Checked in this order:
+        authentication (`401`), the per-USER `read-state` bucket of 240 per minute (`429` beyond it; spent before any guard), visibility
+        (`404`), the member rule (`403`), the body (`400`: a `messageId` that is not a message id), then the caller's own membership (`404`
+        when they were removed meanwhile), the thread (`404`) and the message, which must be the thread's, a tombstone included (`404`
+        otherwise). The thread's notices of the caller up to that message become seen in the same transaction. Archived rooms and closed
+        threads are read all the same.
+
+        View state: it takes NO room lock (it locks only the caller's own membership row for the commit), emits no live event and writes no
+        audit line; the caller's other tabs catch up on focus. It also counts as looking at the room (`POST /rooms/{id}/seen`). The unread
+        count it clears is `unreadCount` of the thread read and of the thread list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadMarkerRequest'
+      responses:
+        '204':
+          description: Recorded, or already read that far
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
@@ -3173,7 +3233,7 @@ components:
         description: { type: string, maxLength: 500, nullable: true }
     RoomListItem:
       type: object
-      required: [id, name, archived, role, memberCount, lastActivityAt, createdAt]
+      required: [id, name, archived, role, memberCount, lastActivityAt, createdAt, unread]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
@@ -3187,6 +3247,7 @@ components:
         memberCount: { type: integer, format: int32, minimum: 0, description: Active members only }
         lastActivityAt: { type: integer, format: int64, description: Epoch millis of the room's latest thread or message activity; the creation time until there is any }
         createdAt: { type: integer, format: int64, description: Epoch millis }
+        unread: { type: boolean, description: 'New activity since the caller last looked at the room (`markRoomSeen`, a read marker, or their own activity); never `true` for someone who is not a member.' }
     RoomResponse:
       type: object
       required: [id, name, archived, role, memberCount, workflowRevision, lastActivityAt, createdAt, updatedAt]
@@ -3473,6 +3534,8 @@ components:
         - lastActivityAt
         - createdAt
         - updatedAt
+        - unreadCount
+        - firstUnreadMessageId
       properties:
         id: { type: integer, format: int32, minimum: 1 }
         number: { type: integer, format: int32, minimum: 1, description: The per-room number (`#42`); never reused. }
@@ -3496,9 +3559,21 @@ components:
         lastActivityAt: { type: integer, format: int64, description: Epoch millis }
         createdAt: { type: integer, format: int64, description: Epoch millis }
         updatedAt: { type: integer, format: int64, description: Epoch millis }
+        unreadCount:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 100
+          description: 'Messages the CALLER has not read (it counts the newest 100 after their marker, so 100 is "100 or more"); 0 for someone who is not a member.'
+        firstUnreadMessageId:
+          type: integer
+          format: int32
+          minimum: 1
+          nullable: true
+          description: The first of those messages; `null` when none is unread or the caller is not a member.
     ThreadListItem:
       type: object
-      required: [id, number, title, status, closed, ownerId, ownerName, messageCount, lastActivityAt, createdAt]
+      required: [id, number, title, status, closed, ownerId, ownerName, messageCount, lastActivityAt, createdAt, unreadCount]
       properties:
         id: { type: integer, format: int32, minimum: 1 }
         number: { type: integer, format: int32, minimum: 1 }
@@ -3510,6 +3585,12 @@ components:
         messageCount: { type: integer, format: int32, minimum: 0 }
         lastActivityAt: { type: integer, format: int64, description: Epoch millis }
         createdAt: { type: integer, format: int64, description: Epoch millis }
+        unreadCount:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 100
+          description: 'Messages the CALLER has not read (the newest 100 after their marker are counted, so 100 is "100 or more"); 0 for someone who is not a member.'
     ThreadPage:
       type: object
       required: [items, page, pageSize, total]
@@ -3701,6 +3782,11 @@ components:
           maxItems: 3
           items: { type: string }
           description: The display names of the first three reactors by time (a soft-deleted account keeps its recorded name).
+    ReadMarkerRequest:
+      type: object
+      required: [messageId]
+      properties:
+        messageId: { type: integer, format: int32, minimum: 1, description: 'The message the caller has read up to, and including; one of the thread''s own messages, a deleted one included.' }
     ReactionRequest:
       type: object
       required: [emoji, reacted]

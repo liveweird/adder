@@ -191,6 +191,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     |---|---|---|---|---|
     | `GET /rooms/{id}`, `GET /rooms/{id}/workflow`, `GET /rooms/{id}/members` | 404 | 200 | 200 | 200 |
     | `PUT /rooms/{id}`, `PUT /rooms/{id}/workflow` (+ `X-Expected-Revision`), `POST /rooms/{id}/archive`, `POST /rooms/{id}/unarchive` | 404 | 403 | 204 | 204 |
+    | `POST /rooms/{id}/seen` (V19; the caller's own `seen_at`, `read-state` bucket, no room lock; any member, the OWNER too; an ADMIN outside the room has no read state) | 404 | 204 | 204 | 403 |
     | `POST /rooms/{id}/members` (200 `{added, alreadyMembers}`) | 404 | 403 | 200 | 200 |
     | `PUT /rooms/{id}/members/{userId}` (role), `DELETE /rooms/{id}/members/{userId}` of ANOTHER member | 404 | 403 | 204 | 204 |
     | `DELETE /rooms/{id}/members/{callerId}` (leave) | 404 | 204 | 204, or `409 last-owner` for the last one | 404 (not a member) |
@@ -231,6 +232,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     | `DELETE /rooms/{id}/messages/{messageId}`, someone else's message (the room OWNER or an ADMIN, D2) | 404 | 403 | 403 | 204 | 204 |
     | `PUT` or `DELETE` the caller's OWN message (while a member) | - | 204 | 204 | 204 | - |
     | `GET /rooms/{id}/pins` (0.6.0, a reader; unbucketed: at most 50 rows) | 404 | 200 | 200 | 200 | 200 |
+    | `PUT .../threads/{number}/read-marker` (V19; the caller's OWN marker, `read-state` bucket, no room lock; an ADMIN outside the room has no read state: 403 before the body, the thread and the message) | 404 | 204 | 204 | 204 | 403 |
+    | the same for an unknown thread, an unknown message, or a message of another thread or room (`404`) | 404 | 404 | 404 | 404 | 403 |
     | `PUT .../threads/{number}/pin`, `PUT /rooms/{id}/messages/{messageId}/pin` (any MEMBER pins and unpins, a closed thread included; `chat-write` bucket) | 404 | 204 | 204 | 204 | 403 |
     | `PUT /rooms/{id}/messages/{messageId}/reaction` (the caller's own reaction, any message of the room; V20) | 404 | 204 | 204 | 204 | 403 |
     | the same in a closed thread (`409 thread-closed`), or on an unknown, deleted or other room's message (`404`) | 404 | 409 / 404 | 409 / 404 | 409 / 404 | 403 |

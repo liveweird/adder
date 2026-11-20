@@ -54,6 +54,7 @@ ktor:
       - ch.nokillswit.threads.ThreadRoutesKt.configureThreadRoutes
       - ch.nokillswit.threads.MessageRoutesKt.configureMessageRoutes
       - ch.nokillswit.threads.ReactionRoutesKt.configureReactionRoutes
+      - ch.nokillswit.threads.ThreadReadRoutesKt.configureThreadReadRoutes
       # The room's pins (V21): the list and the two pin PUTs, after the message routes whose path family they extend.
       - ch.nokillswit.threads.PinRoutesKt.configurePinRoutes
       # Notices (V18): the caller's own notifications and the two "seen" writes, then the retention sweep (on ApplicationStarted, own scope;
