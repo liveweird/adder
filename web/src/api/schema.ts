@@ -1238,6 +1238,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/pins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a room's pinned threads and messages
+         * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`, then the parameters are checked: `400`).
+         *
+         *     A pin is of a whole thread (`kind` `THREAD`, `message` `null`) or of one message (`kind` `MESSAGE`, `message` the ordinary
+         *     message as `GET /rooms/{id}/messages/{messageId}` answers it). A room holds at most 50 pins, so one page of 50 is the whole set;
+         *     the answer is still the paged envelope. Every pin says who made it (`pinnedById`, `pinnedByName`: the name is read now) and when.
+         *     A thread's `threadTitle`, `threadStatus` (the status KEY) and `threadClosed` are as the thread reads now. A deleted message has
+         *     no pin: it leaves the list in the delete's own transaction.
+         *
+         *     - Sortable fields: `id`, `pinnedAt`. Default `-pinnedAt,-id` (the newest pin first; pins made in the same millisecond list the later one first). No filter.
+         */
+        get: operations["listRoomPins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pin or unpin a thread
+         * @description Any MEMBER of the room (a non-member is the uniform `404`; an `ADMIN` outside the room reads the pins but is `403` here, like
+         *     every other write of speech). Checked in this order: visibility (`404`), the member rule (`403`), the body (`400`), then under
+         *     the room lock the guard again on the fresh caller, the thread (`404`), an archived room (`409` of type
+         *     `urn:adder:problem:room-archived`), the state the thread already has (`204`, nothing written, no live hint, no audit line) and,
+         *     when pinning, the room's 51st pin (`409` of type `urn:adder:problem:pin-limit`; unpinning is never refused).
+         *
+         *     A closed thread CAN be pinned: a pin is the room's, and "pin the thread that explains what happened" is the use. A pin is not
+         *     activity: it moves no activity order and writes no history entry. A single-value set: the last writer wins.
+         *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+         */
+        put: operations["setThreadPin"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/messages/{messageId}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pin or unpin a message
+         * @description The same set as `setThreadPin`, for one message. Any MEMBER of the room; the order is visibility (`404`), the member rule
+         *     (`403`), the body (`400`), then under the room lock the guard again, the message (`404` when it is unknown, DELETED or of
+         *     another room), an archived room (`409` of type `urn:adder:problem:room-archived`), the state it already has (`204`, nothing
+         *     written) and the room's 51st pin (`409` of type `urn:adder:problem:pin-limit`). A message of a closed thread can be pinned.
+         *     A message and its thread can both be pinned. Deleting the message removes its pin.
+         *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+         */
+        put: operations["setMessagePin"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -1353,7 +1444,8 @@ export interface paths {
          *     **Events** (`event.kind`, `LiveEventKind`; the wire name equals the audit event of the write): `room.created`, `room.updated`,
          *     `room.archived`, `room.unarchived`, `room.deleted`, `room.member_added`, `room.member_role_changed`, `room.member_removed`,
          *     `room.workflow_updated`, `thread.created`, `thread.updated`, `thread.status_changed`, `thread.owner_changed` (these carry `threadNumber`
-         *     for the thread kinds), `message.posted`, `message.edited` and `message.deleted` (these carry `threadNumber` and `messageId`). An event says
+         *     for the thread kinds), `message.posted`, `message.edited` and `message.deleted` (these carry `threadNumber` and `messageId`) and
+         *     `room.pin_changed` (a pin or unpin; it carries `threadNumber`, and `messageId` for a message pin). An event says
          *     THAT something changed, never what: it carries ids only, and the client refetches through the ordinary REST reads, so authorization stays
          *     where it is. **Delivery semantics:** a socket receives the events of the rooms it is subscribed to, in commit order per room, plus the events about
          *     the person itself on every socket it has, subscribed or not (`room.created` for the creator; `room.member_added` and
@@ -1528,7 +1620,7 @@ export interface components {
          * @description What changed; the wire name equals the audit event of the write (the catalog is in the `connectLive` description).
          * @enum {string}
          */
-        LiveEventKind: "room.created" | "room.updated" | "room.archived" | "room.unarchived" | "room.deleted" | "room.member_added" | "room.member_role_changed" | "room.member_removed" | "room.workflow_updated" | "thread.created" | "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "message.posted" | "message.edited" | "message.deleted";
+        LiveEventKind: "room.created" | "room.updated" | "room.archived" | "room.unarchived" | "room.deleted" | "room.member_added" | "room.member_role_changed" | "room.member_removed" | "room.workflow_updated" | "thread.created" | "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "message.posted" | "message.edited" | "message.deleted" | "room.pin_changed";
         /** @description The FIRST frame of a socket, within 2 seconds, exactly once. */
         LiveAuthFrame: {
             /**
@@ -2391,6 +2483,46 @@ export interface components {
              * Format: int64
              * @description The rows matching the filters, `id[lt]` included - so `total` greater than the items loaded means older messages exist.
              */
+            total: number;
+        };
+        PinRequest: {
+            /** @description Whether the thread or message is pinned after the call. */
+            pinned: boolean;
+        };
+        RoomPin: {
+            /** Format: int32 */
+            id: number;
+            /**
+             * @description What the pin points at.
+             * @enum {string}
+             */
+            kind: "THREAD" | "MESSAGE";
+            /**
+             * Format: int32
+             * @description The per-room number of the pinned thread, or of the pinned message's thread.
+             */
+            threadNumber: number;
+            threadTitle: string;
+            /** @description The thread's status KEY. */
+            threadStatus: string;
+            threadClosed: boolean;
+            /** @description The pinned message as it reads now; `null` for a thread pin. */
+            message: components["schemas"]["MessageResponse"] | null;
+            /** Format: int32 */
+            pinnedById: number;
+            /** @description Read now (a deleted account keeps its recorded name). */
+            pinnedByName: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            pinnedAt: number;
+        };
+        RoomPinPage: {
+            items: components["schemas"]["RoomPin"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
             total: number;
         };
         TelemetryCurrent: {
@@ -4689,6 +4821,115 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listRoomPins: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of pins */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomPinPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setThreadPin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinRequest"];
+            };
+        };
+        responses: {
+            /** @description Pinned or unpinned, or already so */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setMessagePin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinRequest"];
+            };
+        };
+        responses: {
+            /** @description Pinned or unpinned, or already so */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };

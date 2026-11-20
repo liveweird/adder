@@ -194,6 +194,7 @@ One WebSocket per tab, opened by `useLiveUpdates` (`hooks/useLiveUpdates.ts`) in
 | `message.posted` | messages R/N, thread detail R/N, threads list R, rail |
 | `message.edited` | messages R/N, threads list R (an edit can add or drop a hashtag) |
 | `message.deleted` | messages R/N, thread detail R/N, threads list R |
+| `room.pin_changed` | room detail R (until a page shows pins) |
 | `room.created` | rail, rooms list |
 | `room.updated`, `archived`, `unarchived` | room detail R, rail, rooms list |
 | `room.workflow_updated` | workflow R, workflow-edit R, threads list R, `["rooms","threads",R,"detail"]`, `["rooms","threads",R,"events"]` |

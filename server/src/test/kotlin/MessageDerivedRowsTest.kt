@@ -166,7 +166,11 @@ class MessageDerivedRowsTest {
      * Tables whose rows this test arranges for the message it deletes. A table the catalog lists that is not here has no proof it was ever
      * populated, so the test fails until the line that gives a message a row in it is added.
      */
-    private val arrangedByTheBody = setOf("message_tags", "message_mentions") // the body's `#derived-row` and its mention of the owner
+    private val arrangedByTheBody = setOf(
+        "message_tags", // the body's `#derived-row`
+        "message_mentions", // its mention of the owner
+        "room_pins", // the pin the test puts on the message
+    )
 
     @Test
     fun `a deleted message keeps no row in any table that references messages`() = runBlocking {
@@ -174,6 +178,7 @@ class MessageDerivedRowsTest {
         val seeded = TestThreads.seed(w.room, w.owner)
         val body = MessageRequest("Derived #derived-row <@${w.owner}>")
         val id = TestThreads.messages.post(w.room, seeded.number, w.caller, body).message.id
+        TestThreads.pins.setMessagePin(w.room, id, w.caller, true)
         val tables = referencingTables()
         val unknown = tables.keys - arrangedByTheBody
         assertTrue(unknown.isEmpty(), "$unknown reference messages: arrange a row for each here, so the delete below is proven to clear it")

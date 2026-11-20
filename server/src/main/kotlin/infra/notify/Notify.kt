@@ -41,6 +41,7 @@ enum class LiveKind {
     @SerialName("message.posted") MESSAGE_POSTED,
     @SerialName("message.edited") MESSAGE_EDITED,
     @SerialName("message.deleted") MESSAGE_DELETED,
+    @SerialName("room.pin_changed") ROOM_PIN_CHANGED,
 }
 
 /**

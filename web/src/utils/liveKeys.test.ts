@@ -59,6 +59,10 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame(event("message.deleted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"]]);
   });
 
+  test("room.pin_changed re-reads the room's detail until a page shows pins", () => {
+    expect(keysForFrame(event("room.pin_changed", 5, 7, 99))).toEqual([["rooms", "detail", 5]]);
+  });
+
   test("room.created re-reads the rail and the rooms list", () => {
     expect(keysForFrame(event("room.created", 5))).toEqual([RAIL, LIST]);
   });

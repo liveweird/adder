@@ -49,6 +49,9 @@ function eventKeys(kind: LiveEventKind, r: number, n: number | undefined): Query
     case "room.deleted":
       // The one hint besides `revoked` that names the room's search results: the room is gone, so are its hits.
       return [...roomGone(r), roomKeys.search(r)];
+    case "room.pin_changed":
+      // No page shows pins yet: the pinned panel adds its own key here with the panel. The room's detail is the nearest read until then.
+      return [detail(r)];
     case "room.workflow_updated":
       return [workflow(r), workflowEdit(r), threadList(r), roomKeys.threadDetails(r), roomKeys.threadHistories(r)];
     case "room.member_added":

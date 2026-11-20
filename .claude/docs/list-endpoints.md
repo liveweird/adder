@@ -54,6 +54,8 @@ pattern with the first filterable list that needs them.
 
 **Search** is the second `q` consumer: `GET /rooms/{id}/search?q=` and `GET /search?q=` (`q` REQUIRED, hits are THREADS in the envelope, `SearchPageSize` at most 20; `chat-model.md`).
 
+**Pins** are the paged sub-collection with the smallest bound: `GET /rooms/{id}/pins` (`RoomPinPage`, sortable `id` and `pinnedAt`, default `-pinnedAt,-id`, no filter); a room holds at most 50, so one page of 50 is the whole set and it still answers the envelope.
+
 **Keyset inside the envelope:** `GET .../messages?id[lt]=` (the first bracket filter; `optionalUInt`; default `-id`): `total` counts AFTER it, so `total > items.length` means older rows exist.
 
 A room's members, threads and a thread's history are the paged sub-collections (whitelists, filters, caps): `chat-model.md` "Paged lists of a room". The thread list also sorts by `status` (workflow order) and filters by repeated `status`, `ownerId`, `field=key:value` and `tag`; the room's tags are a paged list too (`GET /rooms/{id}/tags`).

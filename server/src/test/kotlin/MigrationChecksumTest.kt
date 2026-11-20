@@ -38,6 +38,7 @@ class MigrationChecksumTest {
         "V15__create_message_tags.sql" to -717285948,
         "V16__create_search.sql" to 1149414218,
         "V17__create_message_mentions.sql" to -1206880786,
+        "V21__create_room_pins.sql" to 311388058,
     )
 
     @Test

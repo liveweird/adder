@@ -9,6 +9,8 @@ import ch.nokillswit.threads.MessageMentionService
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.MessageTagService
+import ch.nokillswit.threads.PinCleanup
+import ch.nokillswit.threads.PinService
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadService
@@ -42,8 +44,9 @@ object TestThreads {
     private val members: RoomMemberService by lazy { RoomMemberService(sharedDatabaseForTests(), TeamService(sharedDatabaseForTests())) }
     val messages: MessageService by lazy {
         val database = sharedDatabaseForTests()
-        MessageService(database, TestRooms.service, MessageTagService(database), MessageMentionService(members))
+        MessageService(database, TestRooms.service, MessageTagService(database), MessageMentionService(members), listOf(PinCleanup()))
     }
+    val pins: PinService by lazy { PinService(sharedDatabaseForTests(), messages) }
     val service: ThreadService by lazy {
         ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, messages)
     }

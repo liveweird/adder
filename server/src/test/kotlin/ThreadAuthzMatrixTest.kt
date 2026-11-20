@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.threads.MessageRequest
+import ch.nokillswit.threads.PinRequest
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadStatusRequest
@@ -160,6 +161,26 @@ class ThreadAuthzMatrixTest {
         // Only members speak, so the ADMIN outside the room is refused (403) before the thread is looked up.
         Operation("POST unknown thread message", notFound, notFound, notFound, notFound, forbidden) { client, base, _ ->
             client.postJson("$base/threads/99/messages", MessageRequest("Hello"))
+        },
+        // Pins: any reader lists them; any MEMBER pins (no steward rule), an ADMIN outside the room is 403 before any lookup.
+        Operation("GET pins", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/pins") },
+        Operation("PUT thread pin", notFound, noContent, noContent, noContent, forbidden) { client, base, _ ->
+            client.putJson("$base/threads/1/pin", PinRequest(true))
+        },
+        Operation("PUT message pin", notFound, noContent, noContent, noContent, forbidden) { client, base, cast ->
+            client.putJson("$base/messages/${cast.other}/pin", PinRequest(true))
+        },
+        Operation("PUT pin of a CLOSED thread", notFound, noContent, noContent, noContent, forbidden, ::closeThread) { client, base, _ ->
+            client.putJson("$base/threads/1/pin", PinRequest(true))
+        },
+        Operation("PUT unknown thread pin", notFound, notFound, notFound, notFound, forbidden) { client, base, _ ->
+            client.putJson("$base/threads/99/pin", PinRequest(true))
+        },
+        Operation("PUT unknown message pin", notFound, notFound, notFound, notFound, forbidden) { client, base, _ ->
+            client.putJson("$base/messages/999999/pin", PinRequest(true))
+        },
+        Operation("PUT another room's message pin", notFound, notFound, notFound, notFound, forbidden) { client, base, cast ->
+            client.putJson("$base/messages/${cast.foreign}/pin", PinRequest(true))
         },
         // An unknown number is 404 for every caller who may read the room.
         Operation("GET unknown thread", notFound, notFound, notFound, notFound, notFound) { client, base, _ ->

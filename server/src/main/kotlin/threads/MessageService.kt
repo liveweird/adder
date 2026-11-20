@@ -143,6 +143,23 @@ class MessageService internal constructor(
         )
 
     /**
+     * The live messages [ids] of room [roomId] as they read now, by id, inside the CALLER's transaction (a pin listing reads them beside
+     * its own rows); an id that is unknown, deleted or of another room is simply absent. One query for the lot, plus the mentions' read.
+     */
+    internal suspend fun readInTransaction(roomId: UInt, ids: Collection<UInt>): Map<UInt, MessageResponse> {
+        if (ids.isEmpty()) return emptyMap()
+        val threads = ThreadService.Threads
+        val rows = Messages.innerJoin(threads).selectAll()
+            .where { (Messages.id inList ids.toSet()) and (threads.roomId eq roomId) and Messages.active() }.toList()
+        val names = userNames(rows.map { it[Messages.authorId].value })
+        val mentioned = mentionsOf(rows)
+        return rows.associate {
+            it[Messages.id].value to
+                it.toResponse(it[threads.number], names.getValue(it[Messages.authorId].value), mentioned[it[Messages.id].value].orEmpty())
+        }
+    }
+
+    /**
      * The author of message [messageId] of room [roomId] read WITHOUT a lock, or null when it is unknown, deleted or in another room: the
      * `403` pre-check of the edit and delete guards (a missing message is `404` there) that the write repeats under the room lock.
      */

@@ -207,6 +207,32 @@ class ThreadSchemaTest {
         }
     }
 
+    @Test
+    fun `room pins are unique per thread and per message, a thread and its message may both be pinned, and the rows cascade`() {
+        withThread("pins") { c, user, thread ->
+            val room = c.scalar("SELECT room_id FROM threads WHERE id = ?", thread)
+            val first = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "one", false, null)
+            val second = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "two", false, null)
+            val insertPin = "INSERT INTO room_pins (room_id, thread_id, message_id, pinned_by, pinned_at) VALUES (?, ?, ?, ?, 1)"
+
+            assertEquals(1, c.exec(insertPin, room, thread, null, user), "the thread pin")
+            assertEquals(1, c.exec(insertPin, room, thread, first, user), "a message of the same thread, pinned too")
+            assertEquals(1, c.exec(insertPin, room, thread, second, user))
+            assertState(UNIQUE_VIOLATION, "a thread is pinned once") { c.exec(insertPin, room, thread, null, user) }
+            assertState(UNIQUE_VIOLATION, "a message is pinned once") { c.exec(insertPin, room, thread, first, user) }
+            assertState(FK_VIOLATION, "a pin needs its message") { c.exec(insertPin, room, thread, Int.MAX_VALUE, user) }
+            assertState(FK_VIOLATION, "a pin needs its thread") { c.exec(insertPin, room, Int.MAX_VALUE, null, user) }
+            val third = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "three", false, null)
+            assertState(FK_VIOLATION, "a pin needs the person who made it") { c.exec(insertPin, room, thread, third, Long.MAX_VALUE) }
+
+            assertEquals(1, c.exec("DELETE FROM messages WHERE id = ?", second))
+            assertEquals(0, c.scalar("SELECT count(*) FROM room_pins WHERE message_id = ?", second), "a message's pin goes with it")
+            assertEquals(2, c.scalar("SELECT count(*) FROM room_pins WHERE room_id = ?", room))
+            assertEquals(1, c.exec("DELETE FROM rooms WHERE id = ?", room))
+            assertEquals(0, c.scalar("SELECT count(*) FROM room_pins WHERE room_id = ?", room), "a room's hard delete takes its pins")
+        }
+    }
+
     private fun Connection.text(sql: String, vararg args: Any?): String? = prepareStatement(sql).use { st ->
         args.forEachIndexed { index, arg -> st.setObject(index + 1, arg) }
         st.executeQuery().use { rs ->

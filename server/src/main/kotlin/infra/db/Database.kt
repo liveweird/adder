@@ -21,6 +21,9 @@ import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.MessageServiceKey
 import ch.nokillswit.threads.MessageTagService
 import ch.nokillswit.threads.MessageTagServiceKey
+import ch.nokillswit.threads.PinCleanup
+import ch.nokillswit.threads.PinService
+import ch.nokillswit.threads.PinServiceKey
 import ch.nokillswit.threads.ReadLimiter
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadEventServiceKey
@@ -326,10 +329,12 @@ suspend fun Application.configureDatabase() {
     )
     val messageTagService = MessageTagService(database, readLimiter)
     attributes.put(MessageTagServiceKey, messageTagService)
-    // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it.
+    // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
+    // followers (V21: a deleted message loses its pin) run after it, inside the same write.
     val messageMentionService = MessageMentionService(roomMemberService)
-    val messageService = MessageService(database, roomService, messageTagService, messageMentionService)
+    val messageService = MessageService(database, roomService, messageTagService, messageMentionService, listOf(PinCleanup()))
     attributes.put(MessageServiceKey, messageService)
+    attributes.put(PinServiceKey, PinService(database, messageService))
     attributes.put(
         ThreadServiceKey,
         ThreadService(

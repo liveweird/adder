@@ -13,8 +13,8 @@ describe("the frame types are the generated ones", () => {
     expectTypeOf<Omit<Event, "kind">>().toEqualTypeOf<Omit<Schemas["LiveEventFrame"], "kind">>();
     // The one widening: a newer server's kind is still a frame.
     expectTypeOf<Event["kind"]>().toEqualTypeOf<string>();
-    expect(LIVE_EVENT_KINDS).toHaveLength(16);
-    expect(new Set(LIVE_EVENT_KINDS).size).toBe(16);
+    expect(LIVE_EVENT_KINDS).toHaveLength(17);
+    expect(new Set(LIVE_EVENT_KINDS).size).toBe(17);
   });
 });
 

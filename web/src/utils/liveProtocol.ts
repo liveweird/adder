@@ -4,7 +4,7 @@
 
 import type { components } from "../api/schema";
 
-/** The sixteen hint kinds; the wire name equals the audit name (`live.md` "Hints"). */
+/** The hint kinds; the wire name equals the audit name (`live.md` "Hints"). */
 export const LIVE_EVENT_KINDS = [
   "room.created",
   "room.updated",
@@ -22,6 +22,7 @@ export const LIVE_EVENT_KINDS = [
   "message.posted",
   "message.edited",
   "message.deleted",
+  "room.pin_changed",
 ] as const;
 
 export type LiveEventKind = (typeof LIVE_EVENT_KINDS)[number];

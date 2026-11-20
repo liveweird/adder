@@ -15,6 +15,7 @@ import ch.nokillswit.rooms.RoomWorkflowRequest
 import ch.nokillswit.rooms.RoomWorkflowResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
+import ch.nokillswit.threads.PinRequest
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadResponse
@@ -196,6 +197,36 @@ class NotifyHintsTest {
                     hint(LiveKind.MESSAGE_POSTED, room, thread = 1, message = message),
                     hint(LiveKind.MESSAGE_EDITED, room, thread = 1, message = message),
                     hint(LiveKind.MESSAGE_DELETED, room, thread = 1, message = message),
+                ),
+                hints,
+            )
+        }
+    }
+
+    @Test
+    fun `a pin and an unpin emit one hint each, with the thread number and, for a message, its id`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("hint-pown")
+        val member = actor("hint-pmem")
+        val room = room(owner, template())
+        TestRooms.addMember(room, member.id)
+        TestThreads.seed(room, member.id)
+        val message = TestThreads.post(room, 1, member.id, "Worth keeping")
+        NotifyCapture().use { capture ->
+            val hints = capture.during {
+                member.client.putJson("$rooms/$room/threads/1/pin", PinRequest(true)).expect(HttpStatusCode.NoContent)
+                member.client.putJson("$rooms/$room/messages/$message/pin", PinRequest(true)).expect(HttpStatusCode.NoContent)
+                member.client.putJson("$rooms/$room/messages/$message/pin", PinRequest(true)).expect(HttpStatusCode.NoContent) // again
+                owner.client.putJson("$rooms/$room/messages/$message/pin", PinRequest(false)).expect(HttpStatusCode.NoContent)
+                owner.client.putJson("$rooms/$room/threads/1/pin", PinRequest(false)).expect(HttpStatusCode.NoContent)
+                owner.client.putJson("$rooms/$room/threads/1/pin", PinRequest(false)).expect(HttpStatusCode.NoContent) // again
+            }
+            assertEquals(
+                listOf(
+                    hint(LiveKind.ROOM_PIN_CHANGED, room, thread = 1),
+                    hint(LiveKind.ROOM_PIN_CHANGED, room, thread = 1, message = message),
+                    hint(LiveKind.ROOM_PIN_CHANGED, room, thread = 1, message = message),
+                    hint(LiveKind.ROOM_PIN_CHANGED, room, thread = 1),
                 ),
                 hints,
             )

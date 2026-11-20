@@ -44,6 +44,11 @@ fun searchBusy(): TooManyRequestsException = TooManyRequestsException(
     retryAfterSeconds = SEARCH_BUSY_RETRY_AFTER_SECONDS,
 )
 
+const val PIN_LIMIT_PROBLEM_TYPE = "urn:adder:problem:pin-limit"
+
+/** The room already holds its [MAX_ROOM_PINS] pins: unpin something first (`chat-model.md` "Pins"). Unpinning is never refused. */
+fun pinLimit(): ConflictException = ConflictException("The room already has $MAX_ROOM_PINS pins", problemType = PIN_LIMIT_PROBLEM_TYPE)
+
 const val READ_TIMEOUT_PROBLEM_TYPE = "urn:adder:problem:read-timeout"
 
 /** Seconds the `Retry-After` header of a [readTimeout] answer names: a list that was too slow is not helped by an instant retry. */

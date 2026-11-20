@@ -1826,6 +1826,107 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/pins:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [threads]
+      operationId: listRoomPins
+      summary: List a room's pinned threads and messages
+      description: |
+        A member of the room or an `ADMIN` (a non-member gets the uniform `404`, then the parameters are checked: `400`).
+
+        A pin is of a whole thread (`kind` `THREAD`, `message` `null`) or of one message (`kind` `MESSAGE`, `message` the ordinary
+        message as `GET /rooms/{id}/messages/{messageId}` answers it). A room holds at most 50 pins, so one page of 50 is the whole set;
+        the answer is still the paged envelope. Every pin says who made it (`pinnedById`, `pinnedByName`: the name is read now) and when.
+        A thread's `threadTitle`, `threadStatus` (the status KEY) and `threadClosed` are as the thread reads now. A deleted message has
+        no pin: it leaves the list in the delete's own transaction.
+
+        - Sortable fields: `id`, `pinnedAt`. Default `-pinnedAt,-id` (the newest pin first; pins made in the same millisecond list the later one first). No filter.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: A page of pins
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomPinPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/threads/{number}/pin:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/ThreadNumberPath'
+    put:
+      tags: [threads]
+      operationId: setThreadPin
+      summary: Pin or unpin a thread
+      description: |
+        Any MEMBER of the room (a non-member is the uniform `404`; an `ADMIN` outside the room reads the pins but is `403` here, like
+        every other write of speech). Checked in this order: visibility (`404`), the member rule (`403`), the body (`400`), then under
+        the room lock the guard again on the fresh caller, the thread (`404`), an archived room (`409` of type
+        `urn:adder:problem:room-archived`), the state the thread already has (`204`, nothing written, no live hint, no audit line) and,
+        when pinning, the room's 51st pin (`409` of type `urn:adder:problem:pin-limit`; unpinning is never refused).
+
+        A closed thread CAN be pinned: a pin is the room's, and "pin the thread that explains what happened" is the use. A pin is not
+        activity: it moves no activity order and writes no history entry. A single-value set: the last writer wins.
+        Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinRequest'
+      responses:
+        '204':
+          description: Pinned or unpinned, or already so
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/messages/{messageId}/pin:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/MessageIdPath'
+    put:
+      tags: [messages]
+      operationId: setMessagePin
+      summary: Pin or unpin a message
+      description: |
+        The same set as `setThreadPin`, for one message. Any MEMBER of the room; the order is visibility (`404`), the member rule
+        (`403`), the body (`400`), then under the room lock the guard again, the message (`404` when it is unknown, DELETED or of
+        another room), an archived room (`409` of type `urn:adder:problem:room-archived`), the state it already has (`204`, nothing
+        written) and the room's 51st pin (`409` of type `urn:adder:problem:pin-limit`). A message of a closed thread can be pinned.
+        A message and its thread can both be pinned. Deleting the message removes its pin.
+        Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinRequest'
+      responses:
+        '204':
+          description: Pinned or unpinned, or already so
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/search:
     get:
       tags: [threads]
@@ -1943,7 +2044,8 @@ paths:
         **Events** (`event.kind`, `LiveEventKind`; the wire name equals the audit event of the write): `room.created`, `room.updated`,
         `room.archived`, `room.unarchived`, `room.deleted`, `room.member_added`, `room.member_role_changed`, `room.member_removed`,
         `room.workflow_updated`, `thread.created`, `thread.updated`, `thread.status_changed`, `thread.owner_changed` (these carry `threadNumber`
-        for the thread kinds), `message.posted`, `message.edited` and `message.deleted` (these carry `threadNumber` and `messageId`). An event says
+        for the thread kinds), `message.posted`, `message.edited` and `message.deleted` (these carry `threadNumber` and `messageId`) and
+        `room.pin_changed` (a pin or unpin; it carries `threadNumber`, and `messageId` for a message pin). An event says
         THAT something changed, never what: it carries ids only, and the client refetches through the ordinary REST reads, so authorization stays
         where it is. **Delivery semantics:** a socket receives the events of the rooms it is subscribed to, in commit order per room, plus the events about
         the person itself on every socket it has, subscribed or not (`room.created` for the creator; `room.member_added` and
@@ -2453,6 +2555,7 @@ components:
         - message.posted
         - message.edited
         - message.deleted
+        - room.pin_changed
     LiveAuthFrame:
       type: object
       required: [type, ticket]
@@ -3453,6 +3556,40 @@ components:
           format: int64
           minimum: 0
           description: The rows matching the filters, `id[lt]` included - so `total` greater than the items loaded means older messages exist.
+    PinRequest:
+      type: object
+      required: [pinned]
+      properties:
+        pinned: { type: boolean, description: 'Whether the thread or message is pinned after the call.' }
+    RoomPin:
+      type: object
+      required: [id, kind, threadNumber, threadTitle, threadStatus, threadClosed, message, pinnedById, pinnedByName, pinnedAt]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        kind: { type: string, enum: [THREAD, MESSAGE], description: What the pin points at. }
+        threadNumber: { type: integer, format: int32, minimum: 1, description: 'The per-room number of the pinned thread, or of the pinned message''s thread.' }
+        threadTitle: { type: string }
+        threadStatus: { type: string, description: The thread's status KEY. }
+        threadClosed: { type: boolean }
+        message:
+          allOf:
+            - $ref: '#/components/schemas/MessageResponse'
+          nullable: true
+          description: The pinned message as it reads now; `null` for a thread pin.
+        pinnedById: { type: integer, format: int32, minimum: 1 }
+        pinnedByName: { type: string, description: Read now (a deleted account keeps its recorded name). }
+        pinnedAt: { type: integer, format: int64, description: Epoch millis }
+    RoomPinPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoomPin'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, format: int64, minimum: 0 }
     TelemetryCurrent:
       type: object
       required: [generatedAt, sampleIntervalSeconds, processes, storage, notifyQueue, requests]

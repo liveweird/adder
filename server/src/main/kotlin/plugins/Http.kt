@@ -31,7 +31,7 @@ const val MAX_REQUEST_BODY_BYTES: Long = 512L * 1024
 /**
  * The tight ceiling of the routes whose bodies are a handful of short fields: the anonymous auth routes (an unauthenticated caller can
  * reach them, so they must not buffer half a megabyte per request), the room member add (up to 200 ids, ~2 KiB) and the thread status
- * and owner PUTs (one status key or one user id). Same 413.
+ * and owner PUTs (one status key or one user id) and the thread and message pin PUTs (one boolean). Same 413.
  */
 const val MAX_SMALL_REQUEST_BODY_BYTES: Long = 16L * 1024
 
@@ -69,6 +69,7 @@ private val ROOM_MEMBERS_PATH = Regex("^/api/v1/rooms/[0-9]+/members$")
 private val THREAD_STATUS_OR_OWNER_PATH = Regex("^/api/v1/rooms/[0-9]+/threads/[0-9]+/(status|owner)$")
 private val THREAD_CREATE_PATH = Regex("^/api/v1/rooms/[0-9]+/threads$")
 private val THREAD_DETAILS_PATH = Regex("^/api/v1/rooms/[0-9]+/threads/[0-9]+$")
+private val PIN_PATH = Regex("^/api/v1/rooms/[0-9]+/(threads|messages)/[0-9]+/pin$")
 private val MESSAGE_POST_PATH = Regex("^/api/v1/rooms/[0-9]+/threads/[0-9]+/messages$")
 private val MESSAGE_EDIT_PATH = Regex("^/api/v1/rooms/[0-9]+/messages/[0-9]+$")
 
@@ -85,7 +86,7 @@ internal fun routedPath(rawPath: String): String = try {
 }
 
 /**
- * The body ceiling of this call: [MAX_SMALL_REQUEST_BODY_BYTES] for the small-body POSTs and the status and owner PUTs,
+ * The body ceiling of this call: [MAX_SMALL_REQUEST_BODY_BYTES] for the small-body POSTs and the status, owner and pin PUTs,
  * [MAX_MESSAGE_REQUEST_BODY_BYTES] for a message write, [MAX_THREAD_REQUEST_BODY_BYTES] for a thread create or details write, else
  * [MAX_REQUEST_BODY_BYTES]. Matched against the [routedPath], so an encoded spelling of the same route gets the same ceiling.
  */
@@ -98,6 +99,7 @@ internal fun requestBodyLimit(call: ApplicationCall): Long {
         method == HttpMethod.Get && path == LIVE_SOCKET_PATH -> Long.MAX_VALUE
         method == HttpMethod.Post && (path in SMALL_BODY_PATHS || ROOM_MEMBERS_PATH.matches(path)) -> MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Put && THREAD_STATUS_OR_OWNER_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
+        method == HttpMethod.Put && PIN_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Post && MESSAGE_POST_PATH.matches(path) -> MAX_MESSAGE_REQUEST_BODY_BYTES
         method == HttpMethod.Put && MESSAGE_EDIT_PATH.matches(path) -> MAX_MESSAGE_REQUEST_BODY_BYTES
         method == HttpMethod.Post && THREAD_CREATE_PATH.matches(path) -> MAX_THREAD_REQUEST_BODY_BYTES
