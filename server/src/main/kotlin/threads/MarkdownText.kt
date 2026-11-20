@@ -1,6 +1,6 @@
 package ch.nokillswit.threads
 
-// The Markdown pre-pass shared by the body parsers (hashtags today, mentions next): the text of a message body OUTSIDE the regions a token
+// The Markdown pre-pass shared by the body parsers (hashtags and mentions): the text of a message body OUTSIDE the regions a token
 // must not be read from. PURE (no database, no Ktor), and every pass is linear in the body: no nested quantifier, no unbounded
 // backtracking, and the one bounded scan is a link destination. The SPA's parsers read the Markdown tree instead; the shared case tables
 // pin the two sides together.

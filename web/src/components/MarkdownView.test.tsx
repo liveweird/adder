@@ -231,6 +231,27 @@ describe("MarkdownView (message): mentions", () => {
     expect(screen.getByText("<@9>").tagName).toBe("CODE");
   });
 
+  // Known disagreement (web-internals.md "Mentions in messages"): the server's pre-pass does not blank an indented code block, a raw HTML
+  // block or an image's alt text, so it lists the id even here; the SPA skips those nodes. What the reader sees is the raw token, no name.
+  test("a listed id in indented code, a raw HTML block or image alt text stays raw, no name", () => {
+    const { unmount } = renderView("para\n\n    <@5> indented\n\nafter", "message", undefined, people);
+    expect(screen.getByText(/<@5> indented/).closest("pre")).not.toBeNull();
+    expect(document.querySelector("[data-mention]")).toBeNull();
+    expect(screen.queryByText("@Ada Lovelace")).toBeNull();
+    unmount();
+
+    renderView("<div><@5> in html</div>\n\nafter", "message", undefined, people);
+    expect(document.querySelector("[data-mention]")).toBeNull();
+    expect(screen.queryByText("@Ada Lovelace")).toBeNull();
+    expect(document.body.textContent).not.toContain("Ada Lovelace");
+    cleanup();
+
+    renderView("![alt <@5>](https://example.com/a.png)", "message", undefined, people);
+    expect(document.querySelector("[data-mention]")).toBeNull();
+    expect(document.body.textContent).not.toContain("Ada Lovelace");
+    expect(screen.getByRole("link", { name: "alt <@5>" })).toHaveAttribute("href", "https://example.com/a.png"); // an image is its alt, as a link
+  });
+
   test("a mention beside a hashtag link: both are read", () => {
     renderView("#outage <@9>", "message", tagHref, people);
     expect(screen.getByRole("link", { name: "#outage" })).toHaveAttribute("href", tagHref("outage"));

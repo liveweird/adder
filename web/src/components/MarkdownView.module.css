@@ -20,8 +20,10 @@
 }
 
 /* A mention of a person in a message body: their name, set apart by a soft tint (not colour alone: the name carries the "@"). The reader's own
-   mention is heavier and underlined, a shape the tint does not have to carry. */
+   mention is heavier and underlined, a shape the tint does not have to carry. `unicode-bidi: isolate` keeps a right-to-left name from
+   reordering the neutral characters around it (the "@", the punctuation after it). */
 .mention {
+  unicode-bidi: isolate;
   background: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5));
   border-radius: var(--mantine-radius-sm);
   padding-inline: 0.25em;

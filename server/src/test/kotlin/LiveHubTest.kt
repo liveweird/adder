@@ -448,15 +448,33 @@ class LiveHubTest {
 
     @Test
     fun `every kind has an audience`() {
-        // The hub follows `audience()`: a kind not named here is for the room's subscribers alone.
-        val named = mapOf(
+        // The audience of EVERY kind, written out: the hub's `else` branch answers SUBSCRIBERS for any kind, so a table that
+        // defaulted would never fail. A new kind must be added here, with the audience it is meant for (`room.deleted` and
+        // `room.member_removed` also have their own hub branches; their entry here is the default `audience()` answers).
+        val table = mapOf(
             LiveKind.ROOM_CREATED to Audience.TARGETS,
-            LiveKind.NOTIFICATION_CREATED to Audience.TARGETS,
+            LiveKind.ROOM_UPDATED to Audience.SUBSCRIBERS,
+            LiveKind.ROOM_ARCHIVED to Audience.SUBSCRIBERS,
+            LiveKind.ROOM_UNARCHIVED to Audience.SUBSCRIBERS,
+            LiveKind.ROOM_DELETED to Audience.SUBSCRIBERS,
             LiveKind.ROOM_MEMBER_ADDED to Audience.SUBSCRIBERS_AND_TARGETS,
             LiveKind.ROOM_MEMBER_ROLE_CHANGED to Audience.SUBSCRIBERS_AND_TARGETS,
+            LiveKind.ROOM_MEMBER_REMOVED to Audience.SUBSCRIBERS,
+            LiveKind.ROOM_WORKFLOW_UPDATED to Audience.SUBSCRIBERS,
+            LiveKind.THREAD_CREATED to Audience.SUBSCRIBERS,
+            LiveKind.THREAD_UPDATED to Audience.SUBSCRIBERS,
+            LiveKind.THREAD_STATUS_CHANGED to Audience.SUBSCRIBERS,
+            LiveKind.THREAD_OWNER_CHANGED to Audience.SUBSCRIBERS,
+            LiveKind.MESSAGE_POSTED to Audience.SUBSCRIBERS,
+            LiveKind.MESSAGE_EDITED to Audience.SUBSCRIBERS,
+            LiveKind.MESSAGE_DELETED to Audience.SUBSCRIBERS,
+            LiveKind.MESSAGE_REACTION_CHANGED to Audience.SUBSCRIBERS,
+            LiveKind.ROOM_PIN_CHANGED to Audience.SUBSCRIBERS,
+            LiveKind.NOTIFICATION_CREATED to Audience.TARGETS,
         )
-        LiveKind.entries.forEach { assertEquals(named[it] ?: Audience.SUBSCRIBERS, it.audience(), "$it") }
-        assertEquals(Audience.entries.toSet(), LiveKind.entries.map { it.audience() }.toSet(), "every class is used by some kind")
+        assertEquals(LiveKind.entries.toSet(), table.keys, "a kind missing from the table (or one that no longer exists)")
+        table.forEach { (kind, audience) -> assertEquals(audience, kind.audience(), "$kind") }
+        assertEquals(Audience.entries.toSet(), table.values.toSet(), "every class is used by some kind")
     }
 
     @Test

@@ -171,6 +171,13 @@
   ]
  },
  {
+  "name": "an escaped backslash before a token still reads as a backslash: the server answers no mention (Markdown would show one)",
+  "body": "\\\\<@5> and <@6>",
+  "ids": [
+   6
+  ]
+ },
+ {
   "name": "a backslash earlier in the text does not matter",
   "body": "a\\b <@40>",
   "ids": [

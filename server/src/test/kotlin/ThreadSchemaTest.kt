@@ -197,6 +197,10 @@ class ThreadSchemaTest {
                 val rowsOfSecond = c.scalar("SELECT count(*) FROM message_mentions WHERE message_id = ?", second)
                 assertEquals(0, rowsOfSecond, "a message's rows go with it")
                 assertEquals(2, c.scalar("SELECT count(*) FROM message_mentions WHERE room_id = ?", room))
+                // The migration header claims the users cascade too: a hard-deleted user takes their own mention rows and no one else's.
+                assertEquals(1, c.exec("DELETE FROM users WHERE id = ?", other))
+                assertEquals(0, c.scalar("SELECT count(*) FROM message_mentions WHERE user_id = ?", other), "a user's rows go with them")
+                assertEquals(1, c.scalar("SELECT count(*) FROM message_mentions WHERE room_id = ?", room), "the other person's row stays")
                 // The room's hard delete (the test purge) cascades through the thread and the message into the mentions.
                 assertEquals(1, c.exec("DELETE FROM rooms WHERE id = ?", room))
                 assertEquals(0, c.scalar("SELECT count(*) FROM message_mentions WHERE room_id = ?", room))
