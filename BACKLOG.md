@@ -56,7 +56,6 @@ The record, with evidence and the proposed fix per id: `.claude/docs/audit-statu
 
 - [new] **Deferred refactors (C-CPX-1).** Donor-sized machinery (`MultiRowInsert.kt`, the 400-line `server/build.gradle.kts` block, `AuthRoutes.kt` login, `NotificationDigest.kt` on the 400-line cap).
 - [new] **A per-(actor, recipient) digest limit.** The V24 budget caps how many distinct people one actor can make email-eligible per day, not how often an admitted recipient is mailed (one digest per 15 minutes while notices keep coming; the remedy today is the per-kind email switch). Add a pair limit if that proves insufficient.
-- [new] **The seed admin's live-ticket bucket in a full e2e run.** The ~57 seed-admin sign-ins across the specs exceed 60 mints a minute at 4 workers (a `rate_limit.exceeded bucket=live-ticket` in the server log, no test failed), and each page load mints twice. Find why a load mints two tickets, and move more specs to throwaway users.
 
 ## Foundation follow-ups
 
