@@ -143,5 +143,6 @@ The can-follow tier and the decisions, on `fix/1.0.0-followups` (2026-11-20):
 | C-UI-1 | `e6e47dc` | one blue unread cue; gray as the badge default |
 | C-SEC-4 (manifest half) | `b15e01e` | an ingress-nginx Ingress as the only front door, verified live on OrbStack |
 | progressive lockout; C-SEC-9 item 6 follow-up | `8cb7eaf` | wrong-code locks double to 24 h (wrong passwords stay flat), a 24 h code counter, one-step decay; a confirmed reset lifts it |
+| C-TEST-3 (rest) | `e14c591` | a populated v0.6.0 database upgraded to latest: rows, columns, the V23 scrub and the app's reads |
 
-Still open: C-CPX-1 (deferred) and the populated-upgrade migration test (C-TEST-3), plus the follow-ups the fixes surfaced; `BACKLOG.md` "1.0.0 checkup".
+Still open: C-CPX-1 (deferred), plus the follow-ups the fixes surfaced; `BACKLOG.md` "1.0.0 checkup".

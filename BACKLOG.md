@@ -55,11 +55,8 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 The record, with evidence and the proposed fix per id: `.claude/docs/audit-status.md` "1.0.0 checkup". The fix-before-1.0.0 tier, the can-follow tier and every decision are done ("Fixed so far" there); what is left below can follow the tag.
 
 - [new] **Deferred refactors (C-CPX-1).** Donor-sized machinery (`MultiRowInsert.kt`, the 400-line `server/build.gradle.kts` block, `AuthRoutes.kt` login, `NotificationDigest.kt` on the 400-line cap).
-- [new] **A populated-upgrade migration test (C-TEST-3, the part left).** Migrate a database holding rows of every chat table from the previous release's schema, not only an empty one.
 - [new] **A per-(actor, recipient) digest limit.** The V24 budget caps how many distinct people one actor can make email-eligible per day, not how often an admitted recipient is mailed (one digest per 15 minutes while notices keep coming; the remedy today is the per-kind email switch). Add a pair limit if that proves insufficient.
-- [new] **Friendly 429 text on room writes.** A rate-limited workflow save reads "Save failed (429)" and archive/unarchive the generic action error; the room-name 429 behaves the same. Give the `chat-write` refusals their own message.
 - [new] **The seed admin's live-ticket bucket in a full e2e run.** The ~57 seed-admin sign-ins across the specs exceed 60 mints a minute at 4 workers (a `rate_limit.exceeded bucket=live-ticket` in the server log, no test failed), and each page load mints twice. Find why a load mints two tickets, and move more specs to throwaway users.
-- [new] **`testing.md` says backend tests live flat,** but `server/src/test/kotlin/auth/` holds several (`LoginThrottleTest`, `PasswordsTest` and, with the 1.0.0 lockout, `LoginThrottleProgressiveTest`). Align the doc or the directory.
 
 ## Foundation follow-ups
 
