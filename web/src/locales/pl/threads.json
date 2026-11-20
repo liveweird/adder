@@ -226,5 +226,19 @@
     "statusReplaced": "Status {{from}} przestał istnieć; wątek trafił do statusu {{to}}",
     "ownerChanged": "Przekazał/a wątek: {{from}} → {{to}}",
     "fieldChanged": "Zmienił/a pole {{field}}"
+  },
+  "pin": {
+    "thread": "Przypnij ten wątek",
+    "pin": "Przypnij",
+    "unpin": "Odepnij",
+    "mark": "Przypięty",
+    "error": {
+      "forbidden": "Przypinać i odpinać mogą tylko członkowie/członkinie pokoju.",
+      "gone": "Ten wątek lub ta wiadomość już nie istnieje albo nie masz już dostępu do jej pokoju — odśwież stronę",
+      "archived": "Ten pokój został w międzyczasie zarchiwizowany, więc jego przypięć nie można już zmieniać.",
+      "limit": "Ten pokój ma już 50 przypięć. Najpierw odepnij któreś.",
+      "conflict": "Pokój zmienił się w międzyczasie. Odśwież stronę i spróbuj ponownie.",
+      "tooManyRequests": "Zmieniasz zbyt szybko. Odczekaj minutę i spróbuj ponownie."
+    }
   }
 }

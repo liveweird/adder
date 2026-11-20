@@ -7,12 +7,12 @@ import type { LiveClock } from "./liveClient";
 import { roomKeys, searchAllKey } from "./roomKeys";
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
 
-const { rail: RAIL, list: ROOM_LIST, detail, members, workflow, workflowEdit, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
+const { rail: RAIL, list: ROOM_LIST, detail, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
 
 const isKnownKind = (kind: string): kind is LiveEventKind => (LIVE_EVENT_KINDS as readonly string[]).includes(kind);
 
 /** What a room's loss (or an unknown change to it) makes stale: everything the room's pages read, so each turns to its not-found or its new truth. */
-const roomGone = (r: number): QueryKey[] => [detail(r), threads(r), members(r), workflow(r), workflowEdit(r), RAIL, ROOM_LIST];
+const roomGone = (r: number): QueryKey[] => [detail(r), threads(r), members(r), workflow(r), workflowEdit(r), pins(r), RAIL, ROOM_LIST];
 
 type ThreadScopedKind = Extract<LiveEventKind, `thread.${string}` | `message.${string}`>;
 
@@ -33,8 +33,8 @@ function threadKeys(kind: ThreadScopedKind, r: number, n: number | undefined): Q
       // The conversation, and the list: an edit can add or drop a hashtag, which a tag filter would show or hide.
       return [messages(r, n), threadList(r)];
     default:
-      // message.deleted: the tombstone, the count on the thread and its row.
-      return [messages(r, n), threadDetail(r, n), threadList(r)];
+      // message.deleted: the tombstone, the count on the thread and its row, and the room's pins (a deleted message loses its pin).
+      return [messages(r, n), threadDetail(r, n), threadList(r), pins(r)];
   }
 }
 
@@ -50,8 +50,7 @@ function eventKeys(kind: LiveEventKind, r: number, n: number | undefined): Query
       // The one hint besides `revoked` that names the room's search results: the room is gone, so are its hits.
       return [...roomGone(r), roomKeys.search(r)];
     case "room.pin_changed":
-      // No page shows pins yet: the pinned panel adds its own key here with the panel. The room's detail is the nearest read until then.
-      return [detail(r)];
+      return [pins(r)];
     case "room.workflow_updated":
       return [workflow(r), workflowEdit(r), threadList(r), roomKeys.threadDetails(r), roomKeys.threadHistories(r)];
     case "room.member_added":

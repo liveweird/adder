@@ -167,5 +167,20 @@
       "removed": "Removed from the room",
       "left": "You left the room"
     }
+  },
+  "pins": {
+    "button": "Pinned ({{count}})",
+    "buttonNoCount": "Pinned",
+    "title": "Pinned in this room",
+    "loadFailed": "Could not load the pins",
+    "empty": "Nothing is pinned yet.",
+    "emptyHint": "Pin a thread or a message to keep it within reach of everyone in the room.",
+    "messageBy": "Message by {{author}}",
+    "inThread": "In {{thread}}",
+    "pinnedBy": "Pinned by {{name}} on {{when}}",
+    "open": "Open in thread",
+    "openAria": "Open in thread {{name}}",
+    "unpin": "Unpin",
+    "unpinAria": "Unpin {{name}}"
   }
 }

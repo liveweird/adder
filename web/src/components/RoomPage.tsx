@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Badge, Stack, Text } from "@mantine/core";
+import { Badge, Group, Stack, Text } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../api/http";
 import { getRoom, type RoomResponse } from "../api/rooms";
@@ -8,12 +8,13 @@ import { parseRoomId, roomsPath } from "../utils/roomLinks";
 import { loadErrorMessage } from "../utils/saveError";
 import EditPageLoadState from "./EditPageLoadState";
 import PageHeader from "./PageHeader";
+import PinnedPanel from "./PinnedPanel";
 import RoomTabs, { type RoomTabKey } from "./RoomTabs";
 import { roomKeys } from "../utils/roomKeys";
 
 /**
  * The frame every page of one room shares: the load triage (a missing room and one the caller may not read are the same 404),
- * the header (name, description, member count, an Archived badge) and the tabs. `children` renders the open page's body once
+ * the header (name, description, member count, an Archived badge, the "Pinned (n)" button that opens the pinned panel) and the tabs. `children` renders the open page's body once
  * the room has loaded. The room reads under `["rooms", "detail", id]`, so any `["rooms"]` refresh updates it.
  */
 export default function RoomPage({ idParam, tab, children }: { idParam: string | undefined; tab: RoomTabKey; children: (room: RoomResponse) => ReactNode }) {
@@ -53,7 +54,12 @@ export default function RoomPage({ idParam, tab, children }: { idParam: string |
           </>
         }
         backTo={{ to: roomsPath, label: t("rooms.backToRooms") }}
-        actions={room.archived && <Badge color="gray">{t("rooms.archivedBadge")}</Badge>}
+        actions={
+          <Group gap="xs">
+            {room.archived && <Badge color="gray">{t("rooms.archivedBadge")}</Badge>}
+            <PinnedPanel room={room} />
+          </Group>
+        }
       />
       <RoomTabs id={room.id} active={tab} />
       {children(room)}

@@ -1,11 +1,12 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useId, useMemo } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Button, Group, SegmentedControl, Select, Stack, Text } from "@mantine/core";
+import { Button, Group, SegmentedControl, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { IconMessages, IconPlus } from "@tabler/icons-react";
+import { IconMessages, IconPinFilled, IconPlus } from "@tabler/icons-react";
 import { listThreads } from "../api/threads";
 import type { RoomResponse } from "../api/rooms";
+import { useRoomPins } from "../hooks/useRoomPins";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { useThreadListParams } from "../hooks/useThreadListParams";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
@@ -38,6 +39,9 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
   const { scope, order, page } = params;
   const { search } = useLocation();
   const workflow = useRoomWorkflow(room.id);
+  // A pinned thread's row carries a mark; "is it pinned" is the room's pins query (shared with the header and the pane), a failed read marks nothing.
+  const pins = useRoomPins(room.id);
+  const pinNoteId = useId();
   const zone = browserTimeZone();
 
   // The request: owner=me resolved to the session's id, a stale field entry dropped; null while field filters wait for the workflow.
@@ -110,10 +114,17 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                   state={focusThreadPaneState}
                   className={classes.row}
                   aria-current={thread.number === activeNumber ? "page" : undefined}
+                  aria-describedby={pins.threadNumbers.has(thread.number) ? `${pinNoteId}-${thread.number}` : undefined}
                 >
                   <Stack gap={4}>
                     <Text size="sm" fw={500} lh={1.3}>
                       <Text span c="dimmed" inherit>{`#${thread.number}`}</Text> {thread.title}
+                      {pins.threadNumbers.has(thread.number) && (
+                        <>
+                          {" "}
+                          <IconPinFilled size={12} aria-hidden="true" />
+                        </>
+                      )}
                     </Text>
                     <Group gap="xs">
                       <ThreadStatusPill statuses={workflow.data?.statuses} statusKey={thread.status} size="sm" />
@@ -126,6 +137,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                     </Text>
                   </Stack>
                 </RouterLink>
+                {pins.threadNumbers.has(thread.number) && <VisuallyHidden id={`${pinNoteId}-${thread.number}`}>{t("threads.pin.mark")}</VisuallyHidden>}
               </li>
             ))}
           </ul>

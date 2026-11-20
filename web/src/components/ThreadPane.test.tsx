@@ -249,7 +249,11 @@ describe("ThreadPane", () => {
     expect(screen.getByText(alert)).toBeInTheDocument();
     expect(screen.getByText("my words")).toBeInTheDocument();
     expect(screen.getByRole("note")).toHaveTextContent("This thread is closed");
-    expect(screen.queryByRole("button", { name: /^Operations for message by/ })).not.toBeInTheDocument();
+    // The closed thread refuses the message's own writes, not a pin: the menu is left with "Pin" alone.
+    await user.click(screen.getByRole("button", { name: /^Operations for message by/ }));
+    expect(await screen.findByRole("menuitem", { name: "Pin" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Delete" })).not.toBeInTheDocument();
   });
 
   describe("the focus view and the message to jump to live in the URL", () => {

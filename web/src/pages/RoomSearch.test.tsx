@@ -236,6 +236,7 @@ describe("RoomSearch page", () => {
         const url = String(input);
         if (url === "/api/v1/rooms/12") return Promise.resolve(jsonResponse(200, ROOM));
         if (url === "/api/v1/rooms/13") return Promise.resolve(jsonResponse(200, BILLING));
+        if (url.includes("/pins?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
         if (url.startsWith("/api/v1/rooms/12/search?")) return Promise.resolve(jsonResponse(200, searchPage([threadHit(42)])));
         // Room 13's search never answers: whatever shows meanwhile is the placeholder.
         if (url.startsWith("/api/v1/rooms/13/search?")) return new Promise<Response>(() => undefined);

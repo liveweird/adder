@@ -46,12 +46,24 @@ describe("MessageList", () => {
     expect(screen.queryByRole("button", { name: "Load older messages" })).not.toBeInTheDocument();
   });
 
-  test("offers actions by the caller's standing: the author's own message has a menu, another's does not", async () => {
+  test("offers actions by the caller's standing: every member can pin; only the author's own message offers Edit and Delete", async () => {
+    const user = userEvent.setup();
     serve(() => jsonResponse(200, messagePage(NEWEST_FIRST)));
     renderList();
     await screen.findByRole("region", { name: "Messages" });
-    expect(screen.getAllByRole("button", { name: /^Operations for message by/ })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /^Operations for message by Cy Author/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Operations for message by/ })).toHaveLength(2);
+    await user.click(screen.getByRole("button", { name: /^Operations for message by Cy Author/ }));
+    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual(["Edit", "Pin", "Delete"]);
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /^Operations for message by Di Other/ }));
+    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual(["Pin"]);
+  });
+
+  test("a non-member (an ADMIN outside the room) has no menu on a message they did not write", async () => {
+    serve(() => jsonResponse(200, messagePage([NEWEST_FIRST[1]!])));
+    renderList({ room: makeRoom({ role: null }) });
+    await screen.findByRole("region", { name: "Messages" });
+    expect(screen.queryByRole("button", { name: /^Operations for/ })).not.toBeInTheDocument();
   });
 
   test("a room owner may remove the others' messages", async () => {
@@ -61,11 +73,13 @@ describe("MessageList", () => {
     expect(screen.getAllByRole("button", { name: /^Operations for message by/ })).toHaveLength(2);
   });
 
-  test("a closed thread offers no message actions", async () => {
-    serve(() => jsonResponse(200, messagePage(NEWEST_FIRST)));
+  test("a closed thread offers no edit or delete, only the room's pin", async () => {
+    const user = userEvent.setup();
+    serve(() => jsonResponse(200, messagePage([NEWEST_FIRST[0]!])));
     renderList({ thread: makeThread({ closed: true }) });
     await screen.findByRole("region", { name: "Messages" });
-    expect(screen.queryByRole("button", { name: /^Operations for/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Operations for message by Cy Author/ }));
+    expect((await screen.findAllByRole("menuitem")).map((item) => item.textContent)).toEqual(["Pin"]);
   });
 
   test("older messages: the button shows while the page's total exceeds it, and loads the next page through the oldest id as a cursor", async () => {

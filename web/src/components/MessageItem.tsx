@@ -14,12 +14,14 @@ import ConfirmActionModal from "./ConfirmActionModal";
 import FormErrorAlert from "./FormErrorAlert";
 import MarkdownView from "./MarkdownView";
 import MessageEditForm from "./MessageEditForm";
+import MessagePinMenuItem from "./MessagePinMenuItem";
 import RowActionsMenu from "./RowActionsMenu";
 
 /**
  * One message of the conversation: its author (a bold run, never a heading), when it was posted (the browser's zone), an "edited" marker,
  * and its body as `message`-variant Markdown. A tombstone shows who removed it instead of the body. `actions` says what the caller may do
- * (`utils/messageAccess.ts`): Edit and Delete for the author, Remove for a room OWNER or an ADMIN (D2), under a kebab menu; Edit swaps the body
+ * (`utils/messageAccess.ts`): Edit and Delete for the author, Remove for a room OWNER or an ADMIN (D2), and Pin or Unpin for any member (`pin`, even in
+ * a closed thread: `MessagePinMenuItem`), under a kebab menu; Edit swaps the body
  * for the inline editor, and Delete/Remove asks first. A write re-reads the room's thread queries and the rail, and a refusal (403, 404, 409)
  * re-reads the whole `["rooms"]` prefix, so the controls follow the truth. The failure of an edit or a delete shows under the message: it
  * lives HERE, so it outlives an editor that the refusal takes away (the thread closed), and `editing` resets when the edit action goes.
@@ -101,7 +103,7 @@ export default function MessageItem({
               </Text>
             )}
           </Group>
-          {(actions.edit || actions.remove !== null) && !editing && (
+          {(actions.edit || actions.remove !== null || actions.pin) && !editing && (
             <RowActionsMenu label={t("common.table.operationsAria", { name: t("threads.message.name", { author: message.authorName, when }) })} loading={removing}>
               {actions.edit && (
                 <Menu.Item
@@ -114,6 +116,7 @@ export default function MessageItem({
                   {t("common.action.edit")}
                 </Menu.Item>
               )}
+              {actions.pin && <MessagePinMenuItem roomId={roomId} messageId={message.id} onError={setError} />}
               {actions.remove !== null && (
                 <Menu.Item
                   color="red"

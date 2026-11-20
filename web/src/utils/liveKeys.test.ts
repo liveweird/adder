@@ -21,6 +21,7 @@ const gone = (r: number): QueryKey[] => [
   ["rooms", "members", r],
   ["rooms", "workflow", r],
   ["rooms", "workflow-edit", r],
+  ["rooms", "pins", r],
   RAIL,
   LIST,
 ];
@@ -55,12 +56,12 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame(event("message.edited", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"]]);
   });
 
-  test("message.deleted re-reads the conversation, the thread and the thread list (not the rail)", () => {
-    expect(keysForFrame(event("message.deleted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"]]);
+  test("message.deleted re-reads the conversation, the thread, the thread list and the room's pins (not the rail)", () => {
+    expect(keysForFrame(event("message.deleted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
   });
 
-  test("room.pin_changed re-reads the room's detail until a page shows pins", () => {
-    expect(keysForFrame(event("room.pin_changed", 5, 7, 99))).toEqual([["rooms", "detail", 5]]);
+  test("room.pin_changed re-reads the room's pins, and nothing else", () => {
+    expect(keysForFrame(event("room.pin_changed", 5, 7, 99))).toEqual([["rooms", "pins", 5]]);
   });
 
   test("room.created re-reads the rail and the rooms list", () => {
@@ -166,6 +167,7 @@ describe("the keys and the readers cannot drift apart", () => {
     [...roomKeys.members(5), "picker", "term"],
     roomKeys.workflow(5),
     roomKeys.workflowEdit(5),
+    roomKeys.pins(5),
     [...roomKeys.threadList(5), 1, 50, "-lastActivityAt", "open"],
     [...roomKeys.threadTags(5), "term"],
     roomKeys.threadDetail(5, 7),

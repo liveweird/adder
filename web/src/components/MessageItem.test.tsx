@@ -232,4 +232,55 @@ describe("MessageItem", () => {
     rerender(list(message, { edit: true, remove: "delete" }));
     expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
   });
+
+  describe("pinning", () => {
+    const pinsPage = (items: unknown[]) => ({ items, page: 1, pageSize: 50, total: items.length });
+    const messagePin = { id: 3, kind: "MESSAGE", threadNumber: 42, threadTitle: "T", threadStatus: "triage", threadClosed: false, message: makeMessage({ id: 9 }), pinnedById: 5, pinnedByName: "Ann", pinnedAt: SOME_TIME };
+
+    function servePins(items: unknown[], put: () => Response = () => new Response(null, { status: 204 })) {
+      mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+        if (init?.method === "PUT") return Promise.resolve(put());
+        if (url.startsWith("/api/v1/rooms/12/pins?")) return Promise.resolve(jsonResponse(200, pinsPage(items)));
+        return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+      });
+    }
+
+    test("a member's menu offers Pin on a message the pins do not list, and pressing it PUTs pinned=true", async () => {
+      const user = userEvent.setup();
+      servePins([]);
+      renderItem(makeMessage({ id: 9 }), { edit: false, remove: null, pin: true });
+      await user.click(screen.getByRole("button", { name: NAME }));
+      await user.click(await screen.findByRole("menuitem", { name: "Pin" }));
+      await waitFor(() => expect(calls("PUT")).toHaveLength(1));
+      expect([calls("PUT")[0][0], JSON.parse(calls("PUT")[0][1].body as string)]).toEqual(["/api/v1/rooms/12/messages/9/pin", { pinned: true }]);
+    });
+
+    test("a pinned message offers Unpin and pressing it PUTs pinned=false", async () => {
+      const user = userEvent.setup();
+      servePins([messagePin]);
+      renderItem(makeMessage({ id: 9 }), { edit: false, remove: null, pin: true });
+      await user.click(screen.getByRole("button", { name: NAME }));
+      await user.click(await screen.findByRole("menuitem", { name: "Unpin" }));
+      await waitFor(() => expect(calls("PUT")).toHaveLength(1));
+      expect(JSON.parse(calls("PUT")[0][1].body as string)).toEqual({ pinned: false });
+    });
+
+    test("the room's 51st pin says so under the message", async () => {
+      const user = userEvent.setup();
+      servePins([], () => jsonResponse(409, { type: "urn:adder:problem:pin-limit", status: 409, title: "Pin limit" }));
+      renderItem(makeMessage({ id: 9 }), { edit: false, remove: null, pin: true });
+      await user.click(screen.getByRole("button", { name: NAME }));
+      await user.click(await screen.findByRole("menuitem", { name: "Pin" }));
+      expect(await screen.findByText("This room already has 50 pins. Unpin one first.")).toBeInTheDocument();
+    });
+
+    test("without the pin action there is no Pin item", async () => {
+      const user = userEvent.setup();
+      servePins([]);
+      renderItem(makeMessage({ id: 9 }), { edit: true, remove: "delete" });
+      await user.click(screen.getByRole("button", { name: NAME }));
+      await screen.findByRole("menuitem", { name: "Edit" });
+      expect(screen.queryByRole("menuitem", { name: "Pin" })).not.toBeInTheDocument();
+    });
+  });
 });

@@ -24,6 +24,8 @@ export const roomKeys = {
   /** The shared workflow read (status pills, the thread form's fields) and the Workflow tab's own editor read. */
   workflow: (room: number) => ["rooms", "workflow", room] as const,
   workflowEdit: (room: number) => ["rooms", "workflow-edit", room] as const,
+  /** The room's pinned threads and messages (one page of 50 is the whole set): not under the thread tree, so a thread's own refresh leaves it alone. */
+  pins: (room: number) => ["rooms", "pins", room] as const,
   /** Everything about a room's threads: lists, details, histories, conversations. */
   threads: (room: number) => ["rooms", "threads", room] as const,
   threadList: (room: number) => ["rooms", "threads", room, "list"] as const,

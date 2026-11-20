@@ -17,6 +17,7 @@ import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import MessageComposer from "./MessageComposer";
 import MessageList from "./MessageList";
+import ThreadPinButton from "./ThreadPinButton";
 import ThreadSidePanel from "./ThreadSidePanel";
 import ThreadStatusPill from "./ThreadStatusPill";
 import classes from "./ThreadPane.module.css";
@@ -116,7 +117,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             {t("threads.pane.lastActivity", { when: formatDateTime(thread.lastActivityAt, zone) })}
           </Text>
         </Group>
-        <Group gap="xs">
+        <Group gap="xs" wrap="wrap">
           <Button
             variant={focusView ? "light" : "default"}
             size="xs"
@@ -126,6 +127,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           >
             {t("threads.focus.on")}
           </Button>
+          <ThreadPinButton room={room} threadNumber={thread.number} />
           <Button
             className={classes.toggle}
             variant="default"

@@ -171,5 +171,20 @@
       "removed": "Usunięto z pokoju",
       "left": "Opuszczono pokój"
     }
+  },
+  "pins": {
+    "button": "Przypięte ({{count}})",
+    "buttonNoCount": "Przypięte",
+    "title": "Przypięte w tym pokoju",
+    "loadFailed": "Nie udało się wczytać przypiętych",
+    "empty": "Nic jeszcze nie przypięto.",
+    "emptyHint": "Przypnij wątek lub wiadomość, aby wszyscy w pokoju mieli je pod ręką.",
+    "messageBy": "Wiadomość: {{author}}",
+    "inThread": "W wątku {{thread}}",
+    "pinnedBy": "Przypiął/przypięła {{name}}, {{when}}",
+    "open": "Otwórz w wątku",
+    "openAria": "Otwórz w wątku {{name}}",
+    "unpin": "Odepnij",
+    "unpinAria": "Odepnij {{name}}"
   }
 }

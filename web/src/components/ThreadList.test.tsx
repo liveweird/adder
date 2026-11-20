@@ -368,4 +368,29 @@ describe("ThreadList", () => {
     expect(where()).toBe("/rooms/12?scope=all&page=2");
     expect(listCalls().filter((url) => url.includes("page=1&"))).toHaveLength(1);
   });
+
+  test("a pinned thread's row carries a mark, described to assistive technology, and its name stays the thread's", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/rooms/12/pins?")) {
+        const pin = { id: 3, kind: "THREAD", threadNumber: 2, threadTitle: "Disk full on db-3", threadStatus: "triage", threadClosed: false, message: null, pinnedById: 5, pinnedByName: "Ann Owner", pinnedAt: AT };
+        return Promise.resolve(jsonResponse(200, { items: [pin], page: 1, pageSize: 50, total: 1 }));
+      }
+      if (url.startsWith("/api/v1/rooms/12/threads?")) return Promise.resolve(jsonResponse(200, THREADS));
+      if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+      return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+    });
+    renderList();
+    const pinned = await screen.findByRole("link", { name: /Disk full on db-3/ });
+    await waitFor(() => expect(pinned).toHaveAccessibleDescription("Pinned"));
+    // The mark is a description (as the rail's are), so the link is still found by the thread's own name.
+    expect(screen.queryByRole("link", { name: /Pinned/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Old alert/ })).not.toHaveAccessibleDescription("Pinned");
+  });
+
+  test("a failed pins read marks nothing", async () => {
+    serve();
+    renderList();
+    const row = await screen.findByRole("link", { name: /Disk full on db-3/ });
+    expect(row).not.toHaveAccessibleDescription("Pinned");
+  });
 });
