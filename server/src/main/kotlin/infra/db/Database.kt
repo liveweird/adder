@@ -16,6 +16,7 @@ import ch.nokillswit.rooms.useRoomLockWait
 import ch.nokillswit.rooms.WorkflowUsageKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
+import ch.nokillswit.threads.MessageMentionService
 import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.MessageServiceKey
 import ch.nokillswit.threads.MessageTagService
@@ -325,7 +326,9 @@ suspend fun Application.configureDatabase() {
     )
     val messageTagService = MessageTagService(database, readLimiter)
     attributes.put(MessageTagServiceKey, messageTagService)
-    val messageService = MessageService(database, roomService, messageTagService)
+    // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it.
+    val messageMentionService = MessageMentionService(roomMemberService)
+    val messageService = MessageService(database, roomService, messageTagService, messageMentionService)
     attributes.put(MessageServiceKey, messageService)
     attributes.put(
         ThreadServiceKey,

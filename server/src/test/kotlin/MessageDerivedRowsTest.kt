@@ -5,6 +5,7 @@ import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.threads.CreatedThread
 import ch.nokillswit.threads.MessageFollower
+import ch.nokillswit.threads.MessageMentionService
 import ch.nokillswit.threads.MessageRef
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageService
@@ -156,24 +157,23 @@ class MessageDerivedRowsTest {
     /** Both services over the same followers (a thread's opening message and a post are the two ways a message is inserted). */
     private class Services(followers: List<MessageFollower>) {
         private val database = sharedDatabaseForTests()
-        val messages = MessageService(database, TestRooms.service, MessageTagService(database), followers)
-        val threads = ThreadService(
-            database, TestRooms.service, TestRooms.workflows, RoomMemberService(database, TeamService(database)),
-            TestThreads.events, messages,
-        )
+        private val members = RoomMemberService(database, TeamService(database))
+        val messages = MessageService(database, TestRooms.service, MessageTagService(database), MessageMentionService(members), followers)
+        val threads = ThreadService(database, TestRooms.service, TestRooms.workflows, members, TestThreads.events, messages)
     }
 
     /**
      * Tables whose rows this test arranges for the message it deletes. A table the catalog lists that is not here has no proof it was ever
      * populated, so the test fails until the line that gives a message a row in it is added.
      */
-    private val arrangedByTheBody = setOf("message_tags") // the body's `#derived-row`
+    private val arrangedByTheBody = setOf("message_tags", "message_mentions") // the body's `#derived-row` and its mention of the owner
 
     @Test
     fun `a deleted message keeps no row in any table that references messages`() = runBlocking {
         val w = world()
         val seeded = TestThreads.seed(w.room, w.owner)
-        val id = TestThreads.messages.post(w.room, seeded.number, w.caller, MessageRequest("Derived #derived-row")).message.id
+        val body = MessageRequest("Derived #derived-row <@${w.owner}>")
+        val id = TestThreads.messages.post(w.room, seeded.number, w.caller, body).message.id
         val tables = referencingTables()
         val unknown = tables.keys - arrangedByTheBody
         assertTrue(unknown.isEmpty(), "$unknown reference messages: arrange a row for each here, so the delete below is proven to clear it")

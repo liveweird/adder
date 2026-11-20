@@ -5,6 +5,7 @@ import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.threads.CreatedThread
+import ch.nokillswit.threads.MessageMentionService
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.MessageTagService
@@ -40,7 +41,8 @@ object TestThreads {
     val events: ThreadEventService by lazy { ThreadEventService(sharedDatabaseForTests()) }
     private val members: RoomMemberService by lazy { RoomMemberService(sharedDatabaseForTests(), TeamService(sharedDatabaseForTests())) }
     val messages: MessageService by lazy {
-        MessageService(sharedDatabaseForTests(), TestRooms.service, MessageTagService(sharedDatabaseForTests()))
+        val database = sharedDatabaseForTests()
+        MessageService(database, TestRooms.service, MessageTagService(database), MessageMentionService(members))
     }
     val service: ThreadService by lazy {
         ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, messages)

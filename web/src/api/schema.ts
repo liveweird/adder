@@ -953,7 +953,11 @@ export interface paths {
          *       folded (case and accents ignored: `Wdrozenie` and `wdrożenie` are one tag). A returned key can hold punctuation and be longer
          *       than a written tag, so a value is 1 to 150 characters without `#` or control characters. A malformed value, or more than 10
          *       distinct values, is a `400`.
-         *     - A well-formed status key, owner id, field value or tag that matches nothing is an empty page, never an error. Checked in this
+         *     - `mentionedUserId` (repeatable, any-of, at most 20 distinct) keeps the threads that have a LIVE message mentioning any of
+         *       those people (`<@id>` in its body, the person an active member of the room when it was written or edited); the filter reads
+         *       the mention index only, so it finds nothing for a message written before mentions were indexed. A non-positive or
+         *       non-integer id, or more than 20 distinct values, is a `400`.
+         *     - A well-formed status key, owner id, mentioned user id, field value or tag that matches nothing is an empty page, never an error. Checked in this
          *       order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
          *       what the caller may read.
          *     - A row carries the status KEY; labels and colours come from the room's workflow (`GET /rooms/{id}/workflow`).
@@ -2367,6 +2371,17 @@ export interface components {
              * @description Epoch millis
              */
             createdAt: number;
+            /** @description The room members the body mentions with `<@id>` (an active member when the message was written or edited), by their CURRENT display name, ordered by user id; empty on a tombstone and on a message written before mentions were indexed. A token whose id is not listed here is plain text. */
+            mentions: components["schemas"]["MentionedUser"][];
+        };
+        MentionedUser: {
+            /**
+             * Format: int32
+             * @description The id inside the `<@id>` token.
+             */
+            userId: number;
+            /** @description The person's current display name (a soft-deleted account keeps its last one). */
+            name: string;
         };
         MessagePage: {
             items: components["schemas"]["MessageResponse"][];
@@ -2772,6 +2787,8 @@ export interface components {
         ThreadStatusFilter: string[];
         /** @description Repeatable - any of these owner ids (the thread list; "mine" is the caller's own id). An id that owns nothing matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
         ThreadOwnerFilter: number[];
+        /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
+        ThreadMentionFilter: number[];
         /** @description Repeatable `key:value` (the thread list): the field's key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). Any-of within one key, all-of across keys; at most 20 distinct pairs. The key must be an ACTIVE SELECT, MULTI_SELECT or USER field of the room; any other key, a missing colon or a value of the wrong shape is a `400`. */
         ThreadFieldFilter: string[];
         /** @description Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10. */
@@ -4260,6 +4277,8 @@ export interface operations {
                 field?: components["parameters"]["ThreadFieldFilter"];
                 /** @description Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10. */
                 tag?: components["parameters"]["ThreadTagFilter"];
+                /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
+                mentionedUserId?: components["parameters"]["ThreadMentionFilter"];
             };
             header?: never;
             path: {

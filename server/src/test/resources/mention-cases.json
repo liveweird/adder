@@ -1,0 +1,244 @@
+[
+ {
+  "name": "a token in a sentence",
+  "body": "Ping <@42> please",
+  "ids": [
+   42
+  ]
+ },
+ {
+  "name": "a token at the very start and the very end",
+  "body": "<@4> and <@5>",
+  "ids": [
+   4,
+   5
+  ]
+ },
+ {
+  "name": "two people in order of appearance",
+  "body": "<@7> then <@3>",
+  "ids": [
+   7,
+   3
+  ]
+ },
+ {
+  "name": "a repeated id counts once, where it first appears",
+  "body": "<@7> <@7> <@3> <@7>",
+  "ids": [
+   7,
+   3
+  ]
+ },
+ {
+  "name": "adjacent tokens",
+  "body": "<@1><@2>",
+  "ids": [
+   1,
+   2
+  ]
+ },
+ {
+  "name": "punctuation around a token",
+  "body": "(<@5>), \"<@6>\"; <@8>!",
+  "ids": [
+   5,
+   6,
+   8
+  ]
+ },
+ {
+  "name": "emphasis around a token",
+  "body": "**<@8>** and _<@9>_ and ~~<@10>~~",
+  "ids": [
+   8,
+   9,
+   10
+  ]
+ },
+ {
+  "name": "a token on its own line",
+  "body": "first\n<@30>\nlast",
+  "ids": [
+   30
+  ]
+ },
+ {
+  "name": "a token in a heading, a list item and a quote",
+  "body": "# <@31>\n- <@32>\n> <@33>",
+  "ids": [
+   31,
+   32,
+   33
+  ]
+ },
+ {
+  "name": "a token between emoji",
+  "body": "😀<@34>😀",
+  "ids": [
+   34
+  ]
+ },
+ {
+  "name": "a token glued to a hashtag",
+  "body": "#tag<@35>",
+  "ids": [
+   35
+  ]
+ },
+ {
+  "name": "the text of a link is read",
+  "body": "[see <@12>](https://example.com)",
+  "ids": [
+   12
+  ]
+ },
+ {
+  "name": "a link destination is not read",
+  "body": "[see](https://example.com/<@13>) <@14>",
+  "ids": [
+   14
+  ]
+ },
+ {
+  "name": "inline code is not read",
+  "body": "`<@15>` and <@16>",
+  "ids": [
+   16
+  ]
+ },
+ {
+  "name": "inline code with double backticks is not read",
+  "body": "`` <@17> `` and <@18>",
+  "ids": [
+   18
+  ]
+ },
+ {
+  "name": "an unmatched backtick is plain text",
+  "body": "a ` <@19>",
+  "ids": [
+   19
+  ]
+ },
+ {
+  "name": "a fenced block is not read",
+  "body": "```\n<@20>\n```\n<@21>",
+  "ids": [
+   21
+  ]
+ },
+ {
+  "name": "a tilde fence is not read",
+  "body": "~~~\n<@22>\n~~~\n<@23>",
+  "ids": [
+   23
+  ]
+ },
+ {
+  "name": "an unclosed fence runs to the end",
+  "body": "<@24>\n```\n<@25>",
+  "ids": [
+   24
+  ]
+ },
+ {
+  "name": "a bare URL swallows a token glued to it",
+  "body": "see https://example.com/<@26> and <@27>",
+  "ids": [
+   27
+  ]
+ },
+ {
+  "name": "an autolink is not read",
+  "body": "<https://example.com/a?b=28> <@29>",
+  "ids": [
+   29
+  ]
+ },
+ {
+  "name": "a link reference definition is not read",
+  "body": "[a]: <@36>\n<@37>",
+  "ids": [
+   37
+  ]
+ },
+ {
+  "name": "a token right after a backslash is no mention",
+  "body": "\\<@38> and <@39>",
+  "ids": [
+   39
+  ]
+ },
+ {
+  "name": "a backslash earlier in the text does not matter",
+  "body": "a\\b <@40>",
+  "ids": [
+   40
+  ]
+ },
+ {
+  "name": "the largest id is a mention",
+  "body": "<@2147483647>",
+  "ids": [
+   2147483647
+  ]
+ },
+ {
+  "name": "an id past int32 is no mention",
+  "body": "<@2147483648> <@3000000000> <@41>",
+  "ids": [
+   41
+  ]
+ },
+ {
+  "name": "eleven digits are no mention",
+  "body": "<@12345678901>",
+  "ids": []
+ },
+ {
+  "name": "zero is no mention",
+  "body": "<@0>",
+  "ids": []
+ },
+ {
+  "name": "a leading zero is no mention",
+  "body": "<@042>",
+  "ids": []
+ },
+ {
+  "name": "a sign is no mention",
+  "body": "<@-5> <@+5>",
+  "ids": []
+ },
+ {
+  "name": "a space inside the token is no mention",
+  "body": "<@ 5> < @5> <@5 >",
+  "ids": []
+ },
+ {
+  "name": "letters are no mention",
+  "body": "<@abc> <@5a> <@Anna>",
+  "ids": []
+ },
+ {
+  "name": "other scripts' digits are no mention",
+  "body": "<@٣> <@٤٥>",
+  "ids": []
+ },
+ {
+  "name": "an empty or open token is no mention",
+  "body": "<@> <@ <@5",
+  "ids": []
+ },
+ {
+  "name": "an address is no mention",
+  "body": "write to a@b.com",
+  "ids": []
+ },
+ {
+  "name": "no token at all",
+  "body": "just words",
+  "ids": []
+ }
+]

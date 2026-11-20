@@ -362,6 +362,7 @@ assumptions 0.6 A1-0.6 A31 are in `product.md` "0.6.0 Social". Deviations from t
 
 - **On the wire:** `MessageResponse` gains `mentions: [{userId, name}]`, at most 20, empty on a tombstone; names are read at request time, one batched read per page, soft-deleted accounts included, so a mention of a member who left or was deleted keeps the name (0.6 A7).
 - **The filter:** `GET /rooms/{id}/threads` gains `mentionedUserId`: repeatable, 1 to 20 distinct ids of 1 to int32, any-of (the `ownerId` shape; the SPA offers "Mentions me" only, 0.6 A8); a well-formed id nobody was mentioned as matches nothing; a malformed one is 400 after the visibility 404. The predicate is `EXISTS (SELECT 1 FROM message_mentions WHERE room_id = ? AND thread_id = threads.id AND user_id IN (...))`.
+- **Where it lives:** `threads/Mentions.kt` (the pure parser), `threads/MessageMentionService.kt` (the table, the follower, `mentionsOf`, `threadMentionsAny`), `ThreadListFilter.mentionedUserIds`. An edit diffs the new body against the message's OWN rows (a follower sees only the new body): a person already indexed stays mentioned while the token stays, even after they left the room; a new mention needs an active member. The post's own answer carries `mentions` too.
 - **Not in 0.6.0:** `@room`; mentioning a non-member; mentions in titles; names in search snippets (a snippet shows the raw token, 0.6 A30); a reindex.
 
 ### Notifications (V18)

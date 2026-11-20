@@ -23,7 +23,13 @@ data class MessageResponse(
     val deletedByModerator: Boolean,
     val editedAt: Long?,
     val createdAt: Long,
+    /** The room members the body mentions with `<@id>`, by current name (at most 20, by user id; empty on a tombstone). */
+    val mentions: List<MentionedUser>,
 )
+
+/** A person a message mentions: the id as written in the token and their CURRENT display name (a mention of someone who left keeps it). */
+@Serializable
+data class MentionedUser(val userId: UInt, val name: String)
 
 typealias MessagePageResponse = PageResponse<MessageResponse>
 

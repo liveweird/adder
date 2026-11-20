@@ -153,6 +153,60 @@ class ThreadSchemaTest {
         }
     }
 
+    @Test
+    fun `message mentions key on message and user, and go with their message and their room`() {
+        val marker = UUID.randomUUID().toString().take(8)
+        PostgresTestSupport.connect().use { c ->
+            val user = c.scalar(
+                "INSERT INTO users (\"name\", email, password_hash) VALUES ('Schema', ?, 'x') RETURNING id",
+                "schema-mentions-$marker@test",
+            )
+            val other = c.scalar(
+                "INSERT INTO users (\"name\", email, password_hash) VALUES ('Schema', ?, 'x') RETURNING id",
+                "schema-mentions-other-$marker@test",
+            )
+            val room = c.scalar(
+                "INSERT INTO rooms (\"name\", last_activity_at, created_at, updated_at) VALUES (?, 1, 1, 1) RETURNING id",
+                "Schema mentions $marker",
+            )
+            try {
+                c.exec(
+                    "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position) " +
+                        "VALUES (?, 'open', 'Open', 'BLUE', 'OPEN', TRUE, 0)",
+                    room,
+                )
+                val thread = c.scalar(
+                    "INSERT INTO threads (room_id, \"number\", title, status_key, owner_id, created_by, " +
+                        "last_activity_at, created_at, updated_at) VALUES (?, 1, 'T', 'open', ?, ?, 1, 1, 1) RETURNING id",
+                    room, user, user,
+                )
+                val first = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "one", false, null)
+                val second = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "two", false, null)
+
+                val insert = "INSERT INTO message_mentions (message_id, user_id, thread_id, room_id) VALUES (?, ?, ?, ?)"
+                assertEquals(1, c.exec(insert, first, user, thread, room))
+                assertEquals(1, c.exec(insert, first, other, thread, room), "a message mentions several people")
+                assertEquals(1, c.exec(insert, second, user, thread, room), "a person is mentioned in several messages")
+                assertState(UNIQUE_VIOLATION, "a message mentions a person once") { c.exec(insert, first, user, thread, room) }
+                assertState(FK_VIOLATION, "a mention needs its message") { c.exec(insert, Int.MAX_VALUE, user, thread, room) }
+                assertState(FK_VIOLATION, "a mention needs its user") { c.exec(insert, second, Int.MAX_VALUE, thread, room) }
+                assertState(FK_VIOLATION, "a mention needs its thread") { c.exec(insert, second, other, Int.MAX_VALUE, room) }
+                assertState(FK_VIOLATION, "a mention needs its room") { c.exec(insert, second, other, thread, Int.MAX_VALUE) }
+
+                assertEquals(1, c.exec("DELETE FROM messages WHERE id = ?", second))
+                val rowsOfSecond = c.scalar("SELECT count(*) FROM message_mentions WHERE message_id = ?", second)
+                assertEquals(0, rowsOfSecond, "a message's rows go with it")
+                assertEquals(2, c.scalar("SELECT count(*) FROM message_mentions WHERE room_id = ?", room))
+                // The room's hard delete (the test purge) cascades through the thread and the message into the mentions.
+                assertEquals(1, c.exec("DELETE FROM rooms WHERE id = ?", room))
+                assertEquals(0, c.scalar("SELECT count(*) FROM message_mentions WHERE room_id = ?", room))
+            } finally {
+                c.exec("DELETE FROM rooms WHERE id = ?", room)
+                c.exec("DELETE FROM users WHERE id IN (?, ?)", user, other)
+            }
+        }
+    }
+
     private fun Connection.text(sql: String, vararg args: Any?): String? = prepareStatement(sql).use { st ->
         args.forEachIndexed { index, arg -> st.setObject(index + 1, arg) }
         st.executeQuery().use { rs ->

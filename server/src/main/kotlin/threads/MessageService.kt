@@ -39,15 +39,21 @@ val MESSAGE_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
  * write under the room lock ([withThreadWrite], [withMessageWrite]; the room row lock is the thread lock, `chat-model.md` "Guard order and
  * locking"). A message is soft-deleted (`marked_as_deleted`) to a LISTED tombstone: the body is scrubbed to '' and `deleted_by` records who
  * removed it, the author's own delete included. Reads use `users` for display names only (soft-deleted accounts included) and room data
- * only through the `rooms/` services. Everything derived from a body or a delete that is not a hashtag follows the write through the
- * [followers] ([MessageFollower]): each runs inside the write, after the row's own statement.
+ * only through the `rooms/` services. Everything derived from a body or a delete that is not a hashtag (the mention index first) follows
+ * the write through the [followers] ([MessageFollower]): each runs inside the write, after the row's own statement, so a follower must
+ * not rely on `message_count` or the activity stamps (they are written after it) and, on an edit, sees only the NEW body (the row is
+ * already overwritten): it diffs against its own derived rows.
  */
 class MessageService internal constructor(
     private val database: R2dbcDatabase,
     private val rooms: RoomService,
     private val tags: MessageTagService,
-    private val followers: List<MessageFollower> = emptyList(),
+    private val mentions: MessageMentionService,
+    followers: List<MessageFollower> = emptyList(),
 ) {
+    /** Every follower of a write, in order: the mention index first, then the [followers] the composition root adds. */
+    private val followers: List<MessageFollower> = listOf<MessageFollower>(mentions) + followers
+
     object Messages : UIntIdTable("messages"), SoftDeletable {
         val threadId = reference("thread_id", ThreadService.Threads)
         val authorId = reference("author_id", UserService.Users)
@@ -107,7 +113,11 @@ class MessageService internal constructor(
         val total = Messages.selectAll().where { predicate }.count()
         val rows = Messages.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
         val names = userNames(rows.map { it[Messages.authorId].value })
-        MessageListResult(rows.map { it.toResponse(number, names.getValue(it[Messages.authorId].value)) }, total)
+        val mentioned = mentionsOf(rows)
+        MessageListResult(
+            rows.map { it.toResponse(number, names.getValue(it[Messages.authorId].value), mentioned[it[Messages.id].value].orEmpty()) },
+            total,
+        )
     }
 
     /** Message [messageId] of room [roomId], or null when it is unknown, DELETED or belongs to another room (the single read's `404`). */
@@ -116,8 +126,21 @@ class MessageService internal constructor(
         val row = Messages.innerJoin(threads).selectAll()
             .where { (Messages.id eq messageId) and (threads.roomId eq roomId) and Messages.active() }
             .toList().singleOrNull() ?: return@suspendTransaction null
-        row.toResponse(row[threads.number], userNames(listOf(row[Messages.authorId].value)).getValue(row[Messages.authorId].value))
+        row.toResponse(
+            row[threads.number],
+            userNames(listOf(row[Messages.authorId].value)).getValue(row[Messages.authorId].value),
+            mentionsOf(listOf(row))[row[Messages.id].value].orEmpty(),
+        )
     }
+
+    /**
+     * The mentions of the LIVE messages among [rows], in ONE read (none when no body holds a `<@` token: most pages). Runs INSIDE the
+     * caller's transaction.
+     */
+    private suspend fun mentionsOf(rows: List<ResultRow>): Map<UInt, List<MentionedUser>> =
+        mentions.mentionsOf(
+            rows.filter { !it[Messages.markedAsDeleted] && it[Messages.body].contains("<@") }.map { it[Messages.id].value },
+        )
 
     /**
      * The author of message [messageId] of room [roomId] read WITHOUT a lock, or null when it is unknown, deleted or in another room: the
@@ -153,7 +176,9 @@ class MessageService internal constructor(
             rooms.touchActivity(roomId, stamp)
             notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
             val name = userNames(listOf(authorId)).getValue(authorId)
-            PostedMessage(write.thread.id, MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp), notified)
+            val mentioned = if (request.body.contains("<@")) mentions.mentionsOf(listOf(id))[id].orEmpty() else emptyList()
+            val response = MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp, mentioned)
+            PostedMessage(write.thread.id, response, notified)
         }
     }
 
@@ -217,7 +242,7 @@ class MessageService internal constructor(
             MessageRemoval(write.thread.id, messageId, write.message.authorId, moderated = remover != write.message.authorId)
         }
 
-    private fun ResultRow.toResponse(threadNumber: Int, authorName: String): MessageResponse {
+    private fun ResultRow.toResponse(threadNumber: Int, authorName: String, mentioned: List<MentionedUser>): MessageResponse {
         val deleted = this[Messages.markedAsDeleted]
         val authorId = this[Messages.authorId].value
         return MessageResponse(
@@ -230,6 +255,7 @@ class MessageService internal constructor(
             deletedByModerator = this[Messages.deletedBy]?.value.let { it != null && it != authorId },
             editedAt = if (deleted) null else this[Messages.editedAt],
             createdAt = this[Messages.createdAt],
+            mentions = if (deleted) emptyList() else mentioned,
         )
     }
 }

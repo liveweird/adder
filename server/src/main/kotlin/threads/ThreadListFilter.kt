@@ -41,7 +41,8 @@ data class FieldCriterion(val key: String, val value: String)
 /**
  * The thread list's filters. Within a parameter the values are any-of; across parameters (and across field keys) all-of. A blank list
  * filters nothing. A well-formed but unknown status key or owner id matches nothing; an unknown, retired or unfilterable FIELD key is a
- * `400` ([predicate]). A `tag` is a folded hashtag; one the room never saw matches nothing.
+ * `400` ([predicate]). A `tag` is a folded hashtag; one the room never saw matches nothing, as does a `mentionedUserId` nobody was
+ * mentioned as.
  */
 data class ThreadListFilter(
     val closed: Boolean? = null,
@@ -50,19 +51,27 @@ data class ThreadListFilter(
     val fields: List<FieldCriterion> = emptyList(),
     /** Folded tags ([requireTagFilter]): a live message of the thread carries any of them. */
     val tags: List<String> = emptyList(),
+    /** A live message of the thread mentions any of these people (int32 ids of 1 or more; one nobody was mentioned as matches nothing). */
+    val mentionedUserIds: List<UInt> = emptyList(),
 )
 
 /** The filters of the thread list; a malformed key, id or pair, or too many values, is a `400` ([BadRequestException]). */
 fun Parameters.threadListFilter(closed: Boolean?): ThreadListFilter = ThreadListFilter(
     closed = closed,
     statuses = repeatedStrings("status", MAX_FILTER_VALUES).onEach { requireKey(it, "Status key '${it.shown()}'") },
-    // Read as strings, not `repeatedLongs`: that helper takes a leading `+` and any script's digits; an id here is ASCII digits only.
-    ownerIds = repeatedStrings("ownerId", MAX_FILTER_VALUES).map {
-        (positiveId(it) ?: throw BadRequestException("Invalid ownerId")).toUInt()
-    }.distinct(),
+    ownerIds = userIdFilter("ownerId"),
     fields = repeatedStrings("field", MAX_FILTER_VALUES).map(::fieldCriterion),
     tags = tagFilter(),
+    mentionedUserIds = userIdFilter("mentionedUserId"),
 )
+
+/**
+ * The values of the repeatable user-id parameter [name] (at most [MAX_FILTER_VALUES] distinct), 1 to int32, else a `400`. Read as strings,
+ * not `repeatedLongs`: that helper takes a leading `+` and any script's digits; an id here is ASCII digits only.
+ */
+private fun Parameters.userIdFilter(name: String): List<UInt> = repeatedStrings(name, MAX_FILTER_VALUES).map {
+    (positiveId(it) ?: throw BadRequestException("Invalid $name")).toUInt()
+}.distinct()
 
 /**
  * The `tag` values, validated and case-folded ([requireTagFilter]); the bound of [MAX_TAG_FILTER_VALUES] counts the values AFTER folding
@@ -95,6 +104,7 @@ internal fun ThreadListFilter.predicate(roomId: UInt, workflow: RoomWorkflowSnap
     closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
     if (statuses.isNotEmpty()) predicate = predicate and (threads.statusKey inList statuses)
     if (ownerIds.isNotEmpty()) predicate = predicate and (threads.ownerId inList ownerIds)
+    if (mentionedUserIds.isNotEmpty()) predicate = predicate and threadMentionsAny(roomId, threads.id, mentionedUserIds)
     if (tags.isNotEmpty()) predicate = predicate and threadCarriesAnyTag(roomId, threads.id, tags)
     fields.groupBy { it.key }.forEach { (key, criteria) ->
         val field = workflow?.fields?.firstOrNull { it.key == key && !it.retired }

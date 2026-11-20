@@ -56,6 +56,7 @@ export function makeMessage(overrides: Partial<MessageResponse> = {}): MessageRe
     deletedByModerator: false,
     editedAt: null,
     createdAt: SOME_TIME,
+    mentions: [],
     ...overrides,
   };
 }

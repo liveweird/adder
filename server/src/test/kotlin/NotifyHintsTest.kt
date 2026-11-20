@@ -222,6 +222,26 @@ class NotifyHintsTest {
     }
 
     @Test
+    fun `an edit that only changes a mention still emits one message edited and the mention write emits no hint of its own`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val owner = actor("hint-menown")
+            val member = actor("hint-menmem")
+            val room = room(owner, template())
+            TestRooms.addMember(room, member.id)
+            TestThreads.seed(room, member.id)
+            val message = TestThreads.post(room, 1, member.id, "first <@${owner.id}>")
+            NotifyCapture().use { capture ->
+                val hints = capture.during {
+                    // The words are the same and only the mention changes: the SPA's refetch of the message rides the existing hint.
+                    member.client.putJson("$rooms/$room/messages/$message", MessageRequest("first <@${member.id}>"))
+                        .expect(HttpStatusCode.NoContent)
+                }
+                assertEquals(listOf(hint(LiveKind.MESSAGE_EDITED, room, thread = 1, message = message)), hints)
+            }
+        }
+
+    @Test
     fun `a no-op write emits nothing`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("hint-nown")
