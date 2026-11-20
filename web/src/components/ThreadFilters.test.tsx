@@ -198,6 +198,55 @@ describe("the thread filter panel", () => {
     expect(listCalls().at(-1)).not.toContain("ownerId");
   });
 
+  test("Mentions me sits beside Mine, sends the session's id as mentionedUserId, writes mention=me, and toggles off", async () => {
+    serve();
+    const user = userEvent.setup();
+    renderPanel();
+    await openPanel(user);
+    const mentions = screen.getByRole("button", { name: "Mentions me" });
+    expect(mentions).toHaveAttribute("aria-pressed", "false");
+    expect(Boolean(screen.getByRole("button", { name: "Mine" }).compareDocumentPosition(mentions) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    await user.click(mentions);
+    await waitFor(() => expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false&mentionedUserId=5"));
+    expect(where()).toBe("/rooms/12?mention=me");
+    expect(screen.getByRole("button", { name: "Mentions me" })).toHaveAttribute("aria-pressed", "true");
+    // It is a filter of its own: Mine is untouched, and the two compose.
+    expect(screen.getByRole("button", { name: "Mine" })).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "Mine" }));
+    await waitFor(() => expect(where()).toBe("/rooms/12?owner=me&mention=me"));
+    expect(listCalls().at(-1)).toContain("ownerId=5&mentionedUserId=5");
+    await user.click(screen.getByRole("button", { name: "Mentions me" }));
+    await waitFor(() => expect(where()).toBe("/rooms/12?owner=me"));
+    expect(listCalls().at(-1)).not.toContain("mentionedUserId");
+  });
+
+  test("the badge counts Mentions me as one filter and Clear filters removes it", async () => {
+    serve();
+    const user = userEvent.setup();
+    renderPanel("/rooms/12?mention=me&scope=all");
+    await screen.findByRole("navigation", { name: "Threads" });
+    expect(within(panelButton()).getByText("1")).toBeInTheDocument();
+    expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&mentionedUserId=5");
+    await user.click(panelButton());
+    expect(screen.getByRole("button", { name: "Mentions me" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(where()).toBe("/rooms/12?scope=all"));
+    expect(listCalls().at(-1)).not.toContain("mentionedUserId");
+    expect(JSON.parse(localStorage.getItem("adder.viewSettings.roomThreads.12.query") ?? "null")).toBe("scope=all");
+  });
+
+  test("Mentions me is disabled, and not pressed, for a session without a user id", async () => {
+    localStorage.removeItem("adder.auth.userId");
+    serve();
+    const user = userEvent.setup();
+    renderPanel("/rooms/12?mention=me");
+    await openPanel(user);
+    const mentions = screen.getByRole("button", { name: "Mentions me" });
+    expect(mentions).toBeDisabled();
+    expect(mentions).toHaveAttribute("aria-pressed", "false");
+    expect(listCalls()).toEqual(["/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false"]);
+  });
+
   test("the owner picker chooses any member and Mine gives way to it", async () => {
     serve();
     const user = userEvent.setup();

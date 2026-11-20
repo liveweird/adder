@@ -29,7 +29,7 @@ const q = (query: string) => new URLSearchParams(query);
 describe("threadListParams", () => {
   test("a bare URL reads as the plain list", () => {
     expect(parseThreadListParams(q(""))).toEqual(DEFAULT_THREAD_LIST_PARAMS);
-    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, tag: [], field: [], page: 1 });
+    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, tag: [], field: [], page: 1 });
   });
 
   test("the round trip: what a write spells, a read gives back", () => {
@@ -41,9 +41,21 @@ describe("threadListParams", () => {
         }
       }
     }
-    const filtered = { status: ["triage", "on-hold"], owner: "me", tag: ["Wdro\u017cenie", "hawai'i", "1/2price", "a 1/2"], field: ["severity:s1", "severity:s2", "lead:42"] };
+    const filtered = { status: ["triage", "on-hold"], owner: "me", mention: true, tag: ["Wdro\u017cenie", "hawai'i", "1/2price", "a 1/2"], field: ["severity:s1", "severity:s2", "lead:42"] };
     expect(parseThreadListParams(writeThreadListParams(q(""), filtered))).toEqual({ ...DEFAULT_THREAD_LIST_PARAMS, ...filtered });
     expect(parseThreadListParams(writeThreadListParams(q(""), { owner: "42" })).owner).toBe("42");
+  });
+
+  test("mention reads only `me`: any other value, and a repeat of it, is the default", () => {
+    expect(parseThreadListParams(q("mention=me")).mention).toBe(true);
+    for (const junk of ["mention=", "mention=1", "mention=true", "mention=ME", "mention=42", "mention=you&mention=me"]) {
+      expect(parseThreadListParams(q(junk)).mention).toBe(false);
+    }
+    expect(writeThreadListParams(q(""), { mention: true }).toString()).toBe("mention=me");
+    expect(writeThreadListParams(q("mention=me&page=3"), { mention: false }).toString()).toBe("");
+    expect(writeThreadListParams(q("status=a&owner=me"), { mention: true }).toString()).toBe("status=a&owner=me&mention=me");
+    expect(rememberedQuery(q("mention=me&page=2"))).toBe("mention=me");
+    expect(hasListKeys(q("mention=me"))).toBe(true);
   });
 
   test("multi-value keys keep every valid value in URL order, distinct and capped at 20", () => {
@@ -108,6 +120,12 @@ describe("threadListParams", () => {
       expect(toApiQuery(params({ owner: "me" }), undefined, null)?.ownerId).toBeUndefined();
     });
 
+    test("mention=me asks for the threads mentioning the session's id, and without a session is no filter", () => {
+      expect(toApiQuery(params({ mention: true }), undefined, 7)?.mentionedUserId).toEqual([7]);
+      expect(toApiQuery(params({ mention: true }), undefined, null)?.mentionedUserId).toBeUndefined();
+      expect(toApiQuery(params({}), undefined, 7)?.mentionedUserId).toBeUndefined();
+    });
+
     test("statuses, the all scope and the workflow order are sent as they are", () => {
       expect(toApiQuery(params({ status: ["triage"], scope: "all", order: "status" }), undefined, 1)).toMatchObject({ status: ["triage"], closed: undefined, sort: "status" });
     });
@@ -154,6 +172,8 @@ describe("threadListParams", () => {
       expect(activeFilterCount({})).toBe(0);
       expect(activeFilterCount({ tag: ["a", "b", "c"] })).toBe(1);
       expect(activeFilterCount({ status: ["a"], ownerId: [7], tag: ["a"], field: ["k:1"] })).toBe(4);
+      expect(activeFilterCount({ mentionedUserId: [7] })).toBe(1);
+      expect(activeFilterCount({ status: ["a"], ownerId: [7], mentionedUserId: [7], tag: ["a"], field: ["k:1"] })).toBe(5);
       expect(activeFilterCount({ status: ["a", "b"], ownerId: [7], field: ["k:1", "k:2", "j:3"] })).toBe(4);
     });
   });

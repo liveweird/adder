@@ -145,7 +145,7 @@ export default function MessageItem({
             onError={setError}
           />
         ) : (
-          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(roomId, message.threadNumber, tag)}>
+          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(roomId, message.threadNumber, tag)} mentions={message.mentions}>
             {message.body}
           </MarkdownView>
         )}

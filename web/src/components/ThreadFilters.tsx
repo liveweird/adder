@@ -14,7 +14,7 @@ import RoomTagSelect from "./RoomTagSelect";
 
 /**
  * The thread list's filter panel (inside the shared `FilterPanel`, stacked: the room view's left rail is narrow): the statuses (with the
- * workflow's thread counts), the room's hashtags (`RoomTagSelect`, searched on the server), the owner ("Mine" is `owner=me`, the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
+ * workflow's thread counts), the room's hashtags (`RoomTagSelect`, searched on the server), the owner ("Mine" is `owner=me`, "Mentions me" is `mention=me`, the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
  * USER field of the room's workflow. Every control writes the URL through `update`; the panel only draws what the URL says.
  * "Clear filters" is the hook's `clear`: the panel's filters and the page only, the scope and the order stay.
  */
@@ -41,6 +41,7 @@ export default function ThreadFilters({
   const statusOptions = (workflow?.statuses ?? []).map((status) => ({ value: status.key, label: status.label }));
   const mineInUrl = params.owner === "me";
   const mine = mineInUrl && me !== null;
+  const mentioned = params.mention && me !== null;
   return (
     <FilterPanel activeFilterCount={activeCount} storageKey="roomThreads">
       <Stack gap="xs" w="100%">
@@ -66,16 +67,26 @@ export default function ThreadFilters({
           onChange={(tag) => update({ tag })}
         />
         <Stack gap={4}>
-          <Button
-            size="compact-xs"
-            variant={mine ? "light" : "default"}
-            aria-pressed={mine}
-            disabled={me === null}
-            onClick={() => update({ owner: mineInUrl ? null : "me" })}
-            style={{ alignSelf: "flex-start" }}
-          >
-            {t("threads.filters.mine")}
-          </Button>
+          <Group gap={4} wrap="wrap">
+            <Button
+              size="compact-xs"
+              variant={mine ? "light" : "default"}
+              aria-pressed={mine}
+              disabled={me === null}
+              onClick={() => update({ owner: mineInUrl ? null : "me" })}
+            >
+              {t("threads.filters.mine")}
+            </Button>
+            <Button
+              size="compact-xs"
+              variant={mentioned ? "light" : "default"}
+              aria-pressed={mentioned}
+              disabled={me === null}
+              onClick={() => update({ mention: !params.mention })}
+            >
+              {t("threads.filters.mentionsMe")}
+            </Button>
+          </Group>
           <MemberFilterSelect
             roomId={roomId}
             label={t("threads.filters.owner")}

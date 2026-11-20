@@ -10,9 +10,10 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --legacy-peer-deps --no-audit --no-fund
 COPY web/ ./
-# `npm run build` type-checks the tests too (`tsc -b`), and the SPA's hashtag parser test reads the server's case table
-# (one table, two parsers): place it where `src/utils/hashtags.test.ts` resolves it (`/web/../server/...`).
+# `npm run build` type-checks the tests too (`tsc -b`), and the SPA's hashtag and mention parser tests read the server's case tables
+# (one table, two parsers): place them where `src/utils/hashtags.test.ts` and `mentions.test.ts` resolve them (`/web/../server/...`).
 COPY server/src/test/resources/hashtag-cases.json /server/src/test/resources/hashtag-cases.json
+COPY server/src/test/resources/mention-cases.json /server/src/test/resources/mention-cases.json
 # .git is copied last so a new commit only busts the build layer, and the version
 # stamp is computed explicitly here: the vite config's `git status` dirty check
 # would always be a false positive in this stage (the worktree is just web/).

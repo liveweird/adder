@@ -2,16 +2,19 @@ import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
 import { MemoryRouter } from "react-router-dom";
+import { createKnownNames, KnownNamesContext } from "../utils/knownNames";
 import MarkdownView, { type MarkdownVariant } from "./MarkdownView";
 import classes from "./MarkdownView.module.css";
 
 const tagHref = (tag: string) => `/rooms/7/threads/42?scope=all&tag=${encodeURIComponent(tag)}`;
 
-function renderView(markdown: string, variant?: MarkdownVariant, tags?: (tag: string) => string) {
+type Mentioned = { userId: number; name: string }[];
+
+function renderView(markdown: string, variant?: MarkdownVariant, tags?: (tag: string) => string, mentions?: Mentioned) {
   return render(
     <MantineProvider env="test">
       <MemoryRouter>
-        <MarkdownView variant={variant} tagHref={tags}>
+        <MarkdownView variant={variant} tagHref={tags} mentions={mentions}>
           {markdown}
         </MarkdownView>
       </MemoryRouter>
@@ -19,7 +22,10 @@ function renderView(markdown: string, variant?: MarkdownVariant, tags?: (tag: st
   );
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 describe("MarkdownView (document, the default)", () => {
   test("renders :shortcode: as the native emoji", () => {
@@ -173,5 +179,87 @@ describe("MarkdownView (message)", () => {
     expect(screen.getByRole("link", { name: "docs" })).toBe(docs);
     expect(link).toHaveAttribute("href", "/b?tag=outage");
     expect(link).toHaveFocus();
+  });
+});
+
+describe("MarkdownView (message): mentions", () => {
+  const people: Mentioned = [
+    { userId: 5, name: "Ada Lovelace" },
+    { userId: 9, name: "Bob" },
+  ];
+
+  test("a listed id reads @Name and an unlisted id stays the raw token", () => {
+    renderView("Ping <@5> and <@9>, not <@77>.", "message", undefined, people);
+    expect(screen.getByText("@Ada Lovelace")).toHaveAttribute("data-mention", "5");
+    expect(screen.getByText("@Bob")).toBeInTheDocument();
+    expect(screen.getByText(/not <@77>\./)).toBeInTheDocument();
+    expect(screen.queryByText(/<@5>/)).toBeNull();
+  });
+
+  test("without a list (or with an empty one) every token stays the raw token", () => {
+    const { unmount } = renderView("Ping <@5>", "message");
+    expect(screen.getByText("Ping <@5>")).toBeInTheDocument();
+    unmount();
+    renderView("Ping <@5>", "message", undefined, []);
+    expect(screen.getByText("Ping <@5>")).toBeInTheDocument();
+  });
+
+  test("the reader's own mention is marked, someone else's is not", () => {
+    localStorage.setItem("adder.auth.userId", "5");
+    renderView("<@5> and <@9>", "message", undefined, people);
+    expect(screen.getByText("@Ada Lovelace")).toHaveAttribute("data-self", "true");
+    expect(screen.getByText("@Ada Lovelace")).toHaveClass(classes.mentionSelf);
+    expect(screen.getByText("@Bob")).not.toHaveAttribute("data-self");
+    expect(screen.getByText("@Bob")).not.toHaveClass(classes.mentionSelf);
+  });
+
+  test("a name with Markdown or markup in it is text, never interpreted", () => {
+    renderView("<@5> and <@9>", "message", undefined, [
+      { userId: 5, name: "**Ada** <img src=x onerror=alert(1)>" },
+      { userId: 9, name: "[Bob](https://evil.example) #tag" },
+    ]);
+    expect(document.querySelector("img")).toBeNull();
+    expect(document.querySelector("strong")).toBeNull();
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.getByText("@**Ada** <img src=x onerror=alert(1)>")).toBeInTheDocument();
+    expect(screen.getByText("@[Bob](https://evil.example) #tag")).toBeInTheDocument();
+  });
+
+  test("a mention in a link's text is shown inside the link, and code is left alone", () => {
+    renderView("[see <@5>](https://example.com) `<@9>`", "message", undefined, people);
+    expect(screen.getByRole("link", { name: "see @Ada Lovelace" })).toHaveAttribute("href", "https://example.com");
+    expect(screen.getByText("<@9>").tagName).toBe("CODE");
+  });
+
+  test("a mention beside a hashtag link: both are read", () => {
+    renderView("#outage <@9>", "message", tagHref, people);
+    expect(screen.getByRole("link", { name: "#outage" })).toHaveAttribute("href", tagHref("outage"));
+    expect(screen.getByText("@Bob")).toBeInTheDocument();
+  });
+
+  test("the names a message lists are remembered for the session, the document variant's are not", () => {
+    const known = createKnownNames();
+    const view = (variant: MarkdownVariant) => (
+      <KnownNamesContext.Provider value={known}>
+        <MantineProvider env="test">
+          <MemoryRouter>
+            <MarkdownView variant={variant} mentions={people}>
+              {"<@5>"}
+            </MarkdownView>
+          </MemoryRouter>
+        </MantineProvider>
+      </KnownNamesContext.Provider>
+    );
+    const { rerender } = render(view("document"));
+    expect(known.get(5)).toBeUndefined();
+    rerender(view("message"));
+    expect(known.get(5)).toBe("Ada Lovelace");
+    expect(known.get(9)).toBe("Bob");
+  });
+
+  test("the document variant is untouched: a token stays text, whatever the list says", () => {
+    renderView("Ping <@5>", "document", undefined, people);
+    expect(screen.getByText("Ping <@5>")).toBeInTheDocument();
+    expect(document.querySelector("[data-mention]")).toBeNull();
   });
 });

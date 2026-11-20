@@ -24,6 +24,8 @@ type ThreadListQuery = {
   status?: string[];
   /** Any of these owner ids. */
   ownerId?: number[];
+  /** Any of these people are mentioned by a live message of the thread (1 to 20 ids; the SPA sends the caller's own). */
+  mentionedUserId?: number[];
   /** `key:value` pairs: any-of within a key, all-of across keys (SELECT, MULTI_SELECT and USER fields; a key that is not one is a 400). */
   field?: string[];
   /** Any of these hashtags, as typed or as `listRoomTags` returned them (the server folds case and accents); at most 10 distinct. */
@@ -31,7 +33,7 @@ type ThreadListQuery = {
 };
 
 export async function listThreads(roomId: number, q: ThreadListQuery): Promise<ThreadPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), field: q.field, tag: q.tag });
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), mentionedUserId: q.mentionedUserId?.map(String), field: q.field, tag: q.tag });
   return jsonRequest<ThreadPage>(`/api/v1/rooms/${roomId}/threads?${params}`);
 }
 

@@ -18,3 +18,17 @@
 .heading {
   font-weight: 700;
 }
+
+/* A mention of a person in a message body: their name, set apart by a soft tint (not colour alone: the name carries the "@"). The reader's own
+   mention is heavier and underlined, a shape the tint does not have to carry. */
+.mention {
+  background: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5));
+  border-radius: var(--mantine-radius-sm);
+  padding-inline: 0.25em;
+}
+
+.mentionSelf {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}

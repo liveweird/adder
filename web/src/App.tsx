@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { ActionIcon, AppShell, Box, Burger, Divider, Group, NavLink, ScrollArea, Text, Tooltip } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from "@tabler/icons-react";
@@ -15,6 +15,7 @@ import TelemetryPanelCrash from "./components/TelemetryPanelCrash";
 import UserMenu from "./components/UserMenu";
 import VersionStamp from "./components/VersionStamp";
 import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
+import { createKnownNames, KnownNamesContext } from "./utils/knownNames";
 import { activeNavPath, ROOMS_SECTION, visibleSections, type NavLeaf } from "./utils/navigation";
 import { roomPath } from "./utils/roomLinks";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
@@ -61,6 +62,8 @@ function RouteFallback() {
 function Shell() {
   const { t } = useTranslation();
   const admin = useAdmin();
+  // The names this session has seen, above the routes and inside the session boundary (a new sign-in starts with none).
+  const [knownNames] = useState(createKnownNames);
   const [opened, { toggle, close }] = useDisclosure();
   const { pathname } = useLocation();
   // Every page prints in the light scheme (the print-aware provider in main.tsx reads what this reports).
@@ -214,13 +217,15 @@ function Shell() {
         {/* A page crash stays inside the main area — header/nav keep working, and navigating
             anywhere remounts the boundary (see components/ErrorBoundary.tsx). The inner
             Suspense keeps the shell mounted while a lazy page chunk loads. */}
-        <ThreadDraftsProvider>
-          <RouteErrorBoundary>
-            <Suspense fallback={<RouteFallback />}>
-              <Outlet />
-            </Suspense>
-          </RouteErrorBoundary>
-        </ThreadDraftsProvider>
+        <KnownNamesContext.Provider value={knownNames}>
+          <ThreadDraftsProvider>
+            <RouteErrorBoundary>
+              <Suspense fallback={<RouteFallback />}>
+                <Outlet />
+              </Suspense>
+            </RouteErrorBoundary>
+          </ThreadDraftsProvider>
+        </KnownNamesContext.Provider>
       </AppShell.Main>
 
       {showPanel && (

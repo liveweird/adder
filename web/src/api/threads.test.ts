@@ -35,6 +35,12 @@ describe("threads API wrappers", () => {
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&tag=Wdro%C5%BCenie&tag=hawai%27i&tag=a+1%2F2");
   });
 
+  test("listThreads sends the mentioned people as the repeated mentionedUserId key", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 50, total: 0 })));
+    await listThreads(5, { page: 1, pageSize: 50, mentionedUserId: [7, 9] });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&mentionedUserId=7&mentionedUserId=9");
+  });
+
   test("listRoomTags reads a room's tags with paging, sort and the substring filter, and omits what is unset", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [{ tag: "outage", threadCount: 3 }], page: 1, pageSize: 50, total: 1 })));
     await expect(listRoomTags(5, { page: 1, pageSize: 50 })).resolves.toMatchObject({ items: [{ tag: "outage", threadCount: 3 }] });

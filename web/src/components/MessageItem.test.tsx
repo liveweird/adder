@@ -49,6 +49,12 @@ describe("MessageItem", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  test("a mention in the body reads as the person's name when the message lists it, and as the raw token when it does not", () => {
+    renderItem(makeMessage({ body: "Ask <@5> or <@77>.", mentions: [{ userId: 5, name: "Ann Owner" }] }), { edit: false, remove: null });
+    expect(screen.getByText("@Ann Owner")).toBeInTheDocument();
+    expect(screen.getByText(/or <@77>\./)).toBeInTheDocument();
+  });
+
   test("a hashtag in the body is a link that keeps the thread open and filters the list to the tag as typed, across open and closed threads", () => {
     renderItem(makeMessage({ body: "Rolled back, see #Wdro\u017cenie and #outage-3.", threadNumber: 42 }), { edit: false, remove: null });
     const tag = screen.getByRole("link", { name: "#Wdro\u017cenie" });
