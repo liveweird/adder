@@ -1,0 +1,16 @@
+{
+  "title": "Notifications",
+  "empty": "You have no notifications.",
+  "markAllSeen": "Mark all as seen",
+  "markAllFailed": "Could not mark the notifications as seen.",
+  "loadFailed": "Could not load the notifications.",
+  "unseenRow": "Unseen",
+  "unseenMany": "999+ unseen",
+  "unseen_one": "{{count}} unseen",
+  "unseen_other": "{{count}} unseen",
+  "inRoom": "{{room}} · {{when}}",
+  "event": {
+    "MENTIONED": "{{actor}} mentioned you in #{{number}} {{title}}",
+    "THREAD_ASSIGNED": "{{actor}} made you the owner of #{{number}} {{title}}"
+  }
+}

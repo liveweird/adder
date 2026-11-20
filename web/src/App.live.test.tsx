@@ -17,11 +17,13 @@ const WORKFLOW = { revision: 1, statuses: [{ key: "open", label: "Triage", colou
 
 let title = "Disk full on db-3";
 let roomStatus = 200;
+let unseenTotal = 0;
 const calls: string[] = [];
 
 function api(url: string, init?: RequestInit): Promise<Response> {
   calls.push(`${init?.method ?? "GET"} ${url}`);
   if (url === "/api/v1/live/tickets") return Promise.resolve(jsonResponse(200, { ticket: "t".repeat(43), expiresAt: Date.now() + 30_000 }));
+  if (url.startsWith("/api/v1/notifications?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: unseenTotal }));
   if (url.startsWith("/api/v1/rooms?")) return Promise.resolve(jsonResponse(200, RAIL));
   if (url === "/api/v1/rooms/12") return Promise.resolve(roomStatus === 200 ? jsonResponse(200, ROOM_12) : jsonResponse(roomStatus, { title: "Not found", status: roomStatus }));
   if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
@@ -52,6 +54,7 @@ describe("the shell's live socket", () => {
   beforeEach(() => {
     title = "Disk full on db-3";
     roomStatus = 200;
+    unseenTotal = 0;
     calls.length = 0;
     localStorage.setItem("adder.auth.token", "fake-token");
     vi.stubGlobal("WebSocket", SocketStub);
@@ -105,6 +108,15 @@ describe("the shell's live socket", () => {
     act(() => socket.receive({ type: "event", kind: "thread.updated", roomId: 12, threadNumber: 7 }));
     expect(await screen.findByRole("region", { name: "#7 Disk full on db-4" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: /Disk full on db-4/ })).toBeInTheDocument();
+  });
+
+  test("a notification.created frame updates the bell's badge without a reload, and a notice reaches the recipient with no room subscription", async () => {
+    const socket = await openLiveThread();
+    const bell = await screen.findByRole("button", { name: "Notifications (0 unseen)" });
+    unseenTotal = 2;
+    act(() => socket.receive({ type: "event", kind: "notification.created", roomId: 99, threadNumber: 3, messageId: 5 }));
+    expect(await screen.findByRole("button", { name: "Notifications (2 unseen)" })).toBe(bell);
+    expect(within(screen.getByRole("banner")).getByText("2")).toBeInTheDocument();
   });
 
   test("revoked turns the room's pages to the uniform not-found without a reload", async () => {

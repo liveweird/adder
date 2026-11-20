@@ -56,8 +56,8 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame(event("message.edited", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
   });
 
-  test("message.deleted re-reads the conversation, the thread, the thread list and the room's pins (not the rail)", () => {
-    expect(keysForFrame(event("message.deleted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
+  test("message.deleted re-reads the conversation, the thread, the thread list, the room's pins and the notices (not the rail)", () => {
+    expect(keysForFrame(event("message.deleted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5], ["notifications"]]);
   });
 
   test("message.reaction_changed re-reads the conversation, and nothing else: a reaction moves no count, order or rail", () => {
@@ -93,12 +93,12 @@ describe("keysForFrame: the key map", () => {
   });
 
   test("room.deleted and an unknown kind with a room re-read everything the room's pages read; room.deleted also names the room's search results", () => {
-    expect(keysForFrame(event("room.deleted", 5))).toEqual([...gone(5), ["search", "room", 5]]);
+    expect(keysForFrame(event("room.deleted", 5))).toEqual([...gone(5), ["search", "room", 5], ["notifications"]]);
     expect(keysForFrame(event("room.from_the_future", 5, 7))).toEqual(gone(5));
   });
 
   test("revoked re-reads the same, the room's own search results, and an open search across rooms (a lost room's hits must leave it)", () => {
-    expect(keysForFrame({ type: "revoked", roomId: 5 })).toEqual([...gone(5), ["search", "room", 5], ["search"]]);
+    expect(keysForFrame({ type: "revoked", roomId: 5 })).toEqual([...gone(5), ["search", "room", 5], ["search"], ["notifications"]]);
   });
 
   test("of every frame, only revoked and room.deleted name a room's search results: results are not live", () => {
@@ -125,6 +125,10 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame(event("message.posted", 5))).toEqual([["rooms", "threads", 5], RAIL]);
   });
 
+  test("message.deleted without its thread number still re-reads the notices: the ones about the message went with it", () => {
+    expect(keysForFrame(event("message.deleted", 5))).toEqual([["rooms", "threads", 5], RAIL, ["notifications"]]);
+  });
+
   test("a subscribed ack re-reads, per acked room, what the page read before the subscription existed", () => {
     expect(keysForFrame({ type: "subscribed", roomIds: [5, 6], refused: [9], capped: [] })).toEqual([
       ["rooms", "detail", 5],
@@ -141,9 +145,9 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame({ type: "subscribed", roomIds: [], refused: [9], capped: [] })).toEqual([]);
   });
 
-  test("ready re-reads the rail and the rooms list, resync all of ['rooms'], pong nothing", () => {
-    expect(keysForFrame({ type: "ready", protocol: 1, maxSubscriptions: 128 })).toEqual([RAIL, LIST]);
-    expect(keysForFrame({ type: "resync" })).toEqual([["rooms"]]);
+  test("ready re-reads the rail, the rooms list and the notices, resync all of ['rooms'] and the notices, pong nothing", () => {
+    expect(keysForFrame({ type: "ready", protocol: 1, maxSubscriptions: 128 })).toEqual([RAIL, LIST, ["notifications"]]);
+    expect(keysForFrame({ type: "resync" })).toEqual([["rooms"], ["notifications"]]);
     expect(keysForFrame({ type: "pong" })).toEqual([]);
   });
 
@@ -341,7 +345,7 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(999);
     expect(t.flushed()).toEqual([]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toHaveLength(7);
+    expect(t.flushed()).toHaveLength(8);
   });
 
   test("a hint that arrives while a spread flush waits brings it forward to the settle", () => {
@@ -366,6 +370,29 @@ describe("createLiveInvalidator", () => {
     expect(t.flushed().filter((key) => (key as unknown[])[3] === "list")).toHaveLength(1);
   });
 
+  test("a burst of notification.created frames re-reads the notices at most once per 3 s", () => {
+    const t = setup();
+    const notices = () => t.flushed().filter((key) => JSON.stringify(key) === '["notifications"]').length;
+    t.invalidator.handle(event("notification.created", 5, 7, 1));
+    t.invalidator.handle(event("notification.created", 5, 7, 2));
+    t.clock.advanceBy(300);
+    expect(notices()).toBe(1);
+    // A hint right after the flush waits out the gap (3 s from that flush), then re-reads once for the whole burst.
+    t.invalidator.handle(event("notification.created", 5, 7, 3));
+    t.clock.advanceBy(1_000);
+    t.invalidator.handle(event("notification.created", 5, 7, 4));
+    t.clock.advanceBy(1_999);
+    expect(notices()).toBe(1);
+    t.clock.advanceBy(1);
+    expect(notices()).toBe(2);
+    // ...and the gap holds for the next one too.
+    t.invalidator.handle(event("notification.created", 5, 7, 5));
+    t.clock.advanceBy(2_999);
+    expect(notices()).toBe(2);
+    t.clock.advanceBy(1);
+    expect(notices()).toBe(3);
+  });
+
   test("a resync counts as the rail's and the rooms list's re-read too", () => {
     const t = setup();
     t.clock.randomValue = 0;
@@ -373,9 +400,9 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(0);
     t.invalidator.handle(event("room.created", 5));
     t.clock.advanceBy(2999);
-    expect(t.flushed()).toEqual([["rooms"]]);
+    expect(t.flushed()).toEqual([["rooms"], ["notifications"]]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toEqual([["rooms"], RAIL, LIST]);
+    expect(t.flushed()).toEqual([["rooms"], ["notifications"], RAIL, LIST]);
   });
 
   test("a focused key is never spaced by the 3 s gap (only the aggregates are)", () => {
@@ -478,7 +505,7 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(999);
     expect(t.flushed()).toEqual([]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toEqual([["rooms"]]);
+    expect(t.flushed()).toEqual([["rooms"], ["notifications"]]);
   });
 
   test("a key being fetched is NOT cancelled or re-read: it is tried again until it is idle", () => {

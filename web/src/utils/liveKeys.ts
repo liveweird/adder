@@ -18,7 +18,8 @@ type ThreadScopedKind = Extract<LiveEventKind, `thread.${string}` | `message.${s
 
 /** The thread-scoped kinds need the thread number; a hint without one falls back to the room's whole thread tree. */
 function threadKeys(kind: ThreadScopedKind, r: number, n: number | undefined): QueryKey[] {
-  if (n === undefined) return [threads(r), RAIL];
+  // A deleted message takes its notices with it, so even a hint that names no thread re-reads them.
+  if (n === undefined) return kind === "message.deleted" ? [threads(r), RAIL, notificationsKey] : [threads(r), RAIL];
   switch (kind) {
     case "thread.created":
       return [threadList(r), workflow(r), workflowEdit(r), RAIL];
@@ -37,8 +38,9 @@ function threadKeys(kind: ThreadScopedKind, r: number, n: number | undefined): Q
       // Only the conversation shows reactions: no count, no list order and no rail moves with one (a reaction is not activity). Spaced: `isSlowFrame`.
       return [messages(r, n)];
     default:
-      // message.deleted: the tombstone, the count on the thread and its row, and the room's pins (a deleted message loses its pin).
-      return [messages(r, n), threadDetail(r, n), threadList(r), pins(r)];
+      // message.deleted: the tombstone, the count on the thread and its row, the room's pins (a deleted message loses its pin) and the notices
+      // (the ones about it went with it, and the badge and the drawer must not keep a row that now opens nothing).
+      return [messages(r, n), threadDetail(r, n), threadList(r), pins(r), notificationsKey];
   }
 }
 
@@ -51,8 +53,8 @@ function eventKeys(kind: LiveEventKind, r: number, n: number | undefined): Query
     case "room.unarchived":
       return [detail(r), RAIL, ROOM_LIST];
     case "room.deleted":
-      // The one hint besides `revoked` that names the room's search results: the room is gone, so are its hits.
-      return [...roomGone(r), roomKeys.search(r)];
+      // The one hint besides `revoked` that names the room's search results: the room is gone, so are its hits (and the notices of the room).
+      return [...roomGone(r), roomKeys.search(r), notificationsKey];
     case "room.pin_changed":
       return [pins(r)];
     case "room.workflow_updated":
@@ -77,14 +79,16 @@ export function keysForFrame(frame: LiveServerFrame): QueryKey[] {
       return isKnownKind(frame.kind) ? eventKeys(frame.kind, frame.roomId, frame.threadNumber) : roomGone(frame.roomId);
     case "revoked":
       // A lost room's hits leave an open search, the room's own and the one across rooms; search results are otherwise not live.
-      return [...roomGone(frame.roomId), roomKeys.search(frame.roomId), searchAllKey];
+      // The notices of a lost room leave the badge and the drawer too (the server stops listing them).
+      return [...roomGone(frame.roomId), roomKeys.search(frame.roomId), searchAllKey, notificationsKey];
     case "subscribed":
       // The subscription is live only from this ack: whatever changed between the page's own read and now is caught by one re-read.
       return frame.roomIds.flatMap((r) => [detail(r), threads(r), members(r), workflow(r), workflowEdit(r)]);
     case "ready":
-      return [RAIL, ROOM_LIST];
+      // A notice may have been minted while the socket was down: the badge and the drawer are re-read with the lists.
+      return [RAIL, ROOM_LIST, notificationsKey];
     case "resync":
-      return [roomKeys.all];
+      return [roomKeys.all, notificationsKey];
     case "pong":
       return [];
   }
@@ -105,8 +109,12 @@ const MAX_WAIT_MS = 1_000;
  */
 const SPREAD_MS = 2_000;
 
-/** The rail, the rooms list and a room's thread list: `["rooms","rail"]`, `["rooms","list"]`, `["rooms","threads",R,"list"]`. */
+/**
+ * The rail, the rooms list, a room's thread list and the caller's notices (the badge and the drawer): `["rooms","rail"]`, `["rooms","list"]`,
+ * `["rooms","threads",R,"list"]`, `["notifications"]`.
+ */
 function isAggregate(key: QueryKey): boolean {
+  if (key.length === 1) return key[0] === notificationsKey[0];
   if (key.length === 2) return key[1] === "rail" || key[1] === "list";
   return key.length === 4 && key[1] === "threads" && key[3] === "list";
 }

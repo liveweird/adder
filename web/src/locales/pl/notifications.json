@@ -1,0 +1,18 @@
+{
+  "title": "Powiadomienia",
+  "empty": "Nie masz powiadomień.",
+  "markAllSeen": "Oznacz wszystkie jako przeczytane",
+  "markAllFailed": "Nie udało się oznaczyć powiadomień jako przeczytanych.",
+  "loadFailed": "Nie udało się wczytać powiadomień.",
+  "unseenRow": "Nieprzeczytane",
+  "unseenMany": "Ponad 999 nieprzeczytanych",
+  "unseen_one": "{{count}} nieprzeczytane",
+  "unseen_few": "{{count}} nieprzeczytane",
+  "unseen_many": "{{count}} nieprzeczytanych",
+  "unseen_other": "{{count}} nieprzeczytanego",
+  "inRoom": "{{room}} · {{when}}",
+  "event": {
+    "MENTIONED": "{{actor}} wspomina o Tobie w #{{number}} {{title}}",
+    "THREAD_ASSIGNED": "{{actor}} przekazuje Ci wątek #{{number}} {{title}}"
+  }
+}

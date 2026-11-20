@@ -9,6 +9,7 @@ import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
 import LiveStatus from "./components/LiveStatus";
 import LoadingBlock from "./components/LoadingBlock";
+import NotificationsButton from "./components/NotificationsButton";
 import RoomsRail from "./components/RoomsRail";
 import ThreadDraftsProvider from "./components/ThreadDraftsProvider";
 import TelemetryPanelCrash from "./components/TelemetryPanelCrash";
@@ -174,6 +175,7 @@ function Shell() {
           </Group>
           <Group gap="sm" wrap="nowrap">
             <LiveStatus status={liveStatus} />
+            <NotificationsButton />
             <CommandPalette />
             <UserMenu />
           </Group>
