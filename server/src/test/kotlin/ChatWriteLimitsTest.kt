@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.plugins.ProblemDetail
+import ch.nokillswit.threads.MessagePageResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.PinRequest
@@ -12,10 +13,12 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -202,6 +205,26 @@ class ChatWriteLimitsTest {
     }
 
     private fun encodedDigits(id: UInt): String = id.toString().map { "%%%02X".format(it.code) }.joinToString("")
+
+    @Test
+    fun `a compressed message body is never decompressed - it is a 415 and posts nothing`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("cw-gzip")
+        val room = room(owner)
+        val post = "$rooms/$room/threads/1/messages"
+        for ((encoding, body) in compressedBodies("""{"body":"smuggled by compression"}""")) {
+            assertTrue(body.size < 64 * 1024, "the $encoding wire body is under the message ceiling")
+            val response = owner.client.request(post) {
+                method = HttpMethod.Post
+                header(HttpHeaders.ContentEncoding, encoding)
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+            assertEquals(HttpStatusCode.UnsupportedMediaType, response.status, encoding)
+        }
+        val posted = owner.client.get("$rooms/$room/threads/1/messages").body<MessagePageResponse>().items
+        assertTrue(posted.none { it.body?.contains("smuggled") == true }, "nothing the compressed bodies carried was posted")
+    }
 
     @Test
     fun `the ceilings match the path as routing sees it - an encoded room id, number or letter does not slip past to the global one`() =

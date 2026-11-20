@@ -1,5 +1,6 @@
 package ch.nokillswit.live
 
+import ch.nokillswit.infra.clientAddressKey
 import ch.nokillswit.plugins.respondProblem
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -146,7 +147,7 @@ private fun refusal(call: ApplicationCall, config: LiveConfig, hub: LiveHub, aud
             audits.refused("capacity", null, "limit" to "sockets")
             HttpStatusCode.ServiceUnavailable
         }
-        hub.pending.held(pendingAddressKey(call.request.origin.remoteHost)) >= config.maxPendingPerAddress -> {
+        hub.pending.held(call.clientAddressKey()) >= config.maxPendingPerAddress -> {
             audits.refused("capacity", null, "limit" to "pending-per-address")
             HttpStatusCode.ServiceUnavailable
         }

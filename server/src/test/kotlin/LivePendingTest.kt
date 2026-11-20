@@ -1,9 +1,9 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.addressKey
 import ch.nokillswit.live.LIVE_UNAVAILABLE_PROBLEM_TYPE
 import ch.nokillswit.live.LiveHub
 import ch.nokillswit.live.LiveHubKey
-import ch.nokillswit.live.pendingAddressKey
 import ch.nokillswit.plugins.ProblemDetail
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -52,22 +52,20 @@ class LivePendingTest {
 
     @Test
     fun `the address key is the whole IPv4 address, an IPv6 address by its 64, and an IPv4-mapped one as IPv4`() {
-        assertEquals("203.0.113.9", pendingAddressKey("203.0.113.9"))
-        assertNotEquals(pendingAddressKey("203.0.113.9"), pendingAddressKey("203.0.113.10"))
-        val a = pendingAddressKey("2001:db8:1:2::1")
-        assertEquals(a, pendingAddressKey("2001:DB8:1:2:ffff:ffff:ffff:ffff"), "the same /64, any spelling")
-        assertEquals(a, pendingAddressKey("[2001:db8:1:2::7]"), "brackets")
-        assertEquals(a, pendingAddressKey("2001:db8:1:2::1%eth0"), "a zone id")
-        assertNotEquals(a, pendingAddressKey("2001:db8:1:3::1"), "the next /64")
-        assertEquals("203.0.113.9", pendingAddressKey("::ffff:203.0.113.9"))
-        // Text a resolver could be asked about is never parsed as an address: it only groups itself.
-        assertEquals(".a:b", pendingAddressKey(".a:b"))
-        assertEquals("a:b", pendingAddressKey("a:b"))
-        assertEquals("evil.example:80", pendingAddressKey("evil.example:80"))
-        assertEquals("1:2:3:4:5:6:7:8:9", pendingAddressKey("1:2:3:4:5:6:7:8:9"))
-        assertEquals("localhost", pendingAddressKey(" LocalHost "))
-        assertEquals("not:an:address!", pendingAddressKey("not:an:address!"), "text that is no literal groups by itself")
-        assertTrue(pendingAddressKey("x".repeat(500)).length <= 64, "client text is cut")
+        assertEquals("203.0.113.9", addressKey("203.0.113.9"))
+        assertNotEquals(addressKey("203.0.113.9"), addressKey("203.0.113.10"))
+        val a = addressKey("2001:db8:1:2::1")
+        assertEquals(a, addressKey("2001:DB8:1:2:ffff:ffff:ffff:ffff"), "the same /64, any spelling")
+        assertEquals(a, addressKey("[2001:db8:1:2::7]"), "brackets")
+        assertEquals(a, addressKey("2001:db8:1:2::1%eth0"), "a zone id")
+        assertNotEquals(a, addressKey("2001:db8:1:3::1"), "the next /64")
+        assertEquals("203.0.113.9", addressKey("::ffff:203.0.113.9"))
+        // Text that is no address literal is no key at all (the call falls back to the TCP peer, `ClientAddressKeyTest`); a resolver is
+        // never asked about it either.
+        val junk = listOf(".a:b", "a:b", "evil.example:80", "1:2:3:4:5:6:7:8:9", " LocalHost ", "not:an:address!", "", "999.1.1.1", "1.2.3")
+        for (text in junk + "x".repeat(500)) {
+            assertNull(addressKey(text), "'${text.take(20)}' is not an address")
+        }
     }
 
     @Test

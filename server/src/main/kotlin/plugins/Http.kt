@@ -127,7 +127,6 @@ fun Application.configureHttp() {
     install(RequestBodyLimit) {
         bodyLimit(::requestBodyLimit)
     }
-    install(ResponseValidators)
     install(CachingHeaders) {
         options { call, outgoingContent ->
             when (outgoingContent.contentType?.withoutParameters()) {
@@ -147,16 +146,10 @@ fun Application.configureHttp() {
                 // API answers (JSON and RFC 7807 problem+json) carry per-user, bearer-authorized data:
                 // `no-store` keeps them out of browser/proxy caches (a shared machine's back button, an
                 // intermediary replaying one user's list to another). Scoped to /api/ so a static JSON
-                // asset the SPA ships (if one ever appears) is not swept up. The one exception is a view GET's
-                // revalidated `200` (ETag + its own single `no-store`, written by `ResponseValidators` —
-                // `.claude/docs/security.md` "Caching"; the exemption only avoids a duplicate header);
-                // `problem+json` is ALWAYS `no-store`, whatever a route offered before it failed.
+                // asset the SPA ships (if one ever appears) is not swept up (`.claude/docs/security.md` "Caching").
+                // `problem+json` is `no-store` too.
                 ContentType.Application.Json ->
-                    if (call.request.path().startsWith("/api/") && !call.isRevalidated()) {
-                        CachingOptions(CacheControl.NoStore(null))
-                    } else {
-                        null
-                    }
+                    if (call.request.path().startsWith("/api/")) CachingOptions(CacheControl.NoStore(null)) else null
                 ContentType.Application.ProblemJson ->
                     if (call.request.path().startsWith("/api/")) CachingOptions(CacheControl.NoStore(null)) else null
                 else -> null
@@ -170,6 +163,15 @@ fun Application.configureHttp() {
     // `remoteHost`: the JDK caches the resolved name), and the proxy-trust interceptor below overrides it with the trusted hop.
     intercept(ApplicationCallPipeline.Setup) {
         call.mutableOriginConnectionPoint.remoteHost = numericClientHost(call.request.local)
+    }
+    // No route accepts a request body that carries a `Content-Encoding` (other than `identity`): it is refused here, before any ceiling,
+    // WAF or parser reads it, so a compressed or merely labelled body is never decoded and never parsed (checkup C-SEC-1; the 415
+    // vocabulary of a wrong media type). `Compression` below is response-only for the same reason.
+    intercept(ApplicationCallPipeline.Setup) {
+        if (hasEncodedBody(call.request.headers.getAll(HttpHeaders.ContentEncoding))) {
+            call.respondProblem(HttpStatusCode.UnsupportedMediaType, "Request bodies must not be encoded (Content-Encoding)")
+            finish()
+        }
     }
     // CORS is installed only when a cross-origin caller actually exists (an explicit allow-list
     // via CORS_ALLOWED_HOSTS). Production is single-origin (Ktor serves the SPA) and local dev
@@ -239,7 +241,12 @@ fun Application.configureHttp() {
             forHeaders.clear()
         }
     }
-    install(Compression)
+    // Responses only. The plugin's default mode also INFLATES request bodies (`Content-Encoding`, `maxDecodedContentLength` unlimited),
+    // after `RequestBodyLimit` has counted the wire bytes: an 8 KiB gzip body could inflate past the heap (checkup C-SEC-1). A request with
+    // a `Content-Encoding` is refused with a 415 above, and this keeps the plugin from decoding one even if that guard were lost.
+    install(Compression) {
+        mode = CompressionConfig.Mode.CompressResponse
+    }
     // DefaultHeaders' own `Server: Ktor/<version>` would disclose the framework and its exact version to
     // every client (checkup 2C18); a fixed generic value replaces it. `Date` stays.
     install(DefaultHeaders) {
@@ -263,6 +270,10 @@ fun Application.configureHttp() {
  * to the engine's, a reverse-DNS name. Internal for the unit test, which cannot make a test host resolve one.
  */
 internal fun numericClientHost(local: RequestConnectionPoint): String = local.remoteAddress
+
+/** Whether a request's `Content-Encoding` header lines ask for anything but `identity` (a blank value is none: nothing was encoded). */
+internal fun hasEncodedBody(lines: List<String>?): Boolean =
+    lines.orEmpty().flatMap { it.split(',') }.map { it.trim() }.any { it.isNotEmpty() && !it.equals("identity", ignoreCase = true) }
 
 /** Whether the request's own authority can be read: `origin.serverPort` throws on a `Host` port that is not a number. */
 private fun hostIsReadable(call: ApplicationCall): Boolean =

@@ -1,9 +1,9 @@
 package ch.nokillswit.plugins
 
 import ch.nokillswit.authz.caller
+import ch.nokillswit.infra.clientAddressKey
 import ch.nokillswit.infra.config.requireConfigInt
 import io.ktor.server.application.*
-import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.ratelimit.RateLimit
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.util.AttributeKey
@@ -283,7 +283,7 @@ fun Application.configureRateLimits() {
                     // The plugin gives its 429 no handle on the bucket, but it computes this key right before
                     // rejecting, so the name stamped here is the rejecting bucket's (the `rate_limit.exceeded` audit).
                     call.attributes.put(RateLimitBucketKey, name)
-                    call.request.origin.remoteHost
+                    call.clientAddressKey()
                 }
             }
         }

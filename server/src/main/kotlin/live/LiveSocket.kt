@@ -2,8 +2,8 @@ package ch.nokillswit.live
 
 import ch.nokillswit.auth.AccessVerdict
 import ch.nokillswit.auth.TokenBlocklistService
+import ch.nokillswit.infra.clientAddressKey
 import ch.nokillswit.rooms.RoomService
-import io.ktor.server.plugins.origin
 import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.DefaultWebSocketSession
@@ -64,7 +64,7 @@ internal suspend fun DefaultWebSocketServerSession.liveSession(deps: LiveSession
     val hub = deps.hub
     // The advisory check at admission can be raced by a few upgrades in flight; this claim is the authoritative one. The address is the
     // one the per-IP bucket keyed by (the real client behind a proxy), an IPv6 one by its /64.
-    val address = pendingAddressKey(call.request.origin.remoteHost)
+    val address = call.clientAddressKey()
     val claim = hub.pending.claim(address, deps.config.maxPendingAuth, deps.config.maxPendingPerAddress)
     if (claim != PendingClaim.OK) {
         val limit = if (claim == PendingClaim.ADDRESS_FULL) "pending-per-address" else "pending-auth"
