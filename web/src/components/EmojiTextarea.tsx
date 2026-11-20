@@ -68,7 +68,9 @@ export default function EmojiTextarea({
     onChange(next);
     requestAnimationFrame(() => {
       el?.focus();
-      el?.setSelectionRange(start + native.length, start + native.length);
+      // A caller that reshaped the text (a mention taken whole) has placed the caret in ITS coordinates already; `start + native.length`
+      // would be the caret of the text as spliced here.
+      if (el?.value === next) el.setSelectionRange(start + native.length, start + native.length);
     });
   };
 

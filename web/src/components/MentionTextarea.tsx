@@ -6,7 +6,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { listRoomMembers } from "../api/rooms";
 import { FILTER_DEBOUNCE_MS } from "../hooks/usePagedSort";
 import { useKnownNames } from "../utils/knownNames";
-import { editCanonical, mentionQuery, pickMention, toShown, toShownOffset, type MentionQuery, type Shown } from "../utils/mentionText";
+import { editCanonical, mentionQuery, pickMention, toCanonicalOffset, toShown, toShownOffset, type MentionQuery, type Selection, type Shown } from "../utils/mentionText";
 import { foldDiacritics } from "../utils/text";
 import { roomMemberPickerKey } from "../utils/roomMemberOptions";
 import EmojiTextarea from "./EmojiTextarea";
@@ -41,10 +41,13 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
   const textarea = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
   const [query, setQuery] = useState<MentionQuery | null>(null);
-  // The `@` (a shown offset) whose list Escape closed: it stays closed until that `@` is gone.
+  // The `@` (a CANONICAL offset, so typing earlier in the text moves it along, `handleChange`) whose list Escape closed, or that a pick that did
+  // not fit left open: it stays closed until that `@` is gone.
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [active, setActive] = useState(0);
   const composing = useRef(false);
+  // The box's selection as the last `select` event reported it: what an edit over a selection replaced (null once an edit used it).
+  const selection = useRef<Selection | null>(null);
   // Where the caret goes after the next render (shown offset): a re-render with a different shown text moves it to the end.
   const pendingCaret = useRef<number | null>(null);
 
@@ -61,7 +64,9 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
   const settled = query !== null && members.data !== undefined && !members.isFetching && term === query.term;
   const typed = foldDiacritics(query?.term ?? "");
   const items = (members.data?.items ?? []).filter((member) => settled || foldDiacritics(member.name).includes(typed));
-  const open = query !== null && dismissedAt !== query.from && items.length > 0;
+  const open = query !== null && dismissedAt !== toCanonicalOffset(shown, query.from) && items.length > 0;
+  // A refetch can shrink the list under the highlighted row.
+  const current = Math.min(active, items.length - 1);
   const store = useCombobox({ opened: open });
 
   useLayoutEffect(() => {
@@ -74,7 +79,6 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
 
   function followCaret(from: Shown, caret: number | null) {
     const next = caret === null || composing.current ? null : mentionQuery(from, caret);
-    if (next === null) setDismissedAt(null);
     if (next?.from !== query?.from || next?.term !== query?.term) setActive(0);
     setQuery(next);
   }
@@ -83,8 +87,22 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
     const el = textarea.current;
     // The caret is only meaningful when the box really holds the typed text (not for the picker's splice, which sets no DOM value).
     const caret = el !== null && el.value === typed ? el.selectionEnd : null;
-    const result = editCanonical(shown, typed, caret, maxLength);
-    if (result.canonical === canonical) return;
+    const result = editCanonical(shown, typed, caret, maxLength, selection.current);
+    selection.current = null;
+    if (result.canonical === canonical) {
+      // Nothing to store (the cap cut the insert to nothing): React puts the old value back and the caret would jump to the end.
+      const restored = toShownOffset(shown, result.caret);
+      queueMicrotask(() => {
+        if (el !== null && el.value === shown.text) el.setSelectionRange(restored, restored);
+      });
+      return;
+    }
+    // The dismissed `@` moves with the edit and is gone when the edit replaced it.
+    setDismissedAt((at) => {
+      if (at === null || (at >= result.from && at < result.to)) return null;
+      const moved = at >= result.to ? at + (result.caret - result.to) : at;
+      return result.canonical[moved] === "@" ? moved : null;
+    });
     const next = toShown(result.canonical, known.get);
     const shownCaret = toShownOffset(next, result.caret);
     pendingCaret.current = shownCaret;
@@ -96,9 +114,14 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
     const member = items[index];
     if (member === undefined || query === null) return;
     const result = pickMention(shown, query, query.from + 1 + query.term.length, member.userId, maxLength);
-    if (result === null) return;
+    if (result === null) {
+      // The token does not fit in the limit: close the list instead of leaving a pick that does nothing.
+      setDismissedAt(toCanonicalOffset(shown, query.from));
+      return;
+    }
     known.remember([{ userId: member.userId, name: member.name }]);
     pendingCaret.current = toShownOffset(toShown(result.canonical, known.get), result.caret);
+    selection.current = null;
     setQuery(null);
     setDismissedAt(null);
     onChange(result.canonical);
@@ -110,18 +133,18 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
     if (open && query !== null && !event.nativeEvent.isComposing && event.keyCode !== 229) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
-        setActive((index) => (index + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length);
+        setActive((index) => (Math.min(index, items.length - 1) + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length);
         return;
       }
       if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) {
         event.preventDefault();
-        pick(active);
+        pick(current);
         return;
       }
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        setDismissedAt(query.from);
+        setDismissedAt(toCanonicalOffset(shown, query.from));
         return;
       }
     }
@@ -131,6 +154,7 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
   function handleSelect(event: SyntheticEvent<HTMLTextAreaElement>) {
     onSelect?.(event);
     const el = event.currentTarget;
+    selection.current = el.selectionStart < el.selectionEnd ? { start: el.selectionStart, end: el.selectionEnd } : null;
     // A selection event before the render of the last edit describes text this render no longer shows.
     if (el.value === shown.text) followCaret(shown, el.selectionStart === el.selectionEnd ? el.selectionEnd : null);
   }
@@ -168,7 +192,7 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
             aria-autocomplete="list"
             aria-haspopup="listbox"
             aria-controls={open ? listId : undefined}
-            aria-activedescendant={open ? `${listId}-${active}` : undefined}
+            aria-activedescendant={open ? `${listId}-${current}` : undefined}
           />
         </Combobox.Target>
         <Combobox.Dropdown>
@@ -178,8 +202,8 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
                 key={member.userId}
                 id={`${listId}-${index}`}
                 value={String(member.userId)}
-                selected={index === active}
-                aria-selected={index === active}
+                selected={index === current}
+                aria-selected={index === current}
                 onMouseEnter={() => setActive(index)}
               >
                 <Group justify="space-between" gap="sm" wrap="nowrap">

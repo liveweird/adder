@@ -97,6 +97,50 @@ describe("editCanonical", () => {
     expect(edit("a <@99> b", 3, 4, "").canonical).toBe("a <99> b");
   });
 
+  describe("typing over a selection inside a mention", () => {
+    // shown "x @Ann Owner y": the mention is 2-12 (canonical "x <@5> y")
+    const over = (from: number, to: number, typed: string) => {
+      const shown = toShown("x <@5> y", nameOf);
+      const next = shown.text.slice(0, from) + typed + shown.text.slice(to);
+      return editCanonical(shown, next, from + typed.length, undefined, { start: from, end: to }).canonical;
+    };
+
+    test("a character equal to the one before the selection is typed, not read as a deletion", () => {
+      expect(over(2, 12, "@")).toBe("x @ y");
+    });
+
+    test("a character equal to the first selected one is typed, not read as a deletion", () => {
+      // select the last "er" of "Ann Owner" and type "e"
+      expect(over(10, 12, "e")).toBe("x e y");
+    });
+
+    test("deleting a selection and typing over a part of a name both replace the whole token", () => {
+      expect(over(4, 8, "")).toBe("x  y");
+      expect(over(4, 8, "Q")).toBe("x Q y");
+    });
+
+    test("without the selection the same text reads as a deletion (the text alone cannot tell)", () => {
+      const shown = toShown("x <@5> y", nameOf);
+      expect(editCanonical(shown, "x @ y", 3).canonical).toBe("x  y");
+    });
+
+    test("a stale selection is ignored: the text does not fit it", () => {
+      const shown = toShown("hello", nameOf);
+      expect(editCanonical(shown, "heXllo", 3, undefined, { start: 0, end: 2 }).canonical).toBe("heXllo");
+      expect(editCanonical(shown, "hello", 1, undefined, { start: 3, end: 99 }).canonical).toBe("hello");
+    });
+
+    test("an empty selection is no selection", () => {
+      const shown = toShown("hello", nameOf);
+      expect(editCanonical(shown, "heXllo", 3, undefined, { start: 2, end: 2 }).canonical).toBe("heXllo");
+    });
+
+    test("the answer names the replaced canonical range", () => {
+      const result = edit("x <@5> y", 5, 5, "z");
+      expect(result).toMatchObject({ canonical: "x z y", from: 2, to: 6, caret: 3 });
+    });
+  });
+
   test("without a caret, the common prefix and suffix find the edit (the picker's splice)", () => {
     const shown = toShown("a <@5> b", nameOf); // "a @Ann Owner b"
     expect(editCanonical(shown, "a @Ann Owner😀 b", null).canonical).toBe("a <@5>😀 b");

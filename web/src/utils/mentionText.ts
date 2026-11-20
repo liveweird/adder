@@ -45,7 +45,7 @@ const shownEnd = (piece: Piece) => piece.sStart + piece.shown.length;
 const canonicalEnd = (piece: Piece) => piece.cStart + piece.canonical.length;
 
 /** The canonical offset of a shown offset that is on a run boundary or inside plain text (inside a mention it answers the mention's start). */
-function toCanonicalOffset(shown: Shown, offset: number): number {
+export function toCanonicalOffset(shown: Shown, offset: number): number {
   for (const piece of shown.pieces) {
     if (offset > shownEnd(piece)) continue;
     if (piece.id === undefined) return piece.cStart + (offset - piece.sStart);
@@ -66,12 +66,32 @@ export function toShownOffset(shown: Shown, offset: number): number {
 
 type Change = { from: number; to: number; inserted: string };
 
+/** A selection of the shown text (offsets, `start < end` when something is selected). */
+export type Selection = { start: number; end: number };
+
+/**
+ * The edit when it replaced a non-empty selection the box reported BEFORE it: shown `[start, end)` by whatever sits between the unchanged head
+ * and tail. The text alone cannot tell "selected `nn` and typed `n`" from "backspaced one `n`", and the caret reads a typed character equal to
+ * its neighbour as a deletion; the selection can. Null when there is none or the text does not fit it (a stale selection).
+ */
+function selectedChange(previous: string, next: string, caret: number | null, selection: Selection | null | undefined): Change | null {
+  if (selection == null || selection.start >= selection.end || selection.start < 0 || selection.end > previous.length) return null;
+  const tail = previous.length - selection.end;
+  if (next.length < selection.start + tail) return null;
+  if (!next.startsWith(previous.slice(0, selection.start)) || !next.endsWith(previous.slice(selection.end))) return null;
+  const inserted = next.slice(selection.start, next.length - tail);
+  if (caret !== null && caret !== selection.start + inserted.length) return null;
+  return { from: selection.start, to: selection.end, inserted };
+}
+
 /**
  * What the edit replaced: shown `[from, to)` by `inserted`. With the caret the box reports after the edit (it sits right after what was typed,
  * pasted or composed, or at the cut for a deletion) the range is exact even among repeated characters; without a usable caret (an edit that
  * did not move it, such as an emoji spliced in by the picker) it is the common prefix and suffix.
  */
-function changedRange(previous: string, next: string, caret: number | null): Change {
+function changedRange(previous: string, next: string, caret: number | null, selection?: Selection | null): Change {
+  const selected = selectedChange(previous, next, caret, selection);
+  if (selected !== null) return selected;
   if (caret !== null && caret >= 0 && caret <= next.length) {
     const tail = next.slice(caret);
     const to = previous.length - tail.length;
@@ -99,10 +119,18 @@ function endsInHighSurrogate(text: string): boolean {
 /**
  * The canonical text after the box's text became `next` (`caret`: its selection end, or null). A mention the edit touches goes whole. With
  * `maxLength`, the inserted text is cut to what still fits in the CANONICAL text (the native attribute would count the shown one), as the native
- * attribute cuts a paste. `caret` in the answer is the canonical offset right after the inserted text.
+ * attribute cuts a paste. `selection` is the box's selection before the edit (shown offsets), which tells typing over a selection from a
+ * deletion. In the answer `caret` is the canonical offset right after the inserted text and `from`/`to` the canonical range of the PREVIOUS
+ * text the edit replaced.
  */
-export function editCanonical(shown: Shown, next: string, caret: number | null, maxLength?: number): { canonical: string; caret: number } {
-  let { from, to, inserted } = changedRange(shown.text, next, caret);
+export function editCanonical(
+  shown: Shown,
+  next: string,
+  caret: number | null,
+  maxLength?: number,
+  selection?: Selection | null,
+): { canonical: string; caret: number; from: number; to: number } {
+  let { from, to, inserted } = changedRange(shown.text, next, caret, selection);
   for (const piece of shown.pieces) {
     if (piece.id === undefined) continue;
     const start = piece.sStart;
@@ -121,7 +149,7 @@ export function editCanonical(shown: Shown, next: string, caret: number | null, 
       if (endsInHighSurrogate(inserted)) inserted = inserted.slice(0, -1);
     }
   }
-  return { canonical: shown.canonical.slice(0, cFrom) + inserted + shown.canonical.slice(cTo), caret: cFrom + inserted.length };
+  return { canonical: shown.canonical.slice(0, cFrom) + inserted + shown.canonical.slice(cTo), caret: cFrom + inserted.length, from: cFrom, to: cTo };
 }
 
 /** The `@term` being typed: `from` is the shown offset of the `@`, `term` what follows it up to the caret. */
