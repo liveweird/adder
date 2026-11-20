@@ -174,8 +174,9 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
         continue;
       }
       pending.delete(id);
-      // Only the spaced keys need a stamp; a wider re-read stamps the aggregates it covers (the 3 s guarantee holds).
-      if (entry.spaced) lastFlushedAt.set(id, now);
+      // EVERY flush is stamped, not only a spaced entry's: a conversation re-read that a post drove (an entry a reaction joined but did not own)
+      // must still hold a reaction right after it to the 3 s gap. A wider re-read stamps the aggregates it covers (the 3 s guarantee holds).
+      lastFlushedAt.set(id, now);
       for (const covered of coveredAggregates(entry.key)) lastFlushedAt.set(covered, now);
       void queryClient.invalidateQueries({ queryKey: entry.key });
     }
@@ -194,8 +195,8 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       if (!existing || dueAt < existing.dueAt) pending.set(id, { key, spaced, firstAt: existing?.firstAt ?? now, dueAt });
     } else if (existing?.spaced) {
       // A hint that is no reaction (a post) for a conversation waiting out the gap: it settles on its own clock, and only ever brings the re-read forward.
+      // There is no debounce here by design (`firstAt` is read only by the plain-key branch below): the due time can only move earlier, never later.
       existing.dueAt = Math.min(existing.dueAt, now + SETTLE_MS);
-      existing.firstAt = now;
     } else if (existing) {
       existing.dueAt = Math.min(now + SETTLE_MS, existing.firstAt + MAX_WAIT_MS);
     } else {

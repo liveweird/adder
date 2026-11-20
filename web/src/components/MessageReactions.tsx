@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Box, Button, Group, Text, Tooltip } from "@mantine/core";
+import { Box, Button, Text, Tooltip, VisuallyHidden } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { setMessageReaction, type MessageResponse, type ReactionSummary } from "../api/messages";
 import { messageErrorMessage } from "../utils/messageForm";
@@ -19,12 +19,18 @@ function reactorNames(reaction: ReactionSummary, t: TFunction, language: string)
 }
 
 /**
- * The reactions under one message: a chip per emoji (the emoji and its count; pressed when the reader reacted; a tooltip names the first reactors)
- * and, while the reader may react (`actions.react`), the emoji picker that adds one. Pressing a chip sets the opposite state of the reader's own
- * reaction; the server is the only truth, so nothing is changed until the conversation is re-read (no optimistic update). Where the reader may
- * not react (a closed thread, an archived room, a non-member) the chips are plain read-only text and there is no picker. A tombstone has none.
- * The failure goes to `onError` (the message shows it under itself); a refusal re-reads the room, so the controls follow the truth, and the
- * `reaction-limit` 409 (the room is fine) re-reads only the conversation.
+ * The reactions under one message, a list with one item per emoji: a chip (the emoji and its count, both hidden from assistive technology behind
+ * a text label "👍, 3 reactions" and, as the description, the first reactors' names; a tooltip shows the names too) and, while the reader may react
+ * (`actions.react`), the emoji picker that adds one. Pressing a chip sets the opposite state of the reader's own reaction (`aria-pressed` says
+ * which; the label does not repeat it); the server is the only truth, so nothing is changed until the conversation is re-read (no optimistic
+ * update). Where the reader may not react (a closed thread, an archived room, a non-member) the chips are list items of plain text (the reader's own
+ * is marked by a shape and said in the text) and there is no picker. A tombstone has none.
+ *
+ * One write is in flight at a time (a ref: a second press in the same tick must see it, and a re-render would be too late). A chip press during one
+ * is ignored; a picker pick is queued (the last one wins) and sent as soon as the write is answered. Focus: the chip the reader pressed can vanish
+ * (its count reached 0), then focus moves to the "Add a reaction" button, which a picker pick returns it to as well; the result is told through a
+ * polite status that is part of this component. The failure goes to `onError` (the message shows it under itself); a refusal re-reads the room,
+ * so the controls follow the truth, and the `reaction-limit` 409 (the room is fine) re-reads only the conversation.
  */
 export default function MessageReactions({
   roomId,
@@ -39,60 +45,132 @@ export default function MessageReactions({
 }) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  // A press is ignored (not disabled: that would drop the focus the pressed chip holds) while one write is in flight.
-  const [busy, setBusy] = useState(false);
+  const idBase = useId();
+  // A press is ignored (the chip is not disabled: that would drop the focus it holds) while one write is in flight.
+  const busy = useRef(false);
+  const queuedPick = useRef<string | null>(null);
+  const pressedEmoji = useRef<string | null>(null);
+  const addRef = useRef<HTMLSpanElement>(null);
+  const [announcement, setAnnouncement] = useState("");
   const { reactions } = message;
+
+  // The chip the reader pressed has gone (its count reached 0): its focus went with it, so the add button takes it.
+  useEffect(() => {
+    const emoji = pressedEmoji.current;
+    if (emoji === null || reactions.some((reaction) => reaction.emoji === emoji)) return;
+    pressedEmoji.current = null;
+    if (document.activeElement === null || document.activeElement === document.body) addRef.current?.querySelector("button")?.focus();
+  }, [reactions]);
+
   if (message.deleted || (reactions.length === 0 && !canReact)) return null;
 
-  async function set(emoji: string, reacted: boolean) {
-    if (busy) return;
-    onError(null);
-    setBusy(true);
-    try {
-      await setMessageReaction(roomId, message.id, emoji, reacted);
-      await refreshQueriesAfterMutation(queryClient, roomKeys.messages(roomId, message.threadNumber));
-    } catch (err) {
-      onError(messageErrorMessage(err, t));
-      if (isProblem(err, PROBLEM_TYPES.reactionLimit)) await refreshQueriesAfterMutation(queryClient, roomKeys.messages(roomId, message.threadNumber));
-      else if (isAccessRefusal(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
-    } finally {
-      setBusy(false);
-    }
+  const rereadConversation = () => refreshQueriesAfterMutation(queryClient, roomKeys.messages(roomId, message.threadNumber));
+
+  function sendQueuedPick() {
+    const next = queuedPick.current;
+    queuedPick.current = null;
+    if (next !== null) void write(next, true);
   }
 
+  async function write(emoji: string, reacted: boolean) {
+    onError(null);
+    busy.current = true;
+    try {
+      await setMessageReaction(roomId, message.id, emoji, reacted);
+    } catch (err) {
+      busy.current = false;
+      onError(messageErrorMessage(err, t));
+      sendQueuedPick();
+      if (isProblem(err, PROBLEM_TYPES.reactionLimit)) await rereadConversation();
+      else if (isAccessRefusal(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
+      return;
+    }
+    // Answered: the next write may start now, not after the re-read (which only shows the truth).
+    busy.current = false;
+    setAnnouncement(t(reacted ? "threads.reaction.addedAnnounce" : "threads.reaction.removedAnnounce", { emoji }));
+    sendQueuedPick();
+    await rereadConversation();
+  }
+
+  function pressChip(reaction: ReactionSummary) {
+    pressedEmoji.current = reaction.emoji;
+    if (!busy.current) void write(reaction.emoji, !reaction.reacted);
+  }
+
+  function pick(emoji: string) {
+    if (busy.current) queuedPick.current = emoji;
+    else void write(emoji, true);
+    addRef.current?.querySelector("button")?.focus();
+  }
+
+  const language = i18n.resolvedLanguage ?? "en";
   return (
-    <Group gap={4} wrap="wrap" role="group" aria-label={t("threads.reaction.group")} aria-busy={busy || undefined}>
-      {reactions.map((reaction) => {
-        const label = t(reaction.reacted ? "threads.reaction.chipReacted" : "threads.reaction.chip", { emoji: reaction.emoji, total: reaction.count });
-        const body = (
-          <>
-            <span aria-hidden="true">{reaction.emoji}</span>{" "}
-            <Text component="span" size="xs" aria-hidden="true">
-              {reaction.count}
-            </Text>
-          </>
-        );
-        return (
-          <Tooltip key={reaction.emoji} label={reactorNames(reaction, t, i18n.resolvedLanguage ?? "en")} withinPortal>
-            {canReact ? (
-              <Button
-                size="compact-xs"
-                variant={reaction.reacted ? "light" : "default"}
-                aria-pressed={reaction.reacted}
-                aria-label={label}
-                onClick={() => void set(reaction.emoji, !reaction.reacted)}
-              >
-                {body}
-              </Button>
-            ) : (
-              <Box component="span" role="img" aria-label={label} data-reacted={reaction.reacted || undefined} px="xs" fz="sm">
-                {body}
-              </Box>
-            )}
-          </Tooltip>
-        );
-      })}
-      {canReact && <EmojiButton label={t("threads.reaction.add")} onSelect={(emoji) => void set(emoji, true)} />}
-    </Group>
+    <Box display="flex" style={{ flexWrap: "wrap", alignItems: "center", gap: 4 }}>
+      {/* No list without a reaction, and the picker is no list item: a message's `li` never nests an empty or picker-only list (the conversation is a list of messages). */}
+      {reactions.length > 0 && (
+      <Box component="ul" role="list" aria-label={t("threads.reaction.group")} display="flex" m={0} p={0} style={{ listStyle: "none", flexWrap: "wrap", gap: 4 }}>
+        {reactions.map((reaction, index) => {
+          const label = t("threads.reaction.chip", { emoji: reaction.emoji, count: reaction.count });
+          const names = reactorNames(reaction, t, language);
+          const visible = (
+            <>
+              <span aria-hidden="true">{reaction.emoji}</span>{" "}
+              <Text component="span" size="xs" aria-hidden="true">
+                {reaction.count}
+              </Text>
+            </>
+          );
+          const nameId = `${idBase}-names-${index}`;
+          return (
+            <Box component="li" key={reaction.emoji}>
+              {canReact ? (
+                <>
+                  <Tooltip label={names} withinPortal>
+                    <Button
+                      size="compact-xs"
+                      variant={reaction.reacted ? "light" : "default"}
+                      aria-pressed={reaction.reacted}
+                      aria-label={label}
+                      aria-describedby={nameId}
+                      onClick={() => pressChip(reaction)}
+                    >
+                      {visible}
+                    </Button>
+                  </Tooltip>
+                  <VisuallyHidden id={nameId}>{names}</VisuallyHidden>
+                </>
+              ) : (
+                <>
+                  {/* The reader's own reaction is a shape (a tint, a heavier weight and border), never colour alone. */}
+                  <Tooltip label={names} withinPortal>
+                    <Box
+                      component="span"
+                      data-reacted={reaction.reacted || undefined}
+                      px="xs"
+                      fz="sm"
+                      fw={reaction.reacted ? 700 : 400}
+                      bg={reaction.reacted ? "var(--mantine-primary-color-light)" : undefined}
+                      bd={`${reaction.reacted ? 2 : 1}px solid var(--mantine-color-default-border)`}
+                      style={{ borderRadius: "var(--mantine-radius-sm)", display: "inline-block" }}
+                    >
+                      {visible}
+                    </Box>
+                  </Tooltip>
+                  <VisuallyHidden>{[label, reaction.reacted ? t("threads.reaction.youReacted") : "", names].filter(Boolean).join(". ")}</VisuallyHidden>
+                </>
+              )}
+            </Box>
+          );
+        })}
+      </Box>
+      )}
+      {canReact && (
+        <Box component="span" ref={addRef}>
+          <EmojiButton label={t("threads.reaction.add")} onSelect={pick} />
+        </Box>
+      )}
+      {/* Mounted with its text (never a standing empty region per message: the conversation has a status of its own, and a long thread has hundreds of messages). */}
+      {announcement !== "" && <VisuallyHidden role="status">{announcement}</VisuallyHidden>}
+    </Box>
   );
 }

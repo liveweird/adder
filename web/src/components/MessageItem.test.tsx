@@ -327,30 +327,30 @@ describe("MessageItem", () => {
 
     test("with the react action the message offers the chips and the picker", () => {
       renderItem(makeMessage({ reactions: [THUMBS] }), { edit: false, remove: null, react: true });
-      expect(screen.getByRole("button", { name: "👍 2" })).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByRole("button", { name: "👍, 2 reactions" })).toHaveAttribute("aria-pressed", "false");
       expect(screen.getByRole("button", { name: "Add a reaction" })).toBeInTheDocument();
     });
 
     test("without it the chips are read-only and there is no picker (a closed thread, an archived room, a non-member)", () => {
       renderItem(makeMessage({ reactions: [THUMBS] }), { edit: false, remove: null });
-      expect(screen.getByRole("img", { name: "👍 2" })).toBeInTheDocument();
+      expect(screen.getByRole("list", { name: "Reactions" })).toHaveTextContent("👍, 2 reactions. Ann Owner and Bob Starter");
       expect(screen.queryByRole("button")).not.toBeInTheDocument();
     });
 
     test("a message with no reactions and no react action shows nothing of them", () => {
       renderItem(makeMessage(), { edit: false, remove: null });
-      expect(screen.queryByRole("group", { name: "Reactions" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("list", { name: "Reactions" })).not.toBeInTheDocument();
     });
 
     test("a tombstone shows none, even with the action", () => {
       renderItem(makeMessage({ body: null, deleted: true, reactions: [THUMBS] }), { edit: false, remove: null, react: true });
-      expect(screen.queryByRole("group", { name: "Reactions" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("list", { name: "Reactions" })).not.toBeInTheDocument();
     });
 
     test("a refused reaction is told under the message, and stays while the message is not being edited", async () => {
       mockFetch.mockResolvedValue(jsonResponse(409, { type: "urn:adder:problem:reaction-limit", status: 409, title: "Limit" }));
       renderItem(makeMessage({ reactions: [THUMBS] }), { edit: false, remove: null, react: true });
-      await userEvent.setup().click(screen.getByRole("button", { name: "👍 2" }));
+      await userEvent.setup().click(screen.getByRole("button", { name: "👍, 2 reactions" }));
       expect(await screen.findByText("This message cannot take another reaction.")).toBeInTheDocument();
     });
   });

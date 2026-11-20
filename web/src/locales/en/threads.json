@@ -226,8 +226,11 @@
   "reaction": {
     "group": "Reactions",
     "add": "Add a reaction",
-    "chip": "{{emoji}} {{total}}",
-    "chipReacted": "{{emoji}} {{total}}, you reacted",
+    "chip_one": "{{emoji}}, {{count}} reaction",
+    "chip_other": "{{emoji}}, {{count}} reactions",
+    "youReacted": "You reacted",
+    "addedAnnounce": "You reacted with {{emoji}}",
+    "removedAnnounce": "You removed your {{emoji}} reaction",
     "names_one": "{{names}} and {{count}} more",
     "names_other": "{{names}} and {{count}} more",
     "limit": "This message cannot take another reaction."

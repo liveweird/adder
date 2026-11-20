@@ -436,6 +436,41 @@ describe("createLiveInvalidator", () => {
     expect(t.flushedMessages()).toHaveLength(2);
   });
 
+  test("a post that joins a waiting reaction re-read and flushes it still gaps a reaction right after it by 3 s", () => {
+    const t = setup();
+    t.holdListBusy();
+    t.invalidator.handle(event("message.reaction_changed", 5, 7, 1));
+    t.clock.advanceBy(300);
+    t.invalidator.handle(event("message.reaction_changed", 5, 7, 2));
+    t.invalidator.handle(event("message.posted", 5, 7, 3));
+    t.clock.advanceBy(300);
+    expect(t.flushedMessages()).toHaveLength(2);
+    t.invalidator.handle(event("message.reaction_changed", 5, 7, 4));
+    t.clock.advanceBy(2_999);
+    expect(t.flushedMessages()).toHaveLength(2);
+    t.clock.advanceBy(1);
+    expect(t.flushedMessages()).toHaveLength(3);
+  });
+
+  test("a post-driven flush stamps the conversation: a reaction right after a post is gapped, though no reaction came before it", () => {
+    const t = setup();
+    t.holdListBusy();
+    // The reaction joins the post's pending entry without owning it (the same due time), so the flush is the post's.
+    t.invalidator.handle(event("message.posted", 5, 7, 1));
+    t.invalidator.handle(event("message.reaction_changed", 5, 7, 2));
+    t.clock.advanceBy(300);
+    expect(t.flushedMessages()).toHaveLength(1);
+    t.invalidator.handle(event("message.reaction_changed", 5, 7, 3));
+    t.clock.advanceBy(2_999);
+    expect(t.flushedMessages()).toHaveLength(1);
+    t.clock.advanceBy(1);
+    expect(t.flushedMessages()).toHaveLength(2);
+  });
+
+  test("a reaction hint without a thread number falls back to the room's thread tree and the rail, like any thread-scoped hint", () => {
+    expect(keysForFrame(event("message.reaction_changed", 5))).toEqual([["rooms", "threads", 5], RAIL]);
+  });
+
   test("a resync waits a random 0 to 2 s and then re-reads everything under ['rooms']", () => {
     const t = setup();
     t.clock.randomValue = 0.5;
