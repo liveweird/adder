@@ -91,7 +91,9 @@ class PackageBoundaryTest {
     fun `no package outside notifications references notifications but the composition root`() {
         // notifications/ is a top layer above threads/ (it implements the `ThreadNotices` port threads/ declares and reads threads/,
         // rooms/ and users/): the chat reaches it only through that port, `infra/db/Database.kt` constructs it, and application.yaml names
-        // its modules by string. The scan must see the package, or an empty result proves nothing.
+        // its modules by string. (One exception is SQL text, not a reference: the boot purge `threads/StaleDerivedRows.kt` deletes from the
+        // `notifications` table for messages a 0.5.x rollback deleted behind the port's back; `persistence.md` names it.) The scan must see
+        // the package, or an empty result proves nothing.
         val declared = mainSources.any { packageOf(it.readText()) == "ch.nokillswit.notifications" }
         assertTrue(declared, "no source declares ch.nokillswit.notifications")
         val violations = mainSources.flatMap { file ->
