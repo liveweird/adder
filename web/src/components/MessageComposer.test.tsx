@@ -8,6 +8,7 @@ import ThreadDraftsProvider from "./ThreadDraftsProvider";
 import { jsonResponse } from "../test/http";
 import { makeMessage, makeRoom, makeThread } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
+import { createKnownNames, KnownNamesContext } from "../utils/knownNames";
 
 describe("MessageComposer", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -168,6 +169,39 @@ describe("MessageComposer", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "toggle pane" }));
     expect(box()).toHaveValue("half a thought");
+  });
+
+  test("a mention is posted as its token, and the kept draft comes back with its names", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/v1/rooms/12/members?")) {
+        const items = [{ userId: 7, name: "Bob Builder", email: "bob@example.test", role: "MEMBER", addedAt: 1 }];
+        return Promise.resolve(jsonResponse(200, { items, page: 1, pageSize: 8, total: 1 }));
+      }
+      return Promise.resolve(init?.method === "POST" ? jsonResponse(201, makeMessage({ id: 77 })) : jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
+    });
+    const names = createKnownNames();
+    function Named() {
+      const [shown, setShown] = useState(true);
+      return (
+        <ThreadDraftsProvider>
+          <KnownNamesContext.Provider value={names}>
+            <button onClick={() => setShown(!shown)}>toggle pane</button>
+            {shown && <MessageComposer room={makeRoom()} thread={makeThread()} onPosted={vi.fn()} />}
+          </KnownNamesContext.Provider>
+        </ThreadDraftsProvider>
+      );
+    }
+    const user = userEvent.setup();
+    renderWithProviders(<Named />);
+    await user.type(box(), "@bo");
+    await user.click(await screen.findByRole("option", { name: /Bob Builder/ }));
+    await user.type(box(), "look");
+    await user.click(screen.getByRole("button", { name: "toggle pane" }));
+    await user.click(screen.getByRole("button", { name: "toggle pane" }));
+    expect(box()).toHaveValue("@Bob Builder look");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse(posts()[0][1].body as string)).toEqual({ body: "<@7> look" });
   });
 
   test("a posted reply leaves no draft behind", async () => {

@@ -30,6 +30,7 @@ const WORKFLOW = {
     { key: "link", label: "Jira link", type: "URL", required: false, options: [] },
   ],
 };
+const BOB = { userId: 7, name: "Bob Builder", email: "bob@example.test", role: "MEMBER", addedAt: 1 };
 const CREATED = { id: 1, number: 7, title: "Disk full", status: "triage" };
 
 function Where() {
@@ -77,6 +78,7 @@ describe("NewThreadForm", () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(workflow.clone());
       if (url === "/api/v1/rooms/12/threads" && init?.method === "POST") return Promise.resolve(create());
+      if (url.startsWith("/api/v1/rooms/12/members?")) return Promise.resolve(jsonResponse(200, { items: [BOB], page: 1, pageSize: 8, total: 1 }));
       return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
     });
   }
@@ -120,6 +122,23 @@ describe("NewThreadForm", () => {
       body: "db-3 is at 100%",
       fields: { severity: "s2", component: "db" },
     });
+  });
+
+  test("the opening message takes a mention: the box shows the name and the thread starts with the token", async () => {
+    serve();
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(await screen.findByRole("textbox", { name: /Title/ }), "Disk full");
+    const body = screen.getByRole("textbox", { name: /First message/ });
+    await user.type(body, "ping @bo");
+    await user.click(await screen.findByRole("option", { name: /Bob Builder/ }));
+    await user.type(body, "please look");
+    expect(body).toHaveValue("ping @Bob Builder please look");
+    await user.click(screen.getByRole("combobox", { name: /Severity/ }));
+    await user.click(await screen.findByRole("option", { name: "S1" }));
+    await user.click(screen.getByRole("button", { name: "Start thread" }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse((posts()[0][1] as RequestInit).body as string).body).toBe("ping <@7> please look");
   });
 
   test("the list's keys of the URL ride along: a started thread opens with them, and a clean Cancel goes back to the list with them", async () => {

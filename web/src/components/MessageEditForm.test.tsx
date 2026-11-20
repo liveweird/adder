@@ -7,6 +7,7 @@ import type { MessageResponse } from "../api/messages";
 import { jsonResponse } from "../test/http";
 import { makeMessage } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
+import { createKnownNames, KnownNamesContext } from "../utils/knownNames";
 
 describe("MessageEditForm", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -27,7 +28,14 @@ describe("MessageEditForm", () => {
   function renderForm(message: MessageResponse, queryClient?: QueryClient) {
     const onDone = vi.fn();
     const onError = vi.fn();
-    renderWithProviders(<MessageEditForm roomId={12} message={message} onDone={onDone} onError={onError} />, { queryClient });
+    // The shell's names store, as in the app: the editor and the box share it.
+    const names = createKnownNames();
+    renderWithProviders(
+      <KnownNamesContext.Provider value={names}>
+        <MessageEditForm roomId={12} message={message} onDone={onDone} onError={onError} />
+      </KnownNamesContext.Provider>,
+      { queryClient },
+    );
     return { onDone, onError };
   }
 
@@ -125,6 +133,32 @@ describe("MessageEditForm", () => {
     await waitFor(() => expect(box()).toHaveFocus());
     expect(onDone).not.toHaveBeenCalled();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms"] });
+  });
+
+  test("a stored token shows as a name, and an untouched body is not sent", async () => {
+    const user = userEvent.setup();
+    const { onDone } = renderForm(makeMessage({ id: 9, body: "hi <@5>", mentions: [{ userId: 5, name: "Ann Owner" }] }));
+    expect(box()).toHaveValue("hi @Ann Owner");
+    await user.click(box());
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(puts()).toHaveLength(0);
+  });
+
+  test("editing after a mention sends the token", async () => {
+    const user = userEvent.setup();
+    const { onDone } = renderForm(makeMessage({ id: 9, body: "hi <@5>", mentions: [{ userId: 5, name: "Ann Owner" }] }));
+    await user.type(box(), "!");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(puts()[0][1].body as string)).toEqual({ body: "hi <@5>!" });
+  });
+
+  test("one backspace into a mention removes it whole", async () => {
+    const user = userEvent.setup();
+    renderForm(makeMessage({ id: 9, body: "hi <@5>", mentions: [{ userId: 5, name: "Ann Owner" }] }));
+    await user.type(box(), "{Backspace}");
+    expect(box()).toHaveValue("hi ");
   });
 
   test("a reload warns while the text is changed, and not before", async () => {

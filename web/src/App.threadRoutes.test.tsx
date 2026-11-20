@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { MantineProvider } from "@mantine/core";
 import { MemoryRouter } from "react-router-dom";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
+import { persistSession } from "./api/session";
 import { jsonResponse } from "./test/http";
 import { SocketStub } from "./test/socket";
 
@@ -37,6 +39,10 @@ describe("a room's thread routes", () => {
       vi.fn((url: string) => {
         if (url.startsWith("/api/v1/rooms?")) return Promise.resolve(jsonResponse(200, RAIL));
         if (url === "/api/v1/rooms/12") return Promise.resolve(jsonResponse(200, ROOM_12));
+        if (url.startsWith("/api/v1/rooms/12/members?")) {
+          const items = [{ userId: 7, name: "Bob Builder", email: "bob@example.test", role: "MEMBER", addedAt: 1 }];
+          return Promise.resolve(jsonResponse(200, { items, page: 1, pageSize: 8, total: 1 }));
+        }
         if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
         if (url.startsWith("/api/v1/rooms/12/threads?")) return Promise.resolve(jsonResponse(200, { items: [THREAD_ITEM], page: 1, pageSize: 50, total: 1 }));
         if (url === "/api/v1/rooms/12/threads/7") {
@@ -69,5 +75,17 @@ describe("a room's thread routes", () => {
     expect(await screen.findByRole("textbox", { name: /Title/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Threads" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByText("This thread does not exist.")).not.toBeInTheDocument();
+  });
+
+  test("the names a mention pick taught the session are gone when someone else signs in, even with the shell still mounted", async () => {
+    const user = userEvent.setup();
+    renderApp("/rooms/12/threads/new");
+    const body = await screen.findByRole("textbox", { name: /First message/ });
+    await user.type(body, "@bo");
+    await user.click(await screen.findByRole("option", { name: /Bob Builder/ }));
+    expect(body).toHaveValue("@Bob Builder ");
+    // Another account signs in (this tab or another one): the draft keeps its token, the name is not carried over to the new account.
+    act(() => persistSession({ token: "t2", expiresAt: 1, refreshToken: "r2", refreshExpiresAt: 2, userId: 2, roles: [], disabledFeatures: [], language: "en" }));
+    expect(await screen.findByRole("textbox", { name: /First message/ })).toHaveValue("<@7> ");
   });
 });

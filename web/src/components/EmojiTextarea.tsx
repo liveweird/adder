@@ -1,5 +1,6 @@
-import { useRef } from "react";
+import { useRef, type Ref } from "react";
 import { Group, Textarea, type TextareaProps } from "@mantine/core";
+import { useMergedRef } from "@mantine/hooks";
 import { useTranslation } from "react-i18next";
 import { charCountDescription, type CharCountMode } from "../utils/charCount";
 import EmojiButton from "./EmojiButton";
@@ -11,6 +12,14 @@ type EmojiTextareaProps = Omit<TextareaProps, "value" | "onChange"> & {
   onChange: (value: string) => void;
   /** Character-counter visibility when maxLength is set (v2.18.0); "nearLimit" for dense row editors. */
   counter?: CharCountMode | "none";
+  /** The textarea element, for a caller that needs the caret (`MentionTextarea`). */
+  ref?: Ref<HTMLTextAreaElement>;
+  /**
+   * The length the limit applies to, when the box shows something other than what is stored (`MentionTextarea` shows `@Name` for a stored
+   * `<@id>`). Given, the counter counts it, and the native `maxLength` attribute and the picker's own check, which would count the shown
+   * text, stand down: the caller enforces the limit on what it stores.
+   */
+  measuredLength?: number;
 };
 
 // A Mantine Textarea with the shared emoji picker in its rightSection. Picked emoji are
@@ -26,13 +35,16 @@ export default function EmojiTextarea({
   maxLength,
   counter = "always",
   description,
+  ref: outerRef,
+  measuredLength,
   ...rest
 }: EmojiTextareaProps) {
   const { t } = useTranslation();
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const own = useRef<HTMLTextAreaElement>(null);
+  const ref = useMergedRef(own, outerRef);
 
   const counterNode =
-    maxLength != null && counter !== "none" ? charCountDescription((value ?? "").length, maxLength, counter) : undefined;
+    maxLength != null && counter !== "none" ? charCountDescription(measuredLength ?? (value ?? "").length, maxLength, counter) : undefined;
   const composedDescription =
     counterNode == null ? (
       description
@@ -46,13 +58,13 @@ export default function EmojiTextarea({
     );
 
   const insert = (native: string) => {
-    const el = ref.current;
+    const el = own.current;
     const text = value ?? "";
     const start = el?.selectionStart ?? text.length;
     const end = el?.selectionEnd ?? start;
     const next = text.slice(0, start) + native + text.slice(end);
     // The native maxLength attribute only guards typing, not programmatic sets.
-    if (maxLength != null && next.length > maxLength) return;
+    if (measuredLength === undefined && maxLength != null && next.length > maxLength) return;
     onChange(next);
     requestAnimationFrame(() => {
       el?.focus();
@@ -65,7 +77,7 @@ export default function EmojiTextarea({
       ref={ref}
       value={value}
       onChange={(e) => onChange(e.currentTarget.value)}
-      maxLength={maxLength}
+      maxLength={measuredLength === undefined ? maxLength : undefined}
       rightSection={<EmojiButton label={t("common.emoji.insert")} onSelect={insert} />}
       rightSectionWidth={36}
       // Pin the button to the top edge — autosize fields grow and a centered icon would float.

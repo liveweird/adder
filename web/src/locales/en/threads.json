@@ -137,6 +137,12 @@
     "notMember": "Only members of the room can post. Join the room first.",
     "membersLink": "Open the Members page"
   },
+  "mention": {
+    "listLabel": "People in this room",
+    "matches_one": "{{count}} person matches",
+    "matches_other": "{{count}} people match",
+    "none": "No one in this room matches"
+  },
   "side": {
     "toggle": "Details",
     "status": "Status",

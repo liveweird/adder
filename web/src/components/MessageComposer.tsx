@@ -14,8 +14,8 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
 import { roomMembersPath } from "../utils/roomLinks";
 import { MAX_MESSAGE_BODY_LENGTH, messageBodyError, normalizeBody } from "../utils/threadForm";
-import EmojiTextarea from "./EmojiTextarea";
 import FormErrorAlert from "./FormErrorAlert";
+import MentionTextarea from "./MentionTextarea";
 
 // Posts in flight, by room and thread, OUTSIDE any component: a composer that is unmounted and mounted again (another thread and back, a tab and
 // back) while its post is still travelling would otherwise start from the kept draft with nothing in flight and post it a second time. The value
@@ -41,7 +41,8 @@ type ComposerProps = { room: RoomResponse; thread: ThreadResponse; onPosted: (me
 /**
  * The reply box. The text is kept per thread above the routes (`useThreadDrafts`) as it changes, so leaving the thread for another one, a
  * tab or the list does not lose a half-written reply; coming back restores it, and a post clears it. A reload warns while it holds something
- * (the in-app half of the guard is the kept draft: there is no Cancel here to confirm). Ctrl/Cmd+Enter or Send posts; Enter is a newline.
+ * (the in-app half of the guard is the kept draft: there is no Cancel here to confirm). Ctrl/Cmd+Enter or Send posts; Enter is a newline (it picks, while the list of people to mention is open: `MentionTextarea`). The kept
+ * draft is the canonical text, tokens and all; the box shows the names.
  * A failure keeps the text; a refusal (403, 404, 409) re-reads the room and the thread, so the notice that explains it replaces the box.
  */
 function ComposerForm({ room, thread, onPosted }: ComposerProps) {
@@ -104,7 +105,8 @@ function ComposerForm({ room, thread, onPosted }: ComposerProps) {
       }}
     >
       <Stack gap="xs">
-        <EmojiTextarea
+        <MentionTextarea
+          roomId={room.id}
           label={t("threads.composer.label")}
           description={t("threads.composer.hint")}
           autosize

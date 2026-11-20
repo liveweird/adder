@@ -1,3 +1,4 @@
+import { createRef } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -90,5 +91,26 @@ describe("EmojiTextarea", () => {
     );
     expect(screen.getByText("Comment")).toBeInTheDocument();
     expect(screen.getByText("Required")).toBeInTheDocument();
+  });
+
+  test("hands the textarea element to a ref from outside, and the emoji still splices at the caret", async () => {
+    const ref = createRef<HTMLTextAreaElement>();
+    const { onChange, area } = renderArea({ ref });
+    expect(ref.current).toBe(area);
+    area.focus();
+    area.setSelectionRange(5, 5);
+    await userEvent.click(screen.getByLabelText("Insert emoji"));
+    expect(onChange).toHaveBeenCalledWith("hello😀 world");
+  });
+
+  test("a measured length replaces the shown text's length in the counter, the native limit and the picker's check", async () => {
+    // 11 shown characters, but 3 stored: the counter says 3, the attribute is gone and the picker may go past the shown length.
+    const { onChange, area } = renderArea({ maxLength: 12, measuredLength: 3 });
+    expect(screen.getByText("3 / 12")).toBeInTheDocument();
+    expect(area).not.toHaveAttribute("maxlength");
+    area.focus();
+    area.setSelectionRange(11, 11);
+    await userEvent.click(screen.getByLabelText("Insert emoji"));
+    expect(onChange).toHaveBeenCalledWith("hello world😀");
   });
 });

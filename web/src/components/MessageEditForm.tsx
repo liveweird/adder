@@ -3,13 +3,14 @@ import { useTranslation } from "react-i18next";
 import { Button, Group, Stack } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { editMessage, type MessageResponse } from "../api/messages";
+import { useKnownNames } from "../utils/knownNames";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
 import { MAX_MESSAGE_BODY_LENGTH, messageBodyError, normalizeBody } from "../utils/threadForm";
 import ConfirmActionModal from "./ConfirmActionModal";
-import EmojiTextarea from "./EmojiTextarea";
+import MentionTextarea from "./MentionTextarea";
 
 /**
  * A message's inline editor (its author's, in the message's own place). It saves with Save or Ctrl/Cmd+Enter and ends through `onDone`
@@ -35,7 +36,13 @@ export default function MessageEditForm({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const original = message.body ?? "";
-  const [text, setText] = useState(original);
+  const known = useKnownNames();
+  // The body is edited as stored (tokens and all); the box shows the names of the people it mentions, so they must be known BEFORE the first
+  // render (the store is not reactive). Remembering is idempotent, which is why a render may do it.
+  const [text, setText] = useState(() => {
+    known.remember(message.mentions);
+    return original;
+  });
   const [saving, setSaving] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -72,7 +79,8 @@ export default function MessageEditForm({
   return (
     <Stack gap="xs">
       <div ref={box}>
-        <EmojiTextarea
+        <MentionTextarea
+          roomId={roomId}
           aria-label={t("threads.message.editLabel")}
           autosize
           minRows={2}

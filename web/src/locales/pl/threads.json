@@ -139,6 +139,14 @@
     "notMember": "Wiadomości mogą publikować tylko członkowie/członkinie pokoju. Najpierw dołącz do pokoju.",
     "membersLink": "Otwórz stronę Członkowie/członkinie"
   },
+  "mention": {
+    "listLabel": "Osoby w tym pokoju",
+    "matches_one": "Pasuje {{count}} osoba",
+    "matches_few": "Pasują {{count}} osoby",
+    "matches_many": "Pasuje {{count}} osób",
+    "matches_other": "Pasuje {{count}} osoby",
+    "none": "Nikt w tym pokoju nie pasuje"
+  },
   "side": {
     "toggle": "Szczegóły",
     "status": "Status",

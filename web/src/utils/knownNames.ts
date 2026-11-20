@@ -1,4 +1,6 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useMemo, useState, useSyncExternalStore } from "react";
+import { getSessionSnapshot } from "../api/session";
+import { subscribeLogicalSession } from "./sessionQueryCache";
 
 /**
  * The people's names this session has seen, by user id: the ones a message's `mentions` carry and, later, the ones a pick in the composer
@@ -25,9 +27,31 @@ export function createKnownNames(): KnownNames {
 
 export const KnownNamesContext = createContext<KnownNames | null>(null);
 
-/** The shell's store, or — with no provider (a component rendered alone) — a private one that lives as long as the component. */
+/**
+ * The shell's store, or — with no provider (a component rendered alone) — a private one that lives as long as the component. The private
+ * one is allocated only when it is needed, so a reader under the shell (every `MarkdownView`) allocates nothing.
+ */
 export function useKnownNames(): KnownNames {
   const shared = useContext(KnownNamesContext);
-  const [own] = useState(createKnownNames);
-  return shared ?? own;
+  // Allocated only without a provider (`useMemo` is a cache here, never a guarantee the store must survive: a component alone is a test's case).
+  const own = useMemo(() => (shared === null ? createKnownNames() : null), [shared]);
+  return shared ?? own ?? createKnownNames();
+}
+
+function currentIdentity(): string | null {
+  return getSessionSnapshot().identity;
+}
+
+/**
+ * The shell's store, tied to the logical session: a sign-out, a replacement login or another tab signing in as someone else (the stored
+ * identity changes) hands back a NEW empty store, so one person's names never show to the next. (`SessionBoundary` remounts the shell on
+ * the same change; this holds even where the shell stays mounted, because the store must not outlive the account it was filled for.)
+ */
+export function useSessionKnownNames(): KnownNames {
+  const identity = useSyncExternalStore(subscribeLogicalSession, currentIdentity, () => null);
+  const [held, setHeld] = useState(() => ({ identity, names: createKnownNames() }));
+  if (held.identity === identity) return held.names;
+  const next = { identity, names: createKnownNames() };
+  setHeld(next);
+  return next.names;
 }

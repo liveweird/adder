@@ -29,10 +29,10 @@ import {
 } from "../utils/threadForm";
 import { showSuccessToast } from "../utils/toast";
 import ConfirmActionModal from "./ConfirmActionModal";
-import EmojiTextarea from "./EmojiTextarea";
 import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
 import LoadingBlock from "./LoadingBlock";
+import MentionTextarea from "./MentionTextarea";
 import ThreadFieldInput from "./ThreadFieldInput";
 import { roomKeys } from "../utils/roomKeys";
 
@@ -111,7 +111,8 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
             disabled={submitting}
             {...form.getInputProps("title")}
           />
-          <EmojiTextarea
+          <MentionTextarea
+            roomId={room.id}
             label={t("threads.new.bodyLabel")}
             description={t("threads.new.bodyHint")}
             required

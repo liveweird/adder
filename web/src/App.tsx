@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense } from "react";
 import { ActionIcon, AppShell, Box, Burger, Divider, Group, NavLink, ScrollArea, Text, Tooltip } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from "@tabler/icons-react";
@@ -15,7 +15,7 @@ import TelemetryPanelCrash from "./components/TelemetryPanelCrash";
 import UserMenu from "./components/UserMenu";
 import VersionStamp from "./components/VersionStamp";
 import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
-import { createKnownNames, KnownNamesContext } from "./utils/knownNames";
+import { KnownNamesContext, useSessionKnownNames } from "./utils/knownNames";
 import { activeNavPath, ROOMS_SECTION, visibleSections, type NavLeaf } from "./utils/navigation";
 import { roomPath } from "./utils/roomLinks";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
@@ -62,8 +62,8 @@ function RouteFallback() {
 function Shell() {
   const { t } = useTranslation();
   const admin = useAdmin();
-  // The names this session has seen, above the routes and inside the session boundary (a new sign-in starts with none).
-  const [knownNames] = useState(createKnownNames);
+  // The names this session has seen, above the routes and inside the session boundary (a new sign-in, here or in another tab, starts with none).
+  const knownNames = useSessionKnownNames();
   const [opened, { toggle, close }] = useDisclosure();
   const { pathname } = useLocation();
   // Every page prints in the light scheme (the print-aware provider in main.tsx reads what this reports).
