@@ -50,6 +50,33 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **Notifications: bound what one recipient can pile up.** A per-recipient cap on UNSEEN notices (the list's `total` is capped at 1000, the rows are not), and batching the two writes that still touch every row in one statement: `threadRead` (marks a thread's notices seen) and the removal cascade of a leaving member's notices. `seen-all` is already chunked by 1,000 rows, one short transaction each.
 - [new] **Boot purge: probe each derived table through its message index.** `StaleDerivedRows` finds the deleted messages that still carry a mention, reaction, pin or notice by a `UNION` over the four tables (30 s statement budget). At a very large size, probe each table through its `message_id` index per candidate batch instead of one union.
 
+## 1.0.0 checkup (2026-11-20)
+
+The record, with evidence and the proposed fix per id: `.claude/docs/audit-status.md` "1.0.0 checkup". The checkup's own tiers: the first eight items before the 1.0.0 tag, the rest after it.
+
+- [new] **Compressed request bodies bypass every body ceiling (C-SEC-1, high).** `install(Compression)` in `plugins/Http.kt` decodes requests with no decoded-size cap after the wire-byte limit; set `mode = CompressResponse` and pin gzip bodies on the anonymous routes.
+- [new] **Bound password change and MFA codes per account (C-SEC-2, C-SEC-3).** Self password change has no bucket and no lockout; MFA bounds attempts per challenge only, and `login.mfa_failure` carries no user id.
+- [new] **Stop and join the live scope on `ApplicationStopping` (C-ARCH-1, C-DRY-3).** One background-job helper for the live, notification, telemetry and reindex scopes; the likely cause of the `LiveSweep` flake below.
+- [new] **Normalise per-IP rate-limit keys (C-SEC-4).** Key through `pendingAddressKey`; whether the k8s manifest trusts a proxy is a decision below.
+- [new] **CI: retry dependency resolution, alert on any red master job, keep the docs-budget test on Markdown PRs, fail the nightly on flaky or skipped specs (C-GATE-1, 3, 7, 8).** Close issue #14 after a green run.
+- [new] **Delete dead code and donor residue (C-SMELL-1, C-SMELL-2, C-GATE-10, C-DOC-10).** `PathGlob`, `parseIsoOffsetInstant`, `existsActive`, `upsertRows`, `RoomPinPageResponse`, the JSON array helpers, `requireFeatureEnabled`, the ETag seam, H2 ignores, a stale detekt exclude, donor migration numbers in comments.
+- [new] **Docs caught up to 0.6.0 (C-DOC-1 to 5, 7 to 9, 11; C-GATE-4).** Both READMEs (and 15 missing environment variables), `CLAUDE.md` module order (byte-neutral), `product.md` release entry, `conventions.md` exceptions, stale facts in `live.md`, `chat-model.md` and the web docs, `build-times.md` first status check and re-baselined budgets.
+- [new] **Spec prose and registries (C-API-1, 2, 3, 4, 7).** The capped notification `total` in the list ledger, the shared 429 text, the search `q` sentence, a problem-URN registry with a code-vs-spec test, the subscribe ack ids as `int64` minimum 1.
+- [new] **Tests: timing margins and the weakest-covered paths (C-TEST-1 to 4).** Wall-clock upper bounds of 350 ms to 2 s; branch coverage of `LiveSocket`, `AuthRoutes`, `ErrorHandling`; `password_reset.throttled`; a populated-upgrade migration test; `check:scenarios` skipping `accessibility.spec.ts`.
+- [new] **DRY: bounded name filter, TTL index, search budget, test fixtures (C-DRY-1, 2, 4, 5, 6).**
+- [new] **UI: per-route page titles, list dates in the browser's zone, a wider axe sweep, polish (C-UI-2 to 5).**
+- [new] **Hardening lows (C-SEC-6, 8, 9; C-ARCH-3, 5; C-API-8; C-CONV-1) and deferred refactors (C-CPX-1).**
+- [new] **Decision: required checks on master (C-GATE-1, C-GATE-2).** Nothing requires a green run; three of six releases were tagged on red commits.
+- [new] **Decision: the k8s front door (C-SEC-4).** An Ingress, or ship `HTTP_BEHIND_PROXY=false` until one exists.
+- [new] **Decision: thread-history growth (C-SEC-5, C-SEC-6).** Cap events per thread, stop storing raw TEXT/URL values, or redact; settles the "Scrub a leaked secret" item too.
+- [new] **Decision: API names before 1.0.0 freezes them (C-API-5, C-API-6).** One style for person references and booleans; one meaning for `tag`.
+- [new] **Decision: the release process (C-DOC-6).** Per-PR version bumps as `app-releases.md` says, or per milestone as practised; patch versions for fixes after a release commit.
+- [new] **Decision: room enrolment and digest mail (C-SEC-7).** Any room owner can add any user and cause a digest every 15 minutes naming a room of their choosing; consent-gated mail or a per-actor budget, and buckets on the five room-lock writes.
+- [new] **Decision: GitHub advisory and secret scanning on the public repo, and Dependabot automation (C-GATE-5, C-GATE-6).**
+- [new] **Decision: unused surface and production defaults (C-ARCH-4).** `infra/crypto` has no consumer but production requires its key; dev mode is the default outside the image; production tolerates the default DB password.
+- [new] **Decision: a backup and restore runbook (C-ARCH-2).**
+- [new] **Decision: one unread and "new" cue (C-UI-1).** Colourless badges render olive and counts red against the colour rules; unread is drawn four ways.
+
 ## Foundation follow-ups
 
 - [new] **Sign-out fires a stray 401 refetch.** `bindSessionQueryCache` clears the query cache while the old page is still mounted, so the rail (`useRailRooms`) and room header (`RoomPage`) queries refetch once without a token. Harmless console noise; gate those queries on a live session or unmount before clearing.
@@ -70,5 +97,3 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
   user may create, an owner/creator filter on `GET /rooms` for ADMINs and an ADMIN reassign/delete path; the `room-name` bucket only slows it (`security.md`).
 
 - [new] **Bots posting into rooms.** Port Flow's `integration/` service tokens when an external system should post or update threads.
-- [new] **CI's e2e `npm audit` step is red on GHSA-fc5q-39xc-vjpf.** `picomatch` <= 4.0.7, reached through knip; no patched version exists yet. Per the
-  user's choice of 2026-11-17 the step stays red until a fix ships and Dependabot picks it up (no ignore, no pin).
