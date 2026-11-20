@@ -1,12 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { useLocation } from "react-router-dom";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import NotificationsButton from "./NotificationsButton";
 import type { NotificationItem } from "../api/notifications";
+import { clearSession } from "../api/session";
+import i18n from "../i18n";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
+import { bindSessionQueryCache } from "../utils/sessionQueryCache";
 
 const ZONE = browserTimeZone();
 const AT = 1_795_000_000_000;
@@ -28,37 +32,47 @@ const notice = (over: Partial<NotificationItem> = {}): NotificationItem => ({
 const page = (items: NotificationItem[], total = items.length, pageNo = 1) => ({ items, page: pageNo, pageSize: 20, total });
 
 function Where() {
-  const { pathname, search } = useLocation();
-  return <output aria-label="where">{pathname + search}</output>;
+  const { pathname, search, state } = useLocation();
+  return (
+    <>
+      <output aria-label="where">{pathname + search}</output>
+      <output aria-label="state">{JSON.stringify(state)}</output>
+    </>
+  );
 }
 
 let unseenPage = page([notice()]);
 let listPage = page([notice(), notice({ id: 76, wasSeen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
 let listStatus = 200;
 let markAllStatus = 204;
+let seenStatus = 204;
+let unseenStatus = 200;
+/** Overrides the list's answer for a page (the default serves `listPage`, and a made-up second page for any page past 1). */
+let serveListPage: ((pageNo: number) => unknown) | null = null;
 const calls: string[] = [];
 
 function api(url: string, init?: RequestInit): Promise<Response> {
   const method = init?.method ?? "GET";
   calls.push(`${method} ${url}`);
   if (method === "POST" && url === "/api/v1/notifications/seen-all") return Promise.resolve(markAllStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(markAllStatus, { title: "Boom", status: markAllStatus }));
-  if (method === "POST" && /^\/api\/v1\/notifications\/\d+\/seen$/.test(url)) return Promise.resolve(new Response(null, { status: 204 }));
-  if (url.startsWith("/api/v1/notifications?") && url.includes("wasSeen=false")) return Promise.resolve(jsonResponse(200, unseenPage));
+  if (method === "POST" && /^\/api\/v1\/notifications\/\d+\/seen$/.test(url)) return Promise.resolve(seenStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(seenStatus, { title: "Boom", status: seenStatus }));
+  if (url.startsWith("/api/v1/notifications?") && url.includes("wasSeen=false")) return Promise.resolve(unseenStatus === 200 ? jsonResponse(200, unseenPage) : jsonResponse(unseenStatus, { title: "Boom", status: unseenStatus }));
   if (url.startsWith("/api/v1/notifications?")) {
     if (listStatus !== 200) return Promise.resolve(jsonResponse(listStatus, { title: "Boom", status: listStatus }));
     const pageNo = Number(new URL(url, "http://x").searchParams.get("page"));
+    if (serveListPage) return Promise.resolve(jsonResponse(200, serveListPage(pageNo)));
     return Promise.resolve(jsonResponse(200, pageNo > 1 ? { ...listPage, page: pageNo, items: [notice({ id: 10, threadTitle: "Second page" })] } : listPage));
   }
   return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
 }
 
-function renderBell() {
+function renderBell(route = "/rooms/3", queryClient?: QueryClient) {
   return renderWithProviders(
     <>
       <NotificationsButton />
       <Where />
     </>,
-    { route: "/rooms/3" },
+    { route, queryClient },
   );
 }
 
@@ -70,13 +84,17 @@ describe("NotificationsButton", () => {
     listPage = page([notice(), notice({ id: 76, wasSeen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
     listStatus = 200;
     markAllStatus = 204;
+    seenStatus = 204;
+    unseenStatus = 200;
+    serveListPage = null;
     calls.length = 0;
     localStorage.setItem("adder.auth.token", "fake-token");
     vi.stubGlobal("fetch", vi.fn(api));
   });
-  afterEach(() => {
+  afterEach(async () => {
     vi.unstubAllGlobals();
     localStorage.clear();
+    await i18n.changeLanguage("en");
   });
 
   test("the button is labelled with the unseen total, which is also the badge", async () => {
@@ -237,6 +255,140 @@ describe("NotificationsButton", () => {
     await user.click(within(drawer).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(button).toHaveFocus());
+  });
+
+  test("the pager's icon-only previous and next buttons have names", async () => {
+    listPage = page([notice()], 45);
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ });
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(await screen.findByRole("link", { name: /Second page/ })).toBeInTheDocument();
+    expect(calls).toContain("GET /api/v1/notifications?page=2&pageSize=20");
+  });
+
+  test("a hand-over carries the focus-the-pane state, a message jump does not", async () => {
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    await user.click(await screen.findByRole("link", { name: /Bob made you the owner of #5 Runbook/ }));
+    expect(screen.getByLabelText("state")).toHaveTextContent('{"focusPane":true}');
+    await user.click(await bell());
+    await user.click(await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ }));
+    expect(screen.getByLabelText("where")).toHaveTextContent("/rooms/12/threads/42?message=991");
+    expect(screen.getByLabelText("state")).toHaveTextContent("null");
+  });
+
+  test("a notice that leads where the person already is gives the focus back to the bell", async () => {
+    const user = userEvent.setup();
+    renderBell("/rooms/12/threads/42?message=991");
+    const button = await bell();
+    await user.click(button);
+    await user.click(await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(button).toHaveFocus());
+  });
+
+  test("a notice that leads elsewhere does not pull the focus back to the bell", async () => {
+    const user = userEvent.setup();
+    renderBell();
+    const button = await bell();
+    await user.click(button);
+    await user.click(await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(button).not.toHaveFocus();
+  });
+
+  test("a page that a re-read empties steps back to the last page that exists, not just one", async () => {
+    let total = 100;
+    serveListPage = (pageNo) => page(total === 100 || pageNo < 3 ? [notice({ id: pageNo, threadTitle: `Row ${pageNo}` })] : [], total, pageNo);
+    unseenPage = page([notice()], 2);
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    await screen.findByRole("link", { name: /Row 1/ });
+    await user.click(screen.getByRole("button", { name: "5" }));
+    await screen.findByRole("link", { name: /Row 5/ });
+    // Three pages' worth of notices go; the page the person is on is now past the end (25 notices = 2 pages).
+    total = 25;
+    await user.click(screen.getByRole("button", { name: "Mark all as seen" }));
+    expect(await screen.findByRole("link", { name: /Row 2/ })).toBeInTheDocument();
+    expect(calls.some((call) => call.includes("page=4&"))).toBe(false);
+    expect(screen.getByRole("button", { name: "2", current: "page" })).toBeInTheDocument();
+  });
+
+  test.each([404, 500])("a failed seen write (%i) still re-reads the badge and the list", async (status) => {
+    seenStatus = status;
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    await user.click(await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ }));
+    await waitFor(() => expect(calls).toContain("POST /api/v1/notifications/77/seen"));
+    await waitFor(() => expect(calls.filter((call) => call.includes("wasSeen=false")).length).toBeGreaterThan(1));
+  });
+
+  test("the badge text is hidden from assistive technology, and the bell says whether its drawer is open", async () => {
+    unseenPage = page([notice()], 3);
+    const user = userEvent.setup();
+    renderBell();
+    const button = await screen.findByRole("button", { name: "Notifications (3 unseen)" });
+    expect(screen.getByText("3").closest("[aria-hidden='true']")).not.toBeNull();
+    expect(button).toHaveAttribute("aria-expanded", "false");
+    await user.click(button);
+    await screen.findByRole("dialog", { name: "Notifications" });
+    expect(button).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("a Ctrl/Cmd-click marks the notice seen but keeps the drawer, the page and the focus", async () => {
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    const link = await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ });
+    await user.keyboard("{Control>}");
+    await user.click(link);
+    await user.keyboard("{/Control}");
+    await waitFor(() => expect(calls).toContain("POST /api/v1/notifications/77/seen"));
+    expect(screen.getByRole("dialog", { name: "Notifications" })).toBeInTheDocument();
+    expect(screen.getByLabelText("where")).toHaveTextContent(/^\/rooms\/3$/);
+  });
+
+  test("Mark all as seen shows while the list holds an unseen row, even if the badge read failed", async () => {
+    unseenStatus = 500;
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    await screen.findByRole("link", { name: /Ada mentioned you/ });
+    expect(await screen.findByRole("button", { name: "Mark all as seen" })).toBeInTheDocument();
+  });
+
+  test("signing out while mounted clears the badge, closes the drawer and reads nothing more", async () => {
+    unseenPage = page([notice()], 3);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const unbind = bindSessionQueryCache(queryClient);
+    const user = userEvent.setup();
+    renderBell("/rooms/3", queryClient);
+    await user.click(await screen.findByRole("button", { name: "Notifications (3 unseen)" }));
+    await screen.findByRole("link", { name: /Ada mentioned you/ });
+    act(() => clearSession());
+    expect(await screen.findByRole("button", { name: "Notifications (0 unseen)" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByText("3")).not.toBeInTheDocument();
+    const reads = calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls).toHaveLength(reads);
+    unbind();
+  });
+
+  test.each([
+    [2, "Powiadomienia (2 nieprzeczytane)"],
+    [5, "Powiadomienia (5 nieprzeczytanych)"],
+  ])("in Polish %i unseen reads with the right plural form", async (count, name) => {
+    await i18n.changeLanguage("pl");
+    unseenPage = page([notice()], count);
+    renderBell();
+    expect(await screen.findByRole("button", { name })).toBeInTheDocument();
   });
 
   test("the drawer is reachable from the keyboard", async () => {
