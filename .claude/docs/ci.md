@@ -13,7 +13,7 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
   lint/knip/typecheck/scenario parity/setup, the toolchain-pins check, `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
   `k8s/`, and the app deployment pinned to one replica), and `images`, an image build plus a Trivy scan of it, on `master` pushes and on every pull request that changes more than Markdown — the `changes` job decides it, as it does `server`); the blackbox Playwright
   suite (`e2e.yml`) runs nightly and on demand, and re-scans the image it built with the same Trivy gate (its "Build images" step is a plain `docker compose build`, like `images`). Dependabot (`.github/dependabot.yml`) checks every
-  workspace, Actions and container manifests weekly; `.claude/docs/dependencies.md` describes
+  workspace, Actions and container manifests weekly — the version PRs are a signal, and Gradle bumps are done in manual rounds (strict locks + checksum regeneration). Dependabot security alerts, secret scanning and push protection are enabled (2026-11-20, C-GATE-5); an open security alert is triaged within the week, fixed or dismissed with a reason; `.claude/docs/dependencies.md` describes
   grouping, compatibility pins and runtime verification, and
   `.claude/docs/dependency-reproducibility.md` describes the Gradle lock/checksum mechanism itself. The job time budgets were re-baselined on 2026-11-20 (`build-times.md`).
 

@@ -16,10 +16,14 @@ together. The Gradle bulk group excludes Exposed and the Netty/Reactor/OpenTelem
 their pins need individual compatibility review before integration. Exclusion from a group does
 not ignore an update or exempt it from review.
 
-Dependabot vulnerability alerts and security update PRs are separate GitHub repository settings
-from the version-update configuration, and are not set up here: on `liveweird/adder` (public) they are **not enabled yet** (checked 2026-11-20 with `gh api repos/liveweird/adder --jq .security_and_analysis`, where Dependabot security updates and secret scanning with push protection read `disabled`, and the `vulnerability-alerts` endpoint answers `404`); whether to enable them is the owner's open decision (`audit-status.md` C-GATE-5).
-Once on, security updates still need the normal checks; never auto-merge a breaking migration to
-clear an alert.
+Dependabot vulnerability alerts, secret scanning and push protection are separate GitHub repository settings
+from the version-update configuration. Decision of 2026-11-20 (checkup C-GATE-5, "Enable alerts + manual rounds"): on `liveweird/adder`
+they are **enabled**, the weekly version PRs stay as a signal, and Gradle bumps are hand-assembled **manual rounds** (strict locking plus
+`verification-metadata.xml` regeneration from an empty `GRADLE_USER_HOME` make an unattended Dependabot Gradle PR incomplete by construction).
+An open security alert is triaged within the week: fixed, or dismissed on GitHub with a reason. Security fixes still need the normal
+checks; never auto-merge a breaking migration to clear an alert.
+
+**Transitive npm pins.** Prefer `npm update <pkg>` inside the existing ranges. Only when a parent's range excludes the first patched version, add an `overrides` entry scoped to that parent (never a blanket one: other parents still need their own major), with its rationale here. Current: `minimatch` `^11.0.9` under `@typescript-eslint/typescript-estree` and `eslint-plugin-sonarjs` in `web/` and `e2e/` (both ask `^10`, whose last release 10.2.6 is in the advisory range below 11.0.1; the named `minimatch`/`Minimatch` exports they use exist in 11). Drop the entries when those parents move to minimatch 11.
 
 Dependabot does not cover every declaration here. At each monthly maintenance pass, inspect the
 exact JDK pin in `mise.toml`, Ktor's imported catalog in `settings.gradle.kts`, and the runtime
@@ -187,6 +191,8 @@ workspace here running the same tools:
 Flow's batch-by-batch bump log (2026-09 .. 2026-11) is not carried over: Adder starts from the dependency set Flow 1.57.1 resolved at `4e43e480` (minus WireMock and the
 integration-only clients, `infra/outbound`'s guarded HTTP client with them), and its own rounds are recorded below, newest first, as they happen. The v0.1.0 lockfiles and
 `gradle/verification-metadata.xml` were regenerated from an empty `GRADLE_USER_HOME` per `dependency-reproducibility.md`.
+
+**2026-11-20: the first security-alert fixes** (Dependabot alerts #1-#6, right after alerts were enabled): `fast-uri` 3.1.8 -> 3.1.9 in `web/` (`npm update`, inside ajv's range), and `minimatch` 10.2.6 -> 11.0.9 under `@typescript-eslint/typescript-estree` and `eslint-plugin-sonarjs` in `web/` and `e2e/` through the parent-scoped overrides above; this clears the GHSA-g3hv-75wg-m249 note of 2026-11-19. `npm audit` reads 0 in both workspaces.
 
 **2026-11-19: i18next 26.7.1 -> 27.1.1 with react-i18next 17.1.12 -> 18.0.1** (replaces Dependabot #9 and #10; react-i18next 18 requires i18next 27, so they move together). The one break was typing: i18next 27 defaults `strictInterpolationChecks` to true, so a `t()` with variables needs its options object; the workflow validation messages pass `params ?? {}` (`ValidationError.tsx`, `workflowForm.ts` `validationText`). The other v27 defaults do not reach Adder: `fallbackLng` is already `en`, no locale value is empty (the `returnEmptyString` change), `escapeValue` is off (the `/` change), and there is no `Trans`, SSR or resource-store API use.
 
