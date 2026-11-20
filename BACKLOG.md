@@ -59,6 +59,7 @@ The record, with evidence and the proposed fix per id: `.claude/docs/audit-statu
 
 ## Foundation follow-ups
 
+- [new] **Client-aborted responses log as ERROR.** Three full e2e runs left 88 `Unhandled exception` ERROR lines for `GET /assets/*.js` and `/api/v1/telemetry/history` whose root cause is a closed channel (`CancellationException`, `ClosedByteChannelException`, `ChannelWriteException`): the browser navigated away mid-response. Log a client abort at DEBUG (or not at all) in `ErrorHandling`, so a real ERROR stands out.
 - [new] **Sign-out fires a stray 401 refetch.** `bindSessionQueryCache` clears the query cache while the old page is still mounted, so the rail (`useRailRooms`) and room header (`RoomPage`) queries refetch once without a token. Harmless console noise; gate those queries on a live session or unmount before clearing.
 - [new] **A test flake: `IllegalAccessError` at `LiveSweep.kt:71`.** Seen once during a 0.6.0 `koverXmlReport` run (`UserRoutesTest` "admin creates a user who can log in with the supplied password"), green on rerun: likely the live sweep's coroutine outliving `testApplication`'s class loader. The likely cause is fixed (the live scope is now joined on `ApplicationStopping`, before the pool is disposed; `infra/BackgroundScope.kt`); remove this item after a week of green nightlies without it.
 - [new] **`ChatLogHygieneTest` does not plant a pin.** The 0.6.0 plan wanted every chat write in it; reactions and the digest are covered (the digest in `NotificationDigestTest`), pins only by `PinsTest`'s audit assertions.
