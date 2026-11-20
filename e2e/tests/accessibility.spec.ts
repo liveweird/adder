@@ -3,7 +3,7 @@
 // modal) — where focus traps, aria-modal and labels actually live, and the app shell at a phone width
 // (the burger); the page sets run in the light scheme and again in the dark one. Owns: the fixture team
 // (unique `e2e-axe-*` name) and the fixture room (unique `e2e-axe-room-*` name, a copy of the seeded Default template, with one thread
-// in it) and an archived twin of it, created and deleted via the API.
+// in it, pinned together with its opening message) and an archived twin of it, created and deleted via the API.
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { ADMIN, apiAsAdmin, axeViolations, expect, expectScheme, login, type Scheme, test, uniqueText } from "./helpers";
 
@@ -33,6 +33,7 @@ const AUTHED_PAGES: { path: string; heading: string }[] = [
   { path: "/workflow-templates/new", heading: "New workflow template" },
   { path: "/feature-flags", heading: "Feature flags" },
   { path: "/change-password", heading: "Change password" },
+  { path: "/notification-preferences", heading: "Notification emails" },
   { path: "/changelog", heading: "Changelog" },
 ];
 
@@ -118,6 +119,14 @@ test.describe("detail pages and overlays", () => {
     const thread = await api.post(`/api/v1/rooms/${roomId}/threads`, { data: { title: threadTitle, body: "Seeded for the accessibility sweep." } });
     expect(thread.status(), await thread.text()).toBe(201);
     threadNumber = (await thread.json() as { number: number }).number;
+    // The pinned panel needs something to list: the thread and its opening message are pinned (a pin is the room's, so the room's deletion takes them).
+    const pinnedThread = await api.put(`/api/v1/rooms/${roomId}/threads/${threadNumber}/pin`, { data: { pinned: true } });
+    expect(pinnedThread.status(), await pinnedThread.text()).toBe(204);
+    const messages = await api.get(`/api/v1/rooms/${roomId}/threads/${threadNumber}/messages`);
+    expect(messages.status(), await messages.text()).toBe(200);
+    const openingId = ((await messages.json()) as { items: { id: number }[] }).items[0].id;
+    const pinnedMessage = await api.put(`/api/v1/rooms/${roomId}/messages/${openingId}/pin`, { data: { pinned: true } });
+    expect(pinnedMessage.status(), await pinnedMessage.text()).toBe(204);
     const archived = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-axe-room"), templateId: defaultTemplate!.id } });
     expect(archived.status(), await archived.text()).toBe(201);
     archivedRoomId = (await archived.json() as { id: number }).id;
@@ -243,6 +252,27 @@ test.describe("detail pages and overlays", () => {
     await page.getByRole("button", { name: "Leave room", exact: true }).click();
     const modal = await settledDialog(page);
     await expect(modal.getByRole("heading", { name: "Leave this room?" })).toBeVisible();
+    await scan(page, '[role="dialog"]');
+  });
+
+  test("the notification drawer has no WCAG A/AA violations", async ({ page }) => {
+    await login(page);
+    await page.goto("/");
+    await page.getByRole("button", { name: /^Notifications \(/ }).click();
+    const drawer = await settledDialog(page);
+    await expect(drawer.getByRole("heading", { name: "Notifications" })).toBeVisible();
+    await expect(drawer.getByText("You have no notifications.")).toBeVisible();
+    await scan(page, '[role="dialog"]');
+  });
+
+  test("the pinned panel has no WCAG A/AA violations", async ({ page }) => {
+    await login(page);
+    await page.goto(`/rooms/${roomId}`);
+    await page.getByRole("button", { name: /^Pinned/ }).click();
+    const panel = await settledDialog(page);
+    // Settled once both pins (the thread and its opening message) are listed.
+    await expect(panel.getByRole("link", { name: `#${threadNumber} ${threadTitle}`, exact: true })).toBeVisible();
+    await expect(panel.getByText("Seeded for the accessibility sweep.")).toBeVisible();
     await scan(page, '[role="dialog"]');
   });
 

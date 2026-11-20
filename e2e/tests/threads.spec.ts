@@ -210,11 +210,15 @@ test("an author edits and deletes their own message and a room owner removes ano
   await startThreadViaUi(page, roomId, title, "Opening note from the owner.");
   await signOut(page);
 
-  // The teammate posts three messages; they have a menu on their own and none on the owner's opener.
+  // The teammate posts three messages; their own have the full menu, the owner's opener only Pin (any member pins, 0.6.0) - never Edit, Delete or Remove.
   await login(page, mate.email, mate.password);
   await openThread(page, roomId, title);
   for (const text of ["first draft", "oops wrong thread", "token is hunter2"]) await reply(page, text);
-  await expect(kebab(messageNamed(page, "Opening note"))).toHaveCount(0);
+  await kebab(messageNamed(page, "Opening note")).click();
+  await expect(page.getByRole("menuitem", { name: "Pin", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem")).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menuitem")).toHaveCount(0);
   await expect(kebab(messageNamed(page, "first draft"))).toBeVisible();
 
   // Edit: the editor takes the place of the body; saving puts the new body back, marked "edited".

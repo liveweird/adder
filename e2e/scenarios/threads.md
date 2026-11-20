@@ -32,7 +32,8 @@
 1. The admin creates an owner and a teammate and signs out; the owner creates a room, adds the teammate and starts a thread
    (an opening note), then signs out.
 2. The teammate signs in, opens the thread and posts three replies ("first draft", "oops wrong thread", "token is hunter2").
-   - *Expected*: each post answers 201; the owner's opening note has no row menu for the teammate, their own replies do.
+   - *Expected*: each post answers 201; the owner's opening note has a row menu for the teammate that offers only **Pin** (any member pins; never
+     Edit, Delete or Remove), and their own replies have the full menu.
 3. They open the menu of "first draft", choose **Edit**, replace the text with "final draft" and click **Save**.
    - *Expected*: the edit answers 204, the editor goes, the message reads "final draft" with an "edited" marker and the old text is gone.
 4. They open the menu of "oops wrong thread", choose **Delete** and confirm in the "Delete this message?" dialog.

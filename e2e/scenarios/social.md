@@ -1,0 +1,133 @@
+# Social: mentions, notifications, unread, reactions, pins and the notification email page
+
+- **Spec**: [tests/social.spec.ts](../tests/social.spec.ts)
+- **Actors**: the seed administrator (`admin@adder.local`, who only mints the throwaway users); two throwaway regular users per scenario (a room's
+  owner, "the author", and a teammate the owner adds, "the reader"), each in its own browser context; one throwaway user in the last scenario
+- **Owns** (exclusive server-side state): its throwaway rooms (unique `e2e-soc-*` names, created and filled through the owner's API session) and
+  its users, removed through the API in an `afterEach` (browser contexts first, then rooms, then the users, so a failing step leaves nothing behind).
+  The seeded Default template is shared and read-only: rooms only copy it. Every room is created by a throwaway user, so the seed administrator is
+  never a member of one. The per-user `live-ticket` (60 a minute), `chat-post` (120), `chat-write` (240) and `read-state` (240) buckets are only ever
+  spent by throwaway users and a scenario stays far below them. Threads, messages, reactions and pins are never deleted through the API: a room's
+  removal hides them with it.
+
+Every scenario that watches a change first waits until the page's own socket has been acknowledged for the room (the `subscribed` frame), so the
+change can only arrive by being pushed, and marks the document, so "without a reload" is checked rather than assumed. Where the scene needs
+data the scenario is not about (a thread, a message that mentions someone) it is seeded through the owner's API session; the browsers then do
+what the scenario is about.
+
+## Scenario: a mention picked in the composer reaches the mentioned member's bell without a reload and opens the message
+
+1. The administrator mints an author and a reader; the author makes a room through the API, adds the reader and starts a thread.
+2. The author opens the thread, the reader opens the room's **Threads** view (in the room, not in the thread); both sockets subscribe.
+   - *Expected*: the reader's bell is named "Notifications (0 unseen)".
+3. The author types `Heads up @` and the unique tail of the reader's name in the **Reply** box.
+   - *Expected*: a list of the room's members appears; picking the reader turns the word into `@<name>` in the box.
+4. The author finishes the sentence and presses **Ctrl+Enter**.
+   - *Expected*: the post answers 201.
+5. The reader does nothing.
+   - *Expected*: the bell is named "Notifications (1 unseen)" and the room's link in the rail is described as "1 unseen notification"; the
+     reader's document was not reloaded.
+6. The reader opens the bell.
+   - *Expected*: the drawer holds a link "`<author>` mentioned you in #1 `<title>`", marked unseen.
+7. The reader clicks it.
+   - *Expected*: the address holds `message=<id>` of the author's message; the drawer closes; the message is shown, with `@<reader>` in it; the
+     bell says "0 unseen" and the rail's description is gone; the document was still not reloaded.
+
+## Scenario: the Mentions me filter shows the thread and survives a reload
+
+1. The same setup, without browsers on the room: the author starts two threads, "Plain" and "Mentioning", and replies in the second with a
+   `<@reader>` mention. The reader signs in.
+2. The reader opens the room and the **Filters** panel.
+   - *Expected*: both threads are listed and **Mentions me** is not pressed.
+3. The reader presses **Mentions me**.
+   - *Expected*: the button is pressed, the address says `mention=me`, only "Mentioning" is listed, the Filters toggle shows 1.
+4. The reader reloads the page.
+   - *Expected*: the address, the pressed button and the narrowed list are all still there.
+
+## Scenario: handing a thread over notifies its new owner
+
+1. The same setup with a started thread; the author opens it, the reader opens the room's **Threads** view.
+   - *Expected*: the reader's bell says "0 unseen".
+2. The author opens the side panel, searches the **Owner** picker for the reader, picks them and presses **Pass on**.
+   - *Expected*: the owner PUT answers 204.
+3. The reader does nothing.
+   - *Expected*: the bell says "1 unseen" and the reader's document was not reloaded; the drawer holds "`<author>` made you the owner of #1
+     `<title>`".
+4. The reader clicks the notice.
+   - *Expected*: the thread opens, its pane reads "Owner: `<reader>`", and the bell says "0 unseen".
+
+## Scenario: a message posted elsewhere marks the room and the thread as new, and reading it clears both
+
+1. The author makes a room and starts a thread; only then does the author add the reader (what was written before joining is never unread). The
+   reader opens Home (`/`); the rail lists the room.
+   - *Expected*: the room's link has no "New activity" description.
+2. The author posts two messages to the thread through the API.
+   - *Expected*: with no reload, the room's link in the rail is described as "New activity".
+3. The reader clicks the room in the rail.
+   - *Expected*: the room is acknowledged (`POST .../seen` answers 204); the thread's row is described as "2 unread messages".
+4. The reader opens the thread.
+   - *Expected*: exactly one "New messages" separator stands in the conversation, inside the first of the two new messages and not inside the
+     older opening message.
+   - *Expected*: once the reader is at the end, the thread's row loses its unread description.
+5. The reader loads Home again.
+   - *Expected*: the room's link has no "New activity" description (the server holds it, not the page).
+
+## Scenario: a reaction from the picker appears for another member without a reload, and a second press removes it
+
+1. The same setup with a started thread; both open it. Both browsers record every `securitypolicyviolation` the document reports.
+   - *Expected*: the reader's message has no reactions list.
+2. The author opens **Add a reaction** under the opening message, searches the picker for "thumbs up" and picks the thumbs-up.
+   - *Expected*: the reaction PUT succeeds; the author's chip is named "👍, 1 reaction" and is pressed.
+3. The reader does nothing.
+   - *Expected*: a chip "👍, 1 reaction" appears, not pressed, described by the author's name; the document was not reloaded.
+4. The reader presses the chip.
+   - *Expected*: it reads "👍, 2 reactions" and is pressed; the author's chip follows to "👍, 2 reactions".
+5. The reader presses it again.
+   - *Expected*: it reads "👍, 1 reaction" and is not pressed; the author's chip follows to "👍, 1 reaction".
+6. Both pages are asked what they recorded.
+   - *Expected*: no policy violation in either (the lazy emoji chunk and its shadow-root picker run under the strict policy).
+
+## Scenario: a pinned thread and a pinned message show in the pinned panel for another member, and unpinning removes them
+
+1. The same setup with a started thread and a second message ("Keep this runbook step within reach."); both open the thread.
+   - *Expected*: the reader's room button reads "Pinned (0)".
+2. The author presses **Pin this thread**, then opens the message's menu and picks **Pin**.
+   - *Expected*: both PUTs succeed; the thread button is pressed.
+3. The reader does nothing.
+   - *Expected*: the button reads "Pinned (2)" and the document was not reloaded.
+4. The reader opens the panel.
+   - *Expected*: it lists the thread (`#1 <title>`, a link) and "Message by `<author>`" with its text, each "Pinned by `<author>` on …", and an
+     **Unpin** button for each (any member may unpin).
+5. The author unpins the thread and then the message.
+   - *Expected*: the reader's open panel says "Nothing is pinned yet." and no longer lists the thread; no reload.
+6. The reader closes the panel.
+   - *Expected*: the button reads "Pinned (0)".
+
+## Scenario: a member removed from a room loses its notifications
+
+1. The same setup; the author starts a thread and replies with a `<@reader>` mention through the API. The reader opens Home.
+   - *Expected*: the bell says "1 unseen"; its drawer lists "`<author>` mentioned you in #1 `<title>`". The reader closes it with Escape.
+2. The author removes the reader from the room (through the API: the Members page is the live spec's subject).
+   - *Expected*: with no reload, the room leaves the reader's rail and the bell says "0 unseen".
+3. The reader opens the bell.
+   - *Expected*: the drawer says "You have no notifications."
+
+## Scenario: the Notification emails page saves a switch and keeps it after a reload
+
+1. The administrator mints a user (the only actor here, no room); the user signs in and opens `/notification-preferences` from the address bar.
+   - *Expected*: the page is titled "Notification emails"; both switches ("Someone mentions me", "Someone makes me the owner of a thread") are on and
+     **Save** is disabled.
+2. The user switches "Someone mentions me" off.
+   - *Expected*: **Save** is enabled.
+3. The user presses **Save**.
+   - *Expected*: the preferences PUT answers 204, the toast "Notification emails saved" shows and Save is disabled again.
+4. The user reloads the page.
+   - *Expected*: "Someone mentions me" is off and the other switch is still on (the server holds the choice).
+
+## Not covered here (and why)
+
+- **The email digest of unseen notifications** — clock-driven (a delay of minutes, then one mail per recipient); covered by `NotificationDigestTest` on the server.
+- **The "N new messages below" arrivals button and "Jump to the first new message"** — scroll-position behaviour that depends on viewport height and
+  message size; covered by the `MessageListUnread` component tests.
+- **Reactions or pins refused** (a closed thread, an archived room, the 50-pin and the reaction limits) — covered by the server tests and the
+  component tests; E2E asserts only the visible consequences above.
