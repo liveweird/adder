@@ -110,6 +110,9 @@ internal class NotificationService(
 
         /** Null while unseen. */
         val seenAt = long("seen_at").nullable()
+
+        /** Null until the email digest claims the notice (V22). */
+        val emailedAt = long("emailed_at").nullable()
     }
 
     override suspend fun mentioned(at: MessageRef, byUserId: UInt, userIds: Collection<UInt>): List<UInt> {

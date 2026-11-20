@@ -1,0 +1,123 @@
+package ch.nokillswit.notifications
+
+import ch.nokillswit.infra.db.active
+import ch.nokillswit.users.UserService
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
+import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.Table
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
+import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.select
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+
+/**
+ * The channels a notice can reach a person through, PERSISTED by name and frozen (`user_notification_preferences.channel` has no CHECK:
+ * this enum is the whitelist, the V5 rule). Only `EMAIL` can be switched off: an in-app notice is always listed. A stored name this
+ * build does not know is dropped by every reader.
+ */
+@Serializable
+enum class NotificationChannel { EMAIL }
+
+/** One DISABLED `(kind, channel)` pair: the stored shape, and one element of the PUT body. */
+@Serializable
+data class DisabledNotificationPreference(val type: NotificationType, val channel: NotificationChannel)
+
+/** One kind in `GET /users/{id}/notification-preferences`: whether its digest email is on for the person. */
+@Serializable
+data class NotificationPreferenceKind(val type: NotificationType, val email: Boolean)
+
+/** Body of `GET /users/{id}/notification-preferences`. [emailAvailable] is false with no mailer (the switches then do nothing). */
+@Serializable
+data class NotificationPreferencesResponse(val emailAvailable: Boolean, val kinds: List<NotificationPreferenceKind>)
+
+/** Body of `PUT /users/{id}/notification-preferences`: a wholesale replace of the person's disabled set. */
+@Serializable
+data class NotificationPreferencesUpdateRequest(val disabled: List<DisabledNotificationPreference>)
+
+/** Every kind with its email switch, in enum order: a kind with no stored row is on. */
+internal fun preferencesResponse(disabled: Set<DisabledNotificationPreference>, emailAvailable: Boolean): NotificationPreferencesResponse =
+    NotificationPreferencesResponse(
+        emailAvailable,
+        NotificationType.entries.map {
+            NotificationPreferenceKind(it, DisabledNotificationPreference(it, NotificationChannel.EMAIL) !in disabled)
+        },
+    )
+
+/** Audit format of a disabled set: sorted `TYPE:CHANNEL` pairs, comma-joined, `""` for none. */
+internal fun Set<DisabledNotificationPreference>.joinedForAudit(): String =
+    map { "${it.type.name}:${it.channel.name}" }.sorted().joinToString(",")
+
+/**
+ * Per-user notification preferences (V22; Lettuce's V84 model): the table stores the DISABLED `(kind, channel)` pairs, so an empty set
+ * means everything is on and a new kind starts on for everybody. A row whose name this build does not know is dropped by every reader
+ * (the open-set rule). The digest (`NotificationDigest`) reads the set at send time, so a switch takes effect for notices not yet mailed.
+ */
+internal class NotificationPreferenceService(private val database: R2dbcDatabase) {
+    object Preferences : Table("user_notification_preferences") {
+        val userId = reference("user_id", UserService.Users)
+        val notificationType = varchar("notification_type", length = 40)
+        val channel = varchar("channel", length = 10)
+        override val primaryKey = PrimaryKey(userId, notificationType, channel)
+    }
+
+    /** The person's disabled set, or null when the id is unknown or soft-deleted (the route's `404`). */
+    suspend fun read(userId: UInt): Set<DisabledNotificationPreference>? = suspendTransaction(database) {
+        val users = UserService.Users
+        if (users.select(users.id).where { (users.id eq userId) and users.active() }.toList().isEmpty()) return@suspendTransaction null
+        disabledInTransaction(userId)
+    }
+
+    /**
+     * Wholesale-replaces the person's disabled set and answers the set that was in place immediately before, or null when the id is
+     * unknown or soft-deleted (the route's `404`). The user row is locked `FOR NO KEY UPDATE` for the read-then-write, so two replaces
+     * serialize (the second reads the first's committed set: last writer wins, and the audited `from` is true) instead of
+     * interleaving into a union. A same-set PUT is a no-op replace.
+     */
+    suspend fun replace(userId: UInt, disabled: Set<DisabledNotificationPreference>): Set<DisabledNotificationPreference>? =
+        suspendTransaction(database) {
+            val users = UserService.Users
+            val exists = users.select(users.id).where { (users.id eq userId) and users.active() }
+                .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).toList().isNotEmpty()
+            if (!exists) return@suspendTransaction null
+            val previous = disabledInTransaction(userId)
+            Preferences.deleteWhere { Preferences.userId eq userId }
+            disabled.forEach { pair ->
+                Preferences.insert {
+                    it[Preferences.userId] = userId
+                    it[notificationType] = pair.type.name
+                    it[channel] = pair.channel.name
+                }
+            }
+            previous
+        }
+
+    private suspend fun disabledInTransaction(userId: UInt): Set<DisabledNotificationPreference> {
+        val p = Preferences
+        val known = NotificationType.entries.map { it.name }
+        return p.selectAll().where { (p.userId eq userId) and (p.notificationType inList known) }
+            .map { it[p.notificationType] to it[p.channel] }.toList()
+            .mapNotNull { (type, channel) ->
+                NotificationChannel.entries.firstOrNull { it.name == channel }
+                    ?.let { DisabledNotificationPreference(NotificationType.valueOf(type), it) }
+            }.toSet()
+    }
+}
+
+/**
+ * The kinds [userId] switched off for email, read INSIDE the caller's transaction (the digest's per-recipient read, one statement, no
+ * second transaction).
+ */
+internal suspend fun emailDisabledKinds(userId: UInt): Set<NotificationType> {
+    val p = NotificationPreferenceService.Preferences
+    val known = NotificationType.entries.map { it.name }
+    return p.select(p.notificationType)
+        .where { (p.userId eq userId) and (p.channel eq NotificationChannel.EMAIL.name) and (p.notificationType inList known) }
+        .map { NotificationType.valueOf(it[p.notificationType]) }.toList().toSet()
+}

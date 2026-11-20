@@ -1572,6 +1572,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/{id}/notification-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read which notification emails a user gets (target user or ADMIN)
+         * @description Which kinds of notice are emailed to the user, as the digest below: `kinds` lists every kind with its `email` switch (on unless the
+         *     user switched it off; a new user and a new kind start on). `emailAvailable` is false on a deployment with no outbound email
+         *     (`MAIL_TRANSPORT=disabled`): the switches are stored but nothing is mailed. In-app notices cannot be switched off.
+         *
+         *     **The digest.** A notice still unseen after 5 minutes by default (`notifications.email.delaySeconds`) is mailed, at most one email
+         *     per person per 15 minutes (`notifications.email.minIntervalSeconds`; a person inside it gets everything in one later email),
+         *     in the person's language. The email names WHO did it, the room, the thread number and a link; it never carries a thread title or any
+         *     message text. A notice is mailed at most once and never when it is older than a day, when the person has left the room or been
+         *     deleted, or when its kind is switched off at that moment.
+         *
+         *     **Target user or `ADMIN`** (`403` otherwise, before anything else is read); an unknown or deleted user is `404`. Unbucketed.
+         */
+        get: operations["getNotificationPreferences"];
+        /**
+         * Replace which notification emails a user gets (target user or ADMIN)
+         * @description A **wholesale replace** of the user's DISABLED `(type, channel)` pairs (an empty `disabled` switches everything on). The only
+         *     channel is `EMAIL`. Order of refusals: `403` (not the target user and not `ADMIN`), then `400` (an unknown kind or channel, a pair
+         *     listed twice), then `404` (an unknown or deleted user). A same-set PUT is a `204` that changes nothing. Audited as
+         *     `user.notification_preferences_changed` (`from` and `to` as sorted `TYPE:CHANNEL` lists) on an actual change only. The change applies to
+         *     notices not yet mailed. Unbucketed; the body is capped at 16 KiB.
+         */
+        put: operations["setNotificationPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/live/tickets": {
         parameters: {
             query?: never;
@@ -2815,6 +2855,30 @@ export interface components {
              * @description The message that mentions the caller; `null` for `THREAD_ASSIGNED`.
              */
             messageId: number | null;
+        };
+        NotificationPreferenceKind: {
+            type: components["schemas"]["NotificationType"];
+            /** @description Whether the digest email lists this kind for the user. */
+            email: boolean;
+        };
+        /** @description The user's email switches, one per kind of notice, in the order of `NotificationType`. */
+        NotificationPreferences: {
+            /** @description False when the deployment sends no email at all. */
+            emailAvailable: boolean;
+            kinds: components["schemas"]["NotificationPreferenceKind"][];
+        };
+        /**
+         * @description The way a notice reaches a person. Only `EMAIL` can be switched off; an in-app notice cannot.
+         * @enum {string}
+         */
+        NotificationChannel: "EMAIL";
+        DisabledNotificationPreference: {
+            type: components["schemas"]["NotificationType"];
+            channel: components["schemas"]["NotificationChannel"];
+        };
+        NotificationPreferencesUpdate: {
+            /** @description The pairs to switch OFF (everything else is on). A pair listed twice is a `400`. */
+            disabled: components["schemas"]["DisabledNotificationPreference"][];
         };
         NotificationPage: {
             items: components["schemas"]["Notification"][];
@@ -5450,6 +5514,80 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getNotificationPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's switches */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPreferences"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Caller is not the target user and not ADMIN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setNotificationPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationPreferencesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Replaced (or already so) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            /** @description Caller is not the target user and not ADMIN */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             500: components["responses"]["InternalServerError"];
         };
     };

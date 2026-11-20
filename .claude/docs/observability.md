@@ -104,6 +104,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   missing current password),
 - `user.features_changed` (byUserId/targetUserId/featuresFrom/featuresTo — only on an actual
   change),
+- `user.notification_preferences_changed` (byUserId/targetUserId/`from`/`to` as sorted `TYPE:CHANNEL` lists; only on an actual change; the switches of the notices' digest email, V22; `NotificationPreferencesTest`),
+- `notification.email_sent` (userId/count - one digest left; the count is the notices it lists) and `notification.email_failed` (userId/errorType - the class name only, never the provider's message; the notices stay claimed and are not retried): emitted by `notifications/NotificationDigest.kt`, once per recipient. A skipped notice (a kind switched off, a left room, a deleted account) emits nothing; the run logs counts only (`NotificationDigestTest`). Mail sends are audited like the password reset's (`password_reset.link_sent`/`send_failed`).
 - `user.language_changed` (the per-user language — byUserId/targetUserId + `from`/`to` codes;
   emitted only on an actual change; `user.created` additionally carries `language` when
   non-default),

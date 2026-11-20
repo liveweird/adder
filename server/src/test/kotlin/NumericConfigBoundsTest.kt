@@ -12,7 +12,8 @@ import kotlin.test.Test
  * `mfa.codeTtlSeconds` (`auth/AuthRoutes.kt`), `mail.smtp.port` (`infra/mail/Mail.kt`) and the per-IP
  * `security.rateLimit.*PerMinute` overrides (`plugins/RateLimits.kt`), the `live.*` bounds (`live/LiveConfig.kt`) and
  * `search.timeoutSeconds`, `search.maxConcurrent`, `threads.readTimeoutSeconds` and `threads.readMaxConcurrent` (`infra/db/Database.kt`)
- * and `notifications.retentionDays` and `notifications.sweepIntervalSeconds` (`notifications/NotificationSweep.kt`).
+ * and `notifications.retentionDays`, `notifications.sweepIntervalSeconds` and the two `notifications.email.*` timings
+ * (`notifications/NotificationSweep.kt`).
  */
 class NumericConfigBoundsTest {
 
@@ -72,6 +73,34 @@ class NumericConfigBoundsTest {
     fun `a malformed or out-of-range notification retention or sweep interval refuses to start`() {
         assertRefused("notifications.retentionDays", "0", "-1", "abc", "3651")
         assertRefused("notifications.sweepIntervalSeconds", "9", "0", "abc", "3601")
+    }
+
+    @Test
+    fun `a malformed or out-of-range notification email delay or interval refuses to start`() {
+        assertRefused("notifications.email.delaySeconds", "-1", "abc", "86401", "")
+        assertRefused("notifications.email.minIntervalSeconds", "-1", "abc", "86401", "")
+    }
+
+    @Test
+    fun `a digest delay or spacing that leaves no room before a day is refused`() {
+        val cases = listOf(
+            listOf("notifications.email.delaySeconds" to "86340"), // + the default 60 s tick = a day
+            listOf("notifications.email.delaySeconds" to "86400"),
+            listOf("notifications.email.minIntervalSeconds" to "86340"),
+            listOf("notifications.email.delaySeconds" to "82800", "notifications.sweepIntervalSeconds" to "3600"),
+        )
+        for (overrides in cases) {
+            testApplication {
+                configureApp(*overrides.toTypedArray())
+                assertStartupFails("must be under 86400 seconds") { startApplication() }
+            }
+        }
+    }
+
+    @Test
+    fun `a digest delay just under the day boots`() = testApplication {
+        configureApp("notifications.email.delaySeconds" to "86339", "notifications.email.minIntervalSeconds" to "0")
+        startApplication() // must not throw
     }
 
     @Test

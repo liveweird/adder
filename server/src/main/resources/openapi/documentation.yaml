@@ -2175,6 +2175,70 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/users/{id}/notification-preferences:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [notifications]
+      operationId: getNotificationPreferences
+      summary: Read which notification emails a user gets (target user or ADMIN)
+      description: |
+        Which kinds of notice are emailed to the user, as the digest below: `kinds` lists every kind with its `email` switch (on unless the
+        user switched it off; a new user and a new kind start on). `emailAvailable` is false on a deployment with no outbound email
+        (`MAIL_TRANSPORT=disabled`): the switches are stored but nothing is mailed. In-app notices cannot be switched off.
+
+        **The digest.** A notice still unseen after 5 minutes by default (`notifications.email.delaySeconds`) is mailed, at most one email
+        per person per 15 minutes (`notifications.email.minIntervalSeconds`; a person inside it gets everything in one later email),
+        in the person's language. The email names WHO did it, the room, the thread number and a link; it never carries a thread title or any
+        message text. A notice is mailed at most once and never when it is older than a day, when the person has left the room or been
+        deleted, or when its kind is switched off at that moment.
+
+        **Target user or `ADMIN`** (`403` otherwise, before anything else is read); an unknown or deleted user is `404`. Unbucketed.
+      responses:
+        '200':
+          description: The user's switches
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: Caller is not the target user and not ADMIN
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [notifications]
+      operationId: setNotificationPreferences
+      summary: Replace which notification emails a user gets (target user or ADMIN)
+      description: |
+        A **wholesale replace** of the user's DISABLED `(type, channel)` pairs (an empty `disabled` switches everything on). The only
+        channel is `EMAIL`. Order of refusals: `403` (not the target user and not `ADMIN`), then `400` (an unknown kind or channel, a pair
+        listed twice), then `404` (an unknown or deleted user). A same-set PUT is a `204` that changes nothing. Audited as
+        `user.notification_preferences_changed` (`from` and `to` as sorted `TYPE:CHANNEL` lists) on an actual change only. The change applies to
+        notices not yet mailed. Unbucketed; the body is capped at 16 KiB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferencesUpdate'
+      responses:
+        '204': { description: Replaced (or already so) }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403':
+          description: Caller is not the target user and not ADMIN
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/live/tickets:
     post:
       tags: [live]
@@ -3864,6 +3928,41 @@ components:
         threadNumber: { type: integer, format: int32, minimum: 1, description: The per-room number of the thread. }
         threadTitle: { type: string, description: The thread's current title. }
         messageId: { type: integer, format: int32, minimum: 1, nullable: true, description: 'The message that mentions the caller; `null` for `THREAD_ASSIGNED`.' }
+    NotificationPreferenceKind:
+      type: object
+      required: [type, email]
+      properties:
+        type: { $ref: '#/components/schemas/NotificationType' }
+        email: { type: boolean, description: Whether the digest email lists this kind for the user. }
+    NotificationPreferences:
+      type: object
+      description: The user's email switches, one per kind of notice, in the order of `NotificationType`.
+      required: [emailAvailable, kinds]
+      properties:
+        emailAvailable: { type: boolean, description: False when the deployment sends no email at all. }
+        kinds:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationPreferenceKind'
+    NotificationChannel:
+      type: string
+      description: The way a notice reaches a person. Only `EMAIL` can be switched off; an in-app notice cannot.
+      enum: [EMAIL]
+    DisabledNotificationPreference:
+      type: object
+      required: [type, channel]
+      properties:
+        type: { $ref: '#/components/schemas/NotificationType' }
+        channel: { $ref: '#/components/schemas/NotificationChannel' }
+    NotificationPreferencesUpdate:
+      type: object
+      required: [disabled]
+      properties:
+        disabled:
+          type: array
+          description: The pairs to switch OFF (everything else is on). A pair listed twice is a `400`.
+          items:
+            $ref: '#/components/schemas/DisabledNotificationPreference'
     NotificationPage:
       type: object
       required: [items, page, pageSize, total]

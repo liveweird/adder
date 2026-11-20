@@ -42,6 +42,7 @@ class MigrationChecksumTest {
         "V19__create_read_state.sql" to -328121061,
         "V20__create_message_reactions.sql" to 412426361,
         "V21__create_room_pins.sql" to 311388058,
+        "V22__create_notification_email.sql" to -155169524,
     )
 
     @Test
