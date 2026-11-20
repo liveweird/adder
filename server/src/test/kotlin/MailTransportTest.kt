@@ -7,6 +7,7 @@ import io.ktor.server.application.Application
 import io.ktor.server.testing.testApplication
 import jakarta.mail.MessagingException
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -35,6 +36,50 @@ class MailTransportTest {
         configureApp("jwt.secret" to strongJwtSecret(), "security.encryption.key" to strongEncryptionKey())
         serverConfig { developmentMode = false }
         assertStartupFails("mail.transport") { startApplication() }
+    }
+
+    private fun io.ktor.server.testing.ApplicationTestBuilder.productionSmtp(startTls: Boolean, ssl: Boolean) {
+        // No encryption key: the crypto check that follows the mail check is what fails when the mail check passes.
+        configureApp(
+            "jwt.secret" to strongJwtSecret(),
+            "mail.transport" to "smtp",
+            "mail.smtp.host" to "smtp.adder.test",
+            "mail.smtp.startTls" to startTls.toString(),
+            "mail.smtp.ssl" to ssl.toString(),
+        )
+        serverConfig { developmentMode = false }
+    }
+
+    @Test
+    fun `production mode refuses a plaintext smtp session`() = testApplication {
+        productionSmtp(startTls = false, ssl = false)
+        assertStartupFails("SMTP_STARTTLS=false and SMTP_SSL=false") { startApplication() }
+    }
+
+    @Test
+    fun `production mode accepts smtp over STARTTLS`() = testApplication {
+        // Passes the mail check and stops at the next fail-closed check (the missing encryption key).
+        productionSmtp(startTls = true, ssl = false)
+        assertStartupFails("DATA_ENCRYPTION_KEY") { startApplication() }
+    }
+
+    @Test
+    fun `production mode accepts implicit TLS without STARTTLS`() = testApplication {
+        productionSmtp(startTls = false, ssl = true)
+        assertStartupFails("DATA_ENCRYPTION_KEY") { startApplication() }
+    }
+
+    @Test
+    fun `development mode still permits a plaintext smtp session (the compose Mailpit)`() = testApplication {
+        configureApp(
+            "mail.transport" to "smtp",
+            "mail.smtp.host" to "localhost",
+            "mail.smtp.startTls" to "false",
+            "mail.smtp.ssl" to "false",
+        )
+        val app = captureApplication()
+        startApplication()
+        assertIs<SmtpMailer>(app().mailer())
     }
 
     @Test
@@ -88,6 +133,33 @@ class MailTransportTest {
         val app = captureApplication()
         startApplication()
         assertIs<SmtpMailer>(app().mailer())
+    }
+
+    private fun session(startTls: Boolean, implicitTls: Boolean = false) =
+        SmtpMailer("smtp.adder.test", 587, "", "", "adder@localhost", startTls, implicitTls).session.properties
+
+    @Test
+    fun `the session checks the server certificate's name whenever TLS is on and never writes false`() {
+        val starttls = session(startTls = true)
+        assertEquals("true", starttls.getProperty("mail.smtp.ssl.checkserveridentity"), "STARTTLS")
+        assertEquals("true", starttls.getProperty("mail.smtp.starttls.required"))
+        val implicit = session(startTls = false, implicitTls = true)
+        assertEquals("true", implicit.getProperty("mail.smtp.ssl.checkserveridentity"), "implicit TLS")
+        assertEquals("true", implicit.getProperty("mail.smtp.ssl.enable"))
+        val both = session(startTls = true, implicitTls = true)
+        assertEquals("true", both.getProperty("mail.smtp.ssl.checkserveridentity"))
+        assertEquals("false", both.getProperty("mail.smtp.starttls.enable"), "implicit TLS wins over the upgrade")
+        // No TLS: nothing to check, and the property is left to the library's default rather than written false.
+        assertNull(session(startTls = false).getProperty("mail.smtp.ssl.checkserveridentity"))
+    }
+
+    @Test
+    fun `a boot with smtp over STARTTLS publishes a mailer whose session checks the certificate name`() = testApplication {
+        configureApp("mail.transport" to "smtp", "mail.smtp.host" to "localhost", "mail.smtp.startTls" to "true")
+        val app = captureApplication()
+        startApplication()
+        val props = assertIs<SmtpMailer>(app().mailer()).session.properties
+        assertEquals("true", props.getProperty("mail.smtp.ssl.checkserveridentity"))
     }
 
     @Test

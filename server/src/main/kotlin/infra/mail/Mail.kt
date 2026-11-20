@@ -68,6 +68,9 @@ suspend fun ApplicationCall.respondMailUnavailable(feature: String) =
         "This deployment cannot send email — $feature is unavailable",
     )
 
+/** The ports of plaintext-first SMTP (STARTTLS submission, relay): where `SMTP_SSL=true` is almost certainly a mistake. */
+private val STARTTLS_PORTS = setOf(587, 25)
+
 /**
  * Selects the outbound-email transport from the `mail:` config block and publishes it as
  * [MailerKey]. Registered in application.yaml at the top of the infrastructure group, before
@@ -78,7 +81,8 @@ suspend fun ApplicationCall.respondMailUnavailable(feature: String) =
  *    Message bodies carry password-reset links and MFA codes, so production mode REFUSES this
  *    transport at startup (same fail-closed family as the JWT-secret and seed-password checks).
  *  - `smtp` — real delivery via `mail.smtp.*`; a blank host refuses startup in ANY mode (it
- *    cannot possibly work, and failing late would drop transactional emails silently).
+ *    cannot possibly work, and failing late would drop transactional emails silently). Production mode also refuses a plaintext
+ *    session (`SMTP_STARTTLS=false` without `SMTP_SSL=true`): the body carries MFA codes and reset links.
  *  - `disabled` (the Docker image default) — email features off; a null mailer is published.
  */
 fun Application.configureMail() {
@@ -98,13 +102,30 @@ fun Application.configureMail() {
             if (host.isBlank()) {
                 error("mail.transport=smtp requires a non-blank SMTP_HOST (mail.smtp.host).")
             }
+            val startTls = environment.config.property("mail.smtp.startTls").getString().toBoolean()
+            val implicitTls = environment.config.property("mail.smtp.ssl").getString().toBoolean()
+            // A plaintext SMTP session would carry the MFA codes and reset links in the clear (and any SMTP password): fail closed.
+            if (!developmentMode && !startTls && !implicitTls) {
+                error(
+                    "mail.transport=smtp without TLS (SMTP_STARTTLS=false and SMTP_SSL=false) sends MFA codes and reset links in " +
+                        "plaintext. Set SMTP_STARTTLS=true (port 587) or SMTP_SSL=true (implicit TLS, port 465), " +
+                    "or MAIL_TRANSPORT=disabled.",
+                )
+            }
+            val port = requireConfigInt(environment.config, "mail.smtp.port", min = 1, max = 65535)
+            if (implicitTls && port in STARTTLS_PORTS) {
+                // 587 and 25 speak plaintext first (STARTTLS submission / relay): an implicit-TLS client there hangs or is reset at the
+                // first send, so the misconfiguration is named at startup. Implicit TLS is port 465.
+                log.warn("mail.smtp.ssl (SMTP_SSL=true) is set with port $port, which expects STARTTLS: implicit TLS is port 465")
+            }
             SmtpMailer(
                 host = host,
-                port = requireConfigInt(environment.config, "mail.smtp.port", min = 1, max = 65535),
+                port = port,
                 user = environment.config.property("mail.smtp.user").getString(),
                 password = environment.config.property("mail.smtp.password").getString(),
                 from = environment.config.property("mail.from").getString(),
-                startTls = environment.config.property("mail.smtp.startTls").getString().toBoolean(),
+                startTls = startTls,
+                implicitTls = implicitTls,
             )
         }
         else -> error("Unknown mail.transport '$transport' — expected log, smtp, or disabled.")

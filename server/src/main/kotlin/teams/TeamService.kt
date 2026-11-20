@@ -1,10 +1,12 @@
 package ch.nokillswit.teams
 
+import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.containsNormalized
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
+import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
@@ -151,11 +153,25 @@ class TeamService(private val database: R2dbcDatabase) {
     }
 
     /**
+     * The caller as the database knows them NOW: the role from the `users` row, not the token's claim (an ADMIN demoted since the token
+     * was minted is a plain user; a soft-deleted or missing account has no role at all). The roster guard runs it so the verdict it
+     * re-runs under the team lock judges the stored role, the way `withRoomWrite` re-reads the caller (`rooms/RoomLock.kt`).
+     */
+    suspend fun currentCaller(caller: CallerPrincipal): CallerPrincipal = suspendTransaction(database) {
+        val users = UserService.Users
+        val role = users.select(users.role).where { (users.id eq caller.userId) and users.active() }
+            .toList().singleOrNull()?.let { UserRole.valueOf(it[users.role]) }
+        caller.copy(roles = setOfNotNull(role))
+    }
+
+    /**
      * PUT semantics: adds [userId] to the roster, idempotently. Returns true on an actual add, false when already a member (no
      * write, so the route audits only a change). Runs in ONE transaction that locks the active team row first
      * ([lockActiveForWrite], `FOR NO KEY UPDATE`: serializes with team writers — a manager change included — and with other roster
      * writes, so the cap check below is race-free) and THEN runs [guard], the same guard the route ran up front: only this verdict
-     * authorizes the write ("re-check under the lock", `requireTeamManagerOrAdmin`). A missing or deleted team therefore answers the
+     * authorizes the write ("re-check under the lock", `requireTeamManagerOrAdmin`). The route's guard judges the caller as
+     * [currentCaller] re-reads them, so an ADMIN demoted or deleted while the write waited for the lock is refused too. A missing or
+     * deleted team therefore answers the
      * guard's uniform 403 to a non-admin and 404 to an admin; an unknown or soft-deleted user is 404; a roster at
      * [MAX_TEAM_MEMBERS] ACTIVE members is 409.
      */

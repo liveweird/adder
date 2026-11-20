@@ -19,7 +19,7 @@ Flyway's `ServiceLoader` discovery works exactly as under `:server:run`.
 JVM footprint tuning is baked into the `application {}` block in `server/build.gradle.kts` via
 `applicationDefaultJvmArgs` = `-XX:+UseSerialGC -Xmx256m -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError`
 plus the heap/thread sizing `-Xmn64m -XX:SurvivorRatio=2 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30
--XX:-ShrinkHeapInSteps -XX:ActiveProcessorCount=2` (build-times.md WHY 26), so it flows
+-XX:-ShrinkHeapInSteps -XX:ActiveProcessorCount=2 -XX:MaxDirectMemorySize=48m` (build-times.md WHY 26; the direct cap, C-ARCH-3, bounds Netty's off-heap buffers, which otherwise follow the 256 MiB heap), so it flows
 into both `bin/server` (-> Docker image) and `:server:run` (the Gradle `test` task is unaffected). The image
 also sets `MALLOC_ARENA_MAX=2` (Dockerfile `ENV`; compose and k8s inherit it). These flags were measured in the
 donor project; re-measure when Adder carries real data. SerialGC removes G1's per-heap overhead (~75 MiB);
@@ -48,7 +48,7 @@ Gradle-generated launcher script (`bin/server`) assembles the JVM command line a
 in `docker-compose.yaml` (one process). **`JvmMemoryFlagsTest` pins all of this** (a file-parsing test, no
 Docker): every compose service and k8s container has a memory limit; the effective `-Xmx` plus 256 MiB fits the limit;
 `-XX:+ExitOnOutOfMemoryError` is on and `-XX:+DisableExplicitGC` set nowhere; the Dockerfile has `MALLOC_ARENA_MAX=2` and the
-only `SERVER_OPTS`; `terminationGracePeriodSeconds` (45 s) outlasts the shutdown budget. So "raise `-Xmx` and the limit
+only `SERVER_OPTS`; the direct cap is set and heap + non-heap + direct fits every limit; `terminationGracePeriodSeconds` (50 s) outlasts the preStop sleep and the shutdown budget. So "raise `-Xmx` and the limit
 together" fails the build otherwise.
 
 ## One process

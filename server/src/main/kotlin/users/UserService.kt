@@ -115,6 +115,19 @@ class UserService(private val database: R2dbcDatabase) {
             ?.let { it.toUser(featuresOf(it[Users.id].value)) }
     }
 
+    /**
+     * Whether an ACTIVE account holds [email]: ONE fixed-shape statement (`SELECT id ... LIMIT 1`, the same predicate as
+     * [findWithIdByEmail]), whatever the answer. `/login` runs it before its lock check only to choose how the audit line names the
+     * identity, so the 429 refusals cost the same for a known and an unknown address.
+     */
+    suspend fun accountExists(email: String): Boolean = suspendTransaction(database) {
+        Users.select(Users.id)
+            .where { (Users.email eq canonicalEmail(email)) and Users.active() }
+            .limit(1)
+            .toList()
+            .isNotEmpty()
+    }
+
     suspend fun findWithIdByEmail(email: String): Pair<UInt, User>? = suspendTransaction(database) {
         // Stored emails are canonical; folding the argument too is defense-in-depth so a
         // caller that skipped canonicalEmail still matches.

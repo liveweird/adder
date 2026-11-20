@@ -261,7 +261,10 @@ mail:
     port: "$SMTP_PORT:587"
     user: "$SMTP_USER:"
     password: "$SMTP_PASSWORD:"
+    # Transport security: STARTTLS (port 587, the default) or implicit TLS (`ssl`, port 465; wins when both are set). Production mode REFUSES
+    # startup with both false (a plaintext session would carry MFA codes and reset links); development permits it (the compose Mailpit).
     startTls: "$SMTP_STARTTLS:true"
+    ssl: "$SMTP_SSL:false"
   from: "$MAIL_FROM:adder@localhost"
   # The deployment's public ORIGIN (e.g. https://adder.example.com): the self-service password reset
   # builds its emailed link from it - configured, never derived from the request Host header. A

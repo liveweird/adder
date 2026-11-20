@@ -113,7 +113,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     whether or not the team exists; the ADMIN alone reaches the `404` for an unknown team. Because the grant can be revoked between that check and the
     write, `TeamService.addMember` / `removeMember` take the same guard as a lambda and re-run it INSIDE the write transaction after
     `lockActiveForWrite` locks the team row (a manager change, `TeamService.update`, takes the same lock, so the verdict under the lock is the
-    authoritative one; pinned by a lock-wait test). The PUT has no body (nothing to decode) and is idempotent: `204` for an added or an already-present
+    authoritative one; pinned by a lock-wait test). The guard the route passes (`rosterGuard`) judges the caller as `TeamService.currentCaller` re-reads
+    them (the stored `users.role`, none for a deleted account), not the token's claim, so an ADMIN demoted or deleted while the write waited for the lock is
+    refused with the uniform `403` the way `withRoomWrite` re-reads the caller (C-SEC-9; `TeamMembersTest`). The PUT has no body (nothing to decode) and is idempotent: `204` for an added or an already-present
     member, and the audit event `team.member_added` fires only on an actual add; an unknown or soft-deleted user is `404`, a roster already holding 200 ACTIVE
     members `409` (an existing member beats the cap). The DELETE is `404` for a user who is not on the roster and audits `team.member_removed`. Reading the
     roster (`TeamResponse.members`, `TeamListItem.memberCount`) stays any authenticated user and shows ACTIVE users only. The manager grants nothing on the team

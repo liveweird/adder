@@ -1,6 +1,7 @@
 package ch.nokillswit.teams
 
 import ch.nokillswit.audit.audit
+import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
@@ -118,6 +119,15 @@ fun Application.configureTeamRoutes() {
 }
 
 /**
+ * The roster's guard: ADMIN or the team's active manager, judged on the caller as the database knows them at the moment it runs
+ * ([TeamService.currentCaller]: the stored role, not the token's). The route runs it first; the service runs it again under the team row
+ * lock, where it is what refuses an ADMIN demoted (or a manager replaced) while the write waited.
+ */
+internal fun rosterGuard(teamService: TeamService, caller: CallerPrincipal, teamId: UInt): suspend () -> Unit = {
+    requireTeamManagerOrAdmin(teamService.currentCaller(caller), teamId, teamService::isActiveManager)
+}
+
+/**
  * The roster (V10): ADMIN or the team's active manager, the guard as the FIRST statement (a stranger gets a uniform 403 whether or not
  * the team exists) and re-run by the service under the team row lock. The PUT has no body, so nothing decodes.
  */
@@ -125,7 +135,7 @@ private fun Route.teamRoster(teamService: TeamService) {
     put<TeamsRoute.Id.Members.User> { route ->
         val caller = call.caller()
         val teamId = route.parent.parent.id
-        val guard = suspend { requireTeamManagerOrAdmin(caller, teamId, teamService::isActiveManager) }
+        val guard = rosterGuard(teamService, caller, teamId)
         guard()
         // Idempotent: an existing member is a 204 with no write and no audit line.
         if (teamService.addMember(teamId, route.userId, guard)) {
@@ -141,7 +151,7 @@ private fun Route.teamRoster(teamService: TeamService) {
     delete<TeamsRoute.Id.Members.User> { route ->
         val caller = call.caller()
         val teamId = route.parent.parent.id
-        val guard = suspend { requireTeamManagerOrAdmin(caller, teamId, teamService::isActiveManager) }
+        val guard = rosterGuard(teamService, caller, teamId)
         guard()
         teamService.removeMember(teamId, route.userId, guard).orNotFound("Team member")
         audit(

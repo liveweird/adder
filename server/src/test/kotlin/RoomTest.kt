@@ -418,12 +418,15 @@ class RoomTest {
             assertEquals(HttpStatusCode.NotFound, outsider.client.get("$rooms/${room.id}/workflow").status)
             assertEquals(HttpStatusCode.NotFound, outsider.client.putJson("$rooms/${room.id}", RoomUpdateRequest("Probe")).status)
             assertEquals(HttpStatusCode.NotFound, outsider.client.delete("$rooms/${room.id}").status)
-            assertEquals(4, events("room.access_denied").size)
-            assertTrue(events("room.access_denied").all { it.hasKeyValue("byUserId", outsider.id.toLong()) })
+            // Coalesced per user (RoomAccess.kt): the first denial is the line, the other three fold into its window.
+            assertEquals(1, events("room.access_denied").size)
+            assertTrue(
+                events("room.access_denied").all { it.hasKeyValue("byUserId", outsider.id.toLong()) && it.hasKeyValue("suppressed", 0L) },
+            )
             // An unknown id is not "denied" (there is nothing to deny), and an ADMIN outside the room is not denied either.
             assertEquals(HttpStatusCode.NotFound, outsider.client.get("$rooms/999999").status)
             assertEquals(HttpStatusCode.OK, admin.client.get("$rooms/${room.id}").status)
-            assertEquals(4, events("room.access_denied").size)
+            assertEquals(1, events("room.access_denied").size)
             assertTrue(capture.events.none { it.message == "room.access_denied" && it.hasKeyValue("roomId", 999_999L) })
 
             assertEquals(HttpStatusCode.NoContent, admin.client.delete("$rooms/${room.id}").status)

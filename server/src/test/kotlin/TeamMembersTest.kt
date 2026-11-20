@@ -1,10 +1,13 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.CallerPrincipal
+import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.teams.MAX_TEAM_MEMBERS
 import ch.nokillswit.teams.TeamCreateRequest
 import ch.nokillswit.teams.TeamPageResponse
 import ch.nokillswit.teams.TeamResponse
 import ch.nokillswit.teams.TeamUpdateRequest
+import ch.nokillswit.teams.rosterGuard
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -17,6 +20,7 @@ import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -233,6 +237,66 @@ class TeamMembersTest {
             }
         }
         assertEquals(listOf(target.id), admin.roster(teamId).members.map { it.userId }, "the stale grant wrote nothing")
+    }
+
+    @Test
+    fun `an ADMIN demoted while a write waits for the team lock is judged by the stored role and answers 403`() = testApplication {
+        usePostgresTestcontainer()
+        val boss = seededClient("roster-demote-boss", UserRole.ADMIN)
+        val teamId = boss.team()
+        val target = user("roster-demote-target")
+        val second = user("roster-demote-second")
+        assertEquals(HttpStatusCode.NoContent, boss.put(path(teamId, target.id)).status)
+        // A second ADMIN, signed in before the demotion: the token says ADMIN and stays valid until the demotion commits.
+        val email = uniqueEmail("roster-demote-admin")
+        val adminId = TestUsers.seed(email = email, password = "pw", role = UserRole.ADMIN).also { mintedUsers += it }
+        val admin = authedClient(email, "pw")
+
+        PostgresTestSupport.connect().use { raw ->
+            raw.autoCommit = false
+            // Hold the team row AND the demotion in one uncommitted transaction: the requests pass authentication and the up-front
+            // guard on the committed ADMIN, queue on the team row, and meet the demotion when it commits.
+            raw.prepareStatement("UPDATE teams SET updated_at = updated_at WHERE id = ?").use { st ->
+                st.setInt(1, teamId.toInt())
+                st.executeUpdate()
+            }
+            raw.prepareStatement("UPDATE users SET role = 'USER' WHERE id = ?").use { st ->
+                st.setInt(1, adminId.toInt())
+                st.executeUpdate()
+            }
+            try {
+                coroutineScope {
+                    val adding = async { admin.put(path(teamId, second.id)) }
+                    val removing = async { admin.delete(path(teamId, target.id)) }
+                    awaitLockWait("FOR NO KEY UPDATE", waiters = 2)
+                    raw.commit()
+                    assertEquals(HttpStatusCode.Forbidden, adding.await().status)
+                    assertEquals(HttpStatusCode.Forbidden, removing.await().status)
+                }
+            } finally {
+                raw.rollback()
+            }
+        }
+        assertEquals(listOf(target.id), boss.roster(teamId).members.map { it.userId }, "the stale ADMIN claim wrote nothing")
+    }
+
+    @Test
+    fun `the roster guard judges the stored role - a demoted or deleted ADMIN is no admin, a real one passes`() = testApplication {
+        usePostgresTestcontainer()
+        val manager = user("roster-guard-mgr")
+        val teamId = seededClient("roster-guard-boss", UserRole.ADMIN).team(manager.id)
+        val demoted = user("roster-guard-demoted") // stored role USER
+        val deleted = user("roster-guard-deleted")
+        TestUsers.softDelete(deleted.id)
+        val stale = { id: UInt -> CallerPrincipal(id, "x@adder.test", setOf(UserRole.ADMIN)) }
+        val service = TestTeams.service
+
+        assertFailsWith<ForbiddenException> { rosterGuard(service, stale(demoted.id), teamId)() }
+        assertFailsWith<ForbiddenException> { rosterGuard(service, stale(deleted.id), teamId)() }
+        // The stored manager passes without any claim, and a stored ADMIN passes whatever the claim says.
+        rosterGuard(service, CallerPrincipal(manager.id, "m@adder.test", emptySet()), teamId)()
+        val adminId = TestUsers.seed(uniqueEmail("roster-guard-admin"), "pw", role = UserRole.ADMIN).also { mintedUsers += it }
+        rosterGuard(service, CallerPrincipal(adminId, "a@adder.test", emptySet()), teamId)()
     }
 
     @Test

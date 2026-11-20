@@ -242,7 +242,8 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `SMTP_PORT` | `587` | SMTP port. |
 | `SMTP_USER` | *(blank)* | SMTP user (optional). |
 | `SMTP_PASSWORD` | *(blank)* | SMTP password (optional). |
-| `SMTP_STARTTLS` | `true` | STARTTLS on the SMTP connection. |
+| `SMTP_STARTTLS` | `true` | STARTTLS on the SMTP connection (port 587). Production refuses `smtp` with this and `SMTP_SSL` both `false`. The certificate's name is always checked against `SMTP_HOST` when TLS is on. |
+| `SMTP_SSL` | `false` | Implicit TLS from the first byte (port 465; a warning at startup if paired with 587 or 25); wins over `SMTP_STARTTLS` when both are set. |
 | `MAIL_FROM` | `adder@localhost` | Sender address of every outbound email. |
 | `MAIL_APP_URL` | *(blank)* | The deployment's public **origin** (`https://host[:port]` in production — `http` only in development; no path, query or credentials) — the self-service password reset emails a link built from it. A malformed value refuses startup; blank = the reset answers 503. The notification digest builds its links from it too (none when blank). |
 | `NOTIFICATIONS_EMAIL_DELAY_SECONDS` | `300` | A notice still unseen after this many seconds is emailed in a digest (0..86400). With `MAIL_TRANSPORT=disabled` nothing is mailed. |

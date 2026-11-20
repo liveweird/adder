@@ -59,7 +59,8 @@ internal enum class OriginVerdict(val detail: String?) {
  * `https` site's origin, and `http://x:443` is not `https://x:443`); the header must be a bare `scheme://host[:port]` (no path, query,
  * user info); host comparison is case-insensitive, an absent port is the scheme's default and an IPv6 literal is compared without its
  * brackets. A [corsHosts] entry is `host[:port]` and matches any `http`/`https` origin of that host: with a port, exactly that port;
- * without one, the scheme's default port. Anything else, a missing header and `null` included, is refused.
+ * without one, the scheme's default port; with [listedHttpsOnly] (production) only an `https` origin matches a listed host, the rule
+ * CORS applies (`plugins/Http.kt`). Anything else, a missing header and `null` included, is refused.
  */
 internal fun originVerdict(
     origin: String?,
@@ -67,6 +68,7 @@ internal fun originVerdict(
     serverHost: String,
     serverPort: Int,
     corsHosts: List<String>,
+    listedHttpsOnly: Boolean = false,
 ): OriginVerdict {
     val match = origin?.let { ORIGIN.matchEntire(it) } ?: return OriginVerdict.FOREIGN
     val scheme = match.groupValues[1].lowercase()
@@ -78,7 +80,7 @@ internal fun originVerdict(
     val listed = corsHosts.any { entry ->
         val parts = CORS_HOST.matchEntire(entry.trim()) ?: return@any false
         val entryPort = parts.groupValues[2].ifEmpty { null }?.toInt() ?: defaultPort(scheme)
-        host == normaliseHost(parts.groupValues[1]) && port == entryPort
+        host == normaliseHost(parts.groupValues[1]) && port == entryPort && (!listedHttpsOnly || scheme == "https")
     }
     return when {
         sameHost && sameScheme && port == serverPort -> OriginVerdict.ALLOWED
@@ -88,8 +90,15 @@ internal fun originVerdict(
     }
 }
 
-internal fun originAllowed(origin: String?, serverScheme: String, serverHost: String, serverPort: Int, corsHosts: List<String>): Boolean =
-    originVerdict(origin, serverScheme, serverHost, serverPort, corsHosts) == OriginVerdict.ALLOWED
+internal fun originAllowed(
+    origin: String?,
+    serverScheme: String,
+    serverHost: String,
+    serverPort: Int,
+    corsHosts: List<String>,
+    listedHttpsOnly: Boolean = false,
+): Boolean =
+    originVerdict(origin, serverScheme, serverHost, serverPort, corsHosts, listedHttpsOnly) == OriginVerdict.ALLOWED
 
 /** The printable ASCII of [origin], cut to a log-safe length: the header is client text, it names nothing but itself. */
 private fun loggedOrigin(origin: String?): String? =
@@ -107,8 +116,10 @@ private fun loggedOrigin(origin: String?): String? =
 internal fun Route.installLiveAdmission(config: LiveConfig, hub: LiveHub, audits: LiveAudit) {
     val corsHosts = application.environment.config.propertyOrNull("http.corsHosts")?.getString()
         ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+    // Production lets a listed host through over https only, like CORS (an http page can be rewritten in transit).
+    val listedHttpsOnly = !application.developmentMode
     intercept(ApplicationCallPipeline.Call) {
-        val refused = refusal(call, config, hub, audits, corsHosts)
+        val refused = refusal(call, config, hub, audits, corsHosts, listedHttpsOnly)
         if (refused != null) {
             if (refused == HttpStatusCode.Forbidden) {
                 call.respondProblem(HttpStatusCode.Forbidden, "Origin not allowed")
@@ -131,10 +142,17 @@ internal suspend fun ApplicationCall.respondLiveUnavailable() {
 }
 
 /** The status the call is refused with (403 or 503) after its audit line, or null when it is admitted. */
-private fun refusal(call: ApplicationCall, config: LiveConfig, hub: LiveHub, audits: LiveAudit, corsHosts: List<String>): HttpStatusCode? {
+private fun refusal(
+    call: ApplicationCall,
+    config: LiveConfig,
+    hub: LiveHub,
+    audits: LiveAudit,
+    corsHosts: List<String>,
+    listedHttpsOnly: Boolean,
+): HttpStatusCode? {
     val origins = call.request.headers.getAll(HttpHeaders.Origin)
     val header = origins?.singleOrNull()
-    val verdict = originVerdictOf(call, header, corsHosts)
+    val verdict = originVerdictOf(call, header, corsHosts, listedHttpsOnly)
     return when {
         verdict != OriginVerdict.ALLOWED -> {
             audits.refusedOrigin(loggedOrigin(header ?: origins?.firstOrNull()), verdict)
@@ -164,10 +182,10 @@ private fun refusal(call: ApplicationCall, config: LiveConfig, hub: LiveHub, aud
  * The Origin verdict against the request's own scheme, host and port. `origin.serverPort` parses the `Host` header's port, which the
  * client chooses: a malformed one (`localhost:abc`, a bare IPv6 literal) throws, and that must be a refusal, never an anonymous 500.
  */
-private fun originVerdictOf(call: ApplicationCall, header: String?, corsHosts: List<String>): OriginVerdict {
+private fun originVerdictOf(call: ApplicationCall, header: String?, corsHosts: List<String>, listedHttpsOnly: Boolean): OriginVerdict {
     val point = call.request.origin
     return try {
-        originVerdict(header, point.scheme, point.serverHost, point.serverPort, corsHosts)
+        originVerdict(header, point.scheme, point.serverHost, point.serverPort, corsHosts, listedHttpsOnly)
     } catch (_: IllegalArgumentException) {
         OriginVerdict.HOST
     }

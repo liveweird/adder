@@ -85,7 +85,7 @@ Kubernetes
 the secret-creation command; the image is `adder-app` and the cluster runs a single `app-deployment.yaml` (one process, one replica) beside postgres.
 
 **The live socket in front of a proxy** (0.4.0; `live.md` "Deploy and proxies", `security.md`). Compose serves 8087 directly and the OrbStack `adder` namespace is a LoadBalancer with no Ingress, so
-the WebSocket passes at L4 and its 1001 close (the hub's 2 s) fits inside `terminationGracePeriodSeconds` 45. Vite needs `ws: true` on its `/api` proxy and NO `changeOrigin`: the Origin check compares the
+the WebSocket passes at L4 and its 1001 close (the hub's 2 s) fits inside `terminationGracePeriodSeconds` 50 (a 5 s `preStop` sleep comes first, `observability.md`). Vite needs `ws: true` on its `/api` proxy and NO `changeOrigin`: the Origin check compares the
 browser's origin with the request's own host, so the proxied request must keep the original `Host`. A reverse proxy in front of a real deployment must pass the upgrade (`proxy_http_version 1.1`,
 `Upgrade $http_upgrade`, `Connection $connection_upgrade`), keep read and send timeouts at 60 s or more (the server pings every 25 s), and give the application the browser's own scheme, host and port, or every Origin check is a `403`: **TLS at the proxy needs `X-Forwarded-Proto: https` plus
 `http.behindProxy=true`**, **a public port other than 443 must be in `X-Forwarded-Host`** (`app.example.com:8443`), and **`Host $host` alone behind TLS gets a 403** (right host,

@@ -18,9 +18,14 @@ interface Mailer {
 }
 
 /**
- * Plain-SMTP transport (Jakarta Mail / Eclipse Angus). All parameters come from the `mail.smtp.*`
+ * SMTP transport (Jakarta Mail / Eclipse Angus). All parameters come from the `mail.smtp.*`
  * config block; auth is used only when [user] is non-blank. Blocking JavaMail I/O is confined to
- * [Dispatchers.IO].
+ * [Dispatchers.IO]. Transport security is [startTls] (upgrade the connection, refused when the server cannot) or [implicitTls]
+ * (the connection is TLS from the first byte, port 465; the server certificate's name is checked); [implicitTls] wins when both
+ * are set. With neither the session is plaintext, which production mode refuses at startup (`configureMail`). Whenever TLS is on the
+ * certificate's name is checked against [host] (`mail.smtp.ssl.checkserveridentity=true`, written explicitly: Angus 2.x defaults to it
+ * for both, and the setting must not depend on that default), so a certificate for another name fails the send instead of being
+ * accepted silently. The property is never written `false`.
  */
 class SmtpMailer(
     private val host: String,
@@ -29,14 +34,18 @@ class SmtpMailer(
     private val password: String,
     private val from: String,
     private val startTls: Boolean,
+    private val implicitTls: Boolean = false,
 ) : Mailer {
-    private val session: Session by lazy {
+    internal val session: Session by lazy {
         val props = Properties().apply {
             put("mail.smtp.host", host)
             put("mail.smtp.port", port.toString())
-            put("mail.smtp.starttls.enable", startTls.toString())
+            val upgrade = startTls && !implicitTls
+            put("mail.smtp.starttls.enable", upgrade.toString())
             // Refuse to silently downgrade: when STARTTLS is on, require the server to support it.
-            put("mail.smtp.starttls.required", startTls.toString())
+            put("mail.smtp.starttls.required", upgrade.toString())
+            if (implicitTls) put("mail.smtp.ssl.enable", "true")
+            if (upgrade || implicitTls) put("mail.smtp.ssl.checkserveridentity", "true")
             put("mail.smtp.auth", (user.isNotBlank()).toString())
             put("mail.smtp.connectiontimeout", "10000")
             put("mail.smtp.timeout", "10000")

@@ -65,15 +65,15 @@ fun Application.configurePasswordResetRoutes() {
                 when (throttle.tryAcquire(email)) {
                     PasswordResetThrottle.AcquireResult.ACQUIRED -> Unit
                     PasswordResetThrottle.AcquireResult.COOLDOWN -> {
-                        audit("password_reset.throttled", "email" to email)
+                        audit("password_reset.throttled", resetAuditIdentity(call.application, email))
                         throw TooManyRequestsException("Only one password reset per minute per address — try again shortly")
                     }
                     PasswordResetThrottle.AcquireResult.CAPACITY_EXCEEDED -> {
-                        audit("password_reset.capacity_rejected", "email" to email)
+                        audit("password_reset.capacity_rejected", resetAuditIdentity(call.application, email))
                         throw TooManyRequestsException("Too many password reset identities are being tracked — try again later")
                     }
                 }
-                audit("password_reset.requested", "email" to email)
+                audit("password_reset.requested", resetAuditIdentity(call.application, email))
                 val app = call.application
                 app.launch { processPasswordReset(app, users, resets, mailer, appUrl, email) }
                 call.respond(HttpStatusCode.Accepted)

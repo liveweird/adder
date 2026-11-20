@@ -21,10 +21,12 @@ spec:
     spec:
       # The app never calls the Kubernetes API — do not mount a ServiceAccount token into the pod.
       automountServiceAccountToken: false
-      # SIGTERM to SIGKILL: Ktor's stop (shutdown grace + timeout) fits inside the 20 s STOP_WAIT_SECONDS of plugins/OpenTelemetry.kt,
-      # and the OpenTelemetry SDK then needs up to 10 s more to flush and close: 30 s, exactly the 30 s default, with no margin.
-      # 45 s leaves 15 s; JvmMemoryFlagsTest pins it against STOP_WAIT_SECONDS.
-      terminationGracePeriodSeconds: 45
+      # The grace period is counted from the moment the pod is told to stop, so it covers the preStop sleep (below) AND the
+      # SIGTERM-to-SIGKILL stop: Ktor's stop (shutdown grace + timeout, 19 s at worst) fits inside the 20 s STOP_WAIT_SECONDS of
+      # plugins/OpenTelemetry.kt, and the OpenTelemetry SDK then needs up to 10 s more to flush and close: 5 s preStop + 20 s + 10 s
+      # = 35 s, which would overrun the 30 s default. 50 s leaves 15 s of margin; JvmMemoryFlagsTest pins it against
+      # STOP_WAIT_SECONDS and the preStop sleep.
+      terminationGracePeriodSeconds: 50
       # The image runs as uid 10001 (Dockerfile), the root filesystem is read-only (the JVM
       # only needs a writable /tmp), no privilege escalation.
       securityContext:
@@ -89,9 +91,11 @@ spec:
               value: "true"
             - name: HTTP_PROXY_HOPS
               value: "1"
-            # Password reset and email MFA need outbound mail. This deployment ships with
-            # mail disabled — set "smtp" plus real SMTP_HOST/MAIL_FROM/MAIL_APP_URL to enable
-            # those flows (production refuses the `log` transport). MAIL_APP_URL is the https origin
+            # Password reset, email MFA and the email digest of unseen notifications (0.6.0) need outbound
+            # mail. This deployment ships with mail disabled (the three features answer 503, or the digest does
+            # nothing) — set "smtp" plus real SMTP_HOST/MAIL_FROM/MAIL_APP_URL to enable them (production refuses the
+            # `log` transport, and an smtp transport without TLS: SMTP_STARTTLS=true on 587, or SMTP_SSL=true on 465
+            # with SMTP_STARTTLS=false). MAIL_APP_URL is the https origin
             # (e.g. https://adder.example.com, no path) the reset link is built from; a malformed value
             # refuses startup, blank makes the self-service reset answer 503.
             # SMTP credentials come from the Secret.
@@ -103,6 +107,8 @@ spec:
               value: "587"
             - name: SMTP_STARTTLS
               value: "true"
+            - name: SMTP_SSL
+              value: "false"
             - name: MAIL_FROM
               value: "adder@localhost"
             - name: MAIL_APP_URL
@@ -119,6 +125,14 @@ spec:
                   name: adder-secrets
                   key: SMTP_PASSWORD
                   optional: true
+          # Keep serving for a few seconds after the pod is told to stop: the Service endpoint (and the ingress behind it) is
+          # removed in parallel with the stop, and a request routed in that gap would meet a closing server. The sleep is
+          # counted inside terminationGracePeriodSeconds (above); the image has `sleep` (coreutils), and the app is not told
+          # to stop (SIGTERM) until it has returned.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
           # Local render placeholder. apply-local.sh substitutes an immutable per-build tag
           # before kubectl sees the manifest; OrbStack shares Docker's image store.
           image: adder-app:local-build

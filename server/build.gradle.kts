@@ -73,6 +73,20 @@ application {
     //                          core of the node (k8s sets no CPU limit): 98 -> 38 threads at 18 visible cores. The cost is
     //                          Dispatchers.Default = 2, i.e. at most two bcrypt hashes at a time (login is rare, the rest of
     //                          the work is I/O). Raise it if login latency ever shows queueing.
+    //   - MaxDirectMemorySize=48m : the cap on off-heap buffers (C-ARCH-3). Left unset, the JDK allows as much direct memory as the
+    //                          max HEAP (256 MiB here) and Netty derives its own ceiling from the same value, so heap (256) + non-heap
+    //                          (~175) + direct (up to 256) could pass the 512 MiB container limit and the kernel would OOM-kill the
+    //                          pod with no Java exception to show for it. Netty reads this flag (the VM's value, else the JVM input
+    //                          arguments), so it needs no `-Dio.netty.maxDirectMemory`. 48 MiB is sized from the allocators, NOT from a
+    //                          load test: 2 x ActiveProcessorCount = 4 event loops, each with one buffer chunk of the pooled/adaptive
+    //                          allocator (1-4 MiB) = 4-16 MiB, per-thread caches of small buffers a few MiB, the 512 KiB body ceiling
+    //                          x a few concurrent uploads, and the JDK's temporary I/O buffers: an estimate of 20 MiB busy (the only
+    //                          measurement is idle: NMT "Other" <= 5 MiB, WHY 17), so 48 is more than twice that. Worst case
+    //                          256 + 175 (the ~180 non-heap budget less its 5 of direct) + 48 = 479 MiB of 512 (33 MiB spare); at the
+    //                          cap Netty/the JDK throws OutOfMemoryError "Direct buffer memory" into the one request or connection
+    //                          that asked, a failed call instead of a dead pod. Raise it only with a measurement (and the container
+    //                          limit; JvmMemoryFlagsTest pins the sum). Checked: Netty 4.2.20's PlatformDependent.maxDirectMemory()
+    //                          is 256 MiB (the heap) without the flag and 48 MiB with it.
     //   Not set on purpose: -Xss. The default 1 MiB stack stays (CanonicalJsonTest pins the margin canonicalJson/toString
     //                          can store for a deeply nested payload).
     //   AppCDS is NOT a flag here: the Docker image dumps a class-data-sharing archive and enables it through `ENV SERVER_OPTS`
@@ -93,6 +107,7 @@ application {
         "-XX:MaxHeapFreeRatio=30",
         "-XX:-ShrinkHeapInSteps",
         "-XX:ActiveProcessorCount=2",
+        "-XX:MaxDirectMemorySize=48m",
     )
 }
 

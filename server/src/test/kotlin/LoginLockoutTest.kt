@@ -43,9 +43,9 @@ class LoginLockoutTest {
             assertEquals(HttpStatusCode.Unauthorized, client.login(tracked, "wrong").status)
             assertNotNull(
                 auditEvents.awaitEvent {
-                    it.message == "login.lockout" && it.hasKeyValue("email", tracked)
+                    it.message == "login.lockout" && it.hasKeyValue("emailDigest", testAuditDigest(tracked))
                 },
-                "ordinary login identities should keep the email audit field",
+                "an identity with no account is named by its digest, never in the clear",
             )
             assertEquals(HttpStatusCode.TooManyRequests, client.login(tracked, "wrong").status)
         } finally {

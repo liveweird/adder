@@ -80,7 +80,8 @@ class ThreadWriteBoundsTest {
             }
             assertTrue(title !in everything && body !in everything, "no title or body reaches the audit trail")
 
-            // The outsider's four probes are 404 and audited; an admin outside the room reads without a line, and a 403 has none.
+            // The outsider's four probes are 404 and audited (one line, coalesced); an admin outside the room reads without
+            // a line, and a 403 has none.
             assertEquals(HttpStatusCode.NotFound, outsider.client.get("$rooms/$room/threads").status)
             assertEquals(HttpStatusCode.NotFound, outsider.client.get("$rooms/$room/threads/1").status)
             assertEquals(HttpStatusCode.NotFound, outsider.client.get("$rooms/$room/threads/1/events").status)
@@ -88,7 +89,7 @@ class ThreadWriteBoundsTest {
             assertEquals(HttpStatusCode.OK, admin.client.get("$rooms/$room/threads").status)
             assertEquals(HttpStatusCode.Forbidden, admin.client.postJson("$rooms/$room/threads", valid).status)
             val denied = capture.events.filter { it.message == "room.access_denied" && it.hasKeyValue("roomId", room.toLong()) }
-            assertEquals(4, denied.size)
+            assertEquals(1, denied.size, "the four probes coalesce into one line per user (RoomAccess.kt)")
             assertTrue(denied.all { it.hasKeyValue("byUserId", outsider.id.toLong()) })
             assertEquals(1, capture.events.count { it.message == "thread.created" }, "a refused create audits no creation")
         }

@@ -65,15 +65,18 @@ private val SMALL_BODY_PATHS = setOf(
     "/api/v1/password-reset",
     "/api/v1/password-reset/confirm",
 )
-private val ROOM_MEMBERS_PATH = Regex("^/api/v1/rooms/[0-9]+/members$")
-private val THREAD_SMALL_PUT_PATH = Regex("^/api/v1/rooms/[0-9]+/threads/[0-9]+/(status|owner|read-marker)$")
-private val THREAD_CREATE_PATH = Regex("^/api/v1/rooms/[0-9]+/threads$")
-private val THREAD_DETAILS_PATH = Regex("^/api/v1/rooms/[0-9]+/threads/[0-9]+$")
-private val NOTIFICATION_PREFERENCES_PATH = Regex("^/api/v1/users/[0-9]+/notification-preferences$")
-private val PIN_PATH = Regex("^/api/v1/rooms/[0-9]+/(threads|messages)/[0-9]+/pin$")
-private val MESSAGE_POST_PATH = Regex("^/api/v1/rooms/[0-9]+/threads/[0-9]+/messages$")
-private val MESSAGE_REACTION_PATH = Regex("^/api/v1/rooms/[0-9]+/messages/[0-9]+/reaction$")
-private val MESSAGE_EDIT_PATH = Regex("^/api/v1/rooms/[0-9]+/messages/[0-9]+$")
+// An ID segment matches ANY text (`[^/]+`), not `[0-9]+`: the router hands the segment to `String.toInt()`, which also takes a leading
+// `+` (`%2B1`), leading zeros and every Unicode decimal digit, so a digits-only pattern let those spellings of a real id past the
+// ceiling to the global one (BodyLimitIdSpellingTest). A segment that is no id never routes, and a tighter ceiling there costs nothing.
+private val ROOM_MEMBERS_PATH = Regex("^/api/v1/rooms/[^/]+/members$")
+private val THREAD_SMALL_PUT_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+/(status|owner|read-marker)$")
+private val THREAD_CREATE_PATH = Regex("^/api/v1/rooms/[^/]+/threads$")
+private val THREAD_DETAILS_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+$")
+private val NOTIFICATION_PREFERENCES_PATH = Regex("^/api/v1/users/[^/]+/notification-preferences$")
+private val PIN_PATH = Regex("^/api/v1/rooms/[^/]+/(threads|messages)/[^/]+/pin$")
+private val MESSAGE_POST_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+/messages$")
+private val MESSAGE_REACTION_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+/reaction$")
+private val MESSAGE_EDIT_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+$")
 
 /**
  * The path as ROUTING sees it, which is what the ceilings must match: the raw request path split on `/`, empty segments dropped (routing
@@ -193,6 +196,8 @@ fun Application.configureHttp() {
                 finish()
             }
         }
+        // Production admits https origins only: an http page can be rewritten in transit, and with it the token it holds.
+        val corsSchemes = if (developmentMode) listOf("http", "https") else listOf("https")
         install(CORS) {
             allowMethod(HttpMethod.Options)
             allowMethod(HttpMethod.Put)
@@ -201,7 +206,7 @@ fun Application.configureHttp() {
             allowHeader(HttpHeaders.Authorization)
             allowHeader(HttpHeaders.ContentType)
             allowHeader(EXPECTED_REVISION_HEADER)
-            corsHosts.forEach { allowHost(it, schemes = listOf("http", "https")) }
+            corsHosts.forEach { allowHost(it, schemes = corsSchemes) }
         }
     }
     // Behind a TLS-terminating reverse proxy / ingress, trust X-Forwarded-* so the client IP

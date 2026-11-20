@@ -69,8 +69,8 @@ private fun countPhrase(count: Int, language: String): String {
 internal fun plainName(text: String): String = buildString {
     for (c in text) {
         when {
-            c in '‪'..'‮' || c in '⁦'..'⁩' || c == '‎' || c == '‏' || c == '؜' -> Unit
-            Character.isISOControl(c) || c == ' ' || c == ' ' -> append(' ')
+            c in '\u202A'..'\u202E' || c in '\u2066'..'\u2069' || c == '\u200E' || c == '\u200F' || c == '\u061C' -> Unit
+            Character.isISOControl(c) || c == '\u2028' || c == '\u2029' -> append(' ')
             else -> append(c)
         }
     }

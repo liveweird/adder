@@ -13,6 +13,7 @@ import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
+import ch.nokillswit.plugins.RateLimitAuditThrottle
 import ch.nokillswit.users.DEFAULT_LANGUAGE
 import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService
@@ -50,6 +51,9 @@ class RoomService(
     private val templates: WorkflowTemplateService,
     private val workflows: RoomWorkflowService,
 ) {
+    /** Coalesces the `room.access_denied` audit line per user (`RoomAccess.kt`): at most one a minute, with the folded count. */
+    internal val denialAudit = RateLimitAuditThrottle()
+
     object Rooms : UIntIdTable("rooms"), SoftDeletable {
         // Case-folded name uniqueness rides the partial unique index uq_rooms_name_active (V13, non-deleted rooms); Exposed defs are
         // query-only, so no `.uniqueIndex()` here.

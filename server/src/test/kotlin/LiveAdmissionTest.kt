@@ -95,6 +95,25 @@ class LiveAdmissionTest {
     }
 
     @Test
+    fun `in production a listed host is admitted over https only, the server's own origin is unchanged`() {
+        fun prod(origin: String?, scheme: String, host: String, port: Int, vararg cors: String) =
+            originAllowed(origin, scheme, host, port, cors.toList(), listedHttpsOnly = true)
+        assertTrue(prod("https://other.example.com", "https", "app.example.com", 443, "other.example.com"))
+        assertTrue(prod("https://other.example.com:8443", "https", "app.example.com", 443, "other.example.com:8443"))
+        assertFalse(prod("http://other.example.com", "https", "app.example.com", 443, "other.example.com"), "an http page of a listed host")
+        assertFalse(prod("http://other.example.com:8080", "https", "app.example.com", 443, "other.example.com:8080"))
+        assertEquals(
+            OriginVerdict.FOREIGN,
+            originVerdict("http://other.example.com", "https", "app.example.com", 443, listOf("other.example.com"), listedHttpsOnly = true),
+        )
+        // The server's own origin never depends on the list.
+        assertTrue(prod("https://app.example.com", "https", "app.example.com", 443))
+        assertFalse(prod("http://app.example.com", "https", "app.example.com", 443), "the http page of an https site")
+        // Development (the default) keeps both schemes for a listed host.
+        assertTrue(allowed("http://other.example.com", "app.example.com", 443, "other.example.com"))
+    }
+
+    @Test
     fun `a cross-origin, null, non-http or missing Origin is 403, and refusals of one origin host are audited once`() = testApplication {
         usePostgresTestcontainer()
         val client = jsonClient()

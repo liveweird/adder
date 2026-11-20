@@ -25,6 +25,16 @@ private const val APP_CSP =
     "form-action 'self'; " +
     "frame-ancestors 'none'"
 
+// Cross-origin isolation, on EVERY answer (the early ones, the SPA shell, Swagger UI and the API alike). Nothing of Adder is meant to be
+// embedded or opened by another site, and the SPA loads every resource (script, style, fonts, the logo) from its own origin, so both
+// are `same-origin`:
+// - Cross-Origin-Opener-Policy: a page of another origin that opens Adder in a window (or is opened by it) gets no `window` handle to it.
+//   The SPA opens no popup and Swagger UI uses none (no OAuth flow is configured).
+// - Cross-Origin-Resource-Policy: a no-cors embed from another origin (<img>, <script>, <link>) is refused. A CORS-mode `fetch` (the
+//   `http.corsHosts` callers) is NOT subject to it, so the allow-list keeps working.
+// Pinned by CrossOriginPolicyTest.
+private const val CROSS_ORIGIN_POLICY = "same-origin"
+
 // Defense-in-depth security response headers. The code is already XSS-safe (React escaping +
 // react-markdown with no raw HTML); these headers contain the blast radius of any future
 // regression and harden against clickjacking / MIME sniffing / referrer leakage.
@@ -55,5 +65,7 @@ internal fun ApplicationCall.appendSecurityHeaders(strictCsp: Boolean = true) {
     headers.append("X-Frame-Options", "DENY")
     headers.append("Referrer-Policy", "no-referrer")
     headers.append("Permissions-Policy", "geolocation=(), camera=(), microphone=(), payment=()")
+    headers.append("Cross-Origin-Opener-Policy", CROSS_ORIGIN_POLICY)
+    headers.append("Cross-Origin-Resource-Policy", CROSS_ORIGIN_POLICY)
     if (strictCsp) headers.append("Content-Security-Policy", APP_CSP)
 }

@@ -227,16 +227,55 @@ class JvmMemoryFlagsTest {
         val stopWait = Regex("""STOP_WAIT_SECONDS\s*=\s*(\d+)L""").find(telemetry)?.groupValues?.get(1)?.toLong()
         assertNotNull(stopWait, "STOP_WAIT_SECONDS not found in plugins/OpenTelemetry.kt")
         // Ktor's stop (grace + timeout, ~6 s) fits inside STOP_WAIT; the SDK then needs <= SDK_CLOSE_SECONDS more.
-        val needed = stopWait + SDK_CLOSE_SECONDS + GRACE_MARGIN_SECONDS
         for ((file, deployment) in k8sDeployments().filter { (name, _) -> name != "k8s/postgres-deployment.yaml" }) {
+            // The grace period also covers the preStop hook, which runs BEFORE the SIGTERM: its sleep is spent first.
+            val preStop = preStopSleepSeconds(deployment)
+            assertEquals(PRE_STOP_SLEEP_SECONDS, preStop, "$file: the preStop sleep moved: update PRE_STOP_SLEEP_SECONDS")
+            val needed = preStop + stopWait + SDK_CLOSE_SECONDS + GRACE_MARGIN_SECONDS
             val grace = deployment.path("spec").path("template").path("spec").path("terminationGracePeriodSeconds")
             assertTrue(grace.isIntegralNumber, "$file sets no terminationGracePeriodSeconds (the 30 s default has zero margin)")
             assertTrue(
                 grace.asLong() >= needed,
                 "$file: terminationGracePeriodSeconds ${grace.asLong()} < $needed " +
-                    "(STOP_WAIT $stopWait + SDK close $SDK_CLOSE_SECONDS + margin $GRACE_MARGIN_SECONDS)",
+                    "(preStop $preStop + STOP_WAIT $stopWait + SDK close $SDK_CLOSE_SECONDS + margin $GRACE_MARGIN_SECONDS)",
             )
         }
+    }
+
+    /** The seconds of the app container's `preStop` `sleep N` exec hook; fails when the hook is missing or is anything else. */
+    private fun preStopSleepSeconds(deployment: JsonNode): Long {
+        val container = containersOf(deployment).first { it.path("image").asText().startsWith("adder-app") }
+        val command = container.path("lifecycle").path("preStop").path("exec").path("command").map { it.asText() }
+        assertEquals("sleep", command.firstOrNull(), "the app needs a preStop `sleep` hook (the endpoint leaves in parallel with the stop)")
+        return command.getOrNull(1)?.toLongOrNull() ?: error("preStop sleep has no seconds: $command")
+    }
+
+    /** The last `-XX:MaxDirectMemorySize=` on the command line (the JDK takes the last): the cap on off-heap buffers, in MiB. */
+    private fun maxDirectMiB(tokens: List<String>): Long? =
+        tokens.lastOrNull { it.startsWith("-XX:MaxDirectMemorySize=") }?.let { mib(it.substringAfter('=')) }
+
+    /**
+     * Direct memory is capped (C-ARCH-3): unset, the JDK allows as much as the max heap and Netty follows it, so heap + non-heap + direct
+     * could pass the container limit. The cap is pinned, and so is the worst-case sum under every limit (the cap was sized from the
+     * allocators' arithmetic, not from a load test; the arithmetic is in `server/build.gradle.kts`).
+     */
+    @Test
+    fun `direct memory is capped and heap plus non-heap plus direct fits every limit`() {
+        val baked = maxDirectMiB(bakedFlags())
+        assertEquals(DIRECT_CAP_MIB, baked, "the baked -XX:MaxDirectMemorySize moved: re-read the sizing in build.gradle.kts")
+        for (jvm in shippedJvms()) {
+            val direct = maxDirectMiB(jvm.tokens) ?: error("${jvm.name}: no -XX:MaxDirectMemorySize on the command line")
+            val xmx = effectiveXmxMiB(jvm.tokens)!!
+            val worst = xmx + NON_HEAP_WITHOUT_DIRECT_MIB + direct
+            val limit = jvm.limitMiB!!
+            assertTrue(
+                worst + MIN_SPARE_MIB <= limit,
+                "${jvm.name}: worst case $worst MiB (heap $xmx + non-heap $NON_HEAP_WITHOUT_DIRECT_MIB + direct $direct) in $limit Mi",
+            )
+        }
+        // The helper reads the LAST flag and reports an unset cap as null.
+        assertEquals(null, maxDirectMiB(listOf("-Xmx256m")))
+        assertEquals(256L, maxDirectMiB(listOf("-XX:MaxDirectMemorySize=48m", "-XX:MaxDirectMemorySize=256m")))
     }
 
     private companion object {
@@ -250,5 +289,17 @@ class JvmMemoryFlagsTest {
 
         /** Slack for the JVM's own exit and the kubelet's bookkeeping. */
         const val GRACE_MARGIN_SECONDS = 15L
+
+        /** `k8s/app-deployment.yaml`'s preStop `sleep`: the gap in which the Service endpoint is removed while the app still serves. */
+        const val PRE_STOP_SLEEP_SECONDS = 5L
+
+        /** The baked `-XX:MaxDirectMemorySize` (`server/build.gradle.kts`). */
+        const val DIRECT_CAP_MIB = 48L
+
+        /** The measured non-heap budget (~180 MiB, WHY 17) less the <= 5 MiB of direct buffers it already counts. */
+        const val NON_HEAP_WITHOUT_DIRECT_MIB = 175L
+
+        /** What must remain of a limit once heap, non-heap and the full direct cap are all in use at once. */
+        const val MIN_SPARE_MIB = 32L
     }
 }

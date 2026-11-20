@@ -42,7 +42,7 @@ enforces both pending caps when it starts. `RequestBodyLimit` is told the upgrad
 
 **Origin rule (CSWSH defence).** The header is required and its scheme must be `http` or `https`. It is allowed when its **scheme** equals the request's
 (`call.request.origin.scheme`) and its authority (case-insensitive, default ports dropped) equals `serverHost:serverPort` (`XForwardedHeaders` rewrites all
-three when `http.behindProxy` is on: `X-Forwarded-Proto`, `X-Forwarded-Host` with its port), or the origin is listed in `http.corsHosts`. Anything else (a
+three when `http.behindProxy` is on: `X-Forwarded-Proto`, `X-Forwarded-Host` with its port), or the origin is listed in `http.corsHosts` (**in production over `https` only**, like CORS: an `http` origin of a listed host is `403 detail=authority`; development admits both. Defence in depth: with `http.corsHosts` set, the CORS plugin judges the `Origin` first and answers a foreign or `http` origin with its own bodiless `403`, so in production this branch is normally reached by no request and writes no `live.refused` line). Anything else (a
 missing header and `null` included) is `403` with `live.refused reason=origin` and a `detail`: `authority` (some other site), `scheme` (this host, the
 other scheme: a TLS front door that does not send `X-Forwarded-Proto`, or `http://x:443` against an https site) or `host` (the request's own `Host` cannot be
 read). [changed in the 0.4.0 audit: the scheme used to be ignored.] The `Host` header is client text: a non-numeric port (`localhost:abc`) made Ktor's
@@ -266,7 +266,7 @@ of sockets that expired together does not mint in one instant.
 ## Deploy and proxies
 
 Compose serves 8087 directly. The Kubernetes (OrbStack) `adder` namespace uses a LoadBalancer Service and no Ingress, so the socket passes at L4; the 1001
-close fits inside `terminationGracePeriodSeconds` 45. A **reverse proxy** must pass the upgrade (`proxy_http_version 1.1`, `Upgrade $http_upgrade`,
+close fits inside `terminationGracePeriodSeconds` 50 (a 5 s `preStop` sleep comes first, `observability.md`). A **reverse proxy** must pass the upgrade (`proxy_http_version 1.1`, `Upgrade $http_upgrade`,
 `Connection $connection_upgrade`) and keep read and send timeouts at 60 s or more (25 s pings fit ingress-nginx's default). The Origin check needs the
 request's scheme, host AND port to be the browser's, which is a statement about headers, not about `Host`: **TLS at the proxy needs
 `X-Forwarded-Proto: https` plus `http.behindProxy=true`** (the application sees plain http otherwise, and an `https://` Origin is refused for its scheme);

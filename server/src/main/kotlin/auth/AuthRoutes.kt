@@ -9,6 +9,7 @@ import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.plugins.JwtConfig
 import ch.nokillswit.plugins.JwtConfigKey
 import ch.nokillswit.users.Feature
+import ch.nokillswit.users.MAX_EMAIL_LENGTH
 import ch.nokillswit.users.User
 import ch.nokillswit.users.UserServiceKey
 import ch.nokillswit.infra.validation.canonicalEmail
@@ -29,6 +30,7 @@ import io.ktor.server.request.receive
 import io.ktor.server.request.receiveNullable
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.application
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 
@@ -127,8 +129,13 @@ fun Application.configureAuthRoutes() {
     }
 }
 
-private fun loginAuditIdentity(email: String): Pair<String, Any?> =
-    if (email.length <= 254) "email" to email else "emailDigest" to loginIdentityKey(email)
+/**
+ * How a login line names the identity: the address of an account that EXISTS (`email`, which an operator needs to see who is
+ * being guessed at), else the fixed-size, keyed `emailDigest` ([AuditDigest]). What was typed into the box of an identity with no
+ * account can be anything, a password included (people do paste one there), so it never reaches a log line in the clear.
+ */
+private fun loginAuditIdentity(digest: AuditDigest, email: String, accountExists: Boolean): Pair<String, Any?> =
+    if (accountExists) "email" to email else "emailDigest" to digest.of(email)
 
 private fun Route.login(deps: AuthDeps) {
     val jwtConfig = deps.jwtConfig
@@ -137,13 +144,19 @@ private fun Route.login(deps: AuthDeps) {
     val mailer = deps.mailer
     val mfaChallenges = deps.mfaChallenges
     val mfaTtlMinutes = deps.mfaTtlMinutes
+    val auditDigest = application.auditDigest()
     post("/api/v1/login") {
         val req = call.receive<LoginRequest>()
         // Canonical identity: accounts are stored under the folded email, so the login
         // lookup folds the same way — a padded or case-variant submission matches its
         // account (and keeps sharing one lockout bucket).
         val email = canonicalEmail(req.email)
-        val auditIdentity = loginAuditIdentity(email)
+        // ONE fixed-shape existence query BEFORE the lock check, used only to choose how this request's lines name the identity (the
+        // address of an account, the digest of a guess): the same single statement for a known and an unknown address, so the 429
+        // refusals below it still say nothing about existence. The full lookup (the account and its features: one more query for a
+        // known account) stays AFTER the check, as it was. An address longer than any account's cannot match one and is not probed.
+        val exists = email.length <= MAX_EMAIL_LENGTH && userService.accountExists(email)
+        val auditIdentity = loginAuditIdentity(auditDigest, email, accountExists = exists)
         val guess = AccountGuess(loginThrottle, email, listOf(auditIdentity))
         guess.requireNotLocked()
         val record = userService.findWithIdByEmail(email)

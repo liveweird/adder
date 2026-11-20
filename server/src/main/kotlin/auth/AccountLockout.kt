@@ -51,9 +51,10 @@ internal fun lockoutCapacityException() =
  *
  * [knownAccount] is true where the route has ALREADY proven the account exists before the credential is compared (the MFA
  * challenge's subject, the signed-in caller): its failures are counted even at a full store (the junk identities that fill a
- * store must not buy free guesses), and the capacity refusal never applies. `/login` passes false: it cannot know before the
- * lookup, and refusing an untracked identity BEFORE any password work (the same 429 for a known and an unknown email) is what
- * keeps the capacity answer free of an existence signal.
+ * store must not buy free guesses), and the capacity refusal never applies. `/login` passes false: its one existence probe
+ * (`UserService.accountExists`) only chooses the audit identity and is not trusted for the throttle, and refusing an untracked
+ * identity BEFORE any password work (the same 429, after the same one statement, for a known and an unknown email) is what keeps
+ * the capacity answer free of an existence signal.
  */
 internal class AccountGuess(
     private val throttle: LoginThrottle,
