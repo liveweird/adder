@@ -16,6 +16,7 @@ import ch.nokillswit.rooms.RoomWorkflowResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.PinRequest
+import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadResponse
@@ -232,6 +233,38 @@ class NotifyHintsTest {
             )
         }
     }
+
+    @Test
+    fun `a reaction emits one hint per change with the thread number and the message id, and a refusal or a repeat emits none`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val owner = actor("hint-rxown")
+            val member = actor("hint-rxmem")
+            val outsider = actor("hint-rxout")
+            val room = room(owner, template())
+            TestRooms.addMember(room, member.id)
+            TestThreads.seed(room, member.id)
+            val message = TestThreads.post(room, 1, member.id, "React to me")
+            val thumbsUp = "\uD83D\uDC4D"
+            suspend fun react(who: RoomActor, emoji: String, reacted: Boolean) =
+                who.client.putJson("$rooms/$room/messages/$message/reaction", ReactionRequest(emoji, reacted))
+            NotifyCapture().use { capture ->
+                val hints = capture.during {
+                    react(member, thumbsUp, true).expect(HttpStatusCode.NoContent)
+                    // The same state again, a bad emoji and a non-member: answered, nothing announced.
+                    react(member, thumbsUp, true).expect(HttpStatusCode.NoContent)
+                    react(member, "a", true).expect(HttpStatusCode.BadRequest)
+                    react(outsider, thumbsUp, true).expect(HttpStatusCode.NotFound)
+                    react(owner, thumbsUp, true).expect(HttpStatusCode.NoContent)
+                    react(member, thumbsUp, false).expect(HttpStatusCode.NoContent)
+                    // A closed thread refuses: nothing is announced.
+                    TestThreads.closeRaw(room, 1)
+                    react(member, thumbsUp, false).expect(HttpStatusCode.Conflict)
+                }
+                val changed = hint(LiveKind.MESSAGE_REACTION_CHANGED, room, thread = 1, message = message)
+                assertEquals(listOf(changed, changed, changed), hints, "the add, the owner's add and the removal")
+            }
+        }
 
     @Test
     fun `an edit that only changes a tag still emits one message edited and the tag write emits no hint of its own`() = testApplication {

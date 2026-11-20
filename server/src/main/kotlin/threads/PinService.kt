@@ -55,11 +55,12 @@ class PinService internal constructor(
     }
 
     /**
-     * One page of room [roomId]'s pins: the count, the rows and the pinned messages (one query) share one predicate and one transaction,
+     * One page of room [roomId]'s pins as [viewerId] sees them (a pinned message carries the viewer's own reactions): the count, the
+     * rows and the pinned messages (one query) share one predicate and one transaction,
      * but they are separate READ COMMITTED statements, not one snapshot. A message deleted between them leaves its pin out of the page
      * (the row is skipped) while `total` still counted it, so `total` can be one higher than the pins that exist for that one read.
      */
-    suspend fun list(roomId: UInt, paging: PageRequest): RoomPinListResult = suspendTransaction(database) {
+    suspend fun list(roomId: UInt, paging: PageRequest, viewerId: UInt): RoomPinListResult = suspendTransaction(database) {
         val threads = ThreadService.Threads
         val inRoom = RoomPins.roomId eq roomId
         val total = RoomPins.selectAll().where { inRoom }.count()
@@ -69,7 +70,7 @@ class PinService internal constructor(
                 threads.number, threads.title, threads.statusKey, threads.closedAt,
             )
             .where { inRoom }.applyPaging(paging, SORTABLE_COLUMNS).toList()
-        val pinned = messages.readInTransaction(roomId, rows.mapNotNull { it[RoomPins.messageId]?.value })
+        val pinned = messages.readInTransaction(roomId, rows.mapNotNull { it[RoomPins.messageId]?.value }, viewerId)
         val names = userNames(rows.map { it[RoomPins.pinnedBy].value })
         val items = rows.mapNotNull { row ->
             val messageId = row[RoomPins.messageId]?.value

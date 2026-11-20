@@ -77,21 +77,23 @@ fun Application.configureMessageRoutes() {
 
 private fun Route.messageReads(roomService: RoomService, threadService: ThreadService, messageService: MessageService) {
     get<ThreadMessagesRoute> { route ->
+        val caller = call.caller()
         val roomId = route.parent.parent.parent.id
-        roomService.visibleStanding(call.caller(), roomId)
+        roomService.visibleStanding(caller, roomId)
         val number = route.parent.number.toInt()
         val threadId = threadService.idOf(roomId, number).orNotFound("Thread")
         // Newest first by default, so the keyset (`id[lt]` on the smallest id loaded) is right without a `sort` parameter.
         val paging = call.parsePaging(sortable = MESSAGE_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
         val idLt = call.request.queryParameters.optionalUInt("id[lt]")
         if (idLt != null && idLt !in 1u..MAX_MESSAGE_ID) throw BadRequestException("id[lt] must be between 1 and $MAX_MESSAGE_ID")
-        val result = messageService.list(threadId, number, idLt, paging)
+        val result = messageService.list(threadId, number, idLt, paging, caller.userId)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }
     get<RoomMessagesRoute.Id> { route ->
+        val caller = call.caller()
         val roomId = route.parent.parent.id
-        roomService.visibleStanding(call.caller(), roomId)
-        call.respond(HttpStatusCode.OK, messageService.read(roomId, route.messageId).orNotFound("Message"))
+        roomService.visibleStanding(caller, roomId)
+        call.respond(HttpStatusCode.OK, messageService.read(roomId, route.messageId, caller.userId).orNotFound("Message"))
     }
 }
 

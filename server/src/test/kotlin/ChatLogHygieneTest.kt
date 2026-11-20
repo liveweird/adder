@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.ThreadResponse
 import ch.nokillswit.threads.ThreadSearchPageResponse
+import ch.nokillswit.users.UserRole
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
@@ -235,6 +236,47 @@ class ChatLogHygieneTest {
             assertTrue("message.posted" in names && "rate_limit.exceeded" in names, "captured: $names")
             val leaked = capture.events.filter { term in it.rendered() || term.uppercase() in it.rendered() }
             assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a search term")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    /**
+     * An emoji is chosen text like a body: a reaction must leave it in no log line of any logger - audit trail, Ktor, pool and driver
+     * included - whether it is written, removed, refused as not an emoji, refused by a limit or by the closed thread, or sent by someone
+     * who may not react (the 404 and 403 audit lines carry the path, and the path has no emoji).
+     */
+    @Test
+    fun `no log line carries an emoji - added, removed, refused or denied`() = testApplication {
+        val marker = "HYGIENE-${UUID.randomUUID()}"
+        val pinata = String(Character.toChars(0x1FA85)) // rare enough that no other line could carry it by chance
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            usePostgresTestcontainer()
+            val cast = castWithThread("hyg-rx")
+            val outsider = seedActor("hyg-rx-out").also { mintedUsers += it.id }
+            val admin = seedActor("hyg-rx-adm", UserRole.ADMIN).also { mintedUsers += it.id }
+            val messageId = cast.post("""{"body":"P to react to"}""").body<MessageResponse>().id
+            val path = "$rooms/${cast.room}/messages/$messageId/reaction"
+            suspend fun react(who: RoomActor, emoji: String, reacted: Boolean = true) =
+                who.client.raw(HttpMethod.Put, path, """{"emoji":"$emoji","reacted":$reacted}""").status
+
+            assertEquals(HttpStatusCode.NoContent, react(cast.member, pinata))
+            assertEquals(HttpStatusCode.NoContent, react(cast.member, pinata, reacted = false))
+            // Refused: not an emoji (the marker), two clusters, a limit, an outsider's and an ADMIN's.
+            assertEquals(HttpStatusCode.BadRequest, react(cast.member, marker))
+            assertEquals(HttpStatusCode.BadRequest, react(cast.member, "$pinata$marker"))
+            (0 until 5).forEach { assertEquals(HttpStatusCode.NoContent, react(cast.member, String(Character.toChars(0x1F600 + it)))) }
+            assertEquals(HttpStatusCode.Conflict, react(cast.member, pinata))
+            assertEquals(HttpStatusCode.NotFound, react(outsider, pinata))
+            assertEquals(HttpStatusCode.Forbidden, react(admin, pinata))
+            TestThreads.closeRaw(cast.room, 1)
+            assertEquals(HttpStatusCode.Conflict, react(cast.member, pinata, reacted = false))
+
+            val names = capture.events.map { it.message }
+            assertTrue("message.reaction_changed" in names && "room.access_denied" in names && "authz.denied" in names, "captured: $names")
+            val leaked = capture.events.filter { pinata in it.rendered() || marker in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries an emoji")
         } finally {
             capture.detach()
         }

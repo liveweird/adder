@@ -12,6 +12,15 @@ const val THREAD_CLOSED_PROBLEM_TYPE = "urn:adder:problem:thread-closed"
 /** A closed thread takes no activity until its owner, the room owner or an ADMIN reopens it (`chat-model.md` "Closed and archived"). */
 fun threadClosed(): ConflictException = ConflictException("The thread is closed", problemType = THREAD_CLOSED_PROBLEM_TYPE)
 
+const val REACTION_LIMIT_PROBLEM_TYPE = "urn:adder:problem:reaction-limit"
+
+/**
+ * A reaction would pass a limit of `chat-model.md` "Reactions (V20)": a 21st distinct emoji on the message, or a 6th emoji of the caller's
+ * on it. Typed, so a client tells it from the plain conflicts by the URI. The detail names no emoji.
+ */
+fun reactionLimit(): ConflictException =
+    ConflictException("The message has reached its reaction limit", problemType = REACTION_LIMIT_PROBLEM_TYPE)
+
 const val SEARCH_TIMEOUT_PROBLEM_TYPE = "urn:adder:problem:search-timeout"
 
 /** Seconds the `Retry-After` header of a [searchTimeout] answer names: a heavy search is not helped by an instant retry. */

@@ -94,7 +94,7 @@ application is wired declaratively in `server/src/main/resources/application.yam
 (e.g. `ch.nokillswit.plugins.HttpKt.configureHttp`). **Module order is load-bearing**: base plugins
 (Http → SecurityHeaders → Monitoring → Serialization → Security → RateLimits → ErrorHandling → OpenTelemetry → AutoHeadResponse → Resources → Sockets) →
 infra (Mail → Crypto → Flyway → Database → Bootstrap → Health) → Telemetry (the sampler) → feature route modules (users, teams, auth, password
-reset, telemetry reads, live; the search routes follow the message routes, then `configureMessageTagReindex`) → `RoutingKt.configureRouting` strictly last (the SPA catch-all). `configureDatabase` publishes the services into
+reset, telemetry reads, live; the reaction route and the search routes follow the message routes, then `configureMessageTagReindex`) → `RoutingKt.configureRouting` strictly last (the SPA catch-all). `configureDatabase` publishes the services into
 `Application.attributes` via `AttributeKey`s. To add a cross-cutting concern, create a `configureXxx()` extension under `plugins/` and register it
 in `application.yaml`; do not call it from `main.kt`. There is no DI framework — services travel via `attributes`.
 
@@ -156,7 +156,7 @@ disagree, the doc wins. The always-loaded set (this file plus the two imports) s
 | Doc | Read before you touch |
 |---|---|
 | `.claude/docs/conventions.md` | adding a feature, route, service, migration or page: the `teams/` feature template (DTO + validator, routes, service, migration + checksum pin, spec paths, `gen:api`, lazy page + nav entry, e2e spec + scenario) |
-| `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql`, V1–V21 today — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `ops` schema |
+| `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql`, V1–V17, V20 and V21 today — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `ops` schema |
 | `.claude/docs/security.md` | auth/JWT/MFA/password reset, rate limits, headers/CSP, secrets/encryption at rest, production fail-closed startup checks, payload validation |
 | `.claude/docs/authorization.md` | any route: its guard (ADMIN vs any authenticated), 403-before-400/404 ordering, existence disclosure, the error/`ProblemDetail` mapping |
 | `.claude/docs/observability.md` | any mutation or denial path (it needs an `audit(...)` event, listed there), logging, OpenTelemetry, health probes, the telemetry panel's server side |

@@ -53,6 +53,7 @@ ktor:
       # Threads (V14): the room's threads and their history, then their messages (0.3.0 S5). After the room routes, before the catch-all.
       - ch.nokillswit.threads.ThreadRoutesKt.configureThreadRoutes
       - ch.nokillswit.threads.MessageRoutesKt.configureMessageRoutes
+      - ch.nokillswit.threads.ReactionRoutesKt.configureReactionRoutes
       # The room's pins (V21): the list and the two pin PUTs, after the message routes whose path family they extend.
       - ch.nokillswit.threads.PinRoutesKt.configurePinRoutes
       # The full-text search (V16): after the thread routes (it reads the room service they share), before the catch-all.

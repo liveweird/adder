@@ -12,6 +12,7 @@ import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.PIN_LIMIT_PROBLEM_TYPE
 import ch.nokillswit.threads.PinKind
 import ch.nokillswit.threads.PinRequest
+import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.RoomPinResponse
 import ch.nokillswit.threads.ThreadStatusRequest
 import ch.nokillswit.users.UserRole
@@ -165,6 +166,32 @@ class PinsTest {
         assertEquals(listOf(MentionedUser(cast.owner.id, "Olivia")), pinned.mentions)
         val read = cast.owner.client.get("$rooms/${cast.room}/messages/$message").body<MessageResponse>()
         assertEquals(read, pinned, "the same message the single read answers, mentions included")
+    }
+
+    @Test
+    fun `a pinned message's reactions come back in the pins list, marked for the one who asks`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("pin-reaction")
+        val message = TestThreads.post(cast.room, 1, cast.member.id, "React to the pin")
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.pinMessage(cast.room, message).status)
+        val thumbsUp = String(Character.toChars(0x1F44D))
+        val party = String(Character.toChars(0x1F389))
+        suspend fun react(who: RoomActor, emoji: String) =
+            who.client.putJson("$rooms/${cast.room}/messages/$message/reaction", ReactionRequest(emoji, true)).status
+        assertEquals(HttpStatusCode.NoContent, react(cast.owner, thumbsUp))
+        assertEquals(HttpStatusCode.NoContent, react(cast.member, party))
+
+        suspend fun reactionsFor(who: RoomActor) = who.client.pinList(cast.room).items.single().message!!.reactions
+        // As the owner: the thumbs up is theirs. As the member: the party is. An ADMIN outside the room reads, and has reacted to nothing.
+        assertEquals(listOf(thumbsUp to true, party to false), reactionsFor(cast.owner).map { it.emoji to it.reacted })
+        assertEquals(listOf(thumbsUp to false, party to true), reactionsFor(cast.member).map { it.emoji to it.reacted })
+        assertEquals(listOf(thumbsUp to false, party to false), reactionsFor(cast.admin).map { it.emoji to it.reacted })
+        assertEquals(listOf(listOf("Olivia"), listOf("Marek")), reactionsFor(cast.owner).map { it.names })
+        // The same message the single read answers to the same reader, reactions included.
+        for (who in listOf(cast.owner, cast.member)) {
+            val read = who.client.get("$rooms/${cast.room}/messages/$message").body<MessageResponse>()
+            assertEquals(read, who.client.pinList(cast.room).items.single().message)
+        }
     }
 
     @Test

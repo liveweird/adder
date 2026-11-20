@@ -4,6 +4,7 @@ import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.PinRequest
+import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadStatusRequest
@@ -86,6 +87,8 @@ class ThreadAuthzMatrixTest {
     private val noContent = HttpStatusCode.NoContent
     private val notFound = HttpStatusCode.NotFound
     private val forbidden = HttpStatusCode.Forbidden
+    private val conflict = HttpStatusCode.Conflict
+    private val thumbsUp = "\uD83D\uDC4D"
     private val severity = mapOf("severity" to JsonPrimitive("s1"))
 
     private val operations = listOf(
@@ -135,6 +138,19 @@ class ThreadAuthzMatrixTest {
         },
         Operation("DELETE someone else's message", notFound, forbidden, forbidden, noContent, noContent) { client, base, cast ->
             client.delete("$base/messages/${cast.other}")
+        },
+        // A reaction is speech: only members react (an ADMIN outside the room is 403, before the message is looked up), anyone's message.
+        Operation("PUT reaction", notFound, noContent, noContent, noContent, forbidden) { client, base, cast ->
+            client.putJson("$base/messages/${cast.other}/reaction", ReactionRequest(thumbsUp, true))
+        },
+        Operation("PUT reaction, closed thread", notFound, conflict, conflict, conflict, forbidden, ::closeThread) { client, base, cast ->
+            client.putJson("$base/messages/${cast.other}/reaction", ReactionRequest(thumbsUp, true))
+        },
+        Operation("PUT reaction on another room's message", notFound, notFound, notFound, notFound, forbidden) { client, base, cast ->
+            client.putJson("$base/messages/${cast.foreign}/reaction", ReactionRequest(thumbsUp, true))
+        },
+        Operation("PUT reaction on an unknown message", notFound, notFound, notFound, notFound, forbidden) { client, base, _ ->
+            client.putJson("$base/messages/999999/reaction", ReactionRequest(thumbsUp, true))
         },
         // A message id of ANOTHER room, an unknown one, and an unknown thread's list are 404 for every caller who may read the room.
         Operation("GET another room's message", notFound, notFound, notFound, notFound, notFound) { client, base, cast ->

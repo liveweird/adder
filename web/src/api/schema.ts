@@ -1162,6 +1162,7 @@ export interface paths {
          *     - Keyset paging inside the standard envelope: `id[lt]` keeps only the messages OLDER than that id, so the next page of a
          *       newest-first list is `id[lt]=<smallest id loaded>&page=1`. `total` is counted AFTER the `id[lt]` filter: `total > items.length`
          *       means older messages exist. A repeated `id[lt]` is a `400`.
+         *     - Each message carries its `reactions` as the CALLER sees them (`reacted` marks the caller's own); a tombstone carries none.
          */
         get: operations["listThreadMessages"];
         put?: never;
@@ -1329,6 +1330,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/messages/{messageId}/reaction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add or remove the caller's own reaction of one emoji
+         * @description A MEMBER of the room speaks (a non-member is the uniform `404`; an `ADMIN` who is not a member is `403`, and joins through the
+         *     Members page first). A single-value set with a body, like a thread's `status` and `owner`: the emoji is chosen text and must not
+         *     travel in a path (API-RES-006 allows two path parameters at most, and every `path` field of a log line would carry it).
+         *     Checked in this order: authentication (`401`), the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before
+         *     any guard, so a refused write costs a token), visibility (`404`), the member rule (`403`) before the body, the body (`400`, a
+         *     fixed detail that never echoes what was sent), then under the room lock the message (`404` when it is unknown, deleted or of
+         *     another room), an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
+         *     `urn:adder:problem:thread-closed`: reopen it first), the state it already has (`204`, nothing written, no hint, no audit line)
+         *     and the limits (`409` of type `urn:adder:problem:reaction-limit`: a 21st distinct emoji on the message, or a 6th emoji of the
+         *     caller's on it; joining an emoji already on the message is never the first, and removing is never refused).
+         *
+         *     `emoji` must be ONE emoji in its one fully qualified spelling: 1 to 32 UTF-16 units and at most 10 code points, exactly one extended
+         *     grapheme cluster, and then a flag (a PAIR of regional indicators), a keycap (`0-9`, `#` or `*`, an optional variation selector, the
+         *     combining keycap), one of the three tag flags (England, Scotland, Wales) or one or more elements joined by single zero-width joiners
+         *     (never first, last or doubled), each element an emoji followed by nothing, by one skin tone (after an emoji that takes one) or by its
+         *     variation selector once (only after an emoji that has no emoji presentation of its own: a heart needs it, a thumbs up refuses it).
+         *     A digit, a letter, a heart without its variation selector, two emoji, an emoji with a combining accent, a stray selector, joiner, skin
+         *     tone or regional indicator, or any other arrangement of the same code points is `400`, so one emoji has one stored value. It is stored
+         *     as sent. What the rule cannot check is membership of the official emoji list.
+         *
+         *     A reaction is speech, not activity: no rail bump, no unread, no notice. The change is announced by one `message.reaction_changed`
+         *     hint. `reacted: true` adds the caller's reaction, `false` removes it. Like every write of the room, it waits at most about
+         *     3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+         */
+        put: operations["setMessageReaction"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -1444,7 +1491,7 @@ export interface paths {
          *     **Events** (`event.kind`, `LiveEventKind`; the wire name equals the audit event of the write): `room.created`, `room.updated`,
          *     `room.archived`, `room.unarchived`, `room.deleted`, `room.member_added`, `room.member_role_changed`, `room.member_removed`,
          *     `room.workflow_updated`, `thread.created`, `thread.updated`, `thread.status_changed`, `thread.owner_changed` (these carry `threadNumber`
-         *     for the thread kinds), `message.posted`, `message.edited` and `message.deleted` (these carry `threadNumber` and `messageId`) and
+         *     for the thread kinds), `message.posted`, `message.edited`, `message.deleted` and `message.reaction_changed` (these carry `threadNumber` and `messageId`) and
          *     `room.pin_changed` (a pin or unpin; it carries `threadNumber`, and `messageId` for a message pin). An event says
          *     THAT something changed, never what: it carries ids only, and the client refetches through the ordinary REST reads, so authorization stays
          *     where it is. **Delivery semantics:** a socket receives the events of the rooms it is subscribed to, in commit order per room, plus the events about
@@ -1620,7 +1667,7 @@ export interface components {
          * @description What changed; the wire name equals the audit event of the write (the catalog is in the `connectLive` description).
          * @enum {string}
          */
-        LiveEventKind: "room.created" | "room.updated" | "room.archived" | "room.unarchived" | "room.deleted" | "room.member_added" | "room.member_role_changed" | "room.member_removed" | "room.workflow_updated" | "thread.created" | "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "message.posted" | "message.edited" | "message.deleted" | "room.pin_changed";
+        LiveEventKind: "room.created" | "room.updated" | "room.archived" | "room.unarchived" | "room.deleted" | "room.member_added" | "room.member_role_changed" | "room.member_removed" | "room.workflow_updated" | "thread.created" | "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "message.posted" | "message.edited" | "message.deleted" | "message.reaction_changed" | "room.pin_changed";
         /** @description The FIRST frame of a socket, within 2 seconds, exactly once. */
         LiveAuthFrame: {
             /**
@@ -2465,6 +2512,8 @@ export interface components {
             createdAt: number;
             /** @description The room members the body mentions with `<@id>` (an active member when the message was written or edited), by their CURRENT display name, ordered by user id; empty on a tombstone and on a message written before mentions were indexed. A token whose id is not listed here is plain text. */
             mentions: components["schemas"]["MentionedUser"][];
+            /** @description The emoji on the message, in the order each first appeared; empty when there are none and on a tombstone. At most 20 distinct. */
+            reactions: components["schemas"]["ReactionSummary"][];
         };
         MentionedUser: {
             /**
@@ -2474,6 +2523,26 @@ export interface components {
             userId: number;
             /** @description The person's current display name (a soft-deleted account keeps its last one). */
             name: string;
+        };
+        /** @description One emoji on a message. The full list of reactors is not part of the contract. */
+        ReactionSummary: {
+            /** @description The emoji as it was sent (one emoji, `setMessageReaction`). */
+            emoji: string;
+            /**
+             * Format: int32
+             * @description How many people chose it.
+             */
+            count: number;
+            /** @description Whether the READER is one of them. */
+            reacted: boolean;
+            /** @description The display names of the first three reactors by time (a soft-deleted account keeps its recorded name). */
+            names: string[];
+        };
+        ReactionRequest: {
+            /** @description ONE emoji; any other text is `400`. */
+            emoji: string;
+            /** @description `true` adds the caller's reaction, `false` removes it. */
+            reacted: boolean;
         };
         MessagePage: {
             items: components["schemas"]["MessageResponse"][];
@@ -4917,6 +4986,41 @@ export interface operations {
         };
         responses: {
             /** @description Pinned or unpinned, or already so */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setMessageReaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReactionRequest"];
+            };
+        };
+        responses: {
+            /** @description Set, or already as requested */
             204: {
                 headers: {
                     [name: string]: unknown;

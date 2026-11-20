@@ -57,6 +57,7 @@ export function makeMessage(overrides: Partial<MessageResponse> = {}): MessageRe
     editedAt: null,
     createdAt: SOME_TIME,
     mentions: [],
+    reactions: [],
     ...overrides,
   };
 }

@@ -170,6 +170,7 @@ class MessageDerivedRowsTest {
         "message_tags", // the body's `#derived-row`
         "message_mentions", // its mention of the owner
         "room_pins", // the pin the test puts on the message
+        "message_reactions", // the reaction the test seeds on the message
     )
 
     @Test
@@ -179,6 +180,14 @@ class MessageDerivedRowsTest {
         val body = MessageRequest("Derived #derived-row <@${w.owner}>")
         val id = TestThreads.messages.post(w.room, seeded.number, w.caller, body).message.id
         TestThreads.pins.setMessagePin(w.room, id, w.caller, true)
+        PostgresTestSupport.connect().use { c ->
+            c.prepareStatement("INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, 1)").use { st ->
+                st.setInt(1, id.toInt())
+                st.setLong(2, w.owner.toLong())
+                st.setString(3, "\uD83D\uDC4D")
+                st.executeUpdate()
+            }
+        }
         val tables = referencingTables()
         val unknown = tables.keys - arrangedByTheBody
         assertTrue(unknown.isEmpty(), "$unknown reference messages: arrange a row for each here, so the delete below is proven to clear it")

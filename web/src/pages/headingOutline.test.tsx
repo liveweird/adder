@@ -30,7 +30,7 @@ const ROOM = { id: 1, name: "Night Shift", description: null, archived: false, a
 const WORKFLOW = { revision: 1, statuses: [{ key: "open", label: "Open", colour: "BLUE", category: "OPEN", initial: true, threadCount: 1 }, { key: "done", label: "Done", colour: "TEAL", category: "CLOSED", initial: false, threadCount: 0 }], fields: [] };
 const THREAD_ITEM = { id: 1, number: 1, title: "Disk full", status: "open", closed: false, ownerId: 1, ownerName: "Admin", messageCount: 1, lastActivityAt: 1, createdAt: 1 };
 const THREAD = { ...THREAD_ITEM, closedAt: null, createdById: 1, createdByName: "Admin", fields: {}, fieldUserNames: {}, revision: 1, updatedAt: 1 };
-const MESSAGE = { id: 1, threadNumber: 1, authorId: 1, authorName: "Admin", body: "# A heading in a message\n\nDisk is full.", deleted: false, deletedByModerator: false, editedAt: null, createdAt: 1 };
+const MESSAGE = { id: 1, threadNumber: 1, authorId: 1, authorName: "Admin", body: "# A heading in a message\n\nDisk is full.", deleted: false, deletedByModerator: false, editedAt: null, createdAt: 1, reactions: [] };
 const PAGE = { items: [], page: 1, pageSize: 20, total: 0 };
 
 function emptyApi() {

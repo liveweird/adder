@@ -1688,6 +1688,7 @@ paths:
         - Keyset paging inside the standard envelope: `id[lt]` keeps only the messages OLDER than that id, so the next page of a
           newest-first list is `id[lt]=<smallest id loaded>&page=1`. `total` is counted AFTER the `id[lt]` filter: `total > items.length`
           means older messages exist. A repeated `id[lt]` is a `400`.
+        - Each message carries its `reactions` as the CALLER sees them (`reacted` marks the caller's own); a tombstone carries none.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1927,6 +1928,56 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/messages/{messageId}/reaction:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/MessageIdPath'
+    put:
+      tags: [messages]
+      operationId: setMessageReaction
+      summary: Add or remove the caller's own reaction of one emoji
+      description: |
+        A MEMBER of the room speaks (a non-member is the uniform `404`; an `ADMIN` who is not a member is `403`, and joins through the
+        Members page first). A single-value set with a body, like a thread's `status` and `owner`: the emoji is chosen text and must not
+        travel in a path (API-RES-006 allows two path parameters at most, and every `path` field of a log line would carry it).
+        Checked in this order: authentication (`401`), the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before
+        any guard, so a refused write costs a token), visibility (`404`), the member rule (`403`) before the body, the body (`400`, a
+        fixed detail that never echoes what was sent), then under the room lock the message (`404` when it is unknown, deleted or of
+        another room), an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
+        `urn:adder:problem:thread-closed`: reopen it first), the state it already has (`204`, nothing written, no hint, no audit line)
+        and the limits (`409` of type `urn:adder:problem:reaction-limit`: a 21st distinct emoji on the message, or a 6th emoji of the
+        caller's on it; joining an emoji already on the message is never the first, and removing is never refused).
+
+        `emoji` must be ONE emoji in its one fully qualified spelling: 1 to 32 UTF-16 units and at most 10 code points, exactly one extended
+        grapheme cluster, and then a flag (a PAIR of regional indicators), a keycap (`0-9`, `#` or `*`, an optional variation selector, the
+        combining keycap), one of the three tag flags (England, Scotland, Wales) or one or more elements joined by single zero-width joiners
+        (never first, last or doubled), each element an emoji followed by nothing, by one skin tone (after an emoji that takes one) or by its
+        variation selector once (only after an emoji that has no emoji presentation of its own: a heart needs it, a thumbs up refuses it).
+        A digit, a letter, a heart without its variation selector, two emoji, an emoji with a combining accent, a stray selector, joiner, skin
+        tone or regional indicator, or any other arrangement of the same code points is `400`, so one emoji has one stored value. It is stored
+        as sent. What the rule cannot check is membership of the official emoji list.
+
+        A reaction is speech, not activity: no rail bump, no unread, no notice. The change is announced by one `message.reaction_changed`
+        hint. `reacted: true` adds the caller's reaction, `false` removes it. Like every write of the room, it waits at most about
+        3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReactionRequest'
+      responses:
+        '204':
+          description: Set, or already as requested
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/search:
     get:
       tags: [threads]
@@ -2044,7 +2095,7 @@ paths:
         **Events** (`event.kind`, `LiveEventKind`; the wire name equals the audit event of the write): `room.created`, `room.updated`,
         `room.archived`, `room.unarchived`, `room.deleted`, `room.member_added`, `room.member_role_changed`, `room.member_removed`,
         `room.workflow_updated`, `thread.created`, `thread.updated`, `thread.status_changed`, `thread.owner_changed` (these carry `threadNumber`
-        for the thread kinds), `message.posted`, `message.edited` and `message.deleted` (these carry `threadNumber` and `messageId`) and
+        for the thread kinds), `message.posted`, `message.edited`, `message.deleted` and `message.reaction_changed` (these carry `threadNumber` and `messageId`) and
         `room.pin_changed` (a pin or unpin; it carries `threadNumber`, and `messageId` for a message pin). An event says
         THAT something changed, never what: it carries ids only, and the client refetches through the ordinary REST reads, so authorization stays
         where it is. **Delivery semantics:** a socket receives the events of the rooms it is subscribed to, in commit order per room, plus the events about
@@ -2555,6 +2606,7 @@ components:
         - message.posted
         - message.edited
         - message.deleted
+        - message.reaction_changed
         - room.pin_changed
     LiveAuthFrame:
       type: object
@@ -3519,7 +3571,7 @@ components:
           description: Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays.
     MessageResponse:
       type: object
-      required: [id, threadNumber, authorId, authorName, body, deleted, deletedByModerator, editedAt, createdAt, mentions]
+      required: [id, threadNumber, authorId, authorName, body, deleted, deletedByModerator, editedAt, createdAt, mentions, reactions]
       properties:
         id: { type: integer, format: int32, minimum: 1, description: Ascending in time; the keyset a list pages by. }
         threadNumber: { type: integer, format: int32, minimum: 1, description: The per-room number of the message's thread. }
@@ -3535,12 +3587,36 @@ components:
           maxItems: 20
           description: The room members the body mentions with `<@id>` (an active member when the message was written or edited), by their CURRENT display name, ordered by user id; empty on a tombstone and on a message written before mentions were indexed. A token whose id is not listed here is plain text.
           items: { $ref: '#/components/schemas/MentionedUser' }
+        reactions:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/ReactionSummary' }
+          description: The emoji on the message, in the order each first appeared; empty when there are none and on a tombstone. At most 20 distinct.
     MentionedUser:
       type: object
       required: [userId, name]
       properties:
         userId: { type: integer, format: int32, minimum: 1, description: The id inside the `<@id>` token. }
         name: { type: string, description: The person's current display name (a soft-deleted account keeps its last one). }
+    ReactionSummary:
+      type: object
+      required: [emoji, count, reacted, names]
+      description: One emoji on a message. The full list of reactors is not part of the contract.
+      properties:
+        emoji: { type: string, minLength: 1, maxLength: 32, description: 'The emoji as it was sent (one emoji, `setMessageReaction`).' }
+        count: { type: integer, format: int32, minimum: 1, description: How many people chose it. }
+        reacted: { type: boolean, description: Whether the READER is one of them. }
+        names:
+          type: array
+          maxItems: 3
+          items: { type: string }
+          description: The display names of the first three reactors by time (a soft-deleted account keeps its recorded name).
+    ReactionRequest:
+      type: object
+      required: [emoji, reacted]
+      properties:
+        emoji: { type: string, minLength: 1, maxLength: 32, description: 'ONE emoji; any other text is `400`.' }
+        reacted: { type: boolean, description: '`true` adds the caller''s reaction, `false` removes it.' }
     MessagePage:
       type: object
       required: [items, page, pageSize, total]

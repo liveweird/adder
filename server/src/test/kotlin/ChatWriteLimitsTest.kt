@@ -3,6 +3,8 @@ package ch.nokillswit
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
+import ch.nokillswit.threads.PinRequest
+import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ThreadStatusRequest
 import ch.nokillswit.threads.ThreadUpdateRequest
 import ch.nokillswit.users.UserRole
@@ -30,12 +32,16 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 /**
- * The write bounds of the thread and message routes (the 0.3.0 security audit, M1 and M3): the per-user `chat-write` bucket of the five
- * non-POST writes, the body ceilings (64 KiB for a message, 192 KiB for a thread, 413 on the rest), and the shape of `fields`, refused
- * with a `400` BEFORE the room lock. The `chat-post` bucket and the lock races are `ThreadWriteBoundsTest`; the room lock's own bound is
- * `RoomBusyTest`. Rooms, templates and users are SHARED suite state: every test mints UNIQUE rows.
+ * The write bounds of the thread and message routes (the 0.3.0 security audit, M1 and M3): the per-user `chat-write` bucket of the
+ * non-POST writes (the reaction and the two pin PUTs ride it), the body ceilings (64 KiB for a message, 192 KiB for a thread, 413 on the
+ * rest), and the shape of `fields`, refused with a `400` BEFORE the room lock. The `chat-post` bucket and the lock races are
+ * `ThreadWriteBoundsTest`; the room lock's own bound is `RoomBusyTest`. Rooms, templates and users are SHARED suite state: every test
+ * mints UNIQUE rows.
  */
 class ChatWriteLimitsTest {
+    /** The `chat-write` bucket's size (`RateLimits`): 240 a minute per user. */
+    private val chatWritePerMinute = 240
+
     private val rooms = "/api/v1/rooms"
     private val mintedRooms = mutableListOf<UInt>()
     private val mintedUsers = mutableListOf<UInt>()
@@ -66,30 +72,36 @@ class ChatWriteLimitsTest {
         setBody(json)
     }
 
-    /** The five non-POST writes, each as a request that is refused or a no-op, never a 429 until the bucket is empty. */
-    private suspend fun HttpClient.fiveWrites(room: UInt): List<HttpResponse> = listOf(
-        putJson("$rooms/$room/threads/1", ThreadUpdateRequest("T")), // 400: the revision header is missing
-        putJson("$rooms/$room/threads/1/status", ThreadStatusRequest("open")), // 204: already there
-        putJson("$rooms/$room/threads/1/owner", mapOf("userId" to 0)), // 400: not a member
-        putJson("$rooms/$room/messages/2000000000", MessageRequest("x")), // 404
-        delete("$rooms/$room/messages/2000000000"), // 404
+    /**
+     * The non-POST writes, each a request that is refused or a no-op and never a 429 until the bucket is empty. A write added to the
+     * bucket is one more entry here; the test below spends the 240 tokens across them in turn, whatever their number.
+     */
+    private fun otherWrites(room: UInt): List<suspend HttpClient.() -> HttpResponse> = listOf(
+        { putJson("$rooms/$room/threads/1", ThreadUpdateRequest("T")) }, // 400: the revision header is missing
+        { putJson("$rooms/$room/threads/1/status", ThreadStatusRequest("open")) }, // 204: already there
+        { putJson("$rooms/$room/threads/1/owner", mapOf("userId" to 0)) }, // 400: not a member
+        { putJson("$rooms/$room/messages/2000000000", MessageRequest("x")) }, // 404
+        { delete("$rooms/$room/messages/2000000000") }, // 404
+        { putJson("$rooms/$room/messages/2000000000/reaction", ReactionRequest("👍", true)) }, // 404
+        { putJson("$rooms/$room/threads/99/pin", PinRequest(true)) }, // 404
+        { putJson("$rooms/$room/messages/2000000000/pin", PinRequest(true)) }, // 404
     )
 
     @Test
-    fun `chat-write is ONE bucket for the five other writes - 240 a minute per user, then 429 with its audit line`() = testApplication {
+    fun `chat-write is ONE bucket for the other writes - 240 a minute per user, then 429 with its audit line`() = testApplication {
         usePostgresTestcontainer()
         val limited = actor("cw-bucket")
         val other = actor("cw-bucket-other")
         val room = room(limited, other)
+        val writes = otherWrites(room)
 
         withAuditCapture { capture ->
-            repeat(48) { n ->
-                limited.client.fiveWrites(room).forEachIndexed { which, response ->
-                    assertTrue(response.status != HttpStatusCode.TooManyRequests, "round ${n + 1}, write ${which + 1}: ${response.status}")
-                }
+            repeat(chatWritePerMinute) { n ->
+                val response = writes[n % writes.size](limited.client)
+                assertTrue(response.status != HttpStatusCode.TooManyRequests, "request ${n + 1}: ${response.status}")
             }
-            val rejected = limited.client.fiveWrites(room)
-            assertTrue(rejected.all { it.status == HttpStatusCode.TooManyRequests }, "every one of the five spends the same bucket")
+            val rejected = writes.map { write -> write(limited.client) }
+            assertTrue(rejected.all { it.status == HttpStatusCode.TooManyRequests }, "every one of the writes spends the same bucket")
             assertEquals(429, rejected.first().body<ProblemDetail>().status)
             assertNotNull(rejected.first().headers["Retry-After"], "the bucket 429 says when to retry")
             val event = capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "chat-write") }
@@ -218,13 +230,18 @@ class ChatWriteLimitsTest {
         }
 
     @Test
-    fun `the status and owner PUTs take at most 16 KiB`() = testApplication {
+    fun `the status, owner and reaction PUTs take at most 16 KiB`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("cw-small")
         val room = room(owner)
         val big = """{"status":"open",${" ".repeat(20 * 1024)}"x":1}"""
         assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, "$rooms/$room/threads/1/status", big).status)
         assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, "$rooms/$room/threads/1/owner", big).status)
+        val message = TestThreads.post(room, 1, owner.id, "to react to")
+        val reaction = "$rooms/$room/messages/$message/reaction"
+        assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, reaction, big).status)
+        val thumbsUp = """{"emoji":"👍","reacted":true}"""
+        assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, reaction, thumbsUp).status)
         val small = owner.client.raw(HttpMethod.Put, "$rooms/$room/threads/1/status", """{"status":"open"}""")
         assertEquals(HttpStatusCode.NoContent, small.status)
     }

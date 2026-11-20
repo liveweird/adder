@@ -1,0 +1,337 @@
+[
+  {
+    "name": "a thumbs up",
+    "emoji": "\ud83d\udc4d",
+    "accepted": true
+  },
+  {
+    "name": "a thumbs up with a skin tone",
+    "emoji": "\ud83d\udc4d\ud83c\udffd",
+    "accepted": true
+  },
+  {
+    "name": "a smiling face",
+    "emoji": "\ud83d\ude00",
+    "accepted": true
+  },
+  {
+    "name": "a flag of two regional indicators",
+    "emoji": "\ud83c\uddf5\ud83c\uddf1",
+    "accepted": true
+  },
+  {
+    "name": "a family joined by zero-width joiners",
+    "emoji": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66",
+    "accepted": true
+  },
+  {
+    "name": "a person with a skin tone and a job",
+    "emoji": "\ud83d\udc68\ud83c\udffd\u200d\ud83d\udcbb",
+    "accepted": true
+  },
+  {
+    "name": "a keycap with its selector",
+    "emoji": "1\ufe0f\u20e3",
+    "accepted": true
+  },
+  {
+    "name": "a keycap without its selector",
+    "emoji": "1\u20e3",
+    "accepted": true
+  },
+  {
+    "name": "a number sign keycap",
+    "emoji": "#\ufe0f\u20e3",
+    "accepted": true
+  },
+  {
+    "name": "a tag flag",
+    "emoji": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f",
+    "accepted": true
+  },
+  {
+    "name": "a rainbow flag",
+    "emoji": "\ud83c\udff3\ufe0f\u200d\ud83c\udf08",
+    "accepted": true
+  },
+  {
+    "name": "a heart with its selector",
+    "emoji": "\u2764\ufe0f",
+    "accepted": true
+  },
+  {
+    "name": "a sun with its selector",
+    "emoji": "\u2600\ufe0f",
+    "accepted": true
+  },
+  {
+    "name": "a check mark button with emoji presentation of its own",
+    "emoji": "\u2705",
+    "accepted": true
+  },
+  {
+    "name": "a copyright sign with its selector",
+    "emoji": "\u00a9\ufe0f",
+    "accepted": true
+  },
+  {
+    "name": "a skin-tone modifier alone",
+    "emoji": "\ud83c\udffd",
+    "accepted": false
+  },
+  {
+    "name": "one regional indicator alone",
+    "emoji": "\ud83c\uddf5",
+    "accepted": false
+  },
+  {
+    "name": "a chain of five pictographs joined by zero-width joiners passes: the one gap",
+    "emoji": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\u200d\ud83e\uddd1",
+    "accepted": true
+  },
+  {
+    "name": "a flag of England",
+    "emoji": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f",
+    "accepted": true
+  },
+  {
+    "name": "a flag of Scotland",
+    "emoji": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc73\udb40\udc63\udb40\udc74\udb40\udc7f",
+    "accepted": true
+  },
+  {
+    "name": "a pirate flag, a black flag joined to a skull",
+    "emoji": "\ud83c\udff4\u200d\u2620\ufe0f",
+    "accepted": true
+  },
+  {
+    "name": "a woman running with its selector",
+    "emoji": "\ud83c\udfc3\u200d\u2640\ufe0f",
+    "accepted": true
+  },
+  {
+    "name": "a heart on fire",
+    "emoji": "\u2764\ufe0f\u200d\ud83d\udd25",
+    "accepted": true
+  },
+  {
+    "name": "a pointing finger with a skin tone and no selector",
+    "emoji": "\u261d\ud83c\udffd",
+    "accepted": true
+  },
+  {
+    "name": "a black flag alone",
+    "emoji": "\ud83c\udff4",
+    "accepted": true
+  },
+  {
+    "name": "an empty string",
+    "emoji": "",
+    "accepted": false
+  },
+  {
+    "name": "a digit",
+    "emoji": "5",
+    "accepted": false
+  },
+  {
+    "name": "a letter",
+    "emoji": "a",
+    "accepted": false
+  },
+  {
+    "name": "a number sign with a selector",
+    "emoji": "#\ufe0f",
+    "accepted": false
+  },
+  {
+    "name": "a letter with the combining keycap",
+    "emoji": "a\u20e3",
+    "accepted": false
+  },
+  {
+    "name": "a heart without its selector",
+    "emoji": "\u2764",
+    "accepted": false
+  },
+  {
+    "name": "a copyright sign without its selector",
+    "emoji": "\u00a9",
+    "accepted": false
+  },
+  {
+    "name": "a thumbs up with a selector",
+    "emoji": "\ud83d\udc4d\ufe0f",
+    "accepted": false
+  },
+  {
+    "name": "a thumbs up with three selectors",
+    "emoji": "\ud83d\udc4d\ufe0f\ufe0f\ufe0f",
+    "accepted": false
+  },
+  {
+    "name": "a thumbs up with a trailing joiner",
+    "emoji": "\ud83d\udc4d\u200d",
+    "accepted": false
+  },
+  {
+    "name": "a thumbs up with five trailing joiners",
+    "emoji": "\ud83d\udc4d\u200d\u200d\u200d\u200d\u200d",
+    "accepted": false
+  },
+  {
+    "name": "a thumbs up with four skin tones",
+    "emoji": "\ud83d\udc4d\ud83c\udffb\ud83c\udffc\ud83c\udffd\ud83c\udffe",
+    "accepted": false
+  },
+  {
+    "name": "a thumbs up with the combining keycap",
+    "emoji": "\ud83d\udc4d\u20e3",
+    "accepted": false
+  },
+  {
+    "name": "a thumbs up with a skin tone and a selector",
+    "emoji": "\ud83d\udc4d\ud83c\udffd\ufe0f",
+    "accepted": false
+  },
+  {
+    "name": "a thumbs up with a selector and a skin tone",
+    "emoji": "\ud83d\udc4d\ufe0f\ud83c\udffd",
+    "accepted": false
+  },
+  {
+    "name": "a face with a skin tone: not a modifier base",
+    "emoji": "\ud83d\ude42\ud83c\udffd",
+    "accepted": false
+  },
+  {
+    "name": "tag characters spelling password after a black flag",
+    "emoji": "\ud83c\udff4\udb40\udc70\udb40\udc61\udb40\udc73\udb40\udc73\udb40\udc77\udb40\udc6f\udb40\udc72\udb40\udc64\udb40\udc7f",
+    "accepted": false
+  },
+  {
+    "name": "tag characters after an emoji",
+    "emoji": "\ud83d\udc4d\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67\udb40\udc7f",
+    "accepted": false
+  },
+  {
+    "name": "a tag flag without its cancel tag",
+    "emoji": "\ud83c\udff4\udb40\udc67\udb40\udc62\udb40\udc65\udb40\udc6e\udb40\udc67",
+    "accepted": false
+  },
+  {
+    "name": "a number sign with two selectors and the combining keycap",
+    "emoji": "#\ufe0f\ufe0f\u20e3",
+    "accepted": false
+  },
+  {
+    "name": "a number sign with three combining keycaps",
+    "emoji": "#\u20e3\u20e3\u20e3",
+    "accepted": false
+  },
+  {
+    "name": "a keycap with a skin tone",
+    "emoji": "1\ufe0f\u20e3\ud83c\udffd",
+    "accepted": false
+  },
+  {
+    "name": "a regional indicator and a skin tone",
+    "emoji": "\ud83c\uddf5\ud83c\udffd",
+    "accepted": false
+  },
+  {
+    "name": "a regional indicator pair and a selector",
+    "emoji": "\ud83c\uddf5\ud83c\uddf1\ufe0f",
+    "accepted": false
+  },
+  {
+    "name": "a skin tone and nine selectors",
+    "emoji": "\ud83c\udffd\ufe0f\ufe0f\ufe0f\ufe0f\ufe0f\ufe0f\ufe0f\ufe0f\ufe0f",
+    "accepted": false
+  },
+  {
+    "name": "a leading joiner",
+    "emoji": "\u200d\ud83d\udc4d",
+    "accepted": false
+  },
+  {
+    "name": "a joiner between two joiners",
+    "emoji": "\ud83d\udc68\u200d\u200d\ud83d\udc69",
+    "accepted": false
+  },
+  {
+    "name": "a joiner between a pictograph and a letter",
+    "emoji": "\ud83d\udc4d\u200da",
+    "accepted": false
+  },
+  {
+    "name": "a family with a trailing joiner",
+    "emoji": "\ud83d\udc68\u200d\ud83d\udc69\u200d",
+    "accepted": false
+  },
+  {
+    "name": "a heart with the text selector",
+    "emoji": "\u2764\ufe0e",
+    "accepted": false
+  },
+  {
+    "name": "a lone zero-width joiner",
+    "emoji": "\u200d",
+    "accepted": false
+  },
+  {
+    "name": "a lone variation selector",
+    "emoji": "\ufe0f",
+    "accepted": false
+  },
+  {
+    "name": "a NUL character",
+    "emoji": "\u0000",
+    "accepted": false
+  },
+  {
+    "name": "two emoji",
+    "emoji": "\ud83d\udc4d\ud83d\udc4d",
+    "accepted": false
+  },
+  {
+    "name": "an emoji and a space",
+    "emoji": "\ud83d\udc4d ",
+    "accepted": false
+  },
+  {
+    "name": "an emoji and a zero-width space",
+    "emoji": "\ud83d\udc4d\u200b",
+    "accepted": false
+  },
+  {
+    "name": "three regional indicators",
+    "emoji": "\ud83c\uddf5\ud83c\uddf1\ud83c\uddec",
+    "accepted": false
+  },
+  {
+    "name": "an emoji with a combining accent",
+    "emoji": "\ud83d\udc4d\u0301",
+    "accepted": false
+  },
+  {
+    "name": "an emoji and a bidi override",
+    "emoji": "\ud83d\udc4d\u202e",
+    "accepted": false
+  },
+  {
+    "name": "a zero-width space before an emoji",
+    "emoji": "\u200b\ud83d\udc4d",
+    "accepted": false
+  },
+  {
+    "name": "six pictographs joined by zero-width joiners are 11 code points",
+    "emoji": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66\u200d\ud83e\uddd1\u200d\ud83e\uddd2",
+    "accepted": false
+  },
+  {
+    "name": "forty letters",
+    "emoji": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "accepted": false
+  }
+]

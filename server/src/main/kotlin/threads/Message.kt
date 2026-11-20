@@ -25,11 +25,24 @@ data class MessageResponse(
     val createdAt: Long,
     /** The room members the body mentions with `<@id>`, by current name (at most 20, by user id; empty on a tombstone). */
     val mentions: List<MentionedUser>,
+    /** At most [MAX_DISTINCT_REACTIONS], in the order each emoji first appeared; empty on a tombstone (`chat-model.md`). */
+    val reactions: List<ReactionSummary>,
 )
 
 /** A person a message mentions: the id as written in the token and their CURRENT display name (a mention of someone who left keeps it). */
 @Serializable
 data class MentionedUser(val userId: UInt, val name: String)
+
+/**
+ * One emoji on a message: how many people chose it, whether the READER did, and the first three of them by time ([names]: display
+ * names, soft-deleted accounts included). The full list of reactors is not part of the wire.
+ */
+@Serializable
+data class ReactionSummary(val emoji: String, val count: Int, val reacted: Boolean, val names: List<String>)
+
+/** `PUT /rooms/{id}/messages/{messageId}/reaction`: the caller's own state of ONE [emoji] ([reacted] true adds, false removes). */
+@Serializable
+data class ReactionRequest(val emoji: String, val reacted: Boolean)
 
 typealias MessagePageResponse = PageResponse<MessageResponse>
 

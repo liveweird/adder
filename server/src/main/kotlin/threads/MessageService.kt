@@ -50,9 +50,13 @@ class MessageService internal constructor(
     private val tags: MessageTagService,
     private val mentions: MessageMentionService,
     followers: List<MessageFollower> = emptyList(),
+    private val reactions: MessageReactionService = MessageReactionService(database),
 ) {
-    /** Every follower of a write, in order: the mention index first, then the [followers] the composition root adds. */
-    private val followers: List<MessageFollower> = listOf<MessageFollower>(mentions) + followers
+    /**
+     * Every follower of a write, in order: the mention index first, then the [followers] the composition root adds, then the reactions'
+     * own (always on, so a delete clears a message's reactions whoever built the service).
+     */
+    private val followers: List<MessageFollower> = listOf<MessageFollower>(mentions) + followers + reactions.follower
 
     object Messages : UIntIdTable("messages"), SoftDeletable {
         val threadId = reference("thread_id", ThreadService.Threads)
@@ -107,21 +111,27 @@ class MessageService internal constructor(
      * messages older than that id (keyset paging inside the envelope): the count and the rows share ONE predicate in ONE transaction, so
      * `total` is counted AFTER the filter and `total > items.size` means older messages exist.
      */
-    suspend fun list(threadId: UInt, number: Int, idLt: UInt?, paging: PageRequest): MessageListResult = suspendTransaction(database) {
-        var predicate: Op<Boolean> = Messages.threadId eq threadId
-        idLt?.let { predicate = predicate and (Messages.id less it) }
-        val total = Messages.selectAll().where { predicate }.count()
-        val rows = Messages.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
-        val names = userNames(rows.map { it[Messages.authorId].value })
-        val mentioned = mentionsOf(rows)
-        MessageListResult(
-            rows.map { it.toResponse(number, names.getValue(it[Messages.authorId].value), mentioned[it[Messages.id].value].orEmpty()) },
-            total,
-        )
-    }
+    suspend fun list(threadId: UInt, number: Int, idLt: UInt?, paging: PageRequest, viewerId: UInt): MessageListResult =
+        suspendTransaction(database) {
+            var predicate: Op<Boolean> = Messages.threadId eq threadId
+            idLt?.let { predicate = predicate and (Messages.id less it) }
+            val total = Messages.selectAll().where { predicate }.count()
+            val rows = Messages.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
+            val names = userNames(rows.map { it[Messages.authorId].value })
+            val mentioned = mentionsOf(rows)
+            val reacted = reactionsOf(viewerId, rows)
+            val items = rows.map {
+                val id = it[Messages.id].value
+                it.toResponse(number, names.getValue(it[Messages.authorId].value), mentioned[id].orEmpty(), reacted[id].orEmpty())
+            }
+            MessageListResult(items, total)
+        }
 
-    /** Message [messageId] of room [roomId], or null when it is unknown, DELETED or belongs to another room (the single read's `404`). */
-    suspend fun read(roomId: UInt, messageId: UInt): MessageResponse? = suspendTransaction(database) {
+    /**
+     * Message [messageId] of room [roomId] as [viewerId] sees it (their own reactions are marked), or null when it is unknown, DELETED or
+     * belongs to another room (the single read's `404`).
+     */
+    suspend fun read(roomId: UInt, messageId: UInt, viewerId: UInt): MessageResponse? = suspendTransaction(database) {
         val threads = ThreadService.Threads
         val row = Messages.innerJoin(threads).selectAll()
             .where { (Messages.id eq messageId) and (threads.roomId eq roomId) and Messages.active() }
@@ -130,8 +140,13 @@ class MessageService internal constructor(
             row[threads.number],
             userNames(listOf(row[Messages.authorId].value)).getValue(row[Messages.authorId].value),
             mentionsOf(listOf(row))[row[Messages.id].value].orEmpty(),
+            reactionsOf(viewerId, listOf(row))[row[Messages.id].value].orEmpty(),
         )
     }
+
+    /** The reactions of the LIVE messages among [rows] as [viewerId] sees them, in ONE read. Runs INSIDE the caller's transaction. */
+    private suspend fun reactionsOf(viewerId: UInt, rows: List<ResultRow>): Map<UInt, List<ReactionSummary>> =
+        reactions.summaries(viewerId, rows.filterNot { it[Messages.markedAsDeleted] }.map { it[Messages.id].value })
 
     /**
      * The mentions of the LIVE messages among [rows], in ONE read (none when no body holds a `<@` token: most pages). Runs INSIDE the
@@ -143,19 +158,22 @@ class MessageService internal constructor(
         )
 
     /**
-     * The live messages [ids] of room [roomId] as they read now, by id, inside the CALLER's transaction (a pin listing reads them beside
-     * its own rows); an id that is unknown, deleted or of another room is simply absent. One query for the lot, plus the mentions' read.
+     * The live messages [ids] of room [roomId] as they read now for [viewerId] (their own reactions are marked), by id, inside the
+     * CALLER's transaction (a pin listing reads them beside its own rows); an id that is unknown, deleted or of another room is simply
+     * absent. One query for the lot, plus the mentions' and the reactions' reads.
      */
-    internal suspend fun readInTransaction(roomId: UInt, ids: Collection<UInt>): Map<UInt, MessageResponse> {
+    internal suspend fun readInTransaction(roomId: UInt, ids: Collection<UInt>, viewerId: UInt): Map<UInt, MessageResponse> {
         if (ids.isEmpty()) return emptyMap()
         val threads = ThreadService.Threads
         val rows = Messages.innerJoin(threads).selectAll()
             .where { (Messages.id inList ids.toSet()) and (threads.roomId eq roomId) and Messages.active() }.toList()
         val names = userNames(rows.map { it[Messages.authorId].value })
         val mentioned = mentionsOf(rows)
+        val reacted = reactionsOf(viewerId, rows)
         return rows.associate {
-            it[Messages.id].value to
-                it.toResponse(it[threads.number], names.getValue(it[Messages.authorId].value), mentioned[it[Messages.id].value].orEmpty())
+            val id = it[Messages.id].value
+            val author = names.getValue(it[Messages.authorId].value)
+            id to it.toResponse(it[threads.number], author, mentioned[id].orEmpty(), reacted[id].orEmpty())
         }
     }
 
@@ -194,7 +212,7 @@ class MessageService internal constructor(
             notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
             val name = userNames(listOf(authorId)).getValue(authorId)
             val mentioned = if (request.body.contains("<@")) mentions.mentionsOf(listOf(id))[id].orEmpty() else emptyList()
-            val response = MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp, mentioned)
+            val response = MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp, mentioned, emptyList())
             PostedMessage(write.thread.id, response, notified)
         }
     }
@@ -259,7 +277,12 @@ class MessageService internal constructor(
             MessageRemoval(write.thread.id, messageId, write.message.authorId, moderated = remover != write.message.authorId)
         }
 
-    private fun ResultRow.toResponse(threadNumber: Int, authorName: String, mentioned: List<MentionedUser>): MessageResponse {
+    private fun ResultRow.toResponse(
+        threadNumber: Int,
+        authorName: String,
+        mentioned: List<MentionedUser>,
+        summaries: List<ReactionSummary>,
+    ): MessageResponse {
         val deleted = this[Messages.markedAsDeleted]
         val authorId = this[Messages.authorId].value
         return MessageResponse(
@@ -273,6 +296,7 @@ class MessageService internal constructor(
             editedAt = if (deleted) null else this[Messages.editedAt],
             createdAt = this[Messages.createdAt],
             mentions = if (deleted) emptyList() else mentioned,
+            reactions = if (deleted) emptyList() else summaries,
         )
     }
 }

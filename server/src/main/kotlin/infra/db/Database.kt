@@ -17,6 +17,8 @@ import ch.nokillswit.rooms.WorkflowUsageKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.threads.MessageMentionService
+import ch.nokillswit.threads.MessageReactionService
+import ch.nokillswit.threads.MessageReactionServiceKey
 import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.MessageServiceKey
 import ch.nokillswit.threads.MessageTagService
@@ -332,7 +334,12 @@ suspend fun Application.configureDatabase() {
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
     val messageMentionService = MessageMentionService(roomMemberService)
-    val messageService = MessageService(database, roomService, messageTagService, messageMentionService, listOf(PinCleanup()))
+    // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.
+    val reactionService = MessageReactionService(database)
+    attributes.put(MessageReactionServiceKey, reactionService)
+    val messageService = MessageService(
+        database, roomService, messageTagService, messageMentionService, listOf(PinCleanup()), reactionService,
+    )
     attributes.put(MessageServiceKey, messageService)
     attributes.put(PinServiceKey, PinService(database, messageService))
     attributes.put(

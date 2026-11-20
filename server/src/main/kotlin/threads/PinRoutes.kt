@@ -62,10 +62,11 @@ fun Application.configurePinRoutes() {
 /** `GET /rooms/{id}/pins`: a reader (a member or an ADMIN); at most 50 rows exist, so the unbucketed read is bounded. */
 private fun Route.pinList(roomService: RoomService, pinService: PinService) {
     get<RoomPinsRoute> { route ->
+        val caller = call.caller()
         val roomId = route.parent.id
-        roomService.visibleStanding(call.caller(), roomId)
+        roomService.visibleStanding(caller, roomId)
         val paging = call.parsePaging(sortable = PIN_SORT_FIELDS, defaultSort = PIN_DEFAULT_SORT)
-        val result = pinService.list(roomId, paging)
+        val result = pinService.list(roomId, paging, caller.userId)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }
 }

@@ -54,9 +54,9 @@ class LiveHintTest {
     }
 
     @Test
-    fun `there are seventeen kinds and their wire names are the dotted audit names`() {
-        assertEquals(17, LiveKind.entries.size)
-        assertEquals(17, serialNames.values.toSet().size)
+    fun `there are eighteen kinds and their wire names are the dotted audit names`() {
+        assertEquals(18, LiveKind.entries.size)
+        assertEquals(18, serialNames.values.toSet().size)
         assertTrue(serialNames.values.all { Regex("(room|thread|message)\\.[a-z_]+").matches(it) }, "$serialNames")
     }
 

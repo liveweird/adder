@@ -22,6 +22,7 @@ export const LIVE_EVENT_KINDS = [
   "message.posted",
   "message.edited",
   "message.deleted",
+  "message.reaction_changed",
   "room.pin_changed",
 ] as const;
 
