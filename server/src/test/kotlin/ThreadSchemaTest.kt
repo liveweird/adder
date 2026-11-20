@@ -444,9 +444,9 @@ class ThreadSchemaTest {
 
     @Test
     fun `the unread statements read idx_messages_thread, also as a generic plan`() {
-        // Each statement as a PREPARED one over its argument types, with sequential and bitmap scans off (a test table is tiny, so its
-        // statistics can make a bitmap read plus a sort look cheaper; a real thread of thousands of messages does not): the messages
-        // of a thread are read backwards through their thread index, at most 100 index entries per thread, never a table-wide scan.
+        // Each statement as a PREPARED one over its argument types, with sequential scans, bitmap scans and sorts off (a test table is
+        // tiny, so its statistics can make a bitmap or forward read plus a sort look cheaper; a real thread of thousands does not): the
+        // messages of a thread are read backwards through their thread index, at most 100 index entries a thread, never a table scan.
         val counts = Triple(UNREAD_COUNTS_SQL, "int8, int8, int4[], int8", "0, 1, '{1,2}', 0")
         val one = Triple(THREAD_UNREAD_SQL, "int4, int8, int4, int8", "1, 1, 1, 0")
         for ((sql, types, args) in listOf(counts, one)) {
@@ -480,6 +480,7 @@ class ThreadSchemaTest {
                     st.execute("SET LOCAL plan_cache_mode = $planCacheMode")
                     st.execute("SET LOCAL enable_seqscan = off")
                     st.execute("SET LOCAL enable_bitmapscan = off")
+                    st.execute("SET LOCAL enable_sort = off")
                     st.execute("PREPARE unread_plan($types) AS $numbered")
                     buildString {
                         st.executeQuery("EXPLAIN EXECUTE unread_plan($args)").use { rs -> while (rs.next()) appendLine(rs.getString(1)) }
