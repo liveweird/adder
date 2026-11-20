@@ -66,7 +66,6 @@ class RoomTagsRoute(val parent: RoomsRoute.Id)
 fun Application.configureThreadRoutes() {
     val roomService = attributes[RoomServiceKey]
     val threadService = attributes[ThreadServiceKey]
-    val eventService = attributes[ThreadEventServiceKey]
     val statusService = attributes[ThreadStatusServiceKey]
     val tagService = attributes[MessageTagServiceKey]
 
@@ -77,7 +76,7 @@ fun Application.configureThreadRoutes() {
             // the thread and tag lists; visibility (`visibleStanding`:
             // 404 for a missing room and a non-member alike, audited `room.access_denied`); the pre-check (member: 403); the body
             // (400); then the service re-runs the guard under the room lock.
-            threadReads(roomService, threadService, eventService)
+            threadReads(roomService, threadService)
             roomTags(roomService, tagService)
             threadCreate(roomService, threadService)
             threadDetails(roomService, threadService)
@@ -87,7 +86,7 @@ fun Application.configureThreadRoutes() {
     }
 }
 
-private fun Route.threadReads(roomService: RoomService, threadService: ThreadService, eventService: ThreadEventService) {
+private fun Route.threadReads(roomService: RoomService, threadService: ThreadService) {
     // The thread list rides the per-USER `chat-read` bucket (with the tag list), before the visibility guard like every bucket.
     rateLimit(RateLimitName(RateLimits.CHAT_READ)) {
         get<ThreadsRoute> { route ->
@@ -111,7 +110,7 @@ private fun Route.threadReads(roomService: RoomService, threadService: ThreadSer
         roomService.visibleStanding(call.caller(), roomId)
         val threadId = threadService.idOf(roomId, route.parent.number.toInt()).orNotFound("Thread")
         val paging = call.parsePaging(sortable = EVENT_LOG_SORT_FIELDS, defaultSort = EVENT_LOG_DEFAULT_SORT)
-        val result = eventService.list(threadId, paging)
+        val result = threadService.history(roomId, threadId, paging)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }
 }

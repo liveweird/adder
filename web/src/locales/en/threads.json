@@ -215,7 +215,6 @@
   "event": {
     "created": "Started the thread in {{status}}",
     "titleChanged": "Renamed the thread",
-    "titleLabel": "Title",
     "statusChanged": "Moved the thread from {{from}} to {{to}}",
     "closed": "Closed the thread: {{from}} → {{to}}",
     "reopened": "Reopened the thread: {{from}} → {{to}}",

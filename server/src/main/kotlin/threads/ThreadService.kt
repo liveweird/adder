@@ -180,6 +180,16 @@ class ThreadService(
     }
 
     /**
+     * One page of thread [threadId]'s history: the events with the values of the room's RETIRED fields left out (a retired field's values
+     * are hidden everywhere, `chat-model.md` "Stored values survive a workflow edit"). The retired keys are read in a short
+     * transaction of their own just before the events' (a field revived in between is shown or hidden by the one read or the other).
+     */
+    suspend fun history(roomId: UInt, threadId: UInt, paging: PageRequest): ThreadEventListResult {
+        val retired = suspendTransaction(database) { workflows.retiredFieldKeys(roomId) }
+        return events.list(threadId, paging, retired)
+    }
+
+    /**
      * The thread's owner id read WITHOUT a lock, or null when there is no such thread: the 403 pre-check of the steward guard (a missing
      * thread is `404` there) that the write repeats on the fresh row under the room lock.
      */
@@ -222,7 +232,7 @@ class ThreadService(
                 it[updatedAt] = stamp
             }[Threads.id].value
             val opening = messages.insertInTransaction(roomId, threadId, number, caller.userId, request.body, hashtags, stamp)
-            events.record(threadId, caller.userId, threadCreatedEvent(request.title, initial.key, initial.label), stamp)
+            events.record(threadId, caller.userId, threadCreatedEvent(initial.key, initial.label), stamp)
             rooms.touchActivity(roomId, stamp, caller.userId)
             // The opening message is part of this hint, never a `message.posted` of its own.
             notifyLive(LiveHint(LiveKind.THREAD_CREATED, roomId, threadNumber = number))
@@ -267,7 +277,7 @@ class ThreadService(
                 it[lastActivityAt] = stamp
                 it[updatedAt] = stamp
             }
-            if (titleChanged) events.record(thread.id, caller.userId, threadTitleChangedEvent(thread.title, request.title), stamp)
+            if (titleChanged) events.record(thread.id, caller.userId, threadTitleChangedEvent(), stamp)
             val names = userNames(userIdsOfChanges(snapshot.fields, fieldWrite.changes))
             fieldWrite.changes.forEach { change ->
                 val field = snapshot.fields.single { it.key == change.key }

@@ -41,14 +41,14 @@ export function describeEvent(event: ThreadEvent, t: TFunction): string {
   }
 }
 
-/** The dimmed lines under the sentence: the old and the new value of a renamed title or a changed field (none for the other kinds). */
+/**
+ * The dimmed lines under the sentence: the old and the new value of a changed SELECT, MULTI_SELECT, USER, DATE or NUMBER field. A rename
+ * and a TEXT or URL change carry no values (the server's history keeps no free text, so the sentence is all there is), nor do the other
+ * kinds, nor a retired field's entry or an entry older than that rule.
+ */
 export function eventLines(event: ThreadEvent, t: TFunction): string[] {
+  if (event.type !== "FIELD_CHANGED") return [];
   const p = event.params;
-  const line =
-    event.type === "TITLE_CHANGED"
-      ? changeLine(t("threads.event.titleLabel"), p.from, p.to, t)
-      : event.type === "FIELD_CHANGED"
-        ? changeLine(param(p, "fieldLabel", "field"), p.from, p.to, t)
-        : null;
+  const line = changeLine(param(p, "fieldLabel", "field"), p.from, p.to, t);
   return line === null ? [] : [line];
 }

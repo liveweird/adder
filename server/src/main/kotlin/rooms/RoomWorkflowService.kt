@@ -291,6 +291,17 @@ class RoomWorkflowService(private val database: R2dbcDatabase) {
             .toMap()
 
     /**
+     * The keys of the room's RETIRED fields: the light read of a thread's history (whose entries hide a retired field's values), one
+     * narrow query instead of the whole [snapshot]. Runs inside the caller's transaction.
+     */
+    suspend fun retiredFieldKeys(roomId: UInt): Set<String> =
+        RoomFields.select(RoomFields.key)
+            .where { (RoomFields.roomId eq roomId) and (RoomFields.markedAsDeleted eq true) }
+            .map { it[RoomFields.key] }
+            .toList()
+            .toSet()
+
+    /**
      * The room's ACTIVE statuses and fields in position order with the workflow revision, or null when the room is missing or deleted
      * (the route runs its visibility guard first). One transaction with statement-level snapshots (a concurrent PUT may show a
      * momentarily mixed count).

@@ -38,6 +38,26 @@ describe("ThreadHistory", () => {
     expect(urls()).toEqual(["/api/v1/rooms/12/threads/42/events?page=1&pageSize=10"]);
   });
 
+  // The server is what enforces that a FIELD_CHANGED of a TEXT/URL or retired field carries no values; this pins the client side: a rename
+  // never draws old and new titles, and a value-less field entry reads as the sentence alone.
+  test("a value-less field change and a rename read as the sentence alone, and an old rename's titles are never drawn", async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse(
+        200,
+        eventPage([
+          makeEvent({ id: 3, type: "FIELD_CHANGED", params: { field: "note", fieldLabel: "Note" } }),
+          makeEvent({ id: 2, type: "TITLE_CHANGED", params: {} }),
+          makeEvent({ id: 1, type: "TITLE_CHANGED", params: { from: "old secret", to: "new secret" } }),
+        ]),
+      ),
+    );
+    renderWithProviders(<ThreadHistory roomId={12} number={42} />);
+    expect(await screen.findByText("Changed Note")).toBeInTheDocument();
+    expect(screen.getAllByText("Renamed the thread")).toHaveLength(2);
+    expect(screen.queryByText(/secret/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Title:/)).not.toBeInTheDocument();
+  });
+
   test("an event kind this build does not know shows its raw type, and a deleted account is marked", async () => {
     mockFetch.mockResolvedValue(jsonResponse(200, eventPage([makeEvent({ type: "MESSAGE_PINNED" as never, params: {}, userName: "Zed", userDeleted: true })])));
     renderWithProviders(<ThreadHistory roomId={12} number={42} />);

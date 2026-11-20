@@ -63,7 +63,7 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
 - **A workflow edit never closes or reopens a thread behind its history.** A status's category is editable only while no thread uses it, and a
   retired status's replacement must have the same category. Fields and options need no mapping.
 - **Stored values survive a workflow edit** (decided in 0.3; `threads.fields` is a jsonb object keyed by field key). A **retired field's value is kept,
-  hidden** (not returned, not validated), and **comes back when the field is revived**. A **removed option's stored key is kept and shown as removed**
+  hidden** (not returned, not validated, and left out of the history's `FIELD_CHANGED` entries), and **comes back when the field is revived**. A **removed option's stored key is kept and shown as removed**
   (a "removed option" hint) until someone changes it; a newly chosen value must be a live option. **Unchanged values skip validation**, so a stale value
   never blocks a save; a value the caller changes is validated against the current definition. The kernel is `threads/ThreadFields.kt`.
 
@@ -244,10 +244,19 @@ Edits, deletes and the workflow PUT's `moveThreads` do not bump.
   `STATUS_REPLACED` (written by `moveThreads`). Events are written in the transaction of the change, by `threads/ThreadEventService.kt` over the ported
   `infra/db/EventLog.kt`, which takes the actor table and its name and deleted columns as parameters (`infra` may not name `users/`; `threads/` supplies
   `UserService.Users`).
-- **Params** are string maps of keys and ids plus snapshots of labels and names, never rendered text: `CREATED {title, status, statusLabel}`;
-  `TITLE_CHANGED {from, to}`; `STATUS_CHANGED`/`CLOSED`/`REOPENED`/`STATUS_REPLACED {from, to, fromLabel, toLabel}`; `OWNER_CHANGED {fromId, toId, fromName,
-  toName}`; `FIELD_CHANGED {field, fieldLabel, from?, to?}` (display text: option labels joined with ", ", the member name for USER, raw otherwise; absent =
-  unset). Titles and TEXT values are recorded (nothing is encrypted at rest). The sentence is rendered in the viewer's language.
+- **Params** are string maps of keys and ids plus snapshots of labels and names, never rendered text: `CREATED {status, statusLabel}`;
+  `TITLE_CHANGED {}`; `STATUS_CHANGED`/`CLOSED`/`REOPENED`/`STATUS_REPLACED {from, to, fromLabel, toLabel}`; `OWNER_CHANGED {fromId, toId, fromName,
+  toName}`; `FIELD_CHANGED {field, fieldLabel, from?, to?}` (`from`/`to` ONLY for a SELECT, MULTI_SELECT, USER, DATE or NUMBER field: display text, option
+  labels joined with ", ", the member name for USER, raw otherwise; absent = unset). The sentence is rendered in the viewer's language.
+- **The history keeps no free text (1.0.0 decision, 2026-11-20; checkup C-SEC-5, the 0.3.0 audit's M4).** It is append-only, so a credential pasted into a
+  title or a TEXT or URL field could never be taken back. `CREATED` and `TITLE_CHANGED` therefore record NO title (the thread shows the current one; the
+  SPA's sentence never used the recorded ones), and a TEXT or URL `FIELD_CHANGED` records the field and THAT it changed, never the text: the allow-list
+  is `RECORDED_VALUE_TYPES` in `threads/ThreadFieldEvents.kt` (a type added later records nothing until listed). Rows written before are scrubbed by V23
+  (`persistence.md` "History scrub (V23)": an unknown or retired TEXT/URL field scrubs too). The dimmed old-to-new line of a TEXT/URL change and of a
+  rename is gone from the SPA; the entry reads "Changed <field>" / "Renamed the thread".
+- **A retired field's values are hidden in the history too (C-SEC-6).** `GET .../events` answers a `FIELD_CHANGED` of a retired field without `from`/`to`
+  (the entry stays; pages and `total` are unchanged), and a revived field shows them again: the same rule as the thread's `fields` ("Stored values survive
+  a workflow edit").
 - **Message edits and deletes go to the audit trail only**, not to the history.
 - Placement: the side panel, newest first, 10 per page (interleaving it into the conversation is a BACKLOG item).
 

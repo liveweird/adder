@@ -91,6 +91,10 @@ The plan put six decisions to the user. The user was asked for numbers and gave 
 - **0.6 D5. One release, 0.6.0,** as the roadmap says. The alternative was 0.6.0 = mentions, notifications and unread and 0.7.0 = reactions and pins, before the 1.0.0 checkup.
 - **0.6 D6. Account changes stay on the 60 s sweep.** The sweep the user chose for 0.4.0 (0.4 D2) is kept; pushing them over the per-user channel needs a hint without a room (a wire change) and five call sites in `auth/` and `users/`. The `BACKLOG.md` item stays, noting that the delivery class now exists.
 
+### 1.0.0 checkup (the user's, 2026-11-20)
+
+- **1.0 D1. The history keeps no raw TEXT or URL values and no title.** A `FIELD_CHANGED` of a TEXT or URL field records who, when and which field, not the text; SELECT, MULTI_SELECT, USER, DATE and NUMBER keep their from/to. The thread's titles (`TITLE_CHANGED.from`/`to`, and the opening title in `CREATED`) are treated like TEXT: the history is append-only, so a credential pasted into a title or a field could never be taken back, and this closes the leak and most of the history's growth at the source. Rows already written are scrubbed by migration V23. Taken from the checkup's C-SEC-5 and the old "scrub a leaked secret" item (the 0.3.0 audit's M4); the alternatives were an audited per-event redaction by a steward and a cap on events per thread. A retired field's remaining values are hidden at read time (C-SEC-6). The rules: `chat-model.md` "History", `persistence.md` "History scrub (V23)".
+
 ## Assumptions (taken without asking; change on request)
 
 - ADMIN may read every room (the family's ADMIN-overrides posture); a non-member gets `404`, never `403`.

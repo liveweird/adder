@@ -87,7 +87,8 @@
      Component, and the Jira link is a link opening in a new tab without the opener.
 5. They read the **History** section.
    - *Expected*: seven entries, newest first: the rename and the three field changes ("Renamed the thread", "Changed Severity",
-     "Changed Component", "Changed Jira link", with the old and new title and "Severity: set to S1" under them), then "Moved the thread
+     "Changed Component", "Changed Jira link", with "Severity: set to S1" under the select's change and no title, text or
+     link value anywhere in the history: it records that they changed, not what they were), then "Moved the thread
      from Triage to Investigating" under the teammate's name, "Passed the thread from <owner> to <teammate>", and last "Started the thread
      in Triage" under the owner's name. After a reload there are still seven.
 

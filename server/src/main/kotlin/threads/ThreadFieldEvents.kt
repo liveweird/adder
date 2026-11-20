@@ -8,14 +8,24 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.long
 
 /**
- * The `FIELD_CHANGED` entry of one [change] of [field]: `{field, fieldLabel, from?, to?}`, the sides as DISPLAY text (an option's label,
- * the labels of a MULTI_SELECT joined with ", ", the member's name for USER, the raw value otherwise); an absent side means unset. Pure:
- * the caller looks the USER names up ([userNames], soft-deleted accounts included) before it calls.
+ * The field types whose values the history records. An allow-list on purpose: a TEXT or URL value is free text that can hold a pasted
+ * secret and the history is append-only, so it records THAT such a field changed, never the text (1.0.0, `chat-model.md` "History");
+ * a type added later records nothing until it is listed here.
+ */
+private val RECORDED_VALUE_TYPES = setOf(FieldType.SELECT, FieldType.MULTI_SELECT, FieldType.USER, FieldType.DATE, FieldType.NUMBER)
+
+/**
+ * The `FIELD_CHANGED` entry of one [change] of [field]: `{field, fieldLabel, from?, to?}`. For a SELECT, MULTI_SELECT, USER, DATE or
+ * NUMBER field the sides are DISPLAY text (an option's label, the labels of a MULTI_SELECT joined with ", ", the member's name for
+ * USER, the raw value otherwise) and an absent side means unset; a TEXT or URL field carries neither side. Pure: the caller looks the
+ * USER names up ([userNames], soft-deleted accounts included) before it calls.
  */
 fun threadFieldChangedEvent(field: SnapshotField, change: FieldChange, userNames: Map<UInt, String>): ThreadEventDescriptor {
     val params = mutableMapOf("field" to field.key, "fieldLabel" to field.label)
-    fieldDisplayText(field, change.from, userNames)?.let { params["from"] = it }
-    fieldDisplayText(field, change.to, userNames)?.let { params["to"] = it }
+    if (field.type in RECORDED_VALUE_TYPES) {
+        fieldDisplayText(field, change.from, userNames)?.let { params["from"] = it }
+        fieldDisplayText(field, change.to, userNames)?.let { params["to"] = it }
+    }
     return ThreadEventDescriptor(ThreadEventType.FIELD_CHANGED, params)
 }
 

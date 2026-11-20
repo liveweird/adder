@@ -14,7 +14,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
-/** The pure `FIELD_CHANGED` and `TITLE_CHANGED` descriptors (`threads/ThreadFieldEvents.kt`): the display text of every side. */
+/** The pure `FIELD_CHANGED` and `TITLE_CHANGED` descriptors (`threads/ThreadFieldEvents.kt`): the display text of every recorded side. */
 class ThreadFieldEventsTest {
     private val options = listOf(RoomOptionDef("low", "Low"), RoomOptionDef("high", "High"))
 
@@ -32,17 +32,46 @@ class ThreadFieldEventsTest {
     }
 
     @Test
-    fun `the title event records both titles`() {
-        val event = threadTitleChangedEvent("Old", "New")
+    fun `the title event records that the title changed and neither title`() {
+        val event = threadTitleChangedEvent()
         assertEquals(ThreadEventType.TITLE_CHANGED, event.type)
-        assertEquals(mapOf("from" to "Old", "to" to "New"), event.params)
+        assertEquals(emptyMap(), event.params)
     }
 
     @Test
     fun `the field and its label are recorded and an absent side means unset`() {
-        val event = threadFieldChangedEvent(field("note", FieldType.TEXT), FieldChange("note", null, text("x")), emptyMap())
-        assertEquals(mapOf("field" to "note", "fieldLabel" to "Note", "to" to "x"), event.params)
-        assertEquals(mapOf("from" to "x"), params(FieldType.TEXT, text("x"), null))
+        val event = threadFieldChangedEvent(field("lead", FieldType.USER), FieldChange("lead", null, JsonPrimitive(7)), mapOf(7u to "Ann"))
+        assertEquals(mapOf("field" to "lead", "fieldLabel" to "Lead", "to" to "Ann"), event.params)
+        assertEquals(mapOf("from" to "Ann"), params(FieldType.USER, JsonPrimitive(7), null, mapOf(7u to "Ann")))
+    }
+
+    @Test
+    fun `a TEXT or URL change records the field and that it changed, never the text`() {
+        for (type in listOf(FieldType.TEXT, FieldType.URL)) {
+            val secret = "hunter2 https://example.org/?token=abc"
+            for ((from, to) in listOf(text(secret) to text("other"), null to text(secret), text(secret) to null)) {
+                val event = threadFieldChangedEvent(field("note", type), FieldChange("note", from, to), emptyMap())
+                assertEquals(ThreadEventType.FIELD_CHANGED, event.type)
+                assertEquals(mapOf("field" to "note", "fieldLabel" to "Note"), event.params, "$type: $from -> $to")
+            }
+        }
+    }
+
+    @Test
+    fun `the types that record their values are the SELECT, MULTI_SELECT, USER, DATE and NUMBER ones`() {
+        fun valueOf(type: FieldType): JsonElement = when (type) {
+            FieldType.MULTI_SELECT -> JsonArray(listOf(text("low")))
+            FieldType.USER -> JsonPrimitive(1)
+            else -> text("low")
+        }
+        val recorded = FieldType.entries.filter {
+            threadFieldChangedEvent(field("f", it), FieldChange("f", null, valueOf(it)), mapOf(1u to "Ann")).params.containsKey("to")
+        }
+        assertEquals(
+            setOf(FieldType.SELECT, FieldType.MULTI_SELECT, FieldType.USER, FieldType.DATE, FieldType.NUMBER),
+            recorded.toSet(),
+            "an allow-list: a type added later records nothing until it is listed",
+        )
     }
 
     @Test
@@ -64,10 +93,9 @@ class ThreadFieldEventsTest {
     }
 
     @Test
-    fun `a number, a date and a url show raw`() {
+    fun `a number and a date show raw`() {
         assertEquals(mapOf("from" to "7", "to" to "7.5"), params(FieldType.NUMBER, JsonPrimitive(7), JsonPrimitive(7.5)))
         assertEquals(mapOf("to" to "2026-12-24"), params(FieldType.DATE, null, text("2026-12-24")))
-        assertEquals(mapOf("to" to "https://example.org"), params(FieldType.URL, null, text("https://example.org")))
     }
 
     @Test

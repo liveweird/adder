@@ -134,10 +134,10 @@ class ThreadDetailsTest {
         )
         assertTrue(events.all { it.createdAt == after.lastActivityAt && it.userId == member.id }, "every event shares the write's instant")
         val params = events.map { decodeParams(it.params) }
-        assertEquals(mapOf("from" to "Original", "to" to "Renamed"), params[0])
+        assertEquals(emptyMap(), params[0], "a rename records that it happened, never either title")
         val byField = params.drop(1).associateBy { it.getValue("field") }
         assertEquals(mapOf("field" to "severity", "fieldLabel" to "Severity", "from" to "Sev one", "to" to "Sev two"), byField["severity"])
-        assertEquals(mapOf("field" to "note", "fieldLabel" to "Note", "from" to "old note"), byField["note"], "cleared: no `to`")
+        assertEquals(mapOf("field" to "note", "fieldLabel" to "Note"), byField["note"], "TEXT: the change, never the text")
         assertEquals(mapOf("field" to "lead", "fieldLabel" to "Lead", "to" to "Marek"), byField["lead"], "USER shows the name; no `from`")
         assertEquals(mapOf("field" to "due", "fieldLabel" to "Due", "to" to "2026-12-24"), byField["due"])
         assertEquals(mapOf("field" to "tags", "fieldLabel" to "Tags", "from" to "Tag A", "to" to "Tag A, Tag B"), byField["tags"])

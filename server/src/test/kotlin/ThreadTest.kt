@@ -108,7 +108,7 @@ class ThreadTest {
         assertEquals("CREATED", event.type)
         assertEquals(member.id, event.userId)
         assertEquals(thread.createdAt, event.createdAt, "the event shares the thread's instant")
-        assertEquals(mapOf("title" to "Disk full", "status" to "open", "statusLabel" to "Open"), decodeParams(event.params))
+        assertEquals(mapOf("status" to "open", "statusLabel" to "Open"), decodeParams(event.params), "the title is not recorded (1.0.0)")
         assertEquals(thread.createdAt, TestThreads.roomActivity(room), "the room's activity is the thread's creation")
         assertTrue(TestThreads.roomActivity(room) > activityBefore)
     }

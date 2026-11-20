@@ -7,11 +7,8 @@ import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.users.UserService
-import io.ktor.util.AttributeKey
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
-
-val ThreadEventServiceKey = AttributeKey<ThreadEventService>("ThreadEventService")
 
 /**
  * The kinds of history a thread keeps, PERSISTED and frozen (`thread_events.event_type`; no CHECK, this enum is the whitelist, the V5
@@ -20,10 +17,10 @@ val ThreadEventServiceKey = AttributeKey<ThreadEventService>("ThreadEventService
  */
 @Serializable
 enum class ThreadEventType {
-    /** `{title, status, statusLabel}` */
+    /** `{status, statusLabel}`: no title (1.0.0: a title can hold a pasted secret; V23 scrubbed the old rows). */
     CREATED,
 
-    /** `{from, to}` */
+    /** `{}`: that the title changed, never what it was or became (1.0.0, as `CREATED`; V23 scrubbed the old `from`/`to`). */
     TITLE_CHANGED,
 
     /** `{from, to, fromLabel, toLabel}`: a move between statuses of one category. */
@@ -38,7 +35,10 @@ enum class ThreadEventType {
     /** `{fromId, toId, fromName, toName}` */
     OWNER_CHANGED,
 
-    /** `{field, fieldLabel, from?, to?}`: one event per field; an absent side means unset. */
+    /**
+     * `{field, fieldLabel, from?, to?}`: one event per field; an absent side means unset. `from`/`to` exist only for a SELECT,
+     * MULTI_SELECT, USER, DATE or NUMBER field: a TEXT or URL change records that it happened, never the text (1.0.0, V23).
+     */
     FIELD_CHANGED,
 
     /** `{from, to, fromLabel, toLabel}`: the workflow PUT moved the thread off a retired status. */
@@ -48,13 +48,15 @@ enum class ThreadEventType {
 /** One event to append: the [type] and its string-map [params]. Built by the pure `thread*Event` functions below. */
 data class ThreadEventDescriptor(val type: ThreadEventType, val params: Map<String, String>)
 
-/** The thread was started in its room's initial status [statusKey] ([statusLabel] is the label at that moment). */
-fun threadCreatedEvent(title: String, statusKey: String, statusLabel: String) =
-    ThreadEventDescriptor(ThreadEventType.CREATED, mapOf("title" to title, "status" to statusKey, "statusLabel" to statusLabel))
+/**
+ * The thread was started in its room's initial status [statusKey] ([statusLabel] is the label at that moment). The title is NOT
+ * recorded: the history is append-only, so a secret pasted into a title could never be taken back (`chat-model.md` "History").
+ */
+fun threadCreatedEvent(statusKey: String, statusLabel: String) =
+    ThreadEventDescriptor(ThreadEventType.CREATED, mapOf("status" to statusKey, "statusLabel" to statusLabel))
 
-/** The title changed from [from] to [to] (both recorded: nothing is encrypted at rest). */
-fun threadTitleChangedEvent(from: String, to: String) =
-    ThreadEventDescriptor(ThreadEventType.TITLE_CHANGED, mapOf("from" to from, "to" to to))
+/** The title changed. Neither title is recorded (see [threadCreatedEvent]); the thread itself shows the current one. */
+fun threadTitleChangedEvent() = ThreadEventDescriptor(ThreadEventType.TITLE_CHANGED, emptyMap())
 
 /** The thread moved from status [fromKey] to [toKey]; [transition] picks `STATUS_CHANGED`, `CLOSED` or `REOPENED` (labels as now). */
 fun threadStatusEvent(
@@ -125,8 +127,12 @@ class ThreadEventService(database: R2dbcDatabase) {
     suspend fun recordAll(threadIds: List<UInt>, byUserId: UInt, event: ThreadEventDescriptor, at: Long) =
         log.createAllInTransaction(threadIds, byUserId, event.type.name, event.params, at)
 
-    /** The thread's history, newest first by default (the id descending as the same-instant tiebreaker). */
-    suspend fun list(threadId: UInt, paging: PageRequest): ThreadEventListResult {
+    /**
+     * The thread's history, newest first by default (the id descending as the same-instant tiebreaker). A `FIELD_CHANGED` of a field
+     * in [retiredFields] answers without its `from`/`to`: a retired field's values are hidden ("Stored values survive a workflow edit",
+     * `chat-model.md`) and come back if the field is revived. The entry itself stays, so the pages and the total do not change.
+     */
+    suspend fun list(threadId: UInt, paging: PageRequest, retiredFields: Set<String> = emptySet()): ThreadEventListResult {
         val page = log.listFor(threadId, paging)
         return ThreadEventListResult(
             items = page.items.map {
@@ -136,7 +142,7 @@ class ThreadEventService(database: R2dbcDatabase) {
                     userName = it.userName,
                     userDeleted = it.userDeleted,
                     type = ThreadEventType.valueOf(it.type),
-                    params = it.params,
+                    params = hidingRetiredValues(it.type, it.params, retiredFields),
                     createdAt = it.createdAt,
                 )
             },
@@ -144,3 +150,7 @@ class ThreadEventService(database: R2dbcDatabase) {
         )
     }
 }
+
+/** [params] of a `FIELD_CHANGED` for a field in [retiredFields] without its values; every other event as it is. */
+private fun hidingRetiredValues(type: String, params: Map<String, String>, retiredFields: Set<String>): Map<String, String> =
+    if (type == ThreadEventType.FIELD_CHANGED.name && params["field"] in retiredFields) params - "from" - "to" else params

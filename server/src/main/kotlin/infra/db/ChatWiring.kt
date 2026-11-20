@@ -19,7 +19,6 @@ import ch.nokillswit.threads.PinService
 import ch.nokillswit.threads.PinServiceKey
 import ch.nokillswit.threads.ReadLimiter
 import ch.nokillswit.threads.ThreadEventService
-import ch.nokillswit.threads.ThreadEventServiceKey
 import ch.nokillswit.threads.ThreadReadService
 import ch.nokillswit.threads.ThreadReadServiceKey
 import ch.nokillswit.threads.ThreadSearchService
@@ -48,7 +47,6 @@ internal fun Application.publishChatServices(
 ) {
     // The thread aggregate (V14): a thread write runs under the room lock and reads the room through the rooms/ services only.
     val threadEventService = ThreadEventService(database)
-    attributes.put(ThreadEventServiceKey, threadEventService)
     // The hashtag index (V15) is written inside the message writes, so the message service holds it; a boot reindex reads it back.
     // The filtered thread list and the tag list share one limiter: ONE `threads.readTimeoutSeconds` deadline per read and at most
     // `threads.readMaxConcurrent` reads at once in the process (both boot-validated).

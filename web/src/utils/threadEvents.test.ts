@@ -11,8 +11,8 @@ function event(type: string, params: Record<string, string> = {}): ThreadEvent {
 
 describe("describeEvent", () => {
   test("each persisted kind reads as one sentence built from the recorded labels and names", () => {
-    expect(describeEvent(event("CREATED", { title: "T", status: "triage", statusLabel: "Triage" }), t)).toBe("Started the thread in Triage");
-    expect(describeEvent(event("TITLE_CHANGED", { from: "A", to: "B" }), t)).toBe("Renamed the thread");
+    expect(describeEvent(event("CREATED", { status: "triage", statusLabel: "Triage" }), t)).toBe("Started the thread in Triage");
+    expect(describeEvent(event("TITLE_CHANGED"), t)).toBe("Renamed the thread");
     expect(describeEvent(event("STATUS_CHANGED", { from: "a", to: "b", fromLabel: "Triage", toLabel: "Working" }), t)).toBe("Moved the thread from Triage to Working");
     expect(describeEvent(event("CLOSED", { from: "a", to: "b", fromLabel: "Working", toLabel: "Done" }), t)).toBe("Closed the thread: Working → Done");
     expect(describeEvent(event("REOPENED", { from: "b", to: "a", fromLabel: "Done", toLabel: "Triage" }), t)).toBe("Reopened the thread: Done → Triage");
@@ -33,14 +33,26 @@ describe("describeEvent", () => {
 });
 
 describe("eventLines", () => {
-  test("a renamed title and a changed field carry their old and new values", () => {
-    expect(eventLines(event("TITLE_CHANGED", { from: "A", to: "B" }), t)).toEqual(["Title: A → B"]);
+  test("a changed SELECT, USER, DATE or NUMBER field carries its old and new values", () => {
+    expect(eventLines(event("FIELD_CHANGED", { field: "sev", fieldLabel: "Severity", from: "S3", to: "S1" }), t)).toEqual(["Severity: S3 → S1"]);
     expect(eventLines(event("FIELD_CHANGED", { field: "sev", fieldLabel: "Severity", from: "S3" }), t)).toEqual(["Severity: cleared"]);
     expect(eventLines(event("FIELD_CHANGED", { field: "sev", fieldLabel: "Severity", to: "S1" }), t)).toEqual(["Severity: set to S1"]);
   });
 
-  test("the other kinds, and a field recorded by name only, have no body line", () => {
+  test("a TEXT or URL change, a rename and a retired field's entry read as the sentence alone (the history keeps no free text)", () => {
+    const text = event("FIELD_CHANGED", { field: "note", fieldLabel: "Note" });
+    expect(describeEvent(text, t)).toBe("Changed Note");
+    expect(eventLines(text, t)).toEqual([]);
+    expect(describeEvent(event("TITLE_CHANGED", {}), t)).toBe("Renamed the thread");
+    expect(eventLines(event("TITLE_CHANGED", {}), t)).toEqual([]);
+    expect(eventLines(event("CREATED", { status: "open", statusLabel: "Open" }), t)).toEqual([]);
+  });
+
+  test("an entry written before the scrub still shows no title lines (a rename never draws old and new titles)", () => {
+    expect(eventLines(event("TITLE_CHANGED", { from: "A", to: "B" }), t)).toEqual([]);
+  });
+
+  test("the other kinds have no body line", () => {
     expect(eventLines(event("CLOSED", { from: "a", to: "b" }), t)).toEqual([]);
-    expect(eventLines(event("FIELD_CHANGED", { field: "sev", fieldLabel: "Severity" }), t)).toEqual([]);
   });
 });

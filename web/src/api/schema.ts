@@ -1074,7 +1074,7 @@ export interface paths {
          *     never blocks a save. A required field cannot be cleared once set; an unknown key, or a changed value for a retired key, is a `400`.
          *     When nothing changed the answer is `204` with no revision bump, no history entry and no activity bump. Otherwise the revision
          *     becomes `revision + 1` (read the thread again for it), one `TITLE_CHANGED` and one `FIELD_CHANGED` entry per changed field are
-         *     recorded, and the thread and the room are bumped in the activity order.
+         *     recorded (neither carries the old or new title, nor a TEXT or URL value), and the thread and the room are bumped in the activity order.
          *
          *     The body is at most 192 KiB (`413` beyond it) and `fields` holds at most 20 keys whose values are primitives, `null` or a list of at most 50 option keys (anything else, a nested object included, is a `400` before any lock); the stored values may not exceed 439,001 characters of JSON (`400`).
          *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
@@ -1210,7 +1210,8 @@ export interface paths {
          * List a thread's history
          * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`, as does an unknown number). The thread's append-only
          *     history: structured entries (`type` plus string-map `params`: keys and ids with snapshots of labels and names) that the client
-         *     renders in the viewer's language. Message edits and deletes are not history.
+         *     renders in the viewer's language. Message edits and deletes are not history, and neither is any title or TEXT or URL value
+         *     (see `ThreadEventType` for the `params` of each kind, and for what a retired field hides).
          *
          *     - Sortable fields: `id`, `createdAt`. Default `-createdAt,-id` (newest first).
          *     - `userDeleted` marks an actor whose account has since been deleted (the recorded name stays).
@@ -2694,10 +2695,13 @@ export interface components {
             total: number;
         };
         /**
-         * @description The kind of a history entry (persisted, never renamed). The `params` of each: `CREATED` `{title, status, statusLabel}`;
-         *     `TITLE_CHANGED` `{from, to}`; `STATUS_CHANGED`, `CLOSED`, `REOPENED` and `STATUS_REPLACED` `{from, to, fromLabel, toLabel}`
+         * @description The kind of a history entry (persisted, never renamed). The `params` of each: `CREATED` `{status, statusLabel}`;
+         *     `TITLE_CHANGED` `{}`; `STATUS_CHANGED`, `CLOSED`, `REOPENED` and `STATUS_REPLACED` `{from, to, fromLabel, toLabel}`
          *     (status keys and the labels at that moment); `OWNER_CHANGED` `{fromId, toId, fromName, toName}`; `FIELD_CHANGED`
-         *     `{field, fieldLabel, from?, to?}` (display text; an absent side means unset).
+         *     `{field, fieldLabel, from?, to?}`. The history is append-only, so it keeps no free text: no title is recorded (the thread shows
+         *     the current one), and `from`/`to` (display text; an absent side means unset) exist only for a SELECT, MULTI_SELECT, USER,
+         *     DATE or NUMBER field, never for a TEXT or URL one (the entry says THAT the field changed). A RETIRED field's entries answer
+         *     without `from`/`to` too, and show them again if the field is revived. Entries written before 1.0.0 were scrubbed to this shape.
          * @enum {string}
          */
         ThreadEventType: "CREATED" | "TITLE_CHANGED" | "STATUS_CHANGED" | "CLOSED" | "REOPENED" | "OWNER_CHANGED" | "FIELD_CHANGED" | "STATUS_REPLACED";

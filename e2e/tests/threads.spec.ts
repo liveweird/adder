@@ -425,7 +425,11 @@ test("the owner passes the thread on, the new owner edits its details, and the h
   await expect(entries.nth(4)).toContainText(mate.name);
   const newest = page.getByRole("group", { name: "History", exact: true });
   for (const text of ["Renamed the thread", "Changed Severity", "Changed Component", "Changed Jira link"]) await expect(newest).toContainText(text);
-  await expect(newest).toContainText(`Title: ${title} → ${newTitle}`);
+  // The history keeps no free text: neither title, nor the TEXT and URL values, is recorded (a select value still is).
+  await expect(newest).not.toContainText(title);
+  await expect(newest).not.toContainText(newTitle);
+  await expect(newest).not.toContainText("ingest-api");
+  await expect(newest).not.toContainText("INC-1");
   await expect(newest).toContainText("Severity: set to S1");
 
   // The changes outlive a reload.

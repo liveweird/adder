@@ -219,7 +219,6 @@
   "event": {
     "created": "Rozpoczął/Rozpoczęła wątek ze statusem {{status}}",
     "titleChanged": "Zmienił/a tytuł wątku",
-    "titleLabel": "Tytuł",
     "statusChanged": "Przeniósł/Przeniosła wątek ze statusu {{from}} do {{to}}",
     "closed": "Zamknął/Zamknęła wątek: {{from}} → {{to}}",
     "reopened": "Otworzył/a wątek ponownie: {{from}} → {{to}}",

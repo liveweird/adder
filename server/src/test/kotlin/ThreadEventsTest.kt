@@ -47,10 +47,10 @@ class ThreadEventsTest {
     }
 
     @Test
-    fun `a creation event names the title and the initial status with its label`() {
-        val event = threadCreatedEvent("Disk full", "open", "Open")
+    fun `a creation event names the initial status with its label and keeps no title`() {
+        val event = threadCreatedEvent("open", "Open")
         assertEquals(ThreadEventType.CREATED, event.type)
-        assertEquals(mapOf("title" to "Disk full", "status" to "open", "statusLabel" to "Open"), event.params)
+        assertEquals(mapOf("status" to "open", "statusLabel" to "Open"), event.params)
     }
 
     @Test
