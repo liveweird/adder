@@ -146,7 +146,7 @@ class ThreadOwnerTest {
         for (target in listOf(cast.outsider.id, leaver.id, 999_999u, 0u)) {
             assertEquals(HttpStatusCode.BadRequest, cast.owner.client.putOwner(cast.room, target).status, "target $target")
         }
-        val malformed = listOf("{ not json", "{}", """{"userId":"x"}""", """{"userId":-1}""")
+        val malformed = listOf("{ not json", "{}", """{"ownerId":"x"}""", """{"ownerId":-1}""")
         for (json in malformed) {
             val response = cast.owner.client.put("$rooms/${cast.room}/threads/1/owner") {
                 contentType(ContentType.Application.Json)

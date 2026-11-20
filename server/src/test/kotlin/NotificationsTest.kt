@@ -157,8 +157,8 @@ class NotificationsTest {
         val page = cast.bob.client.notices("?pageSize=100")
         assertEquals(MAX_COUNTED_NOTICES.toLong(), page.total, "the total is capped")
         assertEquals(100, page.items.size)
-        assertEquals(MAX_COUNTED_NOTICES.toLong(), cast.bob.client.notices("?wasSeen=false").total, "a filtered count is capped too")
-        assertEquals(0L, cast.bob.client.notices("?wasSeen=true").total)
+        assertEquals(MAX_COUNTED_NOTICES.toLong(), cast.bob.client.notices("?seen=false").total, "a filtered count is capped too")
+        assertEquals(0L, cast.bob.client.notices("?seen=true").total)
         // The last page inside the cap is read; a page that starts at the cap or past it is empty (no OFFSET runs) and keeps the total.
         assertEquals(100, cast.bob.client.notices("?pageSize=100&page=10").items.size)
         val beyond = cast.bob.client.notices("?pageSize=100&page=11")
@@ -187,9 +187,9 @@ class NotificationsTest {
             }
         }
         assertEquals(5, TestThreads.notices.markAllSeen(cast.bob.id, System.currentTimeMillis(), chunk = 2), "three chunks: 2, 2, 1")
-        assertEquals(0L, cast.bob.client.notices("?wasSeen=false").total)
-        assertEquals(5L, cast.bob.client.notices("?wasSeen=true").total)
-        assertEquals(2L, cast.ann.client.notices("?wasSeen=false").total, "somebody else's notices stay unseen")
+        assertEquals(0L, cast.bob.client.notices("?seen=false").total)
+        assertEquals(5L, cast.bob.client.notices("?seen=true").total)
+        assertEquals(2L, cast.ann.client.notices("?seen=false").total, "somebody else's notices stay unseen")
         assertEquals(0, TestThreads.notices.markAllSeen(cast.bob.id, System.currentTimeMillis(), chunk = 2), "nothing left is zero")
         val annMoved = TestThreads.notices.markAllSeen(cast.ann.id, System.currentTimeMillis(), chunk = 2)
         assertEquals(2, annMoved, "an exact multiple of the chunk ends")
@@ -224,7 +224,7 @@ class NotificationsTest {
             }
         }
         assertEquals(4, moved, "the one somebody else saw is not ours to count, the other four are")
-        assertEquals(0L, cast.bob.client.notices("?wasSeen=false").total, "a short update does not end the loop with rows left")
+        assertEquals(0L, cast.bob.client.notices("?seen=false").total, "a short update does not end the loop with rows left")
     }
 
     @Test
@@ -248,7 +248,7 @@ class NotificationsTest {
         assertEquals(cast.room, notice.roomId)
         assertEquals(1, notice.threadNumber)
         assertEquals(posted.id, notice.messageId)
-        assertEquals(false, notice.wasSeen)
+        assertEquals(false, notice.seen)
         assertEquals(1L, bob.total)
         assertEquals(0L, cast.ann.client.notices().total, "the author is shown and never notified")
         assertEquals(0L, cast.outsider.client.notices().total, "a non-member is no mention")
@@ -339,7 +339,7 @@ class NotificationsTest {
     }
 
     @Test
-    fun `the list is the caller's own, newest first, pages and filters by wasSeen`() = testApplication {
+    fun `the list is the caller's own, newest first, pages and filters by seen`() = testApplication {
         usePostgresTestcontainer()
         val cast = cast("nt-list")
         val first = cast.ann.client.post(cast.room, 1, "one ${token(cast.bob)}").id
@@ -358,12 +358,12 @@ class NotificationsTest {
         assertEquals(1L, cast.owner.client.notices().total, "somebody else's notices are not in the list")
 
         assertEquals(HttpStatusCode.NoContent, cast.bob.client.seen(all.items.first().id).status)
-        assertEquals(listOf(third), cast.bob.client.notices("?wasSeen=true").items.map { it.messageId })
-        assertEquals(listOf(second, first), cast.bob.client.notices("?wasSeen=false").items.map { it.messageId })
-        assertEquals(2L, cast.bob.client.notices("?wasSeen=false").total)
-        assertEquals(true, cast.bob.client.notices("?wasSeen=true").items.single().wasSeen)
+        assertEquals(listOf(third), cast.bob.client.notices("?seen=true").items.map { it.messageId })
+        assertEquals(listOf(second, first), cast.bob.client.notices("?seen=false").items.map { it.messageId })
+        assertEquals(2L, cast.bob.client.notices("?seen=false").total)
+        assertEquals(true, cast.bob.client.notices("?seen=true").items.single().seen)
 
-        val malformed = listOf("?wasSeen=maybe", "?wasSeen=true&wasSeen=false", "?sort=bogus", "?sort=id,-id", "?page=0", "?pageSize=101")
+        val malformed = listOf("?seen=maybe", "?seen=true&seen=false", "?sort=bogus", "?sort=id,-id", "?page=0", "?pageSize=101")
         for (bad in malformed) assertEquals(HttpStatusCode.BadRequest, cast.bob.client.get("$api$bad").status, bad)
     }
 
@@ -444,11 +444,11 @@ class NotificationsTest {
         assertEquals(HttpStatusCode.NotFound, cast.outsider.client.seen(id).status)
         assertEquals(HttpStatusCode.NotFound, cast.bob.client.seen(2_000_000_000u).status, "an unknown notice answers the same")
         assertNull(seenAt(id), "nothing moved")
-        assertEquals(false, cast.bob.client.notices().items.single().wasSeen)
+        assertEquals(false, cast.bob.client.notices().items.single().seen)
 
         assertEquals(HttpStatusCode.NoContent, cast.bob.client.seen(id).status)
         val stamp = assertNotNull(seenAt(id))
-        assertEquals(true, cast.bob.client.notices().items.single().wasSeen)
+        assertEquals(true, cast.bob.client.notices().items.single().seen)
         assertEquals(HttpStatusCode.NoContent, cast.bob.client.seen(id).status, "seen again is still 204")
         assertEquals(stamp, seenAt(id), "and changes nothing")
     }
@@ -459,12 +459,12 @@ class NotificationsTest {
         val cast = cast("nt-all")
         cast.ann.client.post(cast.room, 1, "one ${token(cast.bob, cast.owner)}")
         cast.ann.client.post(cast.room, 1, "two ${token(cast.bob)}")
-        assertEquals(2L, cast.bob.client.notices("?wasSeen=false").total)
+        assertEquals(2L, cast.bob.client.notices("?seen=false").total)
 
         assertEquals(HttpStatusCode.NoContent, cast.bob.client.seenAll().status)
-        assertEquals(0L, cast.bob.client.notices("?wasSeen=false").total)
-        assertEquals(2L, cast.bob.client.notices("?wasSeen=true").total)
-        assertEquals(1L, cast.owner.client.notices("?wasSeen=false").total, "somebody else's notice stays unseen")
+        assertEquals(0L, cast.bob.client.notices("?seen=false").total)
+        assertEquals(2L, cast.bob.client.notices("?seen=true").total)
+        assertEquals(1L, cast.owner.client.notices("?seen=false").total, "somebody else's notice stays unseen")
         assertEquals(HttpStatusCode.NoContent, cast.bob.client.seenAll().status, "nothing unseen is still 204")
         assertEquals(HttpStatusCode.NoContent, cast.outsider.client.seenAll().status, "no notices at all is 204 too")
     }
@@ -505,10 +505,10 @@ class NotificationsTest {
         cast.ann.client.post(cast.room, 1, "for the owner ${token(cast.owner)}")
         suspendTransaction(sharedDatabaseForTests()) { TestThreads.notices.threadRead(cast.thread, cast.bob.id, first, 5L) }
 
-        val unseen = cast.bob.client.notices("?wasSeen=false").items
+        val unseen = cast.bob.client.notices("?seen=false").items
         assertEquals(listOf(second), unseen.map { it.messageId }, "the hand-over and the first mention are seen, the second is not")
-        assertEquals(2L, cast.bob.client.notices("?wasSeen=true").total)
-        assertEquals(1L, cast.owner.client.notices("?wasSeen=false").total, "somebody else's notice stays unseen")
+        assertEquals(2L, cast.bob.client.notices("?seen=true").total)
+        assertEquals(1L, cast.owner.client.notices("?seen=false").total, "somebody else's notice stays unseen")
     }
 
     @Test

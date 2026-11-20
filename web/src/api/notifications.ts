@@ -15,7 +15,7 @@ export interface NotificationQuery {
   page: number;
   pageSize: number;
   /** `false` = the unseen ones only; omitted = both. */
-  wasSeen?: boolean;
+  seen?: boolean;
 }
 
 /** One page of the caller's notices, newest first (the server's default `-id`). */

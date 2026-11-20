@@ -55,7 +55,7 @@ describe("ThreadList", () => {
       ...THREADS,
       items: THREADS.items.map((thread, index) => ({ ...thread, unreadCount: counts[index] })),
     });
-    const notice = (threadNumber: number, roomId = 12) => ({ id: 70 + threadNumber, type: "MENTIONED", wasSeen: false, createdAt: AT, actorId: 5, actorName: "Ann Owner", roomId, roomName: "Night Shift", threadNumber, threadTitle: "t", messageId: 9 });
+    const notice = (threadNumber: number, roomId = 12) => ({ id: 70 + threadNumber, type: "MENTIONED", seen: false, createdAt: AT, actorId: 5, actorName: "Ann Owner", roomId, roomName: "Night Shift", threadNumber, threadTitle: "t", messageId: 9 });
 
     function serveUnread(threads: unknown, notices: unknown[] = []) {
       mockFetch.mockImplementation((url: string) => {

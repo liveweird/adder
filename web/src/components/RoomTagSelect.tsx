@@ -17,7 +17,7 @@ const TAG_TERM_MAX_LENGTH = 50;
 const searchTerm = (typed: string) => [...typed.trim().replace(/^#+/, "").trim()].slice(0, TAG_TERM_MAX_LENGTH).join("");
 
 /**
- * The hashtag filter: a `FilterMultiSelect` over one room's tags (`GET /rooms/{id}/tags?tag=`, the most used first, a reader's view),
+ * The hashtag filter: a `FilterMultiSelect` over one room's tags (`GET /rooms/{id}/tags?q=`, the most used first, a reader's view),
  * searched on the server with the debounced term (the `SearchPicker` mechanics). The caller holds the picked values (the thread list's `tag`
  * URL key): a pick is the tag as the list returned it (folded), a value from a link is the spelling typed in a message, and a value the
  * current search does not return is still an option (labelled by itself), so its pill keeps its name. At most 10 values, the server's limit.
@@ -42,7 +42,7 @@ export default function RoomTagSelect({
   // Under the room's thread-list prefix, so a live hint that refreshes the list (a message with a tag) re-reads the options.
   const results = useQuery({
     queryKey: [...roomKeys.threadTags(roomId), debounced],
-    queryFn: () => listRoomTags(roomId, { page: 1, pageSize: OPTION_PAGE_SIZE, tag: debounced || undefined }),
+    queryFn: () => listRoomTags(roomId, { page: 1, pageSize: OPTION_PAGE_SIZE, q: debounced || undefined }),
     // The previous term's rows bridge a new search, never another room's (the key's third part is the room).
     placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === roomId ? previous : undefined),
   });

@@ -85,7 +85,7 @@ describe("ThreadOwnerSelect", () => {
     await user.click(await screen.findByRole("option", { name: "Bob Next (bob@example.test)" }));
     expect(puts()).toEqual([]);
     await user.click(screen.getByRole("button", { name: "Pass on" }));
-    await waitFor(() => expect(puts()).toEqual([["/api/v1/rooms/12/threads/42/owner", { userId: 9 }]]));
+    await waitFor(() => expect(puts()).toEqual([["/api/v1/rooms/12/threads/42/owner", { ownerId: 9 }]]));
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12] }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "rail"] });
     // A hand-over moves no workflow count and changes no room header.

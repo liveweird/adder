@@ -148,7 +148,7 @@ class MessageTagService(
         readLimiter.run(database, callerUserId, roomId, "tags") { budget ->
             val tags = MessageTags
             var predicate: Op<Boolean> = tags.roomId eq roomId
-            filter.tag?.takeIf { it.isNotBlank() }?.let { predicate = predicate and tags.tag.containsNormalized(it) }
+            filter.q?.takeIf { it.isNotBlank() }?.let { predicate = predicate and tags.tag.containsNormalized(it) }
             val threadCount = tags.threadId.countDistinct()
             budget.arm(this)
             val total = tags.select(tags.tag).where { predicate }.groupBy(tags.tag).count()

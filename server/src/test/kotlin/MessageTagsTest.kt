@@ -278,13 +278,13 @@ class MessageTagsTest {
         val second = owner.tags(cast.room, "?pageSize=2&page=2")
         assertEquals(listOf("zazolc", "zebra"), second.items.map { it.tag })
         assertEquals(4L, second.total)
-        val folded = owner.tags(cast.room, "?tag=${encoded("ZA\u017b")}").items.map { it.tag }
+        val folded = owner.tags(cast.room, "?q=${encoded("ZA\u017b")}").items.map { it.tag }
         assertEquals(listOf("zazolc"), folded, "an accent- and case-insensitive substring")
-        assertEquals(listOf("zazolc", "zebra"), owner.tags(cast.room, "?tag=z&sort=tag").items.map { it.tag })
-        assertEquals(1L, owner.tags(cast.room, "?tag=z&pageSize=1").items.size.toLong())
-        assertEquals(0L, owner.tags(cast.room, "?tag=nothing").total)
-        assertEquals(listOf("popular"), member.tags(cast.room, "?tag=pop").items.map { it.tag }, "any member reads it")
-        for (bad in listOf("?tag=${"a".repeat(51)}", "?sort=id", "?sort=-name", "?page=0", "?pageSize=101", "?tag=a&tag=b")) {
+        assertEquals(listOf("zazolc", "zebra"), owner.tags(cast.room, "?q=z&sort=tag").items.map { it.tag })
+        assertEquals(1L, owner.tags(cast.room, "?q=z&pageSize=1").items.size.toLong())
+        assertEquals(0L, owner.tags(cast.room, "?q=nothing").total)
+        assertEquals(listOf("popular"), member.tags(cast.room, "?q=pop").items.map { it.tag }, "any member reads it")
+        for (bad in listOf("?q=${"a".repeat(51)}", "?sort=id", "?sort=-name", "?page=0", "?pageSize=101", "?q=a&q=b")) {
             assertEquals(HttpStatusCode.BadRequest, owner.get("$rooms/${cast.room}/tags$bad").status, bad)
         }
     }
@@ -335,7 +335,7 @@ class MessageTagsTest {
         assertEquals(listOf("popular" to 2L, "theirs" to 1L), theirs)
         assertEquals(listOf(1), cast.owner.client.threadNumbers(cast.room, "?tag=popular"))
         assertEquals(emptyList(), cast.owner.client.threadNumbers(cast.room, "?tag=theirs"))
-        assertEquals(emptyList(), cast.owner.client.tags(cast.room, "?tag=theirs").items)
+        assertEquals(emptyList(), cast.owner.client.tags(cast.room, "?q=theirs").items)
     }
 
     @Test
@@ -364,7 +364,7 @@ class MessageTagsTest {
         TestThreads.seed(cast.room, cast.member.id)
         cast.member.client.post(cast.room, 1, "#secret")
         assertEquals(HttpStatusCode.NotFound, cast.outsider.client.get("$rooms/${cast.room}/tags").status)
-        val tooLong = cast.outsider.client.get("$rooms/${cast.room}/tags?tag=${"a".repeat(80)}")
+        val tooLong = cast.outsider.client.get("$rooms/${cast.room}/tags?q=${"a".repeat(80)}")
         assertEquals(HttpStatusCode.NotFound, tooLong.status, "404 before 400")
         assertEquals(HttpStatusCode.NotFound, cast.outsider.client.get("$rooms/999999999/tags").status)
         assertTrue(cast.owner.client.tags(cast.room).items.any { it.tag == "secret" })

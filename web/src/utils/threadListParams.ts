@@ -193,7 +193,7 @@ export interface ThreadListFilters {
   sort: string;
   status?: string[];
   ownerId?: number[];
-  mentionedUserId?: number[];
+  mentionedId?: number[];
   tag?: string[];
   field?: string[];
 }
@@ -234,14 +234,14 @@ export function toApiQuery(params: ThreadListParams, workflow: RoomWorkflow | un
     sort: ORDER_SORT[params.order],
     status: params.status.length > 0 ? params.status : undefined,
     ownerId: owners.length > 0 ? owners : undefined,
-    mentionedUserId: params.mention && me !== null ? [me] : undefined,
+    mentionedId: params.mention && me !== null ? [me] : undefined,
     tag: params.tag.length > 0 ? params.tag.slice(0, MAX_TAG_VALUES) : undefined,
     field: field.length > 0 ? field : undefined,
   };
 }
 
 /** How many filters the panel holds: the statuses, the owner, "mentions me", the hashtags (one dimension), and each field key with a value (the scope and the order live outside the panel). */
-export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionedUserId" | "tag" | "field">): number {
+export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionedId" | "tag" | "field">): number {
   const fieldKeys = new Set((filters.field ?? []).map(fieldKeyOf));
-  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionedUserId ? 1 : 0) + (filters.tag ? 1 : 0) + fieldKeys.size;
+  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionedId ? 1 : 0) + (filters.tag ? 1 : 0) + fieldKeys.size;
 }

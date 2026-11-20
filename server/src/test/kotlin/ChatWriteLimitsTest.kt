@@ -81,7 +81,7 @@ class ChatWriteLimitsTest {
     private fun otherWrites(room: UInt): List<suspend HttpClient.() -> HttpResponse> = listOf(
         { putJson("$rooms/$room/threads/1", ThreadUpdateRequest("T")) }, // 400: the revision header is missing
         { putJson("$rooms/$room/threads/1/status", ThreadStatusRequest("open")) }, // 204: already there
-        { putJson("$rooms/$room/threads/1/owner", mapOf("userId" to 0)) }, // 400: not a member
+        { putJson("$rooms/$room/threads/1/owner", mapOf("ownerId" to 0)) }, // 400: not a member
         { putJson("$rooms/$room/messages/2000000000", MessageRequest("x")) }, // 404
         { delete("$rooms/$room/messages/2000000000") }, // 404
         { putJson("$rooms/$room/messages/2000000000/reaction", ReactionRequest("👍", true)) }, // 404

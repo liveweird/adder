@@ -9,7 +9,7 @@ import ch.nokillswit.infra.db.EVENT_LOG_DEFAULT_SORT
 import ch.nokillswit.infra.db.EVENT_LOG_SORT_FIELDS
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoolean
-import ch.nokillswit.infra.paging.optionalString
+import ch.nokillswit.infra.paging.optionalBoundedString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.infra.revision.expectedRevision
@@ -23,7 +23,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
-import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
@@ -126,11 +125,8 @@ private fun Route.roomTags(roomService: RoomService, tagService: MessageTagServi
             val caller = call.caller()
             roomService.visibleStanding(caller, route.parent.id)
             val paging = call.parsePaging(sortable = ROOM_TAG_SORT_FIELDS, defaultSort = ROOM_TAG_DEFAULT_SORT)
-            val tag = call.request.queryParameters.optionalString("tag")
-            if (tag != null && tag.codePointCount(0, tag.length) > MAX_TAG_FILTER_LENGTH) {
-                throw BadRequestException("tag must be at most $MAX_TAG_FILTER_LENGTH characters")
-            }
-            val result = tagService.list(caller.userId, route.parent.id, RoomTagListFilter(tag), paging)
+            val q = call.request.queryParameters.optionalBoundedString("q", MAX_TAG_FILTER_LENGTH)
+            val result = tagService.list(caller.userId, route.parent.id, RoomTagListFilter(q), paging)
             call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
         }
     }
@@ -246,7 +242,7 @@ private fun Route.threadOwner(roomService: RoomService, threadService: ThreadSer
             val number = route.parent.number.toInt()
             requireThreadSteward(caller, standing, threadService.ownerOf(roomId, number).orNotFound("Thread"))
             val request = call.receive<ThreadOwnerRequest>()
-            val move = statusService.setOwner(roomId, number, caller, request.userId)
+            val move = statusService.setOwner(roomId, number, caller, request.ownerId)
             if (move != null) {
                 audit(
                     "thread.owner_changed",

@@ -48,7 +48,7 @@ export default function TeamDetails() {
   }
   const data = team.data;
   // UX only: the server's requireTeamManagerOrAdmin decides. The manager is null when unset or soft-deleted.
-  const canManageRoster = admin || (data.managerUserId !== null && data.managerUserId === getUserId());
+  const canManageRoster = admin || (data.managerId !== null && data.managerId === getUserId());
 
   return (
     <Stack gap="md">

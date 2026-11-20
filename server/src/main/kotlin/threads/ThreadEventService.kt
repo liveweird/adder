@@ -86,13 +86,13 @@ fun threadOwnerChangedEvent(fromId: UInt, toId: UInt, fromName: String, toName: 
     mapOf("fromId" to fromId.toString(), "toId" to toId.toString(), "fromName" to fromName, "toName" to toName),
 )
 
-/** One history entry: `userDeleted` marks an actor whose account has since been soft-deleted (the recorded name stays). */
+/** One history entry: `actorDeleted` marks an actor whose account has since been soft-deleted (the recorded name stays). */
 @Serializable
 data class ThreadEventResponse(
     val id: UInt,
-    val userId: UInt,
-    val userName: String,
-    val userDeleted: Boolean,
+    val actorId: UInt,
+    val actorName: String,
+    val actorDeleted: Boolean,
     val type: ThreadEventType,
     val params: Map<String, String>,
     val createdAt: Long,
@@ -138,9 +138,9 @@ class ThreadEventService(database: R2dbcDatabase) {
             items = page.items.map {
                 ThreadEventResponse(
                     id = it.id,
-                    userId = it.userId,
-                    userName = it.userName,
-                    userDeleted = it.userDeleted,
+                    actorId = it.userId,
+                    actorName = it.userName,
+                    actorDeleted = it.userDeleted,
                     type = ThreadEventType.valueOf(it.type),
                     params = hidingRetiredValues(it.type, it.params, retiredFields),
                     createdAt = it.createdAt,

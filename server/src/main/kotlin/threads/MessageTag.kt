@@ -16,9 +16,9 @@ typealias RoomTagPageResponse = PageResponse<RoomTagResponse>
 data class RoomTagListResult(val items: List<RoomTagResponse>, val total: Long)
 
 /** The tag list's one filter: a case- and accent-insensitive substring of the tag (for a picker), at most [MAX_TAG_FILTER_LENGTH] long. */
-data class RoomTagListFilter(val tag: String? = null)
+data class RoomTagListFilter(val q: String? = null)
 
-/** The longest `tag` substring of the room tag list, in code points: a conservative cap (a tag is written with 50, a key runs to 150). */
+/** The longest `q` substring of the room tag list, in code points: a conservative cap (a tag is written with 50, a key runs to 150). */
 const val MAX_TAG_FILTER_LENGTH = MAX_TAG_LENGTH
 
 /** The folded key is cut to this (V15 `tag VARCHAR(150)`): folding can lengthen a tag, and an overflow must never fail a write. */

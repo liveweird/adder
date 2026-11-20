@@ -18,7 +18,7 @@ const AT = 1_795_000_000_000;
 const notice = (over: Partial<NotificationItem> = {}): NotificationItem => ({
   id: 77,
   type: "MENTIONED",
-  wasSeen: false,
+  seen: false,
   createdAt: AT,
   actorId: 7,
   actorName: "Ada",
@@ -42,7 +42,7 @@ function Where() {
 }
 
 let unseenPage = page([notice()]);
-let listPage = page([notice(), notice({ id: 76, wasSeen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
+let listPage = page([notice(), notice({ id: 76, seen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
 let listStatus = 200;
 let markAllStatus = 204;
 let seenStatus = 204;
@@ -56,7 +56,7 @@ function api(url: string, init?: RequestInit): Promise<Response> {
   calls.push(`${method} ${url}`);
   if (method === "POST" && url === "/api/v1/notifications/seen-all") return Promise.resolve(markAllStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(markAllStatus, { title: "Boom", status: markAllStatus }));
   if (method === "POST" && /^\/api\/v1\/notifications\/\d+\/seen$/.test(url)) return Promise.resolve(seenStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(seenStatus, { title: "Boom", status: seenStatus }));
-  if (url.startsWith("/api/v1/notifications?") && url.includes("wasSeen=false")) return Promise.resolve(unseenStatus === 200 ? jsonResponse(200, unseenPage) : jsonResponse(unseenStatus, { title: "Boom", status: unseenStatus }));
+  if (url.startsWith("/api/v1/notifications?") && url.includes("seen=false")) return Promise.resolve(unseenStatus === 200 ? jsonResponse(200, unseenPage) : jsonResponse(unseenStatus, { title: "Boom", status: unseenStatus }));
   if (url.startsWith("/api/v1/notifications?")) {
     if (listStatus !== 200) return Promise.resolve(jsonResponse(listStatus, { title: "Boom", status: listStatus }));
     const pageNo = Number(new URL(url, "http://x").searchParams.get("page"));
@@ -81,7 +81,7 @@ const bell = () => screen.findByRole("button", { name: /^Notifications/ });
 describe("NotificationsButton", () => {
   beforeEach(() => {
     unseenPage = page([notice()]);
-    listPage = page([notice(), notice({ id: 76, wasSeen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
+    listPage = page([notice(), notice({ id: 76, seen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
     listStatus = 200;
     markAllStatus = 204;
     seenStatus = 204;
@@ -103,7 +103,7 @@ describe("NotificationsButton", () => {
     expect(await screen.findByRole("button", { name: "Notifications (3 unseen)" })).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
     // It asks for the unseen ones only, a page of 100, newest first by the server's default.
-    expect(calls).toContain("GET /api/v1/notifications?page=1&pageSize=100&wasSeen=false");
+    expect(calls).toContain("GET /api/v1/notifications?page=1&pageSize=100&seen=false");
   });
 
   test("past the server's cap the badge reads 999+ and the label says more than 999", async () => {
@@ -135,7 +135,7 @@ describe("NotificationsButton", () => {
 
   test("the drawer lists who, what, the thread, the room and the time, as text", async () => {
     unseenPage = page([notice()], 1);
-    listPage = page([notice({ actorName: "<b>Ada</b>", threadTitle: "**Awaria**" }), notice({ id: 76, wasSeen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
+    listPage = page([notice({ actorName: "<b>Ada</b>", threadTitle: "**Awaria**" }), notice({ id: 76, seen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
     const user = userEvent.setup();
     renderBell();
     await user.click(await bell());
@@ -158,7 +158,7 @@ describe("NotificationsButton", () => {
     await waitFor(() => expect(calls).toContain("POST /api/v1/notifications/77/seen"));
     // The drawer closed, and the badge and list were re-read.
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await waitFor(() => expect(calls.filter((call) => call.includes("wasSeen=false")).length).toBeGreaterThan(1));
+    await waitFor(() => expect(calls.filter((call) => call.includes("seen=false")).length).toBeGreaterThan(1));
   });
 
   test("a hand-over has no message: it opens the thread, and a seen notice is not marked again", async () => {
@@ -177,7 +177,7 @@ describe("NotificationsButton", () => {
     await user.click(await bell());
     await user.click(await screen.findByRole("button", { name: "Mark all as seen" }));
     await waitFor(() => expect(calls).toContain("POST /api/v1/notifications/seen-all"));
-    await waitFor(() => expect(calls.filter((call) => call.includes("wasSeen=false")).length).toBeGreaterThan(1));
+    await waitFor(() => expect(calls.filter((call) => call.includes("seen=false")).length).toBeGreaterThan(1));
   });
 
   test("a failed Mark all as seen says so, inline", async () => {
@@ -191,7 +191,7 @@ describe("NotificationsButton", () => {
 
   test("with nothing unseen there is no Mark all button", async () => {
     unseenPage = page([], 0);
-    listPage = page([notice({ wasSeen: true })]);
+    listPage = page([notice({ seen: true })]);
     const user = userEvent.setup();
     renderBell();
     await user.click(await bell());
@@ -326,7 +326,7 @@ describe("NotificationsButton", () => {
     await user.click(await bell());
     await user.click(await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ }));
     await waitFor(() => expect(calls).toContain("POST /api/v1/notifications/77/seen"));
-    await waitFor(() => expect(calls.filter((call) => call.includes("wasSeen=false")).length).toBeGreaterThan(1));
+    await waitFor(() => expect(calls.filter((call) => call.includes("seen=false")).length).toBeGreaterThan(1));
   });
 
   test("the badge text is hidden from assistive technology, and the bell says whether its drawer is open", async () => {

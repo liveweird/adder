@@ -35,18 +35,18 @@ describe("threads API wrappers", () => {
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&tag=Wdro%C5%BCenie&tag=hawai%27i&tag=a+1%2F2");
   });
 
-  test("listThreads sends the mentioned people as the repeated mentionedUserId key", async () => {
+  test("listThreads sends the mentioned people as the repeated mentionedId key", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 50, total: 0 })));
-    await listThreads(5, { page: 1, pageSize: 50, mentionedUserId: [7, 9] });
-    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&mentionedUserId=7&mentionedUserId=9");
+    await listThreads(5, { page: 1, pageSize: 50, mentionedId: [7, 9] });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&mentionedId=7&mentionedId=9");
   });
 
   test("listRoomTags reads a room's tags with paging, sort and the substring filter, and omits what is unset", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [{ tag: "outage", threadCount: 3 }], page: 1, pageSize: 50, total: 1 })));
     await expect(listRoomTags(5, { page: 1, pageSize: 50 })).resolves.toMatchObject({ items: [{ tag: "outage", threadCount: 3 }] });
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/tags?page=1&pageSize=50");
-    await listRoomTags(5, { page: 2, pageSize: 20, sort: "tag", tag: "wdro" });
-    expect(lastCall()[0]).toBe("/api/v1/rooms/5/tags?page=2&pageSize=20&sort=tag&tag=wdro");
+    await listRoomTags(5, { page: 2, pageSize: 20, sort: "tag", q: "wdro" });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/tags?page=2&pageSize=20&sort=tag&q=wdro");
   });
 
   test("getThread reads by the per-room number", async () => {
@@ -80,7 +80,7 @@ describe("threads API wrappers", () => {
     expect(new Headers(init.headers).has("X-Expected-Revision")).toBe(false);
     await setThreadOwner(5, 42, 9);
     [url, init] = lastCall();
-    expect([url, init.method, init.body]).toEqual(["/api/v1/rooms/5/threads/42/owner", "PUT", JSON.stringify({ userId: 9 })]);
+    expect([url, init.method, init.body]).toEqual(["/api/v1/rooms/5/threads/42/owner", "PUT", JSON.stringify({ ownerId: 9 })]);
   });
 
   test("listThreadEvents asks for a page and leaves the order to the server (newest first)", async () => {

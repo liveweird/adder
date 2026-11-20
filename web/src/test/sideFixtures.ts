@@ -22,9 +22,9 @@ export const SIDE_WORKFLOW: RoomWorkflow = {
 export function makeEvent(overrides: Partial<ThreadEvent> = {}): ThreadEvent {
   return {
     id: 1,
-    userId: 5,
-    userName: "Ann Owner",
-    userDeleted: false,
+    actorId: 5,
+    actorName: "Ann Owner",
+    actorDeleted: false,
     type: "CREATED",
     params: { title: "Disk full on db-3", status: "triage", statusLabel: "Triage" },
     createdAt: Date.UTC(2026, 5, 1, 9, 30),

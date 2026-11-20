@@ -23,7 +23,7 @@ internal data class MentionChange(val added: List<UInt>, val removed: List<UInt>
 
 /**
  * The derived mention index (V17 `message_mentions`, `chat-model.md` "Mentions (V17)"): what a message's `mentions` and the thread list's
- * `mentionedUserId` filter read. A mention belongs to a MESSAGE; a thread is mentioned while one of its LIVE messages mentions the
+ * `mentionedId` filter read. A mention belongs to a MESSAGE; a thread is mentioned while one of its LIVE messages mentions the
  * person. It is the first [MessageFollower] of a message write: the three writes run INSIDE the message's own transaction under the
  * room lock, after the row's own statement, so a body and its mentions commit or roll back together and a delete cannot leave a mention
  * behind a scrubbed body. The table is hard-deleted (`persistence.md` "Mentions (V17)"). Ids only: a body or a name never reaches a log.

@@ -56,8 +56,8 @@ class TeamMembersTest {
         return Actor(id, authedClient(email, "pw"))
     }
 
-    private suspend fun HttpClient.team(managerUserId: UInt? = null): UInt =
-        postJson("/api/v1/teams", TeamCreateRequest(name = "roster-${UUID.randomUUID()}".take(40), managerUserId = managerUserId))
+    private suspend fun HttpClient.team(managerId: UInt? = null): UInt =
+        postJson("/api/v1/teams", TeamCreateRequest(name = "roster-${UUID.randomUUID()}".take(40), managerId = managerId))
             .body<TeamResponse>().id.also { mintedTeams += it }
 
     private suspend fun HttpClient.roster(teamId: UInt): TeamResponse = get("/api/v1/teams/$teamId").body()
@@ -111,7 +111,7 @@ class TeamMembersTest {
         val manager = user("roster-chg-mgr")
         val target = user("roster-chg-target")
         val teamName = name("chg")
-        val teamId = admin.postJson("/api/v1/teams", TeamCreateRequest(name = teamName, managerUserId = manager.id))
+        val teamId = admin.postJson("/api/v1/teams", TeamCreateRequest(name = teamName, managerId = manager.id))
             .body<TeamResponse>().id.also { mintedTeams += it }
         assertEquals(HttpStatusCode.NoContent, manager.client.put(path(teamId, target.id)).status)
 

@@ -146,9 +146,9 @@ class ThreadReadBudgetTest {
         val marker = "slowtag" + UUID.randomUUID().toString().replace("-", "").take(12)
         val capture = LogCapture(ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME)
         try {
-            val (response, elapsed) = whileLocked("message_tags") { owner.client.get("$rooms/$room/tags?tag=$marker") }
+            val (response, elapsed) = whileLocked("message_tags") { owner.client.get("$rooms/$room/tags?q=$marker") }
             assertReadTimeout(response, elapsed, "tags", owner, room, marker, capture)
-            assertEquals(HttpStatusCode.OK, owner.client.get("$rooms/$room/tags?tag=$marker").status)
+            assertEquals(HttpStatusCode.OK, owner.client.get("$rooms/$room/tags?q=$marker").status)
         } finally {
             capture.detach()
         }

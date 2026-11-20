@@ -74,11 +74,11 @@ describe("RoomTagSelect", () => {
     await user.type(screen.getByRole("combobox", { name: "Hashtags" }), "#wdro");
     // Typing is over but the debounce has not settled: no search for a partial term went out.
     await act(() => vi.advanceTimersByTimeAsync(100));
-    expect(tagCalls().filter((url) => url.includes("tag="))).toEqual([]);
+    expect(tagCalls().filter((url) => url.includes("q="))).toEqual([]);
     await act(() => vi.advanceTimersByTimeAsync(400));
-    await waitFor(() => expect(tagCalls().at(-1)).toBe("/api/v1/rooms/12/tags?page=1&pageSize=50&tag=wdro"));
+    await waitFor(() => expect(tagCalls().at(-1)).toBe("/api/v1/rooms/12/tags?page=1&pageSize=50&q=wdro"));
     // One request for the settled term, not one per keystroke.
-    expect(tagCalls().filter((url) => url.includes("tag="))).toEqual(["/api/v1/rooms/12/tags?page=1&pageSize=50&tag=wdro"]);
+    expect(tagCalls().filter((url) => url.includes("q="))).toEqual(["/api/v1/rooms/12/tags?page=1&pageSize=50&q=wdro"]);
   });
 
   test("the term is trimmed again after the hash goes: \"# a\" searches for a", async () => {
@@ -87,7 +87,7 @@ describe("RoomTagSelect", () => {
     renderWithProviders(<Harness />);
     await user.click(screen.getByRole("combobox", { name: "Hashtags" }));
     await user.type(screen.getByRole("combobox", { name: "Hashtags" }), "# a");
-    await waitFor(() => expect(tagCalls().at(-1)).toBe("/api/v1/rooms/12/tags?page=1&pageSize=50&tag=a"));
+    await waitFor(() => expect(tagCalls().at(-1)).toBe("/api/v1/rooms/12/tags?page=1&pageSize=50&q=a"));
   });
 
   test("a term is capped at the server's 50 characters", async () => {
@@ -96,7 +96,7 @@ describe("RoomTagSelect", () => {
     renderWithProviders(<Harness />);
     await user.click(screen.getByRole("combobox", { name: "Hashtags" }));
     await user.type(screen.getByRole("combobox", { name: "Hashtags" }), "a".repeat(60));
-    await waitFor(() => expect(tagCalls().at(-1)).toBe(`/api/v1/rooms/12/tags?page=1&pageSize=50&tag=${"a".repeat(50)}`));
+    await waitFor(() => expect(tagCalls().at(-1)).toBe(`/api/v1/rooms/12/tags?page=1&pageSize=50&q=${"a".repeat(50)}`));
   });
 
   test("a picked value the search does not return keeps its pill and its remove button, spelled as typed", async () => {

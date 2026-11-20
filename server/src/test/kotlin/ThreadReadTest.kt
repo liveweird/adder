@@ -365,10 +365,10 @@ class ThreadReadTest {
         val handOver = cast.owner.client.putJson("$rooms/${cast.room}/threads/1/owner", ThreadOwnerRequest(cast.bob.id))
         assertEquals(HttpStatusCode.NoContent, handOver.status)
         val mention = TestThreads.post(cast.room, 1, cast.alice.id, "hello <@${cast.bob.id}>")
-        assertEquals(2L, cast.bob.client.get("$notices?wasSeen=false").body<NotificationPageResponse>().total)
+        assertEquals(2L, cast.bob.client.get("$notices?seen=false").body<NotificationPageResponse>().total)
         assertEquals(HttpStatusCode.NoContent, cast.bob.client.mark(cast.room, 1, mention).status)
-        assertEquals(0L, cast.bob.client.get("$notices?wasSeen=false").body<NotificationPageResponse>().total)
-        assertEquals(2L, cast.bob.client.get("$notices?wasSeen=true").body<NotificationPageResponse>().total)
+        assertEquals(0L, cast.bob.client.get("$notices?seen=false").body<NotificationPageResponse>().total)
+        assertEquals(2L, cast.bob.client.get("$notices?seen=true").body<NotificationPageResponse>().total)
     }
 
     @Test

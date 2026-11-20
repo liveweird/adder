@@ -42,8 +42,8 @@ const DIRECTORY = {
 };
 const TEAMS = {
   items: [
-    { id: 5, name: "Backend", description: null, managerUserId: null, managerName: null, memberCount: 2, createdAt: 1, updatedAt: 2 },
-    { id: 6, name: "Design", description: null, managerUserId: null, managerName: null, memberCount: 0, createdAt: 1, updatedAt: 2 },
+    { id: 5, name: "Backend", description: null, managerId: null, managerName: null, memberCount: 2, createdAt: 1, updatedAt: 2 },
+    { id: 6, name: "Design", description: null, managerId: null, managerName: null, memberCount: 0, createdAt: 1, updatedAt: 2 },
   ],
   page: 1,
   pageSize: 50,
@@ -53,7 +53,7 @@ const team = (id: number, name: string, count: number) => ({
   id,
   name,
   description: null,
-  managerUserId: null,
+  managerId: null,
   managerName: null,
   members: Array.from({ length: count }, (_, i) => ({ userId: 30 + i, name: `Dev ${i}`, email: `dev${i}@example.test` })),
   createdAt: 1,

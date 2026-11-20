@@ -746,7 +746,7 @@ paths:
       tags: [teams]
       operationId: updateTeam
       summary: Rename / re-describe a team, set its manager
-      description: "ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerUserId` clears the manager; a set one must be an active user (`400` otherwise). A case-insensitive name clash with another active team is `409`."
+      description: "ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerId` clears the manager; a set one must be an active user (`400` otherwise). A case-insensitive name clash with another active team is `409`."
       requestBody:
         required: true
         content:
@@ -1357,8 +1357,9 @@ paths:
         message carrying it. Nothing here is a record the caller can edit: the set is derived from the messages.
 
         - Sortable fields: `tag`, `threadCount`. Default `-threadCount` (the most used first; ties by `tag`).
-        - Filter: `tag`, a case- and accent-insensitive substring of the tag (for a picker), at most 50 characters (`400` beyond). A
-          repeated key is a `400`.
+        - Filter: `q` (API-LIST-005; optional here, unlike the search routes), a case- and accent-insensitive substring of the tag (for a
+          picker), at most 50 characters (`400` beyond). A repeated key is a `400`. It is not the thread list's `tag`, which is an exact,
+          repeatable key.
 
         Rides the per-USER `chat-read` bucket of 300 per minute shared with the thread list (`429` beyond it; the bucket is spent
         before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
@@ -1370,10 +1371,7 @@ paths:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/Sort'
-        - name: tag
-          in: query
-          required: false
-          schema: { type: string, maxLength: 50 }
+        - $ref: '#/components/parameters/TagQ'
       responses:
         '200':
           description: A page of the room's tags
@@ -1465,7 +1463,7 @@ paths:
           folded (case and accents ignored: `Wdrozenie` and `wdrożenie` are one tag). A returned key can hold punctuation and be longer
           than a written tag, so a value is 1 to 150 characters without `#` or control characters. A malformed value, or more than 10
           distinct values, is a `400`.
-        - `mentionedUserId` (repeatable, any-of, at most 20 distinct) keeps the threads that have a LIVE message mentioning any of
+        - `mentionedId` (repeatable, any-of, at most 20 distinct) keeps the threads that have a LIVE message mentioning any of
           those people (`<@id>` in its body, the person an active member of the room when it was written or edited); the filter reads
           the mention index only, so it finds nothing for a message written before mentions were indexed. A non-positive or
           non-integer id, or more than 20 distinct values, is a `400`.
@@ -1706,7 +1704,7 @@ paths:
         not a steward `403`). Checked in this order: visibility (`404`), the thread (`404`) and the steward rule (`403`) on a lock-free
         read of its owner, the body (`400`), then under the room lock the guard, the thread and the steward rule again on the fresh
         rows, an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
-        `urn:adder:problem:thread-closed`: reopen it first), and the new owner (`400` unless `userId` is an ACTIVE member of the room).
+        `urn:adder:problem:thread-closed`: reopen it first), and the new owner (`400` unless `ownerId` is an ACTIVE member of the room).
         A removed or deleted owner keeps the thread, inert, until a steward passes it on.
 
         Naming the current owner again is `204` with no history entry, no activity bump and no audit line. Otherwise an `OWNER_CHANGED`
@@ -1747,7 +1745,7 @@ paths:
         (see `ThreadEventType` for the `params` of each kind, and for what a retired field hides).
 
         - Sortable fields: `id`, `createdAt`. Default `-createdAt,-id` (newest first).
-        - `userDeleted` marks an actor whose account has since been deleted (the recorded name stays).
+        - `actorDeleted` marks an actor whose account has since been deleted (the recorded name stays).
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -2147,13 +2145,13 @@ paths:
         once and nothing stored can outlive a leave or a delete. `messageId` is `null` for `THREAD_ASSIGNED`.
 
         - Sortable fields: `id` (time order), `createdAt`. Default `-id` (newest first; `id` breaks ties).
-        - Filter: `wasSeen` (strict `true` or `false`; omitted = both; a repeated key is a `400`).
+        - Filter: `seen` (strict `true` or `false`; omitted = both; a repeated key is a `400`).
         - A notice of a kind this server does not know is not listed and not counted.
         - `total` is CAPPED at 1000: the server counts at most 1000 rows, so a recipient with more notices than that (or more unseen ones)
           reads `1000`, and the bell shows it as "many". A page that starts at row 1000 or later (`(page - 1) * pageSize >= 1000`) is EMPTY
           (`items: []`, `total` as above): the server never skips that many rows.
       parameters:
-        - name: wasSeen
+        - name: seen
           in: query
           required: false
           schema: { type: boolean }
@@ -2530,6 +2528,15 @@ components:
         Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it
         matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length
         limits apply, so it needs 2 to 100 characters (code points) after trimming.
+    TagQ:
+      name: q
+      in: query
+      required: false
+      schema: { type: string, maxLength: 50 }
+      description: >-
+        Free-text substring of a hashtag (API-LIST-005; the room's tag list). Unlike `Q` it is OPTIONAL and has no minimum, because a
+        picker lists every tag before the user types. Case- and accent-insensitive; trimmed first; at most 50 characters (code
+        points), `400` past that.
     ThreadStatusFilter:
       name: status
       in: query
@@ -2555,7 +2562,7 @@ components:
       style: form
       explode: true
     ThreadMentionFilter:
-      name: mentionedUserId
+      name: mentionedId
       in: query
       required: false
       description: Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`.
@@ -3103,7 +3110,7 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
         description: { type: string, maxLength: 500, nullable: true }
-        managerUserId:
+        managerId:
           type: integer
           format: int32
           minimum: 0
@@ -3116,7 +3123,7 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
         description: { type: string, maxLength: 500, nullable: true }
-        managerUserId:
+        managerId:
           type: integer
           format: int32
           minimum: 0
@@ -3132,18 +3139,18 @@ components:
         email: { type: string }
     TeamResponse:
       type: object
-      required: [id, name, managerUserId, managerName, members, createdAt, updatedAt]
+      required: [id, name, managerId, managerName, members, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
         description: { type: string, nullable: true }
-        managerUserId:
+        managerId:
           type: integer
           format: int32
           minimum: 0
           nullable: true
           description: The team's manager; null when unset or when the assigned user was soft-deleted.
-        managerName: { type: string, nullable: true, description: The manager's display name; null with `managerUserId`. }
+        managerName: { type: string, nullable: true, description: The manager's display name; null with `managerId`. }
         members:
           type: array
           maxItems: 200
@@ -3154,18 +3161,18 @@ components:
         updatedAt: { type: integer, format: int64, description: Epoch millis }
     TeamListItem:
       type: object
-      required: [id, name, managerUserId, managerName, memberCount, createdAt, updatedAt]
+      required: [id, name, managerId, managerName, memberCount, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
         description: { type: string, nullable: true }
-        managerUserId:
+        managerId:
           type: integer
           format: int32
           minimum: 0
           nullable: true
           description: The team's manager; null when unset or when the assigned user was soft-deleted.
-        managerName: { type: string, nullable: true, description: The manager's display name; null with `managerUserId`. }
+        managerName: { type: string, nullable: true, description: The manager's display name; null with `managerId`. }
         memberCount: { type: integer, format: int32, minimum: 0, description: The roster size - ACTIVE users only. }
         createdAt: { type: integer, format: int64 }
         updatedAt: { type: integer, format: int64 }
@@ -3632,9 +3639,9 @@ components:
         status: { type: string, minLength: 1, maxLength: 40, description: The KEY of an active status of the room's workflow. }
     ThreadOwnerRequest:
       type: object
-      required: [userId]
+      required: [ownerId]
       properties:
-        userId: { type: integer, format: int32, minimum: 1, description: The id of an active member of the room. }
+        ownerId: { type: integer, format: int32, minimum: 1, description: The id of an active member of the room. }
     ThreadResponse:
       type: object
       required:
@@ -3830,12 +3837,12 @@ components:
       enum: [CREATED, TITLE_CHANGED, STATUS_CHANGED, CLOSED, REOPENED, OWNER_CHANGED, FIELD_CHANGED, STATUS_REPLACED]
     ThreadEvent:
       type: object
-      required: [id, userId, userName, userDeleted, type, params, createdAt]
+      required: [id, actorId, actorName, actorDeleted, type, params, createdAt]
       properties:
         id: { type: integer, format: int32, minimum: 1 }
-        userId: { type: integer, format: int32, minimum: 1, description: The acting user. }
-        userName: { type: string }
-        userDeleted: { type: boolean, description: The acting account has since been deleted. }
+        actorId: { type: integer, format: int32, minimum: 1, description: The acting user. }
+        actorName: { type: string }
+        actorDeleted: { type: boolean, description: The acting account has since been deleted. }
         type: { $ref: '#/components/schemas/ThreadEventType' }
         params:
           type: object
@@ -3975,11 +3982,11 @@ components:
     Notification:
       type: object
       description: One notice of the caller. The row holds ids only; the names and the title are read when the list is read.
-      required: [id, type, wasSeen, createdAt, actorId, actorName, roomId, roomName, threadNumber, threadTitle, messageId]
+      required: [id, type, seen, createdAt, actorId, actorName, roomId, roomName, threadNumber, threadTitle, messageId]
       properties:
         id: { type: integer, format: int32, minimum: 1, description: Ascending in time. }
         type: { $ref: '#/components/schemas/NotificationType' }
-        wasSeen: { type: boolean }
+        seen: { type: boolean }
         createdAt: { type: integer, format: int64, description: Epoch millis }
         actorId: { type: integer, format: int32, minimum: 1, description: 'Who mentioned the caller, or handed the thread over.' }
         actorName: { type: string, description: The actor's CURRENT display name (a soft-deleted account keeps its last one). }

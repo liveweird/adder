@@ -54,14 +54,14 @@ fun Application.configureNotificationRoutes() {
 /**
  * `GET /notifications` (any authenticated caller, no guard, no bucket): the caller's OWN notices only, so there is nothing to disclose
  * and no room to hide; the scope (their active rooms, an ADMIN's too) is in the service's predicate. A bad `page`, `pageSize`, `sort` or
- * `wasSeen` is a `400`. A read: no audit line.
+ * `seen` is a `400`. A read: no audit line.
  */
 private fun Route.notificationList(notifications: NotificationService) {
     get<NotificationsRoute> {
         val caller = call.caller()
         val paging = call.parsePaging(sortable = NOTIFICATION_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
-        val wasSeen = call.request.queryParameters.optionalBoolean("wasSeen")
-        val result = notifications.list(caller.userId, wasSeen, paging)
+        val seen = call.request.queryParameters.optionalBoolean("seen")
+        val result = notifications.list(caller.userId, seen, paging)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }
 }

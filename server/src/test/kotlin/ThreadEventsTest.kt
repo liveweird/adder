@@ -22,7 +22,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /**
  * A thread's history (V14 `thread_events`, over the ported `infra/db/EventLog.kt`), after Toadie's `CatalogFileEventsTest`: the pure
  * descriptors first (no database), then the route - paging, the default newest-first sort, an unknown sort, the actor's name and
- * `userDeleted`, and the reader guard. Only the create writes events through a route in S2; the other kinds are recorded through the
+ * `actorDeleted`, and the reader guard. Only the create writes events through a route in S2; the other kinds are recorded through the
  * service, which is exactly the call the later writes make.
  */
 class ThreadEventsTest {
@@ -91,10 +91,10 @@ class ThreadEventsTest {
         )
         val closed = newestFirst.items.single { it.type == ThreadEventType.CLOSED }
         assertEquals(mapOf("from" to "open", "to" to "done"), closed.params)
-        val actor = listOf(closed.userId, closed.userName, closed.userDeleted)
+        val actor = listOf(closed.actorId, closed.actorName, closed.actorDeleted)
         assertEquals(listOf(leaver.id, "Gone Gary", true), actor, "a deleted actor keeps the name")
-        assertFalse(newestFirst.items.first().userDeleted)
-        assertEquals("Olivia", newestFirst.items.first().userName)
+        assertFalse(newestFirst.items.first().actorDeleted)
+        assertEquals("Olivia", newestFirst.items.first().actorName)
         assertEquals(newestFirst.items.map { it.id }.sortedDescending(), newestFirst.items.map { it.id })
 
         assertEquals(newestFirst.items.map { it.id }.reversed(), page("?sort=createdAt").items.map { it.id })

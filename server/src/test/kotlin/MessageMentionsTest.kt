@@ -24,7 +24,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * The mention index over HTTP (`chat-model.md` "Mentions (V17)"): a mention belongs to a MESSAGE, so a thread is mentioned while one of
  * its LIVE messages mentions the person. A post, a thread's opening message, an edit and a delete (a moderator's too) each keep
- * `message_mentions` in step in the message's own transaction; the message's `mentions` and the thread list's `mentionedUserId` read
+ * `message_mentions` in step in the message's own transaction; the message's `mentions` and the thread list's `mentionedId` read
  * it. The parser is `MentionsTest`. Rooms, templates and users are SHARED suite state: every test mints UNIQUE rows and removes them.
  */
 class MessageMentionsTest {
@@ -50,7 +50,7 @@ class MessageMentionsTest {
 
     private fun user(actor: RoomActor, name: String) = MentionedUser(actor.id, name)
 
-    private fun mentioning(vararg actors: RoomActor): String = actors.joinToString("&", prefix = "?") { "mentionedUserId=${it.id}" }
+    private fun mentioning(vararg actors: RoomActor): String = actors.joinToString("&", prefix = "?") { "mentionedId=${it.id}" }
 
     private suspend fun HttpClient.post(room: UInt, number: Int, body: String): MessageResponse {
         val response = postJson("$rooms/$room/threads/$number/messages", MessageRequest(body))
@@ -245,13 +245,13 @@ class MessageMentionsTest {
 
         val owner = cast.owner.client
         assertEquals(listOf(1, 2), owner.threadNumbers(cast.room, mentioning(cast.bob)), "a deleted message and code mention nobody")
-        assertEquals(listOf(2), owner.threadNumbers(cast.room, "?mentionedUserId=${cast.owner.id}"), "a closed thread is found too")
+        assertEquals(listOf(2), owner.threadNumbers(cast.room, "?mentionedId=${cast.owner.id}"), "a closed thread is found too")
         assertEquals(listOf(1, 2), owner.threadNumbers(cast.room, mentioning(cast.owner, cast.bob)), "any-of")
         assertEquals(listOf(2), owner.threadNumbers(cast.room, mentioning(cast.bob) + "&closed=true"), "combined with another filter")
-        assertEquals(emptyList(), owner.threadNumbers(cast.room, "?mentionedUserId=${cast.ann.id}"), "nobody mentioned ann")
-        assertEquals(emptyList(), owner.threadNumbers(cast.room, "?mentionedUserId=2147483647"), "a well-formed id nobody was mentioned as")
-        assertEquals(2L, owner.get("$rooms/${cast.room}/threads?mentionedUserId=${cast.bob.id}").body<ThreadPageResponse>().total)
-        assertEquals(listOf(1, 2), cast.bob.client.threadNumbers(cast.room, "?mentionedUserId=${cast.bob.id}"), "any member asks it")
+        assertEquals(emptyList(), owner.threadNumbers(cast.room, "?mentionedId=${cast.ann.id}"), "nobody mentioned ann")
+        assertEquals(emptyList(), owner.threadNumbers(cast.room, "?mentionedId=2147483647"), "a well-formed id nobody was mentioned as")
+        assertEquals(2L, owner.get("$rooms/${cast.room}/threads?mentionedId=${cast.bob.id}").body<ThreadPageResponse>().total)
+        assertEquals(listOf(1, 2), cast.bob.client.threadNumbers(cast.room, "?mentionedId=${cast.bob.id}"), "any member asks it")
     }
 
     @Test
@@ -261,19 +261,19 @@ class MessageMentionsTest {
         TestThreads.seed(cast.room, cast.owner.id)
         val owner = cast.owner.client
         for (bad in listOf("0", "-1", "abc", "2147483648", "1.5", "+5", "٣", "1٣", "x' OR 1=1--")) {
-            assertEquals(HttpStatusCode.BadRequest, owner.get("$rooms/${cast.room}/threads?mentionedUserId=${encoded(bad)}").status, bad)
+            assertEquals(HttpStatusCode.BadRequest, owner.get("$rooms/${cast.room}/threads?mentionedId=${encoded(bad)}").status, bad)
         }
-        val twenty = (1..20).joinToString("&") { "mentionedUserId=$it" }
+        val twenty = (1..20).joinToString("&") { "mentionedId=$it" }
         assertEquals(HttpStatusCode.OK, owner.get("$rooms/${cast.room}/threads?$twenty").status, "20 ids")
-        assertEquals(HttpStatusCode.BadRequest, owner.get("$rooms/${cast.room}/threads?$twenty&mentionedUserId=21").status, "21 ids")
+        assertEquals(HttpStatusCode.BadRequest, owner.get("$rooms/${cast.room}/threads?$twenty&mentionedId=21").status, "21 ids")
         assertEquals(
             HttpStatusCode.OK,
-            owner.get("$rooms/${cast.room}/threads?$twenty&mentionedUserId=20&mentionedUserId=1").status,
+            owner.get("$rooms/${cast.room}/threads?$twenty&mentionedId=20&mentionedId=1").status,
             "a repeated id collapses before the bound",
         )
 
         val outsider = cast.outsider.client
-        val queries = listOf("mentionedUserId=${cast.owner.id}", "mentionedUserId=abc", "mentionedUserId=0", "$twenty&mentionedUserId=21")
+        val queries = listOf("mentionedId=${cast.owner.id}", "mentionedId=abc", "mentionedId=0", "$twenty&mentionedId=21")
         for (query in queries) {
             assertEquals(HttpStatusCode.NotFound, outsider.get("$rooms/${cast.room}/threads?$query").status, query)
         }

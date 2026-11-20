@@ -194,10 +194,10 @@ internal class NotificationService(
      * One page of the caller's notices, newest first by default: ONE predicate for the count and the rows in ONE transaction. The
      * `total` is CAPPED at [MAX_COUNTED_NOTICES] (the count reads at most that many plus one row), and a page starting at or past the cap
      * is empty without the rows being read (no OFFSET over a flooded recipient's history).
-     * [wasSeen] null is both. The caller's active rooms come first as one array argument (the global search's shape), and no rooms is an
+     * [seen] null is both. The caller's active rooms come first as one array argument (the global search's shape), and no rooms is an
      * empty page.
      */
-    suspend fun list(callerUserId: UInt, wasSeen: Boolean?, paging: PageRequest): NotificationListResult =
+    suspend fun list(callerUserId: UInt, seen: Boolean?, paging: PageRequest): NotificationListResult =
         suspendTransaction(database) {
             val memberRooms = rooms.memberRooms(callerUserId)
             if (memberRooms.isEmpty()) return@suspendTransaction NotificationListResult(emptyList(), 0)
@@ -205,7 +205,7 @@ internal class NotificationService(
             var predicate: Op<Boolean> = (n.recipientId eq callerUserId) and
                 n.roomId.equalsAnyInt(memberRooms.map { it.id.toInt() }) and
                 (n.type inList NotificationType.entries.map { it.name })
-            wasSeen?.let { predicate = predicate and (if (it) n.seenAt.isNotNull() else n.seenAt.isNull()) }
+            seen?.let { predicate = predicate and (if (it) n.seenAt.isNotNull() else n.seenAt.isNull()) }
             // Capped: the count reads at most MAX_COUNTED_NOTICES + 1 rows, so it never grows with a recipient's history.
             val counted = n.select(n.id).where { predicate }.limit(MAX_COUNTED_NOTICES + 1).count()
             val total = counted.coerceAtMost(MAX_COUNTED_NOTICES.toLong())
@@ -228,7 +228,7 @@ internal class NotificationService(
                     NotificationResponse(
                         id = row[n.id].value,
                         type = NotificationType.valueOf(row[n.type]),
-                        wasSeen = row[n.seenAt] != null,
+                        seen = row[n.seenAt] != null,
                         createdAt = row[n.createdAt],
                         actorId = row[n.actorId],
                         actorName = actors.getValue(row[n.actorId]),

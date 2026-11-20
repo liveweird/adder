@@ -499,7 +499,7 @@ export interface paths {
         get: operations["getTeam"];
         /**
          * Rename / re-describe a team, set its manager
-         * @description ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerUserId` clears the manager; a set one must be an active user (`400` otherwise). A case-insensitive name clash with another active team is `409`.
+         * @description ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerId` clears the manager; a set one must be an active user (`400` otherwise). A case-insensitive name clash with another active team is `409`.
          */
         put: operations["updateTeam"];
         post?: never;
@@ -906,8 +906,9 @@ export interface paths {
          *     message carrying it. Nothing here is a record the caller can edit: the set is derived from the messages.
          *
          *     - Sortable fields: `tag`, `threadCount`. Default `-threadCount` (the most used first; ties by `tag`).
-         *     - Filter: `tag`, a case- and accent-insensitive substring of the tag (for a picker), at most 50 characters (`400` beyond). A
-         *       repeated key is a `400`.
+         *     - Filter: `q` (API-LIST-005; optional here, unlike the search routes), a case- and accent-insensitive substring of the tag (for a
+         *       picker), at most 50 characters (`400` beyond). A repeated key is a `400`. It is not the thread list's `tag`, which is an exact,
+         *       repeatable key.
          *
          *     Rides the per-USER `chat-read` bucket of 300 per minute shared with the thread list (`429` beyond it; the bucket is spent
          *     before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
@@ -999,7 +1000,7 @@ export interface paths {
          *       folded (case and accents ignored: `Wdrozenie` and `wdrożenie` are one tag). A returned key can hold punctuation and be longer
          *       than a written tag, so a value is 1 to 150 characters without `#` or control characters. A malformed value, or more than 10
          *       distinct values, is a `400`.
-         *     - `mentionedUserId` (repeatable, any-of, at most 20 distinct) keeps the threads that have a LIVE message mentioning any of
+         *     - `mentionedId` (repeatable, any-of, at most 20 distinct) keeps the threads that have a LIVE message mentioning any of
          *       those people (`<@id>` in its body, the person an active member of the room when it was written or edited); the filter reads
          *       the mention index only, so it finds nothing for a message written before mentions were indexed. A non-positive or
          *       non-integer id, or more than 20 distinct values, is a `400`.
@@ -1178,7 +1179,7 @@ export interface paths {
          *     not a steward `403`). Checked in this order: visibility (`404`), the thread (`404`) and the steward rule (`403`) on a lock-free
          *     read of its owner, the body (`400`), then under the room lock the guard, the thread and the steward rule again on the fresh
          *     rows, an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
-         *     `urn:adder:problem:thread-closed`: reopen it first), and the new owner (`400` unless `userId` is an ACTIVE member of the room).
+         *     `urn:adder:problem:thread-closed`: reopen it first), and the new owner (`400` unless `ownerId` is an ACTIVE member of the room).
          *     A removed or deleted owner keeps the thread, inert, until a steward passes it on.
          *
          *     Naming the current owner again is `204` with no history entry, no activity bump and no audit line. Otherwise an `OWNER_CHANGED`
@@ -1214,7 +1215,7 @@ export interface paths {
          *     (see `ThreadEventType` for the `params` of each kind, and for what a retired field hides).
          *
          *     - Sortable fields: `id`, `createdAt`. Default `-createdAt,-id` (newest first).
-         *     - `userDeleted` marks an actor whose account has since been deleted (the recorded name stays).
+         *     - `actorDeleted` marks an actor whose account has since been deleted (the recorded name stays).
          */
         get: operations["listThreadEvents"];
         put?: never;
@@ -1533,7 +1534,7 @@ export interface paths {
          *     once and nothing stored can outlive a leave or a delete. `messageId` is `null` for `THREAD_ASSIGNED`.
          *
          *     - Sortable fields: `id` (time order), `createdAt`. Default `-id` (newest first; `id` breaks ties).
-         *     - Filter: `wasSeen` (strict `true` or `false`; omitted = both; a repeated key is a `400`).
+         *     - Filter: `seen` (strict `true` or `false`; omitted = both; a repeated key is a `400`).
          *     - A notice of a kind this server does not know is not listed and not counted.
          *     - `total` is CAPPED at 1000: the server counts at most 1000 rows, so a recipient with more notices than that (or more unseen ones)
          *       reads `1000`, and the bell shows it as "many". A page that starts at row 1000 or later (`(page - 1) * pageSize >= 1000`) is EMPTY
@@ -2080,7 +2081,7 @@ export interface components {
              * Format: int32
              * @description The team's manager, a user; must be active (`400` otherwise).
              */
-            managerUserId?: number | null;
+            managerId?: number | null;
         };
         TeamUpdateRequest: {
             name: string;
@@ -2089,7 +2090,7 @@ export interface components {
              * Format: int32
              * @description The team's manager, a user; must be active (`400` otherwise). Omitted on PUT (a full replace) = no manager.
              */
-            managerUserId?: number | null;
+            managerId?: number | null;
         };
         TeamMember: {
             /** Format: int32 */
@@ -2106,8 +2107,8 @@ export interface components {
              * Format: int32
              * @description The team's manager; null when unset or when the assigned user was soft-deleted.
              */
-            managerUserId: number | null;
-            /** @description The manager's display name; null with `managerUserId`. */
+            managerId: number | null;
+            /** @description The manager's display name; null with `managerId`. */
             managerName: string | null;
             /** @description The roster - ACTIVE users only (a soft-deleted member is absent), by name then id; a team holds at most 200. */
             members: components["schemas"]["TeamMember"][];
@@ -2131,8 +2132,8 @@ export interface components {
              * Format: int32
              * @description The team's manager; null when unset or when the assigned user was soft-deleted.
              */
-            managerUserId: number | null;
-            /** @description The manager's display name; null with `managerUserId`. */
+            managerId: number | null;
+            /** @description The manager's display name; null with `managerId`. */
             managerName: string | null;
             /**
              * Format: int32
@@ -2510,7 +2511,7 @@ export interface components {
              * Format: int32
              * @description The id of an active member of the room.
              */
-            userId: number;
+            ownerId: number;
         };
         ThreadResponse: {
             /** Format: int32 */
@@ -2713,10 +2714,10 @@ export interface components {
              * Format: int32
              * @description The acting user.
              */
-            userId: number;
-            userName: string;
+            actorId: number;
+            actorName: string;
             /** @description The acting account has since been deleted. */
-            userDeleted: boolean;
+            actorDeleted: boolean;
             type: components["schemas"]["ThreadEventType"];
             params: {
                 [key: string]: string;
@@ -2872,7 +2873,7 @@ export interface components {
              */
             id: number;
             type: components["schemas"]["NotificationType"];
-            wasSeen: boolean;
+            seen: boolean;
             /**
              * Format: int64
              * @description Epoch millis
@@ -3330,6 +3331,8 @@ export interface components {
         SearchPageSize: number;
         /** @description Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
         Q: string;
+        /** @description Free-text substring of a hashtag (API-LIST-005; the room's tag list). Unlike `Q` it is OPTIONAL and has no minimum, because a picker lists every tag before the user types. Case- and accent-insensitive; trimmed first; at most 50 characters (code points), `400` past that. */
+        TagQ: string;
         /** @description Repeatable - any of these status keys (the thread list). A well-formed key that is not a status of the room matches nothing; a malformed one, or more than 20 distinct values, is a `400`. */
         ThreadStatusFilter: string[];
         /** @description Repeatable - any of these owner ids (the thread list; "mine" is the caller's own id). An id that owns nothing matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
@@ -4764,7 +4767,8 @@ export interface operations {
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
-                tag?: string;
+                /** @description Free-text substring of a hashtag (API-LIST-005; the room's tag list). Unlike `Q` it is OPTIONAL and has no minimum, because a picker lists every tag before the user types. Case- and accent-insensitive; trimmed first; at most 50 characters (code points), `400` past that. */
+                q?: components["parameters"]["TagQ"];
             };
             header?: never;
             path: {
@@ -4858,7 +4862,7 @@ export interface operations {
                 /** @description Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10. */
                 tag?: components["parameters"]["ThreadTagFilter"];
                 /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
-                mentionedUserId?: components["parameters"]["ThreadMentionFilter"];
+                mentionedId?: components["parameters"]["ThreadMentionFilter"];
             };
             header?: never;
             path: {
@@ -5495,7 +5499,7 @@ export interface operations {
         parameters: {
             query?: {
                 /** @description `true` = only seen notices, `false` = only unseen ones; omitted = both. */
-                wasSeen?: boolean;
+                seen?: boolean;
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];
                 /** @description Rows per page. Defaults to 20, maximum 100. */

@@ -24,7 +24,7 @@ describe("ThreadHistory", () => {
       jsonResponse(
         200,
         eventPage([
-          makeEvent({ id: 3, type: "FIELD_CHANGED", params: { field: "sev", fieldLabel: "Severity", from: "S3", to: "S1" }, userName: "Bob" }),
+          makeEvent({ id: 3, type: "FIELD_CHANGED", params: { field: "sev", fieldLabel: "Severity", from: "S3", to: "S1" }, actorName: "Bob" }),
           makeEvent({ id: 2, type: "OWNER_CHANGED", params: { fromId: "5", toId: "6", fromName: "Ann Owner", toName: "Bob" } }),
           makeEvent({ id: 1 }),
         ]),
@@ -59,7 +59,7 @@ describe("ThreadHistory", () => {
   });
 
   test("an event kind this build does not know shows its raw type, and a deleted account is marked", async () => {
-    mockFetch.mockResolvedValue(jsonResponse(200, eventPage([makeEvent({ type: "MESSAGE_PINNED" as never, params: {}, userName: "Zed", userDeleted: true })])));
+    mockFetch.mockResolvedValue(jsonResponse(200, eventPage([makeEvent({ type: "MESSAGE_PINNED" as never, params: {}, actorName: "Zed", actorDeleted: true })])));
     renderWithProviders(<ThreadHistory roomId={12} number={42} />);
     expect(await screen.findByText("MESSAGE_PINNED")).toBeInTheDocument();
     expect(screen.getByText(/Zed \(deleted account\)/)).toBeInTheDocument();

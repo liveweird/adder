@@ -25,7 +25,7 @@ type ThreadListQuery = {
   /** Any of these owner ids. */
   ownerId?: number[];
   /** Any of these people are mentioned by a live message of the thread (1 to 20 ids; the SPA sends the caller's own). */
-  mentionedUserId?: number[];
+  mentionedId?: number[];
   /** `key:value` pairs: any-of within a key, all-of across keys (SELECT, MULTI_SELECT and USER fields; a key that is not one is a 400). */
   field?: string[];
   /** Any of these hashtags, as typed or as `listRoomTags` returned them (the server folds case and accents); at most 10 distinct. */
@@ -33,13 +33,13 @@ type ThreadListQuery = {
 };
 
 export async function listThreads(roomId: number, q: ThreadListQuery): Promise<ThreadPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), mentionedUserId: q.mentionedUserId?.map(String), field: q.field, tag: q.tag });
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), mentionedId: q.mentionedId?.map(String), field: q.field, tag: q.tag });
   return jsonRequest<ThreadPage>(`/api/v1/rooms/${roomId}/threads?${params}`);
 }
 
-/** One page of a room's hashtags (`{tag, threadCount}`, the tag folded, no `#`). Sortable by `tag` or `threadCount` (the default, `-threadCount`); `tag` is a case- and accent-insensitive substring of at most 50 characters. */
-export async function listRoomTags(roomId: number, q: { page: number; pageSize: number; sort?: string; tag?: string }): Promise<RoomTagPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, tag: q.tag });
+/** One page of a room's hashtags (`{tag, threadCount}`, the tag folded, no `#`). Sortable by `tag` or `threadCount` (the default, `-threadCount`); `q` is a case- and accent-insensitive substring of at most 50 characters. */
+export async function listRoomTags(roomId: number, q: { page: number; pageSize: number; sort?: string; q?: string }): Promise<RoomTagPage> {
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, q: q.q });
   return jsonRequest<RoomTagPage>(`/api/v1/rooms/${roomId}/tags?${params}`);
 }
 
@@ -71,8 +71,8 @@ export async function setThreadStatus(roomId: number, number: number, status: st
 }
 
 /** Passes the thread on to an active member of the room (204); stewards only, and a closed thread refuses it (409 `thread-closed`). */
-export async function setThreadOwner(roomId: number, number: number, userId: number): Promise<void> {
-  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/owner`, { method: "PUT", body: JSON.stringify({ userId }) });
+export async function setThreadOwner(roomId: number, number: number, ownerId: number): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/owner`, { method: "PUT", body: JSON.stringify({ ownerId }) });
 }
 
 /**

@@ -165,8 +165,8 @@ class ChatLogHygieneTest {
             assertEquals(HttpStatusCode.OK, cast.member.client.get("$threads?tag=${tag.uppercase()}&tag=nothing").status)
             assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$threads?tag=%23$tag").status)
             assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$threads?tag=${tag}${"z".repeat(120)}").status)
-            assertEquals(HttpStatusCode.OK, cast.member.client.get("$rooms/${cast.room}/tags?tag=${tag.take(12)}").status)
-            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$rooms/${cast.room}/tags?tag=${tag}${"z".repeat(60)}").status)
+            assertEquals(HttpStatusCode.OK, cast.member.client.get("$rooms/${cast.room}/tags?q=${tag.take(12)}").status)
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$rooms/${cast.room}/tags?q=${tag}${"z".repeat(60)}").status)
             assertEquals(HttpStatusCode.NoContent, cast.member.client.delete("$rooms/${cast.room}/messages/$messageId").status)
 
             val names = capture.events.map { it.message }
@@ -212,8 +212,8 @@ class ChatLogHygieneTest {
             assertEquals(HttpStatusCode.NoContent, owner.client.post("/api/v1/notifications/$firstNotice/seen").status)
             assertEquals(HttpStatusCode.NoContent, owner.client.post("/api/v1/notifications/seen-all").status)
             val owned = "$rooms/$room/threads/1/owner"
-            assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, owned, """{"userId":${member.id}}""").status)
-            assertEquals(HttpStatusCode.NoContent, member.client.raw(HttpMethod.Put, owned, """{"userId":${owner.id}}""").status)
+            assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, owned, """{"ownerId":${member.id}}""").status)
+            assertEquals(HttpStatusCode.NoContent, member.client.raw(HttpMethod.Put, owned, """{"ownerId":${owner.id}}""").status)
             assertEquals(
                 HttpStatusCode.NoContent,
                 member.client.raw(HttpMethod.Put, "$rooms/$room/messages/$messageId", """{"body":"E $marker-edit"}""").status,

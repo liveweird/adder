@@ -121,9 +121,9 @@ describe("threadListParams", () => {
     });
 
     test("mention=me asks for the threads mentioning the session's id, and without a session is no filter", () => {
-      expect(toApiQuery(params({ mention: true }), undefined, 7)?.mentionedUserId).toEqual([7]);
-      expect(toApiQuery(params({ mention: true }), undefined, null)?.mentionedUserId).toBeUndefined();
-      expect(toApiQuery(params({}), undefined, 7)?.mentionedUserId).toBeUndefined();
+      expect(toApiQuery(params({ mention: true }), undefined, 7)?.mentionedId).toEqual([7]);
+      expect(toApiQuery(params({ mention: true }), undefined, null)?.mentionedId).toBeUndefined();
+      expect(toApiQuery(params({}), undefined, 7)?.mentionedId).toBeUndefined();
     });
 
     test("statuses, the all scope and the workflow order are sent as they are", () => {
@@ -172,8 +172,8 @@ describe("threadListParams", () => {
       expect(activeFilterCount({})).toBe(0);
       expect(activeFilterCount({ tag: ["a", "b", "c"] })).toBe(1);
       expect(activeFilterCount({ status: ["a"], ownerId: [7], tag: ["a"], field: ["k:1"] })).toBe(4);
-      expect(activeFilterCount({ mentionedUserId: [7] })).toBe(1);
-      expect(activeFilterCount({ status: ["a"], ownerId: [7], mentionedUserId: [7], tag: ["a"], field: ["k:1"] })).toBe(5);
+      expect(activeFilterCount({ mentionedId: [7] })).toBe(1);
+      expect(activeFilterCount({ status: ["a"], ownerId: [7], mentionedId: [7], tag: ["a"], field: ["k:1"] })).toBe(5);
       expect(activeFilterCount({ status: ["a", "b"], ownerId: [7], field: ["k:1", "k:2", "j:3"] })).toBe(4);
     });
   });

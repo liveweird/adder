@@ -17,7 +17,7 @@ const UNSEEN_PAGE_SIZE = 100;
 export function useUnseenNotifications() {
   const query = useQuery({
     queryKey: notificationKeys.unseen,
-    queryFn: () => listNotifications({ page: 1, pageSize: UNSEEN_PAGE_SIZE, wasSeen: false }),
+    queryFn: () => listNotifications({ page: 1, pageSize: UNSEEN_PAGE_SIZE, seen: false }),
     enabled: getToken() !== null,
   });
   return { ...query, total: query.data?.total ?? 0, items: query.data?.items ?? NO_ITEMS };

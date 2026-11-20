@@ -6,7 +6,7 @@ import { describeEvent, eventLines } from "./threadEvents";
 const t = i18n.t;
 
 function event(type: string, params: Record<string, string> = {}): ThreadEvent {
-  return { id: 1, userId: 5, userName: "Ann", userDeleted: false, type: type as ThreadEvent["type"], params, createdAt: 1 };
+  return { id: 1, actorId: 5, actorName: "Ann", actorDeleted: false, type: type as ThreadEvent["type"], params, createdAt: 1 };
 }
 
 describe("describeEvent", () => {

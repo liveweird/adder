@@ -24,7 +24,7 @@ data class TeamCreateRequest(
     val name: String,
     val description: String? = null,
     /** Optional manager — an ACTIVE user (400 otherwise); omitted = no manager. */
-    val managerUserId: UInt? = null,
+    val managerId: UInt? = null,
 )
 
 @Serializable
@@ -32,7 +32,7 @@ data class TeamUpdateRequest(
     val name: String,
     val description: String? = null,
     /** PUT is a full replace: omitted = unset. An ACTIVE user (400 otherwise). */
-    val managerUserId: UInt? = null,
+    val managerId: UInt? = null,
 )
 
 /** One roster row: an ACTIVE user's display fields (a soft-deleted member is absent, never marked). */
@@ -49,7 +49,7 @@ data class TeamResponse(
     val name: String,
     val description: String?,
     /** The manager as an ACTIVE user; null when unset OR when the assigned user was soft-deleted. */
-    val managerUserId: UInt?,
+    val managerId: UInt?,
     val managerName: String?,
     /** The roster: ACTIVE users only, at most [MAX_TEAM_MEMBERS], by name then id. */
     val members: List<TeamMemberResponse>,
@@ -63,7 +63,7 @@ data class TeamListItem(
     val id: UInt,
     val name: String,
     val description: String?,
-    val managerUserId: UInt?,
+    val managerId: UInt?,
     val managerName: String?,
     /** The roster size, ACTIVE users only. */
     val memberCount: Int,
@@ -86,13 +86,13 @@ data class TeamListResult(val items: List<TeamListItem>, val total: Long)
 fun sanitizedTeamCreate(request: TeamCreateRequest): TeamCreateRequest = TeamCreateRequest(
     name = sanitizeSingleLine(request.name, "Name"),
     description = sanitizedDescription(request.description),
-    managerUserId = request.managerUserId,
+    managerId = request.managerId,
 )
 
 fun sanitizedTeamUpdate(request: TeamUpdateRequest): TeamUpdateRequest = TeamUpdateRequest(
     name = sanitizeSingleLine(request.name, "Name"),
     description = sanitizedDescription(request.description),
-    managerUserId = request.managerUserId,
+    managerId = request.managerId,
 )
 
 /** The team rules — enforced by the route AND re-checked by the service. */

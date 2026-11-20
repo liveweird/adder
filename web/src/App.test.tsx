@@ -168,7 +168,7 @@ describe("App shell", () => {
       });
 
       test("a new room and the unseen notices of a room are marked in the rail by words, from the rooms list and the bell's query", async () => {
-        const notice = (id: number) => ({ id, type: "MENTIONED", wasSeen: false, createdAt: 1, actorId: 5, actorName: "Ann", roomId: 13, roomName: "Billing", threadNumber: 2, threadTitle: "t", messageId: 9 });
+        const notice = (id: number) => ({ id, type: "MENTIONED", seen: false, createdAt: 1, actorId: 5, actorName: "Ann", roomId: 13, roomName: "Billing", threadNumber: 2, threadTitle: "t", messageId: 9 });
         vi.stubGlobal(
           "fetch",
           vi.fn((url: string) => {

@@ -148,4 +148,4 @@ data class ThreadStatusRequest(val status: String)
 
 /** `PUT .../threads/{number}/owner`: the id of an ACTIVE member of the room (anyone else is a `400`, under the room lock). */
 @Serializable
-data class ThreadOwnerRequest(val userId: UInt)
+data class ThreadOwnerRequest(val ownerId: UInt)

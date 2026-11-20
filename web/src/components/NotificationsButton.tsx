@@ -49,12 +49,12 @@ function NoticeRow({ n, zone, onOpen }: { n: NotificationItem; zone: string; onO
       >
         <Group align="flex-start" wrap="nowrap" gap="sm">
           {/* The dot is a shape for sighted users; the hidden word carries "unseen" for the rest. */}
-          <Indicator size={9} offset={3} disabled={n.wasSeen} position="middle-start" inline>
+          <Indicator size={9} offset={3} disabled={n.seen} position="middle-start" inline>
             <Box w={12} />
           </Indicator>
           <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
-            {!n.wasSeen && <VisuallyHidden>{t("notifications.unseenRow")}</VisuallyHidden>}
-            <Text size="sm" fw={n.wasSeen ? 400 : 600} c={n.wasSeen ? "dimmed" : undefined} style={{ overflowWrap: "anywhere" }}>
+            {!n.seen && <VisuallyHidden>{t("notifications.unseenRow")}</VisuallyHidden>}
+            <Text size="sm" fw={n.seen ? 400 : 600} c={n.seen ? "dimmed" : undefined} style={{ overflowWrap: "anywhere" }}>
               {describe(n, t)}
             </Text>
             <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
@@ -103,7 +103,7 @@ export default function NotificationsButton() {
 
   function open(n: NotificationItem, event: MouseEvent<HTMLAnchorElement>) {
     // Acting on it is "seen"; the navigation does not wait for the write, and a failed write re-reads what the server holds.
-    if (!n.wasSeen) markSeen.mutate(n.id);
+    if (!n.seen) markSeen.mutate(n.id);
     // Ctrl/Cmd/Shift/Alt-click opens a new tab or window (the router leaves it to the browser): the drawer and the focus stay where they are.
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     // The destination (the message, the thread's pane) takes focus itself; returning it to the bell would pull it back. A link to where the
@@ -117,7 +117,7 @@ export default function NotificationsButton() {
   const capped = unseen.total >= NOTIFICATION_TOTAL_CAP;
   const countWords = capped ? t("notifications.unseenMany") : t("notifications.unseen", { count: unseen.total });
   // The drawer's own rows count too: the badge query may have failed while the list loaded.
-  const anyUnseen = unseen.total > 0 || items.some((n) => !n.wasSeen);
+  const anyUnseen = unseen.total > 0 || items.some((n) => !n.seen);
   return (
     <>
       <Indicator inline size={18} offset={4} color="red" label={<span aria-hidden="true">{badgeText(unseen.total)}</span>} disabled={unseen.total === 0}>

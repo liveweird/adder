@@ -131,7 +131,7 @@ class ThreadStatusTest {
         // The reopen is in the history the API serves, with who and the label snapshots (the binding rule).
         val history = cast.member.client.get("$rooms/${cast.room}/threads/1/events?sort=id").body<ThreadEventPageResponse>().items
         val reopen = history.last()
-        assertEquals(listOf("REOPENED", cast.threadOwner.id), listOf(reopen.type.name, reopen.userId))
+        assertEquals(listOf("REOPENED", cast.threadOwner.id), listOf(reopen.type.name, reopen.actorId))
         assertEquals(mapOf("from" to "wontdo", "to" to "monitoring", "fromLabel" to "Won't do", "toLabel" to "Monitoring"), reopen.params)
         assertEquals(mapOf("from" to "open", "to" to "wontdo", "fromLabel" to "Open", "toLabel" to "Won't do"), history[3].params)
     }

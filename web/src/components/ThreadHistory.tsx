@@ -34,7 +34,7 @@ export default function ThreadHistory({ roomId, number }: { roomId: number; numb
         key: event.id,
         title: describeEvent(event, t),
         lines: eventLines(event, t),
-        who: event.userDeleted ? t("threads.history.userDeleted", { name: event.userName }) : event.userName,
+        who: event.actorDeleted ? t("threads.history.userDeleted", { name: event.actorName }) : event.actorName,
         when: event.createdAt,
       }))}
       isLoading={isLoading}

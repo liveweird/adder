@@ -26,7 +26,7 @@ enum class NotificationType {
 data class NotificationResponse(
     val id: UInt,
     val type: NotificationType,
-    val wasSeen: Boolean,
+    val seen: Boolean,
     val createdAt: Long,
     val actorId: UInt,
     val actorName: String,
