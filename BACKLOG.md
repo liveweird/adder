@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-11-19. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-11-20. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/` (the roadmap: `.claude/docs/product.md`).
@@ -19,7 +19,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 
 ## Chat MVP (0.5–0.6)
 
-- [new] **0.5.0 Find.** Filters, sorts, full-text search, hashtags.
 - [new] **0.6.0 Mentions, reactions, pins, unread.** Includes the thread list's "mentions me" filter, moved from 0.5.0 (`product.md`, 0.5 D1).
 - [new] **Find: range and text filters on field values.** 0.5.0 filters SELECT, MULTI_SELECT and USER fields only (exact, any-of; 0.5 D4). Add DATE and NUMBER ranges (`field[gte]`, `field[lte]`) with their inputs, and TEXT filters.
 - [new] **Find: facet counts in the filter panel.** 0.5.0 labels only the status options with the workflow's `threadCount`. Counts per owner, tag and field value would port Covenant's lifted-predicate facets (`ContractService.kt`).

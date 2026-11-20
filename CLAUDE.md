@@ -11,8 +11,8 @@ at first, passable like a Jira assignee); a thread in a CLOSED-category status i
 or an ADMIN reopens it. Room content is filterable, sortable and searchable; the usual chat affordances apply (pins, @mentions, reactions, emoji,
 #hashtags). Updates reach open browsers live over a WebSocket.
 
-**Roadmap:** **0.4.0 (current) = live updates** (a WebSocket per tab turns id-only hints into refetches) on **0.3.0 threads + messages** (numbered threads, Markdown/emoji messages) on **0.2.0 rooms + workflows** (the ADMIN workflow-template registry, members-only rooms with a copied, editable workflow, the rooms rail) and **the 0.1.0 foundation**, Flow trimmed to its generic core: auth + email MFA, password reset, users, feature flags, teams
-with a manager, EN/PL, light/dark, changelog, the ADMIN telemetry panel, the olive brand and the "Strike" logo. Next: 0.5.0 filters/sort/search/hashtags, 0.6.0 mentions/reactions/pins/unread, then a 1.0.0
+**Roadmap:** **0.5.0 (current) = find** (thread filters and sorts in the URL, #hashtags, full-text search of a room and of all your rooms, jump to a message, the focus view) on **0.4.0 live updates** (a WebSocket per tab turns id-only hints into refetches) on **0.3.0 threads + messages** (numbered threads, Markdown/emoji messages) on **0.2.0 rooms + workflows** (the ADMIN workflow-template registry, members-only rooms with a copied, editable workflow, the rooms rail) and **the 0.1.0 foundation**, Flow trimmed to its generic core: auth + email MFA, password reset, users, feature flags, teams
+with a manager, EN/PL, light/dark, changelog, the ADMIN telemetry panel, the olive brand and the "Strike" logo. Next: 0.6.0 mentions/reactions/pins/unread, then a 1.0.0
 checkup. Per-version scope, the user's decisions and the assumptions: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`;
 the live protocol: `.claude/docs/live.md`. Open items: `BACKLOG.md`.
 
@@ -128,7 +128,7 @@ except the composition root (`infra/db/Database.kt`, `Bootstrap.kt`); `telemetry
 - `live/` — the live-update channel (`live.md`): `LiveTickets` (single-use first-frame tickets), `LiveRoutes.kt` (`POST /api/v1/live/tickets`; `GET /api/v1/live`, public at HTTP, per-IP `live-connect`, Origin/503 admission), `LiveSocket` (auth, subscribe, close codes), `LiveHub` (one actor: subscriptions, hint fan-out, `resync`, `revoked`), `LiveSweep` (60 s: account verdicts → 4003, lost memberships → `revoked`; 4001 at the token's `exp`); imported by nothing (`PackageBoundaryTest`).
 - `telemetry/` — per-process JVM/cgroup/request/storage samples in `ops.*` (V9), 90 days, hourly, ADMIN read API (`observability.md`).
 
-The chat domain so far: `workflows/` and `rooms/` (0.2.0), `threads/` (0.3.0; `ThreadWorkflowUsage` implements the rooms port); `live/` (0.4.0).
+The chat domain so far: `workflows/` and `rooms/` (0.2.0), `threads/` (0.3.0; `ThreadWorkflowUsage` implements the rooms port); `live/` (0.4.0); 0.5.0 added no package (hashtags and search live in `threads/`, `infra/db/Fts.kt`).
 
 **Feature template — copy `teams/`** (a small ADMIN-curated registry; the only shape the foundation ships). Before adding a feature, route,
 service, migration or page, read `.claude/docs/conventions.md` in full.

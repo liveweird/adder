@@ -88,7 +88,7 @@ The plan put five decisions to the user; all five took the recommended option, s
 - Each room owns its own copy of its workflow, copied at creation from an ADMIN-curated template (seeded *Default* and *Incident*).
 - Mentions are stored as `<@userId>` tokens and rendered with the current name (rename-safe).
 - Flow's integration service tokens are not ported in 0.1.0: with nothing to serve they would be dead weight (backlog: bots posting into rooms).
-- The coverage floors were re-baselined after the trim (lines 97, branches 81; Flow's 98/85 relied on tests of the cut features) and raised to 98/85 for 0.4.0.
+- The coverage floors were re-baselined after the trim (lines 97, branches 81; Flow's 98/85 relied on tests of the cut features) raised to 98/85 for 0.4.0 and to 98/86 for 0.5.0.
 
 ### 0.2.0 rooms and workflows
 
@@ -193,15 +193,15 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 0.4.0.**
+Each increment gets its own plan (architect) before implementation. **Current version: 0.5.0** (shipped); next is 0.6.0.
 
 | Ver | Scope |
 |---|---|
 | **0.1.0 Foundation** | Flow trimmed: auth and email MFA, password reset, users and feature flags, teams with a manager, EN/PL, light/dark, changelog, telemetry panel, olive brand and the Strike logo |
 | **0.2.0 Rooms and workflows** | The ADMIN workflow-template registry (seeded Default and Incident); rooms with members (person or whole team), OWNER/MEMBER roles, archive; the room workflow editor (statuses with colour/category/order, typed fields) under `X-Expected-Revision`; the rooms rail |
 | **0.3.0 Threads and messages** | Threads with a per-room number, status, owner, fields and history (`EventLog` port); messages in Markdown with emoji; edit/delete own; close/reopen with the closed-thread `409`; the three-pane room view |
-| **0.4.0 Live updates** | `GET /api/v1/live` WebSocket with single-use tickets (sent in the first frame), subscribe/unsubscribe per room, `pg_notify` inside the write transaction, one LISTEN connection per process, bounded sockets, a 60 s account sweep; targeted query invalidation in the SPA (`live.md`) |
-| **0.5.0 Find** | Thread filters and sorts (status, category, owner, SELECT/MULTI_SELECT/USER fields, tag, workflow order), a focus view, Postgres full-text search per room and across member rooms (`chat-model.md` "Find (0.5)"), server-parsed #hashtags |
+| **0.4.0 Live updates** (shipped) | `GET /api/v1/live` WebSocket with single-use tickets (sent in the first frame), subscribe/unsubscribe per room, `pg_notify` inside the write transaction, one LISTEN connection per process, bounded sockets, a 60 s account sweep; targeted query invalidation in the SPA (`live.md`) |
+| **0.5.0 Find** (shipped) | Thread filters and sorts (status, category, owner, SELECT/MULTI_SELECT/USER fields, tag, workflow order), a focus view, Postgres full-text search per room and across member rooms (`chat-model.md` "Find (0.5)"), server-parsed #hashtags |
 | **0.6.0 Mentions, reactions, pins, unread** | @mention autocomplete and notifications (Lettuce's model, pushed live; email by preference), the thread list's "mentions me" filter (moved from 0.5.0, 0.5 D1), reactions, room pins, per-member unread markers |
 | **1.0.0 Checkup** | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |
 
@@ -227,6 +227,18 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing, reactions, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v0.5.0 — find (2026-11-20)
+
+Find on `feat/0.5.0-find`. Migrations V15 (`message_tags`, `messages.tags_version`) and V16 (the `adder_search` text search configuration and the stored `search` columns on `messages` and `threads`). Shipped:
+the thread list's filters (repeated `status`, `ownerId`, `field=key:value` and `tag`) and the workflow-order sort, held in the URL and remembered per room (the SPA's `useLiveSearchParams`, `utils/threadListParams.ts`); server-parsed
+#hashtags (a tag belongs to a live message, one grammar in Kotlin and TypeScript pinned by a shared case table, a boot reindex for older messages) with the room's paged tag list, the tag filter and message hashtags as links; full-text search
+of one room (`GET /rooms/{id}/search`) and of the caller's member rooms (`GET /search`) over message bodies and thread titles (all terms, prefixes from three characters, accents and case ignored, typed highlight segments), one deadline
+and a concurrency cap per search; the search pages and the palette's "Search for ..." actions; the jump to a found message (`?message=`) and the focus view (`focus=1`); a bounded read path for the filtered thread list and the tag list (a read deadline and a
+concurrency limiter with typed `429`s `read-timeout` and `read-busy`), a capped sort list, and span-query scrubbing; failed statements log the exception class and the SQLSTATE only (A18). New per-user buckets `chat-read` (300/min, the thread
+and tag reads) and `search` (60/min); new audit events `search.busy`, `search.timeout`, `read.busy`, `read.timeout`. Decisions D1-D5 are the user's (2026-11-19); A1-A18 were taken without asking. Donors: Flow's `useLiveSearchParams`, Lettuce's
+`FilterMultiSelect`/`accessiblePill`, Covenant's palette pass-through and filter-state shape; search and hashtag parsing are greenfield. Open follow-ups (range and text field filters, facets, search within a thread, ticket keys, a
+`btree_gin` search index): `BACKLOG.md`. Detail: `chat-model.md` "Find (0.5)".
 
 ### v0.4.0 — live updates (2026-11-19)
 

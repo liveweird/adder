@@ -17,6 +17,24 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "0.5.0",
+    date: "2026-11-20",
+    en: `**Adder 0.5.0: find.**
+
+- Filter a room's threads by status, owner, hashtag and the room's choice and person fields, and sort them by recent activity, newest, number or workflow order. The filter lives in the address bar, so a link shows the same list to whoever opens it.
+- Search a room, or all your rooms at once. Results are grouped by thread, the matching words are highlighted, and a click takes you to the message. Words match from their beginning (from three letters) and ignore accents: "awari" finds "awaria" and "awarii", "zolw" finds "Żółw".
+- Write #hashtags in messages. Each becomes a link that shows the room's threads that use it.
+- Focus on one thread: hide the thread list and read the conversation at full width.
+- When the server is busy, the thread list and search ask you to wait a moment and try again.`,
+    pl: `**Adder 0.5.0: szukaj.**
+
+- Filtruj wątki pokoju po statusie, właścicielu/właścicielce, hasztagu oraz polach wyboru i osób w pokoju; sortuj je po ostatniej aktywności, od najnowszych, po numerze albo kolejności przepływu pracy. Filtr jest w pasku adresu, więc link pokazuje tę samą listę każdej osobie, która go otworzy.
+- Przeszukaj pokój albo wszystkie swoje pokoje naraz. Wyniki pokazują wątki z pasującymi wiadomościami, podświetlają trafione słowa, a kliknięcie przenosi do wiadomości. Słowa pasują od początku (od trzech liter) i bez względu na znaki diakrytyczne: „awari” znajdzie „awaria” i „awarii”, „zolw” znajdzie „Żółw”.
+- Pisz #hasztagi w wiadomościach. Każdy staje się linkiem, który pokazuje wątki pokoju z tym hasztagiem.
+- Skup się na jednym wątku: ukryj listę wątków i czytaj rozmowę na całej szerokości.
+- Gdy serwer jest zajęty, lista wątków i wyszukiwanie proszą o chwilę cierpliwości i ponowną próbę.`,
+  },
+  {
     version: "0.4.0",
     date: "2026-11-19",
     en: `**Adder 0.4.0: live updates.**
