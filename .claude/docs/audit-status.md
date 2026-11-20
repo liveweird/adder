@@ -110,4 +110,17 @@ Paths: `S/` = `server/src/main/kotlin/`, `T/` = `server/src/test/kotlin/`, `D/` 
 
 ## Fixed so far
 
-Nothing yet.
+The 1.0.0 checkup's fix-before-1.0.0 tier, on `fix/1.0.0-checkup` (2026-11-20):
+
+| ids | commit | what |
+|---|---|---|
+| C-SMELL-1, C-SMELL-2 (part), C-GATE-10, C-DOC-10 | `a18f4cd` | dead code and donor residue deleted; `PackageBoundaryTest` keys exemptions by path and keeps the foundation off the chat packages |
+| C-ARCH-1, C-DRY-3 | `ae9e7f3` | every background scope built by `infra/BackgroundScope.kt`, joined (bounded) on `ApplicationStopping` before the pool is disposed |
+| C-GATE-1 (retry half), C-GATE-3, C-GATE-7, C-GATE-8 | `a43ed32` | `scripts/gradle-retry.sh` + `resolveAllDependencies`; the docs budget runs on Markdown-only PRs; one alert job for any red master job; Playwright fails on a flaky test and requires Mailpit |
+| C-SEC-1, C-SEC-4 (code half), C-SMELL-2 (ETag seam) | `3c98030` | request bodies never decoded, a non-identity `Content-Encoding` is a 415; every per-IP bucket keyed by `infra/ClientAddress.kt` |
+| C-API-1, 2, 3, 4, 7 | `8d70e37` | spec prose from the code; `infra/ProblemTypes.kt` and `ProblemTypesTest`; live frame ids int64, minimum 1 |
+| C-DOC-1 to 5, 7 to 9, 11, 12; C-GATE-4 | `a961c12` | docs caught up to 0.6.0; the first build-times status check and re-baselined budgets |
+| C-SEC-2, C-SEC-3 | `43e3557` | a `password-change` bucket and one per-account lockout for wrong current passwords and wrong MFA codes; at most three live challenges per account |
+| C-SEC-3 (rest), branch audit M1, L1-L7 | `4fed5b9` | a known account's wrong code or password counts even at a full lockout store; security headers on the early 415/400; join bounds fit the 20 s stop window; the AppCDS list regenerated |
+
+Still open: the rest are `BACKLOG.md` items under "1.0.0 checkup" (the can-follow tier and the decisions).
