@@ -25,9 +25,6 @@ private val log = LoggerFactory.getLogger("ch.nokillswit.live.LiveHub")
 
 private const val SHUTDOWN_POLL_MILLIS = 20L
 
-/** The kinds whose `targetUserIds` also receive the plain `event` (the others are for subscribers only, or become `revoked`). */
-private val PERSONAL_EVENT_KINDS = setOf(LiveKind.ROOM_CREATED, LiveKind.ROOM_MEMBER_ADDED, LiveKind.ROOM_MEMBER_ROLE_CHANGED)
-
 private sealed interface Command {
     class Register(val socket: HubSocket, val reply: CompletableDeferred<RegisterResult>) : Command
     class Unregister(val socket: HubSocket) : Command
@@ -341,11 +338,10 @@ class LiveHub internal constructor(
             LiveKind.ROOM_DELETED -> roomGone(hint)
             LiveKind.ROOM_MEMBER_REMOVED -> memberRemoved(hint)
             else -> {
+                val audience = hint.kind.audience()
                 val recipients = LinkedHashSet<HubSocket>()
-                // A new room has no subscribers; `room.created` is for its creator alone.
-                if (hint.kind != LiveKind.ROOM_CREATED) subscribersByRoom[hint.roomId]?.let { recipients += it }
-                // These kinds tell the person the change is about, on every socket they have, even one not subscribed to the room.
-                if (hint.kind in PERSONAL_EVENT_KINDS) recipients += targetSockets(hint)
+                if (audience != Audience.TARGETS) subscribersByRoom[hint.roomId]?.let { recipients += it }
+                if (audience != Audience.SUBSCRIBERS) recipients += targetSockets(hint)
                 val event = eventOf(hint)
                 recipients.forEach { queueFrame(it, event) }
             }

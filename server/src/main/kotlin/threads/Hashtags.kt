@@ -7,8 +7,8 @@ import java.text.Normalizer
 // The hashtag grammar and its parser (`chat-model.md` "Hashtags (V15)"): PURE (no database, no Ktor), because the same rule runs in the
 // SPA (its own parser) and `server/src/test/resources/hashtag-cases.json` pins both sides. PostgreSQL cannot parse a tag
 // (its regex has no `\p{L}` and its classes follow the database locale) and cannot skip code the way the SPA's Markdown tree does, so
-// nothing about tags is parsed in SQL. Every pass below is linear in the body (a hostile body of thousands of `#` or backticks cannot
-// make it quadratic): no nested quantifier, no unbounded backtracking, and the one bounded scan is a link destination.
+// nothing about tags is parsed in SQL. The Markdown pre-pass is `MarkdownText.kt`'s; every pass is linear in the body (a hostile body of
+// thousands of `#` or backticks cannot make it quadratic).
 
 /** The most distinct tags of one message that are indexed; the rest are ignored, never refused (a pasted stylesheet must not bounce it). */
 const val MAX_TAGS_PER_MESSAGE = 20
@@ -41,18 +41,6 @@ private val BLOCKER = Regex("[\\p{L}\\p{N}#&/]")
 
 private fun String.hasLetter(): Boolean = codePoints().anyMatch { Character.isLetter(it) }
 
-/** A bare URL (`http://`, `https://`, `www.`) up to the next whitespace, not glued to a word. */
-private val BARE_URL = Regex("(?<![\\p{L}\\p{N}])(?:(?i:https?://)|(?i:www\\.))\\S*")
-
-/** An `<autolink>`: a scheme and everything up to the closing `>` (an address or any other angle-bracket text stays as it is). */
-private val AUTOLINK = Regex("<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\\s]*>")
-
-/** A link reference definition line: `[label]: destination`. */
-private val DEFINITION = Regex("(?m)^ {0,3}\\[[^\\]\\n]{1,200}]:[ \\t]*\\S*")
-
-/** The longest destination that is blanked after `](`: it ends at the first `)` or whitespace, so the scan is bounded by it. */
-private const val MAX_DESTINATION = 2_000
-
 /**
  * The distinct hashtags of [body] in the order they appear, as typed (NFC-normalised; two spellings that differ only by case are one,
  * the first spelling wins), at most [MAX_TAGS_PER_MESSAGE]. The stored key is the folded form: [foldedTag] here and `public.unaccent` in
@@ -63,7 +51,7 @@ private const val MAX_DESTINATION = 2_000
  */
 fun parseHashtags(body: String): List<String> {
     if (!body.contains('#')) return emptyList()
-    val text = outsideCodeAndLinks(Normalizer.normalize(body, Normalizer.Form.NFC))
+    val text = textOutsideCodeAndLinks(Normalizer.normalize(body, Normalizer.Form.NFC))
     val seen = HashSet<String>()
     val tags = ArrayList<String>()
     for (match in HASHTAG.findAll(text)) {
@@ -115,114 +103,4 @@ fun requireTagFilter(raw: String): String {
         throw BadRequestException("Tag '${raw.shown()}' must be 1-$MAX_STORED_TAG_LENGTH characters without '#' or control characters")
     }
     return foldedTag(tag)
-}
-
-/** [body] with every region a hashtag must not be read from replaced by one space (see [parseHashtags]). */
-private fun outsideCodeAndLinks(body: String): String {
-    var text = withoutFencedCode(body)
-    text = withoutInlineCode(text)
-    text = AUTOLINK.replace(text, " ")
-    text = withoutLinkDestinations(text)
-    text = DEFINITION.replace(text, " ")
-    return BARE_URL.replace(text, " ")
-}
-
-/** A fenced code block (three or more backticks or tildes, up to three spaces of indent) to its closing fence or the end, as one space. */
-private fun withoutFencedCode(body: String): String {
-    if (!body.contains("```") && !body.contains("~~~")) return body
-    val out = StringBuilder(body.length)
-    var fence: Fence? = null
-    for (line in body.split('\n')) {
-        val open = fence
-        if (open == null) {
-            val opened = fenceOf(line)
-            if (opened == null) out.append(line).append('\n') else fence = opened
-        } else if (closes(line, open)) {
-            fence = null
-            out.append(' ').append('\n')
-        }
-    }
-    if (fence != null) out.append(' ')
-    return out.toString()
-}
-
-private class Fence(val marker: Char, val length: Int)
-
-/** The fence [line] opens, or null: a backtick fence's info string cannot hold a backtick (that line is an inline code span). */
-private fun fenceOf(line: String): Fence? {
-    val start = line.indexOfFirst { it != ' ' }
-    if (start !in 0..3) return null
-    val marker = line[start]
-    if (marker != '`' && marker != '~') return null
-    val length = line.drop(start).takeWhile { it == marker }.length
-    if (length < 3) return null
-    if (marker == '`' && line.indexOf('`', start + length) >= 0) return null
-    return Fence(marker, length)
-}
-
-/** A closing fence: the same marker, at least as long as the opener, and nothing but spaces after it. */
-private fun closes(line: String, fence: Fence): Boolean {
-    val start = line.indexOfFirst { it != ' ' }
-    if (start !in 0..3 || line[start] != fence.marker) return false
-    val length = line.drop(start).takeWhile { it == fence.marker }.length
-    return length >= fence.length && line.substring(start + length).isBlank()
-}
-
-/**
- * An inline code span: a run of N backticks to the next run of exactly N backticks (an unmatched run is literal). One pass collects the
- * runs and one pass right to left finds each run's nearest later run of the same length, so the scan is linear however many runs there are.
- */
-private fun withoutInlineCode(text: String): String {
-    if (!text.contains('`')) return text
-    val starts = ArrayList<Int>()
-    val lengths = ArrayList<Int>()
-    var i = 0
-    while (i < text.length) {
-        if (text[i] == '`') {
-            val begin = i
-            while (i < text.length && text[i] == '`') i++
-            starts += begin
-            lengths += i - begin
-        } else {
-            i++
-        }
-    }
-    val closer = IntArray(starts.size) { -1 }
-    val nearest = HashMap<Int, Int>()
-    for (run in starts.indices.reversed()) {
-        closer[run] = nearest[lengths[run]] ?: -1
-        nearest[lengths[run]] = run
-    }
-    val out = StringBuilder(text.length)
-    var cursor = 0
-    var run = 0
-    while (run < starts.size) {
-        val end = closer[run]
-        if (end < 0) {
-            run++
-        } else {
-            out.append(text, cursor, starts[run]).append(' ')
-            cursor = starts[end] + lengths[end]
-            run = end + 1
-        }
-    }
-    return out.append(text, cursor, text.length).toString()
-}
-
-/** The destination of an inline link or image: `](` up to the first `)` or whitespace (a title is plain text), bounded. */
-private fun withoutLinkDestinations(text: String): String {
-    var at = text.indexOf("](")
-    if (at < 0) return text
-    val out = StringBuilder(text.length)
-    var cursor = 0
-    while (at >= 0) {
-        val from = at + 2
-        var end = from
-        val limit = minOf(text.length, from + MAX_DESTINATION)
-        while (end < limit && text[end] != ')' && !text[end].isWhitespace()) end++
-        if (end > from) out.append(text, cursor, from).append(' ')
-        if (end > from) cursor = end
-        at = text.indexOf("](", maxOf(end, from))
-    }
-    return out.append(text, cursor, text.length).toString()
 }

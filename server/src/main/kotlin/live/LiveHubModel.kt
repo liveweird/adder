@@ -1,5 +1,6 @@
 package ch.nokillswit.live
 
+import ch.nokillswit.infra.notify.LiveKind
 import io.ktor.websocket.CloseReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
@@ -72,3 +73,25 @@ internal fun queueFrame(socket: HubSocket, frame: LiveServerFrame) {
 
 private fun LiveServerFrame.changesState(): Boolean =
     this is LiveServerFrame.Ready || this is LiveServerFrame.Subscribed || this is LiveServerFrame.Revoked
+
+/** Who an `event` frame of a hint reaches (`live.md` "Hints"). A socket gets AT MOST ONE frame per hint whatever the audience. */
+internal enum class Audience {
+    /** The ACTIVE subscribers of the hint's room. */
+    SUBSCRIBERS,
+
+    /** The subscribers and, on every socket they have (subscribed to the room or not), the people the hint names in `targetUserIds`. */
+    SUBSCRIBERS_AND_TARGETS,
+
+    /** The named people only: the room has no subscribers that should hear it (a new room, for its creator alone). */
+    TARGETS,
+}
+
+/**
+ * The delivery class of a plain `event`. `room.deleted` and `room.member_removed` are not events for everybody they reach (they drop the
+ * room and send `revoked`), so the hub gives them their own branches before it asks; their entry here is the default.
+ */
+internal fun LiveKind.audience(): Audience = when (this) {
+    LiveKind.ROOM_CREATED -> Audience.TARGETS
+    LiveKind.ROOM_MEMBER_ADDED, LiveKind.ROOM_MEMBER_ROLE_CHANGED -> Audience.SUBSCRIBERS_AND_TARGETS
+    else -> Audience.SUBSCRIBERS
+}

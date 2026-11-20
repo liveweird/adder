@@ -210,12 +210,12 @@ class ThreadService(
                 it[createdAt] = stamp
                 it[updatedAt] = stamp
             }[Threads.id].value
-            val messageId = messages.insertInTransaction(roomId, threadId, caller.userId, request.body, hashtags, stamp)
+            val (messageId, notified) = messages.insertInTransaction(roomId, threadId, number, caller.userId, request.body, hashtags, stamp)
             events.record(threadId, caller.userId, threadCreatedEvent(request.title, initial.key, initial.label), stamp)
             rooms.touchActivity(roomId, stamp)
             // The opening message is part of this hint, never a `message.posted` of its own.
             notifyLive(LiveHint(LiveKind.THREAD_CREATED, roomId, threadNumber = number))
-            CreatedThread(threadId, number, messageId)
+            CreatedThread(threadId, number, messageId, notified)
         }
     }
 

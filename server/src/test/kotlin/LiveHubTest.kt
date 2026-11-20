@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.live.Audience
 import ch.nokillswit.live.HubSocket
 import ch.nokillswit.live.LiveHub
 import ch.nokillswit.live.LiveServerFrame
@@ -10,6 +11,7 @@ import ch.nokillswit.live.MAX_SUBSCRIPTIONS
 import ch.nokillswit.live.PendingClaim
 import ch.nokillswit.live.RegisterResult
 import ch.nokillswit.live.SubscribeBegin
+import ch.nokillswit.live.audience
 import io.ktor.websocket.CloseReason
 import io.r2dbc.spi.Connection
 import io.r2dbc.spi.ConnectionFactory
@@ -442,6 +444,18 @@ class LiveHubTest {
             assertEquals(listOf(event(7u, kind)), otherTab.drain(), "$kind: a socket that never subscribed")
             assertEquals(emptyList(), stranger.drain(), "$kind: not for anyone else")
         }
+    }
+
+    @Test
+    fun `every kind has an audience`() {
+        // The hub follows `audience()`: a kind not named here is for the room's subscribers alone.
+        val named = mapOf(
+            LiveKind.ROOM_CREATED to Audience.TARGETS,
+            LiveKind.ROOM_MEMBER_ADDED to Audience.SUBSCRIBERS_AND_TARGETS,
+            LiveKind.ROOM_MEMBER_ROLE_CHANGED to Audience.SUBSCRIBERS_AND_TARGETS,
+        )
+        LiveKind.entries.forEach { assertEquals(named[it] ?: Audience.SUBSCRIBERS, it.audience(), "$it") }
+        assertEquals(Audience.entries.toSet(), LiveKind.entries.map { it.audience() }.toSet(), "every class is used by some kind")
     }
 
     @Test

@@ -39,12 +39,14 @@ val MESSAGE_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
  * write under the room lock ([withThreadWrite], [withMessageWrite]; the room row lock is the thread lock, `chat-model.md` "Guard order and
  * locking"). A message is soft-deleted (`marked_as_deleted`) to a LISTED tombstone: the body is scrubbed to '' and `deleted_by` records who
  * removed it, the author's own delete included. Reads use `users` for display names only (soft-deleted accounts included) and room data
- * only through the `rooms/` services.
+ * only through the `rooms/` services. Everything derived from a body or a delete that is not a hashtag follows the write through the
+ * [followers] ([MessageFollower]): each runs inside the write, after the row's own statement.
  */
-class MessageService(
+class MessageService internal constructor(
     private val database: R2dbcDatabase,
     private val rooms: RoomService,
     private val tags: MessageTagService,
+    private val followers: List<MessageFollower> = emptyList(),
 ) {
     object Messages : UIntIdTable("messages"), SoftDeletable {
         val threadId = reference("thread_id", ThreadService.Threads)
@@ -69,8 +71,17 @@ class MessageService(
      * Inserts a message inside the caller's transaction (the thread write under the room lock) and returns its id. The ONE chokepoint of a
      * new body (a post and a thread's opening message both come here), so its hashtags are indexed here, in the same transaction.
      * [hashtags] is [parseHashtags] of [body], parsed by the caller BEFORE it took the room lock (a parse is work, and the lock is held).
+     * [threadNumber] is the thread's per-room number, for the followers. Answers the id and the people the followers notified.
      */
-    suspend fun insertInTransaction(roomId: UInt, threadId: UInt, authorId: UInt, body: String, hashtags: List<String>, at: Long): UInt {
+    internal suspend fun insertInTransaction(
+        roomId: UInt,
+        threadId: UInt,
+        threadNumber: Int,
+        authorId: UInt,
+        body: String,
+        hashtags: List<String>,
+        at: Long,
+    ): InsertedMessage {
         // `insertReturning(id)`, not `insert`: a plain insert answers `RETURNING *`, which would send the generated `search` vector (about
         // as large as the body, V16) back on every post. The generated column is never in this table object, so only the id returns.
         val id = Messages.insertReturning(listOf(Messages.id)) {
@@ -81,7 +92,8 @@ class MessageService(
             it[tagsVersion] = TAGS_VERSION
         }.single()[Messages.id].value
         tags.insertInTransaction(id, threadId, roomId, hashtags)
-        return id
+        val ref = MessageRef(roomId, threadId, threadNumber, id)
+        return InsertedMessage(id, followers.flatMap { it.posted(ref, authorId, body, at) }.distinct())
     }
 
     /**
@@ -132,7 +144,7 @@ class MessageService(
             write.requireThreadOpen()
             val authorId = write.caller.userId
             val stamp = nowMillis()
-            val id = insertInTransaction(roomId, write.thread.id, authorId, request.body, hashtags, stamp)
+            val (id, notified) = insertInTransaction(roomId, write.thread.id, number, authorId, request.body, hashtags, stamp)
             val threads = ThreadService.Threads
             threads.update({ threads.id eq write.thread.id }) {
                 it[messageCount] = messageCount + 1
@@ -141,7 +153,7 @@ class MessageService(
             rooms.touchActivity(roomId, stamp)
             notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
             val name = userNames(listOf(authorId)).getValue(authorId)
-            PostedMessage(write.thread.id, MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp))
+            PostedMessage(write.thread.id, MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp), notified)
         }
     }
 
@@ -171,8 +183,10 @@ class MessageService(
             if (write.message.tagsVersion < TAGS_VERSION || tagKeysDiffer(write.message.body, newTags)) {
                 tags.replaceInTransaction(messageId, write.thread.id, roomId, newTags)
             }
+            val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId)
+            val notified = followers.flatMap { it.edited(ref, write.message.authorId, request.body) }.distinct()
             notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
-            MessageEdit(write.thread.id, messageId)
+            MessageEdit(write.thread.id, messageId, notified)
         }
     }
 
@@ -197,6 +211,8 @@ class MessageService(
                 it[deletedBy] = remover
             }
             tags.clearInTransaction(messageId)
+            val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId)
+            followers.forEach { it.deleted(ref) }
             notifyLive(LiveHint(LiveKind.MESSAGE_DELETED, roomId, threadNumber = write.thread.number, messageId = messageId))
             MessageRemoval(write.thread.id, messageId, write.message.authorId, moderated = remover != write.message.authorId)
         }
@@ -217,3 +233,6 @@ class MessageService(
         )
     }
 }
+
+/** The row [id] of a message just inserted and the people its followers [notified]. */
+internal data class InsertedMessage(val id: UInt, val notified: List<UInt>)
