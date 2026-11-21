@@ -35,8 +35,8 @@ describe("MessageList: a jump to a message (anchorId)", () => {
     });
   }
   const item = (id: number) => document.querySelector<HTMLElement>(`[data-message-id="${id}"]`)!;
-  const ui = (anchorId: number | null, scrollToId: number | null = null, onScrolled = vi.fn()) => (
-    <MessageList room={makeRoom()} thread={makeThread()} scrollToId={scrollToId} onScrolled={onScrolled} anchorId={anchorId} />
+  const ui = (anchorId: number | null, scrollToId: number | null = null, onScrolled = vi.fn(), jumpSeq = 0) => (
+    <MessageList room={makeRoom()} thread={makeThread()} scrollToId={scrollToId} onScrolled={onScrolled} anchorId={anchorId} jumpSeq={jumpSeq} />
   );
 
   beforeEach(() => {
@@ -214,6 +214,23 @@ describe("MessageList: a jump to a message (anchorId)", () => {
     await waitFor(() => expect(item(20)).toHaveFocus());
     // The scroll is relative to where the reader was (the stubbed rects do not move with it).
     expect(region.scrollTop).toBe(SCROLL_HEIGHT + centreOffsetOf(20));
+  });
+
+  test("asking again for the message the URL already names (the pin strip's \"Show in thread\") jumps again; re-reading the list does not", async () => {
+    serve(() => jsonResponse(200, messagePage(NEWEST_FIRST)));
+    const { rerender } = renderWithProviders(ui(20));
+    const region = await screen.findByRole("region", { name: "Messages" });
+    await waitFor(() => expect(item(20)).toHaveFocus());
+    expect(region.scrollTop).toBe(centreOffsetOf(20));
+    // The reader scrolls away and moves the focus; the same anchor with the same request is used up and moves nothing.
+    region.scrollTop = 0;
+    item(30).focus();
+    rerender(ui(20));
+    expect(region.scrollTop).toBe(0);
+    expect(item(30)).toHaveFocus();
+    rerender(ui(20, null, vi.fn(), 1));
+    await waitFor(() => expect(item(20)).toHaveFocus());
+    expect(region.scrollTop).toBe(centreOffsetOf(20));
   });
 
   test("the highlight goes after a few seconds; the focus stays", async () => {

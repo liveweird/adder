@@ -120,6 +120,10 @@ describe("PinnedPanel", () => {
     const link = await within(dialog).findByRole("link", { name: "#42 Awaria bazy" });
     expect(link).toHaveAttribute("href", "/rooms/12/threads/42");
     expect(dialog).toHaveTextContent(`Pinned by Ann Owner on ${formatDateTime(SOME_TIME, ZONE)}`);
+    // Every card wears the pin shape beside those words (decoration; the words are the mark, 1.2 D5).
+    const cards = within(dialog).getAllByRole("listitem");
+    expect(cards).toHaveLength(2);
+    for (const card of cards) expect(card.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     await waitFor(() => expect(dialog).toHaveTextContent("Triage"));
     await user.click(link);
     expect(screen.getByLabelText("where")).toHaveTextContent("/rooms/12/threads/42");

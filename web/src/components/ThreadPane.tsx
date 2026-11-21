@@ -15,8 +15,10 @@ import type { RoomResponse } from "../api/rooms";
 import { getThread } from "../api/threads";
 import { useLiveSearchParams } from "../hooks/useLiveSearchParams";
 import { isBoolean, useStoredState } from "../hooks/useStoredState";
+import { useRoomPins } from "../hooks/useRoomPins";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
+import { messagePinsOf } from "../utils/pins";
 import { parseThreadNumber, wantsThreadPaneFocus } from "../utils/roomLinks";
 import { parseFocus, parseMessageAnchor, writeFocus } from "../utils/threadListParams";
 import EmptyState from "./EmptyState";
@@ -26,7 +28,9 @@ import HeaderIconButton from "./HeaderIconButton";
 import LoadingBlock from "./LoadingBlock";
 import MessageComposer from "./MessageComposer";
 import MessageList from "./MessageList";
+import PinMark from "./PinMark";
 import ThreadPinButton from "./ThreadPinButton";
+import ThreadPinStrip from "./ThreadPinStrip";
 import ThreadSidePanel from "./ThreadSidePanel";
 import ThreadStatusPill from "./ThreadStatusPill";
 import ThreadWatchButton from "./ThreadWatchButton";
@@ -57,6 +61,15 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   const paneRef = useRef<HTMLDivElement>(null);
   const number = parseThreadNumber(numberParam);
   const workflow = useRoomWorkflow(room.id);
+  // Whether THIS thread is pinned (the room's one pins query, shared with the pin button, the strip and the list's marks): a failed read marks nothing.
+  const { threadNumbers: pinnedThreads, data: pins } = useRoomPins(room.id);
+  // The pin strip's expanded state: one switch per person per browser, held HERE because the pane's layout answers to it (`data-strip`).
+  const [pinsOpen, setPinsOpen] = useStoredState("threadPane.pinsOpen", false, isBoolean);
+  // The strip's "Show in thread" for the message the URL ALREADY names asks the conversation to jump again (it has landed there once); any other
+  // message is a URL change, and the change is the jump.
+  const [jumpSeq, setJumpSeq] = useState(0);
+  const requestJump = useCallback((messageId: number) => (messageId === anchorId ? setJumpSeq((seq) => seq + 1) : undefined), [anchorId]);
+  const focusPane = useCallback(() => paneRef.current?.focus(), []);
   // The caller's own just-posted message (and its thread, so a request never outlives a navigation): the list scrolls to the bottom once it shows it.
   const [scrollRequest, setScrollRequest] = useState<{ threadNumber: number; messageId: number } | null>(null);
   // A pin or watch failure, kept with the thread it belongs to and drawn in a full-width row of the header (outside the icon group).
@@ -107,7 +120,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
 
   const zone = browserTimeZone();
   return (
-    <Box component="section" ref={paneRef} tabIndex={-1} aria-labelledby={headingId} className={classes.pane} data-side={detailsOpen ? "open" : "closed"}>
+    <Box component="section" ref={paneRef} tabIndex={-1} aria-labelledby={headingId} className={classes.pane} data-side={detailsOpen ? "open" : "closed"} data-strip={messagePinsOf(pins?.items, thread.number).length > 0 ? (pinsOpen ? "open" : "closed") : undefined}>
       <Stack gap={4} className={classes.head}>
         {workflow.isError && <ErrorAlert error={workflow.error} title={t("threads.pane.workflowFailed")} />}
         <Group align="center" wrap="wrap" gap="xs">
@@ -135,7 +148,9 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           </Group>
         </Group>
         {actionError?.number === thread.number && <FormErrorAlert>{actionError.message}</FormErrorAlert>}
-        <Group gap="0 var(--mantine-spacing-md)" wrap="wrap">
+        <Group gap="0 var(--mantine-spacing-md)" wrap="wrap" align="center">
+          {/* In the dimmed line, not beside the status pill: in the first row the badge would wrap the icons onto a second row in a pane beside the open side panel (1280x720), and the composer's Send would leave the screen. */}
+          {pinnedThreads.has(thread.number) && <PinMark size="sm" />}
           <Text size="xs" c="dimmed">
             {t("threads.pane.owner", { name: thread.ownerName })}
           </Text>
@@ -149,6 +164,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             {t("threads.pane.lastActivity", { when: formatDateTime(thread.lastActivityAt, zone) })}
           </Text>
         </Group>
+        <ThreadPinStrip room={room} threadNumber={thread.number} open={pinsOpen} onOpenChange={setPinsOpen} onShow={requestJump} focusPane={focusPane} />
       </Stack>
       <div id={sideId} className={classes.side} data-open={detailsOpen} role="region" aria-label={t("threads.side.aria")} tabIndex={0}>
         <ThreadSidePanel key={`${room.id}/${thread.number}`} room={room} thread={thread} />
@@ -161,6 +177,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           scrollToId={scrollRequest?.threadNumber === thread.number ? scrollRequest.messageId : null}
           onScrolled={clearScrollRequest}
           anchorId={anchorId}
+          jumpSeq={jumpSeq}
           threadSettled={!isFetching}
         />
         <MessageComposer room={room} thread={thread} onPosted={(messageId) => setScrollRequest({ threadNumber: thread.number, messageId })} />

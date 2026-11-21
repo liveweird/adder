@@ -50,6 +50,27 @@ describe("MessageItem", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  test("a pinned message says who pinned it, with the pin shape, and is marked for its bar; an unpinned one and a tombstone carry nothing", () => {
+    const withPin = (message: MessageResponse, pinnedBy?: string) => (
+      <ul>
+        <MessageItem roomId={12} message={message} actions={{ edit: false, remove: null }} zone={ZONE} pinnedBy={pinnedBy} />
+      </ul>
+    );
+    const { rerender } = renderWithProviders(withPin(makeMessage(), "Ann Owner"));
+    const item = screen.getByRole("listitem");
+    expect(item).toHaveAttribute("data-pinned", "true");
+    const line = within(item).getByText("Pinned by Ann Owner");
+    // The icon is decoration: the words are the mark.
+    expect(line.parentElement?.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    rerender(withPin(makeMessage()));
+    expect(screen.getByRole("listitem")).not.toHaveAttribute("data-pinned");
+    expect(screen.queryByText(/^Pinned by/)).not.toBeInTheDocument();
+    // A deleted message loses its pin on the server; until the pins are re-read it must not wear the mark.
+    rerender(withPin(makeMessage({ deleted: true, body: null }), "Ann Owner"));
+    expect(screen.getByRole("listitem")).not.toHaveAttribute("data-pinned");
+    expect(screen.queryByText(/^Pinned by/)).not.toBeInTheDocument();
+  });
+
   test("a mention in the body reads as the person's name when the message lists it, and as the raw token when it does not", () => {
     renderItem(makeMessage({ body: "Ask <@5> or <@77>.", mentions: [{ userId: 5, name: "Ann Owner" }] }), { edit: false, remove: null });
     expect(screen.getByText("@Ann Owner")).toBeInTheDocument();

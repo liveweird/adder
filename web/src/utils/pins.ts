@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import type { QueryClient } from "@tanstack/react-query";
-import { PIN_LIMIT } from "../api/pins";
+import { PIN_LIMIT, type RoomPin } from "../api/pins";
 import type { RoomResponse } from "../api/rooms";
 import { PROBLEM_TYPES, isProblem } from "./problems";
 import { refreshQueriesAfterMutation } from "./queryRefresh";
@@ -11,6 +11,11 @@ import { saveErrorMessage } from "./saveError";
 /** 0.6 D4: any member of a live room pins and unpins; an ADMIN who is not a member reads the pins but cannot change them. UX only, the server guards. */
 export function canPin(room: Pick<RoomResponse, "role" | "archived">): boolean {
   return room.role !== null && !room.archived;
+}
+
+/** The MESSAGE pins of one thread, in the order the room's pins arrive (newest pin first): what the open thread's pin strip lists. */
+export function messagePinsOf(pins: readonly RoomPin[] | undefined, threadNumber: number): RoomPin[] {
+  return (pins ?? []).filter((pin) => pin.kind === "MESSAGE" && pin.message !== null && pin.threadNumber === threadNumber);
 }
 
 /**

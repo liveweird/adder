@@ -9,6 +9,7 @@ import type { ThreadResponse } from "../api/threads";
 import { useAdmin } from "../auth";
 import { getUserId } from "../api/session";
 import { useArrivals, useFirstUnreadOnOpen } from "../hooks/useConversationUnread";
+import { useRoomPins } from "../hooks/useRoomPins";
 import { useThreadReadMarker } from "../hooks/useThreadReadMarker";
 import { browserTimeZone } from "../utils/formatDate";
 import { messageActions } from "../utils/messageAccess";
@@ -52,7 +53,7 @@ function centreInScroller(scroller: HTMLElement, item: HTMLElement) {
  * loads, then scrolls to it, focuses it (`tabIndex={-1}` on the item), announces it and highlights it for a few seconds. When the
  * thread has no such message, or it is further back than ten loads reach (counted from the moment the anchor arrives), a gray note above the
  * list says so and the list goes to the bottom, as on any open. A deleted message is listed as its tombstone, so the jump lands on that.
- * The jump happens once per anchor, however often the list is re-read afterwards.
+ * The jump happens once per anchor, however often the list is re-read afterwards (and again when the reader asks for it: `jumpSeq`, the pin strip's "Show in thread").
  *
  * Unread (0.6.0): the first message that was unread when the thread opened (`thread.firstUnreadMessageId`, taken once, once the thread read has
  * settled: `threadSettled`) gets a "New" separator above it; while it is off screen (or not loaded yet) "Jump to the first new message"
@@ -66,6 +67,7 @@ export default function MessageList({
   scrollToId,
   onScrolled,
   anchorId: urlAnchorId = null,
+  jumpSeq = 0,
   threadSettled = true,
 }: {
   room: RoomResponse;
@@ -73,6 +75,8 @@ export default function MessageList({
   scrollToId: number | null;
   onScrolled: () => void;
   anchorId?: number | null;
+  /** Bumped by the pane when the reader asks to be taken to a message again (the pin strip's "Show in thread"): the jump runs once per (anchor, request). */
+  jumpSeq?: number;
   /** Whether the thread read that holds `firstUnreadMessageId` has settled (no fetch in flight): the unread boundary is taken from the first settled read. */
   threadSettled?: boolean;
 }) {
@@ -80,6 +84,8 @@ export default function MessageList({
   const admin = useAdmin();
   const userId = getUserId();
   const zone = browserTimeZone();
+  // Who pinned each pinned message (the room's one pins query): the message wears a "Pinned by" mark; a failed read marks nothing.
+  const { pinnedByMessage } = useRoomPins(room.id);
   // "Jump to the first new message" asks the anchor machinery for a message of its own (it wins over the URL's only until the URL's changes).
   const [localJump, setLocalJump] = useState<{ url: number | null; id: number } | null>(null);
   const anchorId = localJump !== null && localJump.url === urlAnchorId ? localJump.id : urlAnchorId;
@@ -153,21 +159,21 @@ export default function MessageList({
   // The jump: once per anchor, when its message is listed. The message is centred in the scroller (the page does not move), takes the focus
   // (without a second scroll) and is highlighted for a while; `trackBottom` re-reads where that leaves the reader, so a list that grows later does not pull them away.
   const [spotlight, setSpotlight] = useState<number | null>(null);
-  const jumpedTo = useRef<number | null>(null);
+  const jumpedTo = useRef<{ id: number; seq: number } | null>(null);
   useLayoutEffect(() => {
     if (anchorId === null) {
       jumpedTo.current = null;
       return;
     }
-    if (!found || jumpedTo.current === anchorId) return;
+    if (!found || (jumpedTo.current?.id === anchorId && jumpedTo.current.seq === jumpSeq)) return;
     const item = scroller.current?.querySelector<HTMLElement>(`[data-message-id="${anchorId}"]`);
     if (!item) return;
-    jumpedTo.current = anchorId;
+    jumpedTo.current = { id: anchorId, seq: jumpSeq };
     if (scroller.current) centreInScroller(scroller.current, item);
     item.focus({ preventScroll: true });
     trackBottom();
     setSpotlight(anchorId);
-  }, [anchorId, found, trackBottom]);
+  }, [anchorId, found, jumpSeq, trackBottom]);
   // A jump to the first new message is used up once it has landed (the spotlight is on it): the URL's anchor, if any, takes over again.
   if (localJump !== null && spotlight === localJump.id) setLocalJump(null);
   useEffect(() => {
@@ -331,6 +337,7 @@ export default function MessageList({
               zone={zone}
               anchored={message.id === spotlight}
               firstNew={message.id === firstUnread}
+              pinnedBy={pinnedByMessage.get(message.id)}
             />
           ))}
         </ul>

@@ -87,6 +87,21 @@
     display: flex;
   }
 
+  /* The pin strip (`data-strip`) takes height from the header's box, and the conversation, the one part of the column that gives way, gives it
+     back by lowering its own minimum (`--scroller-min`, read by `MessageList.module.css`), so a pinned thread fits wherever an unpinned one does and
+     Send never moves. Collapsed the strip is one line (about 27px with its gap): the minimum is 16rem less 1.75rem. Expanded its list is capped at
+     `--strip-list-max` (read by `ThreadPinStrip.module.css`) and the conversation may shrink to 6rem: at 1280x720 with the side panel open and
+     a long title the conversation is about 240px with the strip collapsed, and the list takes what the conversation can spare. Wide only; narrow
+     keeps the full 16rem and the narrow cap. */
+  .pane[data-strip="closed"] {
+    --scroller-min: 14.25rem;
+  }
+
+  .pane[data-strip="open"] {
+    --scroller-min: 6rem;
+    --strip-list-max: min(12rem, 14dvh);
+  }
+
   .pane[data-side="open"] {
     grid-template-columns: minmax(0, 1fr) 18rem;
     grid-template-areas:

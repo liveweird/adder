@@ -385,6 +385,12 @@ describe("ThreadList", () => {
     // The mark is a description (as the rail's are), so the link is still found by the thread's own name.
     expect(screen.queryByRole("link", { name: /Pinned/ })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Old alert/ })).not.toHaveAccessibleDescription("Pinned");
+    // The visible mark (1.2 D5): a "Pinned" badge with the pin shape beside the status pill, hidden from the accessibility tree (the description
+    // above says it once), on the pinned row only.
+    const badge = within(pinned).getByText("Pinned");
+    expect(badge.closest("[data-pin-mark]")).toHaveAttribute("aria-hidden", "true");
+    expect(document.querySelectorAll("[data-pin-mark]")).toHaveLength(1);
+    expect(within(screen.getByRole("link", { name: /Old alert/ })).queryByText("Pinned")).not.toBeInTheDocument();
   });
 
   test("a watched thread's row carries a mark, described in words, and a thread the caller does not watch carries none", async () => {

@@ -108,7 +108,9 @@
    at 1440x900.
    - *Expected*: the heading's name is the whole title (the row shows it ending in an ellipsis), the panel's sections show, **Send** is on
      screen at both sizes and the page does not scroll: the pane is a column bounded by the viewport, so a wrapping header cannot push the
-     composer down. They go back to the second thread.
+     composer down. They pin that thread's opening message from its menu: a pin strip ("Pinned: A thread with a long title.") stands
+     under the header as one collapsed line; at both sizes, collapsed and expanded (its capped list is in the flow under the header and the conversation
+     shrinks to give the height back), **Send** is still on screen and the page still does not scroll. They go back to the second thread.
 6. They press **Details** again and reload.
    - *Expected*: the panel is closed (`aria-expanded="false"`, its sections not on the page): closing is remembered the same way.
 7. Below the three-column width the page is not bounded: it scrolls, the conversation keeps a real height and the composer sticks to the

@@ -100,6 +100,17 @@ test.describe("mobile width", () => {
   });
 });
 
+/**
+ * Opens the thread's pin strip (collapsed by default) and waits for what it lists: the pinned opening message with its jump and its Unpin, above the
+ * conversation, whose pinned message wears its own "Pinned by" line. The scan then sees the strip expanded.
+ */
+async function expandPinStrip(p: Page): Promise<void> {
+  await expect(p.getByText("On it, promoting now.")).toBeVisible();
+  await p.getByRole("button", { name: /^Pinned: / }).click();
+  await expect(p.getByRole("region", { name: "Pins in this thread", exact: true }).getByRole("link", { name: /^Show in thread/ })).toBeVisible();
+  await expect(p.getByRole("region", { name: "Messages", exact: true }).getByText(/^Pinned by /)).toBeVisible();
+}
+
 /** The fixture teammate's handles, filled in by `seedConversation` as each exists. */
 type Teammate = { id?: number; api?: APIRequestContext };
 
@@ -307,6 +318,8 @@ test.describe("detail pages and overlays", () => {
         await expect(p.getByText("On it, promoting now.")).toBeVisible();
       },
     },
+    // The same conversation with the thread's pin strip EXPANDED (1.2.0; `expandPinStrip`: the state is remembered per browser, and every test has a fresh one).
+    { name: "the conversation with the pin strip expanded", asOwner: true, path: () => `/rooms/${roomId}/threads/${threadNumber}`, settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }), before: expandPinStrip },
     // The mention picker: an @ in the composer opens the room's members as a listbox over the page.
     {
       name: "the mention picker", asOwner: true,
@@ -422,7 +435,7 @@ test.describe("detail pages and overlays", () => {
 
     test(`the pinned panel has no WCAG A/AA violations${suffix}`, async ({ page }) => {
       await signIn(page, `/rooms/${roomId}`);
-      await page.getByRole("button", { name: /^Pinned/ }).click();
+      await page.getByRole("button", { name: /^Pinned \(\d+\)$/ }).click();
       const panel = await settledDialog(page);
       // Settled once both pins (the thread and its opening message) are listed.
       await expect(panel.getByRole("link", { name: `#${threadNumber} ${threadTitle}`, exact: true })).toBeVisible();

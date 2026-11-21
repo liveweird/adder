@@ -104,6 +104,25 @@ what the scenario is about.
 6. The reader closes the panel.
    - *Expected*: the button reads "Pinned (0)".
 
+## Scenario: a pinned message is marked in the conversation and listed in the thread's pinned strip
+
+1. The same setup with a started thread (opening message "The opening message.") and two more messages posted through the API ("Keep this runbook step within reach." and "Rotate the replica credentials." with a second line); both open the thread.
+   - *Expected*: the reader sees no pin strip and no "Pinned by" line.
+2. The author opens each of those two messages' menu and picks **Pin** (the note last, so it is the newest pin).
+   - *Expected*: both PUTs succeed.
+3. The reader does nothing.
+   - *Expected*: both messages read "Pinned by `<author>`" (with a pin shape and `data-pinned`), the opening message does not; a "Pins in this thread" strip stands under the header as ONE collapsed line, the button "Pinned: Rotate the replica credentials. (+1)" (`aria-expanded` false, the newest pin's first line and the count of the rest), with no link visible; the document was not reloaded.
+4. The reader presses the strip.
+   - *Expected*: it lists two entries in place, the note first, each with who pinned it and when; the button now reads "Pinned in this thread (2)".
+5. The reader presses **Show in thread** of the runbook entry, moves the focus to the reply box, and presses it again.
+   - *Expected*: the URL names the message (`message=<id>`), the message takes the focus, is on screen and is not covered (its top edge is below the strip's bottom edge: the expanded list is in the flow); after the focus moved away, the second press does the same again (a jump to a message already landed on).
+6. The author presses **Pin this thread**.
+   - *Expected*: with no reload, the reader's thread header carries a "Pinned" badge and the thread's list row a visible badge, the row's description says "Pinned" and its name is still the thread's.
+7. The reader presses **Unpin** on the runbook entry, then on the last one.
+   - *Expected*: the runbook message loses its "Pinned by" line in both pages at once and the focus lands on the strip's button; the strip then shows one pin, and after the last **Unpin** it is gone from both pages and the focus is on the thread's pane and no message reads "Pinned by"; the reader's document was not reloaded.
+8. The author pins the runbook message again; the reader reloads.
+   - *Expected*: the strip comes back already expanded ("Pinned in this thread (1)", the open/closed choice is remembered per browser), and it is still expanded after the reload.
+
 ## Scenario: a member removed from a room loses its notifications
 
 1. The same setup (the thread is started before the reader joins); the author starts a thread, adds the reader and replies with a `<@reader>` mention through the API. The reader opens Home.

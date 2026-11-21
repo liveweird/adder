@@ -260,6 +260,7 @@
     "pin": "Przypnij",
     "unpin": "Odepnij",
     "mark": "Przypięty",
+    "by": "Przypiął/przypięła {{name}}",
     "error": {
       "forbidden": "Przypinać i odpinać mogą tylko członkowie/członkinie pokoju.",
       "gone": "Ten wątek lub ta wiadomość już nie istnieje albo nie masz już dostępu do jej pokoju — odśwież stronę",
@@ -268,6 +269,15 @@
       "conflict": "Pokój zmienił się w międzyczasie. Odśwież stronę i spróbuj ponownie.",
       "tooManyRequests": "Zmieniasz zbyt szybko. Odczekaj minutę i spróbuj ponownie."
     }
+  },
+  "pinStrip": {
+    "aria": "Przypięte w tym wątku",
+    "collapsed": "Przypięte: {{excerpt}}",
+    "collapsedMore": "Przypięte: {{excerpt}} (+{{count}})",
+    "expanded": "Przypięte w tym wątku ({{count}})",
+    "more": "(+{{count}})",
+    "show": "Pokaż w wątku",
+    "showAria": "Pokaż w wątku: {{name}}"
   },
   "watch": {
     "thread": "Obserwuj ten wątek",

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Box, Divider, Group, Menu, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { IconPencil, IconTrash } from "@tabler/icons-react";
+import { IconPencil, IconPinFilled, IconTrash } from "@tabler/icons-react";
 import { deleteMessage, type MessageResponse } from "../api/messages";
 import { formatDateTime } from "../utils/formatDate";
 import type { MessageActions } from "../utils/messageAccess";
@@ -29,7 +29,8 @@ import UnreadCue from "./UnreadCue";
  * re-reads the whole `["rooms"]` prefix, so the controls follow the truth. The failure of an edit or a delete shows under the message: it
  * lives HERE, so it outlives an editor that the refusal takes away (the thread closed), and `editing` resets when the edit action goes.
  * Focus has somewhere to go: the message (`tabIndex={-1}`) takes it back after an edit ends (saved or cancelled) and when the message
- * becomes the tombstone of the caller's own delete or removal. `data-message-id` lets the list find the message it jumps to.
+ * becomes the tombstone of the caller's own delete or removal. A pinned message (`pinnedBy`, from the room's pins) wears a "Pinned by {name}" line
+ * with a filled pin and a gray bar down its edge: words and shapes, never colour alone (1.2 D5). `data-message-id` lets the list find the message it jumps to.
  */
 export default function MessageItem({
   roomId,
@@ -38,6 +39,7 @@ export default function MessageItem({
   zone,
   anchored = false,
   firstNew = false,
+  pinnedBy,
 }: {
   roomId: number;
   message: MessageResponse;
@@ -47,6 +49,8 @@ export default function MessageItem({
   anchored?: boolean;
   /** The first message that was unread when the thread opened: a "New" separator stands above it (inside the item, so the list stays a list of items). */
   firstNew?: boolean;
+  /** Who pinned this message, when the room's pins list it (1.2 D5): a "Pinned by" line with the pin icon and a gray bar (`data-pinned`) mark it. */
+  pinnedBy?: string;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -59,6 +63,7 @@ export default function MessageItem({
   const refocusTombstone = useRef(false);
   const when = formatDateTime(message.createdAt, zone);
   const moderate = actions.remove === "moderate";
+  const pinned = pinnedBy !== undefined && !message.deleted;
   // The edit action went (the thread closed, the room was archived): the editor goes with it and must not come back by itself on a reopen.
   if (editing && !actions.edit) setEditing(false);
   useEffect(() => {
@@ -93,7 +98,7 @@ export default function MessageItem({
   }
 
   return (
-    <Box component="li" ref={item} tabIndex={-1} py="xs" data-message-id={message.id} data-anchor={anchored || undefined}>
+    <Box component="li" ref={item} tabIndex={-1} py="xs" data-message-id={message.id} data-anchor={anchored || undefined} data-pinned={pinned || undefined}>
       {firstNew && (
         <Divider
           mb="xs"
@@ -105,6 +110,14 @@ export default function MessageItem({
         />
       )}
       <Stack gap={4}>
+        {pinned && (
+          <Group gap={4} wrap="nowrap" align="center">
+            <IconPinFilled size={12} aria-hidden="true" style={{ flex: "none" }} />
+            <Text size="xs" fw={600} c="dimmed">
+              {t("threads.pin.by", { name: pinnedBy })}
+            </Text>
+          </Group>
+        )}
         <Group justify="space-between" align="center" wrap="nowrap" gap="xs">
           <Group gap="xs" wrap="wrap" miw={0}>
             <Text fw={700} size="sm" component="span" style={{ overflowWrap: "anywhere" }}>

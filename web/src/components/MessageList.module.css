@@ -7,7 +7,8 @@
  *   whatever the header and the composer leave (`flex: 1`), never less than 16rem.
  */
 .scroller {
-  min-height: 16rem;
+  /* `--scroller-min` is the thread pane's to lower, wide only, while its pin strip takes a line of the column (`ThreadPane.module.css`). */
+  min-height: var(--scroller-min, 16rem);
   max-height: max(16rem, 60dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -36,6 +37,22 @@
 
 .list > li + li {
   border-top: 1px solid var(--mantine-color-default-border);
+}
+
+/*
+ * A pinned message (1.2 D5): a gray bar down its left edge on a quiet gray tint, beside the "Pinned by {name}" line with the pin icon that the
+ * item draws (words and shapes; the hue is never the only carrier). Pinned is a neutral state, so gray, not the olive accent or the unread blue.
+ * The bar is a real border (it survives forced colours; a box-shadow would not) and the margin pulls it out into the scroller's padding, so the
+ * text of a pinned message stays aligned with the others': bar + gap = 9px, inside the 12px padding. gray-6 is 3.5:1 on the light surface,
+ * gray-5 7:1 on the dark one.
+ */
+.list > li[data-pinned] {
+  --pin-bar: 3px;
+  --pin-gap: 0.375rem;
+  border-left: var(--pin-bar) solid light-dark(var(--mantine-color-gray-6), var(--mantine-color-gray-5));
+  padding-inline-start: var(--pin-gap);
+  margin-inline-start: calc(-1 * (var(--pin-bar) + var(--pin-gap)));
+  background-color: light-dark(var(--mantine-color-gray-0), var(--adder-surface-tint));
 }
 
 /*

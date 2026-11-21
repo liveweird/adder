@@ -1,6 +1,7 @@
 // Social (0.6.0): mentions picked in the composer reach the mentioned member's bell live and open the message; the "Mentions me" filter; a
 // hand-over notifies the new owner; the rail's and the thread list's unread marks and the conversation's "New" line; a reaction from the emoji
-// picker (no content-security-policy violation) seen live by another member, who toggles theirs; the pinned panel and a pin's removal seen live;
+// picker (no content-security-policy violation) seen live by another member, who toggles theirs; the pinned panel and a pin's removal seen live; a pin's
+// mark in the conversation, on the thread's header and list row, and the open thread's pin strip (1.2.0);
 // a member removed from a room loses its notifications; the Notification preferences page keeps a saved switch; a kind switched off in the app stops arriving;
 // a team mention (1.1.0) reaches the team's members who are in the room and no one else; everyone is told once, with the most specific reason. Two browser contexts wherever live matters, with no reload in the watching one.
 // Owns: its throwaway `e2e-soc-*` rooms and users, removed through the API in an `afterEach` (contexts first, then rooms, then the users). Every room
@@ -67,7 +68,9 @@ const messageNamed = (page: Page, text: string) => conversation(page).getByRole(
 const bell = (page: Page) => page.getByRole("button", { name: /^Notifications \(/ });
 const unseenBell = (count: number) => new RegExp(`^Notifications \\(${count} unseen\\)$`);
 const drawer = (page: Page) => page.getByRole("dialog", { name: "Notifications", exact: true });
-const pinnedButton = (page: Page) => page.getByRole("button", { name: /^Pinned/ });
+// The room header's drawer button ("Pinned (n)"); the open thread's pin strip is a button too, but its name is "Pinned: <excerpt>" or "Pinned in this thread (n)".
+const pinnedButton = (page: Page) => page.getByRole("button", { name: /^Pinned( \(\d+\))?$/ });
+const pinStrip = (page: Page) => page.getByRole("region", { name: "Pins in this thread", exact: true });
 const pinnedDrawer = (page: Page) => page.getByRole("dialog", { name: "Pinned in this room", exact: true });
 
 /** The admin (signed in on `page`) mints the owner and the teammate; the owner then makes a room and adds the teammate, all through the API. */
@@ -421,6 +424,105 @@ test("a pinned thread and a pinned message show in the pinned panel for another 
   await expectNoReload(reader);
   await reader.page.keyboard.press("Escape");
   await expect(pinnedButton(reader.page)).toHaveText("Pinned (0)");
+});
+
+test("a pinned message is marked in the conversation and listed in the thread's pinned strip", async ({ page, browser }) => {
+  const room = await scene(page);
+  const title = uniqueText("Pin strip thread");
+  await startThread(room, title, "The opening message.");
+  const runbookId = await postMessage(room, 1, "Keep this runbook step within reach.");
+  await postMessage(room, 1, "Rotate the replica credentials.\nSecond line of the note.");
+  const thread = `/rooms/${room.roomId}/threads/1`;
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, thread, room.roomId);
+  await openLive(reader, thread, room.roomId);
+  const readerRunbook = messageNamed(reader.page, "Keep this runbook step within reach.");
+  const readerNote = messageNamed(reader.page, "Rotate the replica credentials.");
+  await expect(readerRunbook).toBeVisible();
+  // Nothing is pinned: no strip, no mark.
+  await expect(pinStrip(reader.page)).toHaveCount(0);
+  await expect(conversation(reader.page).getByText(/^Pinned by /)).toHaveCount(0);
+
+  // The author pins both messages from their menus (the note last, so it is the newest pin).
+  for (const text of ["Keep this runbook step within reach.", "Rotate the replica credentials."]) {
+    await messageNamed(author.page, text).getByRole("button", { name: /^Operations for message by / }).click();
+    await Promise.all([
+      author.page.waitForResponse((r) => r.request().method() === "PUT" && MESSAGE_PIN_API.test(r.url()) && r.ok()),
+      author.page.getByRole("menuitem", { name: "Pin", exact: true }).click(),
+    ]);
+  }
+
+  // The reader, with no action and no reload: both messages say who pinned them (the words and the pin shape, not only a colour), and the strip
+  // appeared under the header as ONE collapsed line quoting the newest pin's first line and counting the other.
+  await expect(readerRunbook).toContainText(`Pinned by ${room.owner.name}`);
+  await expect(readerNote).toContainText(`Pinned by ${room.owner.name}`);
+  await expect(readerRunbook).toHaveAttribute("data-pinned", "true");
+  await expect(conversation(reader.page).getByRole("listitem").filter({ hasText: "The opening message." })).not.toHaveAttribute("data-pinned", "true");
+  const strip = pinStrip(reader.page);
+  const toggle = strip.getByRole("button", { name: "Pinned: Rotate the replica credentials. (+1)", exact: true });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(strip.getByRole("link")).toHaveCount(0);
+  await expectNoReload(reader);
+
+  // Expanded in place: both pins, newest first, each with its jump and its Unpin (any member may unpin).
+  await toggle.click();
+  const entries = strip.getByRole("listitem");
+  await expect(entries).toHaveCount(2);
+  await expect(entries.nth(0)).toContainText("Rotate the replica credentials. Second line of the note.");
+  await expect(entries.nth(0)).toContainText(`Pinned by ${room.owner.name} on `);
+  await expect(entries.nth(1)).toContainText("Keep this runbook step within reach.");
+
+  // "Show in thread" is the 0.5.0 jump: it names the message in the URL, focuses it, and works again for a message it already landed on. The strip
+  // is in flow above the conversation, so the target must be on screen and not covered: its top edge is below the strip's bottom edge.
+  const expectShown = async (where: string) => {
+    await expect(readerRunbook, `the message is on screen ${where}`).toBeInViewport();
+    await expect(readerRunbook).toBeFocused();
+    const stripBox = (await strip.boundingBox())!;
+    const messageBox = (await readerRunbook.boundingBox())!;
+    expect(messageBox.y, `the message is not under the strip ${where}`).toBeGreaterThanOrEqual(stripBox.y + stripBox.height);
+  };
+  const showRunbook = entries.nth(1).getByRole("link", { name: /^Show in thread: / });
+  await showRunbook.click();
+  await expect(reader.page).toHaveURL(new RegExp(`message=${runbookId}`));
+  await expectShown("after the first jump");
+  await reader.page.getByRole("textbox", { name: "Reply", exact: true }).focus();
+  await expect(readerRunbook).not.toBeFocused();
+  await showRunbook.click();
+  await expect(reader.page).toHaveURL(new RegExp(`message=${runbookId}`));
+  await expectShown("after jumping again to a message already landed on");
+
+  // A pinned thread is marked too: a "Pinned" badge in its header and on its list row (the row keeps the thread's name; the badge is for the eye).
+  const header = reader.page.getByRole("region", { name: new RegExp(`^#1 ${title}`) });
+  await expect(header.locator("[data-pin-mark]")).toHaveCount(0);
+  await author.page.getByRole("button", { name: "Pin this thread", exact: true }).click();
+  await expect(header.locator("[data-pin-mark]")).toHaveText("Pinned");
+  const row = threadLink(reader.page, title);
+  await expect(row.locator("[data-pin-mark]")).toBeVisible();
+  await expect(row).toHaveAccessibleDescription(/Pinned/);
+
+  // The reader unpins one from the strip: its mark goes at once in both pages and the focus lands on the strip's button; the last unpin takes the strip
+  // away and the focus goes to the thread's pane. No reload in either page.
+  await entries.nth(1).getByRole("button", { name: /^Unpin / }).click();
+  await expect(readerRunbook).not.toContainText("Pinned by");
+  await expect(messageNamed(author.page, "Keep this runbook step within reach.")).not.toContainText("Pinned by");
+  await expect(toggle).toBeHidden();
+  const single = strip.getByRole("button", { name: "Pinned in this thread (1)", exact: true });
+  await expect(single).toHaveAttribute("aria-expanded", "true");
+  await expect(single).toBeFocused();
+  await strip.getByRole("button", { name: /^Unpin / }).click();
+  await expect(pinStrip(reader.page)).toHaveCount(0);
+  await expect(header).toBeFocused();
+  await expect(pinStrip(author.page)).toHaveCount(0);
+  await expect(conversation(reader.page).getByText(/^Pinned by /)).toHaveCount(0);
+  await expectNoReload(reader);
+
+  // Expanded or not is remembered per person: a new pin finds the strip open, and so does a reload.
+  await messageNamed(author.page, "Keep this runbook step within reach.").getByRole("button", { name: /^Operations for message by / }).click();
+  await author.page.getByRole("menuitem", { name: "Pin", exact: true }).click();
+  await expect(strip.getByRole("button", { name: "Pinned in this thread (1)", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await reader.page.reload();
+  await expect(pinStrip(reader.page).getByRole("button", { name: "Pinned in this thread (1)", exact: true })).toHaveAttribute("aria-expanded", "true");
 });
 
 test("a member removed from a room loses its notifications", async ({ page, browser }) => {

@@ -467,6 +467,29 @@ test("the details panel opens on demand and stays open for the next thread", asy
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight), `no page scroll at ${size.width}x${size.height}`).toBe(true);
   }
+  // A pinned message adds the pin strip under the header (1.2.0): one line collapsed; expanded, its capped list is in flow and the
+  // conversation gives the height back, so Send stays in view and the page still does not scroll, with the panel open, at both sizes.
+  await conversation(page).getByRole("listitem").filter({ hasText: "A thread with a long title." }).getByRole("button", { name: /^Operations for message by / }).click();
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && /\/messages\/\d+\/pin$/.test(r.url()) && r.ok()),
+    page.getByRole("menuitem", { name: "Pin", exact: true }).click(),
+  ]);
+  const pinStrip = page.getByRole("region", { name: "Pins in this thread", exact: true });
+  const pinToggle = pinStrip.getByRole("button", { name: "Pinned: A thread with a long title.", exact: true });
+  await expect(pinToggle).toHaveAttribute("aria-expanded", "false");
+  for (const size of [
+    { width: 1280, height: 720 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(size);
+    for (const state of ["collapsed", "expanded"]) {
+      if (state === "expanded") await pinToggle.click();
+      await expect(page.getByRole("button", { name: "Send", exact: true }), `Send with the strip ${state} at ${size.width}x${size.height}`).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight), `no page scroll with the strip ${state} at ${size.width}x${size.height}`).toBe(true);
+    }
+    await expect(pinStrip.getByRole("link", { name: /^Show in thread/ })).toBeVisible();
+    await pinStrip.getByRole("button", { name: /^Pinned in this thread/ }).click();
+  }
   await page.setViewportSize({ width: 1280, height: 720 });
   await threadList(page).getByRole("link", { name: new RegExp(second) }).click();
 

@@ -250,6 +250,7 @@
     "pin": "Pin",
     "unpin": "Unpin",
     "mark": "Pinned",
+    "by": "Pinned by {{name}}",
     "error": {
       "forbidden": "Only members of the room can pin or unpin.",
       "gone": "This thread or message no longer exists, or you no longer have access to its room — reload the page",
@@ -258,6 +259,15 @@
       "conflict": "The room changed in the meantime. Reload the page and try again.",
       "tooManyRequests": "You are changing things too quickly. Wait a minute and try again."
     }
+  },
+  "pinStrip": {
+    "aria": "Pins in this thread",
+    "collapsed": "Pinned: {{excerpt}}",
+    "collapsedMore": "Pinned: {{excerpt}} (+{{count}})",
+    "expanded": "Pinned in this thread ({{count}})",
+    "more": "(+{{count}})",
+    "show": "Show in thread",
+    "showAria": "Show in thread: {{name}}"
   },
   "watch": {
     "thread": "Watch this thread",

@@ -3,7 +3,7 @@ import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button, Group, SegmentedControl, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { IconAt, IconEyeFilled, IconMessages, IconPinFilled, IconPlus } from "@tabler/icons-react";
+import { IconAt, IconEyeFilled, IconMessages, IconPlus } from "@tabler/icons-react";
 import { listThreads } from "../api/threads";
 import type { RoomResponse } from "../api/rooms";
 import { useRoomPins } from "../hooks/useRoomPins";
@@ -19,6 +19,7 @@ import EmptyState from "./EmptyState";
 import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import PaginationBar from "./PaginationBar";
+import PinMark from "./PinMark";
 import ThreadStatusPill from "./ThreadStatusPill";
 import UnreadCue from "./UnreadCue";
 import { roomKeys } from "../utils/roomKeys";
@@ -142,12 +143,6 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                       <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
                         <Text size="sm" fw={unread ? 700 : 500} lh={1.3} miw={0}>
                           <Text span c="dimmed" inherit>{`#${thread.number}`}</Text> {thread.title}
-                          {pinned && (
-                            <>
-                              {" "}
-                              <IconPinFilled size={12} aria-hidden="true" />
-                            </>
-                          )}
                           {watching && (
                             <>
                               {" "}
@@ -164,6 +159,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                       </Group>
                       <Group gap="xs">
                         <ThreadStatusPill statuses={workflow.data?.statuses} statusKey={thread.status} size="sm" />
+                        {pinned && <PinMark size="sm" hidden />}
                         <Text size="xs" c="dimmed">
                           {thread.ownerName}
                         </Text>
