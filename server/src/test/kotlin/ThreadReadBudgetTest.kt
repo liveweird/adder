@@ -172,13 +172,13 @@ class ThreadReadBudgetTest {
                     capture.awaitEvent { it.message == "read.timeout" && it.hasKeyValue("resource", "notifications") },
                 )
                 assertTrue(event.hasKeyValue("byUserId", owner.id.toLong()))
-                assertTrue(event.hasKeyValue("roomId", null), "a list of the caller's own notices belongs to no room")
+                assertTrue(event.keyValuePairs.orEmpty().none { it.key == "roomId" }, "the caller's own notices belong to no room: no key")
             }
             assertEquals(HttpStatusCode.OK, owner.client.get("/api/v1/notifications").status, "the permits are back")
         }
 
     @Test
-    fun `a fifth notification list read of one user is 429 read-busy, resource notifications, no room, the four timing out`() =
+    fun `a third notification list read of one user is 429 read-busy, resource notifications, no room, the two timing out`() =
         testApplication {
             configureApp("threads.readTimeoutSeconds" to "3")
             startApplication()
@@ -187,9 +187,9 @@ class ThreadReadBudgetTest {
             withAuditCapture { capture ->
                 val (answers, _) = whileLocked("notifications") {
                     coroutineScope {
-                        val held = List(4) { async { owner.client.get("/api/v1/notifications") } }
-                        // The user's four permits are taken, each statement waiting on the lock.
-                        awaitLockWaiter("notifications", atLeast = 4)
+                        val held = List(2) { async { owner.client.get("/api/v1/notifications") } }
+                        // The user's two permits (half the process cap of four) are taken, each statement waiting on the lock.
+                        awaitLockWaiter("notifications", atLeast = 2)
                         val refused = owner.client.get("/api/v1/notifications") // waits about 1 s for a permit, then is refused
                         refused to held.awaitAll()
                     }
@@ -200,10 +200,45 @@ class ThreadReadBudgetTest {
                 assertEquals(READ_BUSY_PROBLEM_TYPE, refused.body<ProblemDetail>().type)
                 val event = assertNotNull(capture.awaitEvent { it.message == "read.busy" && it.hasKeyValue("resource", "notifications") })
                 assertTrue(event.hasKeyValue("byUserId", owner.id.toLong()) && event.hasKeyValue("limit", "user"))
-                assertTrue(event.hasKeyValue("roomId", null))
-                assertTrue(held.all { it.status == HttpStatusCode.TooManyRequests }, "the four ended at their deadline")
+                assertTrue(event.keyValuePairs.orEmpty().none { it.key == "roomId" }, "no room, so no roomId key")
+                assertTrue(held.all { it.status == HttpStatusCode.TooManyRequests }, "the two ended at their deadline")
             }
             assertEquals(HttpStatusCode.OK, owner.client.get("/api/v1/notifications").status, "the permits are back")
+        }
+
+    @Test
+    fun `a notification list read past the process cap of four is 429 read-busy with limit process, two users holding two each`() =
+        testApplication {
+            configureApp("threads.readTimeoutSeconds" to "3")
+            startApplication()
+            val first = actor("rdb-not-proc-1")
+            val second = actor("rdb-not-proc-2")
+            val third = actor("rdb-not-proc-3")
+            room(first)
+            room(second)
+            room(third)
+            withAuditCapture { capture ->
+                val (answers, _) = whileLocked("notifications") {
+                    coroutineScope {
+                        // Each of two users holds its two per-user slots: the process cap of four is spent, and neither has a slot left.
+                        val held = listOf(first, second).flatMap { user -> List(2) { async { user.client.get("/api/v1/notifications") } } }
+                        awaitLockWaiter("notifications", atLeast = 4)
+                        val refused = third.client.get("/api/v1/notifications") // a stranger, under its own cap, waits 1 s and is refused
+                        refused to held.awaitAll()
+                    }
+                }
+                val (refused, held) = answers
+                assertEquals(HttpStatusCode.TooManyRequests, refused.status)
+                assertEquals("1", refused.headers["Retry-After"])
+                assertEquals(READ_BUSY_PROBLEM_TYPE, refused.body<ProblemDetail>().type)
+                val event = assertNotNull(
+                    capture.awaitEvent { it.message == "read.busy" && it.hasKeyValue("byUserId", third.id.toLong()) },
+                )
+                assertTrue(event.hasKeyValue("resource", "notifications") && event.hasKeyValue("limit", "process"))
+                assertTrue(event.keyValuePairs.orEmpty().none { it.key == "roomId" }, "no room, so no roomId key")
+                assertTrue(held.all { it.status == HttpStatusCode.TooManyRequests }, "the four ended at their deadline")
+            }
+            assertEquals(HttpStatusCode.OK, third.client.get("/api/v1/notifications").status, "the permits are back")
         }
 
     @Test

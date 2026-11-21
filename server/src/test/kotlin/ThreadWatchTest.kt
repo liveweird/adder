@@ -302,7 +302,7 @@ class ThreadWatchTest {
         assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, true).status)
         val service = TestThreads.watches
         suspend fun counted() =
-            suspendTransaction(sharedDatabaseForTests()) { service.count(cast.threadId) to service.watcherIds(cast.threadId) }
+            suspendTransaction(sharedDatabaseForTests()) { service.count(cast.threadId) to service.recipientIds(cast.threadId) }
         assertEquals(2 to listOf(cast.author.id, cast.member.id).sorted(), counted())
         TestUsers.softDelete(cast.member.id)
         assertEquals(1 to listOf(cast.author.id), counted(), "a deleted account's row stays but never counts")

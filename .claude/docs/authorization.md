@@ -305,8 +305,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   `respondProblem(NotFound, …)` + return), unique-violation `23505`→409 and NUL-byte `22021`→400
   (via the R2DBC/Exposed cause-chain walkers), and a catch-all `Throwable`→500 (logged) through
   that helper. A `status(TooManyRequests)` handler additionally gives the `RateLimit`
-  plugin's bodiless 429 (per-IP buckets, and the per-USER `telemetry` and `directory` buckets) a generic problem body and emits the `rate_limit.exceeded` audit event
-  (bucket/method/path, coalesced to one per bucket per minute with a `suppressed` count — per user, with `byUserId`, for the `telemetry` and `directory` buckets —
+  plugin's bodiless 429 (the per-IP buckets and EVERY per-USER bucket, `RateLimits.kt` lists them) a generic problem body and emits the `rate_limit.exceeded` audit event
+  (bucket/method/path, coalesced to one per bucket per minute with a `suppressed` count — per user, with `byUserId`, for every per-user bucket —
   `observability.md`) — **that handler rewrites any non-StatusPages
   429**, which is why caller-specific 429s (the login lockout) must go through
   `TooManyRequestsException` (handled calls are marked and skipped) — and a sibling

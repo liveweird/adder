@@ -99,9 +99,10 @@ class AnonymousAccessTest {
         val PATH_PARAMETER = Regex("\\{[^}]+}")
 
         /**
-         * The EXACT number of secured operations: the 72 the spec declares less the eight public ones (`security: []`: the seven
-         * of 0.1.0 and, as of 0.4.0, the live WebSocket upgrade, which authenticates in its first frame), 64 with the two
-         * searches, the reaction PUT, the pin operations, the three notification operations and the two preference operations. The
+         * The EXACT number of secured operations: the 73 the spec declares less the eight public ones (`security: []`: the seven
+         * of 0.1.0 and, as of 0.4.0, the live WebSocket upgrade, which authenticates in its first frame), 65 with the two
+         * searches, the reaction PUT, the pin operations, the three notification operations, the two preference operations and the
+         * watch PUT. The
          * sweep derives its list from the spec
          * deterministically, so the count is asserted with `==`: an operation that silently drops out of the sweep, and one added without
          * being counted, both fail here. When an operation is added or removed, set it to the new count (the failure message prints it; or

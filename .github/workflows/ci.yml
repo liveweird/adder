@@ -29,8 +29,8 @@ jobs:
     # Decides whether the server and images jobs run. A pull request that changes only Markdown skips
     # both (the Testcontainers suite and the image build have nothing to verify) - EXCEPT that a change to one of the
     # three always-loaded instruction files (CLAUDE.md, .claude/docs/testing.md, .claude/docs/list-endpoints.md) still runs
-    # `server`: AlwaysLoadedDocsBudgetTest reads them and holds their combined size to a budget (C-GATE-3). `images` stays
-    # skipped. Pushes to master always run both, so every master commit (and so every release commit) is fully verified.
+    # `server`: AlwaysLoadedDocsBudgetTest reads them and holds their combined size to a budget (C-GATE-3); so does a change to
+    # .claude/docs/persistence.md, whose rollback-runbook SQL RollbackRunbookTest runs. `images` stays skipped. Pushes to master always run both, so every master commit (and so every release commit) is fully verified.
     # Plain git, no third-party action.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -54,8 +54,8 @@ jobs:
             if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qEv '\.md$'; then
               images=false
               server=false
-              # The Markdown files a server test reads (AlwaysLoadedDocsBudgetTest): keep this list in step with that test.
-              if printf '%s\n' "$changed" | grep -qxE 'CLAUDE\.md|\.claude/docs/testing\.md|\.claude/docs/list-endpoints\.md'; then
+              # The Markdown files a server test reads (AlwaysLoadedDocsBudgetTest, RollbackRunbookTest): keep this list in step with those tests.
+              if printf '%s\n' "$changed" | grep -qxE 'CLAUDE\.md|\.claude/docs/testing\.md|\.claude/docs/list-endpoints\.md|\.claude/docs/persistence\.md'; then
                 server=true
               fi
             fi

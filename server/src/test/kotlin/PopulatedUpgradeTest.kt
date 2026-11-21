@@ -132,6 +132,10 @@ class PopulatedUpgradeTest {
         assertEquals(6L, inApp, "every notice shows in the app")
         val indexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'notifications'") { it.getString(1) }.toSet()
         assertTrue("uq_notifications_message_recipient" in indexes && "idx_notifications_bell" in indexes, "the new indexes: $indexes")
+        assertTrue(
+            "idx_notifications_recipient_created" in indexes && "idx_notifications_seen" in indexes,
+            "the list's time-sort and seen indexes: $indexes",
+        )
         assertTrue("uq_notifications_message" !in indexes && "idx_notifications_unseen" !in indexes, "the replaced ones are gone: $indexes")
         val stored = "SELECT user_id, notification_type, channel, enabled FROM user_notification_preferences ORDER BY 1"
         val switches = query(database, stored) {

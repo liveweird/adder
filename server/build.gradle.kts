@@ -501,6 +501,8 @@ class ForkWarmupLedger : TestListener {
 tasks.test {
     // CdsClassListTest reads this file: declared so a regenerated class list reruns it instead of being served from the build cache.
     inputs.file("cds/classlist.txt").withPropertyName("cdsClassList")
+    // RollbackRunbookTest runs the SQL blocks of this doc: an edit to the runbook reruns it instead of being served from the build cache.
+    inputs.file(rootDir.resolve(".claude/docs/persistence.md")).withPropertyName("rollbackRunbook")
     // Parallel JVM forks (`-Pforks=2` in CI; default 1 = the classic single fork). Every fork is its own JVM, so it
     // gets its OWN Testcontainers Postgres and its own `object` fixture singletons — all the shared-database
     // hazards (withSoloAdmins, restoreSeedAccounts) stay intra-fork.

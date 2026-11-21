@@ -22,6 +22,11 @@ class ThreadSchemaTest {
         const val CHECK_VIOLATION = "23514"
         const val FK_VIOLATION = "23503"
         const val UNIQUE_VIOLATION = "23505"
+
+        // The notice list's competing person-led indexes, dropped inside a rolled-back transaction so a plan test names its index (a
+        // table other tests have filled makes equal-cost siblings tie).
+        const val WITHOUT_RECIPIENT_SIBLINGS = "DROP INDEX idx_notifications_recipient; DROP INDEX idx_notifications_recipient_created"
+        const val TIME_LED = "DROP INDEX idx_notifications_recipient; DROP INDEX idx_notifications_created"
         const val INSERT_MESSAGE =
             "INSERT INTO messages (thread_id, author_id, body, created_at, marked_as_deleted, deleted_by) VALUES (?, ?, ?, 1, ?, ?)"
     }
@@ -598,7 +603,9 @@ class ThreadSchemaTest {
         // The read marker's `NoticeWriter.threadRead` statement: the person and the thread lead the partial index (V19), so the
         // write reads only that person's unseen rows of that thread, never the person's whole unseen list nor the table.
         for (mode in listOf("auto", "force_generic_plan")) {
-            val plan = explain(MARK_THREAD_SEEN_SQL, "int8, int8, int4, int4", "5, 1, 1, 1", mode)
+            // Nothing is dropped: the index must be CHOSEN against its siblings, on statistics that do not depend on what other tests left
+            // in the table (a realistic spread is seeded and analysed inside the rolled-back transaction).
+            val plan = explain(MARK_THREAD_SEEN_SQL, "int8, int8, int4, int4", "", mode, seed = ::seedUnseenSpread)
             assertTrue("idx_notifications_unseen_thread" in plan, "$mode: the update uses the person-and-thread index:\n$plan")
             assertTrue("Seq Scan on notifications" !in plan, "$mode: never a scan of the whole table:\n$plan")
         }
@@ -615,7 +622,7 @@ class ThreadSchemaTest {
         val count = "SELECT id FROM notifications WHERE $where LIMIT 1001"
         val page = "SELECT id FROM notifications WHERE $where ORDER BY id DESC LIMIT 20"
         for (mode in listOf("auto", "force_generic_plan")) {
-            val plan = explain(count, "int8, int4[]", "1, '{1,2}'", mode, before = "DROP INDEX idx_notifications_recipient")
+            val plan = explain(count, "int8, int4[]", "1, '{1,2}'", mode, before = WITHOUT_RECIPIENT_SIBLINGS)
             assertTrue("idx_notifications_recipient_type" in plan, "$mode: the kind filter reads the person-and-kind index:\n$plan")
             assertTrue("Seq Scan on notifications" !in plan, "$mode: never a scan of the whole table:\n$plan")
             val pagePlan = explain(page, "int8, int4[]", "1, '{1,2}'", mode)
@@ -623,7 +630,82 @@ class ThreadSchemaTest {
         }
     }
 
-    private fun explain(sql: String, types: String, args: String, planCacheMode: String, before: String? = null): String {
+    @Test
+    fun `the notification list's createdAt sort and its seen=true filter are index-served, also as a generic plan`() {
+        // The two list shapes the id/type indexes do not serve (the 1.1.0 branch audit, L1). `sort=createdAt` orders by (created_at, id):
+        // idx_notifications_recipient_created is the only index that leads with the person and the time, so with the id index out of the
+        // way the page must come off it with NO sort node (`-createdAt` adds a descending time and an ascending id tiebreaker: the
+        // index walks backward and only an INCREMENTAL sort per equal time remains, which is bounded by the LIMIT). `seen=true` has no
+        // other bounded path: the person's seen rows are found through idx_notifications_seen, never by walking their unseen history
+        // to the 1,001st match; the other indexes are dropped so the planner has nothing else to choose.
+        val kinds = ch.nokillswit.notifications.NotificationType.entries.joinToString { "'${it.name}'" }
+        val where = "recipient_id = ? AND room_id = ANY(?) AND in_app AND notification_type IN ($kinds)"
+        val ascending = "SELECT id FROM notifications WHERE $where ORDER BY created_at, id LIMIT 20"
+        val descending = "SELECT id FROM notifications WHERE $where ORDER BY created_at DESC, id LIMIT 20"
+        val seenCount = "SELECT id FROM notifications WHERE $where AND seen_at IS NOT NULL LIMIT 1001"
+        val seenPage = "SELECT id FROM notifications WHERE $where AND seen_at IS NOT NULL ORDER BY id DESC LIMIT 20"
+        fun hasPlainSort(plan: String) = plan.lines().any { Regex("^(->\\s+)?Sort\\s+\\(").containsMatchIn(it.trim()) } // not "Sort Key:"
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val up = explain(ascending, "int8, int4[]", "1, '{1,2}'", mode, before = TIME_LED)
+            assertTrue("idx_notifications_recipient_created" in up, "$mode: the time sort reads the person-and-time index:\n$up")
+            assertTrue(!hasPlainSort(up) && "Seq Scan on notifications" !in up, "$mode: served in order, no sort, no table scan:\n$up")
+            val down = explain(descending, "int8, int4[]", "1, '{1,2}'", mode, before = TIME_LED)
+            assertTrue("idx_notifications_recipient_created" in down, "$mode: the descending sort reads it backward:\n$down")
+            assertTrue(!hasPlainSort(down) && "Seq Scan on notifications" !in down, "$mode: at most an incremental sort:\n$down")
+
+            val others = "$TIME_LED; DROP INDEX idx_notifications_recipient_created; DROP INDEX idx_notifications_recipient_type"
+            val count = explain(seenCount, "int8, int4[]", "1, '{1,2}'", mode, before = others)
+            assertTrue("idx_notifications_seen" in count, "$mode: the capped count of seen rows reads the seen index:\n$count")
+            val page = explain(seenPage, "int8, int4[]", "1, '{1,2}'", mode, before = others)
+            assertTrue("idx_notifications_seen" in page && "Seq Scan on notifications" !in page, "$mode: and so does the page:\n$page")
+        }
+    }
+
+    /**
+     * Five recipients with 16 notices in each of 50 threads (14 of them seen, so a recipient's unseen rows of one thread are 2 of 800):
+     * the spread in which the person-and-thread partial index is the cheap way and the person-only index the dear one. Returns the
+     * statement's arguments for one recipient and thread (the instant, the person, the thread, a message bound above any).
+     */
+    private fun seedUnseenSpread(c: Connection): String {
+        val marker = UUID.randomUUID().toString().take(8)
+        val people = (1..5).map { n ->
+            c.scalar("INSERT INTO users (\"name\", email, password_hash) VALUES ('Spread', ?, 'x') RETURNING id", "spread-$n-$marker@test")
+        }
+        val room = c.scalar(
+            "INSERT INTO rooms (\"name\", last_activity_at, created_at, updated_at) VALUES (?, 1, 1, 1) RETURNING id",
+            "Spread $marker",
+        )
+        c.exec(
+            "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position) " +
+                "VALUES (?, 'open', 'Open', 'BLUE', 'OPEN', TRUE, 0)",
+            room,
+        )
+        val ids = people.joinToString(",", "ARRAY[", "]::bigint[]")
+        c.exec("INSERT INTO room_members (room_id, user_id, \"role\", added_at) SELECT ?, u, 'MEMBER', 7 FROM unnest($ids) AS u", room)
+        c.exec(
+            "INSERT INTO threads (room_id, \"number\", title, status_key, owner_id, created_by, last_activity_at, created_at, " +
+                "updated_at) SELECT ?, n, 'T', 'open', ?, ?, 1, 1, 1 FROM generate_series(1, 50) AS n",
+            room, people[0], people[0],
+        )
+        c.exec(
+            "INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, created_at, seen_at) " +
+                "SELECT u, ?, 'THREAD_ASSIGNED', ?, t.id, 1, CASE WHEN k <= 14 THEN 2 END " +
+                "FROM unnest($ids) AS u CROSS JOIN threads t CROSS JOIN generate_series(1, 16) AS k WHERE t.room_id = ?",
+            room, people[0], room,
+        )
+        c.exec("ANALYZE notifications")
+        val thread = c.scalar("SELECT min(id) FROM threads WHERE room_id = ?", room)
+        return "5, ${people[1]}, $thread, 1000000000"
+    }
+
+    private fun explain(
+        sql: String,
+        types: String,
+        args: String,
+        planCacheMode: String,
+        before: String? = null,
+        seed: ((Connection) -> String)? = null,
+    ): String {
         var n = 0
         val numbered = Regex("[?]").replace(sql) { "\$${++n}" }
         return PostgresTestSupport.connect().use { c ->
@@ -634,6 +716,7 @@ class ThreadSchemaTest {
                     st.execute("SET LOCAL enable_seqscan = off")
                     st.execute("SET LOCAL enable_bitmapscan = off")
                     st.execute("SET LOCAL enable_sort = off")
+                    val arguments = seed?.invoke(c) ?: args
                     before?.let {
                         // DDL is transactional: the rollback below puts it back. The ACCESS EXCLUSIVE lock waits at most 5 s for a
                         // stray reader.
@@ -642,7 +725,9 @@ class ThreadSchemaTest {
                     }
                     st.execute("PREPARE unread_plan($types) AS $numbered")
                     buildString {
-                        st.executeQuery("EXPLAIN EXECUTE unread_plan($args)").use { rs -> while (rs.next()) appendLine(rs.getString(1)) }
+                        st.executeQuery("EXPLAIN EXECUTE unread_plan($arguments)").use { rs ->
+                            while (rs.next()) appendLine(rs.getString(1))
+                        }
                     }
                 }
             } finally {

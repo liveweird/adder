@@ -14,10 +14,12 @@ const val DEFAULT_READ_TIMEOUT_SECONDS = 5
 const val DEFAULT_READ_MAX_CONCURRENT = 10
 
 /**
- * The most notification-list reads ONE user may have in flight (the burst of a hint on one tab is three). The process cap,
- * `NOTIFICATION_READ_MAX_CONCURRENT`, lives in `infra/db/Database.kt` beside the boot check that counts it.
+ * The most notification-list reads ONE user may have in flight. It is HALF the process cap, `NOTIFICATION_READ_MAX_CONCURRENT` (4, in
+ * `infra/db/Database.kt` beside the boot check that counts it), so one account, however many tabs or scripts, can never hold every
+ * slot and starve the others. The burst of a hint on one tab is three reads; the third queues for the bounded permit wait
+ * ([READ_PERMIT_WAIT_MILLIS]) behind the first two, which answer in milliseconds, instead of being refused.
  */
-const val NOTIFICATION_READS_PER_USER = 4
+const val NOTIFICATION_READS_PER_USER = 2
 
 /**
  * The most bounded reads ONE user may have in flight at once (the thread and tag lists; the notice list has its own,
@@ -139,15 +141,22 @@ class ReadLimiter(
 
     private fun busy(callerUserId: UInt, roomId: UInt?, resource: String, limit: String): Nothing {
         if (resource != NOTIFICATIONS_RESOURCE || firstBusyOfMinute(callerUserId)) {
-            audit("read.busy", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong(), "resource" to resource, "limit" to limit)
+            audit("read.busy", *readFields(callerUserId, roomId, resource), "limit" to limit)
         }
         throw readBusy()
     }
 
     private fun timedOut(callerUserId: UInt, roomId: UInt?, resource: String): Nothing {
-        audit("read.timeout", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong(), "resource" to resource)
+        audit("read.timeout", *readFields(callerUserId, roomId, resource))
         throw readTimeout()
     }
+
+    /** The audit fields both lines share; a read that belongs to no room (the caller's own notice list) carries NO `roomId` key. */
+    private fun readFields(callerUserId: UInt, roomId: UInt?, resource: String): Array<Pair<String, Any?>> = listOfNotNull(
+        "byUserId" to callerUserId.toLong(),
+        roomId?.let { "roomId" to it.toLong() },
+        "resource" to resource,
+    ).toTypedArray()
 
     private companion object {
         const val NANOS_PER_MILLI = 1_000_000L

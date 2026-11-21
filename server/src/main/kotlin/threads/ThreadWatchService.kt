@@ -120,16 +120,6 @@ class ThreadWatchService internal constructor(
         return rows?.toList().orEmpty().isNotEmpty()
     }
 
-    /** The ACTIVE users who watch thread [threadId], by id. INSIDE the caller's transaction: one statement, no lock. */
-    suspend fun watcherIds(threadId: UInt): List<UInt> {
-        val users = UserService.Users
-        return ThreadWatches.innerJoin(users).select(ThreadWatches.userId)
-            .where { (ThreadWatches.threadId eq threadId) and users.active() }
-            .orderBy(ThreadWatches.userId)
-            .map { it[ThreadWatches.userId].value }
-            .toList()
-    }
-
     /**
      * The people to tell about activity in thread [threadId]: its watchers who are ACTIVE users AND ACTIVE members of the thread's room,
      * by user id, in ONE joined statement (`thread_watches` with `room_members` on the composite key, with `users` active) - the audience

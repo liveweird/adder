@@ -1,5 +1,5 @@
 -- Notice kinds (1.1.0): a notice is made for MORE reasons than a mention and a hand-over (a reply in a watched thread, a new thread, a status
--- move, a group mention: `chat-model.md` "Notice kinds (V27, V28)"), so three things about the V18 table change.
+-- move, a group mention: `chat-model.md` "Notice kinds (V27, V28)"), so four things about the V18 table change.
 --
 -- 1. ONE notice per (message, recipient). V18's unique index included the kind, which let one message notify one person twice (a direct mention
 --    AND "everyone"). The write now picks the most specific reason and inserts ONE row, `ON CONFLICT DO NOTHING` on this index. The defensive
@@ -12,6 +12,11 @@
 --    And the list's `type` filter (any-of kinds, newest first) is served by `idx_notifications_recipient_type (recipient_id,
 --    notification_type, id) WHERE in_app`: partial on `in_app` because EVERY list read (the page, its capped count, the badge, the
 --    addressed count) filters `in_app`, so mail-only rows would only widen it.
+-- 4. Two more list indexes, for the list's two other shapes (the audit of the whole 1.1.0 branch, L1): `sort=createdAt` is served by
+--    `idx_notifications_recipient_created (recipient_id, created_at, id) WHERE in_app` (the id sort has `idx_notifications_recipient`), and
+--    `seen=true` by `idx_notifications_seen (recipient_id, id) WHERE seen_at IS NOT NULL AND in_app` (the unseen side has the bell index).
+--    Without the second, the capped count of a person with a long unseen history and few seen rows would walk the whole history to find its
+--    1,001 matches. Both are partial on `in_app`, like the rest, and both are maintained by the same writes that already touch the row.
 --
 -- Delete class: unchanged (HARD, `persistence.md` "Notices (V18)"). No data is rewritten beyond the defensive delete.
 DELETE FROM notifications a USING notifications b
@@ -22,3 +27,5 @@ ALTER TABLE notifications ADD COLUMN in_app BOOLEAN NOT NULL DEFAULT TRUE;
 DROP INDEX idx_notifications_unseen;
 CREATE INDEX idx_notifications_bell ON notifications (recipient_id, id) WHERE seen_at IS NULL AND in_app;
 CREATE INDEX idx_notifications_recipient_type ON notifications (recipient_id, notification_type, id) WHERE in_app;
+CREATE INDEX idx_notifications_recipient_created ON notifications (recipient_id, created_at, id) WHERE in_app;
+CREATE INDEX idx_notifications_seen ON notifications (recipient_id, id) WHERE seen_at IS NOT NULL AND in_app;

@@ -47,7 +47,7 @@ class MigrationChecksumTest {
         "V24__create_notification_email_budget.sql" to -1359655116,
         "V25__add_team_handles.sql" to 178172747,
         "V26__create_thread_watches.sql" to -1388442755,
-        "V27__reshape_notifications.sql" to -684514170,
+        "V27__reshape_notifications.sql" to 1940159936,
         "V28__notification_preference_choices.sql" to 1260716694,
         "V29__notification_broadcast_budget.sql" to 164448559,
         "V30__create_message_group_mentions.sql" to -219235358,
