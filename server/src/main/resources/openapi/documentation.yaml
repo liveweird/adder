@@ -482,6 +482,32 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
 
+  /api/v1/users/directory/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [users]
+      operationId: getUserDirectoryEntry
+      summary: Look up one active user (profile)
+      description: |
+        ANY signed-in user, no guard: the directory entry `{id, name, email}` of ONE active user - the header of the profile page
+        (`/people/:id`). The same three-field projection as the directory list (`UserDirectoryEntry`), so it adds nothing the list does
+        not already show: roles, feature flags, language, MFA state and sign-in times are never exposed (`GET /users/{id}` stays
+        self-or-ADMIN). An unknown id and a soft-deleted account are the SAME `404`, so the answer reveals no more than the list does.
+        It rides the per-USER directory bucket (the list's own, 120 a minute shared by both; `429` beyond it).
+      responses:
+        '200':
+          description: The active user's directory entry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDirectoryEntry'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
   /api/v1/users/{id}:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -684,6 +710,8 @@ paths:
         - Filters: `name` and `handle` (each a case- and accent-insensitive substring; a team without a handle never matches `handle`).
         - The `handle` filter is the substring search of the composer's team-mention picker (1.1.0 S7), its UI consumer: the optional `q` free-text
           rule of API-LIST-005 (a per-column substring only where a UI needs it) is met by that picker.
+        - `memberId` (1.2): only the teams whose roster holds that ACTIVE user (the profile page's teams). An unknown or removed user matches
+          nothing (an empty page); anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank `memberId=`), or a repeated key, is a `400`.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -698,6 +726,7 @@ paths:
           required: false
           schema: { type: string, maxLength: 30 }
           description: Trimmed first; at most 30 characters (code points) after trimming, `400` past that.
+        - $ref: '#/components/parameters/MemberId'
       responses:
         '200':
           description: A page of teams
@@ -973,6 +1002,9 @@ paths:
           `false`; omitted = both); `member` (strict `true` or `false`: `true` = only rooms the caller is a member of - the rooms rail
           always sends it; `false` = only readable rooms the caller is NOT in, which is empty for a non-admin; omitted = every readable
           room). A repeated key is a `400`.
+        - `memberId` (1.2): only the rooms that ACTIVE user is a member of, ANDed with everything above - a member sees the rooms they
+          SHARE with that user, an `ADMIN` every room of that user (the profile page's rooms). An unknown or removed user matches
+          nothing (an empty page); anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank `memberId=`), or a repeated key, is a `400`.
         - Each row's `role` is the CALLER's role in that room, `null` for an `ADMIN` who is not a member.
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -991,6 +1023,7 @@ paths:
           in: query
           required: false
           schema: { type: boolean }
+        - $ref: '#/components/parameters/MemberId'
       responses:
         '200':
           description: A page of rooms
@@ -2698,6 +2731,12 @@ components:
         items: { type: string, maxLength: 40, pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$' }
       style: form
       explode: true
+    MemberId:
+      name: memberId
+      in: query
+      required: false
+      description: Only what this ACTIVE user is a member of (the profile page's rooms and teams). An unknown or removed user matches nothing; anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank value) is a `400`.
+      schema: { type: integer, format: int32, minimum: 1 }
     ThreadOwnerFilter:
       name: ownerId
       in: query
@@ -2828,7 +2867,7 @@ components:
       description: >-
         Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read
         (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory
-        (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or
+        (`/api/v1/users/directory`, and one entry of it, `/api/v1/users/directory/{id}`) the per-USER directory bucket (shared by both) is exhausted (120/min), on creating or
         renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min),
         on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message
         (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread

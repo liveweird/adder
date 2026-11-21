@@ -28,10 +28,20 @@ type RoomListQuery = {
   archived?: boolean;
   /** `true` = only the caller's own rooms (the rail always sends it); omitted = everything readable (every room for an ADMIN). */
   member?: boolean;
+  /** Only the rooms this person is a member of, narrowed to what the caller may read (the profile page's rooms): the shared ones for a member. */
+  memberId?: number;
 };
 
 export async function listRooms(q: RoomListQuery): Promise<RoomPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, name: q.name, archived: q.archived, member: q.member });
+  const params = buildQuery({
+    page: q.page,
+    pageSize: q.pageSize,
+    sort: q.sort,
+    name: q.name,
+    archived: q.archived,
+    member: q.member,
+    memberId: q.memberId,
+  });
   return jsonRequest<RoomPage>(`/api/v1/rooms?${params}`);
 }
 

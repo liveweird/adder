@@ -71,11 +71,16 @@ data class RoomResponse(
 
 typealias RoomPageResponse = PageResponse<RoomListItem>
 
-/** `member` = true: only rooms the caller is in; false: only readable rooms the caller is NOT in; null: every readable room. */
+/**
+ * `member` = true: only rooms the caller is in; false: only readable rooms the caller is NOT in; null: every readable room.
+ * [memberId] (1.2 D7): only rooms that ACTIVE user is a member of, ANDed with what the caller may read (a member sees the rooms they share
+ * with that user, an ADMIN every room of that user); an unknown or removed id matches nothing.
+ */
 data class RoomListFilter(
     val name: String? = null,
     val archived: Boolean? = null,
     val member: Boolean? = null,
+    val memberId: UInt? = null,
 )
 
 /** The caller's membership of a listed room: their [role] and the instant [seenSince] they last looked at it (never before they joined). */

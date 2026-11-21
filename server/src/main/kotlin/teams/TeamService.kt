@@ -359,6 +359,11 @@ class TeamService(private val database: R2dbcDatabase) {
         var op: Op<Boolean> = Op.TRUE
         filter.name?.takeIf { it.isNotBlank() }?.let { op = op and Teams.name.containsNormalized(it) }
         filter.handle?.takeIf { it.isNotBlank() }?.let { op = op and Teams.handle.containsNormalized(it) }
+        // The person's teams: an inert roster row of a soft-deleted user never counts, so a removed id matches nothing.
+        filter.memberId?.let { id ->
+            op = op and (Teams.id inSubQuery TeamMembers.innerJoin(UserService.Users).select(TeamMembers.teamId)
+                .where { (TeamMembers.userId eq id) and UserService.Users.active() })
+        }
         return op
     }
 }

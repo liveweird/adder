@@ -44,6 +44,8 @@ theme's `foldedOptionsFilter` (`web/src/utils/text.ts`).
 
 **Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. Ledger: `GET /rooms/{id}/threads` takes `status`, `ownerId`, `field=key:value` (each at most 20 distinct), `mentionedId` (same bound) and `tag` (at most 10 after case folding; any-of within a key, all-of across; `threads/ThreadListFilter.kt`); `closed`, `watching` and `mentionsMe` stay scalar. `GET /notifications` takes `type` (a known kind, at most 11 distinct, `NotificationType.entries.size`). A new consumer adds a line.
 
+**Member filters (1.2 D7).** `GET /rooms` and `GET /teams` take `memberId` (one optional STRICT id via `optionalPositiveId`: ASCII digits, 1 to int32, one value; anything else, a blank `memberId=` too, is a `400` that does not echo the value; an unknown or removed person an empty page; spec parameter `MemberId`): the rooms or teams that ACTIVE user belongs to, ANDed with the caller's own scope (the profile page's lists). Scalar, so it is not in the repeated-keys ledger.
+
 **No shape-exception exists yet.** Every list keeps the paged envelope; a purpose-built document (e.g. a thread board) answers
 outside it only with a documented cap and a line here in the commit that introduces it.
 

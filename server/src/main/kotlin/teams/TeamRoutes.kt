@@ -8,6 +8,7 @@ import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.authz.requireTeamManagerOrAdmin
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoundedString
+import ch.nokillswit.infra.paging.optionalPositiveId
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import io.ktor.http.HttpHeaders
@@ -58,6 +59,7 @@ fun Application.configureTeamRoutes() {
                 val filter = TeamListFilter(
                     name = params.optionalBoundedString("name", MAX_TEAM_NAME_LENGTH),
                     handle = params.optionalBoundedString("handle", MAX_TEAM_HANDLE_LENGTH),
+                    memberId = params.optionalPositiveId("memberId"),
                 )
                 val result = teamService.list(filter, paging)
                 call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))

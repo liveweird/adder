@@ -367,6 +367,7 @@ trimming (max 100; code points, `codePointCount`, never UTF-16 units), and a pag
 bulk harvest, they do not prevent one.** A signed-in insider can still walk the directory with two-letter queries inside the bucket (up to 120 pages of 20 rows, i.e. 2,400
 rows, a minute), and every rejection is the generic `429` problem plus the coalesced `rate_limit.exceeded` audit event (bucket `directory`, `byUserId`, one per user per
 minute). `UserDirectoryTest` pins the bounds, 120 then `429`, per user, and the audit event.
+**`GET /api/v1/users/directory/{id}` (1.2 D7)** is mounted in the SAME `rateLimit` block, so one entry read and one list page spend the same 120 a minute (pinned by a mixed 60+60 run); the `rate_limit.exceeded` path then carries the id (an id, no secret). It is no new disclosure: the same three-field entry the list gives, an unknown and a removed id one `404`, so it is an active/inactive oracle over the id space exactly as the member-add `400` below already is (bounded by the bucket).
 
 **What the user directory discloses, and to whom** (a deliberate widening of the ADMIN-only user list, the user's decision D2, 2026-11-17, who accepts name+email
 disclosure to any signed-in user): to every signed-in user, the `id`, `name` and `email` of every ACTIVE account, searchable by name or email
@@ -381,14 +382,14 @@ the projection to `{id, name}` if that trade changes (the user's option 2 of D2)
 **A second surface: the team roster.** `GET /api/v1/teams/{id}` returns `members[]` (`{userId, name, email}` of up to 200 ACTIVE members) to any signed-in user, with NO
 per-user bucket (a plain read like the rest of `/teams`). So the directory is not the only read of other users' name+email. The honest bound: the harvest is limited by the
 number of teams (a team's roster is one request, the team list pages at most 100 per request), it reveals nothing beyond what D2 already accepts (name+email of an active
-user), and it covers only users who sit on some roster. Not bucketed on purpose; if the directory's projection shrinks to `{id, name}` (D2 option 2), the roster's `email` must shrink with it.
+user), and it covers only users who sit on some roster. `GET /teams?memberId=` (1.2 D7) is the reverse lookup of the same roster rows (the teams a person is on): no new data, and no bucket either. Not bucketed on purpose; if the directory's projection shrinks to `{id, name}` (D2 option 2), the roster's `email` must shrink with it.
 
 **A third surface: room members.** A room OWNER (any user who creates a room) can enrol ANY active user id through `POST /api/v1/rooms/{id}/members` and then read that user's `name` and `email` in
 `GET /rooms/{id}/members` (a reader-only list of up to 500 members); and the add's `400` ("Unknown or deleted user ids: ...") tells the caller which of up to 200 submitted ids are inactive, an
 active/inactive oracle over the id space. So the directory and the team roster are not the only reads of other users' name+email, and a user who owns a room can walk ids without typing a query.
 The bound: the `room-members` bucket (60 adds/min per user, so at most 12,000 ids a minute, each add enrolling the person visibly in a room they did not choose, which is itself noticed, and
 audited per person as `room.member_added`), the 200-ids-per-add and 500-members-per-room caps, and the 16 KiB body limit. It reveals nothing beyond what D2 accepts (name+email of an active user); the
-inactive-id oracle reveals only that an id is not an active account. Collapse the member list's `email` with the directory's if D2 option 2 is ever taken.
+inactive-id oracle reveals only that an id is not an active account. Collapse the member list's `email` with the directory's if D2 option 2 is ever taken. `GET /rooms?memberId=` (1.2 D7) is the reverse lookup of the rooms a person is in, ANDed with the caller's own readable rooms (a member sees only the rooms they SHARE, an ADMIN reads every room anyway): the member lists already show it, so no new data.
 
 **Per-USER room buckets** (`RateLimits.ROOM_NAME` and `RateLimits.ROOM_MEMBERS`, fixed in every mode; the telemetry idiom: `configureRoomRoutes` and `configureRoomMemberRoutes` mount
 `rateLimit(RateLimitName(...))` INSIDE `authenticate {}` around the routes, keyed by the verified user id). **`room-name`, 30/min,** is ONE bucket shared by `POST /api/v1/rooms` and

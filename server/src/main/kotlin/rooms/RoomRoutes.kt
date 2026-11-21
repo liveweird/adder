@@ -11,6 +11,7 @@ import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoolean
 import ch.nokillswit.infra.paging.optionalBoundedString
+import ch.nokillswit.infra.paging.optionalPositiveId
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.plugins.RateLimits
@@ -91,6 +92,7 @@ private fun Route.roomReads(roomService: RoomService) {
             name = params.optionalBoundedString("name", MAX_ROOM_NAME_LENGTH),
             archived = params.optionalBoolean("archived"),
             member = params.optionalBoolean("member"),
+            memberId = params.optionalPositiveId("memberId"),
         )
         val result = roomService.list(caller.userId, caller.isAdmin(), filter, paging)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))

@@ -98,6 +98,8 @@ data class TeamListFilter(
     val name: String? = null,
     /** Case- and accent-insensitive substring of the mention handle (the composer's team search). */
     val handle: String? = null,
+    /** Only the teams whose roster holds this ACTIVE user (1.2 D7: the profile's teams); an unknown or removed id matches nothing. */
+    val memberId: UInt? = null,
 )
 
 /** `affected` is the updated-row count (0 → 404); `managerFrom` the STORED manager before the write (the audit delta). */

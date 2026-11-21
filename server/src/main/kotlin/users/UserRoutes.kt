@@ -88,7 +88,12 @@ class Users {
     /** The member-picker lookup; a literal segment, so it wins over `{id}` in routing. */
     @Serializable
     @Resource("directory")
-    class Directory(val parent: Users = Users())
+    class Directory(val parent: Users = Users()) {
+        /** One person's directory entry (the profile's header); `directory/{id}` is a longer path than `{id}`, so the two never meet. */
+        @Serializable
+        @Resource("{id}")
+        class Entry(val parent: Directory = Directory(), val id: UInt)
+    }
 
     @Serializable
     @Resource("{id}")
@@ -164,7 +169,8 @@ private const val MAX_DIRECTORY_PAGE_SIZE = 20
  * Bounds, none of which PREVENTS an insider enumerating (D2 accepts name+email disclosure to any signed-in user): `q` is REQUIRED
  * and at least 2 code points after trimming (no bare "list everyone"), pages hold at most 20 rows, and the per-USER `directory`
  * bucket (inside `authenticate`, keyed by the verified caller) caps and audits the rate. A read: no audit event of its own.
- * It is a separate projection and route from [userList], which stays ADMIN-only and unchanged.
+ * It is a separate projection and route from [userList], which stays ADMIN-only and unchanged. The one-entry read
+ * `directory/{id}` ([userDirectoryEntry], 1.2) is mounted inside the same block, so an entry read, a 404 included, spends the same tokens.
  */
 private fun Route.userDirectory(userService: UserService) {
     rateLimit(RateLimitName(RateLimits.DIRECTORY)) {
@@ -187,6 +193,7 @@ private fun Route.userDirectory(userService: UserService) {
             val result = userService.directory(q, paging)
             call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
         }
+        userDirectoryEntry(userService)
     }
 }
 

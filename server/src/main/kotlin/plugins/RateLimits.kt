@@ -103,7 +103,8 @@ object RateLimits {
      */
     const val TELEMETRY = "telemetry"
     /**
-     * `GET /api/v1/users/directory` — the one read any signed-in user can use to list accounts (id, name, email), so it rides a
+     * `GET /api/v1/users/directory` and `GET /api/v1/users/directory/{id}` (1.2: one entry, the profile's header; the two spend the
+     * SAME tokens, a 404 included) — the reads any signed-in user can use to look accounts up (id, name, email), so they ride a
      * per-USER bucket (the [TELEMETRY] idiom): 120/min in every mode. A member picker types a handful of lookups a minute (debounced,
      * a page each). With the route's required `q` and 20-row pages the bucket slows, and the coalesced `rate_limit.exceeded` event
      * records, a bulk harvest by a signed-in user; it does not prevent one (the user's decision D2 accepts the disclosure).

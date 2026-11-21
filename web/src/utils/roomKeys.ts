@@ -23,6 +23,8 @@ export const roomKeys = {
   rail: ["rooms", "rail"] as const,
   /** The Rooms page's list. */
   list: ["rooms", "list"] as const,
+  /** The rooms one person is in, as the viewer may read them (the profile page): under the list prefix, so whatever refreshes the Rooms page refreshes it. */
+  memberRooms: (userId: number) => [...roomKeys.list, "member", userId] as const,
   /** One room's record (`null`: a route that names no room, which is never fetched). */
   detail: (room: number | null) => ["rooms", "detail", room] as const,
   /** The members table and the member picker (`"picker"` appended). */

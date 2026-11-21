@@ -208,6 +208,7 @@ place:
 - `NotificationDigest` (V22, `notifications/`) READS `users` (name, email and language of an ACTIVE account; the claim and the settle also join `users.marked_as_deleted`; each reads at most 5,000 `notifications` rows a tick under a 10 s `queryTimeout`) and its own `user_notification_preferences` (the stored switches, inside the claim; the kinds off by default arrive as one array parameter) and `threads` (the number only, never the title) inside its per-recipient re-check, besides the rooms through `RoomService.memberRooms` and `userNames`; it WRITES only `notifications.emailed_at` (the claim and its release).
 - `NotificationPreferenceService` (V22, `notifications/`) locks the person's `users` row `FOR NO KEY UPDATE` (the existence check of its read-then-replace, so two replaces serialize) and otherwise touches only `user_notification_preferences`; the digest and the notice writer read that table through `effectivePreferences` and `effectivePreferencesOf`.
 
+- **Membership lookups for the profile (1.2 D7, no migration).** `RoomService.list` (`memberId`) reads `room_members` joined to ACTIVE `users` as a subquery in its own list predicate, and `TeamService.list` (`memberId`) reads `team_members` joined to ACTIVE `users` the same way: both are reads of tables the same service already owns, plus the `users` active filter (an inert row of a removed user never counts). `UserService.directoryEntry` reads `users` only.
 List each new cross-feature read/write here as it lands — the list IS the permission.
 
 ### Schemas

@@ -1,0 +1,22 @@
+{
+  "title": "Person",
+  "capped": "Showing {{shown}} of {{total}}.",
+  "emailAria": "Email {{email}}",
+  "notAvailable": {
+    "title": "This person is not available",
+    "message": "The account may have been removed, or the link is wrong."
+  },
+  "teams": {
+    "title": "Teams",
+    "empty": "Not on any team.",
+    "loadFailed": "Could not load the teams"
+  },
+  "rooms": {
+    "titleShared": "Rooms you share",
+    "titleOwn": "Your rooms",
+    "titleAdmin": "Rooms",
+    "emptyShared": "You share no room with this person.",
+    "emptyAll": "Not in any room.",
+    "loadFailed": "Could not load the rooms"
+  }
+}

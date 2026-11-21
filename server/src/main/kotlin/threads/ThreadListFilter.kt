@@ -1,6 +1,7 @@
 package ch.nokillswit.threads
 
 import ch.nokillswit.infra.db.jsonbContains
+import ch.nokillswit.infra.paging.positiveId
 import ch.nokillswit.infra.paging.repeatedStrings
 import ch.nokillswit.rooms.RoomWorkflowSnapshot
 import ch.nokillswit.rooms.SnapshotField
@@ -168,10 +169,6 @@ private fun optionKey(field: SnapshotField, value: String): String {
 
 private fun userId(field: SnapshotField, value: String): Long =
     positiveId(value) ?: throw BadRequestException("Value of field '${field.key.shown()}' must be a user id")
-
-/** [value] as an id of 1 to int32: ASCII digits only (no sign, no other script's digits), else null. */
-private fun positiveId(value: String): Long? =
-    value.takeIf { text -> text.all { it in '0'..'9' } }?.toLongOrNull()?.takeIf { it in 1..Int.MAX_VALUE }
 
 /**
  * `CASE status_key WHEN ? THEN 0 WHEN ? THEN 1 ... ELSE n END`: the status's position in the workflow, from the keys of

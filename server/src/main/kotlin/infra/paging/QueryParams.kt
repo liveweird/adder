@@ -41,6 +41,18 @@ fun Parameters.optionalBoundedString(name: String, maxLength: Int): String? {
 fun Parameters.optionalUInt(name: String): UInt? =
     optionalString(name)?.let { it.toUIntOrNull() ?: throw BadRequestException("Invalid $name: $it") }
 
+/** [value] as an id of 1 to int32: ASCII digits only (no sign, no space, no other script's digits, no fraction), else null. */
+fun positiveId(value: String): Long? =
+    value.takeIf { text -> text.all { it in '0'..'9' } }?.toLongOrNull()?.takeIf { it in 1..Int.MAX_VALUE }
+
+/**
+ * An optional STRICT id param (the `?memberId=` shape): null only when the key is absent; a single value of ASCII digits, 1 to int32
+ * ([positiveId]), else a `400` whose fixed detail does not echo the raw value. A blank `memberId=` is a `400` too (it is present but
+ * names no id), unlike [optionalUInt], which treats a blank as absent and accepts `0`, a `+` sign and any script's digits.
+ */
+fun Parameters.optionalPositiveId(name: String): UInt? =
+    singleValue(name)?.let { raw -> positiveId(raw)?.toUInt() ?: throw BadRequestException("Invalid $name") }
+
 /**
  * Every non-blank value of [name] — for the params whose documented contract makes repetition
  * mean any-of/`IN` (API-LIST-004). Empty when absent or all values are blank.

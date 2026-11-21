@@ -40,6 +40,7 @@ const RoomHome = lazy(() => import("./pages/RoomHome"));
 const RoomMembers = lazy(() => import("./pages/RoomMembers"));
 const RoomSettings = lazy(() => import("./pages/RoomSettings"));
 const RoomWorkflow = lazy(() => import("./pages/RoomWorkflow"));
+const Person = lazy(() => import("./pages/Person"));
 const Teams = lazy(() => import("./pages/Teams"));
 const TeamDetails = lazy(() => import("./pages/TeamDetails"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
@@ -287,6 +288,8 @@ export default function App() {
             <Route path="rooms/:id/members" element={<RoomMembers />} />
             <Route path="rooms/:id/workflow" element={<RoomWorkflow />} />
             <Route path="rooms/:id/settings" element={<RoomSettings />} />
+            {/* A profile any signed-in member may open (1.2 D7): outside RequireAdmin; what it lists the server scopes to the viewer. */}
+            <Route path="people/:id" element={<Person />} />
             <Route path="teams" element={<Teams />} />
             <Route path="teams/:id" element={<TeamDetails />} />
             {/* The management surface — ADMIN only, guarded once here (the pages no longer redirect themselves). */}

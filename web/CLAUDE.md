@@ -255,7 +255,7 @@ are English (THE default and fallback everywhere) and Polish. All user-facing st
 `const { t } = useTranslation()` / `<Trans>` — **no hardcoded UI text**. Conventions:
 
 - **Resources** live in `src/locales/{en,pl}/<area>.json`, one file per area (`appShell`, `auth`,
-  `changelog`, `common`, `home`, `notifications`, `rooms`, `search`, `teams`, `telemetry`, `threads`, `users`, `workflows`); `i18n.ts` merges them into a single
+  `changelog`, `common`, `home`, `notifications`, `people`, `rooms`, `search`, `teams`, `telemetry`, `threads`, `users`, `workflows`); `i18n.ts` merges them into a single
   `translation` namespace, so keys read `area.key` (e.g. `t("auth.signIn")`). Only EN is
   statically imported — its typed `en` tree is the key canon AND the runtime fallback; every other
   language is auto-discovered from `locales/<lang>/` via `import.meta.glob`. Bundles are eager on

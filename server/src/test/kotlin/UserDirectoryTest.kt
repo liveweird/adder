@@ -6,6 +6,7 @@ import ch.nokillswit.users.UserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import java.net.URLEncoder
@@ -17,6 +18,8 @@ import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 
 /**
  * The user directory (`GET /api/v1/users/directory`): the one user read open to any signed-in user, a three-field projection of
@@ -189,6 +192,103 @@ class UserDirectoryTest {
         assertEquals(HttpStatusCode.OK, admin.get("/api/v1/users/directory?q=$m").status)
         assertEquals(HttpStatusCode.Forbidden, caller.get("/api/v1/users").status, "the management list is unchanged")
         assertEquals(HttpStatusCode.OK, admin.get("/api/v1/users").status)
+    }
+
+    @Test
+    fun `one entry is the same three-field projection for a regular user and an administrator, never a role, flag or language`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val m = marker()
+            val plainId = seed(m, "Plain $m")
+            val bossId = seed(m, "Boss $m", emailLocal = "boss", role = UserRole.ADMIN)
+            val caller = seededClient("dir-entry-user", UserRole.USER)
+            val admin = seededClient("dir-entry-admin", UserRole.ADMIN)
+
+            for (client in listOf(caller, admin)) {
+                for ((id, name, email) in listOf(
+                    Triple(plainId, "Plain $m", "dir-$m@test"),
+                    Triple(bossId, "Boss $m", "boss-$m@test"),
+                )) {
+                    val response = client.get("/api/v1/users/directory/$id")
+                    assertEquals(HttpStatusCode.OK, response.status)
+                    val body = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+                    assertEquals(setOf("id", "name", "email"), body.keys, "nothing but the three fields: no role, flags, language or MFA")
+                    assertEquals(id.toLong(), body.getValue("id").jsonPrimitive.long)
+                    assertEquals(name, body.getValue("name").jsonPrimitive.content)
+                    assertEquals(email, body.getValue("email").jsonPrimitive.content)
+                }
+            }
+            // The wider read is untouched: a stranger still gets the uniform 403 from `GET /users/{id}`.
+            assertEquals(HttpStatusCode.Forbidden, caller.get("/api/v1/users/$plainId").status)
+        }
+
+    @Test
+    fun `a soft-deleted account and an unknown id are the same 404`() = testApplication {
+        usePostgresTestcontainer()
+        val m = marker()
+        val gone = seed(m, "Gone $m")
+        val caller = seededClient("dir-entry-gone", UserRole.USER)
+        assertEquals(HttpStatusCode.OK, caller.get("/api/v1/users/directory/$gone").status)
+
+        TestUsers.softDelete(gone)
+
+        val removed = caller.get("/api/v1/users/directory/$gone")
+        val unknown = caller.get("/api/v1/users/directory/2000000000")
+        assertEquals(HttpStatusCode.NotFound, removed.status)
+        assertEquals(HttpStatusCode.NotFound, unknown.status)
+        val removedProblem = removed.body<ProblemDetail>()
+        val unknownProblem = unknown.body<ProblemDetail>()
+        assertEquals(unknownProblem.detail, removedProblem.detail, "one answer: the body tells the two apart no better than the status")
+        assertEquals(unknownProblem.title, removedProblem.title)
+        assertEquals(unknown.headers.names(), removed.headers.names(), "the same header set too: nothing tells the two apart")
+        assertEquals(unknown.headers[HttpHeaders.ContentType], removed.headers[HttpHeaders.ContentType])
+        // The body differs only by the `instance` that echoes the caller's own request path (the id they typed), never by what it is.
+        assertEquals(unknownProblem.copy(instance = null), removedProblem.copy(instance = null))
+        assertEquals(HttpStatusCode.NotFound, caller.get("/api/v1/users/directory/0").status, "no row has id 0")
+    }
+
+    @Test
+    fun `a malformed id is a 400 and an unauthenticated call is a 401`() = testApplication {
+        usePostgresTestcontainer()
+        val caller = seededClient("dir-entry-bad", UserRole.USER)
+        for (bad in listOf("abc", "-1", "1.5", "99999999999")) {
+            assertEquals(HttpStatusCode.BadRequest, caller.get("/api/v1/users/directory/$bad").status, bad)
+        }
+        assertEquals(HttpStatusCode.Unauthorized, jsonClient().get("/api/v1/users/directory/1").status)
+    }
+
+    @Test
+    fun `a 404 entry read spends a directory token like any other, so an id sweep is bounded`() = testApplication {
+        usePostgresTestcontainer()
+        val limitedEmail = uniqueEmail("dir-entry-404-bucket")
+        TestUsers.seed(email = limitedEmail, password = "pw-123456789", role = UserRole.USER)
+        val limited = authedClient(limitedEmail, "pw-123456789")
+        val unknown = "/api/v1/users/directory/2000000000"
+
+        repeat(120) { n -> assertEquals(HttpStatusCode.NotFound, limited.get(unknown).status, "miss ${n + 1}") }
+        assertEquals(HttpStatusCode.TooManyRequests, limited.get(unknown).status, "the 121st miss is refused")
+    }
+
+    @Test
+    fun `an entry read spends the directory bucket the list spends, 120 a minute together, and the 429 is audited`() = testApplication {
+        usePostgresTestcontainer()
+        val limitedEmail = uniqueEmail("dir-entry-bucket")
+        val limitedId = TestUsers.seed(email = limitedEmail, password = "pw-123456789", role = UserRole.USER)
+        val limited = authedClient(limitedEmail, "pw-123456789")
+        val entryPath = "/api/v1/users/directory/$limitedId"
+
+        withAuditCapture { capture ->
+            repeat(60) { n -> assertEquals(HttpStatusCode.OK, limited.get(entryPath).status, "entry ${n + 1}") }
+            val listPath = "/api/v1/users/directory?pageSize=1&q=ab"
+            repeat(60) { n -> assertEquals(HttpStatusCode.OK, limited.get(listPath).status, "list ${n + 1}") }
+            val rejected = limited.get(entryPath)
+            assertEquals(HttpStatusCode.TooManyRequests, rejected.status, "the 121st read of either kind is refused")
+            assertEquals(429, rejected.body<ProblemDetail>().status)
+
+            val event = capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "directory") }
+            assertNotNull(event)
+            assertTrue(event.hasKeyValue("byUserId", limitedId.toLong()))
+        }
     }
 
     @Test

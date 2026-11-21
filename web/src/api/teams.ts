@@ -19,10 +19,12 @@ type TeamListQuery = {
   name?: string;
   /** A case- and accent-insensitive substring of the mention handle (the composer's team picker). */
   handle?: string;
+  /** Only the teams whose roster holds this person (the profile page's teams). */
+  memberId?: number;
 };
 
 export async function listTeams(q: TeamListQuery): Promise<TeamPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, name: q.name, handle: q.handle });
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, name: q.name, handle: q.handle, memberId: q.memberId });
   return jsonRequest<TeamPage>(`/api/v1/teams?${params}`);
 }
 

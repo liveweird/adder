@@ -447,6 +447,47 @@ class TeamTest {
     }
 
     @Test
+    fun `memberId lists the teams whose active roster holds the person, for any authenticated reader`() = testApplication {
+        usePostgresTestcontainer()
+        val reader = seededClient("teammemberid")
+        val ada = TestUsers.seed(email = uniqueEmail("teammemberid-a"), password = "pw-123456789", role = UserRole.USER)
+        val bob = TestUsers.seed(email = uniqueEmail("teammemberid-b"), password = "pw-123456789", role = UserRole.USER)
+        val stem = "mid" + UUID.randomUUID().toString().substring(0, 8)
+        val both = TestTeams.seedMentionable(stem + "x", members = listOf(ada, bob))
+        val adaOnly = TestTeams.seedMentionable(stem + "y", members = listOf(ada))
+        TestTeams.seedMentionable(stem + "z")
+
+        suspend fun listing(query: String) = reader.get("/api/v1/teams?handle=$stem&sort=id&$query").body<TeamPageResponse>()
+        assertEquals(listOf(both.id, adaOnly.id), listing("memberId=$ada").items.map { it.id })
+        assertEquals(listOf(both.id), listing("memberId=$bob").items.map { it.id })
+        assertEquals(2L, listing("memberId=$ada").total, "the total counts after the filter")
+        val narrowed = listing("memberId=$ada&name=${both.name.replace(" ", "%20")}")
+        assertEquals(listOf(both.id), narrowed.items.map { it.id }, "the other filters still narrow")
+        assertEquals(3L, listing("").total, "without memberId every team of the stem is listed")
+        assertEquals(0L, listing("memberId=2000000000").total, "an unknown id matches nothing")
+
+        TestUsers.softDelete(bob)
+        assertEquals(0L, listing("memberId=$bob").total, "the inert roster row of a removed user never counts")
+        assertEquals(listOf(both.id, adaOnly.id), listing("memberId=$ada").items.map { it.id })
+
+        // A deleted team is never listed, whoever is on its roster.
+        val admin = seededClient("teammemberid-admin", UserRole.ADMIN)
+        assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/teams/${adaOnly.id}").status)
+        assertEquals(listOf(both.id), listing("memberId=$ada").items.map { it.id })
+        assertEquals(1L, listing("memberId=$ada").total)
+
+        // Strict: ASCII digits of 1 to int32, one value. A blank, `0`, a sign, a fraction, another script's digits (U+0665)
+        // and an overflow are all 400.
+        val bads = listOf(
+            "memberId=abc", "memberId=-1", "memberId=0", "memberId=%2B5", "memberId=1.5", "memberId=", "memberId=%D9%A5",
+            "memberId=3000000000", "memberId=99999999999", "memberId=1&memberId=2",
+        )
+        for (bad in bads) {
+            assertEquals(HttpStatusCode.BadRequest, reader.get("/api/v1/teams?$bad").status, bad)
+        }
+    }
+
+    @Test
     fun `team created and updated audit lines carry the handle`() = testApplication {
         usePostgresTestcontainer()
         val admin = seededClient("teamhandleaudit", UserRole.ADMIN)

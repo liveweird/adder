@@ -265,6 +265,81 @@ class RoomTest {
     }
 
     @Test
+    fun `memberId lists a person's rooms, ANDed with what the caller reads - the shared ones for a member, all for an ADMIN`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val ada = actor("room-memberid-a")
+            val bob = actor("room-memberid-b")
+            val cy = actor("room-memberid-c")
+            val admin = actor("room-memberid-admin", UserRole.ADMIN)
+            val templateId = template()
+            val m = marker()
+            val shared = ada.client.create("Shared $m", templateId)
+            val adaOnly = ada.client.create("AdaOnly $m", templateId)
+            val bobOwn = bob.client.create("BobOwn $m", templateId)
+            val bobAndCy = bob.client.create("BobCy $m", templateId)
+            TestRooms.addMember(shared.id, bob.id)
+            TestRooms.addMember(bobAndCy.id, cy.id)
+
+            suspend fun HttpClient.listing(query: String): List<UInt> =
+                get("$rooms?name=$m&sort=id&$query").body<RoomPageResponse>().items.map { it.id }
+
+            // A member sees only the rooms THEY share with the person: Ada and Bob share one; Ada and Cy none.
+            assertEquals(listOf(shared.id), ada.client.listing("memberId=${bob.id}"))
+            assertEquals(emptyList(), ada.client.listing("memberId=${cy.id}"))
+            val bobsOwn = bob.client.listing("memberId=${bob.id}")
+            assertEquals(listOf(shared.id, bobOwn.id, bobAndCy.id), bobsOwn, "one's own id lists one's own rooms")
+            assertEquals(listOf(shared.id, adaOnly.id), ada.client.listing("memberId=${ada.id}"))
+            assertEquals(listOf(bobAndCy.id), cy.client.listing("memberId=${bob.id}"))
+            // An ADMIN outside every room reads all of the person's rooms, and the other filters still narrow.
+            assertEquals(listOf(shared.id, bobOwn.id, bobAndCy.id), admin.client.listing("memberId=${bob.id}"))
+            assertEquals(listOf(bobAndCy.id), admin.client.listing("memberId=${cy.id}"))
+            val narrowed = admin.client.get("$rooms?name=Shared%20$m&memberId=${bob.id}").body<RoomPageResponse>()
+            assertEquals(listOf(shared.id), narrowed.items.map { it.id })
+            assertEquals(emptyList(), admin.client.listing("memberId=${bob.id}&member=true"), "the admin is in none of them")
+            assertEquals(listOf(shared.id, bobOwn.id, bobAndCy.id), admin.client.listing("memberId=${bob.id}&member=false"))
+            // The total counts after the filter.
+            assertEquals(1L, ada.client.get("$rooms?name=$m&memberId=${bob.id}").body<RoomPageResponse>().total)
+
+            // An archived room of the person is still listed (the `archived` filter narrows it); a deleted room never is.
+            assertEquals(HttpStatusCode.NoContent, bob.client.post("$rooms/${bobOwn.id}/archive").status)
+            assertEquals(listOf(bobOwn.id), admin.client.listing("memberId=${bob.id}&archived=true"))
+            assertEquals(HttpStatusCode.NoContent, admin.client.delete("$rooms/${bobAndCy.id}").status)
+            assertEquals(listOf(shared.id, bobOwn.id), admin.client.listing("memberId=${bob.id}"))
+        }
+
+    @Test
+    fun `memberId of an unknown or removed person is an empty page and a malformed one is 400`() = testApplication {
+        usePostgresTestcontainer()
+        val ada = actor("room-memberid-gone-a")
+        val bob = actor("room-memberid-gone-b")
+        val admin = actor("room-memberid-gone-admin", UserRole.ADMIN)
+        val m = marker()
+        val shared = ada.client.create("Shared $m", template())
+        TestRooms.addMember(shared.id, bob.id)
+
+        suspend fun HttpClient.listing(query: String) = get("$rooms?name=$m&$query").body<RoomPageResponse>()
+        assertEquals(1L, admin.client.listing("memberId=${bob.id}").total)
+
+        assertEquals(0L, admin.client.listing("memberId=2000000000").total, "an unknown id matches nothing")
+        assertEquals(0L, ada.client.listing("memberId=2000000000").total)
+        TestUsers.softDelete(bob.id)
+        assertEquals(0L, admin.client.listing("memberId=${bob.id}").total, "the inert row of a removed user never counts")
+        assertEquals(0L, ada.client.listing("memberId=${bob.id}").total)
+
+        // Strict: ASCII digits of 1 to int32, one value. A blank, `0`, a sign, a fraction, another script's digits (U+0665)
+        // and an overflow are all 400.
+        val bads = listOf(
+            "memberId=abc", "memberId=-1", "memberId=0", "memberId=%2B5", "memberId=1.5", "memberId=", "memberId=%D9%A5",
+            "memberId=3000000000", "memberId=99999999999", "memberId=1&memberId=2",
+        )
+        for (bad in bads) {
+            assertEquals(HttpStatusCode.BadRequest, ada.client.get("$rooms?$bad").status, bad)
+            assertEquals(HttpStatusCode.BadRequest, admin.client.get("$rooms?$bad").status, "$bad as an ADMIN")
+        }
+    }
+
+    @Test
     fun `member counts resolve through active users - a soft-deleted member drops out of the list and the read`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("room-count")

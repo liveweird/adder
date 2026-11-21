@@ -13,6 +13,7 @@ import { EMPTY_USER_FORM, rolesOf, userFormValidation, type UserFormValues } fro
 import { saveErrorMessage } from "../utils/saveError";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
+import { mailtoHref as mailtoTo } from "../utils/mailto";
 import { usersPath } from "../utils/userLinks";
 import FormErrorAlert from "../components/FormErrorAlert";
 
@@ -69,7 +70,7 @@ export default function CreateUser() {
   // A client-side mail draft for handing the credentials over (no mail infra involved);
   // RFC 6068 mandates CRLF line breaks in mailto bodies.
   const mailtoHref = created
-    ? `mailto:${encodeURIComponent(created.email).replace(/%40/g, "@")}` +
+    ? mailtoTo(created.email) +
       `?subject=${encodeURIComponent(t("users.onboardingEmailSubject"))}` +
       `&body=${encodeURIComponent(
         t("users.onboardingEmailBody", {

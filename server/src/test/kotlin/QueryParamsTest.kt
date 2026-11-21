@@ -1,6 +1,8 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.paging.optionalEnum
+import ch.nokillswit.infra.paging.optionalPositiveId
+import ch.nokillswit.infra.paging.positiveId
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.repeatedLongs
 import ch.nokillswit.infra.paging.repeatedStrings
@@ -30,6 +32,27 @@ class QueryParamsTest {
         assertNull(params.singleValue("missing"))
         val failure = assertFailsWith<BadRequestException> { params.singleValue("b") }
         assertEquals("Parameter 'b' must not be repeated", failure.message)
+    }
+
+    @Test
+    fun `positiveId takes ASCII digits of 1 to int32 and nothing else`() {
+        assertEquals(1L, positiveId("1"))
+        assertEquals(2_147_483_647L, positiveId("2147483647"))
+        for (bad in listOf("", " ", "0", "00", "-1", "+5", "1.5", "5 ", "2147483648", "3000000000", "\u0665", "\uFF15", "1e3", "abc")) {
+            assertNull(positiveId(bad), "'$bad'")
+        }
+    }
+
+    @Test
+    fun `optionalPositiveId is null only when the key is absent and 400s the rest without echoing the value`() {
+        assertNull(parametersOf("other" to listOf("1")).optionalPositiveId("memberId"))
+        assertEquals(7u, parametersOf("memberId" to listOf("7")).optionalPositiveId("memberId"))
+        for (bad in listOf("", "  ", "0", "+5", "1.5", "3000000000", "\u0665", "secret-value")) {
+            val params = parametersOf("memberId" to listOf(bad))
+            val failure = assertFailsWith<BadRequestException>("'$bad'") { params.optionalPositiveId("memberId") }
+            assertEquals("Invalid memberId", failure.message, "a fixed detail")
+        }
+        assertFailsWith<BadRequestException> { parametersOf("memberId" to listOf("1", "2")).optionalPositiveId("memberId") }
     }
 
     @Test

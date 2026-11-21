@@ -342,6 +342,11 @@ class RoomService(
             null -> Unit
         }
         filter.archived?.let { op = op and (if (it) Rooms.archivedAt.isNotNull() else Rooms.archivedAt.isNull()) }
+        // The person's own rooms: an inert row of a soft-deleted user never counts, so a removed id matches nothing.
+        filter.memberId?.let { id ->
+            op = op and (Rooms.id inSubQuery RoomMembers.innerJoin(UserService.Users).select(RoomMembers.roomId)
+                .where { (RoomMembers.userId eq id) and UserService.Users.active() })
+        }
         filter.name?.takeIf { it.isNotBlank() }?.let { op = op and Rooms.name.containsNormalized(it) }
         return op
     }

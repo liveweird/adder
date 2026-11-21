@@ -8,6 +8,8 @@ export type UserPage =
   paths["/api/v1/users"]["get"]["responses"]["200"]["content"]["application/json"];
 export type UserDirectoryPage =
   paths["/api/v1/users/directory"]["get"]["responses"]["200"]["content"]["application/json"];
+export type UserDirectoryEntry =
+  paths["/api/v1/users/directory/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
 export type UserResponse =
   paths["/api/v1/users/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
 type UserCreateBody =
@@ -61,6 +63,14 @@ type UserDirectoryQuery = {
 export async function searchUserDirectory(q: UserDirectoryQuery): Promise<UserDirectoryPage> {
   const params = buildQuery({ q: q.q, page: q.page, pageSize: q.pageSize, sort: q.sort });
   return jsonRequest<UserDirectoryPage>(`/api/v1/users/directory?${params}`);
+}
+
+/**
+ * One active person's directory entry `{id, name, email}` — the profile page's header; open to ANY signed-in user. An unknown id and a
+ * removed account are the same 404 (no existence disclosure), and it spends the same per-user bucket as the directory list.
+ */
+export async function getUserDirectoryEntry(id: number): Promise<UserDirectoryEntry> {
+  return jsonRequest<UserDirectoryEntry>(`/api/v1/users/directory/${id}`);
 }
 
 export async function getUser(id: number): Promise<UserResponse> {

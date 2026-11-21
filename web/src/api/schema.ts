@@ -330,6 +330,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users/directory/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Look up one active user (profile)
+         * @description ANY signed-in user, no guard: the directory entry `{id, name, email}` of ONE active user - the header of the profile page
+         *     (`/people/:id`). The same three-field projection as the directory list (`UserDirectoryEntry`), so it adds nothing the list does
+         *     not already show: roles, feature flags, language, MFA state and sign-in times are never exposed (`GET /users/{id}` stays
+         *     self-or-ADMIN). An unknown id and a soft-deleted account are the SAME `404`, so the answer reveals no more than the list does.
+         *     It rides the per-USER directory bucket (the list's own, 120 a minute shared by both; `429` beyond it).
+         */
+        get: operations["getUserDirectoryEntry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/{id}": {
         parameters: {
             query?: never;
@@ -478,6 +504,8 @@ export interface paths {
          *     - Filters: `name` and `handle` (each a case- and accent-insensitive substring; a team without a handle never matches `handle`).
          *     - The `handle` filter is the substring search of the composer's team-mention picker (1.1.0 S7), its UI consumer: the optional `q` free-text
          *       rule of API-LIST-005 (a per-column substring only where a UI needs it) is met by that picker.
+         *     - `memberId` (1.2): only the teams whose roster holds that ACTIVE user (the profile page's teams). An unknown or removed user matches
+         *       nothing (an empty page); anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank `memberId=`), or a repeated key, is a `400`.
          */
         get: operations["listTeams"];
         put?: never;
@@ -644,6 +672,9 @@ export interface paths {
          *       `false`; omitted = both); `member` (strict `true` or `false`: `true` = only rooms the caller is a member of - the rooms rail
          *       always sends it; `false` = only readable rooms the caller is NOT in, which is empty for a non-admin; omitted = every readable
          *       room). A repeated key is a `400`.
+         *     - `memberId` (1.2): only the rooms that ACTIVE user is a member of, ANDed with everything above - a member sees the rooms they
+         *       SHARE with that user, an `ADMIN` every room of that user (the profile page's rooms). An unknown or removed user matches
+         *       nothing (an empty page); anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank `memberId=`), or a repeated key, is a `400`.
          *     - Each row's `role` is the CALLER's role in that room, `null` for an `ADMIN` who is not a member.
          */
         get: operations["listRooms"];
@@ -3434,7 +3465,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) and on the room-lock writes that are not a name or an enrolment write (the room archive, unarchive and delete, a member's role PUT and removal, and the room workflow PUT) the per-USER chat-write bucket (shared by all fourteen) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the watch PUT (`PUT /api/v1/rooms/{id}/threads/{number}/watch`) the per-USER thread-watch bucket (30/min) is exhausted, on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, and the two notification "seen" POSTs) the per-USER read-state bucket (shared by all four) is exhausted (240/min), on the notification list the per-USER notification-read bucket (240/min) or on the notification-preferences PUT the per-USER notification-prefs bucket (30/min) is exhausted, or the notification list outruns its deadline (`read-timeout`) or finds the caller or server at their maximum of list reads (`read-busy`), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`, and one entry of it, `/api/v1/users/directory/{id}`) the per-USER directory bucket (shared by both) is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) and on the room-lock writes that are not a name or an enrolment write (the room archive, unarchive and delete, a member's role PUT and removal, and the room workflow PUT) the per-USER chat-write bucket (shared by all fourteen) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the watch PUT (`PUT /api/v1/rooms/{id}/threads/{number}/watch`) the per-USER thread-watch bucket (30/min) is exhausted, on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, and the two notification "seen" POSTs) the per-USER read-state bucket (shared by all four) is exhausted (240/min), on the notification list the per-USER notification-read bucket (240/min) or on the notification-preferences PUT the per-USER notification-prefs bucket (30/min) is exhausted, or the notification list outruns its deadline (`read-timeout`) or finds the caller or server at their maximum of list reads (`read-busy`), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 /** @description Seconds to wait before retrying; sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the rate-limit bucket 429s and the live-ticket store's full 429; not with the login lockout. */
@@ -3498,6 +3529,8 @@ export interface components {
         TagQ: string;
         /** @description Repeatable - any of these status keys (the thread list). A well-formed key that is not a status of the room matches nothing; a malformed one, or more than 20 distinct values, is a `400`. */
         ThreadStatusFilter: string[];
+        /** @description Only what this ACTIVE user is a member of (the profile page's rooms and teams). An unknown or removed user matches nothing; anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank value) is a `400`. */
+        MemberId: number;
         /** @description Repeatable - any of these owner ids (the thread list; "mine" is the caller's own id). An id that owns nothing matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
         ThreadOwnerFilter: number[];
         /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
@@ -3890,6 +3923,33 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    getUserDirectoryEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active user's directory entry */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserDirectoryEntry"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     getUser: {
         parameters: {
             query?: never;
@@ -4128,6 +4188,8 @@ export interface operations {
                 name?: string;
                 /** @description Trimmed first; at most 30 characters (code points) after trimming, `400` past that. */
                 handle?: string;
+                /** @description Only what this ACTIVE user is a member of (the profile page's rooms and teams). An unknown or removed user matches nothing; anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank value) is a `400`. */
+                memberId?: components["parameters"]["MemberId"];
             };
             header?: never;
             path?: never;
@@ -4498,6 +4560,8 @@ export interface operations {
                 name?: string;
                 archived?: boolean;
                 member?: boolean;
+                /** @description Only what this ACTIVE user is a member of (the profile page's rooms and teams). An unknown or removed user matches nothing; anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank value) is a `400`. */
+                memberId?: components["parameters"]["MemberId"];
             };
             header?: never;
             path?: never;

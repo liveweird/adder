@@ -186,9 +186,22 @@ class UserService(private val database: R2dbcDatabase) {
                 .where { predicate }
                 .applyPaging(paging, DIRECTORY_COLUMNS)
                 .toList()
-            val items = rows.map { UserDirectoryEntry(it[Users.id].value, it[Users.name], it[Users.email]) }
-            UserDirectoryResult(items = items, total = total)
+            UserDirectoryResult(items = rows.map { it.toDirectoryEntry() }, total = total)
         }
+
+    /**
+     * One ACTIVE user's directory entry, or null for an unknown or soft-deleted id (one answer: the route's uniform 404). The same
+     * three-field projection as [directory].
+     */
+    suspend fun directoryEntry(id: UInt): UserDirectoryEntry? = suspendTransaction(database) {
+        Users.select(Users.id, Users.name, Users.email)
+            .where { (Users.id eq id) and Users.active() }
+            .toList()
+            .singleOrNull()
+            ?.toDirectoryEntry()
+    }
+
+    private fun ResultRow.toDirectoryEntry() = UserDirectoryEntry(this[Users.id].value, this[Users.name], this[Users.email])
 
     /**
      * Wholesale-replace the user's disabled-feature set (V5). Returns 1, or 0 when the id is

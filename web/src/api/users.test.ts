@@ -5,6 +5,7 @@ import {
   createUser,
   deleteUser,
   getUser,
+  getUserDirectoryEntry,
   listUsers,
   searchUserDirectory,
   updateUser,
@@ -102,5 +103,11 @@ describe("users API wrappers", () => {
     expect(lastCall()[0]).toBe("/api/v1/users/directory?q=ali+ce&page=1&pageSize=20&sort=name");
     await searchUserDirectory({ q: "bo" });
     expect(lastCall()[0]).toBe("/api/v1/users/directory?q=bo");
+  });
+
+  test("getUserDirectoryEntry reads one active person by id", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { id: 7, name: "Ada", email: "ada@example.test" }));
+    await expect(getUserDirectoryEntry(7)).resolves.toEqual({ id: 7, name: "Ada", email: "ada@example.test" });
+    expect(lastCall()[0]).toBe("/api/v1/users/directory/7");
   });
 });

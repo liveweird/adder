@@ -25,6 +25,8 @@ describe("rooms API wrappers", () => {
     expect(lastCall()[0]).toBe("/api/v1/rooms?page=2&pageSize=100&sort=-lastActivityAt&name=night&archived=false&member=true");
     await listRooms({ page: 1, pageSize: 20 });
     expect(lastCall()[0]).toBe("/api/v1/rooms?page=1&pageSize=20");
+    await listRooms({ page: 1, pageSize: 100, sort: "name", memberId: 7 });
+    expect(lastCall()[0]).toBe("/api/v1/rooms?page=1&pageSize=100&sort=name&memberId=7");
   });
 
   test("getRoom and getRoomWorkflow read by id", async () => {

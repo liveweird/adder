@@ -1,0 +1,22 @@
+{
+  "title": "Osoba",
+  "capped": "Pokazano {{shown}} z {{total}}.",
+  "emailAria": "Napisz na adres {{email}}",
+  "notAvailable": {
+    "title": "Ta osoba jest niedostępna",
+    "message": "Konto mogło zostać usunięte albo link zawiera pomyłkę."
+  },
+  "teams": {
+    "title": "Zespoły",
+    "empty": "Nie należy do żadnego zespołu.",
+    "loadFailed": "Nie udało się wczytać zespołów"
+  },
+  "rooms": {
+    "titleShared": "Wspólne pokoje",
+    "titleOwn": "Twoje pokoje",
+    "titleAdmin": "Pokoje",
+    "emptyShared": "Nie macie wspólnego pokoju.",
+    "emptyAll": "Nie należy do żadnego pokoju.",
+    "loadFailed": "Nie udało się wczytać pokoi"
+  }
+}

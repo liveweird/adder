@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { addTeamMember, removeTeamMember } from "./teams";
+import { addTeamMember, listTeams, removeTeamMember } from "./teams";
 
 describe("teams API roster wrappers", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -16,6 +16,14 @@ describe("teams API roster wrappers", () => {
   });
 
   const lastCall = () => mockFetch.mock.calls.at(-1) as [string, RequestInit];
+
+  test("listTeams sends memberId for the profile's teams and omits what is unset", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ items: [], page: 1, pageSize: 100, total: 0 }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await listTeams({ page: 1, pageSize: 100, sort: "name", memberId: 7 });
+    expect(lastCall()[0]).toBe("/api/v1/teams?page=1&pageSize=100&sort=name&memberId=7");
+    await listTeams({ page: 1, pageSize: 20 });
+    expect(lastCall()[0]).toBe("/api/v1/teams?page=1&pageSize=20");
+  });
 
   test("addTeamMember PUTs the member path without a body", async () => {
     mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
