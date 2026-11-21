@@ -135,7 +135,8 @@ object RateLimits {
      * The thread and message writes that are not a POST share ONE bucket per signed-in user: the thread details PUT, the status PUT,
      * the owner PUT, the message edit (PUT), the message DELETE, the reaction PUT and the thread and message pin PUTs, and (1.0.0
      * checkup C-SEC-7) the room-lock writes that are not a name or an enrolment write: the room archive, unarchive and delete, a
-     * member's role PUT and removal (a leave included) and the room workflow PUT. Each takes the
+     * member's role PUT and removal (a leave included), the room workflow PUT and, since 1.2, a thread's tags PUT (a whole-set replace
+     * under the room lock). Each takes the
      * room's write lock (`rooms/RoomLock.kt`) and a pooled connection for as long as it waits, so one member's script could otherwise
      * queue writers behind a room and hold the pool. 240/min in every mode (the [CHAT_POST] idiom, twice its figure): a person edits,
      * moves and deletes a few times a minute at the very most (4 a second is a script, not a hand), while the SPA's own bursts (a status

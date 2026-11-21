@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.ThreadResponse
 import ch.nokillswit.threads.ThreadSearchPageResponse
@@ -179,6 +180,35 @@ class ChatLogHygieneTest {
     }
 
     /**
+     * A curated tag name the caller types is not a secret but is not ours to log either: a name the grammar refuses, a well-formed name the
+     * registry does not hold, and a refused `threadTag` filter value leave their text in no log line of any logger (the 400's detail
+     * reaches the caller only). The registry's own names reach the audit line on a real change (1.2 A5) and are not planted here.
+     */
+    @Test
+    fun `no log line carries a tag name the caller typed - grammar-refused, unknown, or a refused threadTag`() = testApplication {
+        val typed = "hygtyped" + UUID.randomUUID().toString().replace("-", "").take(16)
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            usePostgresTestcontainer()
+            val cast = castWithThread("hyg-ttag")
+            val tags = "$rooms/${cast.room}/threads/1/tags"
+            val revision = cast.member.client.get("$rooms/${cast.room}/threads/1").body<ThreadResponse>().revision.toString()
+            val header = EXPECTED_REVISION_HEADER to revision
+            val grammar = cast.member.client.raw(HttpMethod.Put, tags, """{"tags":["$typed,bad"]}""", header)
+            assertEquals(HttpStatusCode.BadRequest, grammar.status)
+            val unknown = cast.member.client.raw(HttpMethod.Put, tags, """{"tags":["$typed"]}""", header)
+            assertEquals(HttpStatusCode.BadRequest, unknown.status)
+            val threads = "$rooms/${cast.room}/threads"
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$threads?threadTag=$typed,bad").status)
+            assertEquals(HttpStatusCode.OK, cast.member.client.get("$threads?threadTag=$typed").status)
+            val leaked = capture.events.filter { typed in it.rendered() || typed.uppercase() in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a typed tag name")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    /**
      * A notice holds ids only, so no title or body can reach a log through it: the mention that makes one, the list that shows it (it
      * reads the room's name, the thread's title and the actor's name), the two "seen" writes, a hand-over's notice, an edit that drops
      * the mention and the delete that takes the notice leave the marker planted in the thread title and the message bodies in no log
@@ -223,10 +253,20 @@ class ChatLogHygieneTest {
             val watch = "$rooms/$room/threads/1/watch"
             assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, watch, """{"watching":false}""").status)
             assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, watch, """{"watching":true}""").status)
+            // A tag save is audited with ids, counts and the registry's names (an ADMIN-curated vocabulary, 1.2 A5): the title and the
+            // body (the marker) reach no line of it, whether the save is written or refused (an unknown name, a stale revision).
+            val tags = "$rooms/$room/threads/1/tags"
+            val revision = owner.client.get("$rooms/$room/threads/1").body<ThreadResponse>().revision.toString()
+            val saved = owner.client.raw(HttpMethod.Put, tags, """{"tags":["question"]}""", EXPECTED_REVISION_HEADER to revision)
+            assertEquals(HttpStatusCode.NoContent, saved.status)
+            val next = (revision.toLong() + 1).toString()
+            val refused = owner.client.raw(HttpMethod.Put, tags, """{"tags":["no-such-tag"]}""", EXPECTED_REVISION_HEADER to next)
+            assertEquals(HttpStatusCode.BadRequest, refused.status)
 
             val names = capture.events.map { it.message }
             assertTrue("notification.created" in names && "message.edited" in names && "thread.owner_changed" in names, "captured: $names")
             assertTrue("thread.watch_changed" in names, "a watch is audited: $names")
+            assertTrue("thread.tags_changed" in names, "a tag save is audited: $names")
             val leaked = capture.events.filter { marker in it.rendered() }
             assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a title or a body")
         } finally {

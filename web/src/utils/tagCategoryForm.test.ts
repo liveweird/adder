@@ -5,6 +5,7 @@ import {
   EMPTY_TAG_CATEGORY_FORM,
   normalizeTag,
   tagCategoryFormValidation,
+  tagCategoryDeleteErrorMessage,
   tagCategorySaveErrorMessage,
   toTagCategoryBody,
   toTagCategoryFormValues,
@@ -61,5 +62,21 @@ describe("tag category form", () => {
     expect(tagCategorySaveErrorMessage(err(404), t)).toMatch(/no longer exists/);
     expect(tagCategorySaveErrorMessage(err(500), t)).toBe("Save failed (500)");
     expect(tagCategorySaveErrorMessage(new Error("x"), t)).toMatch(/Save failed\. Check your connection/);
+  });
+
+  test("the registry's busy 429 (the shared room-busy type) has the registry's own words, never the room's, for the save and the delete", () => {
+    const busy = new ApiError(429, { status: 429, type: "urn:adder:problem:room-busy" }, 1000);
+    for (const message of [tagCategorySaveErrorMessage(busy, t), tagCategoryDeleteErrorMessage(busy, t)]) {
+      expect(message).toMatch(/tag registry is busy/);
+      expect(message).not.toMatch(/room/);
+    }
+  });
+
+  test("a delete failure has fixed words per status", () => {
+    const err = (status: number) => new ApiError(status, { status });
+    expect(tagCategoryDeleteErrorMessage(err(403), t)).toMatch(/Only administrators/);
+    expect(tagCategoryDeleteErrorMessage(err(404), t)).toMatch(/no longer exists/);
+    expect(tagCategoryDeleteErrorMessage(err(409), t)).toMatch(/changed after you opened it/);
+    expect(tagCategoryDeleteErrorMessage(new Error("x"), t)).toBeTruthy();
   });
 });

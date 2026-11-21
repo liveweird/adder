@@ -52,6 +52,7 @@ const THREAD = {
   createdAt: STARTED,
   updatedAt: MOVED,
   hashtags: [],
+  tags: [],
 };
 
 const MESSAGES = [makeMessage({ id: 2, authorName: "Di Other", body: "second" }), makeMessage({ id: 1, authorName: "Bob Starter", body: "the opening message" })];
@@ -101,6 +102,7 @@ describe("ThreadPane", () => {
       [4, "Status"],
       [4, "Owner"],
       [4, "Details"],
+      [4, "Tags"],
       [4, "History"],
     ]);
   });
@@ -191,8 +193,8 @@ describe("ThreadPane", () => {
       expect.stringContaining("second"),
     ]);
     expect(screen.getByRole("textbox", { name: "Reply" })).toBeInTheDocument();
-    // The messages add no heading: the outline is the pane's h3 and the side panel's four h4s.
-    expect(headingOutline().map(([level]) => level)).toEqual([3, 4, 4, 4, 4]);
+    // The messages add no heading: the outline is the pane's h3 and the side panel's five h4s.
+    expect(headingOutline().map(([level]) => level)).toEqual([3, 4, 4, 4, 4, 4]);
   });
 
   test("a closed thread keeps the conversation and swaps the box for the note", async () => {

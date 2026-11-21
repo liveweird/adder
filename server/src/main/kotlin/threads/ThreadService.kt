@@ -73,6 +73,7 @@ class ThreadService(
     private val watches: ThreadWatchService,
     private val teams: TeamService,
     private val tags: MessageTagService,
+    private val threadTags: ThreadTagService,
     private val readLimiter: ReadLimiter = ReadLimiter(),
 ) {
     object Threads : UIntIdTable("threads") {
@@ -112,7 +113,10 @@ class ThreadService(
             // The caller's membership and teams are read only for the `mentionsMe` filter (a group mention addresses members alone).
             val addressable = filter.mentionsMe != null && members.unreadSince(roomId, callerUserId) != null
             val callerTeams = if (addressable) teams.teamIdsOf(callerUserId) else emptyList()
-            val predicate = filter.predicate(roomId, callerUserId, workflow, addressable, callerTeams)
+            // The `threadTag` names are resolved to registry ids (retired ones too) in this transaction; an unknown name has no id.
+            budget.arm(this)
+            val threadTagIds = threadTags.idsOf(filter.threadTags)
+            val predicate = filter.predicate(roomId, callerUserId, workflow, addressable, callerTeams, threadTagIds)
             val columns: Map<String, Expression<*>> = workflow?.takeIf { sortsByStatus }
                 ?.let { SORTABLE_COLUMNS + (STATUS_SORT to statusOrder(it)) } ?: SORTABLE_COLUMNS
             budget.arm(this)
@@ -129,6 +133,8 @@ class ThreadService(
             val watching = watches.watchingAmong(roomId, callerUserId, rows.map { row -> row[Threads.id].value })
             budget.arm(this)
             val hashtags = tags.hashtagsOf(rows.map { row -> row[Threads.id].value })
+            budget.arm(this)
+            val curated = threadTags.forThreads(rows.map { row -> row[Threads.id].value })
             ThreadListResult(
                 items = rows.map {
                     ThreadListItem(
@@ -145,6 +151,7 @@ class ThreadService(
                         unreadCount = unread[it[Threads.id].value] ?: 0,
                         watching = it[Threads.id].value in watching,
                         hashtags = hashtags[it[Threads.id].value].orEmpty(),
+                        tags = curated[it[Threads.id].value].orEmpty(),
                     )
                 },
                 total = total,
@@ -189,6 +196,7 @@ class ThreadService(
             watching = threadId in watching,
             watcherCount = watches.count(threadId),
             hashtags = tags.hashtagsOf(listOf(threadId))[threadId].orEmpty(),
+            tags = threadTags.forThreads(listOf(threadId))[threadId].orEmpty(),
         )
     }
 

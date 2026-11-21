@@ -16,7 +16,7 @@ import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
 import { useTagCategories } from "../hooks/useTagCategories";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { saveErrorMessage } from "../utils/saveError";
+import { tagCategoryDeleteErrorMessage } from "../utils/tagCategoryForm";
 
 /**
  * The tag registry (`/tags`, ADMIN-only: the nav entry and the route are - UX only, the server's `requireAdmin` is the rule, and reading the
@@ -131,15 +131,7 @@ export default function Tags() {
         confirm={remove}
         title={t("tags.deleteTitle")}
         errorTitle={t("tags.deleteFailed")}
-        errorMessage={(err) =>
-          saveErrorMessage(err, t, {
-            forbidden: "tags.saveForbidden",
-            notFound: "tags.saveGone",
-            conflict: "tags.deleteStale",
-            failedStatus: "common.error.actionFailedStatus",
-            failed: "common.error.actionFailed",
-          })
-        }
+        errorMessage={(err) => tagCategoryDeleteErrorMessage(err, t)}
         body={(category) => t("tags.deleteBody", { name: category.name })}
       />
     </Stack>

@@ -98,13 +98,14 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32")
-        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V32 ran on the populated database: $after")
+        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32", "33")
+        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V33 ran on the populated database: $after")
         val tagIndexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'message_tags'") { it.getString(1) }
             .toSet()
         val both = "idx_message_tags_thread" in tagIndexes && "idx_message_tags_room_tag" in tagIndexes
         assertTrue(both, "V31's index sits beside V15's: $tagIndexes")
         assertTagRegistrySeeded(database)
+        assertThreadTagsTableEmpty(database)
     }
 
     /**
@@ -133,6 +134,23 @@ class PopulatedUpgradeTest {
             listOf("uq_tag_categories_name_active", "uq_tags_name", "idx_tags_category").all { it in indexes },
             "the registry's indexes: $indexes",
         )
+    }
+
+    /**
+     * V33 creates `thread_tags` EMPTY (no thread of the release carried a tag), with its primary key and `idx_thread_tags_tag`, a foreign
+     * key to `threads` that cascades and one to `tags` that does not (`tags` rows are only ever retired).
+     */
+    private fun assertThreadTagsTableEmpty(database: String) {
+        assertEquals(0L, query(database, "SELECT count(*) FROM thread_tags") { it.getLong(1) }.single(), "no thread carries a tag yet")
+        val indexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'thread_tags'") { it.getString(1) }.toSet()
+        assertTrue("idx_thread_tags_tag" in indexes && "thread_tags_pkey" in indexes, "V33's indexes: $indexes")
+        val rules = query(
+            database,
+            "SELECT confrelid::regclass::text, confdeltype FROM pg_constraint WHERE conrelid = 'thread_tags'::regclass AND contype = 'f' " +
+                "ORDER BY 1",
+        ) { it.getString(1) to it.getString(2) }
+        // 'c' = ON DELETE CASCADE (the thread), 'a' = NO ACTION (the tag and the person who added it).
+        assertEquals(listOf("tags" to "a", "threads" to "c", "users" to "a"), rules, "the foreign keys' delete rules")
     }
 
     /** An additive migration may add columns; a dropped or renamed one of the release's columns fails, naming the table. */

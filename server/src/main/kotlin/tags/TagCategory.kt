@@ -48,6 +48,15 @@ private val WHITESPACE_RUN = Regex("\\s+")
 private val TAG_GRAMMAR = Regex("""[\p{L}\p{N}][\p{L}\p{N} ._/+#:-]*""")
 
 /**
+ * The four letters the Unicode standard marks Default_Ignorable_Code_Point that are ALSO \p{L} (so [TAG_GRAMMAR] would admit them): the
+ * Hangul fillers U+115F, U+1160, U+3164 and U+FFA0, which render as nothing. A tag made of them (or ending in them) would be a second,
+ * invisible spelling of a visible tag. Every other default-ignorable code point is a format character, a variation selector or a combining
+ * mark (Cf, Mn, Me), none of them \p{L} or \p{N}, so the grammar already refuses it; this denylist is that set's remainder, exact and
+ * closed (no `isWhitespace`/`isIdentifierIgnorable`: the first never matches them, the second only the Cf/Cc ones the grammar refuses).
+ */
+private val BLANK_RENDERING_LETTERS = setOf(0x115F, 0x1160, 0x3164, 0xFFA0)
+
+/**
  * The ONE canonical form of a tag name: trimmed, control and hidden direction characters a 400 ([sanitizeSingleLine]), runs of whitespace
  * collapsed to one space, lower-cased. Applied at every entry point (the registry now, a thread's tag write in S7), so `Security` and
  * ` security ` are the tag `security`.
@@ -60,6 +69,9 @@ fun normalizedTagName(raw: String): String = sanitizeSingleLine(raw, "Tag").repl
  * detail is logged and returned, and a request may carry up to the body ceiling in one name).
  */
 fun requireValidTagName(name: String) {
+    if (name.codePoints().anyMatch { it in BLANK_RENDERING_LETTERS }) {
+        throw BadRequestException("A tag must not contain an invisible character")
+    }
     if (name.isEmpty() || name.length > MAX_TAG_NAME_LENGTH || !TAG_GRAMMAR.matches(name)) {
         val shown = if (name.codePointCount(0, name.length) > MAX_TAG_NAME_LENGTH) {
             name.substring(0, name.offsetByCodePoints(0, MAX_TAG_NAME_LENGTH)) + "…"

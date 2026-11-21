@@ -29,7 +29,7 @@ const q = (query: string) => new URLSearchParams(query);
 describe("threadListParams", () => {
   test("a bare URL reads as the plain list", () => {
     expect(parseThreadListParams(q(""))).toEqual(DEFAULT_THREAD_LIST_PARAMS);
-    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], field: [], page: 1 });
+    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
   });
 
   test("the round trip: what a write spells, a read gives back", () => {
@@ -89,6 +89,22 @@ describe("threadListParams", () => {
     // Code points, not UTF-16 units: 150 astral letters are 300 units and still one tag.
     expect(tags(`tag=${encodeURIComponent("\u{1D49C}".repeat(150))}`)).toHaveLength(1);
     expect(tags(Array.from({ length: 30 }, (_, i) => `tag=t${i}`).join("&"))).toHaveLength(10);
+  });
+
+  test("threadTag (the curated tags) keeps the registry's grammar, 1 to 40 characters, distinct and at most 20, and is no hashtag", () => {
+    const tags = (query: string) => parseThreadListParams(q(query)).threadTag;
+    expect(tags("threadTag=data&threadTag=a%20b&threadTag=x.y_z%2F1%2B%23%3A-q&threadTag=data")).toEqual(["data", "a b", "x.y_z/1+#:-q"]);
+    // Lower-cased like the registry's names (the server normalises a typed name the same way): `Data` and `data` are one filter.
+    expect(tags("threadTag=Data&threadTag=data&threadTag=A%20B")).toEqual(["data", "a b"]);
+    // A name outside the grammar can be no registry tag: a leading symbol, a comma, a control character, a blank, 41 characters.
+    expect(tags(`threadTag=-a&threadTag=a%2Cb&threadTag=a%00b&threadTag=&threadTag=${"a".repeat(41)}&threadTag=${"a".repeat(40)}`)).toEqual(["a".repeat(40)]);
+    expect(tags(Array.from({ length: 30 }, (_, i) => `threadTag=t${i}`).join("&"))).toHaveLength(20);
+    // The two keys are independent: a hashtag is not a curated tag.
+    const both = parseThreadListParams(q("tag=outage&threadTag=security"));
+    expect([both.tag, both.threadTag]).toEqual([["outage"], ["security"]]);
+    expect(hasListKeys(q("threadTag=data"))).toBe(true);
+    expect(writeThreadListParams(q("page=3"), { threadTag: ["data", "a b"], tag: ["x"] }).toString()).toBe("tag=x&threadTag=data&threadTag=a+b");
+    expect(writeThreadListParams(q("threadTag=data"), { threadTag: [] }).toString()).toBe("");
   });
 
   test("a write spells status, tag and field as repeated keys between order and page, and a change resets the page", () => {
@@ -152,6 +168,14 @@ describe("threadListParams", () => {
     test("tags go to the request as they are, need no workflow, and at most 10 are sent", () => {
       expect(toApiQuery(params({ tag: ["Out-age", "hawai'i"] }), undefined, 1)?.tag).toEqual(["Out-age", "hawai'i"]);
       expect(toApiQuery(params({ tag: Array.from({ length: 12 }, (_, i) => `t${i}`) }), undefined, 1)?.tag).toHaveLength(10);
+    });
+
+    test("curated tags go to the request as threadTag, need no workflow, are capped at 20, and count as one filter", () => {
+      expect(toApiQuery(params({ threadTag: ["data", "a b"] }), undefined, 7)).toMatchObject({ threadTag: ["data", "a b"], tag: undefined });
+      expect(toApiQuery(params({}), undefined, 7)).toMatchObject({ threadTag: undefined });
+      expect(toApiQuery(params({ threadTag: Array.from({ length: 25 }, (_, i) => `t${i}`) }), undefined, 7)?.threadTag).toHaveLength(20);
+      expect(activeFilterCount({ threadTag: ["a", "b"] })).toBe(1);
+      expect(activeFilterCount({ tag: ["a"], threadTag: ["b"] })).toBe(2);
     });
 
     test("field filters wait for the workflow, and a key that is not an active filterable field is dropped, not sent", () => {

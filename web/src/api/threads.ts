@@ -12,6 +12,8 @@ export type ThreadFieldValues = NonNullable<ThreadCreateBody["fields"]>;
 export type ThreadUpdateBody = paths["/api/v1/rooms/{id}/threads/{number}"]["put"]["requestBody"]["content"]["application/json"];
 export type ThreadEventPage = paths["/api/v1/rooms/{id}/threads/{number}/events"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ThreadEvent = ThreadEventPage["items"][number];
+/** One curated tag on a thread (1.2): the registry name and whether the registry has since retired it. */
+export type ThreadTag = ThreadResponse["tags"][number];
 export type RoomHashtagPage = paths["/api/v1/rooms/{id}/tags"]["get"]["responses"]["200"]["content"]["application/json"];
 
 type ThreadListQuery = {
@@ -32,12 +34,14 @@ type ThreadListQuery = {
   field?: string[];
   /** Any of these hashtags, as typed or as `listRoomHashtags` returned them (the server folds case and accents); at most 10 distinct. */
   tag?: string[];
+  /** Any of these CURATED tags (the registry's names, not hashtags; at most 20 distinct); a retired tag still finds the threads that kept it. */
+  threadTag?: string[];
   /** `true` = only the threads the CALLER watches (the SPA's "Watching" filter); omitted = all. */
   watching?: boolean;
 };
 
 export async function listThreads(roomId: number, q: ThreadListQuery): Promise<ThreadPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), mentionedId: q.mentionedId?.map(String), mentionsMe: q.mentionsMe, field: q.field, tag: q.tag, watching: q.watching });
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), mentionedId: q.mentionedId?.map(String), mentionsMe: q.mentionsMe, field: q.field, tag: q.tag, threadTag: q.threadTag, watching: q.watching });
   return jsonRequest<ThreadPage>(`/api/v1/rooms/${roomId}/threads?${params}`);
 }
 
@@ -66,6 +70,19 @@ export async function updateThreadDetails(roomId: number, number: number, body: 
     method: "PUT",
     headers: { "X-Expected-Revision": String(expectedRevision) },
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Replaces the thread's WHOLE tag set (204; read the thread again for the new revision). The names are the registry's LIVE tags (a retired
+ * tag in the set is a 400, so the picker never sends one). The save rides the thread's own revision, like the details: a stale
+ * `expectedRevision` is a 409 `revision-conflict`. Any member while the thread is open, a steward once it is closed; an archived room is a 409.
+ */
+export async function setThreadTags(roomId: number, number: number, tags: readonly string[], expectedRevision: number): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/tags`, {
+    method: "PUT",
+    headers: { "X-Expected-Revision": String(expectedRevision) },
+    body: JSON.stringify({ tags }),
   });
 }
 

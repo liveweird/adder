@@ -127,4 +127,49 @@ class RollbackRunbookTest {
             }
         }
     }
+
+    @Test
+    fun `the 1_2_0 runbook deletes the TAGS_CHANGED history a 1_1_0 binary cannot decode, and nothing else`() {
+        val purge = sqlBlockWith("TAGS_CHANGED")
+        val marker = UUID.randomUUID().toString().take(8)
+        PostgresTestSupport.connect().use { c ->
+            c.autoCommit = false
+            try {
+                val user = c.user(marker, "tags")
+                val room = c.scalar(
+                    "INSERT INTO rooms (\"name\", last_activity_at, created_at, updated_at) VALUES (?, 1, 1, 1) RETURNING id",
+                    "Runbook tags ${UUID.randomUUID()}",
+                )
+                c.exec(
+                    "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position) " +
+                        "VALUES ($room, 'open', 'Open', 'BLUE', 'OPEN', TRUE, 0)",
+                )
+                val thread = c.scalar(
+                    "INSERT INTO threads (room_id, \"number\", title, status_key, owner_id, created_by, last_activity_at, created_at, " +
+                        "updated_at) VALUES ($room, 1, 'T', 'open', $user, $user, 1, 1, 1) RETURNING id",
+                )
+                val category = c.scalar(
+                    "INSERT INTO tag_categories (\"name\", created_at, updated_at) VALUES (?, 1, 1) RETURNING id", "Runbook $marker",
+                )
+                val tag = c.scalar("INSERT INTO tags (category_id, \"name\") VALUES (?, ?) RETURNING id", category, "runbook-$marker")
+                c.exec("INSERT INTO thread_tags (thread_id, tag_id, added_at, added_by) VALUES ($thread, $tag, 1, $user)")
+                for (type in listOf("CREATED", "TAGS_CHANGED", "STATUS_CHANGED", "TAGS_CHANGED")) {
+                    c.exec(
+                        "INSERT INTO thread_events (thread_id, user_id, created_at, event_type) VALUES ($thread, $user, 1, '$type')",
+                    )
+                }
+                val types = "SELECT event_type FROM thread_events WHERE thread_id = $thread ORDER BY id"
+                fun events(): List<String> = c.createStatement().use { st ->
+                    st.executeQuery(types).use { rs -> buildList { while (rs.next()) add(rs.getString(1)) } }
+                }
+
+                assertTrue(c.exec(purge) >= 2, "both TAGS_CHANGED rows of the thread (and any other thread's) are deleted")
+                assertEquals(listOf("CREATED", "STATUS_CHANGED"), events(), "every other event stays, in order")
+                assertEquals(1L, c.scalar("SELECT count(*) FROM thread_tags WHERE thread_id = $thread"), "the tags stay on the thread")
+                assertEquals(0, c.exec(purge), "run twice: nothing more to delete")
+            } finally {
+                c.rollback()
+            }
+        }
+    }
 }

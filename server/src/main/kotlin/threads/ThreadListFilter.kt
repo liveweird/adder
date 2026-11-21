@@ -5,6 +5,8 @@ import ch.nokillswit.infra.paging.positiveId
 import ch.nokillswit.infra.paging.repeatedStrings
 import ch.nokillswit.rooms.RoomWorkflowSnapshot
 import ch.nokillswit.rooms.SnapshotField
+import ch.nokillswit.tags.normalizedTagName
+import ch.nokillswit.tags.requireValidTagName
 import ch.nokillswit.workflows.FieldType
 import ch.nokillswit.workflows.requireKey
 import ch.nokillswit.workflows.shown
@@ -43,8 +45,8 @@ data class FieldCriterion(val key: String, val value: String)
 /**
  * The thread list's filters. Within a parameter the values are any-of; across parameters (and across field keys) all-of. A blank list
  * filters nothing. A well-formed but unknown status key or owner id matches nothing; an unknown, retired or unfilterable FIELD key is a
- * `400` ([predicate]). A `tag` is a folded hashtag; one the room never saw matches nothing, as does a `mentionedId` nobody was
- * mentioned as.
+ * `400` ([predicate]). A `threadTag` is a registry tag name; a `tag` is a folded hashtag; one the room never saw matches nothing, as does a
+ * `mentionedId` nobody was mentioned as.
  */
 data class ThreadListFilter(
     val closed: Boolean? = null,
@@ -62,6 +64,11 @@ data class ThreadListFilter(
      * names the watchers while they watch the thread NOW); `false`: only those that do not; null: all. `mentionedId` stays direct only.
      */
     val mentionsMe: Boolean? = null,
+    /**
+     * Curated tag names, normalised and valid ([threadTagFilter]; 1.2 D3): the thread carries ANY of them, retired ones included (1.2 A6).
+     * A name the registry never held matches nothing. Not the hashtags of [tags].
+     */
+    val threadTags: List<String> = emptyList(),
 )
 
 /** The filters of the thread list; a malformed key, id or pair, or too many values, is a `400` ([BadRequestException]). */
@@ -78,6 +85,7 @@ fun Parameters.threadListFilter(
     fields = repeatedStrings("field", MAX_FILTER_VALUES).map(::fieldCriterion),
     tags = tagFilter(),
     mentionedIds = userIdFilter("mentionedId"),
+    threadTags = threadTagFilter(),
 )
 
 /**
@@ -97,6 +105,14 @@ private fun Parameters.tagFilter(): List<String> {
     if (folded.size > MAX_TAG_FILTER_VALUES) throw BadRequestException("Parameter 'tag' takes at most $MAX_TAG_FILTER_VALUES distinct tags")
     return folded
 }
+
+/**
+ * The `threadTag` values: each normalised ([normalizedTagName]) and checked against the registry's grammar (`400` for a name no tag could
+ * have, as `requireTagFilter` does for a hashtag), at most [MAX_FILTER_VALUES] distinct. The bound counts the raw values (a request carries
+ * at most that many distinct ones), then names that fold together collapse (`A` and `a`).
+ */
+private fun Parameters.threadTagFilter(): List<String> = repeatedStrings("threadTag", MAX_FILTER_VALUES)
+    .map { normalizedTagName(it).also(::requireValidTagName) }.distinct()
 
 private fun fieldCriterion(raw: String): FieldCriterion {
     val colon = raw.indexOf(':')
@@ -122,6 +138,7 @@ internal fun ThreadListFilter.predicate(
     workflow: RoomWorkflowSnapshot?,
     callerIsMember: Boolean = false,
     callerTeamIds: List<UInt> = emptyList(),
+    threadTagIds: List<UInt> = emptyList(),
 ): Op<Boolean> {
     val threads = ThreadService.Threads
     var predicate: Op<Boolean> = threads.roomId eq roomId
@@ -130,6 +147,7 @@ internal fun ThreadListFilter.predicate(
     if (ownerIds.isNotEmpty()) predicate = predicate and (threads.ownerId inList ownerIds)
     if (mentionedIds.isNotEmpty()) predicate = predicate and threadMentionsAny(roomId, threads.id, mentionedIds)
     if (tags.isNotEmpty()) predicate = predicate and threadCarriesAnyTag(roomId, threads.id, tags)
+    if (threadTags.isNotEmpty()) predicate = predicate and threadCarriesAnyThreadTag(threads.id, threadTagIds)
     watching?.let {
         val watched = threadWatchedBy(roomId, callerUserId, threads.id)
         predicate = predicate and (if (it) watched else not(watched))

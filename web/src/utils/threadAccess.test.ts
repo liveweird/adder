@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isThreadSteward, statusMoveBlock, threadEditBlock, threadStartBlock } from "./threadAccess";
+import { isThreadSteward, statusMoveBlock, threadEditBlock, threadStartBlock, threadTagsBlock } from "./threadAccess";
 
 describe("threadStartBlock", () => {
   test("a member of a live room can start a thread", () => {
@@ -74,5 +74,22 @@ describe("threadEditBlock", () => {
     expect(threadEditBlock({ archived: false }, { closed: true })).toBe("closed");
     expect(threadEditBlock({ archived: true }, { closed: false })).toBe("archived");
     expect(threadEditBlock({ archived: true }, { closed: true })).toBe("archived");
+  });
+});
+
+describe("threadTagsBlock (1.2 D1)", () => {
+  test("any reader tags an open thread of a live room; stewardship does not matter there", () => {
+    expect(threadTagsBlock({ archived: false }, { closed: false }, false)).toBeNull();
+    expect(threadTagsBlock({ archived: false }, { closed: false }, true)).toBeNull();
+  });
+
+  test("a closed thread is for its stewards only", () => {
+    expect(threadTagsBlock({ archived: false }, { closed: true }, false)).toBe("needsSteward");
+    expect(threadTagsBlock({ archived: false }, { closed: true }, true)).toBeNull();
+  });
+
+  test("an archived room refuses everyone, stewards included, and that notice wins over a closed thread", () => {
+    expect(threadTagsBlock({ archived: true }, { closed: false }, true)).toBe("archived");
+    expect(threadTagsBlock({ archived: true }, { closed: true }, false)).toBe("archived");
   });
 });

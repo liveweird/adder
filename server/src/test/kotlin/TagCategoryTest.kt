@@ -114,7 +114,15 @@ class TagCategoryTest {
             "a tag with a disallowed character" to body(tags = listOf("a&b")),
             "a control character in a tag" to body(tags = listOf("a\u0007b")),
             "the same tag twice after normalising" to body(tags = listOf("Same", " same ")),
-        )
+        ) + listOf("\u115F", "\u1160", "\u3164", "\uFFA0").flatMap { blank ->
+            // The Hangul fillers are letters that render as nothing: alone, inside and at the end of a name they are no tag (1.2 S7).
+            val code = blank.codePointAt(0).toString(16)
+            listOf(
+                "a lone $code" to body(tags = listOf(blank)),
+                "inside $code" to body(tags = listOf("x${blank}y")),
+                "trailing $code" to body(tags = listOf("x$blank")),
+            )
+        }
         for ((label, request) in bad) {
             assertEquals(HttpStatusCode.BadRequest, admin.postJson("/api/v1/tag-categories", request).status, label)
         }

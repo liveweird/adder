@@ -14,6 +14,7 @@ import ch.nokillswit.threads.NoticeOutcome
 import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadService
+import ch.nokillswit.threads.ThreadTagService
 import ch.nokillswit.users.UserRole
 import java.util.UUID
 import kotlin.test.AfterTest
@@ -168,7 +169,7 @@ class MessageDerivedRowsTest {
         val threads =
             ThreadService(
                 database, TestRooms.service, TestRooms.workflows, members, TestThreads.events, messages, TestThreads.watches, teams,
-                MessageTagService(database),
+                MessageTagService(database), ThreadTagService(database, TestThreads.events),
             )
     }
 

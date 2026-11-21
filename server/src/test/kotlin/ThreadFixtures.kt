@@ -16,6 +16,7 @@ import ch.nokillswit.threads.PinService
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadService
+import ch.nokillswit.threads.ThreadTagService
 import ch.nokillswit.threads.ThreadWatchService
 import ch.nokillswit.workflows.FieldType
 import ch.nokillswit.workflows.StatusCategory
@@ -61,7 +62,10 @@ object TestThreads {
     val service: ThreadService by lazy {
         val database = sharedDatabaseForTests()
         val tags = MessageTagService(database)
-        ThreadService(database, TestRooms.service, TestRooms.workflows, members, events, messages, watches, teams, tags)
+        ThreadService(
+            database, TestRooms.service, TestRooms.workflows, members, events, messages, watches, teams, tags,
+            ThreadTagService(database, events),
+        )
     }
 
     /**

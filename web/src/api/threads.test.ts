@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createThread, getThread, listRoomHashtags, listThreadEvents, listThreads, setThreadOwner, setThreadReadMarker, setThreadStatus, setThreadWatch, updateThreadDetails } from "./threads";
+import { createThread, getThread, listRoomHashtags, listThreadEvents, listThreads, setThreadOwner, setThreadReadMarker, setThreadStatus, setThreadTags, setThreadWatch, updateThreadDetails } from "./threads";
 
 describe("threads API wrappers", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -33,6 +33,26 @@ describe("threads API wrappers", () => {
     mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 50, total: 0 })));
     await listThreads(5, { page: 1, pageSize: 50, tag: ["Wdro\u017cenie", "hawai'i", "a 1/2"] });
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&tag=Wdro%C5%BCenie&tag=hawai%27i&tag=a+1%2F2");
+  });
+
+  test("listThreads repeats threadTag for the curated tags and leaves it out when unset", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 50, total: 0 })));
+    await listThreads(5, { page: 1, pageSize: 50, threadTag: ["security", "a b"], tag: ["outage"] });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&tag=outage&threadTag=security&threadTag=a+b");
+    await listThreads(5, { page: 1, pageSize: 50 });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50");
+  });
+
+  test("setThreadTags PUTs the whole set under X-Expected-Revision", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
+    await setThreadTags(5, 42, ["data", "security"], 7);
+    const [url, init] = lastCall();
+    expect(url).toBe("/api/v1/rooms/5/threads/42/tags");
+    expect(init.method).toBe("PUT");
+    expect(new Headers(init.headers).get("X-Expected-Revision")).toBe("7");
+    expect(JSON.parse(init.body as string)).toEqual({ tags: ["data", "security"] });
+    await setThreadTags(5, 42, [], 8);
+    expect(JSON.parse(lastCall()[1].body as string)).toEqual({ tags: [] });
   });
 
   test("listThreads sends the mentioned people as the repeated mentionedId key", async () => {

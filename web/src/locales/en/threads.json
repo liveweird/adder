@@ -25,7 +25,9 @@
     "mine": "Mine",
     "mentionsMe": "Mentions me",
     "watching": "Watching",
-    "clear": "Clear filters"
+    "clear": "Clear filters",
+    "tags": "Tags",
+    "noTags": "No tags found"
   },
   "empty": {
     "open": "No open threads",
@@ -100,7 +102,8 @@
     "started": "Thread started",
     "statusChanged": "Status changed",
     "ownerChanged": "Owner changed",
-    "detailsSaved": "Details saved"
+    "detailsSaved": "Details saved",
+    "tagsSaved": "Tags saved"
   },
   "messages": {
     "aria": "Messages",
@@ -168,7 +171,8 @@
     "details": "Details",
     "hashtags": "Hashtags",
     "history": "History",
-    "unavailable": "Not available until the room's statuses have loaded."
+    "unavailable": "Not available until the room's statuses have loaded.",
+    "tags": "Tags"
   },
   "status": {
     "label": "Thread status",
@@ -239,7 +243,10 @@
     "reopened": "Reopened the thread: {{from}} → {{to}}",
     "statusReplaced": "{{from}} was retired; the thread moved to {{to}}",
     "ownerChanged": "Passed the thread from {{from}} to {{to}}",
-    "fieldChanged": "Changed {{field}}"
+    "fieldChanged": "Changed {{field}}",
+    "tagsChanged": "Changed the tags",
+    "tagsAdded": "Added: {{tags}}",
+    "tagsRemoved": "Removed: {{tags}}"
   },
   "reaction": {
     "group": "Reactions",
@@ -301,5 +308,38 @@
     "button_other": "{{count}} new messages below",
     "announce_one": "{{count}} new message arrived",
     "announce_other": "{{count}} new messages arrived"
+  },
+  "tags": {
+    "aria": "Tags",
+    "none": "No tags",
+    "edit": "Edit tags",
+    "label": "Tags",
+    "placeholder": "Pick tags from the registry…",
+    "hint": "Only tags from the registry can be used; administrators curate it.",
+    "retiredHint": "Retired tags are no longer in the registry. They are removed when you save.",
+    "retiredNote": "A struck-through tag was retired by an administrator. It is removed the next time the tags are saved.",
+    "empty": "The registry has no tags yet.",
+    "save": "Save tags",
+    "clear": "Clear the tags",
+    "loadFailed": "Could not load the tag registry",
+    "closedNote": "This thread is closed, so only its owner, the room owner or an administrator can change its tags.",
+    "archivedNote": "This room is archived, so the tags can no longer change.",
+    "moreShort": "+{{n}}",
+    "more_one": "{{count}} more tag",
+    "more_other": "{{count}} more tags",
+    "moreAction_one": "+{{count}}: show {{count}} more tag in the details",
+    "moreAction_other": "+{{count}}: show {{count}} more tags in the details",
+    "conflict": {
+      "title": "This thread was changed elsewhere",
+      "message": "Someone saved a newer version of this thread while you were choosing tags. Your choice is kept here. Reload to see the latest version, then choose again.",
+      "reload": "Reload the latest version"
+    },
+    "error": {
+      "forbidden": "This thread is closed, so only its owner, the room owner or an administrator can change its tags.",
+      "gone": "This thread no longer exists, or you no longer have access to its room — reload the page",
+      "archived": "This room was archived in the meantime, so the tags can no longer change. Your choice is kept here.",
+      "conflict": "The thread or the room changed in the meantime. Reload the page and try again.",
+      "invalid": "The tags could not be saved: use only live tags from the registry"
+    }
   }
 }

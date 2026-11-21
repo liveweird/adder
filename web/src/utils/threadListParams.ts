@@ -25,6 +25,8 @@ export const ORDER_SORT: Record<Order, string> = { activity: "-lastActivityAt", 
 const MAX_FILTER_VALUES = 20;
 /** The most `tag` values one request may carry: the server accepts 50 raw values but folds them to at most 10 distinct. */
 export const MAX_TAG_VALUES = 10;
+/** The most `threadTag` (curated tag) values one request carries: the server's 20 distinct. */
+const MAX_THREAD_TAG_VALUES = 20;
 
 export interface ThreadListParams {
   scope: Scope;
@@ -39,16 +41,18 @@ export interface ThreadListParams {
   watching: boolean;
   /** Any-of these hashtags (empty = no filter), as typed or as the room's tag list spells them; the server folds case and accents. */
   tag: string[];
+  /** Any-of these CURATED tags (the registry's names, URL key `threadTag`; empty = no filter); a retired tag still finds the threads that kept it. */
+  threadTag: string[];
   /** `key:value` pairs: any-of within a field key, all-of across keys. Judged against the room's workflow where the request is built. */
   field: string[];
   /** 1-based. */
   page: number;
 }
 
-export const DEFAULT_THREAD_LIST_PARAMS: ThreadListParams = { scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], field: [], page: 1 };
+export const DEFAULT_THREAD_LIST_PARAMS: ThreadListParams = { scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 };
 
 /** Every query key the list owns, in the order a URL spells them. */
-const LIST_KEYS = ["scope", "order", "status", "owner", "mention", "watching", "tag", "field", "page"] as const;
+const LIST_KEYS = ["scope", "order", "status", "owner", "mention", "watching", "tag", "threadTag", "field", "page"] as const;
 
 /** A positive integer of at most nine digits; anything else (`0`, `-1`, `2x`, `1e3`, a huge number) is junk. */
 const PAGE = /^[1-9]\d{0,8}$/;
@@ -66,6 +70,9 @@ const isUserId = (raw: string) => /^[1-9]\d{0,9}$/.test(raw) && Number(raw) <= 2
  */
 const TAG_MAX_LENGTH = 150;
 const isTag = (raw: string) => [...raw].length <= TAG_MAX_LENGTH && raw !== "" && !/[#\p{Cc}]/u.test(raw);
+/** A curated tag name as the registry spells it: 1 to 40 characters, a letter or digit first, then those, spaces and `. _ / + # : -` (the server's `TAG_GRAMMAR`). */
+const THREAD_TAG = /^[\p{L}\p{N}][\p{L}\p{N} ._/+#:-]{0,39}$/u;
+const isThreadTag = (raw: string) => THREAD_TAG.test(raw);
 /** `key:value`: a field key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). */
 function isFieldEntry(raw: string): boolean {
   const colon = raw.indexOf(":");
@@ -93,6 +100,8 @@ export function parseThreadListParams(search: URLSearchParams): ThreadListParams
     mention: search.get("mention") === "me",
     watching: search.get("watching") === "me",
     tag: repeated(search, "tag", isTag, MAX_TAG_VALUES),
+    // The registry's names are lower case and the server normalises a typed one; the URL keeps the lower-cased spelling so a pasted `Data` is the same filter.
+    threadTag: [...new Set(repeated(search, "threadTag", isThreadTag, MAX_THREAD_TAG_VALUES).map((name) => name.toLowerCase()))],
     field: repeated(search, "field", isFieldEntry),
     page: page !== null && PAGE.test(page) ? Number(page) : DEFAULT_THREAD_LIST_PARAMS.page,
   };
@@ -135,6 +144,7 @@ function serialize(params: ThreadListParams): URLSearchParams {
   if (params.mention) out.set("mention", "me");
   if (params.watching) out.set("watching", "me");
   for (const tag of params.tag) out.append("tag", tag);
+  for (const tag of params.threadTag) out.append("threadTag", tag);
   for (const entry of params.field) out.append("field", entry);
   if (params.page !== DEFAULT_THREAD_LIST_PARAMS.page) out.set("page", String(params.page));
   return out;
@@ -203,6 +213,8 @@ export interface ThreadListFilters {
   /** The caller's own watched threads (`watching=true`); the server knows who the caller is. */
   watching?: boolean;
   tag?: string[];
+  /** The curated tags (`threadTag`), any-of. */
+  threadTag?: string[];
   field?: string[];
 }
 
@@ -245,12 +257,13 @@ export function toApiQuery(params: ThreadListParams, workflow: RoomWorkflow | un
     mentionsMe: params.mention && me !== null ? true : undefined,
     watching: params.watching ? true : undefined,
     tag: params.tag.length > 0 ? params.tag.slice(0, MAX_TAG_VALUES) : undefined,
+    threadTag: params.threadTag.length > 0 ? params.threadTag.slice(0, MAX_THREAD_TAG_VALUES) : undefined,
     field: field.length > 0 ? field : undefined,
   };
 }
 
-/** How many filters the panel holds: the statuses, the owner, "mentions me", "watching", the hashtags (one dimension), and each field key with a value (the scope and the order live outside the panel). */
-export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionsMe" | "watching" | "tag" | "field">): number {
+/** How many filters the panel holds: the statuses, the owner, "mentions me", "watching", the hashtags (one dimension), the curated tags (one dimension), and each field key with a value (the scope and the order live outside the panel). */
+export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionsMe" | "watching" | "tag" | "threadTag" | "field">): number {
   const fieldKeys = new Set((filters.field ?? []).map(fieldKeyOf));
-  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionsMe ? 1 : 0) + (filters.watching ? 1 : 0) + (filters.tag ? 1 : 0) + fieldKeys.size;
+  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionsMe ? 1 : 0) + (filters.watching ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.threadTag ? 1 : 0) + fieldKeys.size;
 }

@@ -14,7 +14,7 @@ import { SocketStub } from "./test/socket";
 
 const ROOM_12 = { id: 12, name: "Night Shift", description: null, archived: false, archivedAt: null, role: "OWNER", memberCount: 3, workflowRevision: 1, lastActivityAt: 5, createdAt: 1, updatedAt: 1 };
 const RAIL = { items: [ROOM_12], page: 1, pageSize: 100, total: 1 };
-const THREAD_ITEM = { id: 1, number: 7, title: "Disk full on db-3", status: "open", closed: false, ownerId: 5, ownerName: "Ann Owner", messageCount: 2, lastActivityAt: 1, createdAt: 1, hashtags: [] };
+const THREAD_ITEM = { id: 1, number: 7, title: "Disk full on db-3", status: "open", closed: false, ownerId: 5, ownerName: "Ann Owner", messageCount: 2, lastActivityAt: 1, createdAt: 1, hashtags: [], tags: [] };
 const WORKFLOW = { revision: 1, statuses: [{ key: "open", label: "Triage", colour: "BLUE", category: "OPEN", initial: true, threadCount: 1 }], fields: [] };
 
 function renderApp(route: string) {

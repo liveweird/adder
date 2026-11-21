@@ -1,6 +1,8 @@
 import { Button, Group, Stack, Text } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import type { RoomWorkflow } from "../api/rooms";
+import { useTagCategories } from "../hooks/useTagCategories";
+import { tagOptionGroups } from "../utils/threadTags";
 import {
   fieldValues,
   filterableFields,
@@ -14,7 +16,7 @@ import RoomHashtagSelect from "./RoomHashtagSelect";
 
 /**
  * The thread list's filter panel (inside the shared `FilterPanel`, stacked: the room view's left rail is narrow): the statuses (with the
- * workflow's thread counts), the room's hashtags (`RoomHashtagSelect`, searched on the server), the owner ("Mine" is `owner=me`, "Mentions me" is `mention=me`, sent as `mentionsMe=true` (a mention of the caller by name, through their team, of everyone, or of the watchers they are in), "Watching" is `watching=me`, the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
+ * workflow's thread counts), the room's hashtags (`RoomHashtagSelect`, searched on the server), the curated tags (the registry, grouped by category, 1.2 D3), the owner ("Mine" is `owner=me`, "Mentions me" is `mention=me`, sent as `mentionsMe=true` (a mention of the caller by name, through their team, of everyone, or of the watchers they are in), "Watching" is `watching=me`, the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
  * USER field of the room's workflow. Every control writes the URL through `update`; the panel only draws what the URL says.
  * "Clear filters" is the hook's `clear`: the panel's filters and the page only, the scope and the order stay.
  */
@@ -37,6 +39,9 @@ export default function ThreadFilters({
   activeCount: number;
 }) {
   const { t } = useTranslation();
+  // The registry (one cached read, shared with the tag editor): the Tags control offers its live tags grouped by category; a tag already in
+  // the URL that is no longer there (retired, or the registry not read yet) keeps its pill under its own name.
+  const categories = useTagCategories();
   const counts = new Map((workflow?.statuses ?? []).map((status) => [status.key, status.threadCount]));
   const statusOptions = (workflow?.statuses ?? []).map((status) => ({ value: status.key, label: status.label }));
   const mineInUrl = params.owner === "me";
@@ -65,6 +70,15 @@ export default function ThreadFilters({
           emptyLabel={t("threads.filters.all")}
           value={params.tag}
           onChange={(tag) => update({ tag })}
+        />
+        <FilterMultiSelect
+          label={t("threads.filters.tags")}
+          emptyLabel={t("threads.filters.all")}
+          w="100%"
+          data={tagOptionGroups(categories.data ?? [])}
+          value={params.threadTag}
+          onChange={(threadTag) => update({ threadTag })}
+          nothingFoundMessage={t("threads.filters.noTags")}
         />
         <Stack gap={4}>
           <Group gap={4} wrap="wrap">

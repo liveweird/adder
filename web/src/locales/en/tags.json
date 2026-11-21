@@ -36,5 +36,6 @@
     "created": "Tag category created",
     "saved": "Tag category saved",
     "deleted": "Tag category deleted"
-  }
+  },
+  "registryBusy": "The tag registry is busy right now — another administrator is saving. Try again in a moment."
 }

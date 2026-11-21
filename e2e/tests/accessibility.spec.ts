@@ -291,12 +291,10 @@ test.describe("detail pages and overlays", () => {
       name: "the thread's details editor", asOwner: true,
       path: () => `/rooms/${roomId}/threads/${threadNumber}`,
       settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
-      before: async (p) => {
-        await openSidePanel(p);
-        await p.getByRole("button", { name: "Edit details", exact: true }).click();
-        await expect(p.getByRole("textbox", { name: /^Title/ })).toBeVisible();
-      },
+      before: async (p) => { await openSidePanel(p); await p.getByRole("button", { name: "Edit details", exact: true }).click(); await expect(p.getByRole("textbox", { name: /^Title/ })).toBeVisible(); },
     },
+    // The tags editor open (1.2.0): the grouped picker (the seeded Kind and Area categories), its named pill removers and the Save and Cancel buttons; the picker takes focus on open, which lists its options, so Escape closes the list (an open listbox's scroller is Mantine's, as in every multi-select) before the scan.
+    { name: "the thread's tags editor", asOwner: true, path: () => `/rooms/${roomId}/threads/${threadNumber}`, settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }), before: async (p) => { await openSidePanel(p); await p.getByRole("button", { name: "Edit tags", exact: true }).click(); await expect(p.getByRole("combobox", { name: "Tags", exact: true })).toBeVisible(); await p.keyboard.press("Escape"); } },
     { name: "the new-thread form", path: () => `/rooms/${roomId}/threads/new`, settled: (p) => p.getByRole("textbox", { name: /Title/ }) },
     // Settled once the admin's own row (the fixture room's owner) is in the table: the list has loaded, the controls are drawn.
     { name: "the room members page", asOwner: true, path: () => `/rooms/${roomId}/members`, settled: (p) => p.getByRole("table", { name: "Members", exact: true }).getByText(admins.first.email) },

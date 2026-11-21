@@ -19,6 +19,7 @@ describe("describeEvent", () => {
     expect(describeEvent(event("STATUS_REPLACED", { from: "a", to: "b", fromLabel: "Old", toLabel: "New" }), t)).toBe("Old was retired; the thread moved to New");
     expect(describeEvent(event("OWNER_CHANGED", { fromId: "5", toId: "6", fromName: "Ann", toName: "Bob" }), t)).toBe("Passed the thread from Ann to Bob");
     expect(describeEvent(event("FIELD_CHANGED", { field: "sev", fieldLabel: "Severity", from: "S3", to: "S1" }), t)).toBe("Changed Severity");
+    expect(describeEvent(event("TAGS_CHANGED", { added: "data" }), t)).toBe("Changed the tags");
   });
 
   test("a label that was not recorded falls back to the key, and a missing param to a dash", () => {
@@ -33,6 +34,12 @@ describe("describeEvent", () => {
 });
 
 describe("eventLines", () => {
+  test("a tag change lists what was added and what was removed, one line each, and none for a side that did not change", () => {
+    expect(eventLines(event("TAGS_CHANGED", { added: "data, security a", removed: "old tag" }), t)).toEqual(["Added: data, security a", "Removed: old tag"]);
+    expect(eventLines(event("TAGS_CHANGED", { removed: "x" }), t)).toEqual(["Removed: x"]);
+    expect(eventLines(event("TAGS_CHANGED", {}), t)).toEqual([]);
+  });
+
   test("a changed SELECT, USER, DATE or NUMBER field carries its old and new values", () => {
     expect(eventLines(event("FIELD_CHANGED", { field: "sev", fieldLabel: "Severity", from: "S3", to: "S1" }), t)).toEqual(["Severity: S3 → S1"]);
     expect(eventLines(event("FIELD_CHANGED", { field: "sev", fieldLabel: "Severity", from: "S3" }), t)).toEqual(["Severity: cleared"]);

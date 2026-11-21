@@ -14,6 +14,7 @@ import ThreadHashtags from "./ThreadHashtags";
 import ThreadHistory from "./ThreadHistory";
 import ThreadOwnerSelect from "./ThreadOwnerSelect";
 import ThreadStatusControl from "./ThreadStatusControl";
+import ThreadTagsPanel from "./ThreadTagsPanel";
 
 /** One panel section: its h4 (the pane's title is the h3; web-internals.md "The room view") and its body. */
 function Section({ title, anchor, children }: { title: string; anchor?: string; children: ReactNode }) {
@@ -29,7 +30,7 @@ function Section({ title, anchor, children }: { title: string; anchor?: string; 
 }
 
 /**
- * The thread's side panel: Status, Owner, Details, Hashtags (only when the thread has any: filter links, 1.2 A8) and History, each an h4 under the pane's h3. Status and Owner are acted on by whoever D1
+ * The thread's side panel: Status, Owner, Details, Tags (the curated labels, with their editor, 1.2 D1), Hashtags (only when the thread has any: filter links, 1.2 A8) and History, each an h4 under the pane's h3. Status and Owner are acted on by whoever D1
  * allows (`isThreadSteward`, UX only), Details is the room's fields with an editor, History the server's event log. The sections that need the
  * room's workflow (the status options, the fields) wait for it under the shared `["rooms", "workflow", roomId]` read; the pane above already
  * says when that read failed. The panel is what folds into the "Details" toggle in a narrow main area (`ThreadPane.module.css`).
@@ -57,6 +58,9 @@ export default function ThreadSidePanel({ room, thread }: { room: RoomResponse; 
       </Section>
       <Section title={t("threads.side.details")}>
         {workflow.data ? <ThreadDetails room={room} thread={thread} workflow={workflow.data} /> : waiting}
+      </Section>
+      <Section title={t("threads.side.tags")} anchor="tags">
+        <ThreadTagsPanel room={room} thread={thread} steward={steward} />
       </Section>
       {thread.hashtags.length > 0 && (
         <Section title={t("threads.side.hashtags")} anchor="hashtags">

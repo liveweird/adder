@@ -43,6 +43,13 @@ enum class ThreadEventType {
 
     /** `{from, to, fromLabel, toLabel}`: the workflow PUT moved the thread off a retired status. */
     STATUS_REPLACED,
+
+    /**
+     * `{added?, removed?}` (1.2.0, V33): the registry names the thread gained and lost in ONE tag save, each joined with ", "; a side
+     * with no change has no key. A 1.1.0 binary decodes types strictly, so a rollback deletes these rows first (`persistence.md`
+     * "Rollback below 1.2.0").
+     */
+    TAGS_CHANGED,
 }
 
 /** One event to append: the [type] and its string-map [params]. Built by the pure `thread*Event` functions below. */

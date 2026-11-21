@@ -59,6 +59,8 @@ data class ThreadListItem(
     val watching: Boolean,
     /** The thread's hashtags (V15 `message_tags`): the folded keys of its live messages, alphabetical, at most [MAX_THREAD_HASHTAGS]. */
     val hashtags: List<String>,
+    /** The thread's curated tags (V33), in code point order; a tag the registry has since retired is marked, not hidden (1.2 A6). */
+    val tags: List<ThreadTag>,
 )
 
 @Serializable
@@ -96,6 +98,8 @@ data class ThreadResponse(
     val watcherCount: Int,
     /** The thread's hashtags, as on a list row ([ThreadListItem.hashtags]): the SPA's header and side panel show them as filter links. */
     val hashtags: List<String>,
+    /** The thread's curated tags, as on a list row ([ThreadListItem.tags]); a save of them rides this response's [revision]. */
+    val tags: List<ThreadTag>,
 )
 
 typealias ThreadPageResponse = PageResponse<ThreadListItem>

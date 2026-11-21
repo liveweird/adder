@@ -5,6 +5,7 @@ import ch.nokillswit.tags.TagCategory
 import ch.nokillswit.tags.TagCategoryList
 import ch.nokillswit.tags.TagCategoryRequest
 import ch.nokillswit.tags.TagCategoryService
+import ch.nokillswit.threads.ThreadTagService
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -18,9 +19,12 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
 import kotlin.test.assertEquals
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
@@ -47,11 +51,18 @@ object TestTags {
     /** The registry's own table (the cap test's direct inserts). */
     val categories = TagCategoryService.TagCategories
 
-    /** Removes every category [mint]ed so far with its tags, retired ones included (the foreign key forces the tags first). */
+    /**
+     * Removes every category [mint]ed so far with its tags, retired ones included. The foreign keys force the order: the threads' rows of
+     * those tags first (`thread_tags.tag_id` has no `ON DELETE` rule, V33: a tag is only ever retired, never erased), then the tags, then
+     * the categories. So a test may purge its tags before or after its rooms.
+     */
     suspend fun purge() {
         val ids = generateSequence { minted.poll() }.toList()
         if (ids.isEmpty()) return
         suspendTransaction(sharedDatabaseForTests()) {
+            val tags = TagCategoryService.Tags
+            val tagIds = tags.select(tags.id).where { tags.categoryId inList ids }.map { it[tags.id].value }.toList()
+            if (tagIds.isNotEmpty()) ThreadTagService.ThreadTags.deleteWhere { ThreadTagService.ThreadTags.tagId inList tagIds }
             TagCategoryService.Tags.deleteWhere { TagCategoryService.Tags.categoryId inList ids }
             categories.deleteWhere { categories.id inList ids }
         }

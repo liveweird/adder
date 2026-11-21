@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.RoomUpdateRequest
 import ch.nokillswit.threads.MessagePageResponse
@@ -8,6 +9,7 @@ import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.PinRequest
 import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ThreadStatusRequest
+import ch.nokillswit.threads.ThreadTagsRequest
 import ch.nokillswit.threads.ThreadUpdateRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
@@ -76,6 +78,14 @@ class ChatWriteLimitsTest {
         setBody(json)
     }
 
+    /** A PUT with the revision header of a fresh thread (1), for a route that needs one. */
+    private suspend fun HttpClient.rawWithRevision(path: String, json: String): HttpResponse = request(path) {
+        method = HttpMethod.Put
+        header(EXPECTED_REVISION_HEADER, "1")
+        contentType(ContentType.Application.Json)
+        setBody(json)
+    }
+
     /**
      * The non-POST writes, each a request that is refused or a no-op and never a 429 until the bucket is empty. A write added to the
      * bucket is one more entry here; the test below spends the 240 tokens across them in turn, whatever their number.
@@ -89,6 +99,7 @@ class ChatWriteLimitsTest {
         { putJson("$rooms/$room/messages/2000000000/reaction", ReactionRequest("👍", true)) }, // 404
         { putJson("$rooms/$room/threads/99/pin", PinRequest(true)) }, // 404
         { putJson("$rooms/$room/messages/2000000000/pin", PinRequest(true)) }, // 404
+        { putJson("$rooms/$room/threads/99/tags", ThreadTagsRequest(emptyList())) }, // 404 (1.2: a thread's tags ride chat-write too)
     )
 
     @Test
@@ -313,7 +324,7 @@ class ChatWriteLimitsTest {
         }
 
     @Test
-    fun `the status, owner, read-marker, watch, reaction and preferences PUTs take at most 16 KiB`() = testApplication {
+    fun `the status, owner, read-marker, watch, tags, reaction and preferences PUTs take at most 16 KiB`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("cw-small")
         val room = room(owner)
@@ -327,6 +338,11 @@ class ChatWriteLimitsTest {
         val watch = "$rooms/$room/threads/1/watch"
         assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, watch, big).status)
         assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, watch, """{"watching":true}""").status)
+        val tags = "$rooms/$room/threads/1/tags"
+        val bigTags = """{"tags":[],${" ".repeat(20 * 1024)}"x":1}"""
+        assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.rawWithRevision(tags, bigTags).status)
+        val noOp = owner.client.rawWithRevision(tags, """{"tags":[]}""")
+        assertEquals(HttpStatusCode.NoContent, noOp.status, "the same set again is a no-op")
         val reaction = "$rooms/$room/messages/$message/reaction"
         assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, reaction, big).status)
         val thumbsUp = """{"emoji":"👍","reacted":true}"""

@@ -111,7 +111,7 @@ describe("ThreadPane: the side panel opens on demand", () => {
     expect(panel.id).toBe(toggle.getAttribute("aria-controls"));
   });
 
-  test("the outline is unchanged: the pane's h3, then the panel's four h4 sections (collapsed ones are hidden by CSS only)", async () => {
+  test("the outline is unchanged: the pane's h3, then the panel's five h4 sections (collapsed ones are hidden by CSS only)", async () => {
     renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
     await screen.findByRole("region", { name: "#42 Disk full on db-3" });
     expect(headingOutline()).toEqual([
@@ -119,6 +119,7 @@ describe("ThreadPane: the side panel opens on demand", () => {
       [4, "Status"],
       [4, "Owner"],
       [4, "Details"],
+      [4, "Tags"],
       [4, "History"],
     ]);
   });

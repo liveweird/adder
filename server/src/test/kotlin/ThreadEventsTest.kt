@@ -41,7 +41,10 @@ class ThreadEventsTest {
     @Test
     fun `the event types are persisted and frozen - a name is never renamed or removed`() {
         assertEquals(
-            listOf("CREATED", "TITLE_CHANGED", "STATUS_CHANGED", "CLOSED", "REOPENED", "OWNER_CHANGED", "FIELD_CHANGED", "STATUS_REPLACED"),
+            listOf(
+                "CREATED", "TITLE_CHANGED", "STATUS_CHANGED", "CLOSED", "REOPENED", "OWNER_CHANGED", "FIELD_CHANGED", "STATUS_REPLACED",
+                "TAGS_CHANGED",
+            ),
             ThreadEventType.entries.map { it.name },
         )
     }

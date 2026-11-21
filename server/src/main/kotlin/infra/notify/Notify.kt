@@ -21,7 +21,9 @@ const val MAX_NOTIFY_PAYLOAD_BYTES = 8000
 
 /**
  * What changed, as the live channel names it. The wire name IS the audit event name of the same write (`observability.md`), pinned by
- * `LiveHintTest`; the opening message of a thread is part of [THREAD_CREATED], never a [MESSAGE_POSTED].
+ * `LiveHintTest`; the opening message of a thread is part of [THREAD_CREATED], never a [MESSAGE_POSTED]. **One exception to the name
+ * rule:** a thread's tag save (1.2, audited `thread.tags_changed`) hints [THREAD_UPDATED] (`thread.updated`): the SPA re-reads the same
+ * thread, list and history on it, so a kind of its own would add nothing.
  */
 @Serializable
 enum class LiveKind {

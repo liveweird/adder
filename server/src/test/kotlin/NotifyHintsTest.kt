@@ -23,6 +23,7 @@ import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadResponse
 import ch.nokillswit.threads.ThreadStatusRequest
+import ch.nokillswit.threads.ThreadTagsRequest
 import ch.nokillswit.threads.ThreadUpdateRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
@@ -231,6 +232,29 @@ class NotifyHintsTest {
                 ),
                 hints,
             )
+        }
+    }
+
+    @Test
+    fun `a tag save emits one thread updated hint on a change, none for the same set or a refusal, and tells nobody`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("hint-tgown")
+        val member = actor("hint-tgmem")
+        val room = room(owner, template())
+        TestRooms.addMember(room, member.id)
+        TestThreads.seed(room, owner.id)
+        val tagsPath = "$rooms/$room/threads/1/tags"
+        NotifyCapture().use { capture ->
+            val hints = capture.during {
+                // The seeded Kind tag is live in every database (V32); no test touches the seeded categories.
+                member.client.putRevision(tagsPath, 1, ThreadTagsRequest(listOf("question"))).expect(HttpStatusCode.NoContent)
+                member.client.putRevision(tagsPath, 2, ThreadTagsRequest(listOf("question"))).expect(HttpStatusCode.NoContent) // same set
+                member.client.putRevision(tagsPath, 1, ThreadTagsRequest(emptyList())).expect(HttpStatusCode.Conflict) // stale
+                member.client.putRevision(tagsPath, 2, ThreadTagsRequest(listOf("no-such-tag"))).expect(HttpStatusCode.BadRequest)
+                owner.client.putRevision(tagsPath, 2, ThreadTagsRequest(emptyList())).expect(HttpStatusCode.NoContent)
+            }
+            // `thread.updated` only: a tag change is history, not activity, so no notice hint follows it (the pin rule, 1.2 A4).
+            assertEquals(listOf(hint(LiveKind.THREAD_UPDATED, room, thread = 1), hint(LiveKind.THREAD_UPDATED, room, thread = 1)), hints)
         }
     }
 

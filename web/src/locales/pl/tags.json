@@ -36,5 +36,6 @@
     "created": "Utworzono kategorię tagów",
     "saved": "Zapisano kategorię tagów",
     "deleted": "Usunięto kategorię tagów"
-  }
+  },
+  "registryBusy": "Rejestr tagów jest teraz zajęty — inny administrator zapisuje zmiany. Spróbuj ponownie za chwilę."
 }

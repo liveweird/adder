@@ -46,6 +46,7 @@ export function makeThread(overrides: Partial<ThreadResponse> = {}): ThreadRespo
     watching: false,
     watcherCount: 1,
     hashtags: [],
+    tags: [],
     ...overrides,
   };
 }

@@ -35,18 +35,29 @@ export function describeEvent(event: ThreadEvent, t: TFunction): string {
       return t("threads.event.ownerChanged", { from: param(p, "fromName", "fromId"), to: param(p, "toName", "toId") });
     case "FIELD_CHANGED":
       return t("threads.event.fieldChanged", { field: param(p, "fieldLabel", "field") });
+    case "TAGS_CHANGED":
+      return t("threads.event.tagsChanged");
     default:
       // Forward-compat: an event kind this client build does not know yet shows its raw type.
       return String(event.type);
   }
 }
 
+/** The registry names a `TAGS_CHANGED` event added and removed, one line each (a side with none has no line); the server joins a side's names with ", ". */
+function tagLines(p: Params, t: TFunction): string[] {
+  return [
+    ...(p.added ? [t("threads.event.tagsAdded", { tags: p.added })] : []),
+    ...(p.removed ? [t("threads.event.tagsRemoved", { tags: p.removed })] : []),
+  ];
+}
+
 /**
- * The dimmed lines under the sentence: the old and the new value of a changed SELECT, MULTI_SELECT, USER, DATE or NUMBER field. A rename
+ * The dimmed lines under the sentence: the changed tags of a `TAGS_CHANGED`, and the old and the new value of a changed SELECT, MULTI_SELECT, USER, DATE or NUMBER field. A rename
  * and a TEXT or URL change carry no values (the server's history keeps no free text, so the sentence is all there is), nor do the other
  * kinds, nor a retired field's entry or an entry older than that rule.
  */
 export function eventLines(event: ThreadEvent, t: TFunction): string[] {
+  if (event.type === "TAGS_CHANGED") return tagLines(event.params, t);
   if (event.type !== "FIELD_CHANGED") return [];
   const p = event.params;
   const line = changeLine(param(p, "fieldLabel", "field"), p.from, p.to, t);

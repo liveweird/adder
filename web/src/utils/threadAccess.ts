@@ -60,3 +60,16 @@ export function threadEditBlock(room: Pick<RoomResponse, "archived">, thread: Pi
   if (room.archived) return "archived";
   return thread.closed ? "closed" : null;
 }
+
+/** Why the thread's tags cannot be edited now, or null: the room is archived (409), or the thread is closed and the caller is no steward (403, 1.2 D1). */
+export type ThreadTagsBlock = "archived" | "needsSteward";
+
+/**
+ * Tags are set by any member of the room and an ADMIN while the thread is OPEN (the title-and-fields rule), and, once it is CLOSED, only by a
+ * steward: the thread's owner while a member, the room's OWNER or an ADMIN. An archived room refuses everyone (the archived notice wins). UX only
+ * — the server decides (`ThreadTagService.replace`).
+ */
+export function threadTagsBlock(room: Pick<RoomResponse, "archived">, thread: Pick<ThreadResponse, "closed">, steward: boolean): ThreadTagsBlock | null {
+  if (room.archived) return "archived";
+  return thread.closed && !steward ? "needsSteward" : null;
+}

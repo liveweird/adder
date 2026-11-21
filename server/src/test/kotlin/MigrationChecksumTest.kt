@@ -53,6 +53,7 @@ class MigrationChecksumTest {
         "V30__create_message_group_mentions.sql" to -219235358,
         "V31__index_message_tags_by_thread.sql" to -861247924,
         "V32__create_tags.sql" to 1247201663,
+        "V33__create_thread_tags.sql" to 975866380,
     )
 
     @Test

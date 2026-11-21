@@ -99,7 +99,7 @@ log, close with 1011.
 ## Hints: the catalog and delivery
 
 **[changed] A hint carries `threadNumber`, never `revision`.** The 2026-11-17 text proposed `{kind, roomId, threadId, messageId?, revision}`. The SPA keys
-threads by number, and a thread's `revision` moves only on a details save, so it signals almost nothing.
+threads by number, and a thread's `revision` moves only on a details save or a tag save (1.2 A3), so it signals almost nothing. **A tag save hints `thread.updated` while its audit line is `thread.tags_changed`** (the one write whose hint name differs from its audit name: the SPA re-reads the same thread, list and history for it).
 
 Nineteen kinds (the three 0.6 kinds, `notification.created`, `message.reaction_changed` and `room.pin_changed`, are the last three rows below); the wire name equals the audit name. `Recipients` is who gets an `event`; a *target* gets the personal frame on every socket it has,
 subscribed or not (it may not be subscribed yet).
@@ -114,7 +114,7 @@ subscribed or not (it may not be subscribed yet).
 | `room.member_role_changed` | targets [user] | subscribers and targets |
 | `room.member_removed` | targets [user] | subscribers; non-ADMIN targets get `revoked`; an ADMIN target hears the event even when unsubscribed |
 | `room.workflow_updated` | | subscribers |
-| `thread.created` / `thread.updated` / `thread.status_changed` / `thread.owner_changed` | threadNumber | subscribers |
+| `thread.created` / `thread.updated` / `thread.status_changed` / `thread.owner_changed` | threadNumber | subscribers (`thread.updated` is the details PUT and, since 1.2, a thread's tag save: the open pane re-reads its thread and the list its rows) |
 | `message.posted` / `message.edited` / `message.deleted` | threadNumber, messageId | subscribers |
 | `notification.created` | threadNumber; messageId for a message-level notice; targets = the recipients whose notice shows in the app (`in_app`; at most `MAX_ROOM_MEMBERS` = 500 since S6: 499 when a member acts, 500 when an ADMIN outside the room moves a thread all members watch; the room is told of a new thread, the watchers of a reply, a status move and a hand-over; one hint per EVENT, never per recipient: `LiveHintTest` pins 500 ten-digit ids with the widest thread number and message id under the 8,000-byte limit, `NotifyHintsTest` delivers it whole) | targets only |
 | `message.reaction_changed` | threadNumber, messageId | subscribers (a reaction that changed state; `MessageReactionService.set`, audited by `ReactionRoutes.kt`) |

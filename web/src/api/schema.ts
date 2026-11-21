@@ -1121,6 +1121,10 @@ export interface paths {
          *       folded (case and accents ignored: `Wdrozenie` and `wdrożenie` are one tag). A returned key can hold punctuation and be longer
          *       than a written tag, so a value is 1 to 150 characters without `#` or control characters. A malformed value, or more than 10
          *       distinct values, is a `400`.
+         *     - `threadTag` (repeatable, any-of, at most 20 distinct) keeps the threads that carry any of these CURATED tags (`GET /tag-categories`;
+         *       not the hashtags of `tag`): a registry name, normalised like the PUT's (trimmed, whitespace collapsed, lower-cased). A RETIRED
+         *       tag still finds the threads that kept it; a well-formed name the registry never held matches nothing; a name outside the tag
+         *       grammar, or more than 20 distinct values, is a `400`.
          *     - `mentionedId` (repeatable, any-of, at most 20 distinct) keeps the threads that have a LIVE message mentioning any of
          *       those people (`<@id>` in its body, the person an active member of the room when it was written or edited); the filter reads
          *       the mention index only, so it finds nothing for a message written before mentions were indexed. A non-positive or
@@ -1319,6 +1323,50 @@ export interface paths {
          *     `watcherCount` of the thread and `watching` of the thread list and its filter.
          */
         put: operations["setThreadWatch"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace a thread's curated tags
+         * @description Who (1.2 D1): a member of the room or an `ADMIN` while the thread is OPEN (the rule of the title and fields); on a CLOSED thread only
+         *     a STEWARD: the thread's owner while a member, the room's OWNER or an `ADMIN` (`403` otherwise); a non-member is the uniform `404`.
+         *     An ARCHIVED room refuses (`409`). Checked in this order: authentication (`401`), the per-USER `chat-write` bucket of 240 per
+         *     minute (`429` beyond it; spent before any guard), visibility (`404`), the thread (`404`) on a lock-free read and, when it is
+         *     closed, the steward rule (`403`) BEFORE the header and the body, the `X-Expected-Revision` header (missing, repeated or malformed
+         *     is `400`), the body (`400`: more than 20 names, judged before any name is normalised; a name outside the tag grammar; a name
+         *     twice after normalising), then under the room lock the guard again (a caller removed while the write waited is refused), the
+         *     thread (`404`), the steward rule again on the fresh row when it is closed (`403`), an archived room (`409` of type
+         *     `urn:adder:problem:room-archived`), a stale revision (`409` of type `urn:adder:problem:revision-conflict`), and every name
+         *     being a LIVE tag of the registry (`400` with a fixed detail that names no tag: an unknown name, a retired one, and a retired tag
+         *     the thread still carries, so a save that keeps one is refused until it is dropped).
+         *
+         *     `tags` is the thread's WHOLE tag set: registry names (`GET /tag-categories`), trimmed, whitespace collapsed and lower-cased, at
+         *     most 20, each once; an empty list clears the thread. It is applied as a diff. The same set again is a `204` with no revision bump,
+         *     no history entry and no audit line. Otherwise the thread's `revision` becomes `revision + 1` (read the thread again for it: a tag
+         *     save and a details save share one token, so two people saving at once conflict), ONE `TAGS_CHANGED` entry (`{added, removed}`)
+         *     is recorded and `thread.updated` is emitted. A tag change is history, not activity: no rail bump, no unread, no notice and
+         *     `lastActivityAt` does not move.
+         *
+         *     The body is at most 16 KiB (`413` beyond it). Like every write of the room it waits at most about 3 seconds for the room's write
+         *     lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+         */
+        put: operations["setThreadTags"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2826,6 +2874,23 @@ export interface components {
              */
             watcherCount: number;
             hashtags: components["schemas"]["ThreadHashtags"];
+            tags: components["schemas"]["ThreadTags"];
+        };
+        /** @description One curated tag on a thread (1.2). */
+        ThreadTag: {
+            /** @description The registry name (normalised). */
+            name: string;
+            /** @description The registry has retired the tag since it was put on. It stays on the thread until the next tag save drops it; a save that still carries it is a `400`. */
+            retired: boolean;
+        };
+        /**
+         * @description The thread's CURATED tags (the ADMIN registry of `GET /tag-categories`, set by `PUT .../tags`; not the hashtags): in code point
+         *     order of the name, at most 20, a retired tag marked and kept (1.2).
+         */
+        ThreadTags: components["schemas"]["ThreadTag"][];
+        ThreadTagsRequest: {
+            /** @description The thread's whole tag set (an empty list clears it). Registry names; each is normalised (trimmed, whitespace collapsed, lower-cased), must then be 1 to 40 characters of the tag grammar and a LIVE tag, and must not repeat. The raw bound only keeps a request small; a longer name is a `400` either way. */
+            tags: string[];
         };
         /**
          * @description The thread's HASHTAGS (the `#word`s of its live messages, 0.5.0): the distinct stored (case- and accent-folded)
@@ -2864,6 +2929,7 @@ export interface components {
             /** @description The CALLER watches the thread (`PUT .../watch`); `false` for someone who is not a member. */
             watching: boolean;
             hashtags: components["schemas"]["ThreadHashtags"];
+            tags: components["schemas"]["ThreadTags"];
         };
         ThreadPage: {
             items: components["schemas"]["ThreadListItem"][];
@@ -2957,13 +3023,14 @@ export interface components {
          * @description The kind of a history entry (persisted, never renamed). The `params` of each: `CREATED` `{status, statusLabel}`;
          *     `TITLE_CHANGED` `{}`; `STATUS_CHANGED`, `CLOSED`, `REOPENED` and `STATUS_REPLACED` `{from, to, fromLabel, toLabel}`
          *     (status keys and the labels at that moment); `OWNER_CHANGED` `{fromId, toId, fromName, toName}`; `FIELD_CHANGED`
-         *     `{field, fieldLabel, from?, to?}`. The history is append-only, so it keeps no free text: no title is recorded (the thread shows
+         *     `{field, fieldLabel, from?, to?}`; `TAGS_CHANGED` `{added?, removed?}` (registry tag names, each side joined with ", ", a side with no
+         *     change absent). The history is append-only, so it keeps no free text: no title is recorded (the thread shows
          *     the current one), and `from`/`to` (display text; an absent side means unset) exist only for a SELECT, MULTI_SELECT, USER,
          *     DATE or NUMBER field, never for a TEXT or URL one (the entry says THAT the field changed). A RETIRED field's entries answer
          *     without `from`/`to` too, and show them again if the field is revived. Entries written before 1.0.0 were scrubbed to this shape.
          * @enum {string}
          */
-        ThreadEventType: "CREATED" | "TITLE_CHANGED" | "STATUS_CHANGED" | "CLOSED" | "REOPENED" | "OWNER_CHANGED" | "FIELD_CHANGED" | "STATUS_REPLACED";
+        ThreadEventType: "CREATED" | "TITLE_CHANGED" | "STATUS_CHANGED" | "CLOSED" | "REOPENED" | "OWNER_CHANGED" | "FIELD_CHANGED" | "STATUS_REPLACED" | "TAGS_CHANGED";
         ThreadEvent: {
             /** Format: int32 */
             id: number;
@@ -3639,6 +3706,8 @@ export interface components {
         ThreadFieldFilter: string[];
         /** @description Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10. */
         ThreadTagFilter: string[];
+        /** @description Repeatable - any of these CURATED tags (the registry's names, `GET /tag-categories`; the thread list): normalised like the tags PUT (trimmed, whitespace collapsed, lower-cased), 1 to 40 characters of the tag grammar. A retired tag still finds the threads that kept it; a well-formed name the registry never held matches nothing; a malformed value, or more than 20 distinct values, is a `400`. Not the hashtags: those are `tag`. */
+        ThreadCuratedTagFilter: string[];
         /**
          * @description The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
          *     malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
@@ -5321,6 +5390,8 @@ export interface operations {
                 field?: components["parameters"]["ThreadFieldFilter"];
                 /** @description Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10. */
                 tag?: components["parameters"]["ThreadTagFilter"];
+                /** @description Repeatable - any of these CURATED tags (the registry's names, `GET /tag-categories`; the thread list): normalised like the tags PUT (trimmed, whitespace collapsed, lower-cased), 1 to 40 characters of the tag grammar. A retired tag still finds the threads that kept it; a well-formed name the registry never held matches nothing; a malformed value, or more than 20 distinct values, is a `400`. Not the hashtags: those are `tag`. */
+                threadTag?: components["parameters"]["ThreadCuratedTagFilter"];
                 /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
                 mentionedId?: components["parameters"]["ThreadMentionFilter"];
                 /** @description `true` = only the threads with a live message that addresses the CALLER (names them, a team they are on now, everyone, or the watchers while they watch the thread now), `false` = only the ones without; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id. `mentionedId` (direct mentions of any given people) is unchanged. */
@@ -5554,6 +5625,48 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setThreadTags: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
+                 *     malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
+                 *     bumps the revision.
+                 */
+                "X-Expected-Revision": components["parameters"]["ExpectedRevision"];
+            };
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadTagsRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved, or the same set already */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];

@@ -3,9 +3,12 @@
 // (normalisation, one category per tag, retired tags, verdicts, the caps) are the server's (`TagCategoryTest`); this asserts what a person
 // SEES. Owns: its throwaway administrator, user and category (unique `E2E Category-*` name, `e2e-tag-*` tags: a tag name is unique for ever, retired
 // rows included, so every one carries a per-run suffix) - the category is deleted through the API in afterEach, then the user. The seeded Kind and
-// Area categories are shared and read-only: this spec never edits or deletes them.
-import type { Page } from "@playwright/test";
-import { apiAsAdmin, apiAsUser, createUserViaUi, deleteViaApi, expect, login, signOut, specAdmins, test, uniqueText } from "./helpers";
+// Area categories are shared and read-only: this spec never edits or deletes them. The thread half (1.2.0 S7, Hammurabi's ADR half adapted): a
+// member tags a thread from the side panel's grouped picker, the list's Tags filter finds it, the API refuses an unknown tag, and a CLOSED thread
+// takes tags from its owner only. It also owns a throwaway `e2e-tags-*` room and two more users (rooms are removed first, then the users); the
+// room copies the seeded Default template and its threads are never deleted (a room's removal hides them).
+import type { APIRequestContext, Page } from "@playwright/test";
+import { apiAsAdmin, apiAsUser, createUserViaUi, deleteViaApi, expect, login, signOut, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-tags-admin");
@@ -144,5 +147,135 @@ test("a regular user reads the registry through the API but has no Tags page and
     expect(write.status()).toBe(403);
   } finally {
     await api.dispose();
+  }
+});
+
+type Person = { id: number; name: string; email: string; password: string };
+
+/** A room (copy of the seeded Default template) owned by a throwaway owner, with a throwaway teammate, one thread started by the owner and a category of two tags. */
+async function threadScene(page: Page) {
+  await admin.login(page);
+  const owner = await throwawayUser(page, "E2E Tag Owner", userPaths);
+  const mate = await throwawayUser(page, "E2E Tag Mate", userPaths);
+  const { api: ownerApi } = await apiAsUser(owner.email, owner.password);
+  const apis: APIRequestContext[] = [ownerApi];
+  const templates = await ownerApi.get("/api/v1/workflow-templates?name=Default");
+  const template = ((await templates.json()) as { items: { id: number; name: string }[] }).items.find((candidate) => candidate.name === "Default");
+  expect(template, "the seeded Default template").toBeDefined();
+  const created = await ownerApi.post("/api/v1/rooms", { data: { name: uniqueText("e2e-tags-room"), templateId: template!.id } });
+  expect(created.status(), await created.text()).toBe(201);
+  const roomId = ((await created.json()) as { id: number }).id;
+  userPaths.unshift(`/api/v1/rooms/${roomId}`); // rooms before users
+  expect((await ownerApi.post(`/api/v1/rooms/${roomId}/members`, { data: { userIds: [mate.id] } })).status()).toBe(200);
+  const title = uniqueText("Tagged thread");
+  const thread = await ownerApi.post(`/api/v1/rooms/${roomId}/threads`, { data: { title, body: "Seeded through the API." } });
+  expect(thread.status(), await thread.text()).toBe(201);
+  const other = uniqueText("Untagged thread");
+  expect((await ownerApi.post(`/api/v1/rooms/${roomId}/threads`, { data: { title: other, body: "Seeded through the API." } })).status()).toBe(201);
+  const number = ((await thread.json()) as { number: number }).number;
+  const { api: adminApi } = await apiAsUser(admin.first.email, admin.first.password);
+  apis.push(adminApi);
+  const tagA = uniqueText("e2e-tag-a");
+  const tagB = uniqueText("e2e-tag-b");
+  const category = await adminApi.post(REGISTRY, { data: { name: uniqueText("E2E Category"), description: null, tags: [tagA, tagB] } });
+  expect(category.status(), await category.text()).toBe(201);
+  categoryIds.push(((await category.json()) as { id: number }).id);
+  return { owner, mate, ownerApi, roomId, number, title, other, tagA, tagB, dispose: async () => { for (const api of apis) await api.dispose(); } };
+}
+
+const openThread = async (page: Page, who: Person, roomId: number, number: number) => {
+  await login(page, who.email, who.password);
+  await page.goto(`/rooms/${roomId}/threads/${number}`);
+  const toggle = page.getByRole("button", { name: "Details", exact: true });
+  await expect(toggle).toBeVisible();
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await expect(page.getByRole("heading", { level: 4, name: "Tags", exact: true })).toBeVisible();
+  return page.locator("[data-section=tags]");
+};
+
+test("a member tags a thread, the list filter finds it and the API refuses an unknown tag", async ({ page }) => {
+  const scene = await threadScene(page);
+  try {
+    const section = await openThread(page, scene.mate, scene.roomId, scene.number);
+    await expect(section.getByText("No tags")).toBeVisible();
+
+    // The picker groups the registry by category; the save is a PUT that answers 204 and the pill shows in the panel, in the header's tag row and on the list row.
+    await section.getByRole("button", { name: "Edit tags" }).click();
+    await section.getByRole("combobox", { name: "Tags" }).click();
+    await page.getByRole("option", { name: scene.tagA, exact: true }).click();
+    await page.keyboard.press("Escape");
+    const [saved] = await Promise.all([
+      page.waitForResponse((r) => /\/threads\/\d+\/tags$/.test(r.url()) && r.request().method() === "PUT"),
+      section.getByRole("button", { name: "Save tags" }).click(),
+    ]);
+    expect(saved.status()).toBe(204);
+    await expect(section.getByText(scene.tagA, { exact: true })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Tags", exact: true }).first().getByText(scene.tagA, { exact: true })).toBeVisible();
+    const row = threadList(page).getByRole("link", { name: new RegExp(scene.title) });
+    await expect(row.getByText(scene.tagA, { exact: true })).toBeVisible();
+    await expect(page.getByRole("group", { name: "History", exact: true }).getByText(`Added: ${scene.tagA}`)).toBeVisible();
+
+    // The list's Tags filter writes threadTag into the address and keeps only the tagged thread; the other tag lists none.
+    await page.goto(`/rooms/${scene.roomId}`);
+    await page.getByRole("button", { name: /^Filters/ }).click();
+    await page.getByRole("combobox", { name: "Tags", exact: true }).click();
+    await page.getByRole("option", { name: scene.tagA, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`threadTag=${scene.tagA}`));
+    await expect(threadList(page).getByRole("link", { name: new RegExp(scene.title) })).toBeVisible();
+    await expect(threadList(page).getByRole("link", { name: new RegExp(scene.other) })).toHaveCount(0);
+    await page.goto(`/rooms/${scene.roomId}?threadTag=${scene.tagB}`);
+    await expect(threadList(page).getByRole("link", { name: new RegExp(scene.title) })).toHaveCount(0);
+
+    // The API is strict: a name the registry does not hold is a 400 and changes nothing.
+    const { api } = await apiAsUser(scene.mate.email, scene.mate.password);
+    try {
+      const current = (await (await api.get(`/api/v1/rooms/${scene.roomId}/threads/${scene.number}`)).json()) as { revision: number };
+      const refused = await api.put(`/api/v1/rooms/${scene.roomId}/threads/${scene.number}/tags`, {
+        data: { tags: [scene.tagA, uniqueText("e2e-unregistered")] },
+        headers: { "X-Expected-Revision": String(current.revision) },
+      });
+      expect(refused.status()).toBe(400);
+      const after = (await (await api.get(`/api/v1/rooms/${scene.roomId}/threads/${scene.number}`)).json()) as { revision: number; tags: { name: string }[] };
+      expect(after.tags.map((tag) => tag.name)).toEqual([scene.tagA]);
+      expect(after.revision).toBe(current.revision);
+    } finally {
+      await api.dispose();
+    }
+  } finally {
+    await scene.dispose();
+  }
+});
+
+test("a closed thread takes tags from its owner only", async ({ page }) => {
+  const scene = await threadScene(page);
+  try {
+    const closed = await scene.ownerApi.put(`/api/v1/rooms/${scene.roomId}/threads/${scene.number}/status`, { data: { status: "done" } });
+    expect(closed.status(), await closed.text()).toBe(204);
+
+    // A plain member sees the tags and the reason, no Edit button; the API says 403 before it reads the header or the body.
+    const section = await openThread(page, scene.mate, scene.roomId, scene.number);
+    await expect(section.getByText(/only its owner, the room owner or an administrator can change its tags/)).toBeVisible();
+    await expect(section.getByRole("button", { name: "Edit tags" })).toHaveCount(0);
+    const { api } = await apiAsUser(scene.mate.email, scene.mate.password);
+    try {
+      const refused = await api.put(`/api/v1/rooms/${scene.roomId}/threads/${scene.number}/tags`, { data: { tags: [scene.tagA] } });
+      expect(refused.status()).toBe(403);
+    } finally {
+      await api.dispose();
+    }
+
+    // The thread's owner tags it without reopening it.
+    await signOut(page);
+    const ownerSection = await openThread(page, scene.owner, scene.roomId, scene.number);
+    await ownerSection.getByRole("button", { name: "Edit tags" }).click();
+    await ownerSection.getByRole("combobox", { name: "Tags" }).click();
+    await page.getByRole("option", { name: scene.tagB, exact: true }).click();
+    await page.keyboard.press("Escape");
+    await ownerSection.getByRole("button", { name: "Save tags" }).click();
+    await expect(ownerSection.getByText(scene.tagB, { exact: true })).toBeVisible();
+    const after = (await (await scene.ownerApi.get(`/api/v1/rooms/${scene.roomId}/threads/${scene.number}`)).json()) as { closed: boolean };
+    expect(after.closed).toBe(true);
+  } finally {
+    await scene.dispose();
   }
 });

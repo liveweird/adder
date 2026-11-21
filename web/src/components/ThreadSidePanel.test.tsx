@@ -28,7 +28,7 @@ describe("ThreadSidePanel", () => {
     localStorage.clear();
   });
 
-  test("Status, Owner, Details and History: four h4 sections, each with its body", async () => {
+  test("Status, Owner, Details, Tags and History: five h4 sections, each with its body", async () => {
     serve();
     renderWithProviders(<ThreadSidePanel room={makeRoom()} thread={makeThread({ number: 42 })} />);
     expect(await screen.findByRole("combobox", { name: "Thread status" })).toHaveValue("Triage");
@@ -36,6 +36,7 @@ describe("ThreadSidePanel", () => {
       [4, "Status"],
       [4, "Owner"],
       [4, "Details"],
+      [4, "Tags"],
       [4, "History"],
     ]);
     expect(screen.getByRole("group", { name: "Status" })).toBeInTheDocument();

@@ -28,6 +28,17 @@ class ThreadSchemaTest {
         // table other tests have filled makes equal-cost siblings tie).
         const val WITHOUT_RECIPIENT_SIBLINGS = "DROP INDEX idx_notifications_recipient; DROP INDEX idx_notifications_recipient_created"
         const val TIME_LED = "DROP INDEX idx_notifications_recipient; DROP INDEX idx_notifications_created"
+
+        // 200 threads of a room no test has (2,000,000,000, ids from 1,500,000,001) with five tags each, analysed, written with foreign
+        // keys off (a rolled-back transaction of the shared container's superuser, like `seedTagSpread`); the `before` of a plan test.
+        const val SEED_THREAD_TAGS =
+            "SET LOCAL session_replication_role = replica; " +
+                "INSERT INTO threads (id, room_id, \"number\", title, status_key, owner_id, created_by, last_activity_at, created_at, " +
+                "updated_at) " +
+                "SELECT 1500000000 + t, 2000000000, t, 'T', 'open', 1, 1, 1, 1, 1 FROM generate_series(1, 200) AS t; " +
+                "INSERT INTO thread_tags (thread_id, tag_id, added_at, added_by) " +
+                "SELECT 1500000000 + t, k, 1, 1 FROM generate_series(1, 200) AS t, generate_series(1, 5) AS k; " +
+                "ANALYZE threads; ANALYZE thread_tags"
         const val INSERT_MESSAGE =
             "INSERT INTO messages (thread_id, author_id, body, created_at, marked_as_deleted, deleted_by) VALUES (?, ?, ?, 1, ?, ?)"
     }
@@ -618,6 +629,59 @@ class ThreadSchemaTest {
             st.execute("ANALYZE message_tags")
         }
         return "'{1,50,100}'"
+    }
+
+    @Test
+    fun `thread tags key on thread and tag, name a real person, take no tag delete, and go with their thread`() {
+        withThread("threadtags") { c, user, thread ->
+            val suffix = UUID.randomUUID().toString().take(8)
+            val category = c.scalar(
+                "INSERT INTO tag_categories (\"name\", created_at, updated_at) VALUES (?, 1, 1) RETURNING id",
+                "Schema $suffix",
+            )
+            val tag = c.scalar("INSERT INTO tags (category_id, \"name\") VALUES (?, ?) RETURNING id", category, "schema-$suffix")
+            try {
+                val insert = "INSERT INTO thread_tags (thread_id, tag_id, added_at, added_by) VALUES (?, ?, 1, ?)"
+                assertState(FK_VIOLATION, "a tag of the registry") { c.exec(insert, thread, tag + 1_000_000, user) }
+                assertState(FK_VIOLATION, "a thread that exists") { c.exec(insert, thread + 1_000_000, tag, user) }
+                assertState(FK_VIOLATION, "a person that exists") { c.exec(insert, thread, tag, user + 1_000_000) }
+                assertEquals(1, c.exec(insert, thread, tag, user))
+                assertState(UNIQUE_VIOLATION, "one row per thread and tag") { c.exec(insert, thread, tag, user) }
+                // `tag_id` has no ON DELETE rule: a tag is only ever retired, so erasing one a thread carries is refused.
+                assertState(FK_VIOLATION, "a tag is never erased while a thread carries it") {
+                    c.exec("DELETE FROM tags WHERE id = ?", tag)
+                }
+                assertEquals(1, c.exec("DELETE FROM threads WHERE id = ?", thread))
+                assertEquals(0L, c.scalar("SELECT count(*) FROM thread_tags WHERE tag_id = ?", tag), "the thread took its tag rows")
+            } finally {
+                c.exec("DELETE FROM thread_tags WHERE tag_id = ?", tag)
+                c.exec("DELETE FROM tags WHERE id = ?", tag)
+                c.exec("DELETE FROM tag_categories WHERE id = ?", category)
+            }
+        }
+    }
+
+    @Test
+    fun `the threadTag filter and a page's tags are index probes of thread_tags, never a scan, also as a generic plan`() {
+        // The list's `threadTag` predicate is `EXISTS (SELECT 1 FROM thread_tags WHERE thread_id = threads.id AND tag_id IN (...))` and a
+        // page's tags are one `thread_id = ANY(...)` read joined to `tags`: the primary key (thread_id, tag_id) answers both, and
+        // `idx_thread_tags_tag` the other direction. On a seeded spread of 200 threads with five tags each, sequential scans off, the plan
+        // names an index of the table and never scans it whole.
+        val filter = "SELECT t.id FROM threads t WHERE t.room_id = ? AND EXISTS " +
+            "(SELECT 1 FROM thread_tags tt WHERE tt.thread_id = t.id AND tt.tag_id IN (?, ?))"
+        val page = "SELECT tt.thread_id, tg.\"name\", tg.marked_as_deleted FROM thread_tags tt JOIN tags tg ON tg.id = tt.tag_id " +
+            "WHERE tt.thread_id = ANY(?)"
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val statements = listOf(
+                Triple(filter, "int4, int4, int4", "2000000000, 2, 3"),
+                Triple(page, "int4[]", "'{1500000001,1500000050,1500000100}'"),
+            )
+            for ((sql, types, args) in statements) {
+                val plan = explain(sql, types, args, mode, restrictPlanner = true, before = SEED_THREAD_TAGS)
+                assertTrue("thread_tags_pkey" in plan || "idx_thread_tags_tag" in plan, "$mode: an index of thread_tags:\n$plan")
+                assertTrue("Seq Scan on thread_tags" !in plan, "$mode: never a scan of the whole table:\n$plan")
+            }
+        }
     }
 
     @Test

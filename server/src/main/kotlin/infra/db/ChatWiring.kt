@@ -34,6 +34,8 @@ import ch.nokillswit.threads.ThreadService
 import ch.nokillswit.threads.ThreadServiceKey
 import ch.nokillswit.threads.ThreadStatusService
 import ch.nokillswit.threads.ThreadStatusServiceKey
+import ch.nokillswit.threads.ThreadTagService
+import ch.nokillswit.threads.ThreadTagServiceKey
 import ch.nokillswit.threads.ThreadWatchService
 import ch.nokillswit.threads.ThreadWatchServiceKey
 import ch.nokillswit.threads.ThreadWorkflowUsage
@@ -110,6 +112,9 @@ internal fun Application.publishChatServices(
     )
     attributes.put(MessageServiceKey, messageService)
     attributes.put(PinServiceKey, PinService(database, messageService))
+    // The thread's curated tags (V33): the list and the read put them on every thread; the PUT is a thread write under the room lock.
+    val threadTagService = ThreadTagService(database, threadEventService)
+    attributes.put(ThreadTagServiceKey, threadTagService)
     attributes.put(ThreadReadServiceKey, ThreadReadService(database, roomMemberService, noticeWriter))
     attributes.put(
         ThreadServiceKey,
@@ -123,6 +128,7 @@ internal fun Application.publishChatServices(
             threadWatchService,
             teamService,
             messageTagService,
+            threadTagService,
             readLimiter,
         ),
     )

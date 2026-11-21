@@ -32,8 +32,8 @@ const WORKFLOW = {
 const AT = Date.UTC(2026, 5, 1, 9, 30);
 const THREADS = {
   items: [
-    { id: 1, number: 2, title: "Disk full on db-3", status: "triage", closed: false, ownerId: 5, ownerName: "Ann Owner", messageCount: 4, lastActivityAt: AT, createdAt: AT, hashtags: [] },
-    { id: 2, number: 1, title: "Old alert", status: "mystery", closed: false, ownerId: 6, ownerName: "Bob", messageCount: 1, lastActivityAt: AT, createdAt: AT, hashtags: [] },
+    { id: 1, number: 2, title: "Disk full on db-3", status: "triage", closed: false, ownerId: 5, ownerName: "Ann Owner", messageCount: 4, lastActivityAt: AT, createdAt: AT, hashtags: [], tags: [] },
+    { id: 2, number: 1, title: "Old alert", status: "mystery", closed: false, ownerId: 6, ownerName: "Bob", messageCount: 1, lastActivityAt: AT, createdAt: AT, hashtags: [], tags: [] },
   ],
   page: 1,
   pageSize: 50,

@@ -9,6 +9,7 @@ import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadStatusRequest
+import ch.nokillswit.threads.ThreadTagsRequest
 import ch.nokillswit.threads.ThreadUpdateRequest
 import ch.nokillswit.threads.WatchRequest
 import ch.nokillswit.users.UserRole
@@ -109,6 +110,17 @@ class ThreadAuthzMatrixTest {
         // Any reader edits the open-side metadata: the details PUT (thread #1 is at revision 1 in every fresh room).
         Operation("PUT details", notFound, noContent, noContent, noContent, noContent) { client, base, _ ->
             client.putDetails("$base/threads/1")
+        },
+        // Tags (1.2 D1): any reader tags an OPEN thread, only a steward a CLOSED one (the 403 before the header and the body); the tag is
+        // the seeded Kind tag `question` (live in every database: V32, and no test touches the seeded categories).
+        Operation("PUT tags", notFound, noContent, noContent, noContent, noContent) { client, base, _ ->
+            client.putTags("$base/threads/1/tags")
+        },
+        Operation("PUT tags of a CLOSED thread", notFound, forbidden, noContent, noContent, noContent, ::closeThread) { client, base, _ ->
+            client.putTags("$base/threads/1/tags")
+        },
+        Operation("PUT tags of an unknown thread", notFound, notFound, notFound, notFound, notFound) { client, base, _ ->
+            client.putTags("$base/threads/99/tags")
         },
         // The status PUT: any reader moves between OPEN statuses; every move that enters or leaves CLOSED needs a steward (the thread
         // owner while a member, the room owner, an ADMIN).
@@ -251,6 +263,12 @@ class ThreadAuthzMatrixTest {
         header(EXPECTED_REVISION_HEADER, "1")
         contentType(ContentType.Application.Json)
         setBody(ThreadUpdateRequest("Edited by the matrix"))
+    }
+
+    private suspend fun HttpClient.putTags(path: String): HttpResponse = put(path) {
+        header(EXPECTED_REVISION_HEADER, "1")
+        contentType(ContentType.Application.Json)
+        setBody(ThreadTagsRequest(listOf("question")))
     }
 
     private suspend fun HttpClient.putStatus(path: String, status: String): HttpResponse = put(path) {

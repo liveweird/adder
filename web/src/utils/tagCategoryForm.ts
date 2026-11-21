@@ -56,9 +56,17 @@ export function tagCategoryFormValidation(t: TFunction) {
   };
 }
 
+/**
+ * The registry's own 429: its writes share the room lock's problem type (`room-busy`, the table lock stayed held by another writer for about 3 s,
+ * nothing was written), whose shared words talk about "the room" - the Tags page says it of the registry instead (1.2 S7).
+ */
+function registryBusy(err: unknown, t: TFunction): string | null {
+  return isProblem(err, PROBLEM_TYPES.roomBusy) ? t("tags.registryBusy") : null;
+}
+
 /** The category save's fixed vocabulary: the 409 covers three causes (the name is taken, a tag belongs to another category, or the category moved on). */
 export function tagCategorySaveErrorMessage(err: unknown, t: TFunction): string {
-  return saveErrorMessage(err, t, {
+  return registryBusy(err, t) ?? saveErrorMessage(err, t, {
     forbidden: "tags.saveForbidden",
     // A stale revision is its own 409 (typed); every other one is a name or a tag already in use.
     conflict: isProblem(err, PROBLEM_TYPES.revisionConflict) ? "tags.saveStale" : "tags.saveConflict",
@@ -67,4 +75,18 @@ export function tagCategorySaveErrorMessage(err: unknown, t: TFunction): string 
     failedStatus: "common.error.saveFailedStatus",
     failed: "common.error.saveFailedNetwork",
   });
+}
+
+/** The category delete's fixed vocabulary (the confirm dialog's error line). */
+export function tagCategoryDeleteErrorMessage(err: unknown, t: TFunction): string {
+  return (
+    registryBusy(err, t) ??
+    saveErrorMessage(err, t, {
+      forbidden: "tags.saveForbidden",
+      notFound: "tags.saveGone",
+      conflict: "tags.deleteStale",
+      failedStatus: "common.error.actionFailedStatus",
+      failed: "common.error.actionFailed",
+    })
+  );
 }

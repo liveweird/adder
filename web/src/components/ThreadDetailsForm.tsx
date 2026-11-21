@@ -30,7 +30,7 @@ function seedOf(thread: ThreadResponse, fields: readonly WorkflowField[], workfl
 
 /**
  * The details editor: the title and the room's active fields under `X-Expected-Revision`. Only a thread's OWN revision moves with a details
- * save (a status or owner change does not bump it), so the draft is seeded from the revision it read and re-seeded ONLY when the thread's
+ * save or a TAG save (1.2 A3: a status or owner change does not bump it), so the draft is seeded from the revision it read and re-seeded ONLY when the thread's
  * revision (or the room's fields) changed under a CLEAN form, never on every refetch: a status or owner change, a new message or a focus
  * refetch leaves a dirty draft alone. Someone else saving meanwhile under a DIRTY form shows the conflict alert at once (the save would be
  * refused), and a `409 revision-conflict` shows it too (a change to the room's fields under a dirty draft gets its own alert, same Reload); both keep the draft and offer Reload, the one way the newer version replaces it.

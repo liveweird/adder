@@ -25,7 +25,9 @@
     "mine": "Moje",
     "mentionsMe": "Wzmianki o mnie",
     "watching": "Obserwowane",
-    "clear": "Wyczyść filtry"
+    "clear": "Wyczyść filtry",
+    "tags": "Tagi",
+    "noTags": "Nie znaleziono tagów"
   },
   "empty": {
     "open": "Brak otwartych wątków",
@@ -104,7 +106,8 @@
     "started": "Wątek rozpoczęty",
     "statusChanged": "Zmieniono status",
     "ownerChanged": "Zmieniono właściciela/kę",
-    "detailsSaved": "Zapisano szczegóły"
+    "detailsSaved": "Zapisano szczegóły",
+    "tagsSaved": "Zapisano tagi"
   },
   "messages": {
     "aria": "Wiadomości",
@@ -176,7 +179,8 @@
     "details": "Szczegóły",
     "hashtags": "Hasztagi",
     "history": "Historia",
-    "unavailable": "Niedostępne, dopóki nie wczytają się statusy pokoju."
+    "unavailable": "Niedostępne, dopóki nie wczytają się statusy pokoju.",
+    "tags": "Tagi"
   },
   "status": {
     "label": "Status wątku",
@@ -247,7 +251,10 @@
     "reopened": "Otworzył/a wątek ponownie: {{from}} → {{to}}",
     "statusReplaced": "Status {{from}} przestał istnieć; wątek trafił do statusu {{to}}",
     "ownerChanged": "Przekazał/a wątek: {{from}} → {{to}}",
-    "fieldChanged": "Zmienił/a pole {{field}}"
+    "fieldChanged": "Zmienił/a pole {{field}}",
+    "tagsChanged": "Zmienił/a tagi",
+    "tagsAdded": "Dodane: {{tags}}",
+    "tagsRemoved": "Usunięte: {{tags}}"
   },
   "reaction": {
     "group": "Reakcje",
@@ -319,5 +326,42 @@
     "announce_few": "Pojawiły się {{count}} nowe wiadomości",
     "announce_many": "Pojawiło się {{count}} nowych wiadomości",
     "announce_other": "Pojawiło się {{count}} nowej wiadomości"
+  },
+  "tags": {
+    "aria": "Tagi",
+    "none": "Brak tagów",
+    "edit": "Edytuj tagi",
+    "label": "Tagi",
+    "placeholder": "Wybierz tagi z rejestru…",
+    "hint": "Można używać tylko tagów z rejestru; prowadzą go administratorzy.",
+    "retiredHint": "Wycofanych tagów nie ma już w rejestrze. Zostaną usunięte przy zapisie.",
+    "retiredNote": "Przekreślony tag wycofał administrator. Zniknie przy następnym zapisie tagów.",
+    "empty": "Rejestr nie ma jeszcze tagów.",
+    "save": "Zapisz tagi",
+    "clear": "Wyczyść tagi",
+    "loadFailed": "Nie udało się wczytać rejestru tagów",
+    "closedNote": "Ten wątek jest zamknięty, więc tagi może zmieniać tylko jego właściciel/ka, właściciel/ka pokoju lub administrator.",
+    "archivedNote": "Ten pokój jest zarchiwizowany, więc tagi nie mogą się już zmieniać.",
+    "moreShort": "+{{n}}",
+    "more_one": "jeszcze {{count}} tag",
+    "more_few": "jeszcze {{count}} tagi",
+    "more_many": "jeszcze {{count}} tagów",
+    "more_other": "jeszcze {{count}} tagu",
+    "moreAction_one": "+{{count}}: pokaż jeszcze {{count}} tag w szczegółach",
+    "moreAction_few": "+{{count}}: pokaż jeszcze {{count}} tagi w szczegółach",
+    "moreAction_many": "+{{count}}: pokaż jeszcze {{count}} tagów w szczegółach",
+    "moreAction_other": "+{{count}}: pokaż jeszcze {{count}} tagu w szczegółach",
+    "conflict": {
+      "title": "Ten wątek został zmieniony gdzie indziej",
+      "message": "Ktoś zapisał nowszą wersję tego wątku, gdy wybierałeś/aś tagi. Twój wybór zostaje tutaj. Wczytaj ponownie, aby zobaczyć najnowszą wersję, i wybierz jeszcze raz.",
+      "reload": "Wczytaj najnowszą wersję"
+    },
+    "error": {
+      "forbidden": "Ten wątek jest zamknięty, więc tagi może zmieniać tylko jego właściciel/ka, właściciel/ka pokoju lub administrator.",
+      "gone": "Ten wątek już nie istnieje albo nie masz już dostępu do jego pokoju — odśwież stronę",
+      "archived": "W międzyczasie ten pokój został zarchiwizowany, więc tagi nie mogą się już zmieniać. Twój wybór zostaje tutaj.",
+      "conflict": "Wątek lub pokój zmienił się w międzyczasie. Odśwież stronę i spróbuj ponownie.",
+      "invalid": "Nie udało się zapisać tagów: użyj tylko aktualnych tagów z rejestru"
+    }
   }
 }

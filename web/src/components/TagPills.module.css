@@ -1,0 +1,20 @@
+/*
+ * `TagPills` with a `limit` (a thread-list row, the thread header's tag row): ONE line by construction, so the header's height budget
+ * (`ThreadPane.module.css` `--pills-take`) is exact. The pills shrink to an ellipsis (never below 2.5rem) before the "+N", which does not shrink;
+ * anything still past the edge is clipped (the full list is in the side panel's "Tags" section, and a pill's `title` is its whole name).
+ */
+.oneLine {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pill {
+  flex: 0 1 auto;
+  min-width: 2.5rem;
+  max-width: 100%;
+}
+
+.more {
+  flex: none;
+  white-space: nowrap;
+}

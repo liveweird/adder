@@ -29,6 +29,7 @@ const row = (number: number, title: string, hashtags: string[]) => ({
   unreadCount: 0,
   watching: false,
   hashtags,
+  tags: [],
 });
 
 describe("ThreadHashtags", () => {
@@ -141,6 +142,7 @@ describe("hashtags in the room view", () => {
       [4, "Status"],
       [4, "Owner"],
       [4, "Details"],
+      [4, "Tags"],
       [4, "Hashtags"],
       [4, "History"],
     ]);

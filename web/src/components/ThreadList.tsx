@@ -20,6 +20,7 @@ import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import PaginationBar from "./PaginationBar";
 import PinMark from "./PinMark";
+import TagPills from "./TagPills";
 import ThreadStatusPill from "./ThreadStatusPill";
 import UnreadCue from "./UnreadCue";
 import { roomKeys } from "../utils/roomKeys";
@@ -30,6 +31,9 @@ import ThreadFilters from "./ThreadFilters";
 /** A row shows this many of the thread's hashtags, as dimmed text, and "+N" for the rest (the row is one link: they cannot be links here). */
 const ROW_HASHTAGS = 3;
 
+/** A row shows this many of the thread's curated tags, as pills (non-interactive: the row is one link), and "+N" for the rest. */
+const ROW_TAGS = 3;
+
 /** The rail shows 50 threads a page (the server's cap is 100); the page-size picker is left out, the rail is too narrow for it. */
 const THREAD_PAGE_SIZE = 50;
 
@@ -39,7 +43,7 @@ const THREAD_PAGE_SIZE = 50;
  * member of a live room, "New thread". The open thread is marked with `aria-current`. The state (scope, order, page) lives in the URL
  * (`useThreadListParams`), so a change is one write that also resets the page: a changed filter reads page 1 from its very first request.
  * Every link out of the list keeps the list's keys, so opening a thread never loses the reader's place. A row shows up to three of the thread's
- * hashtags and "+N" as dimmed TEXT (1.2 A8): a row is one link, so a hashtag cannot be a link inside it (the pane's header and side panel have them as links).
+ * hashtags and "+N" as dimmed TEXT (1.2 A8) and up to three curated tags as pills (1.2 D3): a row is one link, so neither can be a link inside it (the pane's header and side panel have the hashtags as links).
  */
 export default function ThreadList({ room, activeNumber }: { room: RoomResponse; activeNumber: number | null }) {
   const { t } = useTranslation();
@@ -171,6 +175,11 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                       <Text size="xs" c="dimmed">
                         {t("threads.row.messages", { count: thread.messageCount })} · {formatDateTime(thread.lastActivityAt, zone)}
                       </Text>
+                      {thread.tags.length > 0 && (
+                        <div data-row-tags="">
+                          <TagPills tags={thread.tags} limit={ROW_TAGS} />
+                        </div>
+                      )}
                       {thread.hashtags.length > 0 && (
                         <Text size="xs" c="dimmed" data-row-hashtags="">
                           {thread.hashtags.slice(0, ROW_HASHTAGS).map((tag) => `#${tag}`).join(" ")}
