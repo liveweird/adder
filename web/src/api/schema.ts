@@ -473,8 +473,9 @@ export interface paths {
          * @description Any authenticated user — teams are the shared ownership unit chat features scope to;
          *     every mutation is ADMIN only.
          *
-         *     - Sortable fields: `id`, `name`, `createdAt`, `updatedAt`. Default `id` ascending.
-         *     - Filters: `name` (case- and accent-insensitive substring).
+         *     - Sortable fields: `id`, `name`, `handle`, `createdAt`, `updatedAt`. Default `id` ascending. A team without a handle sorts last
+         *       ascending (and first descending).
+         *     - Filters: `name` and `handle` (each a case- and accent-insensitive substring; a team without a handle never matches `handle`).
          */
         get: operations["listTeams"];
         put?: never;
@@ -483,7 +484,10 @@ export interface paths {
          * @description ADMIN only (guarded before the body decodes — a non-admin's malformed body is still
          *     403). A case-insensitive name clash with an active team is `409`. An optional manager (a
          *     user; being a manager grants no write rights on the team yet) must be an active
-         *     user (`400` otherwise).
+         *     user (`400` otherwise). An optional mention `handle` (2 to 30 characters, lowercase letters, digits and
+         *     single hyphens, starting with a letter; uppercase is a `400`, never folded; `everyone`, `watchers`,
+         *     `observers`, `here`, `all`, `channel`, `room` and `team` are reserved, `400`) must be unique among active
+         *     teams (`409`, `keys: ["handle"]`; a name clash is `keys: ["name"]`); omitted = none.
          */
         post: operations["createTeam"];
         delete?: never;
@@ -508,13 +512,13 @@ export interface paths {
         get: operations["getTeam"];
         /**
          * Rename / re-describe a team, set its manager
-         * @description ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerId` clears the manager; a set one must be an active user (`400` otherwise). A case-insensitive name clash with another active team is `409`.
+         * @description ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerId` clears the manager; a set one must be an active user (`400` otherwise). An omitted `handle` clears it too (a full replace: a client that renames a team without sending its handle drops it). A set `handle` follows the create rules (2 to 30 characters, lowercase letters, digits and single hyphens, starting with a letter; uppercase is a `400`, never folded; `everyone`, `watchers`, `observers`, `here`, `all`, `channel`, `room` and `team` are reserved, `400`) and must be unique among active teams (`409`, `keys: ["handle"]`). A case-insensitive name clash with another active team is `409` (`keys: ["name"]`).
          */
         put: operations["updateTeam"];
         post?: never;
         /**
          * Delete a team (soft)
-         * @description ADMIN only, guard before the id lookup. Soft delete — the name is freed for reuse.
+         * @description ADMIN only, guard before the id lookup. Soft delete — the name and the mention handle are freed for reuse.
          */
         delete: operations["deleteTeam"];
         options?: never;
@@ -2095,6 +2099,8 @@ export interface components {
              * @description The team's manager, a user; must be active (`400` otherwise).
              */
             managerId?: number | null;
+            /** @description The team's mention handle: lowercase letters, digits and single hyphens, starting with a letter; never folded (uppercase is a `400`); not one of the reserved words `everyone`, `watchers`, `observers`, `here`, `all`, `channel`, `room`, `team` (`400`); unique among active teams (`409`). */
+            handle?: string | null;
         };
         TeamUpdateRequest: {
             name: string;
@@ -2104,6 +2110,8 @@ export interface components {
              * @description The team's manager, a user; must be active (`400` otherwise). Omitted on PUT (a full replace) = no manager.
              */
             managerId?: number | null;
+            /** @description The team's mention handle: lowercase letters, digits and single hyphens, starting with a letter; never folded (uppercase is a `400`); not one of the reserved words `everyone`, `watchers`, `observers`, `here`, `all`, `channel`, `room`, `team` (`400`); unique among active teams (`409`). Omitted on PUT (a full replace) = no handle. */
+            handle?: string | null;
         };
         TeamMember: {
             /** Format: int32 */
@@ -2116,6 +2124,8 @@ export interface components {
             id: number;
             name: string;
             description?: string | null;
+            /** @description The mention handle; null when the team has none. */
+            handle: string | null;
             /**
              * Format: int32
              * @description The team's manager; null when unset or when the assigned user was soft-deleted.
@@ -2141,6 +2151,8 @@ export interface components {
             id: number;
             name: string;
             description?: string | null;
+            /** @description The mention handle; null when the team has none. */
+            handle: string | null;
             /**
              * Format: int32
              * @description The team's manager; null when unset or when the assigned user was soft-deleted.
@@ -2486,7 +2498,7 @@ export interface components {
             detail: string;
             /** @description URI reference of the specific occurrence (the request path). */
             instance: string;
-            /** @description Extension member, present only on a workflow conflict that is about specific keys (the statuses or fields the conflict names). */
+            /** @description Extension member, present only on a conflict that is about specific keys: a workflow conflict (the statuses or fields it names) or a team's unique-name clash (`["name"]` or `["handle"]`, the field that is already taken). */
             keys?: string[];
         };
         /**
@@ -3972,6 +3984,8 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Trimmed first; at most 100 characters (code points) after trimming, `400` past that. */
                 name?: string;
+                /** @description Trimmed first; at most 30 characters (code points) after trimming, `400` past that. */
+                handle?: string;
             };
             header?: never;
             path?: never;

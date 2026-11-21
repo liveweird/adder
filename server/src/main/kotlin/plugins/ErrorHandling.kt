@@ -124,25 +124,34 @@ internal fun Throwable.isQueryCanceled(): Boolean = hasSqlState(PG_QUERY_CANCELE
 // ('duplicate key value violates unique constraint "uq_…"'), so the detail can say WHAT
 // already exists instead of the generic fallback. Keyed by the partial unique indexes the
 // migrations define; an unmapped constraint (a future migration) falls back to the generic.
-private val UNIQUE_CONSTRAINT_DETAILS = mapOf(
-    "uq_users_email_active" to "A user with this email already exists",
-    "uq_teams_name_active" to "A team with this name already exists",
-    "uq_workflow_templates_name_active" to "A workflow template with this name already exists",
-    "uq_rooms_name_active" to "A room with this name already exists",
+// `keys` is the machine-readable twin for a form that holds more than one unique field (a team's name and its handle): the
+// client marks the field by it, never by reading the detail text.
+private class UniqueConflict(val detail: String, val keys: List<String>? = null)
+
+private val UNIQUE_CONSTRAINT_CONFLICTS = mapOf(
+    "uq_users_email_active" to UniqueConflict("A user with this email already exists"),
+    "uq_teams_name_active" to UniqueConflict("A team with this name already exists", listOf("name")),
+    "uq_teams_handle_active" to UniqueConflict("A team with this mention handle already exists", listOf("handle")),
+    "uq_workflow_templates_name_active" to UniqueConflict("A workflow template with this name already exists"),
+    "uq_rooms_name_active" to UniqueConflict("A room with this name already exists"),
 )
 
-private fun Throwable.uniqueViolationDetail(): String {
-    var found: String? = null
+private val GENERIC_UNIQUE_CONFLICT = UniqueConflict("Resource already exists")
+
+private fun Throwable.uniqueViolation(): UniqueConflict {
+    var found: UniqueConflict? = null
     anyInChain { t ->
         val message = t.message ?: return@anyInChain false
-        found = UNIQUE_CONSTRAINT_DETAILS.entries.firstOrNull { (name, _) -> name in message }?.value
+        found = UNIQUE_CONSTRAINT_CONFLICTS.entries.firstOrNull { (name, _) -> name in message }?.value
         found != null
     }
-    return found ?: "Resource already exists"
+    return found ?: GENERIC_UNIQUE_CONFLICT
 }
 
-private suspend fun ApplicationCall.respondConflict(cause: Throwable) =
-    respondProblem(HttpStatusCode.Conflict, cause.uniqueViolationDetail())
+private suspend fun ApplicationCall.respondConflict(cause: Throwable) {
+    val conflict = cause.uniqueViolation()
+    respondProblem(HttpStatusCode.Conflict, conflict.detail, keys = conflict.keys)
+}
 
 private suspend fun ApplicationCall.respondDbFailure(cause: Throwable) = when {
     cause.isUniqueViolation() -> respondConflict(cause)

@@ -258,6 +258,7 @@ Taken without asking, in the 1.1.0 plan. Detail and the rules they became: `chat
 - **1.1 A27. Search snippets still show raw tokens.**
 - **1.1 A28. A 1.0.0 user who never touched their preferences stops getting the digest after the upgrade** (email is off by default, 1.1 D7). Their stored V22 "switched off" rows keep meaning off, and nobody has an opt-in row yet. The upgrade does not re-enable anything; the changelog entry says so.
 - **1.1 A29. Account email is not a notice kind and always goes:** the MFA code and the password-reset link are sent directly, never through the digest or the preferences. Adder sends no "password changed" or "account created" email; porting Lettuce's locked-on kinds for them is not in 1.1.0 (`BACKLOG.md`).
+- **1.1 A30. The team PUT is a full replace, so an omitted `handle` clears it** (the `managerId` rule). A pre-1.1 client (an old SPA tab after the deploy, or a 1.0.0 script) that renames a team therefore clears its handle, and the `<@team:id>` tokens of that team then render as plain text and stop notifying. Accepted; traced by the `team.updated` audit line with `handle` null.
 
 Of the 0.6 assumptions, **0.6 A10 and 0.6 A15 are reversed**, **0.6 A4 is partly reversed** (`@room` exists as `<@everyone>`, plus teams and watchers; `@here` and a non-member stay out), **0.6 A3, 0.6 A6 and 0.6 A8 are extended** (the 20 stays for people, with 5 teams and each keyword once; the edit rule of 1.1 A9; `mentionsMe` beside `mentionedId`). 0.6 D2's email-on default is reversed (1.1 D7); 0.6 D1 and 0.6 D3 stand.
 

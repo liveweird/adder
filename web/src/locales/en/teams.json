@@ -11,11 +11,16 @@
   "openAria": "Open team {{name}}",
   "column": {
     "manager": "Manager",
-    "members": "Members"
+    "members": "Members",
+    "handle": "Mention handle"
   },
   "manager": "Manager",
   "managerLine": "Manager: {{name}}",
   "noManager": "No manager",
+  "handle": "Mention handle",
+  "handleLine": "Mention handle: @{{handle}}",
+  "handleHint": "Optional. How the team is named with @ in a message: 2–30 lowercase letters, digits and single hyphens, starting with a letter.",
+  "handleTaken": "A team with this handle already exists",
   "clearManager": "Clear the manager",
   "pickManager": "Search users by name…",
   "managerHint": "The person who manages the team.",
@@ -30,7 +35,9 @@
   "saveGone": "This team no longer exists — reload the page",
   "validation": {
     "nameLength": "Name must be 1–100 characters",
-    "descriptionLength": "Description must be at most 500 characters"
+    "descriptionLength": "Description must be at most 500 characters",
+    "handleFormat": "Use 2–30 lowercase letters, digits and single hyphens, starting with a letter",
+    "handleReserved": "This word is reserved — choose another handle"
   },
   "toast": {
     "created": "Team created",

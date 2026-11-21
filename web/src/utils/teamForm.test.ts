@@ -16,13 +16,36 @@ describe("teamForm", () => {
     expect(rules.description("")).toBeNull();
   });
 
+  test("the handle rules mirror the server's grammar, length and reserved words", () => {
+    const { handle } = teamFormValidation(t);
+    for (const ok of ["", "  ", "ab", "a1", "on-call", "pay-2-go", "a" + "0".repeat(29), "  on-call "]) expect(handle(ok), `'${ok}'`).toBeNull();
+    for (const bad of ["a", "a".repeat(31), "1abc", "-ab", "ab-", "a--b", "a_b", "a b", "żółw", "Payments", "ON-CALL"]) {
+      expect(handle(bad), `'${bad}'`).toBe("Use 2–30 lowercase letters, digits and single hyphens, starting with a letter");
+    }
+    for (const reserved of ["everyone", "watchers", "observers", "here", "all", "channel", "room", "team"]) {
+      expect(handle(reserved), reserved).toBe("This word is reserved — choose another handle");
+    }
+    expect(handle("teams")).toBeNull();
+  });
+
   test("the body trims and sends a blank description as null; values round-trip from a response", () => {
-    const none = { managerId: null, managerLabel: null };
-    expect(toTeamBody({ name: "  Payments ", description: "   ", ...none })).toEqual({ name: "Payments", description: null, managerId: null });
-    expect(toTeamBody({ name: "A", description: " movers ", ...none })).toEqual({ name: "A", description: "movers", managerId: null });
-    expect(toTeamBody({ name: "A", description: "", managerId: "7", managerLabel: "Ann (a@x.io)" })).toEqual({
+    const none = { handle: "", managerId: null, managerLabel: null };
+    expect(toTeamBody({ name: "  Payments ", description: "   ", ...none })).toEqual({
+      name: "Payments",
+      description: null,
+      handle: null,
+      managerId: null,
+    });
+    expect(toTeamBody({ name: "A", description: " movers ", ...none, handle: " on-call " })).toEqual({
+      name: "A",
+      description: "movers",
+      handle: "on-call",
+      managerId: null,
+    });
+    expect(toTeamBody({ name: "A", description: "", handle: "", managerId: "7", managerLabel: "Ann (a@x.io)" })).toEqual({
       name: "A",
       description: null,
+      handle: null,
       managerId: 7,
     });
     expect(
@@ -30,25 +53,27 @@ describe("teamForm", () => {
         id: 1,
         name: "A",
         description: null,
+        handle: null,
         managerId: null,
         managerName: null,
         members: [],
         createdAt: 0,
         updatedAt: 0,
       }),
-    ).toEqual({ name: "A", description: "", managerId: null, managerLabel: null });
+    ).toEqual({ name: "A", description: "", handle: "", managerId: null, managerLabel: null });
     expect(
       toTeamFormValues({
         id: 1,
         name: "A",
         description: null,
+        handle: "on-call",
         managerId: 7,
         managerName: "Ann Manager",
         members: [],
         createdAt: 0,
         updatedAt: 0,
       }),
-    ).toEqual({ name: "A", description: "", managerId: "7", managerLabel: "Ann Manager" });
+    ).toEqual({ name: "A", description: "", handle: "on-call", managerId: "7", managerLabel: "Ann Manager" });
   });
 
   test("save errors map to the fixed vocabulary", () => {

@@ -45,7 +45,7 @@ import org.flywaydb.core.api.MigrationVersion
  *  - Flyway applied every migration and validates the history;
  *  - no table lost a row and every table V23 and V24 did not touch is byte for byte what it was (a digest of every row's text);
  *  - V23 scrubbed exactly what `persistence.md` "History scrub (V23)" says, row by row, and left every other event alone;
- *  - V24's table exists and is empty;
+ *  - V24's table exists and is empty, and V25's `teams.handle` is null on every row (the soft-deleted included);
  *  - the application boots on the migrated database and its reads answer, each checked against the OpenAPI contract.
  *
  * The database is created on the fork's Testcontainers server, named uniquely and dropped in a `finally`: the shared suite database is
@@ -98,7 +98,7 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        assertTrue("23" in after && "24" in after, "V23 and V24 ran on the populated database: $after")
+        assertTrue("23" in after && "24" in after && "25" in after, "V23, V24 and V25 ran on the populated database: $after")
     }
 
     /** An additive migration may add columns; a dropped or renamed one of the release's columns fails, naming the table. */
@@ -114,6 +114,9 @@ class PopulatedUpgradeTest {
         assertNotNull(budget, "V24's table exists")
         val budgetRows = snapshot(database, mapOf("public.notification_email_budget" to budget)).values.single().rows
         assertEquals(0L, budgetRows, "V24's table is empty")
+        // V25 adds teams.handle with no backfill: not one team of the release, the soft-deleted included, holds a handle.
+        val handles = query(database, "SELECT count(*) FROM teams WHERE handle IS NOT NULL") { it.getLong(1) }.single()
+        assertEquals(0L, handles, "V25's column is empty on every migrated team, deleted ones too")
         for ((table, was) in before) {
             val now = after.getValue(table)
             assertEquals(was.rows, now.rows, "$table keeps every row")
@@ -186,6 +189,7 @@ class PopulatedUpgradeTest {
 
         val teams = olivia.getBody<TeamPageResponse>("/api/v1/teams?pageSize=100").items.filter { it.name == "Platform Reliability" }
         assertEquals(2, teams.single().memberCount, "the roster counts active users only")
+        assertNull(teams.single().handle, "V25 adds the mention handle with no backfill")
         assertEquals("Olivia Żółkiewska", teams.single().managerName)
     }
 

@@ -27,6 +27,7 @@ val TeamServiceKey = AttributeKey<TeamService>("TeamService")
 private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
     "id" to TeamService.Teams.id,
     "name" to TeamService.Teams.name,
+    "handle" to TeamService.Teams.handle,
     "createdAt" to TeamService.Teams.createdAt,
     "updatedAt" to TeamService.Teams.updatedAt,
 )
@@ -40,6 +41,9 @@ class TeamService(private val database: R2dbcDatabase) {
         // (V6, active rows only) — Exposed defs are query-only, so no `.uniqueIndex()` here.
         val name = varchar("name", length = MAX_TEAM_NAME_LENGTH)
         val description = varchar("description", length = MAX_TEAM_DESCRIPTION_LENGTH).nullable()
+
+        /** V25: the optional mention handle. Uniqueness among active teams rides `uq_teams_handle_active` (a clash is the central 409). */
+        val handle = varchar("handle", length = MAX_TEAM_HANDLE_LENGTH).nullable()
 
         /** V6: the optional manager. May name a soft-deleted user — readers resolve it through ACTIVE users. */
         // The one foreign key from `teams` itself to Users (the roster's FK lives on TeamMembers), so the implicit
@@ -71,6 +75,7 @@ class TeamService(private val database: R2dbcDatabase) {
                     id = id,
                     name = row[Teams.name],
                     description = row[Teams.description],
+                    handle = row[Teams.handle],
                     managerId = managerId,
                     managerName = managerId?.let(managers::get),
                     memberCount = counts[id] ?: 0,
@@ -92,6 +97,7 @@ class TeamService(private val database: R2dbcDatabase) {
             id = id,
             name = row[Teams.name],
             description = row[Teams.description],
+            handle = row[Teams.handle],
             managerId = managerId.takeIf { managerName != null },
             managerName = managerName,
             members = activeMembersOf(id),
@@ -103,7 +109,7 @@ class TeamService(private val database: R2dbcDatabase) {
     /**
      * Creates the team and its optional manager in ONE transaction: an unknown or soft-deleted manager id is a 400
      * (client-supplied FK — never a 500 from the constraint). A name clash with an active team rides the V6 partial
-     * index into the central 23505 → 409.
+     * index, a handle clash the V25 one, into the central 23505 → 409.
      */
     suspend fun create(request: TeamCreateRequest): UInt = suspendTransaction(database) {
         validateTeamCreate(request) // re-checked service-side so direct callers stay guarded
@@ -113,13 +119,14 @@ class TeamService(private val database: R2dbcDatabase) {
             it[name] = request.name
             it[description] = request.description
             it[managerUserId] = request.managerId
+            it[handle] = request.handle
             it[createdAt] = stamp
             it[updatedAt] = stamp
         }[Teams.id].value
     }
 
     /**
-     * Name/description/manager replace (full replace — an omitted manager clears it). `affected` 0 → 404;
+     * Name/description/manager/handle replace (full replace — an omitted manager or handle clears it). `affected` 0 → 404;
      * `managerFrom` is the stored manager before the write.
      */
     suspend fun update(id: UInt, request: TeamUpdateRequest): TeamUpdateOutcome = suspendTransaction(database) {
@@ -134,6 +141,7 @@ class TeamService(private val database: R2dbcDatabase) {
             it[name] = request.name
             it[description] = request.description
             it[managerUserId] = request.managerId
+            it[handle] = request.handle
             it[updatedAt] = nowMillis()
         }
         TeamUpdateOutcome(affected, before[Teams.managerUserId]?.value)
@@ -286,6 +294,7 @@ class TeamService(private val database: R2dbcDatabase) {
     private fun buildPredicate(filter: TeamListFilter): Op<Boolean> {
         var op: Op<Boolean> = Op.TRUE
         filter.name?.takeIf { it.isNotBlank() }?.let { op = op and Teams.name.containsNormalized(it) }
+        filter.handle?.takeIf { it.isNotBlank() }?.let { op = op and Teams.handle.containsNormalized(it) }
         return op
     }
 }

@@ -1,5 +1,5 @@
 // The flat-teams registry: an admin creates a team, renames it, assigns its manager and deletes it;
-// a regular user sees the read-only list; an admin manages a team's roster. Owns: its throwaway team(s) and user (unique names, deleted by the end of the file).
+// a regular user sees the read-only list; an admin manages a team's roster and gives a team its mention handle. Owns: its throwaway team(s) and user (unique names, deleted by the end of the file).
 import { createUserViaUi, deleteUserRow, deleteViaApi, expect, login, openFilters, rowOperation, signOut, specAdmins, test, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
@@ -136,7 +136,7 @@ test.describe("roster", () => {
     await openFilters(page);
     await page.getByLabel("Name", { exact: true }).fill(teamName);
     const teamRow = page.getByRole("row").filter({ has: page.getByRole("link", { name: `Open team ${teamName}` }) });
-    await expect(teamRow.getByRole("cell").nth(3)).toHaveText("1");
+    await expect(teamRow.getByRole("cell").nth(4)).toHaveText("1");
     await page.getByRole("link", { name: `Open team ${teamName}` }).click();
 
     // Remove asks first, then the roster is empty again.
@@ -147,5 +147,54 @@ test.describe("roster", () => {
     ]);
     await expect(page.getByText("This team has no members yet")).toBeVisible();
     await expect(page.getByRole("table", { name: `Members of ${teamName}` })).toHaveCount(0);
+  });
+});
+
+test.describe("mention handle", () => {
+  // API teardown by id, so a failing step leaves neither team behind.
+  const cleanup: string[] = [];
+  test.afterEach(async () => {
+    await deleteViaApi(cleanup.splice(0));
+  });
+
+  test("an administrator gives a team a mention handle and a taken handle is refused", async ({ page }) => {
+    await admin.login(page);
+    const stem = uniqueText("e2e-hnd");
+    const handle = uniqueText("e2e-h");
+    await page.goto("/teams");
+
+    // The first team takes the handle; its page shows it.
+    await page.getByRole("button", { name: "New team" }).click();
+    const first = page.getByRole("dialog");
+    await first.getByLabel("Name").fill(`${stem}-a`);
+    await first.getByLabel("Mention handle").fill(handle);
+    await first.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(page).toHaveURL(/\/teams\/\d+$/);
+    cleanup.unshift(`/api/v1/teams/${/\/teams\/(\d+)$/.exec(page.url())![1]}`);
+    await expect(page.getByText(`Mention handle: @${handle}`)).toBeVisible();
+
+    // A second team cannot take it: the dialog stays open and marks the handle, not the name.
+    await page.goto("/teams");
+    await page.getByRole("button", { name: "New team" }).click();
+    const second = page.getByRole("dialog");
+    await second.getByLabel("Name").fill(`${stem}-b`);
+    await second.getByLabel("Mention handle").fill(handle.toUpperCase());
+    await second.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(second.getByText("Use 2–30 lowercase letters, digits and single hyphens, starting with a letter")).toBeVisible();
+    await second.getByLabel("Mention handle").fill(handle);
+    await second.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(second.getByText("A team with this handle already exists")).toBeVisible();
+    await expect(page).toHaveURL(/\/teams$/);
+
+    // A free handle goes through; the list shows both handles.
+    await second.getByLabel("Mention handle").fill(`${handle}-b`);
+    await second.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(page).toHaveURL(/\/teams\/\d+$/);
+    cleanup.unshift(`/api/v1/teams/${/\/teams\/(\d+)$/.exec(page.url())![1]}`);
+    await page.goto("/teams");
+    await openFilters(page);
+    await page.getByLabel("Name", { exact: true }).fill(stem);
+    await expect(page.getByRole("row").filter({ has: page.getByRole("link", { name: `Open team ${stem}-a` }) })).toContainText(`@${handle}`);
+    await expect(page.getByRole("row").filter({ has: page.getByRole("link", { name: `Open team ${stem}-b` }) })).toContainText(`@${handle}-b`);
   });
 });

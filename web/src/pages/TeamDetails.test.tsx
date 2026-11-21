@@ -17,6 +17,7 @@ const TEAM = {
   id: 1,
   name: "Payments",
   description: "Money movers",
+  handle: "payments",
   managerId: 12,
   managerName: "Cara New",
   members: [
@@ -81,6 +82,7 @@ describe("TeamDetails page", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "Payments" })).toBeInTheDocument();
     expect(screen.getByText("Money movers")).toBeInTheDocument();
     expect(screen.getByText("Manager: Cara New")).toBeInTheDocument();
+    expect(screen.getByText("Mention handle: @payments")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /operations for/i })).not.toBeInTheDocument();
     // The roster is public; its controls are not.
@@ -98,6 +100,13 @@ describe("TeamDetails page", () => {
     renderPage();
     expect(await screen.findByRole("heading", { level: 3, name: "Members" })).toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: "Add a member" })).not.toBeInTheDocument();
+  });
+
+  test("a team without a handle shows no handle line", async () => {
+    serve(mockFetch, {}, { ...TEAM, handle: null });
+    renderPage();
+    expect(await screen.findByRole("heading", { level: 2, name: "Payments" })).toBeInTheDocument();
+    expect(screen.queryByText(/Mention handle/)).not.toBeInTheDocument();
   });
 
   test("another user's team gives a regular user no roster controls", async () => {
@@ -270,7 +279,7 @@ describe("TeamDetails page", () => {
     await user.click(within(modal).getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(findCall(mockFetch, "PUT", "/api/v1/teams/1")).toBeDefined());
     const body = JSON.parse((findCall(mockFetch, "PUT", "/api/v1/teams/1")![1] as RequestInit).body as string);
-    expect(body).toEqual({ name: "Payments EU", description: "Money movers", managerId: 12 });
+    expect(body).toEqual({ name: "Payments EU", description: "Money movers", handle: "payments", managerId: 12 });
   });
 
   test("cancelling the Edit modal closes it without a request", async () => {

@@ -21,8 +21,8 @@ function deferred<T>() {
 
 const PAGE = {
   items: [
-    { id: 1, name: "Payments", description: "Money movers", managerId: 7, managerName: "Mia Manager", memberCount: 2, createdAt: 1, updatedAt: 2 },
-    { id: 2, name: "Identity", description: null, managerId: null, managerName: null, memberCount: 0, createdAt: 1, updatedAt: 2 },
+    { id: 1, name: "Payments", description: "Money movers", handle: "payments", managerId: 7, managerName: "Mia Manager", memberCount: 2, createdAt: 1, updatedAt: 2 },
+    { id: 2, name: "Identity", description: null, handle: null, managerId: null, managerName: null, memberCount: 0, createdAt: 1, updatedAt: 2 },
   ],
   page: 1,
   pageSize: 20,
@@ -32,6 +32,7 @@ const DETAIL = {
   id: 1,
   name: "Payments",
   description: "Money movers",
+  handle: "payments",
   managerId: 7,
   managerName: "Mia Manager",
   members: [
@@ -108,6 +109,9 @@ describe("Teams page", () => {
     expect(screen.getByText("Money movers")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Manager" })).toBeInTheDocument();
     expect(screen.getByText("Mia Manager")).toBeInTheDocument();
+    // The mention handle reads as @handle, or a dash for a team without one.
+    expect(screen.getByRole("columnheader", { name: /Mention handle/ })).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Payments/ })).getByText("@payments")).toBeInTheDocument();
     // The roster size is public like the roster itself: a Members count column for every session.
     expect(screen.getByRole("columnheader", { name: "Members" })).toBeInTheDocument();
     expect(within(screen.getByRole("row", { name: /Payments/ })).getByRole("cell", { name: "2" })).toBeInTheDocument();
@@ -137,7 +141,7 @@ describe("Teams page", () => {
     await user.click(within(modal).getByRole("button", { name: /^create$/i }));
     await waitFor(() => expect(findCall(mockFetch, "POST", "/api/v1/teams")).toBeDefined());
     const body = JSON.parse((findCall(mockFetch, "POST", "/api/v1/teams")![1] as RequestInit).body as string);
-    expect(body).toEqual({ name: "Ledger", description: "keeps the books", managerId: null });
+    expect(body).toEqual({ name: "Ledger", description: "keeps the books", handle: null, managerId: null });
     expect(await screen.findByText("at /teams/9")).toBeInTheDocument();
   });
 
@@ -174,7 +178,7 @@ describe("Teams page", () => {
     await waitFor(() => expect(findCall(mockFetch, "PUT", "/api/v1/teams/1")).toBeDefined());
     const body = JSON.parse((findCall(mockFetch, "PUT", "/api/v1/teams/1")![1] as RequestInit).body as string);
     // Edit keeps the stored manager (a PUT is a full replace).
-    expect(body).toEqual({ name: "Payments", description: null, managerId: 7 });
+    expect(body).toEqual({ name: "Payments", description: null, handle: "payments", managerId: 7 });
   });
 
   test("the manager picker searches users, sends the picked id, and clearing sends null", async () => {
@@ -197,6 +201,7 @@ describe("Teams page", () => {
     expect(JSON.parse((findCall(mockFetch, "PUT", "/api/v1/teams/1")![1] as RequestInit).body as string)).toEqual({
       name: "Payments",
       description: "Money movers",
+      handle: "payments",
       managerId: 12,
     });
   });
@@ -216,7 +221,7 @@ describe("Teams page", () => {
   });
 
   test("a 409 on save marks the name field", async () => {
-    serve(mockFetch, { "POST /api/v1/teams": { status: 409, body: { title: "Conflict", status: 409 } } });
+    serve(mockFetch, { "POST /api/v1/teams": { status: 409, body: { title: "Conflict", status: 409, keys: ["name"] } } });
     const user = userEvent.setup();
     renderPage();
     await user.click(await screen.findByRole("button", { name: /new team/i }));
@@ -225,6 +230,62 @@ describe("Teams page", () => {
     await user.click(within(modal).getByRole("button", { name: /^create$/i }));
     expect(await screen.findByText("A team with this name already exists")).toBeInTheDocument();
     expect(within(modal).getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
+  });
+
+  test("the handle is typed, validated like the server and sent; clearing it sends null", async () => {
+    serve(mockFetch, { "POST /api/v1/teams": { status: 201, body: { ...DETAIL, id: 9, name: "Ledger", handle: "on-call" } }, "PUT /api/v1/teams/1": { status: 204 } });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /new team/i }));
+    const modal = screen.getByRole("dialog");
+    await user.type(within(modal).getByLabelText("Name"), "Ledger");
+    await user.type(within(modal).getByLabelText("Mention handle"), "On-Call");
+    await user.click(within(modal).getByRole("button", { name: /^create$/i }));
+    expect(await screen.findByText(/Use 2–30 lowercase letters/)).toBeInTheDocument();
+    expect(findCall(mockFetch, "POST", "/api/v1/teams")).toBeUndefined();
+    await user.clear(within(modal).getByLabelText("Mention handle"));
+    await user.type(within(modal).getByLabelText("Mention handle"), "everyone");
+    await user.click(within(modal).getByRole("button", { name: /^create$/i }));
+    expect(await screen.findByText(/reserved/)).toBeInTheDocument();
+    await user.clear(within(modal).getByLabelText("Mention handle"));
+    await user.type(within(modal).getByLabelText("Mention handle"), "  on-call ");
+    await user.click(within(modal).getByRole("button", { name: /^create$/i }));
+    await waitFor(() => expect(findCall(mockFetch, "POST", "/api/v1/teams")).toBeDefined());
+    expect(JSON.parse((findCall(mockFetch, "POST", "/api/v1/teams")![1] as RequestInit).body as string)).toMatchObject({ handle: "on-call" });
+    expect(await screen.findByText("at /teams/9")).toBeInTheDocument();
+  });
+
+  test("clearing the handle of a stored team sends handle null (a PUT is a full replace)", async () => {
+    serve(mockFetch, { "PUT /api/v1/teams/1": { status: 204 } });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Operations for Payments" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit Payments" }));
+    const modal = await screen.findByRole("dialog");
+    expect(within(modal).getByLabelText("Mention handle")).toHaveValue("payments");
+    await user.clear(within(modal).getByLabelText("Mention handle"));
+    await user.click(within(modal).getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(findCall(mockFetch, "PUT", "/api/v1/teams/1")).toBeDefined());
+    expect(JSON.parse((findCall(mockFetch, "PUT", "/api/v1/teams/1")![1] as RequestInit).body as string)).toMatchObject({ handle: null });
+  });
+
+  test("a 409 whose keys name the handle marks the handle field, not the name", async () => {
+    serve(mockFetch, {
+      "POST /api/v1/teams": {
+        status: 409,
+        body: { title: "Conflict", status: 409, detail: "A team with this mention handle already exists", keys: ["handle"] },
+      },
+    });
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: /new team/i }));
+    const modal = screen.getByRole("dialog");
+    await user.type(within(modal).getByLabelText("Name"), "Ledger");
+    await user.type(within(modal).getByLabelText("Mention handle"), "payments");
+    await user.click(within(modal).getByRole("button", { name: /^create$/i }));
+    expect(await screen.findByText("A team with this handle already exists")).toBeInTheDocument();
+    expect(within(modal).getByLabelText("Mention handle")).toHaveAttribute("aria-invalid", "true");
+    expect(within(modal).getByLabelText("Name")).not.toHaveAttribute("aria-invalid", "true");
   });
 
   test("an admin deletes a team after confirming; a 409 names the conflict", async () => {

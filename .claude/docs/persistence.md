@@ -15,14 +15,14 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   `MigrationChecksumTest` pins every file's checksum; a new migration adds one manifest line, and
   a red pin means REVERT the edit (clarifications go into this doc), never update the pinned
   value. **The one exception, an unreleased migration:** a migration may still change while NO released
-  version has applied it (today V17 to V22, the 0.6.0 migrations, V23, the 1.0.0 history scrub, and V24, the 1.0.0 digest budget: nothing but a developer's own database, or an OrbStack deployment from this branch, has them);
+  version has applied it (today only V25, the 1.1.0 team handle: nothing but a developer's own database, or an OrbStack deployment from this branch, has it; V17 to V24 shipped in 1.0.0 and are immutable);
   the pin is then re-pinned in the same commit, and a dev database that booted an earlier checksum of such a file is reset (`docker compose down -v`) or repaired (`flyway repair`).
   **The lanes of one release land in any order, so a dev database can apply a later 0.6 migration before an earlier one (V20 before V18, say):** Flyway then refuses the
   lower number (`outOfOrder` is off) and the table it creates is missing, so reset such a database with `docker compose down -v`; a fresh one (a test container, CI) applies them in order.
-  The exception ends with the release that contains the file. The range today is **V1–V24**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
+  The exception ends with the release that contains the file. The range today is **V1–V25**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
   `unaccent` extension, V5 `user_disabled_features` (V1–V5 are Flow's), V6 `teams` (with the optional
   manager), V7 `users.credential_revision`, V8 `password_reset_tokens`, V9 the `ops` telemetry
-  schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows, V13 the room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`), V14 the thread aggregate (`threads`, `messages`, `thread_events`), V15 the hashtag index (`message_tags`, `messages.tags_version`), V16 the search columns (`messages.search` and `threads.search`, the `adder_search` configuration; its GIN index was dropped before release), V17 the mention index (`message_mentions`), V18 the notices (`notifications`), V19 the read state (`room_members.seen_at` and `read_from`, `thread_reads`), V20 the reaction table (`message_reactions`), V21 the room pins (`room_pins`), V22 the digest's claim column and the email switches (`notifications.emailed_at`, `user_notification_preferences`), V23 the history scrub (data only: `thread_events.params`), V24 the per-actor digest budget (`notification_email_budget`). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
+  schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows, V13 the room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`), V14 the thread aggregate (`threads`, `messages`, `thread_events`), V15 the hashtag index (`message_tags`, `messages.tags_version`), V16 the search columns (`messages.search` and `threads.search`, the `adder_search` configuration; its GIN index was dropped before release), V17 the mention index (`message_mentions`), V18 the notices (`notifications`), V19 the read state (`room_members.seen_at` and `read_from`, `thread_reads`), V20 the reaction table (`message_reactions`), V21 the room pins (`room_pins`), V22 the digest's claim column and the email switches (`notifications.emailed_at`, `user_notification_preferences`), V23 the history scrub (data only: `thread_events.params`), V24 the per-actor digest budget (`notification_email_budget`), V25 the team mention handle (`teams.handle`, 1.1.0). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root (the chat's services are built by `ChatWiring.kt` beside it, called from `configureDatabase`): it constructs the
   services and publishes them into `Application.attributes` (`UserServiceKey`, `TeamServiceKey`,
@@ -313,6 +313,10 @@ cascade, `ON DELETE CASCADE`; an index on `process_id` keeps that cascade off a 
 transaction under `TELEMETRY_LOCK_KEY`, and a row exactly at its cutoff stays. The tests own the schema:
 `TelemetryStoreTest`/`TelemetrySamplerTest` empty `ops` before each test (the suite starts no sampler).
 
+### Team handles (V25)
+
+`teams.handle VARCHAR(30)`, nullable, no backfill, plus `uq_teams_handle_active (handle) WHERE NOT marked_as_deleted`: the optional lowercase token a group mention names a team by (`chat-model.md` "Group mentions"). **Delete class: SOFT, unchanged** (`teams` rows are flagged, never removed): a deleted team stops holding its handle through the partial index, exactly as it frees its name, and nothing needs a purge. The grammar (2 to 30 characters, `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`, the eight reserved words) lives in `teams/Team.kt` (`validateTeamHandle`, run by the route AND the service), never in a CHECK (the V5 rule); the index needs no `LOWER()` because a handle is lowercase by rule (an uppercase one is a `400`, never folded). A clash is the central `23505` to `409` (`uq_teams_handle_active` in `UNIQUE_CONSTRAINT_DETAILS`, the detail says "handle" so the SPA marks the right field). A PUT is a full replace, so one without `handle` clears it (the `managerId` rule). The list filters it with `containsNormalized` and sorts by it (`handle` in `SORTABLE_COLUMNS`; NULLs sort last ascending). Cross-feature: none yet; the mention index (V30, S7) will reference `teams` by id, never by handle, so a rename needs no rewrite. `MigrationChecksumTest` pins the file.
+
 ### Soft delete (convention)
 
 `users`, `teams`, `workflow_templates`, `rooms` and `messages` are **soft-deleted** (and a room's `room_statuses`/`room_fields` are retired, never removed: "Rooms (V13)"; `threads` are never deleted in 0.3 and `thread_events` is append-only: "Threads (V14)") — rows are flagged, never physically removed; every
@@ -351,7 +355,7 @@ clash with an **active** row still raises `23505 → 409` (mapped centrally in
 `plugins/ErrorHandling.kt`, which names WHAT clashed per constraint — extend
 `UNIQUE_CONSTRAINT_DETAILS` when adding a partial unique index). In place today: `users.email`
 (`uq_users_email_active`, `V1`) and the team name (`uq_teams_name_active`, `V6` — an expression
-index over `LOWER(name)`), the workflow template name (`uq_workflow_templates_name_active`, V11) and the room name (`uq_rooms_name_active`, V13).
+index over `LOWER(name)`), the team's mention handle (`uq_teams_handle_active`, V25), the workflow template name (`uq_workflow_templates_name_active`, V11) and the room name (`uq_rooms_name_active`, V13). A team's two unique fields answer `keys: ["name"]` / `keys: ["handle"]` on the 409 (`UniqueConflict` in `ErrorHandling.kt`), which the SPA marks the field by.
 
 **`infra/db/Sql.kt`** (ported from Lettuce with the first list endpoint): `containsNormalized` —
 the case- AND accent-insensitive substring filter over `public.unaccent` (V4); every per-column
@@ -369,7 +373,7 @@ The rule: **lock a row `FOR NO KEY UPDATE` unless the write changes its key.** T
 `UPDATE`/`DELETE` (writers of the row, e.g. a soft delete racing a child insert, still serialize) but
 NOT with `FOR KEY SHARE`, so FK locks never stall it. `lockActiveForWrite` (`infra/db/SoftDelete.kt`,
 `FOR NO KEY UPDATE`), `withRoomWrite` (the room row, every room-scoped write; the thread and message inserts reference it), `TeamService.update` and `PasswordResetService.lockUser` (the active `users` row) follow it; none of them touches
-`id`, and the unique indexes on these tables are partial or expression indexes (`uq_teams_name_active`, `uq_users_email_active`), which
+`id`, and the unique indexes on these tables are partial or expression indexes (`uq_teams_name_active`, `uq_teams_handle_active`, `uq_users_email_active`), which
 PostgreSQL does not count as key columns — a rename is still a non-key update. Plain `FOR UPDATE` is for a row nothing references from a
 long transaction (`users` is referenced only by columns no long transaction inserts — `updated_by_*`, `teams.manager_user_id`,
 `user_disabled_features.user_id`, `password_reset_tokens.user_id`, and the V14 columns `threads.owner_id`/`created_by`, `messages.author_id`/`deleted_by`, `thread_events.user_id` (short inserts only): `UserService.lockedActiveAdminCount`), or for

@@ -21,7 +21,7 @@ import { MAX_TEAM_NAME_LENGTH } from "../utils/teamForm";
 import { teamPath } from "../utils/teamLinks";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 
-const SORT_FIELDS = ["name", "updatedAt"] as const;
+const SORT_FIELDS = ["name", "handle", "updatedAt"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
 
 const SETTINGS_KEY = "teams";
@@ -60,7 +60,7 @@ export default function Teams() {
   });
 
   const total = data?.total ?? 0;
-  const columnCount = 5;
+  const columnCount = 6;
 
   return (
     <Stack gap="md">
@@ -100,6 +100,7 @@ export default function Teams() {
         header={
           <Table.Tr>
             <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+            <SortHeader field="handle" label={t("teams.column.handle")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
             <Table.Th>{t("common.field.description")}</Table.Th>
             <Table.Th>{t("teams.column.manager")}</Table.Th>
             <Table.Th>{t("teams.column.members")}</Table.Th>
@@ -114,6 +115,11 @@ export default function Teams() {
                   <Anchor component={RouterLink} to={teamPath(team.id)} fw={500} size="sm" aria-label={t("teams.openAria", { name: team.name })}>
                     {team.name}
                   </Anchor>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm" c={team.handle ? undefined : "dimmed"}>
+                    {team.handle ? `@${team.handle}` : "—"}
+                  </Text>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c={team.description ? undefined : "dimmed"} lineClamp={1}>

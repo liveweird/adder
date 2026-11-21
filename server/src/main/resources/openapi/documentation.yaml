@@ -679,8 +679,9 @@ paths:
         Any authenticated user — teams are the shared ownership unit chat features scope to;
         every mutation is ADMIN only.
 
-        - Sortable fields: `id`, `name`, `createdAt`, `updatedAt`. Default `id` ascending.
-        - Filters: `name` (case- and accent-insensitive substring).
+        - Sortable fields: `id`, `name`, `handle`, `createdAt`, `updatedAt`. Default `id` ascending. A team without a handle sorts last
+          ascending (and first descending).
+        - Filters: `name` and `handle` (each a case- and accent-insensitive substring; a team without a handle never matches `handle`).
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -690,6 +691,11 @@ paths:
           required: false
           schema: { type: string, maxLength: 100 }
           description: Trimmed first; at most 100 characters (code points) after trimming, `400` past that.
+        - name: handle
+          in: query
+          required: false
+          schema: { type: string, maxLength: 30 }
+          description: Trimmed first; at most 30 characters (code points) after trimming, `400` past that.
       responses:
         '200':
           description: A page of teams
@@ -708,7 +714,10 @@ paths:
         ADMIN only (guarded before the body decodes — a non-admin's malformed body is still
         403). A case-insensitive name clash with an active team is `409`. An optional manager (a
         user; being a manager grants no write rights on the team yet) must be an active
-        user (`400` otherwise).
+        user (`400` otherwise). An optional mention `handle` (2 to 30 characters, lowercase letters, digits and
+        single hyphens, starting with a letter; uppercase is a `400`, never folded; `everyone`, `watchers`,
+        `observers`, `here`, `all`, `channel`, `room` and `team` are reserved, `400`) must be unique among active
+        teams (`409`, `keys: ["handle"]`; a name clash is `keys: ["name"]`); omitted = none.
       requestBody:
         required: true
         content:
@@ -755,7 +764,7 @@ paths:
       tags: [teams]
       operationId: updateTeam
       summary: Rename / re-describe a team, set its manager
-      description: "ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerId` clears the manager; a set one must be an active user (`400` otherwise). A case-insensitive name clash with another active team is `409`."
+      description: "ADMIN only, guard before the id lookup (uniform 403). A full replace: an omitted `managerId` clears the manager; a set one must be an active user (`400` otherwise). An omitted `handle` clears it too (a full replace: a client that renames a team without sending its handle drops it). A set `handle` follows the create rules (2 to 30 characters, lowercase letters, digits and single hyphens, starting with a letter; uppercase is a `400`, never folded; `everyone`, `watchers`, `observers`, `here`, `all`, `channel`, `room` and `team` are reserved, `400`) and must be unique among active teams (`409`, `keys: [\"handle\"]`). A case-insensitive name clash with another active team is `409` (`keys: [\"name\"]`)."
       requestBody:
         required: true
         content:
@@ -777,7 +786,7 @@ paths:
       tags: [teams]
       operationId: deleteTeam
       summary: Delete a team (soft)
-      description: ADMIN only, guard before the id lookup. Soft delete — the name is freed for reuse.
+      description: ADMIN only, guard before the id lookup. Soft delete — the name and the mention handle are freed for reuse.
       responses:
         '204':
           description: Deleted
@@ -3130,6 +3139,16 @@ components:
           nullable: true
           description: >-
             The team's manager, a user; must be active (`400` otherwise).
+        handle:
+          type: string
+          nullable: true
+          minLength: 2
+          maxLength: 30
+          pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+          description: >-
+            The team's mention handle: lowercase letters, digits and single hyphens, starting with a letter; never folded
+            (uppercase is a `400`); not one of the reserved words `everyone`, `watchers`, `observers`, `here`, `all`,
+            `channel`, `room`, `team` (`400`); unique among active teams (`409`).
     TeamUpdateRequest:
       type: object
       required: [name]
@@ -3143,6 +3162,16 @@ components:
           nullable: true
           description: >-
             The team's manager, a user; must be active (`400` otherwise). Omitted on PUT (a full replace) = no manager.
+        handle:
+          type: string
+          nullable: true
+          minLength: 2
+          maxLength: 30
+          pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
+          description: >-
+            The team's mention handle: lowercase letters, digits and single hyphens, starting with a letter; never folded
+            (uppercase is a `400`); not one of the reserved words `everyone`, `watchers`, `observers`, `here`, `all`,
+            `channel`, `room`, `team` (`400`); unique among active teams (`409`). Omitted on PUT (a full replace) = no handle.
     TeamMember:
       type: object
       required: [userId, name, email]
@@ -3152,11 +3181,12 @@ components:
         email: { type: string }
     TeamResponse:
       type: object
-      required: [id, name, managerId, managerName, members, createdAt, updatedAt]
+      required: [id, name, handle, managerId, managerName, members, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
         description: { type: string, nullable: true }
+        handle: { type: string, nullable: true, description: The mention handle; null when the team has none. }
         managerId:
           type: integer
           format: int32
@@ -3174,11 +3204,12 @@ components:
         updatedAt: { type: integer, format: int64, description: Epoch millis }
     TeamListItem:
       type: object
-      required: [id, name, managerId, managerName, memberCount, createdAt, updatedAt]
+      required: [id, name, handle, managerId, managerName, memberCount, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
         description: { type: string, nullable: true }
+        handle: { type: string, nullable: true, description: The mention handle; null when the team has none. }
         managerId:
           type: integer
           format: int32
@@ -3603,8 +3634,8 @@ components:
           type: array
           items: { type: string }
           description: >-
-            Extension member, present only on a workflow conflict that is about specific keys (the statuses or fields
-            the conflict names).
+            Extension member, present only on a conflict that is about specific keys: a workflow conflict (the statuses or fields
+            it names) or a team's unique-name clash (`["name"]` or `["handle"]`, the field that is already taken).
 
     ThreadFieldValues:
       type: object

@@ -57,6 +57,7 @@ fun Application.configureTeamRoutes() {
                 val params = call.request.queryParameters
                 val filter = TeamListFilter(
                     name = params.optionalBoundedString("name", MAX_TEAM_NAME_LENGTH),
+                    handle = params.optionalBoundedString("handle", MAX_TEAM_HANDLE_LENGTH),
                 )
                 val result = teamService.list(filter, paging)
                 call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
@@ -72,6 +73,7 @@ fun Application.configureTeamRoutes() {
                     "byUserId" to caller.userId.toLong(),
                     "teamId" to id.toLong(),
                     "name" to request.name,
+                    "handle" to request.handle,
                     "managerUserId" to request.managerId?.toLong(),
                 )
                 call.response.header(HttpHeaders.Location, call.application.href(TeamsRoute.Id(id = id)))
@@ -93,6 +95,7 @@ fun Application.configureTeamRoutes() {
                     "byUserId" to caller.userId.toLong(),
                     "teamId" to route.id.toLong(),
                     "name" to request.name,
+                    "handle" to request.handle,
                 )
                 // A manager assignment is a privilege change, so it is its own trail line.
                 if (outcome.managerFrom != request.managerId) {

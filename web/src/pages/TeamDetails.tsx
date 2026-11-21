@@ -61,6 +61,11 @@ export default function TeamDetails() {
                 {data.description}
               </Text>
             )}
+            {data.handle && (
+              <Text span display="block">
+                {t("teams.handleLine", { handle: data.handle })}
+              </Text>
+            )}
             <Text span display="block">
               {data.managerName ? t("teams.managerLine", { name: data.managerName }) : t("teams.noManager")}
             </Text>

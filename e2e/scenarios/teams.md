@@ -4,8 +4,8 @@
 - **Actors**: its own throwaway administrator (`e2e-teams-admin-*`, `specAdmins`); one throwaway user per test created
   through the Users page
 - **Owns** (exclusive server-side state): its throwaway administrator (`e2e-teams-admin-*`, minted through the seed administrator's API in a `beforeAll` and deleted in an `afterAll`, after the file's own teardown; its sign-ins' live-ticket mints, one per page load, spend ITS per-user bucket, not the seed administrator's), its throwaway teams (unique `e2e-team-*` /
-  `e2e-ro-team-*` / `e2e-roster-team-*` names) and users — all deleted by the end of the file (the roster test
-  tears down through the API in an `afterEach`, so a failing step leaves nothing behind)
+  `e2e-ro-team-*` / `e2e-roster-team-*` / `e2e-hnd-*` names and `e2e-h-*` handles) and users — all deleted by the end of the file (the roster test
+  and handle tests tear down through the API in an `afterEach`, so a failing step leaves nothing behind)
 
 ## Scenario: admin creates a team, renames it, assigns its manager, and deletes it
 
@@ -41,6 +41,18 @@
 5. They open the team again and click **Remove <name>**, then confirm **Remove** in the dialog.
    - *Expected*: the remove answers 204 and the page is back to "This team has no members yet" with no roster table.
 6. The throwaway team and user are deleted through the API (the `afterEach`).
+
+## Scenario: an administrator gives a team a mention handle and a taken handle is refused
+
+1. The admin signs in and, through **New team**, creates a team with a unique name and a unique lowercase handle.
+   - *Expected*: the app lands on the team's page, which reads "Mention handle: @<handle>".
+2. They open **New team** again, name a second team and type the same handle in uppercase, then Create.
+   - *Expected*: the dialog stays open and reads "Use 2–30 lowercase letters, digits and single hyphens, starting with a letter" (the handle is never folded).
+3. They type the first team's handle in lowercase and Create.
+   - *Expected*: the server answers 409; the dialog stays open and the **Mention handle** field reads "A team with this handle already exists" (the name is not marked).
+4. They type a free handle and Create.
+   - *Expected*: the second team's page opens; the Teams list, filtered by the shared name stem, shows `@<handle>` and `@<handle>-b` in their rows.
+5. Both teams are deleted through the API (the `afterEach`).
 
 ## Not covered here (and why)
 

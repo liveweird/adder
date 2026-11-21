@@ -49,6 +49,9 @@ class ErrorMappingTest {
             get("/probe/default-detail") { call.respondProblem(HttpStatusCode.Gone) }
             get("/probe/nul") { throw r2dbc("22021") }
             get("/probe/unique-named") { throw r2dbc("23505", "duplicate key value violates unique constraint \"uq_rooms_name_active\"") }
+            get("/probe/unique-team-handle") {
+                throw r2dbc("23505", "duplicate key value violates unique constraint \"uq_teams_handle_active\"")
+            }
             get("/probe/unique-unmapped") { throw r2dbc("23505", "duplicate key value violates unique constraint \"uq_future\"") }
             // The Exposed wrapper, then a link with no message at all, then the driver failure that names the constraint.
             get("/probe/unique-wrapped") {
@@ -89,11 +92,24 @@ class ErrorMappingTest {
         for ((path, detail) in listOf(
             "/probe/unique-named" to "A room with this name already exists",
             "/probe/unique-wrapped" to "A team with this name already exists",
+            "/probe/unique-team-handle" to "A team with this mention handle already exists",
             "/probe/unique-unmapped" to "Resource already exists",
         )) {
             val response = client.get(path)
             assertEquals(HttpStatusCode.Conflict, response.status, path)
             assertEquals(detail, response.problem().detail, path)
+        }
+    }
+
+    @Test
+    fun `a team's unique violation names the field it is about in keys, and the other constraints carry none`() = probe {
+        for ((path, keys) in listOf(
+            "/probe/unique-wrapped" to listOf("name"),
+            "/probe/unique-team-handle" to listOf("handle"),
+            "/probe/unique-named" to null,
+            "/probe/unique-unmapped" to null,
+        )) {
+            assertEquals(keys, client.get(path).problem().keys, path)
         }
     }
 

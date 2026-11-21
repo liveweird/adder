@@ -11,11 +11,16 @@
   "openAria": "Otwórz zespół {{name}}",
   "column": {
     "manager": "Kierownik/czka",
-    "members": "Liczba członków/członkiń"
+    "members": "Liczba członków/członkiń",
+    "handle": "Uchwyt do wzmianek"
   },
   "manager": "Kierownik/czka",
   "managerLine": "Kierownik/czka: {{name}}",
   "noManager": "Brak kierownika/czki",
+  "handle": "Uchwyt do wzmianek",
+  "handleLine": "Uchwyt do wzmianek: @{{handle}}",
+  "handleHint": "Opcjonalnie. Tak zespół jest wywoływany znakiem @ w wiadomości: od 2 do 30 małych liter, cyfr i pojedynczych myślników, zaczynając od litery.",
+  "handleTaken": "Zespół z takim uchwytem już istnieje",
   "clearManager": "Wyczyść kierownika/czkę",
   "pickManager": "Szukaj użytkowników/czek po nazwie…",
   "managerHint": "Osoba, która zarządza zespołem.",
@@ -30,7 +35,9 @@
   "saveGone": "Ten zespół już nie istnieje — odśwież stronę",
   "validation": {
     "nameLength": "Nazwa musi mieć od 1 do 100 znaków",
-    "descriptionLength": "Opis może mieć najwyżej 500 znaków"
+    "descriptionLength": "Opis może mieć najwyżej 500 znaków",
+    "handleFormat": "Użyj od 2 do 30 małych liter, cyfr i pojedynczych myślników, zaczynając od litery",
+    "handleReserved": "To słowo jest zarezerwowane — wybierz inny uchwyt"
   },
   "toast": {
     "created": "Zespół utworzony",

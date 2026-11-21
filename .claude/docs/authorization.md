@@ -98,9 +98,9 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     case-insensitive name clash with an active team `409` (the V6 partial index). The optional
     `managerId` (create and the full-replace PUT — omitted = no manager) must be an ACTIVE user,
     else `400` ("Unknown or deleted manager ids"); `TeamResponse`/`TeamListItem` carry `managerId` +
-    `managerName`, both null for a soft-deleted manager. Being a team's manager grants NO write on the team
+    `managerName`, both null for a soft-deleted manager. The optional mention `handle` (V25, 1.1.0; create and the full-replace PUT, omitted = cleared) is written by the same ADMIN-only routes (an ordinary `400` after the guard: 2 to 30 characters, `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`, uppercase refused and never folded, eight reserved words; a clash with an active team `409`), and read by every authenticated user on `TeamResponse`/`TeamListItem` and through `GET /teams?handle=` (a substring filter, `sort=handle`): a handle discloses nothing a team's name does not, and it grants no right. Being a team's manager grants NO write on the team
     record itself (still ADMIN only) — any team-scoped right a manager gets later is checked via `requireTeamManagerOrAdmin`. Mutations audit `team.created/updated/deleted` and `team.manager_changed`
-    (only on an actual change). Tests: `TeamTest`, `GuardsTest`.
+    (only on an actual change). Tests: `TeamTest` (the handle's grammar, reserved words, clash, release on delete, clear on PUT, filter, sort), `GuardsTest`.
   - `/api/v1/workflow-templates` (V11) → `GET` list and `GET /{id}` **any authenticated user** (the room-create form picks a template); `POST`, `PUT`/`{id}` and
     `DELETE /{id}` **ADMIN only**, the teams idiom with `requireAdmin` as the FIRST statement: a non-admin gets a uniform `403` whether or not the id exists, with or
     without the `X-Expected-Revision` header and whatever the body. The PUT's order is guard `403` → `expectedRevision()` `400` (missing, repeated or malformed) →
@@ -288,7 +288,7 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   RFC 7807 `application/problem+json` (API-ERR-001/002)**
   (`ProblemDetail{type,title,status,detail,instance,keys?}`; `instance` defaults to the request path
   without query parameters; a stale `X-Expected-Revision` is the typed 409
-  `urn:adder:problem:revision-conflict`, and `keys` lists the workflow keys a conflict is about) — emit them via the `ApplicationCall.respondProblem(status, detail)`
+  `urn:adder:problem:revision-conflict`, and `keys` lists the workflow keys a conflict is about, or the field of a team's unique clash: `["name"]` / `["handle"]`) — emit them via the `ApplicationCall.respondProblem(status, detail)`
   helper (it uses an explicit `TextContent` so ContentNegotiation does not relabel the media type
   as `application/json`). `StatusPages` routes `BadRequestException`→400 (**with fixed vocabulary
   for converter failures**: a `ContentConvertException` anywhere in the cause chain

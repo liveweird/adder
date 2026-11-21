@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Modal, Stack } from "@mantine/core";
+import { Modal, Stack, TextInput } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../api/http";
@@ -10,6 +10,7 @@ import TeamManagerSelect from "./TeamManagerSelect";
 import {
   EMPTY_TEAM_FORM,
   MAX_TEAM_DESCRIPTION_LENGTH,
+  MAX_TEAM_HANDLE_LENGTH,
   MAX_TEAM_NAME_LENGTH,
   teamFormValidation,
   teamSaveErrorMessage,
@@ -21,7 +22,7 @@ import { showSuccessToast } from "../utils/toast";
 
 /**
  * Create (target null) / edit (target set) — one modal, the same field block (the shared
- * registry shape) plus the optional Manager (a user who may edit the team's capacity). The Jira
+ * registry shape) plus the optional mention handle and the optional Manager (a user who may edit the team's capacity). The Jira
  * members are managed on the details page, not here.
  */
 export default function TeamEditorModal({
@@ -56,9 +57,10 @@ export default function TeamEditorModal({
       }
       await onSaved(saved);
     } catch (err) {
-      // The 409 is about THIS control (the case-insensitive name clash) — mark the field.
+      // The 409 is about ONE control, and the problem's `keys` says which (the name's V6 index or the handle's V25 one) — mark that field.
       if (err instanceof ApiError && err.status === 409) {
-        form.setFieldError("name", t("teams.saveConflict"));
+        if (err.keys.includes("handle")) form.setFieldError("handle", t("teams.handleTaken"));
+        else form.setFieldError("name", t("teams.saveConflict"));
       } else {
         setError(teamSaveErrorMessage(err, t));
       }
@@ -76,6 +78,16 @@ export default function TeamEditorModal({
             descriptionLength={form.values.description.length}
             nameInputProps={form.getInputProps("name")}
             descriptionInputProps={form.getInputProps("description")}
+          />
+          <TextInput
+            label={t("teams.handle")}
+            description={t("teams.handleHint")}
+            maxLength={MAX_TEAM_HANDLE_LENGTH}
+            leftSection="@"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            {...form.getInputProps("handle")}
           />
           <TeamManagerSelect
             picked={form.values.managerId !== null && form.values.managerLabel !== null ? { value: form.values.managerId, label: form.values.managerLabel } : null}

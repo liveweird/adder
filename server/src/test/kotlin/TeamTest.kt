@@ -127,6 +127,7 @@ class TeamTest {
         val clash = admin.postJson("/api/v1/teams", TeamCreateRequest(n.uppercase()))
         assertEquals(HttpStatusCode.Conflict, clash.status)
         assertTrue(clash.body<ProblemDetail>().detail!!.contains("team with this name"))
+        assertEquals(listOf("name"), clash.body<ProblemDetail>().keys)
         val other = admin.postJson("/api/v1/teams", TeamCreateRequest(name("other"))).body<TeamResponse>()
         assertEquals(HttpStatusCode.Conflict, admin.putJson("/api/v1/teams/${other.id}", TeamUpdateRequest(n)).status)
         assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/teams/${first.id}").status)
@@ -313,6 +314,168 @@ class TeamTest {
                 capture.events.count { it.message == "team.manager_changed" && it.hasKeyValue("teamId", teamId) },
                 "only the actual change is audited",
             )
+        }
+    }
+
+    private fun handle(prefix: String) = "$prefix-${UUID.randomUUID().toString().substring(0, 8)}"
+
+    @Test
+    fun `a handle round-trips on create, read and list and is trimmed`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("teamhandle", UserRole.ADMIN)
+        val h = handle("oncall")
+        val created = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("handled"), handle = "  $h  ")).body<TeamResponse>()
+        assertEquals(h, created.handle)
+        assertEquals(created, admin.get("/api/v1/teams/${created.id}").body<TeamResponse>())
+        assertEquals(h, admin.get("/api/v1/teams?handle=$h").body<TeamPageResponse>().items.single().handle)
+        val bare = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("bare"))).body<TeamResponse>()
+        assertEquals(null, bare.handle, "the handle is optional")
+        val samePut = admin.putJson("/api/v1/teams/${created.id}", TeamUpdateRequest(name = created.name, handle = h))
+        assertEquals(HttpStatusCode.NoContent, samePut.status, "a team may keep its own handle on a PUT")
+        assertEquals(h, admin.get("/api/v1/teams/${created.id}").body<TeamResponse>().handle)
+    }
+
+    @Test
+    fun `the handle grammar - 2 to 30 lowercase hyphenated words starting with a letter`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("teamgrammar", UserRole.ADMIN)
+        val valid = listOf("ab", "a1", "on-call", "pay-2-go", "a" + "0".repeat(29))
+        for (candidate in valid) {
+            // The words are fixed: delete each team again so the next candidate (and a rerun in this container) finds it free.
+            val response = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("grammar"), handle = candidate))
+            assertEquals(HttpStatusCode.Created, response.status, "expected 201 for '$candidate'")
+            assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/teams/${response.body<TeamResponse>().id}").status)
+        }
+        val invalid = listOf(
+            "", "   ", "a", "a".repeat(31), "1abc", "-ab", "ab-", "a--b", "a_b", "a b", "ab!", "żółw", "ab.cd", "ab\ncd",
+            "Payments", "ON-CALL", "oN-call",
+        )
+        for (candidate in invalid) {
+            val response = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("grammar"), handle = candidate))
+            assertEquals(HttpStatusCode.BadRequest, response.status, "expected 400 for '$candidate'")
+        }
+        val team = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("grammarput"))).body<TeamResponse>()
+        for (candidate in invalid) {
+            val response = admin.putJson("/api/v1/teams/${team.id}", TeamUpdateRequest(name = team.name, handle = candidate))
+            assertEquals(HttpStatusCode.BadRequest, response.status, "PUT: expected 400 for '$candidate'")
+        }
+        assertEquals(null, admin.get("/api/v1/teams/${team.id}").body<TeamResponse>().handle, "a rejected PUT changes nothing")
+    }
+
+    @Test
+    fun `an uppercase handle is a 400 and is never folded to a taken or free lowercase one`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("teamupper", UserRole.ADMIN)
+        val h = handle("upper")
+        val response = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("upper"), handle = h.uppercase()))
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertEquals(0, admin.get("/api/v1/teams?handle=$h").body<TeamPageResponse>().total, "nothing was stored under the folded form")
+    }
+
+    @Test
+    fun `a reserved handle is a 400 on create and on update`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("teamreserved", UserRole.ADMIN)
+        val team = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("reserved"))).body<TeamResponse>()
+        for (word in listOf("everyone", "watchers", "observers", "here", "all", "channel", "room", "team")) {
+            val create = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("reserved"), handle = word))
+            assertEquals(HttpStatusCode.BadRequest, create.status, "create '$word'")
+            assertTrue(create.body<ProblemDetail>().detail!!.contains("reserved"))
+            val update = admin.putJson("/api/v1/teams/${team.id}", TeamUpdateRequest(name = team.name, handle = word))
+            assertEquals(HttpStatusCode.BadRequest, update.status, "update '$word'")
+        }
+        // A reserved word as part of a longer handle is fine.
+        val longer = handle("team")
+        val update = admin.putJson("/api/v1/teams/${team.id}", TeamUpdateRequest(name = team.name, handle = longer))
+        assertEquals(HttpStatusCode.NoContent, update.status)
+    }
+
+    @Test
+    fun `an active handle clash is 409 and a soft-deleted team frees its handle`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("teamhandledup", UserRole.ADMIN)
+        val h = handle("dup")
+        val first = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("first"), handle = h)).body<TeamResponse>()
+        val clash = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("second"), handle = h))
+        assertEquals(HttpStatusCode.Conflict, clash.status)
+        assertTrue(clash.body<ProblemDetail>().detail!!.contains("handle"), "the 409 says WHICH field clashed")
+        assertEquals(listOf("handle"), clash.body<ProblemDetail>().keys, "and names it for a client")
+        val other = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("other"))).body<TeamResponse>()
+        assertEquals(
+            HttpStatusCode.Conflict,
+            admin.putJson("/api/v1/teams/${other.id}", TeamUpdateRequest(name = other.name, handle = h)).status,
+        )
+        assertEquals(HttpStatusCode.NoContent, admin.delete("/api/v1/teams/${first.id}").status)
+        val reused = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("third"), handle = h))
+        assertEquals(HttpStatusCode.Created, reused.status, "a deleted team freed the handle")
+        assertEquals(h, reused.body<TeamResponse>().handle)
+        // The name clash still reads as a name clash.
+        val nameClash = admin.postJson("/api/v1/teams", TeamCreateRequest(name = reused.body<TeamResponse>().name, handle = handle("n")))
+        assertEquals(HttpStatusCode.Conflict, nameClash.status)
+        assertTrue(nameClash.body<ProblemDetail>().detail!!.contains("name"))
+        assertEquals(listOf("name"), nameClash.body<ProblemDetail>().keys)
+    }
+
+    @Test
+    fun `a PUT without a handle clears it and frees it for another team`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("teamhandleclear", UserRole.ADMIN)
+        val h = handle("clear")
+        val team = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("clearme"), handle = h)).body<TeamResponse>()
+        assertEquals(HttpStatusCode.NoContent, admin.putJson("/api/v1/teams/${team.id}", TeamUpdateRequest(name = team.name)).status)
+        assertEquals(null, admin.get("/api/v1/teams/${team.id}").body<TeamResponse>().handle)
+        assertEquals(HttpStatusCode.Created, admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("taker"), handle = h)).status)
+    }
+
+    @Test
+    fun `the list filters by handle substring and sorts by handle`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("teamhandlelist", UserRole.ADMIN)
+        val stem = "lst" + UUID.randomUUID().toString().substring(0, 8)
+        val b = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("hb"), handle = "$stem-b")).body<TeamResponse>()
+        val a = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("ha"), handle = "$stem-a")).body<TeamResponse>()
+        admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("hnone")))
+        val ascending = admin.get("/api/v1/teams?handle=${stem.uppercase()}&sort=handle").body<TeamPageResponse>()
+        assertEquals(listOf(a.id, b.id), ascending.items.map { it.id }, "case-insensitive substring, A before B")
+        assertEquals(2, ascending.total, "a team without a handle never matches")
+        val descending = admin.get("/api/v1/teams?handle=$stem&sort=-handle").body<TeamPageResponse>()
+        assertEquals(listOf(b.id, a.id), descending.items.map { it.id })
+        assertEquals(listOf(b.id), admin.get("/api/v1/teams?handle=$stem-b").body<TeamPageResponse>().items.map { it.id })
+        assertEquals(HttpStatusCode.BadRequest, admin.get("/api/v1/teams?handle=${"x".repeat(31)}").status)
+        val reader = seededClient("teamhandleuser").get("/api/v1/teams?handle=$stem")
+        assertEquals(HttpStatusCode.OK, reader.status, "any authenticated user filters")
+    }
+
+    @Test
+    fun `team created and updated audit lines carry the handle`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("teamhandleaudit", UserRole.ADMIN)
+        withAuditCapture { capture ->
+            val h = handle("audited")
+            val created = admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("hau"), handle = h)).body<TeamResponse>()
+            val teamId = created.id.toLong()
+            val createdEvent = capture.awaitEvent { it.message == "team.created" && it.hasKeyValue("teamId", teamId) }
+            assertNotNull(createdEvent)
+            assertTrue(createdEvent.hasKeyValue("handle", h))
+
+            val renamed = handle("renamed")
+            admin.putJson("/api/v1/teams/${created.id}", TeamUpdateRequest(name = created.name, handle = renamed))
+            val updated = capture.awaitEvent {
+                it.message == "team.updated" && it.hasKeyValue("teamId", teamId) && it.hasKeyValue("handle", renamed)
+            }
+            assertNotNull(updated, "the update carries the new handle")
+
+            admin.putJson("/api/v1/teams/${created.id}", TeamUpdateRequest(name = created.name))
+            assertNotNull(
+                capture.awaitEvent { it.message == "team.updated" && it.hasKeyValue("teamId", teamId) && it.hasKeyValue("handle", null) },
+                "a cleared handle is audited as null",
+            )
+            assertEquals(
+                HttpStatusCode.BadRequest,
+                admin.postJson("/api/v1/teams", TeamCreateRequest(name = name("hbad"), handle = "Bad")).status,
+            )
+            val rejected = capture.events.count { it.message == "team.created" && it.hasKeyValue("handle", "Bad") }
+            assertEquals(0, rejected, "a rejected handle is not audited")
         }
     }
 }
