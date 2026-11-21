@@ -461,7 +461,7 @@ class ThreadSchemaTest {
 
     @Test
     fun `the thread-read update finds the unseen notices through idx_notifications_unseen_thread, also as a generic plan`() {
-        // The read marker's `NotificationService.threadRead` statement: the person and the thread lead the partial index (V19), so the
+        // The read marker's `NoticeWriter.threadRead` statement: the person and the thread lead the partial index (V19), so the
         // write reads only that person's unseen rows of that thread, never the person's whole unseen list nor the table.
         for (mode in listOf("auto", "force_generic_plan")) {
             val plan = explain(MARK_THREAD_SEEN_SQL, "int8, int8, int4, int4", "5, 1, 1, 1", mode)

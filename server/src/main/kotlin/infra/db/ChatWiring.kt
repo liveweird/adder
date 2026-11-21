@@ -2,6 +2,7 @@ package ch.nokillswit.infra.db
 
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.notifications.MAX_EMAIL_BUDGET_PER_ACTOR
+import ch.nokillswit.notifications.NoticeWriter
 import ch.nokillswit.notifications.NotificationEmailBudget
 import ch.nokillswit.notifications.NotificationService
 import ch.nokillswit.notifications.NotificationServiceKey
@@ -59,7 +60,7 @@ internal fun Application.publishChatServices(
     val messageTagService = MessageTagService(database, readLimiter)
     attributes.put(MessageTagServiceKey, messageTagService)
     // The notices (V18) are made inside the chat's own writes through the `ThreadNotices` port `threads/` declares: this root hands the
-    // implementation to the services that call it (`notifications/` imports `threads/`, never the reverse).
+    // implementation (`NoticeWriter`) to the services that call it (`notifications/` imports `threads/`, never the reverse).
     // The per-actor digest budget (V24, boot-validated): the most distinct people one actor's mentions and hand-overs can make eligible for
     // the email digest in a UTC day; the bell is untouched.
     val emailBudget = NotificationEmailBudget(
@@ -68,11 +69,11 @@ internal fun Application.publishChatServices(
         ),
         clock = ::nowMillis,
     )
-    val notificationService = NotificationService(database, roomService, emailBudget)
-    attributes.put(NotificationServiceKey, notificationService)
+    val noticeWriter = NoticeWriter(emailBudget)
+    attributes.put(NotificationServiceKey, NotificationService(database, roomService, emailBudget))
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
-    val messageMentionService = MessageMentionService(roomMemberService, notificationService)
+    val messageMentionService = MessageMentionService(roomMemberService, noticeWriter)
     // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.
     val reactionService = MessageReactionService(database)
     attributes.put(MessageReactionServiceKey, reactionService)
@@ -81,7 +82,7 @@ internal fun Application.publishChatServices(
     )
     attributes.put(MessageServiceKey, messageService)
     attributes.put(PinServiceKey, PinService(database, messageService))
-    attributes.put(ThreadReadServiceKey, ThreadReadService(database, roomMemberService, notificationService))
+    attributes.put(ThreadReadServiceKey, ThreadReadService(database, roomMemberService, noticeWriter))
     attributes.put(
         ThreadServiceKey,
         ThreadService(
@@ -107,7 +108,7 @@ internal fun Application.publishChatServices(
     )
     attributes.put(
         ThreadStatusServiceKey,
-        ThreadStatusService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, notificationService),
+        ThreadStatusService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, noticeWriter),
     )
     // The workflow's thread-usage port (S6): rooms/ declares it and never imports threads/, so this root registers the implementation.
     attributes.put(WorkflowUsageKey, ThreadWorkflowUsage(roomWorkflowService, threadEventService))

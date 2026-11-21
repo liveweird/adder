@@ -8,7 +8,7 @@ internal const val NOTICE_THREAD_ASSIGNED = "THREAD_ASSIGNED"
 
 /**
  * What the chat tells the notification feature (`chat-model.md` "Notifications (V18)"): `threads/` declares this port and
- * `notifications/NotificationService` implements it, so the chat never imports the feature that sits above it (the `WorkflowUsage`
+ * `notifications/NoticeWriter` implements it, so the chat never imports the feature that sits above it (the `WorkflowUsage`
  * precedent in `rooms/`); `infra/db/Database.kt` hands the implementation to the services. EVERY call runs INSIDE the caller's
  * transaction (a post, an edit, a delete or a hand-over, under the room lock), so a notice and its live hint commit with the write that
  * caused them and a rolled-back write announces nothing. A notice is ids only. The one exception to "under the room lock" is

@@ -1,10 +1,10 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.mail.Mailer
+import ch.nokillswit.notifications.NoticeWriter
 import ch.nokillswit.notifications.NotificationDigest
 import ch.nokillswit.notifications.NotificationEmailBudget
 import ch.nokillswit.notifications.NotificationPageResponse
-import ch.nokillswit.notifications.NotificationService
 import ch.nokillswit.threads.MessageRef
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.users.UserRole
@@ -36,8 +36,8 @@ private const val EVENT = "notification.email_budget_exceeded"
 /**
  * The per-actor digest budget (V24, 1.0.0 checkup C-SEC-7; `chat-model.md` "The digest budget"): the first N distinct people one
  * actor's mentions and hand-overs reach in a UTC day stay eligible for the email, later ones get the bell notice and never a mail;
- * the same person counts once; the day rolls over with the injected clock; the audit line is coalesced per actor and day. The service
- * is driven directly (a tiny budget, a settable clock); the boot validation is in `NumericConfigBoundsTest`, the route-level wiring is
+ * the same person counts once; the day rolls over with the injected clock; the audit line is coalesced per actor and day. The writer
+ * (`NoticeWriter`) is driven directly (a tiny budget, a settable clock); the boot validation is in `NumericConfigBoundsTest`, the route-level wiring is
  * the last test here.
  * Rooms, templates and users are SHARED suite state: every test mints UNIQUE rows.
  */
@@ -76,7 +76,7 @@ class NotificationEmailBudgetTest {
         }
 
         /** The actor posts a fresh message and mentions [recipients] in it, through the notice port, as a mention write does. */
-        suspend fun mention(service: NotificationService, recipients: List<Person>, by: UInt = actor): List<UInt> {
+        suspend fun mention(service: NoticeWriter, recipients: List<Person>, by: UInt = actor): List<UInt> {
             val messageId = TestThreads.post(room, number, by)
             return suspendTransaction(sharedDatabaseForTests()) {
                 service.mentioned(MessageRef(room, threadId, number, messageId), by, recipients.map { it.id })
@@ -93,7 +93,7 @@ class NotificationEmailBudgetTest {
     }
 
     private fun service(perDay: Int, clock: () -> Long = System::currentTimeMillis) =
-        NotificationService(sharedDatabaseForTests(), TestRooms.service, NotificationEmailBudget(perDay, clock))
+        NoticeWriter(NotificationEmailBudget(perDay, clock))
 
     /** Every notice of [person]: (seen_at, emailed_at, created_at). */
     private fun notices(person: Person): List<Triple<Long?, Long?, Long>> = PostgresTestSupport.connect().use { c ->

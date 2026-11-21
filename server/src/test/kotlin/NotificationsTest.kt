@@ -503,7 +503,7 @@ class NotificationsTest {
         val first = cast.ann.client.post(cast.room, 1, "one ${token(cast.bob)}").id
         val second = cast.ann.client.post(cast.room, 1, "two ${token(cast.bob)}").id
         cast.ann.client.post(cast.room, 1, "for the owner ${token(cast.owner)}")
-        suspendTransaction(sharedDatabaseForTests()) { TestThreads.notices.threadRead(cast.thread, cast.bob.id, first, 5L) }
+        suspendTransaction(sharedDatabaseForTests()) { TestThreads.noticeWriter.threadRead(cast.thread, cast.bob.id, first, 5L) }
 
         val unseen = cast.bob.client.notices("?seen=false").items
         assertEquals(listOf(second), unseen.map { it.messageId }, "the hand-over and the first mention are seen, the second is not")

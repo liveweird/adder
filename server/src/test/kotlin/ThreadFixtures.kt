@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.CallerPrincipal
+import ch.nokillswit.notifications.NoticeWriter
 import ch.nokillswit.notifications.NotificationService
 import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.rooms.RoomService
@@ -43,11 +44,13 @@ import org.jetbrains.exposed.v1.r2dbc.update
 object TestThreads {
     val events: ThreadEventService by lazy { ThreadEventService(sharedDatabaseForTests()) }
     private val members: RoomMemberService by lazy { RoomMemberService(sharedDatabaseForTests(), TeamService(sharedDatabaseForTests())) }
-    /** The notice maker the real services share, so a mention seeded through these fixtures makes its notice like a route's would. */
+    /** The notice writer (the `ThreadNotices` port) the real services share: a seeded mention makes its notice like a route's. */
+    internal val noticeWriter: NoticeWriter by lazy { NoticeWriter() }
+    /** The notice reads, "seen" writes and retention. */
     internal val notices: NotificationService by lazy { NotificationService(sharedDatabaseForTests(), TestRooms.service) }
     val messages: MessageService by lazy {
         val database = sharedDatabaseForTests()
-        val mentions = MessageMentionService(members, notices)
+        val mentions = MessageMentionService(members, noticeWriter)
         MessageService(database, TestRooms.service, MessageTagService(database), mentions, listOf(PinCleanup()))
     }
     val pins: PinService by lazy { PinService(sharedDatabaseForTests(), messages) }
