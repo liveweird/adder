@@ -70,15 +70,19 @@ class ThreadStatusService internal constructor(
             )
             rooms.touchActivity(roomId, stamp, caller.userId)
             notifyLive(LiveHint(LiveKind.THREAD_STATUS_CHANGED, roomId, threadNumber = number))
-            StatusMove(thread.id, current.key, target.key, transition)
+            // The watchers hear of it (1.1 D3; the actor never); the hint above comes first on the wire, the notice's own follows it.
+            val audience = NoticeAudience.ofStatusMove(transition, caller.userId, watches.recipientIds(thread.id))
+            val told = notices.forThread(roomId, thread.id, number, caller.userId, audience)
+            StatusMove(thread.id, current.key, target.key, transition, told)
         }
 
     /**
      * Passes thread [number] to [newOwnerId]: the steward guard on the FRESH caller and row ([requireThreadSteward], a `403`), an
      * archived room `409`, a closed thread `409` (reopen it first), the current owner again is null (a `204` with no write, even
      * if they have left), else the new owner must be an ACTIVE member of the room (`400`). Records `OWNER_CHANGED` (ids plus the
-     * names as they are now) and bumps the thread and the room, then tells the new owner ([OwnerMove.notices]: no notice when the caller
-     * took the thread themself). A removed or deleted owner keeps the thread, inert, until a steward does this.
+     * names as they are now) and bumps the thread and the room, then tells the new owner and the other watchers ([OwnerMove.notices]: the
+     * new owner gets no notice when the caller took the thread themself). A removed or deleted owner keeps the thread, inert, until a
+     * steward does this.
      */
     suspend fun setOwner(roomId: UInt, number: Int, caller: CallerPrincipal, newOwnerId: UInt): OwnerMove? =
         database.withThreadWrite(
@@ -110,16 +114,24 @@ class ThreadStatusService internal constructor(
             watches.addInTransaction(thread.id, newOwnerId, stamp)
             rooms.touchActivity(roomId, stamp, caller.userId)
             notifyLive(LiveHint(LiveKind.THREAD_OWNER_CHANGED, roomId, threadNumber = number))
-            val told = notices.forThread(roomId, thread.id, number, caller.userId, listOf(Notice(newOwnerId, NoticeReason.THREAD_ASSIGNED)))
+            // The new owner hears `THREAD_ASSIGNED` (not when they took it themself), the other watchers `THREAD_OWNER_CHANGED`.
+            val audience = NoticeAudience.ofHandOver(caller.userId, newOwnerId, watches.recipientIds(thread.id))
+            val told = notices.forThread(roomId, thread.id, number, caller.userId, audience)
             OwnerMove(thread.id, thread.ownerId, newOwnerId, told)
         }
 }
 
-/** What a status move wrote, for the route's audit line. */
-data class StatusMove(val threadId: UInt, val from: String, val to: String, val transition: StatusTransition)
+/** What a status move wrote, for the route's audit lines; [notices] is what it told the thread's watchers. */
+data class StatusMove(
+    val threadId: UInt,
+    val from: String,
+    val to: String,
+    val transition: StatusTransition,
+    val notices: NoticeOutcome,
+)
 
 /**
- * What an owner hand-over wrote, for the route's audit lines; [notices] is what it told people (nothing when the caller took the
- * thread).
+ * What an owner hand-over wrote, for the route's audit lines; [notices] is what it told people (the new owner, unless the caller took
+ * the thread themself, and the other watchers).
  */
 data class OwnerMove(val threadId: UInt, val fromUserId: UInt, val toUserId: UInt, val notices: NoticeOutcome)

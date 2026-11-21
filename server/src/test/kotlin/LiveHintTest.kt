@@ -46,6 +46,20 @@ class LiveHintTest {
     }
 
     @Test
+    fun `the widest notice hint, 500 ten-digit recipients with the widest numbers, stays under the NOTIFY payload limit`() {
+        // 1.1: a notice that reaches the whole room is ONE hint to its recipients: 499 when a member acts, 500 when an ADMIN who is no
+        // member closes a thread everybody watches. Ten-digit ids everywhere: the true worst case.
+        val worst = LiveHint(
+            LiveKind.NOTIFICATION_CREATED, UInt.MAX_VALUE, Int.MAX_VALUE, UInt.MAX_VALUE,
+            targetUserIds = List(500) { UInt.MAX_VALUE - it.toUInt() },
+        )
+        val bytes = worst.toPayload().toByteArray(Charsets.UTF_8).size
+        assertTrue(bytes in 5_000 until 8_000, "the worst case is $bytes bytes")
+        assertTrue(bytes < MAX_NOTIFY_PAYLOAD_BYTES)
+        assertEquals(worst, Json.decodeFromString(LiveHint.serializer(), worst.toPayload()))
+    }
+
+    @Test
     fun `a hint over the limit is refused before the database sees it`() {
         val tooBig = LiveHint(LiveKind.ROOM_MEMBER_ADDED, 1u, targetUserIds = List(800) { UInt.MAX_VALUE - it.toUInt() })
         // No transaction is needed: the size check comes first.

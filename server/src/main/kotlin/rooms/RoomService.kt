@@ -283,7 +283,7 @@ class RoomService(
     suspend fun delete(roomId: UInt, caller: CallerPrincipal, guard: RoomGuard) {
         database.withRoomWrite(roomId, caller, guard) { _, _ ->
             // The members are read BEFORE the delete: they get the personal `revoked` frame (`live.md` "Hints").
-            val memberIds = activeMemberIds(roomId)
+            val memberIds = allActiveMemberIdsOf(roomId)
             Rooms.update({ Rooms.id eq roomId }) {
                 it[markedAsDeleted] = true
                 it[updatedAt] = nowMillis()
@@ -305,13 +305,6 @@ class RoomService(
             it[seenAt] = seenAt.greatestOf(at)
         }
     }
-
-    /** Every ACTIVE member of [roomId] (at most 500, the cap), one query, inside the caller's transaction. */
-    private suspend fun activeMemberIds(roomId: UInt): List<UInt> =
-        RoomMembers.innerJoin(UserService.Users).select(RoomMembers.userId)
-            .where { (RoomMembers.roomId eq roomId) and UserService.Users.active() }
-            .map { it[RoomMembers.userId].value }
-            .toList()
 
     /** One grouped query for a page's member counts (ACTIVE users only; the inner join drops a soft-deleted member). */
     private suspend fun activeMemberCounts(roomIds: List<UInt>): Map<UInt, Int> {

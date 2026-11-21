@@ -17,7 +17,8 @@ what the scenario is about.
 
 ## Scenario: a mention picked in the composer reaches the mentioned member's bell without a reload and opens the message
 
-1. The administrator mints an author and a reader; the author makes a room through the API, adds the reader and starts a thread.
+1. The administrator mints an author and a reader; the author makes a room through the API, starts a thread and THEN adds the reader (a new thread is told to the members
+   already in the room, and this scenario counts what the mention causes).
 2. The author opens the thread, the reader opens the room's **Threads** view (in the room, not in the thread); both sockets subscribe.
    - *Expected*: the reader's bell is named "Notifications (0 unseen)".
 3. The author types `Heads up @` and the unique tail of the reader's name in the **Reply** box.
@@ -46,7 +47,7 @@ what the scenario is about.
 
 ## Scenario: handing a thread over notifies its new owner
 
-1. The same setup with a started thread; the author opens it, the reader opens the room's **Threads** view.
+1. The same setup (the thread is started BEFORE the reader joins); the author opens it, the reader opens the room's **Threads** view.
    - *Expected*: the reader's bell says "0 unseen".
 2. The author opens the side panel, searches the **Owner** picker for the reader, picks them and presses **Pass on**.
    - *Expected*: the owner PUT answers 204.
@@ -105,7 +106,7 @@ what the scenario is about.
 
 ## Scenario: a member removed from a room loses its notifications
 
-1. The same setup; the author starts a thread and replies with a `<@reader>` mention through the API. The reader opens Home.
+1. The same setup (the thread is started before the reader joins); the author starts a thread, adds the reader and replies with a `<@reader>` mention through the API. The reader opens Home.
    - *Expected*: the bell says "1 unseen"; its drawer lists "`<author>` mentioned you in #1 `<title>`". The reader closes it with Escape.
 2. The author removes the reader from the room (through the API: the Members page is the live spec's subject).
    - *Expected*: with no reload, the room leaves the reader's rail and the bell says "0 unseen".
@@ -126,7 +127,7 @@ what the scenario is about.
 
 ## Scenario: a kind switched off in the app stops arriving
 
-1. The same setup (an owner and a teammate in a room, a thread started through the API); the teammate is signed in and the live channel is up
+1. The same setup (an owner and a teammate in a room, a thread started through the API BEFORE the teammate joined); the teammate is signed in and the live channel is up
    for the room.
    - *Expected*: the bell says "0 unseen".
 2. The teammate opens `/notification-preferences` (the live channel is up again there), switches "Someone mentions me: In-app" off and presses **Save**.
@@ -143,3 +144,32 @@ what the scenario is about.
   message size; covered by the `MessageListUnread` component tests.
 - **Reactions or pins refused** (a closed thread, an archived room, the 50-pin and the reaction limits) — covered by the server tests and the
   component tests; E2E asserts only the visible consequences above.
+
+## Scenario: a watcher hears a reply
+
+1. The administrator mints an author and a reader; the author makes a room through the API and starts a thread, THEN adds the reader (the room was not told of a thread
+   the reader was not there for). The reader signs in and opens the thread.
+2. The reader presses **Watch this thread**, then opens the room's **Threads** view (in the room, not in the thread); the socket subscribes.
+   - *Expected*: the PUT answers 204; the reader's bell is named "Notifications (0 unseen)".
+3. The author posts a reply through the API.
+   - *Expected*: the bell is named "Notifications (1 unseen)" with no reload.
+4. The reader opens the bell.
+   - *Expected*: the drawer lists "<author> replied in #1 <title>".
+5. The reader follows the notice.
+   - *Expected*: the thread opens, shows the reply, and the bell is named "Notifications (0 unseen)".
+6. With the thread open and read to its end, a script records every label the bell takes. The author posts another reply.
+   - *Expected*: the read marker is sent (204); the reply is shown; the bell stays "Notifications (0 unseen)" and none of the recorded labels ever counted an unseen
+     notice (the badge never went up and down again); the document was not reloaded; and the server lists no unseen notice for the reader (the read marker marked it
+     seen, not merely the page's cache).
+
+## Scenario: everyone in the room hears about a new thread
+
+1. The administrator mints an author and a reader; the author makes a room through the API and adds the reader. Both sign in and open the room's **Threads** view; both
+   sockets subscribe.
+   - *Expected*: the reader's bell is named "Notifications (0 unseen)".
+2. The author starts a thread through the API.
+   - *Expected*: the reader's bell is named "Notifications (1 unseen)" with no reload (they watch nothing: a new thread is told to every member of the room).
+3. The reader opens the bell.
+   - *Expected*: the drawer lists "<author> started #1 <title>".
+4. The author's own bell is looked at.
+   - *Expected*: it is named "Notifications (0 unseen)" (nobody is told of their own thread).

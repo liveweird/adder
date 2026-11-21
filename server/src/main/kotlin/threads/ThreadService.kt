@@ -242,7 +242,9 @@ class ThreadService(
             }[Threads.id].value
             // The creator watches their own thread (1.1 D1), under the room lock the member guard ran under: they cannot have left.
             watches.addInTransaction(threadId, caller.userId, stamp)
-            val opening = messages.insertInTransaction(roomId, threadId, number, caller.userId, request.body, hashtags, stamp)
+            val opening = messages.insertInTransaction(
+                roomId, threadId, number, caller.userId, request.body, hashtags, stamp, opening = true,
+            )
             events.record(threadId, caller.userId, threadCreatedEvent(initial.key, initial.label), stamp)
             rooms.touchActivity(roomId, stamp, caller.userId)
             // The opening message is part of this hint, never a `message.posted` of its own.

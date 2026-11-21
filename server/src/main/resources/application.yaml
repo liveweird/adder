@@ -295,6 +295,11 @@ notifications:
   sweepIntervalSeconds: "$NOTIFICATIONS_SWEEP_INTERVAL_SECONDS:60"
   # Off keeps the sweep from starting (the test harness: no booted app purges the shared database); the keys above are validated either way.
   sweepEnabled: "$NOTIFICATIONS_SWEEP_ENABLED:true"
+  # The WIDE events one actor may make in a UTC day (`notifications/NotificationEmailBudget.kt`, V29): an event that would notify more than
+  # 20 people (a new thread in a big room, a reply in a heavily watched thread, a status move of one). Over it the WRITE still succeeds and
+  # only the people named directly (`<@id>` mentions, a hand-over) are told, with one `notification.broadcast_budget_exceeded` audit line
+  # per actor and day. Without it 120 posts a minute to 499 people is about 86 million notice rows a day for one account. 1..10000.
+  maxBroadcastsPerActorPerDay: "$NOTIFICATIONS_MAX_BROADCASTS_PER_ACTOR_PER_DAY:500"
   email:
     # The email digest of unseen notices (`notifications/NotificationDigest.kt`, run by the sweep's tick when a mailer exists; with
     # `mail.transport=disabled` it does nothing). A notice still unseen after this many seconds is mailed: 0..86400 (0 = at the next tick).

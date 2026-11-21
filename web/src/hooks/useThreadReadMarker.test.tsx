@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { READ_MARKER_INTERVAL_MS, useThreadReadMarker } from "./useThreadReadMarker";
 import { jsonResponse } from "../test/http";
 import { resetTabVisibility, setTabVisible } from "../test/visibility";
+import { lookingAt } from "../utils/lookingAt";
 import { notificationKeys } from "../utils/notificationKeys";
 import { roomKeys } from "../utils/roomKeys";
 
@@ -206,5 +207,134 @@ describe("useThreadReadMarker", () => {
     rerender({ ...START, newestId: 11 });
     await settle();
     expect(sentIds()).toEqual([10, 11]);
+  });
+
+  test("while the reader is looking, the thread is registered; scrolling up, hiding the tab or leaving unregisters it", async () => {
+    const { rerender, unmount } = setup();
+    expect(lookingAt(12, 42)).not.toBeNull();
+    rerender({ ...START, atEnd: false });
+    expect(lookingAt(12, 42)).toBeNull();
+    rerender({ ...START, atEnd: true });
+    expect(lookingAt(12, 42)).not.toBeNull();
+    act(() => setTabVisible(false));
+    expect(lookingAt(12, 42)).toBeNull();
+    act(() => setTabVisible(true));
+    expect(lookingAt(12, 42)).not.toBeNull();
+    unmount();
+    expect(lookingAt(12, 42)).toBeNull();
+    await settle();
+  });
+
+  test("a reader who is not a member is not looking: there is no read state to acknowledge into", () => {
+    setup({ ...START, enabled: false });
+    expect(lookingAt(12, 42)).toBeNull();
+  });
+
+  test("acknowledging sends the newest id once more, for a notice that is no newer message, within the interval", async () => {
+    setup();
+    await settle();
+    expect(sentIds()).toEqual([10]);
+
+    // A hand-over notice: no newer message, yet the pane acknowledges it (the server marks thread-level notices seen with the marker).
+    act(() => lookingAt(12, 42)?.acknowledge(undefined));
+    await settle();
+    expect(sentIds(), "held back by the interval, not sent twice at once").toEqual([10]);
+    await settle(READ_MARKER_INTERVAL_MS);
+    expect(sentIds()).toEqual([10, 10]);
+
+    // Once only: nothing is sent again until the next acknowledgement.
+    await settle(READ_MARKER_INTERVAL_MS * 3);
+    expect(sentIds()).toEqual([10, 10]);
+  });
+
+  test("two acknowledgements in a burst are one marker", async () => {
+    setup();
+    await settle(READ_MARKER_INTERVAL_MS);
+    act(() => {
+      lookingAt(12, 42)?.acknowledge(undefined);
+      lookingAt(12, 42)?.acknowledge(undefined);
+    });
+    await settle(READ_MARKER_INTERVAL_MS);
+    expect(sentIds()).toEqual([10, 10]);
+  });
+
+  test("the registration covers a thread-level notice and a message newer than the newest loaded one, not an older message", () => {
+    setup({ ...START, newestId: 10 });
+    const looking = lookingAt(12, 42);
+    expect(looking?.covers(undefined), "a hand-over or status notice names no message").toBe(true);
+    expect(looking?.covers(11), "the reply that is arriving").toBe(true);
+    expect(looking?.covers(10), "the newest message the reader already has").toBe(false);
+    expect(looking?.covers(3), "an edit that mentions the reader in an older message").toBe(false);
+  });
+
+  test("an acknowledgement the reader abandons by scrolling up re-reads the bell, and one that does not land does too", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const bellReads = () => invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(notificationKeys.all)).length;
+    const { rerender } = setup();
+    await settle();
+    expect(sentIds()).toEqual([10]);
+    expect(bellReads()).toBe(0);
+
+    // Abandoned: the acknowledgement is held by the interval and the reader scrolls up before it goes.
+    act(() => lookingAt(12, 42)?.acknowledge(undefined));
+    rerender({ ...START, atEnd: false });
+    await settle(READ_MARKER_INTERVAL_MS * 2);
+    expect(sentIds()).toEqual([10]);
+    expect(bellReads()).toBe(1);
+
+    // Failed: the acknowledgement is sent and refused.
+    rerender({ ...START, atEnd: true });
+    await settle(READ_MARKER_INTERVAL_MS);
+    mockFetch.mockImplementation(() => Promise.resolve(new Response(null, { status: 500 })));
+    act(() => lookingAt(12, 42)?.acknowledge(undefined));
+    await settle(READ_MARKER_INTERVAL_MS);
+    expect(markerCalls().length).toBeGreaterThanOrEqual(2);
+    expect(bellReads()).toBe(2);
+  });
+
+  test("a reply that was left out of the bell is acknowledged by the marker that reaches it, and owes no re-read then", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const bellReads = () => invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(notificationKeys.all)).length;
+    const { rerender } = setup();
+    await settle();
+    act(() => lookingAt(12, 42)?.acknowledge(11)); // the reply arrives; the conversation has not loaded it yet
+    expect(sentIds(), "nothing is forced for a message-level notice").toEqual([10]);
+    rerender({ ...START, newestId: 11 });
+    await settle(READ_MARKER_INTERVAL_MS);
+    expect(sentIds()).toEqual([10, 11]);
+    rerender({ ...START, newestId: 11, atEnd: false }); // scrolling up afterwards owes nothing
+    await settle(READ_MARKER_INTERVAL_MS);
+    expect(bellReads()).toBe(0);
+  });
+
+  test("a reply left out of the bell is re-read when the reader scrolls up, or leaves, before the marker reached it", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const bellReads = () => invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(notificationKeys.all)).length;
+    const first = setup();
+    await settle();
+    act(() => lookingAt(12, 42)?.acknowledge(11));
+    first.rerender({ ...START, atEnd: false }); // the reply is in, the reader scrolled up before the marker landed
+    await settle(READ_MARKER_INTERVAL_MS);
+    expect(bellReads()).toBe(1);
+    first.unmount();
+
+    const second = setup();
+    await settle();
+    act(() => lookingAt(12, 42)?.acknowledge(11));
+    second.unmount(); // leaving with it unmet
+    await settle();
+    expect(bellReads()).toBe(2);
+  });
+
+  test("a marker that reaches the reply and fails re-reads the bell", async () => {
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const bellReads = () => invalidate.mock.calls.filter(([filters]) => JSON.stringify(filters?.queryKey) === JSON.stringify(notificationKeys.all)).length;
+    const { rerender } = setup();
+    await settle();
+    act(() => lookingAt(12, 42)?.acknowledge(11));
+    mockFetch.mockImplementation(() => Promise.resolve(new Response(null, { status: 500 })));
+    rerender({ ...START, newestId: 11 });
+    await settle(READ_MARKER_INTERVAL_MS);
+    expect(bellReads()).toBe(1);
   });
 });

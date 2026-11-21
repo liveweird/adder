@@ -63,6 +63,7 @@ class ReadLimiter(
     // loudly instead of silently raising the cap (`ThreadSearchService` does the same).
     private val permits = Semaphore(maxConcurrent)
     private val inFlight = ConcurrentHashMap<UInt, Int>()
+    private val busyAudited = ConcurrentHashMap<UInt, Long>()
 
     /** How many users have a read in flight: 0 when idle (a test seam for "the map never leaks"). */
     internal fun usersInFlight(): Int = inFlight.size
@@ -125,8 +126,21 @@ class ReadLimiter(
         inFlight.compute(userId) { _, count -> if (count == null || count <= 1) null else count - 1 }
     }
 
+    /**
+     * The refusal of the caller's own notice list is audited ONCE per user and minute: one wide event makes hundreds of tabs read at the
+     * same instant and the overflow is refused together, so a line per refusal would be a wave of identical lines. The other resources
+     * are still one line per refusal. The map holds at most the users refused in the current minute (it is swept when it grows).
+     */
+    private fun firstBusyOfMinute(callerUserId: UInt): Boolean {
+        val minute = System.currentTimeMillis() / MILLIS_PER_MINUTE
+        if (busyAudited.size > MAX_BUSY_USERS_TRACKED) busyAudited.entries.removeIf { it.value != minute }
+        return busyAudited.put(callerUserId, minute) != minute
+    }
+
     private fun busy(callerUserId: UInt, roomId: UInt?, resource: String, limit: String): Nothing {
-        audit("read.busy", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong(), "resource" to resource, "limit" to limit)
+        if (resource != NOTIFICATIONS_RESOURCE || firstBusyOfMinute(callerUserId)) {
+            audit("read.busy", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong(), "resource" to resource, "limit" to limit)
+        }
         throw readBusy()
     }
 
@@ -137,5 +151,8 @@ class ReadLimiter(
 
     private companion object {
         const val NANOS_PER_MILLI = 1_000_000L
+        const val MILLIS_PER_MINUTE = 60_000L
+        const val NOTIFICATIONS_RESOURCE = "notifications"
+        const val MAX_BUSY_USERS_TRACKED = 10_000
     }
 }

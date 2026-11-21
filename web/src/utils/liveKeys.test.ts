@@ -398,12 +398,15 @@ describe("createLiveInvalidator", () => {
     expect(t.flushed().filter((key) => (key as unknown[])[3] === "list")).toHaveLength(1);
   });
 
+  const bellReads = (t: ReturnType<typeof setup>) => t.flushed().filter((key) => JSON.stringify(key) === JSON.stringify(notificationsKey)).length;
+
   test("a burst of notification.created frames re-reads the notices at most once per 3 s", () => {
     const t = setup();
-    const notices = () => t.flushed().filter((key) => JSON.stringify(key) === '["notifications"]').length;
+    t.clock.randomValue = 0;
+    const notices = () => bellReads(t);
     t.invalidator.handle(event("notification.created", 5, 7, 1));
     t.invalidator.handle(event("notification.created", 5, 7, 2));
-    t.clock.advanceBy(300);
+    t.clock.advanceBy(0);
     expect(notices()).toBe(1);
     // A hint right after the flush waits out the gap (3 s from that flush), then re-reads once for the whole burst.
     t.invalidator.handle(event("notification.created", 5, 7, 3));

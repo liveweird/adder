@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.IntegerColumnType
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.Table
@@ -123,6 +124,28 @@ class ThreadWatchService internal constructor(
     suspend fun watcherIds(threadId: UInt): List<UInt> {
         val users = UserService.Users
         return ThreadWatches.innerJoin(users).select(ThreadWatches.userId)
+            .where { (ThreadWatches.threadId eq threadId) and users.active() }
+            .orderBy(ThreadWatches.userId)
+            .map { it[ThreadWatches.userId].value }
+            .toList()
+    }
+
+    /**
+     * The people to tell about activity in thread [threadId]: its watchers who are ACTIVE users AND ACTIVE members of the thread's room,
+     * by user id, in ONE joined statement (`thread_watches` with `room_members` on the composite key, with `users` active) - the audience
+     * rule of `chat-model.md` "Watching, group mentions and notice kinds (1.1)". A watch of someone who left or whose account is deleted
+     * is inert, and the table is never read raw for an audience: this is the only way it is read for one. INSIDE the caller's
+     * transaction, under the room lock: no lock of its own.
+     */
+    suspend fun recipientIds(threadId: UInt): List<UInt> {
+        val membership = RoomService.RoomMembers
+        val users = UserService.Users
+        return ThreadWatches
+            .join(membership, JoinType.INNER) {
+                (ThreadWatches.roomId eq membership.roomId) and (ThreadWatches.userId eq membership.userId)
+            }
+            .join(users, JoinType.INNER, ThreadWatches.userId, users.id)
+            .select(ThreadWatches.userId)
             .where { (ThreadWatches.threadId eq threadId) and users.active() }
             .orderBy(ThreadWatches.userId)
             .map { it[ThreadWatches.userId].value }

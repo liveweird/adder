@@ -51,7 +51,7 @@ object TestThreads {
     internal val notices: NotificationService by lazy { NotificationService(sharedDatabaseForTests(), TestRooms.service) }
     val messages: MessageService by lazy {
         val database = sharedDatabaseForTests()
-        val mentions = MessageMentionService(members, noticeWriter)
+        val mentions = MessageMentionService(members, noticeWriter, watches)
         MessageService(database, TestRooms.service, MessageTagService(database), mentions, listOf(PinCleanup()))
     }
     val pins: PinService by lazy { PinService(sharedDatabaseForTests(), messages) }

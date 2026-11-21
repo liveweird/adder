@@ -223,6 +223,7 @@ private fun Route.threadStatus(roomService: RoomService, statusService: ThreadSt
                     "to" to move.to,
                     "transition" to move.transition.name,
                 )
+                auditNoticesCreated(caller.userId, roomId, move.threadId, null, move.notices)
             }
             call.respond(HttpStatusCode.NoContent)
         }

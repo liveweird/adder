@@ -58,8 +58,13 @@ class NotificationsTest {
 
     private val minted = MintedIds(mintedUsers, mintedTemplates, mintedRooms)
 
-    /** A room owned by `owner` with `ann` and `bob` as members, and thread #1 opened by `owner`; `outsider` is no member. */
-    private suspend fun ApplicationTestBuilder.cast(prefix: String): PairCast = seedPairCast(prefix, "Not", minted, withThread = true)
+    /**
+     * A room owned by `owner` with `ann` and `bob` as members, and thread #1 opened by `owner`; `outsider` is no member. The notices
+     * seeding the thread made (the room is told of a new thread, 1.1 D4) and the creator's watch are cleared: these tests count what
+     * THEY make.
+     */
+    private suspend fun ApplicationTestBuilder.cast(prefix: String): PairCast =
+        seedPairCast(prefix, "Not", minted, withThread = true).also { TestNotices.quietRoom(it.room) }
 
     private fun token(vararg actors: RoomActor): String = actors.joinToString(" ") { "<@${it.id}>" }
 
@@ -337,14 +342,23 @@ class NotificationsTest {
         assertEquals(HttpStatusCode.NoContent, cast.owner.client.putJson(handOver, ThreadOwnerRequest(cast.bob.id)).status)
         assertEquals(1L, cast.bob.client.notices().total)
 
-        // A steward (the room OWNER) takes the thread themself: the move is real, nobody is told.
+        // A steward (the room OWNER) takes the thread themself: the move is real, they are told nothing and "assigned" to nobody; bob,
+        // who watches it since it was handed to him, hears that the owner changed (1.1 D3).
         assertEquals(HttpStatusCode.NoContent, cast.owner.client.putJson(handOver, ThreadOwnerRequest(cast.owner.id)).status)
         assertEquals(0L, cast.owner.client.notices().total)
-        assertEquals(1L, cast.bob.client.notices().total)
+        assertEquals(
+            listOf(NotificationType.THREAD_OWNER_CHANGED, NotificationType.THREAD_ASSIGNED),
+            cast.bob.client.notices().items.map { it.type },
+        )
 
-        // Handing it on again is a new notice: a hand-over has no message to make it unique.
+        // Handing it on again while the notice is unseen REFRESHES it (a hand-over has no message to make it unique): still one row of the
+        // kind, now the newest. Once seen, the next hand-over is a new notice.
         assertEquals(HttpStatusCode.NoContent, cast.owner.client.putJson(handOver, ThreadOwnerRequest(cast.bob.id)).status)
         assertEquals(2L, cast.bob.client.notices().total)
+        assertEquals(HttpStatusCode.NoContent, cast.bob.client.seenAll().status)
+        assertEquals(HttpStatusCode.NoContent, cast.owner.client.putJson(handOver, ThreadOwnerRequest(cast.owner.id)).status)
+        assertEquals(HttpStatusCode.NoContent, cast.owner.client.putJson(handOver, ThreadOwnerRequest(cast.bob.id)).status)
+        assertEquals(4L, cast.bob.client.notices().total)
     }
 
     @Test
@@ -511,11 +525,12 @@ class NotificationsTest {
         assertEquals(HttpStatusCode.NoContent, handOver.status)
         val first = cast.ann.client.post(cast.room, 1, "one ${token(cast.bob)}").id
         val second = cast.ann.client.post(cast.room, 1, "two ${token(cast.bob)}").id
-        cast.ann.client.post(cast.room, 1, "for the owner ${token(cast.owner)}")
+        // Bob watches the thread since it was handed to him: a reply that mentions somebody else is a reply notice for him.
+        val third = cast.ann.client.post(cast.room, 1, "for the owner ${token(cast.owner)}").id
         suspendTransaction(sharedDatabaseForTests()) { TestThreads.noticeWriter.threadRead(cast.thread, cast.bob.id, first, 5L) }
 
         val unseen = cast.bob.client.notices("?seen=false").items
-        assertEquals(listOf(second), unseen.map { it.messageId }, "the hand-over and the first mention are seen, the second is not")
+        assertEquals(listOf(third, second), unseen.map { it.messageId }, "the hand-over and the first mention are seen, the rest are not")
         assertEquals(2L, cast.bob.client.notices("?seen=true").total)
         assertEquals(1L, cast.owner.client.notices("?seen=false").total, "somebody else's notice stays unseen")
     }
@@ -537,6 +552,11 @@ class NotificationsTest {
             assertTrue(event.hasKeyValue("recipientIds", listOf(cast.bob.id.toLong())))
             assertTrue(event.keyValuePairs.none { it.value.toString().contains("secret-body") }, "a body is never in an audit line")
 
+            // A post that mentions nobody leaves no line (nobody watches the thread yet).
+            val before = capture.events.count { it.message == "notification.created" }
+            cast.ann.client.post(cast.room, 1, "no mention here")
+            assertEquals(before, capture.events.count { it.message == "notification.created" })
+
             val move = cast.owner.client.putJson("$rooms/${cast.room}/threads/1/owner", ThreadOwnerRequest(cast.bob.id))
             assertEquals(HttpStatusCode.NoContent, move.status)
             val handOver = assertNotNull(
@@ -545,11 +565,6 @@ class NotificationsTest {
             assertTrue(handOver.hasKeyValue("messageId", null))
             assertTrue(handOver.hasKeyValue("recipientIds", listOf(cast.bob.id.toLong())))
             assertTrue(handOver.hasKeyValue("byUserId", cast.owner.id.toLong()))
-
-            // A post that mentions nobody leaves no line.
-            val before = capture.events.count { it.message == "notification.created" }
-            cast.ann.client.post(cast.room, 1, "no mention here")
-            assertEquals(before, capture.events.count { it.message == "notification.created" })
         }
     }
 

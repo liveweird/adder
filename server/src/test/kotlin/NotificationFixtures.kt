@@ -40,3 +40,31 @@ object TestNotificationPreferences {
         }
     }
 }
+
+/**
+ * Raw-JDBC fixtures for what a seeded thread made that a test did not ask for. Since 1.1 a seeded thread tells the members already in the
+ * room (`THREAD_CREATED`, 1.1 D4) and makes its creator a watcher (so later replies are notices): a test that counts a person's notices as
+ * it counted them in 1.0.0 starts from an empty bell and an unwatched thread instead.
+ */
+object TestNotices {
+    /** Deletes every notice of room [roomId]: back to an empty bell after the fixtures seeded the room. */
+    fun clearRoom(roomId: UInt) {
+        PostgresTestSupport.connect().use { c ->
+            c.prepareStatement("DELETE FROM notifications WHERE room_id = ?").use { st ->
+                st.setInt(1, roomId.toInt())
+                st.executeUpdate()
+            }
+        }
+    }
+
+    /** [clearRoom], and every watch of the room's threads too: nobody is told of a reply, a status move or a hand-over but by name. */
+    fun quietRoom(roomId: UInt) {
+        clearRoom(roomId)
+        PostgresTestSupport.connect().use { c ->
+            c.prepareStatement("DELETE FROM thread_watches WHERE room_id = ?").use { st ->
+                st.setInt(1, roomId.toInt())
+                st.executeUpdate()
+            }
+        }
+    }
+}

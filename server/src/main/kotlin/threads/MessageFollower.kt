@@ -1,7 +1,25 @@
 package ch.nokillswit.threads
 
-/** Where one message lives: the ids a follower needs, so it never reads the thread again ([threadNumber] is the per-room number). */
-internal class MessageRef(val roomId: UInt, val threadId: UInt, val threadNumber: Int, val messageId: UInt)
+/**
+ * Where one message lives: the ids a follower needs, so it never reads the thread again ([threadNumber] is the per-room number).
+ * [opening] is true for the first message of its thread (the notice audience of a thread's opening message is the whole room); it is
+ * exact for a post and an edit (asked lazily: an edit that changes no mention never pays for the query), and a delete does not read it.
+ */
+internal class MessageRef(
+    val roomId: UInt,
+    val threadId: UInt,
+    val threadNumber: Int,
+    val messageId: UInt,
+    private val openingOf: suspend () -> Boolean,
+) {
+    constructor(roomId: UInt, threadId: UInt, threadNumber: Int, messageId: UInt, opening: Boolean) :
+        this(roomId, threadId, threadNumber, messageId, { opening })
+
+    private var openingKnown: Boolean? = null
+
+    /** Whether this is the thread's first message; an edit asks lazily (one query, only when its mentions changed), a post knows. */
+    suspend fun opening(): Boolean = openingKnown ?: openingOf().also { openingKnown = it }
+}
 
 /**
  * Something derived from a message's body or lifecycle that must change with it, in the SAME transaction (`persistence.md` "Threads

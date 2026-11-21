@@ -1549,8 +1549,9 @@ paths:
         (`\n` and `\t` allowed, every other control character and the hidden direction characters
         are a `400`). Every required field must be supplied; an unknown key, or a value for a retired key (an unchanged `null` for a retired key is ignored), is a `400`,
         as is a value that breaks its type's rule. The thread, its opening message, its `CREATED` history entry and the activity bump of the thread and the room commit
-        together. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429` beyond it); the bucket
-        is spent before any guard, so a refused or invalid POST costs a token too. The request body is at most 192 KiB (`413` beyond it)
+        together, and so do the notifications (`listNotifications`): every other ACTIVE member of the room gets `THREAD_CREATED`, or `MENTIONED`
+        when the body names them with `<@id>`. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
+        beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The request body is at most 192 KiB (`413` beyond it)
         and `fields` holds at most 20 keys whose values are primitives, `null` or a list of at most 50 option keys (anything else, a
         nested object included, is a `400` before any lock); the stored values may not exceed 439,001 characters of JSON (`400`). The write
         waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with
@@ -1663,7 +1664,8 @@ paths:
         Setting the status the thread already has is `204` with no history entry, no activity bump and no audit line (a plain member
         is still `403` when that status is CLOSED). Otherwise the status changes, `closedAt` is set to the instant the thread closed
         (kept across CLOSED to CLOSED moves) and cleared by a move into an OPEN one, a `STATUS_CHANGED`, `CLOSED` or `REOPENED` history entry is recorded and
-        the thread and the room are bumped in the activity order. A single-value set: the last writer wins, and the history records
+        the thread and the room are bumped in the activity order, and the thread's WATCHERS (never the caller) get a notification
+        (`listNotifications`): `THREAD_CLOSED`, `THREAD_REOPENED` or `THREAD_STATUS_CHANGED` by the move. A single-value set: the last writer wins, and the history records
         each change; the thread's `revision` is not moved.
         Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
       requestBody:
@@ -1778,8 +1780,9 @@ paths:
 
         Naming the current owner again is `204` with no history entry, no activity bump and no audit line. Otherwise an `OWNER_CHANGED`
         history entry is recorded and the thread and the room are bumped in the activity order. A single-value set: the last writer
-        wins, and the history records each change; the thread's `revision` is not moved. The new owner gets a `THREAD_ASSIGNED`
-        notification (`listNotifications`) and the live `notification.created` event, unless the caller took the thread themself.
+        wins, and the history records each change; the thread's `revision` is not moved. The new owner starts to watch the thread and gets a
+        `THREAD_ASSIGNED` notification (`listNotifications`) and the live `notification.created` event, unless the caller took the thread
+        themself; the thread's other watchers (the caller never) get `THREAD_OWNER_CHANGED`.
         Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
       requestBody:
         required: true
@@ -1876,8 +1879,9 @@ paths:
         `body` is Markdown of 1 to 8,000 UTF-16 units after line endings are normalised, leading blank lines and trailing whitespace
         are dropped and the first line's indentation stays (`\n` and `\t` allowed, every other control character and the hidden
         direction characters are a `400`). It is stored raw and rendered without HTML. The message, `messageCount + 1` and the
-        activity bump of the thread and the room commit together, and so does a `MENTIONED` notification (`listNotifications`) for each
-        member the body mentions with `<@id>` (never the author). Rides the per-USER `chat-post` bucket of 120 per minute shared with
+        activity bump of the thread and the room commit together, and so do the notifications (`listNotifications`): a `MENTIONED` one for
+        each member the body mentions with `<@id>`, and a `THREAD_REPLIED` one for each other WATCHER of the thread (one notice per person,
+        the most specific reason; never the author). Rides the per-USER `chat-post` bucket of 120 per minute shared with
         the thread POST (`429` beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The
         request body is at most 64 KiB (`413` beyond it), and the write waits at most about 3 seconds for the room's write lock before it is
         answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
@@ -1941,7 +1945,9 @@ paths:
 
         The body rules are those of the post. Sending the body the message already has (after normalising) is `204` with no write and
         no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
-        order are untouched. Only the people the edit NEWLY mentions are notified, and the notification of a mention the edit removed is deleted. Last writer wins: the author alone writes it and the room lock serialises their own requests.
+        order are untouched. Only the people the edit NEWLY mentions are notified (a person who held a `THREAD_REPLIED` or `THREAD_CREATED` notice of the message gets a
+        fresh `MENTIONED` one in its place), and the notification of a mention the edit removed falls back to `THREAD_REPLIED` (the person
+        watches the thread) or `THREAD_CREATED` (an opening message) or, for anybody else, is deleted; an edit as such notifies nobody. Last writer wins: the author alone writes it and the room lock serialises their own requests.
         The body is at most 64 KiB (`413` beyond it). Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
       requestBody:
         required: true
@@ -2213,10 +2219,14 @@ paths:
         removed, takes its notice with it. A caller who belongs to no room gets an empty page.
 
         A notice is made INSIDE the write that caused it, one per person and event, labelled with the most specific reason
-        (`NotificationType`, eleven kinds). Today's writes make two of them: `MENTIONED` (a post, a thread's opening message or an edit that
-        newly mentions the caller with `<@id>`; never for a mention of oneself) and `THREAD_ASSIGNED` (someone else made the caller the owner
-        of a thread; nothing when a steward takes the thread themself); the other kinds are named so a client can show them as the writes
-        that make them arrive (a reply in a watched thread, a new thread, a status move, a team, watchers or everyone mention). Each
+        (`NotificationType`, eleven kinds). The writes make these: `MENTIONED` (a post, a thread's opening message or an edit that
+        newly mentions the caller with `<@id>`; never for a mention of oneself), `THREAD_REPLIED` (a reply in a thread the caller watches),
+        `THREAD_CREATED` (a new thread in a room the caller is a member of), `THREAD_ASSIGNED` and `THREAD_OWNER_CHANGED` (a hand-over: the
+        new owner, and the thread's other watchers; nothing for a steward who takes the thread themself), and `THREAD_STATUS_CHANGED`,
+        `THREAD_CLOSED` and `THREAD_REOPENED` (a status move of a thread the caller watches); the three group-mention kinds (a team, the
+        watchers or everyone) are named so a client can show them as the writes that make them arrive. An actor is never notified of their
+        own write. An event that would notify more than 20 people counts against the actor's daily wide-event budget
+        (`notifications.maxBroadcastsPerActorPerDay`); over it the write still succeeds and only the people named directly are notified. Each
         notice reaches the caller's open tabs as the live `notification.created` event, on every socket the caller has, subscribed to the
         room or not; the SPA then re-reads this list. Notices older than the retention (90 days by default) are deleted.
 
@@ -2225,7 +2235,7 @@ paths:
         notices that show in the app.
 
         An item holds ids only on the server: `actorName`, `roomName` and `threadTitle` are read when the page is read, so a rename shows at
-        once and nothing stored can outlive a leave or a delete. `messageId` is `null` for every thread-level kind (`THREAD_ASSIGNED`).
+        once and nothing stored can outlive a leave or a delete. `messageId` is `null` for every thread-level kind (the hand-over and status kinds).
 
         - Sortable fields: `id` (time order), `createdAt`. Default `-id` (newest first; `id` breaks ties).
         - Filters: `seen` (strict `true` or `false`; omitted = both; a repeated key is a `400`); `type` (repeatable, any-of: only notices of

@@ -2,6 +2,7 @@ package ch.nokillswit.infra.db
 
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.mail.mailer
+import ch.nokillswit.notifications.MAX_BROADCASTS_PER_ACTOR
 import ch.nokillswit.notifications.MAX_EMAIL_BUDGET_PER_ACTOR
 import ch.nokillswit.notifications.NoticeWriter
 import ch.nokillswit.notifications.NotificationEmailBudget
@@ -80,14 +81,25 @@ internal fun Application.publishChatServices(
             environment.config, "notifications.email.maxRecipientsPerActorPerDay", min = 1, max = MAX_EMAIL_BUDGET_PER_ACTOR,
         ),
         clock = ::nowMillis,
+        // The wide-event budget (V29, boot-validated): the most events reaching more than 20 people one actor makes in a UTC day.
+        broadcastsPerDay = requireConfigInt(
+            environment.config, "notifications.maxBroadcastsPerActorPerDay", min = 1, max = MAX_BROADCASTS_PER_ACTOR,
+        ),
     )
     // With no outbound email (`mail.transport=disabled`) nothing is mailed, so a notice the person would only have had by email
     // makes no row.
-    val noticeWriter = NoticeWriter(emailBudget, mailAvailable = mailer() != null)
+    // A thread-level notice still waiting for the digest is coalesced into only while it is younger than the digest delay (boot-validated
+    // by the sweep, read again here for the writer).
+    val digestDelayMillis = requireConfigInt(environment.config, "notifications.email.delaySeconds", min = 0, max = 86_400) * 1_000L
+    val noticeWriter = NoticeWriter(emailBudget, mailAvailable = mailer() != null, digestDelayMillis = digestDelayMillis)
     attributes.put(NotificationServiceKey, NotificationService(database, roomService, emailBudget, notificationReadLimiter))
+    // The watches (V26): the caller's own state, toggled without the room lock; the thread writes add the auto-watches inside themselves,
+    // and the mention follower reads the watchers of a thread as the audience of a reply.
+    val threadWatchService = ThreadWatchService(database, roomMemberService)
+    attributes.put(ThreadWatchServiceKey, threadWatchService)
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
-    val messageMentionService = MessageMentionService(roomMemberService, noticeWriter)
+    val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService)
     // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.
     val reactionService = MessageReactionService(database)
     attributes.put(MessageReactionServiceKey, reactionService)
@@ -97,9 +109,6 @@ internal fun Application.publishChatServices(
     attributes.put(MessageServiceKey, messageService)
     attributes.put(PinServiceKey, PinService(database, messageService))
     attributes.put(ThreadReadServiceKey, ThreadReadService(database, roomMemberService, noticeWriter))
-    // The watches (V26): the caller's own state, toggled without the room lock; the thread writes add the auto-watches inside themselves.
-    val threadWatchService = ThreadWatchService(database, roomMemberService)
-    attributes.put(ThreadWatchServiceKey, threadWatchService)
     attributes.put(
         ThreadServiceKey,
         ThreadService(

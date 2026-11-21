@@ -83,7 +83,8 @@ class MessageService internal constructor(
      * Inserts a message inside the caller's transaction (the thread write under the room lock) and returns it. The ONE chokepoint of a
      * new body (a post and a thread's opening message both come here), so its hashtags are indexed here, in the same transaction.
      * [hashtags] is [parseHashtags] of [body], parsed by the caller BEFORE it took the room lock (a parse is work, and the lock is held).
-     * [threadNumber] is the thread's per-room number, for the followers. The followers do NOT run here: the caller runs them with
+     * [threadNumber] is the thread's per-room number, for the followers; [opening] says the message opens a new thread (the audience of
+     * a thread's first message is the whole room, a reply's is its watchers). The followers do NOT run here: the caller runs them with
      * [followPosted] once it has written the counters and the write's own live hint, so a follower's hint comes after it.
      */
     internal suspend fun insertInTransaction(
@@ -94,6 +95,7 @@ class MessageService internal constructor(
         body: String,
         hashtags: List<String>,
         at: Long,
+        opening: Boolean = false,
     ): InsertedMessage {
         // `insertReturning(id)`, not `insert`: a plain insert answers `RETURNING *`, which would send the generated `search` vector (about
         // as large as the body, V16) back on every post. The generated column is never in this table object, so only the id returns.
@@ -105,7 +107,7 @@ class MessageService internal constructor(
             it[tagsVersion] = TAGS_VERSION
         }.single()[Messages.id].value
         tags.insertInTransaction(id, threadId, roomId, hashtags)
-        return InsertedMessage(id, MessageRef(roomId, threadId, threadNumber, id), authorId, body, at)
+        return InsertedMessage(id, MessageRef(roomId, threadId, threadNumber, id, opening), authorId, body, at)
     }
 
     /**
@@ -256,7 +258,7 @@ class MessageService internal constructor(
                 tags.replaceInTransaction(messageId, write.thread.id, roomId, newTags)
             }
             notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
-            val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId)
+            val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId) { isOpening(write.thread.id, messageId) }
             val notices = followers.fold(NoticeOutcome.NONE) { sum, f -> sum + f.edited(ref, write.message.authorId, request.body) }
             MessageEdit(write.thread.id, messageId, notices)
         }
@@ -284,10 +286,17 @@ class MessageService internal constructor(
             }
             tags.clearInTransaction(messageId)
             notifyLive(LiveHint(LiveKind.MESSAGE_DELETED, roomId, threadNumber = write.thread.number, messageId = messageId))
-            val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId)
+            // A delete does not read `opening`: nothing about a removed message's audience depends on it.
+            val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId, opening = false)
             followers.forEach { it.deleted(ref) }
             MessageRemoval(write.thread.id, messageId, write.message.authorId, moderated = remover != write.message.authorId)
         }
+
+    /** Whether message [messageId] is the first message ever written to thread [threadId] (its opening message; a tombstone counts). */
+    private suspend fun isOpening(threadId: UInt, messageId: UInt): Boolean {
+        val first = Messages.id.min()
+        return Messages.select(first).where { Messages.threadId eq threadId }.toList().single()[first]?.value == messageId
+    }
 
     private fun ResultRow.toResponse(
         threadNumber: Int,

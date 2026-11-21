@@ -21,24 +21,36 @@ enum class NoticeReason {
     THREAD_REOPENED,
 }
 
-/** One person to tell, and why. */
-internal class Notice(val userId: UInt, val reason: NoticeReason)
+/**
+ * One person to tell, and why: [reason] is the most specific one that applies; [fallbacks] are the other reasons that apply to the same
+ * person, in priority order (a watcher who is also mentioned has `MENTIONED` and the fallback `THREAD_REPLIED`). The writer uses the first
+ * reason that can reach the person through either channel, so a kind they switched off on BOTH channels falls back to the next one
+ * instead of silencing a message that is also a reply (1.1 A36); only when every applicable reason is fully off is there no notice.
+ */
+internal class Notice(val userId: UInt, val reason: NoticeReason, val fallbacks: List<NoticeReason> = emptyList())
 
 /**
  * What an edit does to the notices a message already has (`chat-model.md` "Notice kinds (V27, V28)", the edit rules): [remove] the notices
  * of these people go (a "delete and insert" of a less specific notice is a [remove] plus an [add], so the person gets a fresh, unseen
- * notice); [relabel] their notice stays in place under another reason; [add] these people are told now. A person is in at most one list.
+ * notice); [relabel] their notice stays in place under another reason; [add] these people are told now ("newly addressed": addressed by
+ * the new body and not by the old one, 1.1 A34). A person is in at most one list,
+ * except the "delete and insert" pair above (in [remove] and in [add]); nobody who keeps a notice of the message is in [add] (the email
+ * budget counts [add] before the insert).
  */
 internal class NoticeRevision(
     val add: List<Notice> = emptyList(),
     val relabel: List<Notice> = emptyList(),
     val remove: Collection<UInt> = emptyList(),
-)
+) {
+    /** Nothing to do: no notice added, relabelled or removed. */
+    val isEmpty: Boolean get() = add.isEmpty() && relabel.isEmpty() && remove.isEmpty()
+}
 
 /**
- * What a call made, for the route's `notification.created` audit line (ids and counts only): [recipients] is the number of notices made,
- * [kinds] how many of each reason, [addressed] the people a notice was made for BY NAME (a direct mention or a hand-over), at most
- * [MAX_AUDITED_ADDRESSED] of them (the rest of a wide event is a count, never 499 ids in a log line).
+ * What a call made, for the route's `notification.created` audit line (ids and counts only): [recipients] is the number of notices made
+ * or refreshed (a repeated thread-level notice replaces the person's unseen one), [kinds] how many of each reason, [addressed] the
+ * people a notice was made for BY NAME (a direct mention or a hand-over), at most [MAX_AUDITED_ADDRESSED] of them (the rest of a wide
+ * event is a count, never 499 ids in a log line).
  */
 data class NoticeOutcome(
     val recipients: Int = 0,

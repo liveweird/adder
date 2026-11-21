@@ -84,7 +84,7 @@ class NotificationEmailBudgetTest {
             val messageId = TestThreads.post(room, number, by)
             return suspendTransaction(sharedDatabaseForTests()) {
                 val notices = recipients.map { Notice(it.id, NoticeReason.MENTIONED) }
-                service.forMessage(MessageRef(room, threadId, number, messageId), by, notices)
+                service.forMessage(MessageRef(room, threadId, number, messageId, opening = false), by, notices)
             }.addressed
         }
     }
@@ -98,7 +98,7 @@ class NotificationEmailBudgetTest {
     }
 
     private fun service(perDay: Int, clock: () -> Long = System::currentTimeMillis) =
-        NoticeWriter(NotificationEmailBudget(perDay, clock))
+        NoticeWriter(NotificationEmailBudget(perDay, clock = clock))
 
     /** Every notice of [person]: (seen_at, emailed_at, created_at). */
     private fun notices(person: Person): List<Triple<Long?, Long?, Long>> = PostgresTestSupport.connect().use { c ->
@@ -280,7 +280,7 @@ class NotificationEmailBudgetTest {
                         if (inside.incrementAndGet() == people.size) allInside.complete(Unit)
                         withTimeout(30_000) { allInside.await() }
                         service.forMessage(
-                            MessageRef(s.room, s.threadId, s.number, messages[i]),
+                            MessageRef(s.room, s.threadId, s.number, messages[i], opening = false),
                             s.actor,
                             listOf(Notice(people[i].id, NoticeReason.MENTIONED)),
                         )
@@ -355,6 +355,7 @@ class NotificationEmailBudgetTest {
         TestRooms.addMember(room, ann.id)
         TestRooms.addMember(room, bob.id)
         TestThreads.seed(room, owner.id)
+        TestNotices.quietRoom(room) // the seeded thread told the room (1.1 D4); this test counts what its own post makes
         TestNotificationPreferences.optInEmail(ann.id)
         TestNotificationPreferences.optInEmail(bob.id)
 

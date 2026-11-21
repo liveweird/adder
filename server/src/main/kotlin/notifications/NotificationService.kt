@@ -68,8 +68,8 @@ internal class NotificationService(
     private val database: R2dbcDatabase,
     private val rooms: RoomService,
     /** The per-actor digest budget (V24); the default is the config default, a test or the composition root passes its own. */
-    private val emailBudget: NotificationEmailBudget = NotificationEmailBudget(DEFAULT_EMAIL_BUDGET_PER_ACTOR, ::nowMillis),
-    /** The list's deadline and in-flight caps: the SAME limiter the thread and tag lists use (`threads.readTimeoutSeconds`). */
+    private val emailBudget: NotificationEmailBudget = NotificationEmailBudget(DEFAULT_EMAIL_BUDGET_PER_ACTOR, clock = ::nowMillis),
+    /** The list's deadline and in-flight caps: the notice list's OWN limiter (`threads.readTimeoutSeconds`, 4 in flight; `ChatWiring`). */
     private val readLimiter: ReadLimiter = ReadLimiter(),
 ) {
     /** The notices. Ids only: there is no text column and no soft delete. */

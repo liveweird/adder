@@ -153,6 +153,50 @@ class LiveFanOutTest {
     }
 
     @Test
+    fun `a reply reaches every watcher's socket on another instance, subscribed or not, and a member who does not watch hears nothing`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val scene = scene()
+            suspend fun member(prefix: String): Scene {
+                val email = uniqueEmail(prefix)
+                val id = TestUsers.seed(email = email, password = "pw").also { users += it }
+                TestRooms.addMember(scene.room, id)
+                return Scene(RoomActor(id, authedClient(email, "pw")), scene.room, scene.thread, email, "pw")
+            }
+            val ann = member("fanout-ann")
+            val bob = member("fanout-bob2")
+            val dan = member("fanout-dan")
+            for (watcher in listOf(ann, bob)) {
+                val watched = watcher.writer.client.putJson(
+                    "/api/v1/rooms/${scene.room}/threads/${scene.thread}/watch",
+                    ch.nokillswit.threads.WatchRequest(true),
+                )
+                assertEquals(HttpStatusCode.NoContent, watched.status)
+            }
+            withSecondInstance { other ->
+                val annSocket = openOn(other, ann)
+                val bobSocket = openOn(other, bob)
+                val danSocket = openOn(other, dan)
+                awaitListenerUp(other.application.attributes[LiveHubKey])
+
+                // The creator (a watcher too) replies: ONE hint with the other two watchers as targets.
+                val posted = scene.writer.client.postJson(
+                    "/api/v1/rooms/${scene.room}/threads/${scene.thread}/messages",
+                    MessageRequest("Anyone watching?"),
+                )
+                assertEquals(HttpStatusCode.Created, posted.status)
+                val id = posted.body<MessageResponse>().id
+                val notice = LiveServerFrame.Event(LiveKind.NOTIFICATION_CREATED, scene.room, scene.thread, id)
+                assertEquals(notice, annSocket.nextNonResync())
+                assertEquals(notice, bobSocket.nextNonResync())
+                assertNull(danSocket.nextFrameOrNull(500), "a member who does not watch is not a target")
+                danSocket.close()
+                bobSocket.close()
+                annSocket.close()
+            }
+        }
+
+    @Test
     fun `a killed listener reconnects and tells its sockets to resync`() = testApplication {
         usePostgresTestcontainer()
         val scene = scene()

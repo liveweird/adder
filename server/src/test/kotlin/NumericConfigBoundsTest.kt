@@ -81,6 +81,7 @@ class NumericConfigBoundsTest {
         assertRefused("notifications.email.minIntervalSeconds", "-1", "abc", "86401", "")
         assertRefused("notifications.email.maxPerRun", "0", "-1", "abc", "1001", "")
         assertRefused("notifications.email.maxRecipientsPerActorPerDay", "0", "-1", "abc", "1001", "")
+        assertRefused("notifications.maxBroadcastsPerActorPerDay", "0", "-1", "abc", "10001", "")
     }
 
     @Test

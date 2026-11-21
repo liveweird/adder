@@ -90,6 +90,9 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
             .toSet()
     }
 
+    /** Every ACTIVE member of room [roomId] (at most [MAX_ROOM_MEMBERS]), one query, INSIDE the caller's transaction (the audience). */
+    suspend fun allActiveMemberIds(roomId: UInt): List<UInt> = allActiveMemberIdsOf(roomId)
+
     /**
      * [userId]'s floor of unread counting in room [roomId] - `GREATEST(read_from, added_at)` (V19) - or null when they are not a member
      * (an ADMIN outside the room has no read state). One read of the person's own row, INSIDE the caller's transaction, no lock.
@@ -247,4 +250,17 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
         /** The ids a 400 names (the add takes at most 200): the rest would only bloat the problem body. */
         const val MAX_LISTED_IDS = 10
     }
+}
+
+/**
+ * Every ACTIVE member of room [roomId] (at most [MAX_ROOM_MEMBERS], the cap) by user id, one query, inside the caller's transaction. The
+ * one implementation: [RoomMemberService.allActiveMemberIds] (the notice audience) and the room delete's `revoked` targets share it.
+ */
+internal suspend fun allActiveMemberIdsOf(roomId: UInt): List<UInt> {
+    val members = RoomService.RoomMembers
+    return members.innerJoin(UserService.Users).select(members.userId)
+        .where { (members.roomId eq roomId) and UserService.Users.active() }
+        .orderBy(members.userId)
+        .map { it[members.userId].value }
+        .toList()
 }

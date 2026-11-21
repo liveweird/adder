@@ -18,6 +18,18 @@ internal const val DEFAULT_EMAIL_BUDGET_PER_ACTOR = 20
 /** The ceiling of `notifications.email.maxRecipientsPerActorPerDay`: the admitted-people array of one actor-day is at most this long. */
 internal const val MAX_EMAIL_BUDGET_PER_ACTOR = 1000
 
+/** The default of `notifications.maxBroadcastsPerActorPerDay`: the wide events ([WIDE_EVENT_RECIPIENTS]) one actor may make a day. */
+internal const val DEFAULT_BROADCASTS_PER_ACTOR = 500
+
+/** The ceiling of `notifications.maxBroadcastsPerActorPerDay`. */
+internal const val MAX_BROADCASTS_PER_ACTOR = 10_000
+
+/**
+ * An event that would notify MORE than this many people is a WIDE event (V29): the most a message can name directly is 20, so a wide
+ * event is always a watcher set, a team, or the room.
+ */
+internal const val WIDE_EVENT_RECIPIENTS = 20
+
 /** Makes sure the actor's row of the day exists (constant text, two casts); a no-op once it does. */
 private const val ENSURE_ROW = """
 INSERT INTO notification_email_budget (actor_id, day) VALUES (CAST(? AS int8), CAST(? AS int4))
@@ -30,6 +42,21 @@ ON CONFLICT (actor_id, day) DO NOTHING"""
 private const val LOCK_ROW = """
 SELECT COALESCE(array_to_string(recipients, ','), ''), exceeded_at IS NOT NULL FROM notification_email_budget
 WHERE actor_id = CAST(? AS int8) AND day = CAST(? AS int4) FOR UPDATE"""
+
+/**
+ * Counts one wide event against the actor's day, atomically and only while there is room: the row lock this `UPDATE` takes lasts to the
+ * end of the write's transaction, like [LOCK_ROW]'s. A row comes back when the event was admitted; none when the actor is at the budget.
+ */
+private const val ADMIT_BROADCAST = """
+UPDATE notification_email_budget SET broadcasts = broadcasts + 1
+WHERE actor_id = CAST(? AS int8) AND day = CAST(? AS int4) AND broadcasts < CAST(? AS int4)
+RETURNING broadcasts"""
+
+/** Stamps the first refusal of the actor's day; a row comes back only for that first one (the audit line is once per actor-day). */
+private const val MARK_BROADCAST_EXCEEDED = """
+UPDATE notification_email_budget SET broadcasts_exceeded_at = CAST(? AS int8)
+WHERE actor_id = CAST(? AS int8) AND day = CAST(? AS int4) AND broadcasts_exceeded_at IS NULL
+RETURNING broadcasts"""
 
 private const val SAVE_ROW = """
 UPDATE notification_email_budget SET recipients = CAST(? AS int8[]), exceeded_at = COALESCE(exceeded_at, CAST(? AS int8))
@@ -46,6 +73,10 @@ WHERE actor_id = CAST(? AS int8) AND day = CAST(? AS int4)"""
  * is NOT exempt: a room owner and an ADMIN can enrol anyone, and the digest names the room the actor chose either way. The day is the
  * epoch day of [clock] (UTC), so the budget resets at 00:00 UTC.
  *
+ * The same row also carries the WIDE-EVENT budget (V29, [admitBroadcast]): an event that would notify more than [WIDE_EVENT_RECIPIENTS]
+ * people counts one against [broadcastsPerDay] a UTC day; over it only the people named directly are told. It bounds how OFTEN an
+ * actor can fan out (the rows a day), where the digest budget bounds WHO can be mailed.
+ *
  * Runs INSIDE the write's transaction (under the room lock); the actor's row is locked `FOR UPDATE` until it commits, so the budget
  * holds when one actor writes in several rooms at once. That wait is deliberately NOT bounded by a `lock_timeout` (`persistence.md`
  * "The room lock"): its worst case is the same actor's in-flight notice-making writes, each a few milliseconds, and a timeout would
@@ -54,10 +85,54 @@ WHERE actor_id = CAST(? AS int8) AND day = CAST(? AS int4)"""
  */
 internal class NotificationEmailBudget(
     private val perDay: Int,
+    /** The wide events one actor may make in a UTC day (V29, [admitBroadcast]). */
+    private val broadcastsPerDay: Int = DEFAULT_BROADCASTS_PER_ACTOR,
+    // Last, so a test passes the clock as a trailing lambda: `NotificationEmailBudget(20) { now }`.
     private val clock: () -> Long,
 ) {
     init {
         require(perDay in 1..MAX_EMAIL_BUDGET_PER_ACTOR) { "the digest budget must be 1..$MAX_EMAIL_BUDGET_PER_ACTOR (was $perDay)" }
+        require(broadcastsPerDay in 1..MAX_BROADCASTS_PER_ACTOR) {
+            "the wide-event budget must be 1..$MAX_BROADCASTS_PER_ACTOR (was $broadcastsPerDay)"
+        }
+    }
+
+    /**
+     * Counts a WIDE event of [actorId] in [roomId] (more than [WIDE_EVENT_RECIPIENTS] people) against today's wide-event budget and
+     * answers whether it is admitted. Not admitted means the actor already made [broadcastsPerDay] wide events today: the caller then
+     * tells only the people named directly (`<@id>` mentions, a hand-over), and the write itself still succeeds. [withheld] is how many
+     * people a refusal leaves untold (those not named directly); the first refusal of the actor's day audits
+     * `notification.broadcast_budget_exceeded` (coalesced by the committed `broadcasts_exceeded_at`; a rolled-back write repeats it, which
+     * is harmless) with that count. Runs INSIDE the write's transaction; the actor's row is locked to its end, so concurrent writes of
+     * one actor in several rooms cannot overshoot (the same row, and the same unbounded wait, as [withheld]). Ids and counts only.
+     */
+    suspend fun admitBroadcast(actorId: UInt, roomId: UInt, withheld: Int): Boolean {
+        val transaction = TransactionManager.current()
+        val now = clock()
+        val actor = LongColumnType() to actorId.toLong()
+        val day = IntegerColumnType() to (now / MILLIS_PER_DAY).toInt()
+        transaction.exec(ENSURE_ROW, listOf(actor, day))
+        val admitted = transaction.exec(
+            ADMIT_BROADCAST,
+            listOf(actor, day, IntegerColumnType() to broadcastsPerDay),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Int::class.javaObjectType) }?.toList().orEmpty().isNotEmpty()
+        if (admitted) return true
+        val first = transaction.exec(
+            MARK_BROADCAST_EXCEEDED,
+            listOf(LongColumnType() to now, actor, day),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Int::class.javaObjectType) }?.toList().orEmpty().isNotEmpty()
+        if (first) {
+            audit(
+                "notification.broadcast_budget_exceeded",
+                "actorId" to actorId.toLong(),
+                "roomId" to roomId.toLong(),
+                "budget" to broadcastsPerDay,
+                "withheld" to withheld,
+            )
+        }
+        return false
     }
 
     /**

@@ -6,6 +6,7 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { LiveClock } from "./liveClient";
 import { notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
+import { lookingAt } from "./lookingAt";
 
 const { rail: RAIL, list: ROOM_LIST, detail, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
 
@@ -230,7 +231,22 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
 
   const invalidator: LiveInvalidator = {
     handle(frame) {
-      const spread = frame.type === "resync" || frame.type === "ready" || frame.type === "subscribed";
+      // A notice about the thread the reader is looking at (open, visible, at the end) is acknowledged by the pane through the read marker; the
+      // bell is not re-read, so the badge never rises and falls again (`utils/lookingAt.ts`).
+      if (frame.type === "event" && frame.kind === "notification.created") {
+        const looking = lookingAt(frame.roomId, frame.threadNumber);
+        if (looking !== null && looking.covers(frame.messageId)) {
+          looking.acknowledge(frame.messageId);
+          return;
+        }
+      }
+      // A notice is spread like a reconnect's catch-up: one wide event reaches hundreds of tabs at the same instant, and their re-reads of the
+      // bell would arrive as one wave (`security.md` "notification-read").
+      const spread =
+        frame.type === "resync" ||
+        frame.type === "ready" ||
+        frame.type === "subscribed" ||
+        (frame.type === "event" && frame.kind === "notification.created");
       const slow = isSlowFrame(frame);
       for (const key of keysForFrame(frame)) queue(key, spread, slow);
       arm();

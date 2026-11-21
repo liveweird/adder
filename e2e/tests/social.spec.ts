@@ -28,6 +28,8 @@ const THREAD_PIN_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/pin$/;
 const MESSAGE_PIN_API = /\/api\/v1\/rooms\/\d+\/messages\/\d+\/pin$/;
 const PREFERENCES_API = /\/api\/v1\/users\/\d+\/notification-preferences$/;
 const ROOM_SEEN_API =/\/api\/v1\/rooms\/\d+\/seen$/;
+const WATCH_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/watch$/;
+const READ_MARKER_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/read-marker$/;
 
 interface Person {
   id: number;
@@ -160,9 +162,11 @@ const cspViolations = (page: Page) => page.evaluate(() => (window as unknown as 
 const uniquePart = (person: Person) => person.name.slice(person.name.lastIndexOf("-") + 1);
 
 test("a mention picked in the composer reaches the mentioned member's bell without a reload and opens the message", async ({ page, browser }) => {
-  const room = await scene(page);
+  // The teammate joins AFTER the thread opened: a new thread is told to the members already in the room, and this scenario counts what it causes.
+  const room = await scene(page, { addMate: false });
   const title = uniqueText("Mention thread");
   await startThread(room, title);
+  await addMember(room);
   const author = await signedIn(browser, room.owner);
   const reader = await signedIn(browser, room.mate);
   await openLive(author, `/rooms/${room.roomId}/threads/1`, room.roomId);
@@ -238,9 +242,10 @@ test("the Mentions me filter shows the thread and survives a reload", async ({ p
 });
 
 test("handing a thread over notifies its new owner", async ({ page, browser }) => {
-  const room = await scene(page);
+  const room = await scene(page, { addMate: false });
   const title = uniqueText("Handover thread");
   await startThread(room, title);
+  await addMember(room); // after the thread opened: the room was not told of a thread the teammate was not there for
   const giver = await signedIn(browser, room.owner);
   const receiver = await signedIn(browser, room.mate);
   await openLive(giver, `/rooms/${room.roomId}/threads/1`, room.roomId);
@@ -420,9 +425,10 @@ test("a pinned thread and a pinned message show in the pinned panel for another 
 });
 
 test("a member removed from a room loses its notifications", async ({ page, browser }) => {
-  const room = await scene(page);
+  const room = await scene(page, { addMate: false });
   const title = uniqueText("Notice thread");
   const number = await startThread(room, title);
+  await addMember(room); // after the thread opened: the room was not told of a thread the teammate was not there for
   await postMessage(room, number, `<@${room.mate.id}> please look at this.`);
   const leaver = await signedIn(browser, room.mate);
   await openLive(leaver, "/", room.roomId);
@@ -478,9 +484,10 @@ test("the Notification preferences page saves a switch and keeps it after a relo
 });
 
 test("a kind switched off in the app stops arriving", async ({ page, browser }) => {
-  const room = await scene(page);
+  const room = await scene(page, { addMate: false });
   const title = uniqueText("Quiet thread");
   await startThread(room, title);
+  await addMember(room); // after the thread opened: the room was not told of a thread the teammate was not there for
   const reader = await signedIn(browser, room.mate);
   await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
   await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
@@ -507,3 +514,83 @@ test("a kind switched off in the app stops arriving", async ({ page, browser }) 
   await expect(drawer(reader.page).getByRole("link", { name: /mentioned you/ })).toHaveCount(0);
 });
 
+
+test("a watcher hears a reply", async ({ page, browser }) => {
+  // The teammate joins AFTER the thread opened: the room was not told of a thread they were not there for, so their bell starts empty.
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Watched thread");
+  await startThread(room, title);
+  await addMember(room);
+  const reader = await signedIn(browser, room.mate);
+
+  // The teammate watches the thread, then goes back to the room's list: they are no longer looking at it.
+  await reader.page.goto(`/rooms/${room.roomId}/threads/1`);
+  await Promise.all([
+    reader.page.waitForResponse((r) => r.request().method() === "PUT" && WATCH_API.test(r.url()) && r.status() === 204),
+    reader.page.getByRole("button", { name: "Watch this thread", exact: true }).click(),
+  ]);
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  // The owner replies: the watcher's bell counts it without a reload and the drawer says who replied.
+  await postMessage(room, 1, "The replica is lagging.");
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expectNoReload(reader);
+  await bell(reader.page).click();
+  const notice = drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} replied in #1 ${title}`) });
+  await expect(notice).toBeVisible();
+
+  // Following it opens the thread at that message, and reading it clears the badge.
+  await notice.click();
+  await expect(reader.page).toHaveURL(new RegExp(`/rooms/${room.roomId}/threads/1`));
+  await expect(messageNamed(reader.page, "The replica is lagging.")).toBeVisible();
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  // While the reader looks at the thread (at its end, the tab visible) a further reply never raises the badge, not even for a moment: the
+  // pane acknowledges the notice through the read marker. Every label the bell takes from here on is recorded.
+  await reader.page.evaluate(() => {
+    const labels: string[] = [];
+    Object.assign(window, { e2eBellLabels: labels });
+    const button = [...document.querySelectorAll("button")].find((candidate) => /^Notifications \(/.test(candidate.getAttribute("aria-label") ?? ""));
+    if (!button) throw new Error("the bell is not on the page");
+    new MutationObserver(() => labels.push(button.getAttribute("aria-label") ?? "")).observe(button, { attributes: true, attributeFilter: ["aria-label"] });
+  });
+  const [marker] = await Promise.all([
+    reader.page.waitForResponse((r) => r.request().method() === "PUT" && READ_MARKER_API.test(r.url()) && r.status() === 204),
+    postMessage(room, 1, "Still lagging."),
+  ]);
+  expect(marker.ok()).toBe(true);
+  await expect(messageNamed(reader.page, "Still lagging.")).toBeVisible();
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+  // A beat for any re-read the hint could still cause, then the recorded labels: none of them counted an unseen notice.
+  await reader.page.waitForTimeout(1_500);
+  const labels = await reader.page.evaluate(() => (window as unknown as { e2eBellLabels: string[] }).e2eBellLabels);
+  expect(labels.filter((label) => !unseenBell(0).test(label)), "the badge never rose").toEqual([]);
+  await expectNoReload(reader);
+  // The pane's read marker is what kept it down, so the SERVER holds the notice as seen: nothing is waiting for the next re-read.
+  const { api } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(api);
+  await expect
+    .poll(async () => ((await (await api.get("/api/v1/notifications?seen=false")).json()) as { total: number }).total, { message: "the server marked the notice seen" })
+    .toBe(0);
+});
+
+test("everyone in the room hears about a new thread", async ({ page, browser }) => {
+  const room = await scene(page);
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, `/rooms/${room.roomId}`, room.roomId);
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  // The owner starts a thread; the teammate, who watches nothing yet, is told live because they are a member of the room.
+  const title = uniqueText("Brand new thread");
+  await startThread(room, title);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expectNoReload(reader);
+  await bell(reader.page).click();
+  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} started #1 ${title}`) })).toBeVisible();
+
+  // The author is never told of their own thread.
+  await expect(bell(author.page)).toHaveAccessibleName(unseenBell(0));
+});

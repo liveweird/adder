@@ -18,8 +18,11 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
 
-/** What an edit did to a message's mentions: the people newly mentioned and the people whose mention the edit removed. */
-internal data class MentionChange(val added: List<UInt>, val removed: List<UInt>)
+/**
+ * What an edit did to a message's mentions: the people newly mentioned, the people whose mention the edit removed and the people the
+ * new body mentions NOW ([current], in order of appearance: the kept ones, then the added; a kept person may have left the room since).
+ */
+internal data class MentionChange(val added: List<UInt>, val removed: List<UInt>, val current: List<UInt>)
 
 /**
  * The derived mention index (V17 `message_mentions`, `chat-model.md` "Mentions (V17)"): what a message's `mentions` and the thread list's
@@ -29,8 +32,8 @@ internal data class MentionChange(val added: List<UInt>, val removed: List<UInt>
  * behind a scrubbed body. The table is hard-deleted (`persistence.md` "Mentions (V17)"). Ids only: a body or a name never reaches a log.
  * It is also the one place the chat tells the notification feature about a mention ([notices], the [ThreadNotices] port): a post notifies
  * the members it mentions, an edit only the newly mentioned (and drops the notice of a mention it removed) and a delete removes every
- * notice of the message, all in the same transaction. (1.1.0 S5 makes only `MENTIONED` here; the watchers and the room join the audience
- * with `NoticeAudience`.)
+ * notice of the message, all in the same transaction; WHO is told and why is the pure [NoticeAudience] (watchers for a reply, the room
+ * for an opening message, a direct mention first), fed with facts read here, inside the write.
  *
  * Only an ACTIVE member of the room, at the moment of the write ([RoomMemberService.activeMemberIds], inside the write), is mentioned; any
  * other id is plain text, no row, never a refusal. [edited] gets only the NEW body (the row has already been overwritten when a follower
@@ -39,6 +42,7 @@ internal data class MentionChange(val added: List<UInt>, val removed: List<UInt>
 internal class MessageMentionService(
     private val members: RoomMemberService,
     private val notices: ThreadNotices,
+    private val watches: ThreadWatchService,
 ) : MessageFollower {
     /** The derived index. There is no soft delete and no id of its own. */
     object MessageMentions : Table("message_mentions") {
@@ -53,16 +57,39 @@ internal class MessageMentionService(
         override val primaryKey = PrimaryKey(messageId, userId)
     }
 
-    override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): NoticeOutcome =
-        notices.forMessage(ref, authorId, indexInTransaction(ref, body).map { Notice(it, NoticeReason.MENTIONED) })
+    /**
+     * A post tells the people it mentions directly and the audience of its kind ([NoticeAudience.ofMessage]): the thread's watchers for a
+     * reply, every active member for an opening message. The recipients are read INSIDE the write, under the room lock.
+     */
+    override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): NoticeOutcome {
+        val mentioned = indexInTransaction(ref, body)
+        val opening = ref.opening()
+        val everyone = if (opening) members.allActiveMemberIds(ref.roomId) else emptyList()
+        val watchers = if (opening) emptyList() else watches.recipientIds(ref.threadId)
+        return notices.forMessage(ref, authorId, NoticeAudience.ofMessage(opening, authorId, mentioned, watchers, everyone))
+    }
 
+    /**
+     * An edit tells only the NEWLY addressed ([NoticeAudience.ofEdit]; `change.added`, 1.1 A34) and re-addresses the notices the message
+     * already holds, so nobody who keeps a notice is counted for the email budget again. No mention added or removed means nothing to add,
+     * relabel or drop (the group tokens of the next step widen this guard), and then nothing is read, not even whether this is the
+     * thread's first message.
+     */
     override suspend fun edited(ref: MessageRef, authorId: UInt, body: String): NoticeOutcome {
         val change = replaceInTransaction(ref, body)
-        return notices.reviseMessage(
-            ref,
-            authorId,
-            NoticeRevision(add = change.added.map { Notice(it, NoticeReason.MENTIONED) }, remove = change.removed),
-        )
+        if (change.added.isEmpty() && change.removed.isEmpty()) return NoticeOutcome.NONE
+        val existing = notices.ofMessage(ref.messageId)
+        val opening = ref.opening()
+        // Whom a dropped mention falls back to: the room's members for an opening message (only the people it dropped can matter),
+        // the thread's watchers for a reply. Everybody added is an active member (replaceInTransaction checked).
+        val dropped = change.removed.map { it.toLong() }
+        val inRoom = if (opening && dropped.isNotEmpty()) members.activeMemberIds(ref.roomId, dropped) else emptySet()
+        // Whom the opening message's "started a thread" can fall back to: the people the edit dropped (to keep a notice) and the people it
+        // added (a member holding that notice keeps it when their mention kind is switched off).
+        val everyone = (change.removed.filter { it.toLong() in inRoom } + change.added).distinct()
+        val watchers = if (opening) emptyList() else watches.recipientIds(ref.threadId)
+        val revision = NoticeAudience.ofEdit(opening, authorId, existing, change.current, change.added, watchers, everyone)
+        return if (revision.isEmpty) NoticeOutcome.NONE else notices.reviseMessage(ref, authorId, revision)
     }
 
     override suspend fun deleted(ref: MessageRef) {
@@ -87,7 +114,7 @@ internal class MessageMentionService(
         val existing = index.select(index.userId).where { index.messageId eq ref.messageId }
             .map { it[index.userId].value }.toList()
         val parsed = parseMentions(body)
-        if (parsed.isEmpty() && existing.isEmpty()) return MentionChange(emptyList(), emptyList())
+        if (parsed.isEmpty() && existing.isEmpty()) return MentionChange(emptyList(), emptyList(), emptyList())
         val known = existing.toSet()
         val fresh = parsed.filter { it !in known }
         val joined = fresh.takeIf { it.isNotEmpty() }?.let { activeMembers(ref.roomId, it) }.orEmpty().toSet()
@@ -97,7 +124,7 @@ internal class MessageMentionService(
         val added = wanted.filter { it !in known }
         if (removed.isNotEmpty()) index.deleteWhere { (messageId eq ref.messageId) and (userId inList removed) }
         insert(ref, added)
-        return MentionChange(added, removed)
+        return MentionChange(added, removed, wanted)
     }
 
     /** Removes every mention of message [messageId]: its delete, a moderator's included. */

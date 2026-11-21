@@ -16,6 +16,7 @@ import ch.nokillswit.rooms.RoomWorkflowResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.PinRequest
+import ch.nokillswit.threads.WatchRequest
 import ch.nokillswit.threads.ReadMarkerRequest
 import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ThreadCreateRequest
@@ -211,14 +212,20 @@ class NotifyHintsTest {
                 member.client.delete("$rooms/$room/messages/${messageId[0]}").expect(HttpStatusCode.NoContent)
             }
             val message = messageId[0]!!
-            // The opening message is part of `thread.created`: no `message.posted` for it.
+            val opening = TestThreads.rawMessages(TestThreads.rawAll(room).single().id).first().id
+            // The opening message is part of `thread.created`: no `message.posted` for it. What each write told people follows its own
+            // hint: the room hears of the thread (the owner), the creator hears the thread change hands, the new owner hears the reply.
+            // The status move tells the watchers but the creator, who moved it, and the details and the edit tell nobody.
             assertEquals(
                 listOf(
                     hint(LiveKind.THREAD_CREATED, room, thread = 1),
+                    hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = opening, targets = listOf(owner.id)),
                     hint(LiveKind.THREAD_UPDATED, room, thread = 1),
                     hint(LiveKind.THREAD_STATUS_CHANGED, room, thread = 1),
                     hint(LiveKind.THREAD_OWNER_CHANGED, room, thread = 1),
+                    hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, targets = listOf(member.id)),
                     hint(LiveKind.MESSAGE_POSTED, room, thread = 1, message = message),
+                    hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = message, targets = listOf(owner.id)),
                     hint(LiveKind.MESSAGE_EDITED, room, thread = 1, message = message),
                     hint(LiveKind.MESSAGE_DELETED, room, thread = 1, message = message),
                 ),
@@ -363,7 +370,7 @@ class NotifyHintsTest {
     }
 
     @Test
-    fun `a thread, an edit and a hand-over emit their own hint and then the notice's, a delete and a self-assignment none`() =
+    fun `a thread, an edit and a hand-over emit their own hint and then the notice's, a delete none`() =
         testApplication {
             usePostgresTestcontainer()
             val owner = actor("hint-aown")
@@ -378,6 +385,7 @@ class NotifyHintsTest {
                     val body = ThreadCreateRequest("Mention", "Opening <@${bob.id}>", mapOf("severity" to JsonPrimitive("s1")))
                     val created = ann.client.postJson("$rooms/$room/threads", body)
                     created.expect(HttpStatusCode.Created)
+                    // Ann is the only watcher: her reply tells nobody.
                     val posted = ann.client.postJson("$rooms/$room/threads/1/messages", MessageRequest("A reply"))
                     messageIds[0] = posted.body<MessageResponse>().id
                     // The edit newly mentions the owner: message edited, then the notice. An unchanged mention adds nothing.
@@ -386,7 +394,8 @@ class NotifyHintsTest {
                     ann.client.putJson("$rooms/$room/messages/${messageIds[0]}", MessageRequest("A reply again <@${owner.id}>"))
                         .expect(HttpStatusCode.NoContent)
                     ann.client.delete("$rooms/$room/messages/${messageIds[0]}").expect(HttpStatusCode.NoContent)
-                    // The hand-over: thread owner changed, then the notice; taking the thread oneself is one hint.
+                    // The hand-over: thread owner changed, then ONE notice hint (the new owner first, then the other watcher); taking the
+                    // thread oneself tells the watchers only.
                     owner.client.putJson("$rooms/$room/threads/1/owner", ThreadOwnerRequest(bob.id)).expect(HttpStatusCode.NoContent)
                     owner.client.putJson("$rooms/$room/threads/1/owner", ThreadOwnerRequest(owner.id)).expect(HttpStatusCode.NoContent)
                 }
@@ -395,15 +404,17 @@ class NotifyHintsTest {
                 assertEquals(
                     listOf(
                         hint(LiveKind.THREAD_CREATED, room, thread = 1),
-                        hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = opening, targets = listOf(bob.id)),
+                        // The mention first, then the rest of the room (everyone but the author) by user id.
+                        hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = opening, targets = listOf(bob.id, owner.id)),
                         hint(LiveKind.MESSAGE_POSTED, room, thread = 1, message = message),
                         hint(LiveKind.MESSAGE_EDITED, room, thread = 1, message = message),
                         hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = message, targets = listOf(owner.id)),
                         hint(LiveKind.MESSAGE_EDITED, room, thread = 1, message = message),
                         hint(LiveKind.MESSAGE_DELETED, room, thread = 1, message = message),
                         hint(LiveKind.THREAD_OWNER_CHANGED, room, thread = 1),
-                        hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, targets = listOf(bob.id)),
+                        hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, targets = listOf(bob.id, ann.id)),
                         hint(LiveKind.THREAD_OWNER_CHANGED, room, thread = 1),
+                        hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, targets = listOf(ann.id, bob.id)),
                     ),
                     hints,
                 )
@@ -506,12 +517,39 @@ class NotifyHintsTest {
     }
 
     @Test
+    fun `the widest notice hint, 500 recipients (an ADMIN outside the room acts), is delivered whole`() = runBlocking {
+        val worst = hint(
+            LiveKind.NOTIFICATION_CREATED, UInt.MAX_VALUE, thread = Int.MAX_VALUE, message = UInt.MAX_VALUE,
+            targets = List(500) { UInt.MAX_VALUE - it.toUInt() },
+        )
+        NotifyCapture().use { capture ->
+            val hints = capture.during { suspendTransaction(sharedDatabaseForTests()) { notifyLive(worst) } }
+            assertEquals(listOf(worst), hints)
+        }
+    }
+
+    private fun statusNotices(userId: UInt, room: UInt): Int = PostgresTestSupport.connect().use { c ->
+        val sql = "SELECT count(*) FROM notifications " +
+            "WHERE recipient_id = ? AND room_id = ? AND notification_type = 'THREAD_STATUS_CHANGED'"
+        c.prepareStatement(sql).use { st ->
+            st.setLong(1, userId.toLong())
+            st.setInt(2, room.toInt())
+            st.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
+        }
+    }
+
+    @Test
     fun `the workflow PUT emits one hint even when it moves threads`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("hint-wown")
+        val watcher = actor("hint-wwat")
         val room = room(owner, template())
+        TestRooms.addMember(room, watcher.id)
         TestThreads.seed(room, owner.id)
+        // A second member who WATCHES the thread: if the workflow PUT's `moveThreads` told watchers, a notice hint would follow.
+        watcher.client.putJson("$rooms/$room/threads/1/watch", WatchRequest(true)).expect(HttpStatusCode.NoContent)
         owner.client.putStatus(room, "monitoring").expect(HttpStatusCode.NoContent)
+        assertEquals(1, statusNotices(watcher.id, room))
         val current: RoomWorkflowResponse = owner.client.get("$rooms/$room/workflow").body()
         // Retire `monitoring`, which the thread sits in, and move it to `open`.
         val slim = RoomWorkflowRequest(
@@ -527,5 +565,6 @@ class NotifyHintsTest {
             assertEquals(listOf(hint(LiveKind.ROOM_WORKFLOW_UPDATED, room)), hints)
         }
         assertEquals("open", TestThreads.raw(room, 1)!!.statusKey)
+        assertEquals(1, statusNotices(watcher.id, room), "only the owner's own move was told; the workflow PUT's move told nobody")
     }
 }
