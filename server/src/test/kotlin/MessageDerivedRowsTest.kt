@@ -168,6 +168,7 @@ class MessageDerivedRowsTest {
         val threads =
             ThreadService(
                 database, TestRooms.service, TestRooms.workflows, members, TestThreads.events, messages, TestThreads.watches, teams,
+                MessageTagService(database),
             )
     }
 

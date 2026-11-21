@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.notifications.MARK_THREAD_SEEN_SQL
+import ch.nokillswit.threads.HASHTAGS_OF_SQL
 import ch.nokillswit.threads.THREAD_UNREAD_SQL
 import ch.nokillswit.threads.UNREAD_COUNTS_SQL
 import ch.nokillswit.threads.WATCHING_AMONG_SQL
@@ -588,6 +589,38 @@ class ThreadSchemaTest {
     }
 
     @Test
+    fun `a page's hashtags are one probe per thread of idx_message_tags_thread, ordered by the index, also as a generic plan`() {
+        // V31: `WHERE thread_id = t.id ORDER BY tag LIMIT 20` per listed thread. The thread leads the index and the tag follows, so the
+        // keys come out ordered (no sort, the limit stops early) and the room's tag index (V15, room first) is never walked for it.
+        // Unlike the other plan pins this one leaves the planner alone (no sequential-scan switch): on a seeded spread of 100 threads and
+        // 20,000 tag rows of ONE room (the shape that made the room-first index useless) the planner chooses the thread index by itself.
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val plan = explain(HASHTAGS_OF_SQL, "int4[]", "", mode, restrictPlanner = false, seed = ::seedTagSpread)
+            assertTrue("idx_message_tags_thread" in plan, "$mode: the probe reads the thread index:\n$plan")
+            assertTrue(Regex("Index Cond:.*thread_id").containsMatchIn(plan), "$mode: the thread rides the index condition:\n$plan")
+            assertTrue("idx_message_tags_room_tag" !in plan, "$mode: never the room's index:\n$plan")
+            assertTrue("Seq Scan on message_tags" !in plan, "$mode: never a scan of the whole table:\n$plan")
+        }
+    }
+
+    /**
+     * 100 threads of ONE room with 200 tag rows each over 30 tags, analysed: the spread of a room whose rows all share `room_id`. The rows
+     * are written with foreign keys off (`session_replication_role`, the shared container's user is a superuser) inside the rolled-back
+     * transaction. Returns the statement's argument: three thread ids.
+     */
+    private fun seedTagSpread(c: Connection): String {
+        c.createStatement().use { st ->
+            st.execute("SET LOCAL session_replication_role = replica")
+            st.execute(
+                "INSERT INTO message_tags (message_id, thread_id, room_id, tag) " +
+                    "SELECT (t * 1000 + k), t, 1, 'tag' || (k % 30) FROM generate_series(1, 100) AS t, generate_series(1, 200) AS k",
+            )
+            st.execute("ANALYZE message_tags")
+        }
+        return "'{1,50,100}'"
+    }
+
+    @Test
     fun `the membership cascade finds a member's watches through idx_thread_watches_user_room, also as a generic plan`() {
         // A member row's delete (a leave, a removal) drops that person's watches of that room by (room_id, user_id), the shape of the
         // foreign key's cascade statement: only the person-and-room index leads with both, the primary key leads with the thread.
@@ -705,6 +738,7 @@ class ThreadSchemaTest {
         planCacheMode: String,
         before: String? = null,
         seed: ((Connection) -> String)? = null,
+        restrictPlanner: Boolean = true,
     ): String {
         var n = 0
         val numbered = Regex("[?]").replace(sql) { "\$${++n}" }
@@ -713,9 +747,11 @@ class ThreadSchemaTest {
             try {
                 c.createStatement().use { st ->
                     st.execute("SET LOCAL plan_cache_mode = $planCacheMode")
-                    st.execute("SET LOCAL enable_seqscan = off")
-                    st.execute("SET LOCAL enable_bitmapscan = off")
-                    st.execute("SET LOCAL enable_sort = off")
+                    if (restrictPlanner) {
+                        st.execute("SET LOCAL enable_seqscan = off")
+                        st.execute("SET LOCAL enable_bitmapscan = off")
+                        st.execute("SET LOCAL enable_sort = off")
+                    }
                     val arguments = seed?.invoke(c) ?: args
                     before?.let {
                         // DDL is transactional: the rollback below puts it back. The ACCESS EXCLUSIVE lock waits at most 5 s for a

@@ -1,0 +1,42 @@
+/*
+ * A thread's hashtags as links (`ThreadHashtags.tsx`).
+ * - `.row` is the pane header's third row, ONE line by construction: no wrapping, anything past the edge clipped, every link shrinking to an
+ *   ellipsis (never below 2.5rem) before the "+N" button, which does not shrink. With at most four links and the button, the narrowest header
+ *   (about 20rem: the pane beside an open side panel at 1280px) holds them all, so the row never grows past one line and the pane's height
+ *   budget (`ThreadPane.module.css` `--tags-take`) is exact. The full text is the link's `title`, and the side panel lists every hashtag.
+ * - `.wrap` is the side panel's section: it wraps, and a long hashtag breaks anywhere instead of widening the panel.
+ */
+.row,
+.wrap {
+  display: flex;
+  align-items: center;
+  gap: 0 var(--mantine-spacing-xs);
+  min-width: 0;
+}
+
+.row {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.wrap {
+  flex-wrap: wrap;
+}
+
+.row .tag {
+  flex: 0 1 auto;
+  min-width: 2.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrap .tag {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.more {
+  flex: none;
+  white-space: nowrap;
+}

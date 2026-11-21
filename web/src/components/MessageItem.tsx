@@ -4,6 +4,7 @@ import { Box, Divider, Group, Menu, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconPinFilled, IconTrash } from "@tabler/icons-react";
 import { deleteMessage, type MessageResponse } from "../api/messages";
+import { useThreadRefHref } from "../hooks/useThreadRefHref";
 import { formatDateTime } from "../utils/formatDate";
 import type { MessageActions } from "../utils/messageAccess";
 import { messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
@@ -58,6 +59,7 @@ export default function MessageItem({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const threadHref = useThreadRefHref(roomId);
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -181,7 +183,7 @@ export default function MessageItem({
             onError={setError}
           />
         ) : (
-          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(roomId, message.threadNumber, tag)} mentions={message.mentions} groupMentions={message.groupMentions}>
+          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(roomId, message.threadNumber, tag)} threadHref={threadHref} mentions={message.mentions} groupMentions={message.groupMentions}>
             {message.body}
           </MarkdownView>
         )}

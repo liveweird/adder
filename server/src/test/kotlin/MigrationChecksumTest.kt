@@ -51,6 +51,7 @@ class MigrationChecksumTest {
         "V28__notification_preference_choices.sql" to 1260716694,
         "V29__notification_broadcast_budget.sql" to 164448559,
         "V30__create_message_group_mentions.sql" to -219235358,
+        "V31__index_message_tags_by_thread.sql" to -861247924,
     )
 
     @Test

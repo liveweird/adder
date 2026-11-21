@@ -97,7 +97,11 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        assertTrue(listOf("25", "26", "27", "28", "29", "30").all { it in after }, "V25 to V30 ran on the populated database: $after")
+        assertTrue(listOf("25", "26", "27", "28", "29", "30", "31").all { it in after }, "V25 to V31 ran on the populated database: $after")
+        val tagIndexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'message_tags'") { it.getString(1) }
+            .toSet()
+        val both = "idx_message_tags_thread" in tagIndexes && "idx_message_tags_room_tag" in tagIndexes
+        assertTrue(both, "V31's index sits beside V15's: $tagIndexes")
     }
 
     /** An additive migration may add columns; a dropped or renamed one of the release's columns fails, naming the table. */
@@ -223,6 +227,8 @@ class PopulatedUpgradeTest {
         assertEquals(listOf(1), numbers("&tag=incydent"))
         assertEquals(listOf(1), numbers("&tag=${"Żółć".encodeURLQuery()}"), "the tag index folds accents like the filter")
         assertEquals(listOf(2), numbers("&mentionedId=4"))
+        val rows = olivia.getBody<ThreadPageResponse>("/api/v1/rooms/1/threads?pageSize=100").items.associateBy { it.number }
+        assertEquals(listOf("baza_danych", "incydent", "zolc"), rows.getValue(1).hashtags, "V31's index serves the migrated hashtags")
         assertEquals(listOf(2, 4, 5, 1, 6, 3), numbers("&sort=status"), "workflow order of the live statuses, ties by id")
         val longTitle = olivia.getBody<ThreadPageResponse>("/api/v1/rooms/1/threads?pageSize=100").items.single { it.number == 6 }.title
         assertEquals(200, longTitle.length)

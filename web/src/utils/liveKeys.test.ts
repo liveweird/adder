@@ -54,8 +54,13 @@ describe("keysForFrame: the key map", () => {
     expect(keysForFrame(event("message.posted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], RAIL]);
   });
 
-  test("message.edited re-reads the conversation, the thread list (an edit can add or drop a hashtag) and the room's pins (a redacted body must not linger in the panel), not the thread itself", () => {
-    expect(keysForFrame(event("message.edited", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
+  test("message.edited re-reads the conversation, the thread (an edit can add or drop a hashtag its header shows), the thread list (the same on its rows) and the room's pins (a redacted body must not linger in the panel)", () => {
+    expect(keysForFrame(event("message.edited", 5, 7, 99))).toEqual([
+      ["rooms", "threads", 5, "messages", 7],
+      ["rooms", "threads", 5, "detail", 7],
+      ["rooms", "threads", 5, "list"],
+      ["rooms", "pins", 5],
+    ]);
   });
 
   test("message.deleted re-reads the conversation, the thread, the thread list, the room's pins and the notices (not the rail)", () => {
@@ -184,7 +189,7 @@ describe("the keys and the readers cannot drift apart", () => {
     roomKeys.workflowEdit(5),
     roomKeys.pins(5),
     [...roomKeys.threadList(5), 1, 50, "-lastActivityAt", "open"],
-    [...roomKeys.threadTags(5), "term"],
+    [...roomKeys.roomHashtags(5), "term"],
     roomKeys.threadDetail(5, 7),
     [...roomKeys.threadEvents(5, 7), 1],
     roomKeys.messages(5, 7),
@@ -194,13 +199,13 @@ describe("the keys and the readers cannot drift apart", () => {
   ];
 
   test("the room's tag options sit under the thread-list prefix, so every hint that refreshes the list refreshes them", () => {
-    expect(startsWith(roomKeys.threadTags(5), roomKeys.threadList(5))).toBe(true);
+    expect(startsWith(roomKeys.roomHashtags(5), roomKeys.threadList(5))).toBe(true);
     const refreshesList = (kind: (typeof LIVE_EVENT_KINDS)[number]) =>
       keysForFrame(event(kind, 5, 7, 99)).some((key) => startsWith(roomKeys.threadList(5), key));
     expect(LIVE_EVENT_KINDS.filter(refreshesList).length).toBeGreaterThan(0);
     for (const kind of LIVE_EVENT_KINDS.filter(refreshesList)) {
       expect(
-        keysForFrame(event(kind, 5, 7, 99)).some((key) => startsWith(roomKeys.threadTags(5), key)),
+        keysForFrame(event(kind, 5, 7, 99)).some((key) => startsWith(roomKeys.roomHashtags(5), key)),
         kind,
       ).toBe(true);
     }
@@ -541,8 +546,8 @@ describe("createLiveInvalidator", () => {
 
   test("a key being fetched is NOT cancelled or re-read: it is tried again until it is idle", () => {
     const t = setup();
-    // The conversation, the list and the pins are all being fetched: none is re-read, nor cancelled, until it is idle.
-    t.fetching.mockImplementation((filters) => (keyOf(filters)[3] === "messages" || keyOf(filters)[3] === "list" || keyOf(filters)[1] === "pins" ? 1 : 0));
+    // The conversation, the thread, the list and the pins are all being fetched: none is re-read, nor cancelled, until it is idle.
+    t.fetching.mockImplementation((filters) => (["messages", "detail", "list"].includes(keyOf(filters)[3] as string) || keyOf(filters)[1] === "pins" ? 1 : 0));
     t.invalidator.handle(event("message.edited", 5, 7, 1));
     t.clock.advanceBy(300);
     t.clock.advanceBy(300);
@@ -550,7 +555,7 @@ describe("createLiveInvalidator", () => {
     expect(t.flushed()).toEqual([]);
     t.fetching.mockReturnValue(0);
     t.clock.advanceBy(300);
-    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
+    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
     // Nothing was ever asked to cancel.
     expect(t.queryClient.isFetching()).toBe(0);
   });

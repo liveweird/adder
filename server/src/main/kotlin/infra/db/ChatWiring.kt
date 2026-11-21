@@ -122,6 +122,7 @@ internal fun Application.publishChatServices(
             messageService,
             threadWatchService,
             teamService,
+            messageTagService,
             readLimiter,
         ),
     )

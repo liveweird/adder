@@ -4,6 +4,7 @@ import { Anchor, Button, Group, Stack, Text } from "@mantine/core";
 import { IconPinFilled } from "@tabler/icons-react";
 import type { RoomPin } from "../api/pins";
 import type { RoomResponse, RoomWorkflow } from "../api/rooms";
+import { useThreadRefHref } from "../hooks/useThreadRefHref";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { pinExcerpt } from "../utils/pinExcerpt";
 import { focusThreadPaneState, listRouteSearch, tagFilterPath, threadMessagePath, threadPath, withListParams } from "../utils/roomLinks";
@@ -43,6 +44,7 @@ export default function PinCard({
   const { t } = useTranslation();
   const { pathname, search: currentSearch } = useLocation();
   const search = listRouteSearch(pathname, currentSearch);
+  const threadHref = useThreadRefHref(room.id);
   const zone = browserTimeZone();
   const message = pin.kind === "MESSAGE" ? pin.message : null;
   const threadName = `#${pin.threadNumber} ${pin.threadTitle}`;
@@ -77,7 +79,7 @@ export default function PinCard({
           <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
             {t("rooms.pins.inThread", { thread: threadName })}
           </Text>
-          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(room.id, pin.threadNumber, tag)} mentions={message.mentions} groupMentions={message.groupMentions}>
+          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(room.id, pin.threadNumber, tag)} threadHref={threadHref} mentions={message.mentions} groupMentions={message.groupMentions}>
             {message.body}
           </MarkdownView>
         </>

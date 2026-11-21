@@ -40,6 +40,7 @@ const THREAD_ITEM = {
   messageCount: 2,
   lastActivityAt: 1,
   createdAt: 1,
+  hashtags: [],
 };
 const THREADS = { items: [THREAD_ITEM], page: 1, pageSize: 50, total: 1 };
 const THREAD = { ...THREAD_ITEM, closedAt: null, createdById: 5, createdByName: "Ann Owner", fields: {}, fieldUserNames: {}, revision: 1, updatedAt: 1 };

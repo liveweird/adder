@@ -31,6 +31,7 @@ import MessageComposer from "./MessageComposer";
 import MessageList from "./MessageList";
 import PersonLink from "./PersonLink";
 import PinMark from "./PinMark";
+import ThreadHashtags from "./ThreadHashtags";
 import ThreadPinButton from "./ThreadPinButton";
 import ThreadPinStrip from "./ThreadPinStrip";
 import ThreadSidePanel from "./ThreadSidePanel";
@@ -39,10 +40,13 @@ import ThreadWatchButton from "./ThreadWatchButton";
 import classes from "./ThreadPane.module.css";
 import { roomKeys } from "../utils/roomKeys";
 
+/** The header's third row shows at most this many hashtags, on ONE line (`ThreadHashtags.module.css`); the rest are one "+N" that opens the details (whose "Hashtags" section holds them all). */
+const HEADER_HASHTAGS = 4;
+
 /**
  * The room view's conversation pane for `/rooms/:id/threads/:number`: the thread's header — `#42 Title` as the pane's heading, its
  * status, owner, message count and when it started and last moved (the browser's time zone) — then the conversation (`MessageList`, newest at
- * the bottom) and the reply box (`MessageComposer`, or the note that says why there is none). The header is two rows (the heading with the status pill and the icon actions — focus, pin, watch, details — then one dimmed line). The side panel (`ThreadSidePanel`: Status, Owner, Details, History) is part of the pane and collapsed at every width until the header's "Details" button opens it (remembered per person per browser, 1.2 D4); open, it is placed beside the conversation from a wide main area and above it below that (`ThreadPane.module.css`). The owner and the starter in the dimmed line are links to their profiles (1.2 D6, `PersonLink`, in the sentence: `fillSlots`). A number that names no thread (not a plain positive number, or a 404) reads as one "does not exist". The section is
+ * the bottom) and the reply box (`MessageComposer`, or the note that says why there is none). The header is two rows (the heading with the status pill and the icon actions — focus, pin, watch, details — then one dimmed line, and a third row of the thread's hashtags as filter links (1.2 A8) only when it has any). The side panel (`ThreadSidePanel`: Status, Owner, Details, History) is part of the pane and collapsed at every width until the header's "Details" button opens it (remembered per person per browser, 1.2 D4); open, it is placed beside the conversation from a wide main area and above it below that (`ThreadPane.module.css`). The owner and the starter in the dimmed line are links to their profiles (1.2 D6, `PersonLink`, in the sentence: `fillSlots`). A number that names no thread (not a plain positive number, or a 404) reads as one "does not exist". The section is
  * programmatically focusable and takes focus once its thread has loaded after a navigation that asked for it (a list row, a started
  * thread — `wantsThreadPaneFocus`), the `RoomWorkflowForm` precedent: the clicked row is left behind in the list. A `replace` (a filter
  * change, the focus toggle) never asks for it, and neither does a jump to a message (the conversation focuses that message).
@@ -80,6 +84,11 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   const clearScrollRequest = useCallback(() => setScrollRequest(null), [setScrollRequest]);
   // The side panel takes room only when asked for: collapsed by default at every width, one switch per person per browser (1.2 D4).
   const [detailsOpen, setDetailsOpen] = useStoredState("threadPane.detailsOpen", false, isBoolean);
+  // The header's "+N": open the details (or leave them open) and bring the Hashtags section into view once the panel is displayed.
+  const showAllHashtags = useCallback(() => {
+    setDetailsOpen(true);
+    window.setTimeout(() => document.getElementById(sideId)?.querySelector("[data-section=hashtags]")?.scrollIntoView?.({ block: "nearest" }), 0);
+  }, [setDetailsOpen, sideId]);
   const { data: thread, isLoading, isFetching, error } = useQuery({
     queryKey: roomKeys.threadDetail(room.id, number),
     queryFn: () => getThread(room.id, number!),
@@ -122,7 +131,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
 
   const zone = browserTimeZone();
   return (
-    <Box component="section" ref={paneRef} tabIndex={-1} aria-labelledby={headingId} className={classes.pane} data-side={detailsOpen ? "open" : "closed"} data-strip={messagePinsOf(pins?.items, thread.number).length > 0 ? (pinsOpen ? "open" : "closed") : undefined}>
+    <Box component="section" ref={paneRef} tabIndex={-1} aria-labelledby={headingId} className={classes.pane} data-side={detailsOpen ? "open" : "closed"} data-tags={thread.hashtags.length > 0 ? "true" : undefined} data-strip={messagePinsOf(pins?.items, thread.number).length > 0 ? (pinsOpen ? "open" : "closed") : undefined}>
       <Stack gap={4} className={classes.head}>
         {workflow.isError && <ErrorAlert error={workflow.error} title={t("threads.pane.workflowFailed")} />}
         <Group align="center" wrap="wrap" gap="xs">
@@ -168,6 +177,9 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             {t("threads.pane.lastActivity", { when: formatDateTime(thread.lastActivityAt, zone) })}
           </Text>
         </Group>
+        {thread.hashtags.length > 0 && (
+          <ThreadHashtags roomId={room.id} number={thread.number} hashtags={thread.hashtags} limit={HEADER_HASHTAGS} onShowAll={showAllHashtags} />
+        )}
         <ThreadPinStrip room={room} threadNumber={thread.number} open={pinsOpen} onOpenChange={setPinsOpen} onShow={requestJump} focusPane={focusPane} />
       </Stack>
       <div id={sideId} className={classes.side} data-open={detailsOpen} role="region" aria-label={t("threads.side.aria")} tabIndex={0}>

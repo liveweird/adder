@@ -7,9 +7,11 @@ import { Link as RouterLink } from "react-router-dom";
 import { getUserId } from "../api/session";
 import { useKnownNames } from "../utils/knownNames";
 import { personPath } from "../utils/personLinks";
+import { focusThreadPaneState } from "../utils/roomLinks";
 import { teamPath } from "../utils/teamLinks";
 import remarkHashtags from "../utils/remarkHashtags";
 import remarkMentions from "../utils/remarkMentions";
+import remarkThreadRefs from "../utils/remarkThreadRefs";
 import classes from "./MarkdownView.module.css";
 
 // Read-only renderer for the markdown strings the app carries. Single home for the Mantine
@@ -25,6 +27,9 @@ import classes from "./MarkdownView.module.css";
 //   Neither variant renders raw HTML (react-markdown's default; there is no rehype-raw).
 //   A message variant given `tagHref` also turns each #hashtag (`remarkHashtags`) into an in-app router link (no `target`, the tag as
 //   plain text inside it) to `tagHref(tag)`; the document variant never does, and without `tagHref` a tag stays text.
+//   A message variant given `threadHref` also turns each `#42` (`remarkThreadRefs`, 1.2 A9) into a router link to `threadHref(42)`, the thread of
+//   that number in the SAME room (the caller says which room); nothing checks that the thread exists, so a number with none opens the pane's "does
+//   not exist". Hashtags and thread numbers never overlap (a hashtag holds a letter), and both skip code and links.
 //   A message variant given a non-empty `mentions` also reads each `<@id>` token (`remarkMentions`): an id the list names reads `@Name` (marked
 //   when it is the reader), any other id stays the raw token, because the server's list is the verdict. The name is a React text child, never Markdown or HTML.
 //   `groupMentions` does the same for `<@team:id>` (read as `@handle` when the list names the team), `<@watchers>` and `<@everyone>` (read as
@@ -40,22 +45,27 @@ const boldParagraph = ({ node: _node, ...props }: WithNode<"h1">) => (
   <p {...(props as ComponentProps<"p">)} className={classes.heading} />
 );
 
-const REMARK_PLUGINS = [remarkGfm, remarkGemoji];
-const REMARK_PLUGINS_WITH_TAGS = [remarkGfm, remarkGemoji, remarkHashtags];
-const REMARK_PLUGINS_WITH_MENTIONS = [remarkGfm, remarkGemoji, remarkMentions];
-const REMARK_PLUGINS_WITH_TAGS_AND_MENTIONS = [remarkGfm, remarkGemoji, remarkHashtags, remarkMentions];
+const BASE_PLUGINS = [remarkGfm, remarkGemoji];
 
-// The message variant's `tagHref`, handed to its `a` renderer through context so the components map can stay ONE module constant: a map
+// The message variant's `tagHref` and `threadHref`, handed to its `a` renderer through context so the components map can stay ONE module constant: a map
 // built per render is a new component type each time, which remounts every link and heading of every message (a keyboard user's focus
 // on a #tag link would drop to <body> on any re-render, such as a live refetch).
-const TagHrefContext = createContext<((tag: string) => string) | undefined>(undefined);
+type LinkHrefs = { tag?: (tag: string) => string; thread?: (number: number) => string };
+const LinkHrefsContext = createContext<LinkHrefs>({});
 
 function MessageLink({ node: _node, ...props }: WithNode<"a">) {
-  const tagHref = useContext(TagHrefContext);
-  // `data-hashtag` is set only by `remarkHashtags` (a user cannot write it: raw HTML is not rendered), so it marks the plugin's links.
-  const tag = (props as { "data-hashtag"?: string })["data-hashtag"];
-  return tagHref !== undefined && tag !== undefined ? (
-    <RouterLink to={tagHref(tag)}>{props.children}</RouterLink>
+  const { tag: tagHref, thread: threadHref } = useContext(LinkHrefsContext);
+  // `data-hashtag` and `data-thread-number` are set only by `remarkHashtags` and `remarkThreadRefs` (a user cannot write them: raw HTML is not
+  // rendered), so they mark the plugins' links.
+  const marks = props as { "data-hashtag"?: string; "data-thread-number"?: string };
+  const tag = marks["data-hashtag"];
+  const threadNumber = marks["data-thread-number"];
+  if (tagHref !== undefined && tag !== undefined) return <RouterLink to={tagHref(tag)}>{props.children}</RouterLink>;
+  // The pane takes focus after the jump, as it does for a list row: the link is left behind in the conversation.
+  return threadHref !== undefined && threadNumber !== undefined ? (
+    <RouterLink to={threadHref(Number(threadNumber))} state={focusThreadPaneState}>
+      {props.children}
+    </RouterLink>
   ) : (
     <a {...props} target="_blank" rel="noopener noreferrer" />
   );
@@ -143,6 +153,7 @@ export default function MarkdownView({
   children,
   variant = "document",
   tagHref,
+  threadHref,
   mentions,
   groupMentions,
 }: {
@@ -150,6 +161,8 @@ export default function MarkdownView({
   variant?: MarkdownVariant;
   /** The message variant's hashtag links: where a tag leads (a router path; the tag is the typed spelling, not yet encoded). Needs a router. */
   tagHref?: (tag: string) => string;
+  /** The message variant's `#42` links: where a thread number of the SAME room leads (a router path). Needs a router. */
+  threadHref?: (number: number) => string;
   /** The message variant's mentioned people (`MessageResponse.mentions`): only an id listed here reads as a name. */
   mentions?: readonly { userId: number; name: string }[];
   /** The message variant's group mentions (`MessageResponse.groupMentions`): only a team, `@watchers` or `@everyone` listed here reads as one. */
@@ -174,23 +187,22 @@ export default function MarkdownView({
     [people, groups],
   );
   const withTags = message && tagHref !== undefined;
-  const plugins =
-    named === undefined
-      ? withTags
-        ? REMARK_PLUGINS_WITH_TAGS
-        : REMARK_PLUGINS
-      : withTags
-        ? REMARK_PLUGINS_WITH_TAGS_AND_MENTIONS
-        : REMARK_PLUGINS_WITH_MENTIONS;
+  const withRefs = message && threadHref !== undefined;
+  const withNames = named !== undefined;
+  const plugins = useMemo(
+    () => [...BASE_PLUGINS, ...(withTags ? [remarkHashtags] : []), ...(withNames ? [remarkMentions] : []), ...(withRefs ? [remarkThreadRefs] : [])],
+    [withTags, withNames, withRefs],
+  );
+  const hrefs: LinkHrefs = { tag: message ? tagHref : undefined, thread: message ? threadHref : undefined };
   return (
     <Typography className={message ? classes.message : classes.document}>
-      <TagHrefContext.Provider value={message ? tagHref : undefined}>
+      <LinkHrefsContext.Provider value={hrefs}>
         <MentionsContext.Provider value={context}>
           <ReactMarkdown remarkPlugins={plugins} components={message ? messageComponents : undefined}>
             {children}
           </ReactMarkdown>
         </MentionsContext.Provider>
-      </TagHrefContext.Provider>
+      </LinkHrefsContext.Provider>
     </Typography>
   );
 }

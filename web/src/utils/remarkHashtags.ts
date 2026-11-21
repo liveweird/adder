@@ -11,7 +11,7 @@ import { hashtagSegments } from "./hashtags";
  * `[link](…)`, which the SPA never links (a link inside a link is invalid HTML): a known, documented difference.
  */
 
-interface MdNode {
+export interface MdNode {
   type: string;
   value?: string;
   url?: string;
@@ -19,18 +19,20 @@ interface MdNode {
   data?: { hProperties: Record<string, string> };
 }
 
-const SKIPPED = new Set(["code", "inlineCode", "link", "linkReference", "definition", "html", "image"]);
+export const SKIPPED = new Set(["code", "inlineCode", "link", "linkReference", "definition", "html", "image"]);
 
 /**
  * The character that sits before the next text node in the document when the node ahead of it carries it. gfm turns
  * `mail@example.com#frag` into an e-mail link followed by the text `#frag`, but the server sees the `m` glued to the hash (no tag): that
- * autolink's last character is passed on to the lookbehind. Any other neighbour ends in markup the server sees too (`)`, `*`, a space),
- * which the lookbehind accepts.
+ * autolink's last character is passed on to the lookbehind. The same holds for a hashtag link (`#release#42`: `remarkThreadRefs` runs after this
+ * plugin, so the `#42` follows the link `#release`, and the `e` before the hash glues it). Any other neighbour ends in markup the server sees too
+ * (`)`, `*`, a space), which the lookbehind accepts.
  */
-function charBefore(previous: MdNode | undefined): string {
-  if (previous?.type !== "link" || !previous.url?.startsWith("mailto:") || previous.children?.length !== 1) return "";
+export function charBefore(previous: MdNode | undefined): string {
+  if (previous?.type !== "link" || previous.children?.length !== 1) return "";
   const text = previous.children[0].value ?? "";
-  return text === previous.url.slice("mailto:".length) ? text.slice(-1) : "";
+  if (previous.data?.hProperties["data-hashtag"] !== undefined) return text.slice(-1);
+  return previous.url?.startsWith("mailto:") === true && text === previous.url.slice("mailto:".length) ? text.slice(-1) : "";
 }
 
 function link(text: string, tag: string): MdNode {

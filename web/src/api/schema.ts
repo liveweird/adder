@@ -2736,7 +2736,13 @@ export interface components {
              * @description How many active members watch the thread; who they are is not on the wire.
              */
             watcherCount: number;
+            hashtags: components["schemas"]["ThreadHashtags"];
         };
+        /**
+         * @description The thread's HASHTAGS (the `#word`s of its live messages, 0.5.0): the distinct stored (case- and accent-folded)
+         *     keys, alphabetical, at most 20. Each is a valid `tag` filter value of the thread list. A deleted message's hashtags are gone; an edit adds or drops them.
+         */
+        ThreadHashtags: string[];
         ThreadListItem: {
             /** Format: int32 */
             id: number;
@@ -2768,6 +2774,7 @@ export interface components {
             unreadCount: number;
             /** @description The CALLER watches the thread (`PUT .../watch`); `false` for someone who is not a member. */
             watching: boolean;
+            hashtags: components["schemas"]["ThreadHashtags"];
         };
         ThreadPage: {
             items: components["schemas"]["ThreadListItem"][];

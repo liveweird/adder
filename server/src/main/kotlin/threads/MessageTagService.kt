@@ -30,6 +30,7 @@ import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.intLiteral
 import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.core.stringParam
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -71,6 +72,20 @@ FROM (SELECT u.m, u.t, u.r, btrim(left(lower(public.unaccent(u.x)), $MAX_STORED_
       FROM unnest(CAST(? AS int4[]), CAST(? AS int4[]), CAST(? AS int4[]), CAST(? AS text[])) AS u(m, t, r, x)) f
 WHERE char_length(f.k) >= 1
 ON CONFLICT DO NOTHING"""
+
+/** How many hashtags a thread shows on the wire: the first this many in alphabetical order (`ThreadListItem.hashtags`). */
+const val MAX_THREAD_HASHTAGS = 20
+
+/**
+ * The hashtags of a page of threads, ONE statement: per thread id, its distinct tags in key order, at most [MAX_THREAD_HASHTAGS]. Each
+ * thread is one probe of `idx_message_tags_thread (thread_id, tag)` (V31), which hands the keys over already ordered, so the `LIMIT` stops
+ * the probe early and the room's tag index is never scanned. Deleted messages hold no rows. Argument: the thread ids. Constant text.
+ */
+internal const val HASHTAGS_OF_SQL = """
+SELECT t.id, h.tag
+FROM unnest(CAST(? AS int4[])) AS t(id)
+CROSS JOIN LATERAL (SELECT DISTINCT mt.tag FROM message_tags mt WHERE mt.thread_id = t.id ORDER BY mt.tag LIMIT $MAX_THREAD_HASHTAGS) h
+ORDER BY t.id, h.tag"""
 
 /** A message whose body is to be (re)indexed: where it lives and what it says. */
 private class TaggedMessage(val messageId: UInt, val threadId: UInt, val roomId: UInt, val tags: List<String>)
@@ -136,6 +151,20 @@ class MessageTagService(
                 texts to rows.map { it.second },
             ),
         )
+    }
+
+    /**
+     * The hashtags of [threadIds] by thread id, alphabetical, at most [MAX_THREAD_HASHTAGS] each (a thread with none is absent), in ONE
+     * statement ([HASHTAGS_OF_SQL]). Runs INSIDE the caller's transaction and its budget: no lock, ids in, folded keys out.
+     */
+    suspend fun hashtagsOf(threadIds: Collection<UInt>): Map<UInt, List<String>> {
+        if (threadIds.isEmpty()) return emptyMap()
+        val rows = TransactionManager.current().exec(
+            HASHTAGS_OF_SQL,
+            listOf(INTS to threadIds.map { it.toInt() }),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Int::class.javaObjectType)!!.toUInt() to row.get(1, String::class.java)!! }
+        return rows?.toList().orEmpty().filterNotNull().groupBy({ it.first }, { it.second })
     }
 
     /**

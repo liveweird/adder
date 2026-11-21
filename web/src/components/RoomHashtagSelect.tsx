@@ -3,7 +3,7 @@ import { Group, Text } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { listRoomTags } from "../api/threads";
+import { listRoomHashtags } from "../api/threads";
 import { FILTER_DEBOUNCE_MS, OPTION_PAGE_SIZE } from "../hooks/usePagedSort";
 import { roomKeys } from "../utils/roomKeys";
 import { MAX_TAG_VALUES } from "../utils/threadListParams";
@@ -22,7 +22,7 @@ const searchTerm = (typed: string) => [...typed.trim().replace(/^#+/, "").trim()
  * URL key): a pick is the tag as the list returned it (folded), a value from a link is the spelling typed in a message, and a value the
  * current search does not return is still an option (labelled by itself), so its pill keeps its name. At most 10 values, the server's limit.
  */
-export default function RoomTagSelect({
+export default function RoomHashtagSelect({
   roomId,
   label,
   emptyLabel,
@@ -41,8 +41,8 @@ export default function RoomTagSelect({
   const [debounced] = useDebouncedValue(term, FILTER_DEBOUNCE_MS);
   // Under the room's thread-list prefix, so a live hint that refreshes the list (a message with a tag) re-reads the options.
   const results = useQuery({
-    queryKey: [...roomKeys.threadTags(roomId), debounced],
-    queryFn: () => listRoomTags(roomId, { page: 1, pageSize: OPTION_PAGE_SIZE, q: debounced || undefined }),
+    queryKey: [...roomKeys.roomHashtags(roomId), debounced],
+    queryFn: () => listRoomHashtags(roomId, { page: 1, pageSize: OPTION_PAGE_SIZE, q: debounced || undefined }),
     // The previous term's rows bridge a new search, never another room's (the key's third part is the room).
     placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === roomId ? previous : undefined),
   });
@@ -63,7 +63,7 @@ export default function RoomTagSelect({
         maxValues={MAX_TAG_VALUES}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
-        nothingFoundMessage={loading || results.isError || term !== debounced ? undefined : t("threads.filters.noTags")}
+        nothingFoundMessage={loading || results.isError || term !== debounced ? undefined : t("threads.filters.noHashtags")}
         aria-busy={loading}
         renderOption={({ option }) => (
           <Group justify="space-between" gap="xs" w="100%" wrap="nowrap">

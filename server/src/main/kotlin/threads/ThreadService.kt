@@ -72,6 +72,7 @@ class ThreadService(
     private val messages: MessageService,
     private val watches: ThreadWatchService,
     private val teams: TeamService,
+    private val tags: MessageTagService,
     private val readLimiter: ReadLimiter = ReadLimiter(),
 ) {
     object Threads : UIntIdTable("threads") {
@@ -126,6 +127,8 @@ class ThreadService(
                 ?.let { unreadCountsOf(callerUserId, it, rows.map { row -> row[Threads.id].value }) }.orEmpty()
             budget.arm(this)
             val watching = watches.watchingAmong(roomId, callerUserId, rows.map { row -> row[Threads.id].value })
+            budget.arm(this)
+            val hashtags = tags.hashtagsOf(rows.map { row -> row[Threads.id].value })
             ThreadListResult(
                 items = rows.map {
                     ThreadListItem(
@@ -141,6 +144,7 @@ class ThreadService(
                         createdAt = it[Threads.createdAt],
                         unreadCount = unread[it[Threads.id].value] ?: 0,
                         watching = it[Threads.id].value in watching,
+                        hashtags = hashtags[it[Threads.id].value].orEmpty(),
                     )
                 },
                 total = total,
@@ -184,6 +188,7 @@ class ThreadService(
             firstUnreadMessageId = unread?.firstMessageId,
             watching = threadId in watching,
             watcherCount = watches.count(threadId),
+            hashtags = tags.hashtagsOf(listOf(threadId))[threadId].orEmpty(),
         )
     }
 

@@ -27,6 +27,9 @@ import { activeFilterCount, ORDERS, pruneFieldEntries, SCOPES, toApiQuery, type 
 import { getUserId } from "../api/session";
 import ThreadFilters from "./ThreadFilters";
 
+/** A row shows this many of the thread's hashtags, as dimmed text, and "+N" for the rest (the row is one link: they cannot be links here). */
+const ROW_HASHTAGS = 3;
+
 /** The rail shows 50 threads a page (the server's cap is 100); the page-size picker is left out, the rail is too narrow for it. */
 const THREAD_PAGE_SIZE = 50;
 
@@ -35,7 +38,8 @@ const THREAD_PAGE_SIZE = 50;
  * last activity), Open by default and most recently active first, with the Open/Closed/All filter, the order, a pager and, for a
  * member of a live room, "New thread". The open thread is marked with `aria-current`. The state (scope, order, page) lives in the URL
  * (`useThreadListParams`), so a change is one write that also resets the page: a changed filter reads page 1 from its very first request.
- * Every link out of the list keeps the list's keys, so opening a thread never loses the reader's place.
+ * Every link out of the list keeps the list's keys, so opening a thread never loses the reader's place. A row shows up to three of the thread's
+ * hashtags and "+N" as dimmed TEXT (1.2 A8): a row is one link, so a hashtag cannot be a link inside it (the pane's header and side panel have them as links).
  */
 export default function ThreadList({ room, activeNumber }: { room: RoomResponse; activeNumber: number | null }) {
   const { t } = useTranslation();
@@ -167,6 +171,12 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                       <Text size="xs" c="dimmed">
                         {t("threads.row.messages", { count: thread.messageCount })} · {formatDateTime(thread.lastActivityAt, zone)}
                       </Text>
+                      {thread.hashtags.length > 0 && (
+                        <Text size="xs" c="dimmed" data-row-hashtags="">
+                          {thread.hashtags.slice(0, ROW_HASHTAGS).map((tag) => `#${tag}`).join(" ")}
+                          {thread.hashtags.length > ROW_HASHTAGS && ` ${t("threads.row.hashtagsMore", { n: thread.hashtags.length - ROW_HASHTAGS })}`}
+                        </Text>
+                      )}
                     </Stack>
                   </RouterLink>
                   {describedBy !== undefined && <VisuallyHidden id={describedBy}>{note}</VisuallyHidden>}

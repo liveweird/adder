@@ -2,7 +2,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { act, screen, waitFor } from "@testing-library/react";
-import RoomTagSelect from "./RoomTagSelect";
+import RoomHashtagSelect from "./RoomHashtagSelect";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 
@@ -19,7 +19,7 @@ const TAGS = {
 function Harness({ initial = [], onChange, roomId = 12 }: { initial?: string[]; onChange?: (next: string[]) => void; roomId?: number }) {
   const [value, setValue] = useState(initial);
   return (
-    <RoomTagSelect
+    <RoomHashtagSelect
       roomId={roomId}
       label="Hashtags"
       emptyLabel="All"
@@ -32,7 +32,7 @@ function Harness({ initial = [], onChange, roomId = 12 }: { initial?: string[]; 
   );
 }
 
-describe("RoomTagSelect", () => {
+describe("RoomHashtagSelect", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   const tagCalls = () => mockFetch.mock.calls.map(([url]) => url as string).filter((url) => url.startsWith("/api/v1/rooms/12/tags?"));
   const serve = (answer: () => Promise<Response> = () => Promise.resolve(jsonResponse(200, TAGS))) =>

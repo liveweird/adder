@@ -59,7 +59,9 @@ object TestThreads {
     /** The watches (V26): the same service the real thread writes add the creator's auto-watch through. */
     internal val watches: ThreadWatchService by lazy { ThreadWatchService(sharedDatabaseForTests(), members) }
     val service: ThreadService by lazy {
-        ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, messages, watches, teams)
+        val database = sharedDatabaseForTests()
+        val tags = MessageTagService(database)
+        ThreadService(database, TestRooms.service, TestRooms.workflows, members, events, messages, watches, teams, tags)
     }
 
     /**

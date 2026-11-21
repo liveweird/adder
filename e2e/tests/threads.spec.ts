@@ -459,6 +459,12 @@ test("the details panel opens on demand and stays open for the next thread", asy
   await expect(page.getByRole("heading", { level: 3, name: `#3 ${longTitle}` })).toBeVisible();
   await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
+  // Seven hashtags, one of them fifty characters long, put a third row under the header (1.2.0). It is ONE line however narrow the header is
+  // (four links that shrink to an ellipsis, then "+3"), so it cannot push Send off the screen either.
+  await reply(page, ["#alpha", "#beta", "#gamma", "#delta", "#epsilon", "#zeta", `#${"x".repeat(50)}`].join(" "));
+  const tagRow = page.getByRole("group", { name: "Hashtags", exact: true }).first();
+  await expect(tagRow.getByRole("button", { name: /^\+3: / })).toBeVisible();
+  const oneLine = async (where: string) => expect((await tagRow.boundingBox())!.height, `the hashtag row is one line, ${where}`).toBeLessThan(28);
   for (const size of [
     { width: 1280, height: 720 },
     { width: 1440, height: 900 },
@@ -466,6 +472,7 @@ test("the details panel opens on demand and stays open for the next thread", asy
     await page.setViewportSize(size);
     await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight), `no page scroll at ${size.width}x${size.height}`).toBe(true);
+    await oneLine(`panel open at ${size.width}x${size.height}`);
   }
   // A pinned message adds the pin strip under the header (1.2.0): one line collapsed; expanded, its capped list is in flow and the
   // conversation gives the height back, so Send stays in view and the page still does not scroll, with the panel open, at both sizes.
@@ -486,10 +493,31 @@ test("the details panel opens on demand and stays open for the next thread", asy
       if (state === "expanded") await pinToggle.click();
       await expect(page.getByRole("button", { name: "Send", exact: true }), `Send with the strip ${state} at ${size.width}x${size.height}`).toBeInViewport();
       expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight), `no page scroll with the strip ${state} at ${size.width}x${size.height}`).toBe(true);
+      await oneLine(`panel open, strip ${state} at ${size.width}x${size.height}`);
     }
     await expect(pinStrip.getByRole("link", { name: /^Show in thread/ })).toBeVisible();
     await pinStrip.getByRole("button", { name: /^Pinned in this thread/ }).click();
   }
+  // The same with the panel CLOSED, strip collapsed and expanded: the third row is there, still one line, and Send stays in view.
+  const detailsButton = page.getByRole("button", { name: "Details", exact: true });
+  await detailsButton.click();
+  await expect(detailsButton).toHaveAttribute("aria-expanded", "false");
+  for (const size of [
+    { width: 1280, height: 720 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(size);
+    for (const state of ["collapsed", "expanded"]) {
+      if (state === "expanded") await pinToggle.click();
+      const where = `the panel closed and the strip ${state} at ${size.width}x${size.height}`;
+      await expect(page.getByRole("button", { name: "Send", exact: true }), `Send with ${where}`).toBeInViewport();
+      expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight), `no page scroll with ${where}`).toBe(true);
+      await oneLine(where);
+    }
+    await pinStrip.getByRole("button", { name: /^Pinned in this thread/ }).click();
+  }
+  await detailsButton.click();
+  await expect(detailsButton).toHaveAttribute("aria-expanded", "true");
   await page.setViewportSize({ width: 1280, height: 720 });
   await threadList(page).getByRole("link", { name: new RegExp(second) }).click();
 

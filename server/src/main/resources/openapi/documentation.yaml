@@ -3888,6 +3888,7 @@ components:
         - firstUnreadMessageId
         - watching
         - watcherCount
+        - hashtags
       properties:
         id: { type: integer, format: int32, minimum: 1 }
         number: { type: integer, format: int32, minimum: 1, description: The per-room number (`#42`); never reused. }
@@ -3925,9 +3926,18 @@ components:
           description: The first of those messages; `null` when none is unread or the caller is not a member.
         watching: { type: boolean, description: The CALLER watches the thread (`PUT .../watch`); `false` for someone who is not a member. }
         watcherCount: { type: integer, format: int32, minimum: 0, description: 'How many active members watch the thread; who they are is not on the wire.' }
+        hashtags:
+          $ref: '#/components/schemas/ThreadHashtags'
+    ThreadHashtags:
+      type: array
+      maxItems: 20
+      description: |
+        The thread's HASHTAGS (the `#word`s of its live messages, 0.5.0): the distinct stored (case- and accent-folded)
+        keys, alphabetical, at most 20. Each is a valid `tag` filter value of the thread list. A deleted message's hashtags are gone; an edit adds or drops them.
+      items: { type: string, minLength: 1, maxLength: 150 }
     ThreadListItem:
       type: object
-      required: [id, number, title, status, closed, ownerId, ownerName, messageCount, lastActivityAt, createdAt, unreadCount, watching]
+      required: [id, number, title, status, closed, ownerId, ownerName, messageCount, lastActivityAt, createdAt, unreadCount, watching, hashtags]
       properties:
         id: { type: integer, format: int32, minimum: 1 }
         number: { type: integer, format: int32, minimum: 1 }
@@ -3946,6 +3956,8 @@ components:
           maximum: 100
           description: 'Messages the CALLER has not read (the newest 100 after their marker are counted, so 100 is "100 or more"); 0 for someone who is not a member.'
         watching: { type: boolean, description: The CALLER watches the thread (`PUT .../watch`); `false` for someone who is not a member. }
+        hashtags:
+          $ref: '#/components/schemas/ThreadHashtags'
     ThreadPage:
       type: object
       required: [items, page, pageSize, total]

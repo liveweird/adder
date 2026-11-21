@@ -32,9 +32,10 @@ function threadKeys(kind: ThreadScopedKind, r: number, n: number | undefined): Q
     case "message.posted":
       return [messages(r, n), threadDetail(r, n), threadList(r), RAIL];
     case "message.edited":
-      // The conversation, the list (an edit can add or drop a hashtag, which a tag filter would show or hide) and the room's pins (a pinned
-      // message's body shows in the panel; a redacted one must not linger there).
-      return [messages(r, n), threadList(r), pins(r)];
+      // The conversation, the thread itself (an edit can add or drop a hashtag, which its header and side panel show), the list (the same, on
+      // its rows, and a tag filter would show or hide the thread) and the room's pins (a pinned message's body shows in the panel; a
+      // redacted one must not linger there).
+      return [messages(r, n), threadDetail(r, n), threadList(r), pins(r)];
     case "message.reaction_changed":
       // Only the conversation shows reactions: no count, no list order and no rail moves with one (a reaction is not activity). Spaced: `isSlowFrame`.
       return [messages(r, n)];

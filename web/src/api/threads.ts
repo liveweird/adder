@@ -12,7 +12,7 @@ export type ThreadFieldValues = NonNullable<ThreadCreateBody["fields"]>;
 export type ThreadUpdateBody = paths["/api/v1/rooms/{id}/threads/{number}"]["put"]["requestBody"]["content"]["application/json"];
 export type ThreadEventPage = paths["/api/v1/rooms/{id}/threads/{number}/events"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ThreadEvent = ThreadEventPage["items"][number];
-export type RoomTagPage = paths["/api/v1/rooms/{id}/tags"]["get"]["responses"]["200"]["content"]["application/json"];
+export type RoomHashtagPage = paths["/api/v1/rooms/{id}/tags"]["get"]["responses"]["200"]["content"]["application/json"];
 
 type ThreadListQuery = {
   page: number;
@@ -30,7 +30,7 @@ type ThreadListQuery = {
   mentionsMe?: boolean;
   /** `key:value` pairs: any-of within a key, all-of across keys (SELECT, MULTI_SELECT and USER fields; a key that is not one is a 400). */
   field?: string[];
-  /** Any of these hashtags, as typed or as `listRoomTags` returned them (the server folds case and accents); at most 10 distinct. */
+  /** Any of these hashtags, as typed or as `listRoomHashtags` returned them (the server folds case and accents); at most 10 distinct. */
   tag?: string[];
   /** `true` = only the threads the CALLER watches (the SPA's "Watching" filter); omitted = all. */
   watching?: boolean;
@@ -42,9 +42,9 @@ export async function listThreads(roomId: number, q: ThreadListQuery): Promise<T
 }
 
 /** One page of a room's hashtags (`{tag, threadCount}`, the tag folded, no `#`). Sortable by `tag` or `threadCount` (the default, `-threadCount`); `q` is a case- and accent-insensitive substring of at most 50 characters. */
-export async function listRoomTags(roomId: number, q: { page: number; pageSize: number; sort?: string; q?: string }): Promise<RoomTagPage> {
+export async function listRoomHashtags(roomId: number, q: { page: number; pageSize: number; sort?: string; q?: string }): Promise<RoomHashtagPage> {
   const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, q: q.q });
-  return jsonRequest<RoomTagPage>(`/api/v1/rooms/${roomId}/tags?${params}`);
+  return jsonRequest<RoomHashtagPage>(`/api/v1/rooms/${roomId}/tags?${params}`);
 }
 
 export async function getThread(roomId: number, number: number): Promise<ThreadResponse> {

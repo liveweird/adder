@@ -48,6 +48,32 @@ The data of each scenario is seeded through the API (threads, replies, status mo
 4. The owner edits the reply through its menu, removing the tag, and saves.
    - *Expected*: the save answers 204; Release leaves the filtered list while Hotfix stays.
 
+## Scenario: a thread's hashtags show on its list row and in its header
+
+1. The administrator mints an owner; the owner makes a Default room through the API and seeds two threads: Release (its opening message carries a
+   hashtag typed in capitals) and Lunch (none).
+2. The owner opens the room.
+   - *Expected*: Release's row shows the hashtag in dimmed text, lower case (the stored key), and holds no link of its own; Lunch's row shows none.
+3. The owner opens Release and looks at the thread header.
+   - *Expected*: a "Hashtags" group under the title holds a link named after the hashtag.
+4. The owner replies with a second hashtag.
+   - *Expected*: with no reload the header gains a link for it and Release's row shows it too.
+5. The owner edits the reply through its menu, removing the second hashtag, and saves.
+   - *Expected*: the save answers 204; the header's link for it is gone and the row no longer shows it.
+6. The owner clicks the header's link for the first hashtag.
+   - *Expected*: the address stays on Release with `tag=<hashtag>` and `scope=all`; Release is listed and Lunch is not.
+
+## Scenario: a thread number in a message links to that thread
+
+1. The administrator mints an owner; the owner makes a Default room through the API and seeds two threads, Origin and Target. A message in Origin
+   says `Duplicate of #<Target's number>`, repeats the number once in inline code and names a number no thread has.
+2. The owner opens Origin with `scope=all` in the address.
+   - *Expected*: the message holds exactly one link named `#<Target's number>`; the repeat in code is code, not a link.
+3. The owner clicks the link.
+   - *Expected*: the address is Target's thread of the same room and still holds `scope=all`; the pane's heading reads `#<number> <Target>`.
+4. The owner goes back and clicks the link for the number no thread has.
+   - *Expected*: the address names that number and the pane says "This thread does not exist."
+
 ## Scenario: a room search finds a Polish word typed without accents and opens the message
 
 1. The administrator mints an owner and a teammate; the owner makes a Default room through the API and adds the teammate. A thread is seeded whose

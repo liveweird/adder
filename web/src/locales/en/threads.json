@@ -19,8 +19,8 @@
   "filters": {
     "all": "All",
     "status": "Status",
-    "tags": "Hashtags",
-    "noTags": "No hashtags found",
+    "hashtags": "Hashtags",
+    "noHashtags": "No hashtags found",
     "owner": "Owner",
     "mine": "Mine",
     "mentionsMe": "Mentions me",
@@ -37,7 +37,14 @@
   },
   "row": {
     "messages_one": "{{count}} message",
-    "messages_other": "{{count}} messages"
+    "messages_other": "{{count}} messages",
+    "hashtagsMore": "+{{n}}"
+  },
+  "hashtags": {
+    "aria": "Hashtags",
+    "more_one": "+{{count}}: show {{count}} more hashtag in the details",
+    "more_other": "+{{count}}: show {{count}} more hashtags in the details",
+    "moreShort": "+{{n}}"
   },
   "pane": {
     "actionsAria": "Thread actions",
@@ -159,6 +166,7 @@
     "status": "Status",
     "owner": "Owner",
     "details": "Details",
+    "hashtags": "Hashtags",
     "history": "History",
     "unavailable": "Not available until the room's statuses have loaded."
   },

@@ -93,13 +93,19 @@
      `--strip-list-max` (read by `ThreadPinStrip.module.css`) and the conversation may shrink to 6rem: at 1280x720 with the side panel open and
      a long title the conversation is about 240px with the strip collapsed, and the list takes what the conversation can spare. Wide only; narrow
      keeps the full 16rem and the narrow cap. */
+  /* The hashtag row (`data-tags`) is ONE line by construction (`ThreadHashtags.module.css`) and takes about 1.75rem with its gap, and the strip's collapsed line comes off the same minimum. */
+  .pane[data-tags="true"] {
+    --tags-take: 1.75rem;
+    --scroller-min: calc(16rem - var(--tags-take));
+  }
+
   .pane[data-strip="closed"] {
-    --scroller-min: 14.25rem;
+    --scroller-min: calc(14.25rem - var(--tags-take, 0rem));
   }
 
   .pane[data-strip="open"] {
     --scroller-min: 6rem;
-    --strip-list-max: min(12rem, 14dvh);
+    --strip-list-max: calc(min(12rem, 14dvh) - var(--tags-take, 0rem));
   }
 
   .pane[data-side="open"] {

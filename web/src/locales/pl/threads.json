@@ -19,8 +19,8 @@
   "filters": {
     "all": "Wszystkie",
     "status": "Status",
-    "tags": "Hasztagi",
-    "noTags": "Nie znaleziono hasztagów",
+    "hashtags": "Hasztagi",
+    "noHashtags": "Nie znaleziono hasztagów",
     "owner": "Właściciel/ka",
     "mine": "Moje",
     "mentionsMe": "Wzmianki o mnie",
@@ -39,7 +39,16 @@
     "messages_one": "{{count}} wiadomość",
     "messages_few": "{{count}} wiadomości",
     "messages_many": "{{count}} wiadomości",
-    "messages_other": "{{count}} wiadomości"
+    "messages_other": "{{count}} wiadomości",
+    "hashtagsMore": "+{{n}}"
+  },
+  "hashtags": {
+    "aria": "Hasztagi",
+    "more_one": "+{{count}}: pokaż jeszcze {{count}} hasztag w szczegółach",
+    "more_few": "+{{count}}: pokaż jeszcze {{count}} hasztagi w szczegółach",
+    "more_many": "+{{count}}: pokaż jeszcze {{count}} hasztagów w szczegółach",
+    "more_other": "+{{count}}: pokaż jeszcze {{count}} hasztagu w szczegółach",
+    "moreShort": "+{{n}}"
   },
   "pane": {
     "actionsAria": "Działania na wątku",
@@ -165,6 +174,7 @@
     "status": "Status",
     "owner": "Właściciel/ka",
     "details": "Szczegóły",
+    "hashtags": "Hasztagi",
     "history": "Historia",
     "unavailable": "Niedostępne, dopóki nie wczytają się statusy pokoju."
   },

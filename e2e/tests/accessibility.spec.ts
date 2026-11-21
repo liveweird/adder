@@ -156,7 +156,8 @@ async function seedConversation(api: APIRequestContext, adminId: number, roomId:
   };
   const lagging = await post(mateApi, "The **replica** is lagging: see [the dashboard](https://example.test/dash) and `pg_stat_replication`.");
   await post(mateApi, `<@${adminId}> could you take the failover?\n\n- first drain the writer\n- then promote #axe-sweep\n\n\`\`\`\nSELECT pg_promote();\n\`\`\``);
-  await post(api, "On it, promoting now.");
+  // `#<number>` of this very thread: a thread reference is a link in the conversation (1.2.0), so the sweep scans it.
+  await post(api, `On it, promoting now. See also #${threadNumber}.`);
   for (const [client, emoji] of [[mateApi, "👍"], [api, "👍"], [mateApi, "🎉"]] as const) {
     const reacted = await client.put(`/api/v1/rooms/${roomId}/messages/${lagging}/reaction`, { data: { emoji, reacted: true } });
     expect(reacted.status(), await reacted.text()).toBe(204);

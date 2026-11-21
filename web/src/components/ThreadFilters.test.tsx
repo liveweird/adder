@@ -44,7 +44,7 @@ const MEMBERS = {
   total: 2,
 };
 const THREADS = {
-  items: [{ id: 1, number: 2, title: "Disk full", status: "triage", closed: false, ownerId: 5, ownerName: "Ann", messageCount: 4, lastActivityAt: 1, createdAt: 1 }],
+  items: [{ id: 1, number: 2, title: "Disk full", status: "triage", closed: false, ownerId: 5, ownerName: "Ann", messageCount: 4, lastActivityAt: 1, createdAt: 1, hashtags: [] }],
   page: 1,
   pageSize: 50,
   total: 1,

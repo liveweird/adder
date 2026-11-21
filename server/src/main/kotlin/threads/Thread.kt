@@ -57,6 +57,8 @@ data class ThreadListItem(
     val unreadCount: Int,
     /** The CALLER watches the thread (`chat-model.md` "Watching (V26)"); false for someone who is no member. */
     val watching: Boolean,
+    /** The thread's hashtags (V15 `message_tags`): the folded keys of its live messages, alphabetical, at most [MAX_THREAD_HASHTAGS]. */
+    val hashtags: List<String>,
 )
 
 @Serializable
@@ -92,6 +94,8 @@ data class ThreadResponse(
     val watching: Boolean,
     /** How many active members watch the thread (the list of them is not on the wire). */
     val watcherCount: Int,
+    /** The thread's hashtags, as on a list row ([ThreadListItem.hashtags]): the SPA's header and side panel show them as filter links. */
+    val hashtags: List<String>,
 )
 
 typealias ThreadPageResponse = PageResponse<ThreadListItem>

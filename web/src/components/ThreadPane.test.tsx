@@ -51,6 +51,7 @@ const THREAD = {
   lastActivityAt: MOVED,
   createdAt: STARTED,
   updatedAt: MOVED,
+  hashtags: [],
 };
 
 const MESSAGES = [makeMessage({ id: 2, authorName: "Di Other", body: "second" }), makeMessage({ id: 1, authorName: "Bob Starter", body: "the opening message" })];

@@ -1,5 +1,5 @@
 // Find: the thread list's filters (status, owner, a SELECT field, hashtags; the badge, Clear, the URL that survives a reload), hashtags in messages
-// (a link that filters the list, gone when the tag is edited away), the room's own search (a Polish word typed without its accents, the highlighted
+// (a link that filters the list, gone when the tag is edited away), a thread's hashtags on its row and in its header, `#42` as a link, the room's own search (a Polish word typed without its accents, the highlighted
 // snippet, the jump to the message, the client's refusal of a short term), the search across rooms (only the reader's rooms, an administrator's too;
 // reached through the command palette) and the focus view. Owns: its throwaway `e2e-find-*` rooms and users (one of them an administrator,
 // minted through the seed administrator's API), removed through the API in an `afterEach` (rooms first, then the users). Every room is created by a
@@ -226,6 +226,90 @@ test("a hashtag in a message is a link that shows the threads using it", async (
   await expect(messageNamed(page, "it is verified")).toBeVisible();
   await expect(threadLink(page, first)).toHaveCount(0);
   await expect(threadLink(page, second)).toBeVisible();
+});
+
+/** Reply in the open thread's composer and wait for the 201: the message is on screen once this returns. */
+async function reply(page: Page, text: string): Promise<void> {
+  const box = page.getByRole("textbox", { name: "Reply", exact: true });
+  await box.fill(text);
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && MESSAGES_API.test(r.url()) && r.status() === 201),
+    box.press("Control+Enter"),
+  ]);
+}
+
+test("a thread's hashtags show on its list row and in its header", async ({ page }) => {
+  const [owner] = await people(page, "E2E Find Owner");
+  const api = await actingAs(owner);
+  const roomId = await createRoom(api, uniqueText("e2e-find"), "Default");
+  const first = rareWord("outage");
+  const second = rareWord("rollback");
+  const release = uniqueText("Release");
+  const lunch = uniqueText("Lunch");
+  const number = await startThread(api, roomId, release, `Shipping, see #${first.toUpperCase()}.`);
+  await startThread(api, roomId, lunch, "Where do we eat?");
+
+  // The row says the thread's hashtags in dimmed text (the stored, folded key) and holds no link of its own: the row is the one link.
+  await page.goto(`/rooms/${roomId}`);
+  const row = threadLink(page, release);
+  await expect(row).toContainText(`#${first}`);
+  await expect(row.getByRole("link")).toHaveCount(0);
+  await expect(threadLink(page, lunch).locator("[data-row-hashtags]")).toHaveCount(0);
+
+  // The pane header's third row links them; a reply adds one, which both the header and the row pick up with no reload.
+  await row.click();
+  const header = page.getByRole("group", { name: "Hashtags", exact: true }).first();
+  await expect(header.getByRole("link", { name: `#${first}`, exact: true })).toBeVisible();
+  await reply(page, `Held back until #${second} is verified.`);
+  await expect(header.getByRole("link", { name: `#${second}`, exact: true })).toBeVisible();
+  await expect(row).toContainText(`#${second}`);
+
+  // Editing it out drops it from the header (the edit re-reads the thread) and from the row.
+  const posted = messageNamed(page, "Held back until");
+  await posted.getByRole("button", { name: /^Operations for message by / }).click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  await page.getByRole("textbox", { name: "Edit message", exact: true }).fill("Held back until it is verified.");
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && MESSAGE_API.test(r.url()) && r.status() === 204),
+    page.getByRole("button", { name: "Save", exact: true }).click(),
+  ]);
+  await expect(messageNamed(page, "it is verified")).toBeVisible();
+  await expect(header.getByRole("link", { name: `#${second}`, exact: true })).toHaveCount(0);
+  await expect(row).not.toContainText(`#${second}`);
+
+  // A header link narrows the list to the threads that use the hashtag, closed ones included.
+  await header.getByRole("link", { name: `#${first}`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/${number}\\?.*tag=${first}`));
+  await expect(page).toHaveURL(/scope=all/);
+  await expect(threadLink(page, release)).toBeVisible();
+  await expect(threadLink(page, lunch)).toHaveCount(0);
+});
+
+test("a thread number in a message links to that thread", async ({ page }) => {
+  const [owner] = await people(page, "E2E Find Owner");
+  const api = await actingAs(owner);
+  const roomId = await createRoom(api, uniqueText("e2e-find"), "Default");
+  const origin = uniqueText("Origin");
+  const target = uniqueText("Target");
+  const originNumber = await startThread(api, roomId, origin, "Where it started.");
+  const targetNumber = await startThread(api, roomId, target, "Where it went.");
+  const missing = 9_000_000 + originNumber;
+  await postMessage(api, roomId, originNumber, `Duplicate of #${targetNumber}, never \`#${targetNumber}\`, and see #${missing}.`);
+
+  // A number is a link named after it; in code it is not one. The link keeps the list's keys and leads to that thread of the same room.
+  await page.goto(`/rooms/${roomId}/threads/${originNumber}?scope=all`);
+  const message = messageNamed(page, "Duplicate of");
+  await expect(message.getByRole("link", { name: `#${targetNumber}`, exact: true })).toHaveCount(1);
+  await expect(message.locator("code")).toContainText(`#${targetNumber}`);
+  await message.getByRole("link", { name: `#${targetNumber}`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/${targetNumber}\\?.*scope=all`));
+  await expect(page.getByRole("heading", { level: 3, name: `#${targetNumber} ${target}` })).toBeVisible();
+
+  // Nothing checks that a number exists: one with no thread opens the pane's "does not exist".
+  await page.goBack();
+  await page.getByRole("link", { name: `#${missing}`, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/${missing}`));
+  await expect(page.getByText("This thread does not exist.")).toBeVisible();
 });
 
 test("a room search finds a Polish word typed without accents and opens the message", async ({ page }) => {
