@@ -85,7 +85,7 @@ The plan put five decisions to the user; all five took the recommended option, s
 The plan put six decisions to the user. The user was asked for numbers and gave none; the defaults offered were accepted, so each is a decision, not an assumption. The rules they became: `chat-model.md` "Mentions, notifications, unread, reactions, pins (0.6)".
 
 - **0.6 D1. The rooms rail shows a dot plus a count of unseen mentions.** A dot for activity since the member last looked at the room, plus the number of unseen mentions and hand-overs; one flag on the rail's own row, no extra request. The alternatives were an exact count of unread messages per room (two counters kept on every post and read, a drift risk and a large number in a busy room) and mentions only.
-- **0.6 D2. Notification emails are a 5-minute digest, on by default.** A notice still unseen after 5 minutes is mailed; at most one email per person per 15 minutes; each person switches each kind off. The alternatives were the same digest off by default, one email per notification at once, and no email in 0.6.0.
+- **0.6 D2. Notification emails are a 5-minute digest, on by default.** A notice still unseen after 5 minutes is mailed; at most one email per person per 15 minutes; each person switches each kind off. *Reversed by 1.1 D7: email is off by default for every kind.* The alternatives were the same digest off by default, one email per notification at once, and no email in 0.6.0.
 - **0.6 D3. The email says who, the room, the thread number and a link only.** Never the thread title, never message text. The alternatives were a count and a link only, and the title plus the first 200 characters of the message.
 - **0.6 D4. Any member pins and unpins.** Fifty pins a room; every pin says who made it; each change is audited. The alternatives were the room OWNER or an ADMIN only, and any member pins while only the pinner, the room OWNER or an ADMIN unpins.
 - **0.6 D5. One release, 0.6.0,** as the roadmap says. The alternative was 0.6.0 = mentions, notifications and unread and 0.7.0 = reactions and pins, before the 1.0.0 checkup.
@@ -94,6 +94,22 @@ The plan put six decisions to the user. The user was asked for numbers and gave 
 ### 1.0.0 checkup (the user's, 2026-11-20)
 
 - **1.0 D1. The history keeps no raw TEXT or URL values and no title.** A `FIELD_CHANGED` of a TEXT or URL field records who, when and which field, not the text; SELECT, MULTI_SELECT, USER, DATE and NUMBER keep their from/to. The thread's titles (`TITLE_CHANGED.from`/`to`, and the opening title in `CREATED`) are treated like TEXT: the history is append-only, so a credential pasted into a title or a field could never be taken back, and this closes the leak and most of the history's growth at the source. Rows already written are scrubbed by migration V23. Taken from the checkup's C-SEC-5 and the old "scrub a leaked secret" item (the 0.3.0 audit's M4); the alternatives were an audited per-event redaction by a steward and a cap on events per thread. A retired field's remaining values are hidden at read time (C-SEC-6). The rules: `chat-model.md` "History", `persistence.md` "History scrub (V23)".
+
+### 1.1.0 Watching (the user's, 2026-11-21)
+
+Watching, group mentions and per-kind notices. The user took eight decisions (D1 to D8) and then confirmed the three open questions of the plan as the recommended options (D9 to D11) and amended D7. The rules they became: `chat-model.md` "Watching, group mentions and notice kinds (1.1)".
+
+- **1.1 D1. Any member watches or unwatches any thread of their room, closed ones included.** Leaving the room drops the watches. The creator and each new owner watch automatically and may stop. A non-member ADMIN cannot watch.
+- **1.1 D2. A "threads I watch" filter** on the thread list and on both searches.
+- **1.1 D3. Watchers hear replies, status changes (close and reopen included) and owner changes.** Not field edits, reactions or pins.
+- **1.1 D4. Every room member gets a new-thread notice.** Status changes go to watchers only.
+- **1.1 D5. Team handles (stored as an id token), a watchers mention and `@everyone`, usable by any member.**
+- **1.1 D6. One notice per recipient per event, labelled with the most specific reason.** The actor never gets one.
+- **1.1 D7. A grid of in-app and email switches per notice kind (Lettuce's model), no master switch. In-app is on by default for every kind; email is OFF by default for EVERY kind,** the existing `MENTIONED` and `THREAD_ASSIGNED` included. This reverses 0.6 A15 (in-app cannot be switched off) and 0.6 D2 (email on by default). As first decided, email stayed on for the mention kinds; the user amended it the same day. Account email (the MFA code, the password-reset link) is not a notice kind and always goes.
+- **1.1 D8. The V24 email budget stays for group mentions** (20 distinct recipients per actor per UTC day, one pool): the in-app notice is made as usual (subject to the recipient's in-app switch: off means no row, or a row with `in_app = false` when email is on) and the budget withholds only the email.
+- **1.1 D9 (plan Q1). A safety net on wide fan-out.** An event that would notify more than 20 people is a "wide event"; each actor gets 500 a UTC day (config). Over it the write still succeeds and only direct mentions and the hand-over notify, with one audit line per actor per day. This qualifies D4 and the in-app notice rule (made as usual, subject to the in-app switch) in the over-budget case only. The alternatives were the same budget refusing the write with a typed 429, and no bound beyond `chat-post` (about 86M rows a day per account in the worst case, against 3.4M today).
+- **1.1 D10 (plan Q2). Replying or being mentioned does not make you a watcher.** Only the two triggers of D1; `thread_watches` stays a plain hard-delete join. The alternative was watching on reply with a sticky unwatch (a `state` column, about a day more); "auto-watch on reply" is a `BACKLOG.md` item.
+- **1.1 D11 (plan Q3). Three status kinds:** `THREAD_STATUS_CHANGED`, `THREAD_CLOSED`, `THREAD_REOPENED`. It mirrors `thread_events`, lets a person keep "closed" on and "moved" off, and the sentence can say "closed" without an extra column. The alternative was one kind with a generic label.
 
 ## Assumptions (taken without asking; change on request)
 
@@ -179,19 +195,19 @@ Taken without asking, in the 0.6.0 plan. Detail and the rules they became: `chat
 
 - **0.6 A1. The mention token is `<@id>`,** stored in the body as sent; nothing rewrites a body.
 - **0.6 A2. Only an ACTIVE member of the room,** at the moment the message is written or edited, is mentioned; any other id is plain text: no row, no notice, never a refusal.
-- **0.6 A3. The first 20 distinct mentions of a message count;** the rest are ignored.
-- **0.6 A4. No `@room`, no `@here`, no mention of a non-member.**
+- **0.6 A3. The first 20 distinct mentions of a message count;** the rest are ignored. *Extended by 1.1 (5 teams, each keyword once).*
+- **0.6 A4. No `@room`, no `@here`, no mention of a non-member.** *Partly reversed by 1.1: `<@everyone>`, `<@watchers>` and `<@team:id>`; `@here` and a non-member stay out.*
 - **0.6 A5. A mention of oneself is shown and never notified.**
-- **0.6 A6. An edit notifies only the people it newly mentions,** and removes the notice of a mention it drops.
+- **0.6 A6. An edit notifies only the people it newly mentions,** and removes the notice of a mention it drops. *Extended by 1.1 A9.*
 - **0.6 A7. Names are read at request time.** A mention of a member who left or was deleted keeps the name.
-- **0.6 A8. The thread list's filter is `mentionedId`,** repeatable and any-of (the `ownerId` shape); the SPA offers "Mentions me" only.
+- **0.6 A8. The thread list's filter is `mentionedId`,** repeatable and any-of (the `ownerId` shape); the SPA offers "Mentions me" only. *Extended by 1.1: `mentionsMe`.*
 - **0.6 A9. The composer shows `@Name`.** A mention is one unit there (deleting into it removes it whole) and travels as `<@id>`.
-- **0.6 A10. Two notification kinds:** `MENTIONED` and `THREAD_ASSIGNED`. A steward who takes a thread themself gets none. No notice for being added to a room, for a reply or for a reaction.
+- **0.6 A10. Two notification kinds:** `MENTIONED` and `THREAD_ASSIGNED`. A steward who takes a thread themself gets none. No notice for being added to a room, for a reply or for a reaction. *Reversed by 1.1: eleven kinds.*
 - **0.6 A11. A notice is ids only,** and is listed only while its recipient is an active member of an active room, an ADMIN too.
 - **0.6 A12. Leaving or being removed deletes the leaver's notices and read markers of that room.** Rejoining starts clean.
 - **0.6 A13. Notices are hard-deleted:** with their message, with the membership, and 90 days after they were made.
 - **0.6 A14. No "mark unseen" and no per-row delete in the bell** (Lettuce has both).
-- **0.6 A15. In-app notices cannot be switched off.** The preference is about email, per kind; no master switch (two kinds are two switches).
+- **0.6 A15. In-app notices cannot be switched off.** The preference is about email, per kind; no master switch (two kinds are two switches). *Reversed by 1.1 D7: an in-app switch per kind.*
 - **0.6 A16. A notice is seen** when its row is clicked, when its thread is read past its message, or by "Mark all as seen".
 - **0.6 A17. Read state is a member's.** An ADMIN who is not a member has none: counts are 0 and a marker write is 403.
 - **0.6 A18. Unread starts at joining.** After the upgrade, everything already written is read for everybody.
@@ -208,6 +224,42 @@ Taken without asking, in the 0.6.0 plan. Detail and the rules they became: `chat
 - **0.6 A29. Email:** nothing older than a day is mailed; a failed send is audited and not retried; a switched-off kind is skipped silently.
 - **0.6 A30. Search snippets show raw `<@id>` tokens for now** (a `BACKLOG.md` item).
 - **0.6 A31. No new dependency,** server or web.
+
+### 1.1.0 Watching
+
+Taken without asking, in the 1.1.0 plan. Detail and the rules they became: `chat-model.md` "Watching, group mentions and notice kinds (1.1)".
+
+- **1.1 A1. The term is "watch"** (PL "obserwuj"); the composer's list also matches the typed word `observers`, and "observe" appears nowhere else.
+- **1.1 A2. Watching is the caller's own state:** no room lock, no live hint, the `read-state` bucket. It is audited (`thread.watch_changed`) because it changes who a write notifies.
+- **1.1 A3. Auto-watch is the creator and each new owner** (again on a later hand-over after an unwatch). Reply and mention do not watch (1.1 D10).
+- **1.1 A4. Existing threads are backfilled:** V26 makes each thread's creator and current owner who are still members a watcher, with no notice.
+- **1.1 A5. `watcherCount` is on the wire; the list of watchers is not** (`BACKLOG.md`).
+- **1.1 A6. Recipients are active members at write time;** a deleted user's watches are inert.
+- **1.1 A7. What counts as activity** is a reply, a status change and an owner change (1.1 D3); not title or field edits, message edits as such, deletes, reactions, pins or the workflow PUT's `moveThreads`.
+- **1.1 A8. Eleven kinds, in-app on and email off for all** (1.1 D7, 1.1 D11); every kind has both switches and none is locked on (Lettuce's `lockedOn` is not ported). Defaults live in code beside the enum and are frozen with the kind name.
+- **1.1 A9. The edit rule:** an edit recomputes who the new body addresses against the message's existing notices (a fresh unseen notice when the kind becomes more specific; relabel in place when less; fall back to the base kind, else delete).
+- **1.1 A10. Team mentions reach the roster only,** those who are also active room members; the manager counts only when on the roster.
+- **1.1 A11. The handle rules:** optional, 2 to 30 characters `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`, unique among active teams, freed on delete, uppercase a 400, a reserved set a 400.
+- **1.1 A12. Old bodies are not reindexed:** a literal `<@everyone>` written before 1.1.0 stays text.
+- **1.1 A13. `mentionsMe`** matches a direct mention, a team the caller is on now, everyone, or the watchers while the caller watches now. `mentionedId` stays direct only.
+- **1.1 A14. The team-mention notice does not name the team** (`BACKLOG.md`).
+- **1.1 A15. Channels are judged when the notice is made;** switching a kind back on covers notices made from then on.
+- **1.1 A16. Group mentions of `@here` and of a non-member stay out;** the token grammar is `<@id>`, `<@team:id>`, `<@watchers>`, `<@everyone>`.
+- **1.1 A17. Defaults are frozen with the kind name;** the table stores deviations only.
+- **1.1 A18. The email budget counts mailable recipients only,** one pool for every kind, no carve-out.
+- **1.1 A19. The wide-event budget is 500 a UTC day** (1.1 D9), configurable.
+- **1.1 A20. Live: per-recipient targets,** one hint per event, at most 499 ids.
+- **1.1 A21. The rail count and the `@` mark stay "addressed to me":** the four mention kinds plus `THREAD_ASSIGNED` (0.6 D1 stands); activity notices fill the bell only.
+- **1.1 A22. `q` is optional only with `watching=true`;** search has no `mentionsMe`.
+- **1.1 A23. No confirm before `@everyone`;** a non-blocking line shows the member count.
+- **1.1 A24. The digest text stays who, room, thread number and a link** (0.6 D3).
+- **1.1 A25. Retention stays 90 days with no per-recipient cap.**
+- **1.1 A26. No new dependency.**
+- **1.1 A27. Search snippets still show raw tokens.**
+- **1.1 A28. A 1.0.0 user who never touched their preferences stops getting the digest after the upgrade** (email is off by default, 1.1 D7). Their stored V22 "switched off" rows keep meaning off, and nobody has an opt-in row yet. The upgrade does not re-enable anything; the changelog entry says so.
+- **1.1 A29. Account email is not a notice kind and always goes:** the MFA code and the password-reset link are sent directly, never through the digest or the preferences. Adder sends no "password changed" or "account created" email; porting Lettuce's locked-on kinds for them is not in 1.1.0 (`BACKLOG.md`).
+
+Of the 0.6 assumptions, **0.6 A10 and 0.6 A15 are reversed**, **0.6 A4 is partly reversed** (`@room` exists as `<@everyone>`, plus teams and watchers; `@here` and a non-member stay out), **0.6 A3, 0.6 A6 and 0.6 A8 are extended** (the 20 stays for people, with 5 teams and each keyword once; the edit rule of 1.1 A9; `mentionsMe` beside `mentionedId`). 0.6 D2's email-on default is reversed (1.1 D7); 0.6 D1 and 0.6 D3 stand.
 
 ### 0.3.0 threads and messages
 
@@ -244,7 +296,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.0.0** (the checkup, shipped 2026-11-21).
+Each increment gets its own plan (architect) before implementation. **Current version: 1.0.0** (the checkup, shipped 2026-11-21); 1.1.0 (watching, group mentions, notice kinds) is in progress on branch `feat/1.1.0-watching`.
 
 | Ver | Scope |
 |---|---|
@@ -254,7 +306,8 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **0.4.0 Live updates** (shipped) | `GET /api/v1/live` WebSocket with single-use tickets (sent in the first frame), subscribe/unsubscribe per room, `pg_notify` inside the write transaction, one LISTEN connection per process, bounded sockets, a 60 s account sweep; targeted query invalidation in the SPA (`live.md`) |
 | **0.5.0 Find** (shipped) | Thread filters and sorts (status, category, owner, SELECT/MULTI_SELECT/USER fields, tag, workflow order), a focus view, Postgres full-text search per room and across member rooms (`chat-model.md` "Find (0.5)"), server-parsed #hashtags |
 | **0.6.0 Social: mentions, notifications, unread, reactions, pins** (shipped) | `<@id>` mentions with an autocomplete over room members and the thread list's "mentions me" filter (moved from 0.5.0, 0.5 D1); notifications for mentions and hand-overs (Lettuce's model, ids only), pushed live over the per-user channel, with a 5-minute email digest by per-user preference (0.6 D2, 0.6 D3); per-member unread (a rail dot and mention count, thread counts, a "New" line; 0.6 D1); one-emoji reactions; room pins of threads and messages, any member (0.6 D4); one release (0.6 D5). `chat-model.md` "Mentions, notifications, unread, reactions, pins (0.6)" |
-| **1.0.0 Checkup** | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |
+| **1.0.0 Checkup** (shipped) | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |
+| **1.1.0 Watching, group mentions, notice kinds** (in progress) | Members watch threads (`PUT .../watch`, a creator and a new owner watch automatically, a "threads I watch" filter on the list and both searches); `<@team:id>`, `<@watchers>` and `<@everyone>` mentions with team handles; eleven notice kinds (every event notifies each person at most once, with the most specific reason; new-thread notices go to every member, activity to watchers); an in-app and an email switch per kind, email off by default for all (1.1 D7); a wide-event budget; V25 to V30. `chat-model.md` "Watching, group mentions and notice kinds (1.1)" |
 
 ## Donors
 
