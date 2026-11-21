@@ -37,8 +37,8 @@ private const val EVENT = "notification.email_budget_exceeded"
  * The per-actor digest budget (V24, 1.0.0 checkup C-SEC-7; `chat-model.md` "The digest budget"): the first N distinct people one
  * actor's mentions and hand-overs reach in a UTC day stay eligible for the email, later ones get the bell notice and never a mail;
  * the same person counts once; the day rolls over with the injected clock; the audit line is coalesced per actor and day. The writer
- * (`NoticeWriter`) is driven directly (a tiny budget, a settable clock); the boot validation is in `NumericConfigBoundsTest`, the route-level wiring is
- * the last test here.
+ * (`NoticeWriter`) is driven directly (a tiny budget, a settable clock); the boot validation is in `NumericConfigBoundsTest`, the
+ * route-level wiring is the last test here.
  * Rooms, templates and users are SHARED suite state: every test mints UNIQUE rows.
  */
 class NotificationEmailBudgetTest {
