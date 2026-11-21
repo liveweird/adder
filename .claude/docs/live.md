@@ -81,7 +81,7 @@ equal to the spec enum and to the audit names.
 
 | Code | When | Client |
 |---|---|---|
-| 1000 | client closes (sign-out, unmount, hidden 5 min) | none |
+| 1000 | client closes (sign-out, unmount, hidden 8 h; **[changed] 1.2 D9**: was 5 min) | none |
 | 1001 | server stopping (`ApplicationStopPreparing`) | reconnect after a random 1-5 s |
 | 1003 | binary frame | backoff |
 | 1008 | malformed, unknown or over-long frame; a frame before `auth`; a second `auth`; more than 30 frames in 10 s | backoff |
@@ -219,14 +219,15 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
 | frame size | 8 KiB | `maxFrameSize` | 1009 |
 | outbound queue | 64 frames | constant | one `resync` |
 | protocol ping / pong timeout | 25 s / 15 s | `pingPeriod` / `timeout` | Ktor closes |
-| app ping (client) | 25 s; pong within 10 s | client | reconnect |
+| app ping (client) | 25 s; pong within 10 s (**[changed] 1.2 D9: not while quiet**) | client | reconnect |
 | socket life | the token's `exp` (at most 900 s) | binding | 4001 |
 | account sweep | 60 s | constant + `sweepNow()` | 4003 + `live.revoked` |
 | listener channel | 1024 | constant | `resync` to all |
 | listener heartbeat | 30 s, 5 s timeout | constant | reconnect, then `resync` |
 | listener down | 10 s | `LISTENER_DEAF_MILLIS` | mint 503, open sockets 1013 |
 | sweep retry | 5 s | `SWEEP_RETRY_MILLIS` | one retry of a failed half |
-| hidden tab | 5 min | client | close 1000; reopen when shown |
+| hidden tab, quiet | 5 min | client | **[changed] 1.2 D9** (was: close 1000): leave every room, keep the socket for personal frames; the once-a-minute ping REPLACES the 25 s app ping while quiet |
+| hidden tab, close | 8 h | client | close 1000; the title drops its number; reopen when shown |
 | indicator delay | 5 s down | client | badge |
 
 Only the keys tests must shrink are config (`requireConfigInt`/`requireConfigLong`, each pinned in `NumericConfigBoundsTest`): `live.maxTickets` 1..100,000,
@@ -239,8 +240,18 @@ IPv4-mapped one as IPv4; text that is no address literal counts under the TCP pe
 slot only for the round trip between the upgrade and its `auth` frame, so a reconnect storm backs off (503, then jittered backoff) rather than failing. **The share is only as good as the client address** (`security.md` "Trust the address or the share degrades"): `remoteHost` is the NUMERIC peer address (`plugins/Http.kt` copies it before anything can trigger a reverse-DNS lookup), or the trusted `X-Forwarded-For` hop with `http.behindProxy=true`. Without real client addresses (a plain proxy with `behindProxy=false`, an SNAT load balancer such as a Kubernetes Service with `externalTrafficPolicy: Cluster`) EVERYONE shares ONE `live.maxPendingPerAddress`: raise it (up to 10,000) or fix the trust. With a client-supplied `X-Forwarded-For` (`behindProxy=true` and no proxy stripping it) a client can still pick its own key by claiming real address literals, as with every per-IP bucket (junk text is counted under the peer).
 
 **"Idle close"** is four mechanisms, not one timer: the protocol heartbeat, the 2 s auth deadline, the close at the token's `exp`, and the client closing a
-socket after 5 minutes hidden. A visible, authenticated socket is never closed for being quiet. **One socket per tab**; the 17th tab of a user shows "Live
-updates off" and retries every minute (a shared leader-tab socket is a deliberate non-goal: unread needs no background socket, because a hidden tab re-reads on return).
+socket after 8 hours hidden (**[changed] by 1.2 D9**: it was 5 minutes; see "The hidden tab" below). A visible, authenticated socket is never closed for being quiet. **One socket per tab**; the 17th tab of a user shows "Live
+updates off" and retries every minute (a shared leader-tab socket is a deliberate non-goal; **[changed] 1.2**: a hidden tab now keeps a socket for personal frames, so the tab title can follow the bell).
+
+**The hidden tab (1.2 D9, binding; the code lands in plan step S10; changes 0.4 D3 and 0.4 A4).** After 5 minutes hidden the client goes QUIET instead of
+closing: the wanted subscription set becomes empty (the ordinary unsubscribe diff, so the tab holds no room subscription), the socket stays for personal
+frames only, a ping goes once a minute and "no frame since the last ping" is a failure at the next tick (the normal reconnect path). While quiet the
+invalidator re-reads only the bell's count key, at most once a minute. After 8 hours hidden the client closes as before (`suspend()`) and the tab title
+drops its number: it never shows a stale one. Shown again, a quiet tab subscribes its wanted rooms back and the `ready` re-reads run; a closed one reopens.
+Tabs of one browser also tell each other when notices were seen (`BroadcastChannel`, injected like the socket; no server change), or a hidden tab would
+keep saying `(3)` after the notices were read elsewhere. **The cost, accepted:** a forgotten hidden tab stays signed in up to 8 h + 1 h (the refresh
+TTL) instead of 5 min + 1 h, since the 5-minute close was the only thing that let an open browser's session idle out, and it holds one of the person's
+16 sockets (`live.maxSocketsPerUser`) meanwhile. The server, the ticket rules, the caps and the 5 s indicator do not change; `LiveStatus` shows nothing for quiet.
 
 **Audits** (names in `observability.md` when each lands): `live.refused` (`reason` = origin | capacity | stopping | listener-down | auth | socket-cap | subscription-cap | inbound-rate |
 bad-frame; **[changed] no `ip`**: the `rate_limit.exceeded` rule, the client address is attacker-chosen text behind a proxy and the access log has it; `byUserId` after authentication, a printable `origin` for the Origin refusal; coalesced through `RateLimitAuditThrottle`, with a `suppressed` count; **the window is per reason, and per `limit` for a refusal that names one (a

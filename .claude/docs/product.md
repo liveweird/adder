@@ -63,7 +63,7 @@ The architect's plan put three decisions to the user; all three took the recomme
   pushing those four account events too (five more call sites and one more reviewed surface), now a `BACKLOG.md` item.
 - **D3. One socket per tab, at most 16 per user, closed after 5 minutes hidden.** The 17th tab shows "Live updates off" and retries every minute. The
   alternative was one socket per browser through a leader tab (Web Locks plus BroadcastChannel): no cap pressure, but a second state machine and much harder
-  tests; unread needs no background socket (a hidden tab re-reads on return).
+  tests; unread needs no background socket (a hidden tab re-reads on return). *Changed by 1.2 D9: after 5 minutes hidden the tab goes quiet (personal frames only) instead of closing, and closes after 8 hours.*
 
 ### 0.5.0 Find (the user's, 2026-11-19)
 
@@ -111,6 +111,20 @@ Watching, group mentions and per-kind notices. The user took eight decisions (D1
 - **1.1 D10 (plan Q2). Replying or being mentioned does not make you a watcher.** Only the two triggers of D1; `thread_watches` stays a plain hard-delete join. The alternative was watching on reply with a sticky unwatch (a `state` column, about a day more); "auto-watch on reply" is a `BACKLOG.md` item.
 - **1.1 D11 (plan Q3). Three status kinds:** `THREAD_STATUS_CHANGED`, `THREAD_CLOSED`, `THREAD_REOPENED`. It mirrors `thread_events`, lets a person keep "closed" on and "moved" off, and the sentence can say "closed" without an extra column. The alternative was one kind with a generic label.
 
+### 1.2.0 Room view (the user's, 2026-11-21)
+
+Room-view polish: pins, room-view space, names as links, tags, hashtags, the unread filter and the tab-title count. The plan put nine questions (Q1 to Q9) to the user, who took every recommendation as written ("Looks good"), the Kind/Area tag seed names included; 1.2 D1 to 1.2 D9 are those answers in order. The rules they became: `chat-model.md` "Room view, tags and unread (1.2)".
+
+- **1.2 D1 (Q1). Who sets a thread's tags.** Any member of the room and an ADMIN while the thread is open (the title-and-fields rule); on a CLOSED thread only its stewards (the thread owner while a member, the room OWNER, an ADMIN); an archived room refuses (`409`). Tidying up after an incident then needs no reopen (a reopen plus a close would notify every watcher twice and reset the close time). The alternatives were closing freezes tags (`409 thread-closed`), stewards only, and any member always (the pin rule).
+- **1.2 D2 (Q2). One global ADMIN-curated tag registry for every room** (the port of Hammurabi's `tags/`), seeded by migration with two small categories an ADMIN can rename, extend or delete: **Kind** (`question`, `decision`, `action`, `announcement`, `postmortem`) and **Area** (`customer`, `security`, `data`, `infrastructure`, `process`). The seed is immutable once released, hence the user's yes on the names. The alternatives were the registry with no seed or another list, and a registry per room curated by its OWNER (no shared vocabulary, not a port).
+- **1.2 D3 (Q3). The names.** **Hashtags** (the `#word`s of message text, 0.5 D3) keep the wire name `tag` and `GET /rooms/{id}/tags`; **tags** are the curated labels. New: response fields `hashtags` and `tags` (`[{name, retired}]`); the filter `threadTag` (repeatable names, any-of) on the thread list AND on both searches, where, like `watching=true`, a tag alone is a valid search; `PUT /rooms/{id}/threads/{number}/tags`. The SPA's URL keeps `tag` for hashtags and adds `threadTag`; the UI says "Hashtags" and "Tags". The alternatives were the thread list only (search by tag to the backlog) and an id-based `tagId` filter (unreadable URLs).
+- **1.2 D4 (Q4). The side panel is collapsed by default at every width** and a "Details" button opens it; the choice is remembered per person per browser, the same for every room and thread (`adder.viewSettings.threadPane.detailsOpen`). The alternatives were per room, nothing remembered, and the URL.
+- **1.2 D5 (Q5). The pins of an open thread** show as a strip under the thread header, present only when the thread has pinned messages: one line "Pinned (2)" with the first line of the newest pin, expanding in place to the list (author, time, a two-line excerpt, "Show in thread", "Unpin"); expanded or not is remembered per person. The room header's "Pinned (n)" drawer stays for the whole room. The alternatives were always expanded (three rows and "+N more"), a sticky cycling banner, and a section of the side panel.
+- **1.2 D6 (Q6). Names stand as links wherever a name stands on its own:** a message's author, a mention in a message, the owner and the starter in the thread header, the owner in the side panel, a USER field's value, the history's actor, "pinned by", the members and team tables, a search hit's owner and room. In the bell the actor and the room become links INSIDE the row and the rest of the row still opens the thread. In a thread-list row the owner stays text (two targets in a 20rem row invite mis-clicks; the same link is one click away in the header). The alternatives were the owner in list rows too, and the bell left as one link.
+- **1.2 D7 (Q7). What a non-ADMIN sees on a profile:** name and email (what the directory already gives every signed-in user, 0.2 D2), the person's teams and the rooms the viewer shares with them; never the role, feature flags, language, MFA or sign-in times. A removed account and an unknown id are the same "not available" page. An ADMIN sees the same page with every room the person is in and an "Edit user" link. The alternatives were name and email only, and an ADMIN badge (which would reverse "roles are never exposed" of 0.2 D2).
+- **1.2 D8 (Q8). The tab title counts the bell's number,** every unseen in-app notice: `(3) Incident 42 · Adder`. It follows each person's per-kind switches, so the tab never disagrees with the bell. The alternatives were only what is addressed to me, that number plus a dot, and unread threads or messages across rooms (a new cross-room count; 0.6 D1 decided against exact unread counts).
+- **1.2 D9 (Q9). The hidden tab goes quiet instead of closing (changes 0.4 D3).** After 5 minutes hidden the tab leaves every room and keeps the socket for personal frames only (one small re-read of the bell count per notice, at most one a minute); after 8 hours hidden it closes as before and the title drops its number, never showing a stale one. Tabs of one browser tell each other when notices were seen (`BroadcastChannel`, no server change), or a hidden tab would keep saying `(3)` after the notices were read elsewhere. The cost, accepted: a forgotten hidden tab stays signed in up to 8 h + 1 h instead of 5 min + 1 h (the 5-minute close was the only thing that let an open browser's session idle out) and holds one of the person's 16 sockets meanwhile. The alternatives were quiet with no limit, keeping the 5-minute close (the title loses its number after 5 minutes), and polling once a minute while hidden.
+
 ## Assumptions (taken without asking; change on request)
 
 - ADMIN may read every room (the family's ADMIN-overrides posture); a non-member gets `404`, never `403`.
@@ -143,7 +157,7 @@ Detail and the rules they became: `chat-model.md` "Rules".
 - `X-Expected-Revision` is required (missing or malformed `400`, stale `409`); every successful PUT bumps the revision. Wire enums are UPPER_CASE.
 - Deleting a template never touches rooms; there is no "last template" rule.
 - Rate buckets (all per signed-in user): `room-name` 30/min shared by `POST /rooms` and `PUT /rooms/{id}`, `room-members` 60/min on `POST /rooms/{id}/members`, and `directory` 120/min on the user directory; everything else is
-  guard-gated and bounded by the caps above. `lockingTransaction` is not ported (one row lock per room instead).
+  guard-gated and bounded by the caps above. `lockingTransaction` is not ported (one row lock per room instead). *[changed] by 1.2: ported for the tag registry ONLY.*
 
 ### 0.4.0 live updates
 
@@ -154,7 +168,7 @@ Taken without asking, in the 0.4.0 plan. Detail and the rules they became: `live
   `resync` covers every gap.
 - **A3. Subscriptions** are the active rail (up to 100 rooms, `RAIL_PAGE_SIZE`) plus the open room. The archived rail and All rooms keep refreshing on focus.
 - **A4. "Idle close"** means four mechanisms: the protocol heartbeat (Ktor pings every 25 s, pong timeout 15 s), the 2 s auth deadline, the close at the
-  token's `exp`, and the client closing a socket after 5 minutes hidden. A visible, authenticated socket is never closed just for being quiet.
+  token's `exp`, and the client closing a socket after 5 minutes hidden. A visible, authenticated socket is never closed just for being quiet. *Changed by 1.2 D9: the hidden-tab mechanism is a quiet tab at 5 minutes and a close at 8 hours.*
 - **A5. The CSP is unchanged:** `connect-src 'self'` already matches the same-host socket; scheme sources would open sockets to any host.
 - **A6. The channel is `adder_live`** and the NOTIFY payload format is `v: 1`.
 - **A7. The writer's tab refetches twice** (its own mutation refresh plus the hint). Accepted; skipping the echo is a `BACKLOG.md` item.
@@ -214,7 +228,7 @@ Taken without asking, in the 0.6.0 plan. Detail and the rules they became: `chat
 - **0.6 A19. A count looks at the newest 100 messages after the marker;** 100 means "100 or more" and shows as "99+". A tombstone counts.
 - **0.6 A20. Posting marks the poster's thread read up to their message.** Opening a thread at its end marks it read; the "New" line shows what was new on that visit.
 - **0.6 A21. A status, owner, title or field change makes a room "new"** (it is activity) and never a thread "unread" (only messages do).
-- **0.6 A22. Read state is not pushed and not audited.** Another tab or device catches up on focus and with the room's next hint.
+- **0.6 A22. Read state is not pushed and not audited.** Another tab or device catches up on focus and with the room's next hint. *Changed by 1.2 D9: the bell count only.*
 - **0.6 A23. A reaction is one emoji by the rule in `chat-model.md`,** at most 10 code points; 20 distinct per message (the roadmap), 5 per person per message.
 - **0.6 A24. A reaction is speech:** members only, refused in a closed thread and an archived room. It is not activity: no rail bump, no unread, no notice.
 - **0.6 A25. A message shows each reaction's count,** whether the reader reacted, and the first three names. The full list of reactors is a `BACKLOG.md` item.
@@ -250,7 +264,7 @@ Taken without asking, in the 1.1.0 plan. Detail and the rules they became: `chat
 - **1.1 A19. The wide-event budget is 500 a UTC day** (1.1 D9), configurable.
 - **1.1 A20. Live: per-recipient targets,** one hint per event, at most 500 ids (499 when a member acts).
 - **1.1 A21. The rail count and the `@` mark stay "addressed to me":** the four mention kinds plus `THREAD_ASSIGNED` (0.6 D1 stands); activity notices fill the bell only.
-- **1.1 A22. `q` is optional only with `watching=true`;** search has no `mentionsMe`.
+- **1.1 A22. `q` is optional only with `watching=true`** *[changed] by 1.2 D3: or a `threadTag`*; search has no `mentionsMe`.
 - **1.1 A23. No confirm before `@everyone`;** a non-blocking line shows the member count.
 - **1.1 A24. The digest text stays who, room, thread number and a link** (0.6 D3).
 - **1.1 A25. Retention stays 90 days with no per-recipient cap.**
@@ -274,6 +288,32 @@ Taken without asking, in the 1.1.0 plan. Detail and the rules they became: `chat
 - **1.1 A43. The composer's list:** People (as before), Teams (`GET /teams?handle=`, from the first typed letter, only for a term a handle can hold), Groups (`@everyone`; `@watchers`, also found by `observers`, not offered in the new-thread form, which has no watchers but its author). A draft holding `@everyone` shows a non-blocking status line with the number of other members; there is no confirmation.
 
 Of the 0.6 assumptions, **0.6 A10 and 0.6 A15 are reversed**, **0.6 A4 is partly reversed** (`@room` exists as `<@everyone>`, plus teams and watchers; `@here` and a non-member stay out), **0.6 A3, 0.6 A6 and 0.6 A8 are extended** (the 20 stays for people, with 5 teams and each keyword once; the edit rule of 1.1 A9; `mentionsMe` beside `mentionedId`). 0.6 D2's email-on default is reversed (1.1 D7); 0.6 D1 and 0.6 D3 stand.
+
+### 1.2.0 Room view
+
+Taken without asking, in the 1.2.0 plan (the user accepted the list on 2026-11-21 with the decisions above). Detail and the rules they became: `chat-model.md` "Room view, tags and unread (1.2)".
+
+- **1.2 A1. Tags are set on an existing thread,** not in the new-thread form (`BACKLOG.md`).
+- **1.2 A2. The registry's numbers and grammar are Hammurabi's:** a category name 1 to 60 unique among active ones, a description at most 500, 1 to 100 tags a category, at most 100 categories; a tag name trimmed, whitespace runs collapsed, lower-cased, 1 to 40 characters of `[\p{L}\p{N}][\p{L}\p{N} ._/+#:-]*`, unique over EVERY row and in exactly one category; removing a tag retires it and adding the name again revives the same row.
+- **1.2 A3. A tag save rides the thread's own `revision`,** so an open details editor conflicts with it and the reverse.
+- **1.2 A4. A tag change is history, not activity, and notifies nobody** (no rail bump, no unread, no notice; the pin rule; 1.1 A7 already leaves field edits out).
+- **1.2 A5. Tag names appear in the history and the audit line** (an ADMIN-curated vocabulary, the status-label precedent).
+- **1.2 A6. A retired tag stays on its threads until the next tag save,** shown struck through and said in words (`retired: true`); a save that still carries it is a `400`; the filter still matches it.
+- **1.2 A7. Registry writes emit no live hint** (the team precedent); an open tab sees a retirement on its next read.
+- **1.2 A8. `hashtags` on the wire:** the distinct folded keys of the thread's live messages, alphabetical, at most 20 per thread.
+- **1.2 A9. `#42` as a link is the SPA's alone:** nothing is indexed, a missing number is not checked, titles and snippets are not linked.
+- **1.2 A10. "Mark all as read" also marks the room's notices seen,** asks first (a confirmation) and is unaudited view state. A message committed in the same instant may be swallowed (the `seen_at` limit already documented).
+- **1.2 A11. A row read while the unread filter is on stays listed** until the list's next re-read.
+- **1.2 A12. The unread filter is not on the searches.**
+- **1.2 A13. The room description moves behind "About this room"** and the thread actions become icon buttons with unchanged accessible names.
+- **1.2 A14. The thread-list column still scrolls with the page** (independent scrolling is a `BACKLOG.md` item).
+- **1.2 A15. A profile link is not checked when drawn:** a removed person's link opens "not available".
+- **1.2 A16. A hidden tab holds one of the person's 16 sockets for up to 8 hours** (1.2 D9).
+- **1.2 A17. The title never shows a number it cannot keep current:** no number when signed out or while the live status is `down`, `paused` or `idle`, and none after the 8-hour close.
+- **1.2 A18. `GET /rooms/{id}/tags` keeps meaning hashtags;** a `hashtag` alias is a `BACKLOG.md` item.
+- **1.2 A19. No tag colours, no per-room subset of the registry, no facet counts.**
+
+Reversed or changed: **0.4 D3 and 0.4 A4** (the hidden-tab close, by 1.2 D9) and the 0.2.0 note that `lockingTransaction` is not ported (ported for the registry only). 0.2 D2 stands (1.2 D7 adds no field to the directory entry `{id, name, email}`), and so do 0.6 D1 and 0.6 D4.
 
 ### 0.3.0 threads and messages
 
@@ -310,7 +350,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.1.0** (watching, group mentions, notice kinds; tagged `v1.1.0` at ec9531e, 2026-11-21); 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.1.0** (watching, group mentions, notice kinds; tagged `v1.1.0` at ec9531e, 2026-11-21); **1.2.0 (room view) is in progress** on `feat/1.2.0-room-view`; 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -322,6 +362,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **0.6.0 Social: mentions, notifications, unread, reactions, pins** (shipped) | `<@id>` mentions with an autocomplete over room members and the thread list's "mentions me" filter (moved from 0.5.0, 0.5 D1); notifications for mentions and hand-overs (Lettuce's model, ids only), pushed live over the per-user channel, with a 5-minute email digest by per-user preference (0.6 D2, 0.6 D3); per-member unread (a rail dot and mention count, thread counts, a "New" line; 0.6 D1); one-emoji reactions; room pins of threads and messages, any member (0.6 D4); one release (0.6 D5). `chat-model.md` "Mentions, notifications, unread, reactions, pins (0.6)" |
 | **1.0.0 Checkup** (shipped) | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |
 | **1.1.0 Watching, group mentions, notice kinds** (shipped) | Members watch threads (`PUT .../watch`, a creator and a new owner watch automatically, a "threads I watch" filter on the list and both searches); `<@team:id>`, `<@watchers>` and `<@everyone>` mentions with team handles; eleven notice kinds (every event notifies each person at most once, with the most specific reason; new-thread notices go to every member, activity to watchers); an in-app and an email switch per kind, email off by default for all (1.1 D7); a wide-event budget; V25 to V30. `chat-model.md` "Watching, group mentions and notice kinds (1.1)" |
+| **1.2.0 Room view** (in progress) | A collapsed-by-default side panel and a compact room header (1.2 D4); pins marked in place with a strip in the open thread (1.2 D5); names as links with a profile page any member can open (`/people/:id`, 1.2 D6, 1.2 D7); a thread's hashtags on rows and header and `#42` as a link; an ADMIN tag registry (Kind and Area seeded) and curated tags on threads with a `threadTag` filter on the list and both searches (1.2 D1 to 1.2 D3); an "unread" list filter and "Mark all as read"; the unseen count in the tab title with a quiet hidden tab (1.2 D8, 1.2 D9); V31 to V33. `chat-model.md` "Room view, tags and unread (1.2)" |
 
 ## Donors
 
@@ -336,9 +377,10 @@ reinvent**: when Adder needs a capability a sibling repo already has, port its i
 - **Lettuce** (`~/Sources/lettuce`): `infra/mail`, `infra/crypto`, `infra/paging`, the connection pool (through Flow); ported in 0.3.0: `MarkdownView` (the message variant),
   `EmojiPicker`/`EmojiButton`/`EmojiTextarea`, `infra/db/EventLog.kt`; ported in 0.5.0: `FilterMultiSelect.tsx` and `accessiblePill.tsx`; ported in 0.6.0: the shape of `notifications/NotificationService` (`list` with `seen`, `markSeen`, `markAllSeen`, the unknown-type rule) and its per-user preferences model (disabled pairs, a wholesale-replace PUT) with their test titles; reference only: `NotificationEmailer` and the per-language email builder (the mirror itself is replaced by the digest); next: the dictionary whole-document PUT.
 - **Toadie** (`~/Sources/toadie`): `X-Expected-Revision` optimistic concurrency (ported in 0.2.0, `infra/revision/` and its `web/` half; the workflow-template and room-workflow PUTs consume it);
-  `lockingTransaction` deliberately NOT ported (a room write takes one `FOR NO KEY UPDATE` row lock on the room instead, `rooms/RoomLock.kt`); next:
+  `lockingTransaction` deliberately NOT ported for chat writes (a room write takes one `FOR NO KEY UPDATE` row lock on the room instead, `rooms/RoomLock.kt`); *changed by 1.2: ported (from Hammurabi) for the tag registry ONLY, `infra/db/Locking.kt`*; Toadie's tag categories are the ANCESTOR of 1.2's registry only (a JSON array, no revision, no join table: not ported from here); next:
   `blueprints/` `PropertyDefinition` as the reference for typed workflow fields.
 - **Covenant** (`~/Sources/covenant`): ported in 0.6.0: the compact notification bell (`NotificationsButton.tsx`, itself Lettuce's; polling replaced by the live hint), while its in-transaction insert became the `ThreadNotices` port (`chat-model.md`); ported in 0.5.0: the pass-through group of `CommandPalette.tsx` and the shape of `useReviewInboxFilters.ts` (validate, omit defaults, `replace`); its facets (`ContractService.kt`) are a reference only (no facets so far); next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
+- **Hammurabi** (`~/Sources/hammurabi`): the donor of 1.2's tags (newer than Toadie's: tags are rows, the PUT and DELETE take `X-Expected-Revision`, retired tags revive): `tags/` (`TagCategory.kt`, `TagCategoryRoutes.kt`, `TagCategoryService.kt`), `infra/db/Locking.kt`, `V13__create_tags.sql`, the `adrs/AdrTagService.kt` shape for a record's tags, and the web half (`Tags` page, `TagCategoryEditorModal`, pills and editor, `tags.json`); ported in 1.2.0 (S6, S7).
 
 Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `identities/`, `metrics/`, `reports/`, `integration/` (service tokens),
 `infra/outbound/` (the SSRF guard — port it with the first server-initiated call other than SMTP), `plugins/Role.kt`, `EncryptedAtRest`/`Reencrypt`.
