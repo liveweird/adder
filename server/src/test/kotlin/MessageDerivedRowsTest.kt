@@ -161,20 +161,26 @@ class MessageDerivedRowsTest {
     /** Both services over the same followers (a thread's opening message and a post are the two ways a message is inserted). */
     private class Services(followers: List<MessageFollower>) {
         private val database = sharedDatabaseForTests()
-        private val members = RoomMemberService(database, TeamService(database))
-        val mentions = MessageMentionService(members, TestThreads.noticeWriter, TestThreads.watches)
+        private val teams = TeamService(database)
+        private val members = RoomMemberService(database, teams)
+        val mentions = MessageMentionService(members, TestThreads.noticeWriter, TestThreads.watches, teams)
         val messages = MessageService(database, TestRooms.service, MessageTagService(database), mentions, followers)
         val threads =
-            ThreadService(database, TestRooms.service, TestRooms.workflows, members, TestThreads.events, messages, TestThreads.watches)
+            ThreadService(
+                database, TestRooms.service, TestRooms.workflows, members, TestThreads.events, messages, TestThreads.watches, teams,
+            )
     }
 
     /**
      * Tables whose rows this test arranges for the message it deletes. A table the catalog lists that is not here has no proof it was ever
      * populated, so the test fails until the line that gives a message a row in it is added.
      */
-    // The body's `#derived-row`, its mentions of the owner and of a peer in the room, the peer's notice (never the author's own), the
+    // The body's `#derived-row`, its mentions of the owner and of a peer in the room, its team and everyone, the peer's notice (never the
+    // author's own), the
     // pin the test puts on the message and the reaction it seeds on it.
-    private val arrangedByTheBody = setOf("message_tags", "message_mentions", "notifications", "room_pins", "message_reactions")
+    private val arrangedByTheBody = setOf(
+        "message_tags", "message_mentions", "message_group_mentions", "notifications", "room_pins", "message_reactions",
+    )
 
     @Test
     fun `a deleted message keeps no row in any table that references messages`() = runBlocking {
@@ -182,7 +188,8 @@ class MessageDerivedRowsTest {
         val peer = TestUsers.seed(uniqueEmail("derived-peer"), "pw", role = UserRole.USER).also { mintedUsers += it }
         TestRooms.addMember(w.room, peer)
         val seeded = TestThreads.seed(w.room, w.owner)
-        val body = MessageRequest("Derived #derived-row <@${w.owner}> <@$peer>")
+        val team = TestTeams.seedMentionable("derived", listOf(peer))
+        val body = MessageRequest("Derived #derived-row <@${w.owner}> <@$peer> ${team.token} <@everyone>")
         val id = TestThreads.messages.post(w.room, seeded.number, w.caller, body).message.id
         TestThreads.pins.setMessagePin(w.room, id, w.caller, true)
         PostgresTestSupport.connect().use { c ->

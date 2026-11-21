@@ -1,9 +1,10 @@
-import { mentionSegments } from "./mentions";
+import { mentionSegments, type MentionSegment } from "./mentions";
 
 /**
- * A remark plugin: every `<@id>` token in the text of a Markdown tree becomes a `mention` node (children: the token as text; `data.hName`
- * `span` and `data-mention`: the id) that `MarkdownView`'s message variant renders as the person's name when the message's `mentions` list
- * the id, and as the raw token otherwise. The tree is walked by hand, as `remarkHashtags` does (no `unist-util-visit`: only transitive).
+ * A remark plugin: every `<@id>`, `<@team:id>`, `<@watchers>` and `<@everyone>` token in the text of a Markdown tree becomes a `mention` node
+ * (children: the token as text; `data.hName` `span` and `data-mention` with the person's id, `data-mention-team` with the team's id, or
+ * `data-mention-group` with the keyword) that `MarkdownView`'s message variant renders as the person's name when the message's `mentions` list
+ * the id, as `@handle` / `@watchers` / `@everyone` when its `groupMentions` list the token, and as the raw token otherwise. The tree is walked by hand, as `remarkHashtags` does (no `unist-util-visit`: only transitive).
  *
  * Every node is entered except the ones that are no prose: `code`, `inlineCode`, `definition`, `html` (raw HTML is not rendered) and
  * `image`. Unlike a hashtag, a mention inside a link's text is shown: a span inside a link is valid HTML.
@@ -18,8 +19,14 @@ interface MdNode {
 
 const SKIPPED = new Set(["code", "inlineCode", "definition", "html", "image"]);
 
-function mention(token: string, id: number): MdNode {
-  return { type: "mention", children: [{ type: "text", value: token }], data: { hName: "span", hProperties: { "data-mention": String(id) } } };
+function mention(segment: Exclude<MentionSegment, { kind?: undefined }>): MdNode {
+  const property: Record<string, string> =
+    segment.kind === "user"
+      ? { "data-mention": String(segment.id) }
+      : segment.kind === "team"
+        ? { "data-mention-team": String(segment.id) }
+        : { "data-mention-group": segment.kind };
+  return { type: "mention", children: [{ type: "text", value: segment.text }], data: { hName: "span", hProperties: property } };
 }
 
 function transform(node: MdNode): void {
@@ -32,7 +39,7 @@ function transform(node: MdNode): void {
       next.push(child);
       continue;
     }
-    for (const segment of segments) next.push(segment.id === undefined ? { type: "text", value: segment.text } : mention(segment.text, segment.id));
+    for (const segment of segments) next.push(segment.kind === undefined ? { type: "text", value: segment.text } : mention(segment));
   }
   node.children = next;
 }

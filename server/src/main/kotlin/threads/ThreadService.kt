@@ -18,6 +18,7 @@ import ch.nokillswit.rooms.memberGuard
 import ch.nokillswit.rooms.readerGuard
 import ch.nokillswit.rooms.roomArchived
 import ch.nokillswit.rooms.withRoomWrite
+import ch.nokillswit.teams.TeamService
 import ch.nokillswit.users.UserService
 import ch.nokillswit.workflows.FieldType
 import io.ktor.util.AttributeKey
@@ -70,6 +71,7 @@ class ThreadService(
     private val events: ThreadEventService,
     private val messages: MessageService,
     private val watches: ThreadWatchService,
+    private val teams: TeamService,
     private val readLimiter: ReadLimiter = ReadLimiter(),
 ) {
     object Threads : UIntIdTable("threads") {
@@ -106,7 +108,10 @@ class ThreadService(
             val sortsByStatus = paging.sort.any { it.name == STATUS_SORT }
             budget.arm(this)
             val workflow = if (filter.needsWorkflow || sortsByStatus) workflows.snapshot(roomId) else null
-            val predicate = filter.predicate(roomId, callerUserId, workflow)
+            // The caller's membership and teams are read only for the `mentionsMe` filter (a group mention addresses members alone).
+            val addressable = filter.mentionsMe != null && members.unreadSince(roomId, callerUserId) != null
+            val callerTeams = if (addressable) teams.teamIdsOf(callerUserId) else emptyList()
+            val predicate = filter.predicate(roomId, callerUserId, workflow, addressable, callerTeams)
             val columns: Map<String, Expression<*>> = workflow?.takeIf { sortsByStatus }
                 ?.let { SORTABLE_COLUMNS + (STATUS_SORT to statusOrder(it)) } ?: SORTABLE_COLUMNS
             budget.arm(this)

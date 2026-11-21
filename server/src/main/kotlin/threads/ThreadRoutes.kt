@@ -94,7 +94,11 @@ private fun Route.threadReads(roomService: RoomService, threadService: ThreadSer
             roomService.visibleStanding(caller, roomId)
             val paging = call.parsePaging(sortable = THREAD_SORT_FIELDS)
             val params = call.request.queryParameters
-            val filter = params.threadListFilter(params.optionalBoolean("closed"), params.optionalBoolean("watching"))
+            val filter = params.threadListFilter(
+                params.optionalBoolean("closed"),
+                params.optionalBoolean("watching"),
+                params.optionalBoolean("mentionsMe"),
+            )
             val result = threadService.list(caller.userId, roomId, filter, paging)
             call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
         }

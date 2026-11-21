@@ -10,11 +10,13 @@ const tagHref = (tag: string) => `/rooms/7/threads/42?scope=all&tag=${encodeURIC
 
 type Mentioned = { userId: number; name: string }[];
 
-function renderView(markdown: string, variant?: MarkdownVariant, tags?: (tag: string) => string, mentions?: Mentioned) {
+type Grouped = { kind: "TEAM" | "WATCHERS" | "EVERYONE"; teamId: number | null; teamHandle: string | null }[];
+
+function renderView(markdown: string, variant?: MarkdownVariant, tags?: (tag: string) => string, mentions?: Mentioned, groups?: Grouped) {
   return render(
     <MantineProvider env="test">
       <MemoryRouter>
-        <MarkdownView variant={variant} tagHref={tags} mentions={mentions}>
+        <MarkdownView variant={variant} tagHref={tags} mentions={mentions} groupMentions={groups}>
           {markdown}
         </MarkdownView>
       </MemoryRouter>
@@ -282,5 +284,75 @@ describe("MarkdownView (message): mentions", () => {
     renderView("Ping <@5>", "document", undefined, people);
     expect(screen.getByText("Ping <@5>")).toBeInTheDocument();
     expect(document.querySelector("[data-mention]")).toBeNull();
+  });
+});
+
+describe("MarkdownView (message): group mentions", () => {
+  const groups: Grouped = [
+    { kind: "TEAM", teamId: 12, teamHandle: "oncall" },
+    { kind: "WATCHERS", teamId: null, teamHandle: null },
+    { kind: "EVERYONE", teamId: null, teamHandle: null },
+  ];
+
+  test("a listed team reads @handle, a listed keyword reads itself, anything unlisted stays the raw token", () => {
+    renderView("Hey <@team:12>, <@watchers> and <@everyone>; not <@team:99>.", "message", undefined, undefined, groups);
+    expect(screen.getByText("@oncall")).toHaveAttribute("data-mention-team", "12");
+    expect(screen.getByText("@watchers")).toHaveAttribute("data-mention-group", "watchers");
+    expect(screen.getByText("@everyone")).toHaveAttribute("data-mention-group", "everyone");
+    expect(screen.getByText(/not <@team:99>\./)).toBeInTheDocument();
+    expect(screen.queryByText(/<@team:12>/)).toBeNull();
+  });
+
+  test("a keyword the server did not list stays the raw token, the other one is read", () => {
+    renderView("<@watchers> <@everyone>", "message", undefined, undefined, [{ kind: "EVERYONE", teamId: null, teamHandle: null }]);
+    expect(screen.getByText("@everyone")).toBeInTheDocument();
+    expect(screen.getByText(/<@watchers>/)).toBeInTheDocument();
+  });
+
+  test("without a list every group token stays raw, people and groups read side by side, and the handle is text", () => {
+    const { unmount } = renderView("<@team:12> <@everyone>", "message");
+    expect(screen.getByText("<@team:12> <@everyone>")).toBeInTheDocument();
+    unmount();
+    renderView("<@5> <@team:12>", "message", undefined, [{ userId: 5, name: "Ada" }], [{ kind: "TEAM", teamId: 12, teamHandle: "<b>x</b>" }]);
+    expect(screen.getByText("@Ada")).toBeInTheDocument();
+    expect(screen.getByText("@<b>x</b>")).toBeInTheDocument();
+    expect(document.querySelector("b")).toBeNull();
+  });
+
+  test("code is left alone, a link's text is read, and the document variant never reads a token", () => {
+    const { unmount } = renderView("[see <@everyone>](https://example.com) `<@team:12>`", "message", undefined, undefined, groups);
+    expect(screen.getByRole("link", { name: "see @everyone" })).toBeInTheDocument();
+    expect(screen.getByText("<@team:12>").tagName).toBe("CODE");
+    unmount();
+    renderView("Ping <@everyone>", "document", undefined, undefined, groups);
+    expect(screen.getByText("Ping <@everyone>")).toBeInTheDocument();
+  });
+
+  // Known disagreement (web-internals.md "Group mentions"): the server's pre-pass does not blank an indented code block or a raw HTML block,
+  // so it lists the token even there; the SPA skips those nodes. What the reader sees is the raw token, no `@handle`.
+  test("a listed group token in indented code or a raw HTML block stays raw", () => {
+    const { unmount } = renderView("para\n\n    <@everyone> <@team:12> indented\n\nafter", "message", undefined, undefined, groups);
+    expect(screen.getByText(/<@everyone> <@team:12> indented/).closest("pre")).not.toBeNull();
+    expect(document.querySelector("[data-mention-group]")).toBeNull();
+    unmount();
+    renderView("<div><@everyone> in html</div>\n\nafter", "message", undefined, undefined, groups);
+    expect(document.querySelector("[data-mention-group]")).toBeNull();
+    expect(screen.queryByText("@everyone")).toBeNull();
+  });
+
+  test("the handles a message lists are remembered for the session", () => {
+    const known = createKnownNames();
+    render(
+      <KnownNamesContext.Provider value={known}>
+        <MantineProvider env="test">
+          <MemoryRouter>
+            <MarkdownView variant="message" groupMentions={groups}>
+              {"<@team:12>"}
+            </MarkdownView>
+          </MemoryRouter>
+        </MantineProvider>
+      </KnownNamesContext.Provider>,
+    );
+    expect(known.getTeam(12)).toBe("oncall");
   });
 });

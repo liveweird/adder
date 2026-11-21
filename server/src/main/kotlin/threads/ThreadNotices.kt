@@ -56,15 +56,18 @@ data class NoticeOutcome(
     val recipients: Int = 0,
     val kinds: Map<NoticeReason, Int> = emptyMap(),
     val addressed: List<UInt> = emptyList(),
+    /** Notices an edit RELABELLED in place (not counted in [recipients]): a relabel-only edit leaves this trace in the audit line. */
+    val relabelled: Int = 0,
 ) {
     /** Both outcomes together (a message write can run several followers; the sum is what the route audits). */
     operator fun plus(other: NoticeOutcome): NoticeOutcome = when {
-        other.recipients == 0 -> this
-        recipients == 0 -> other
+        other.recipients == 0 -> copy(relabelled = relabelled + other.relabelled)
+        recipients == 0 -> other.copy(relabelled = relabelled + other.relabelled)
         else -> NoticeOutcome(
             recipients + other.recipients,
             (kinds.keys + other.kinds.keys).associateWith { (kinds[it] ?: 0) + (other.kinds[it] ?: 0) },
             (addressed + other.addressed).distinct().take(MAX_AUDITED_ADDRESSED),
+            relabelled + other.relabelled,
         )
     }
 

@@ -139,10 +139,18 @@
     "membersLink": "Open the Members page"
   },
   "mention": {
-    "listLabel": "People in this room",
-    "matches_one": "{{count}} person matches",
-    "matches_other": "{{count}} people match",
-    "none": "No one in this room matches"
+    "listLabel": "People, teams and groups to mention",
+    "none": "Nothing in this room matches",
+    "groupPeople": "People",
+    "groupTeams": "Teams",
+    "groupGroups": "Groups",
+    "everyone": "Everyone in this room",
+    "watchers": "Watchers of this thread",
+    "matches_one": "{{count}} match",
+    "matches_other": "{{count}} matches",
+    "everyoneNote_zero": "@everyone has no one else to notify in this room.",
+    "everyoneNote_one": "@everyone notifies the other member of this room.",
+    "everyoneNote_other": "@everyone notifies the {{count}} other members of this room."
   },
   "side": {
     "toggle": "Details",

@@ -1028,6 +1028,11 @@ export interface paths {
          *       the mention index only, so it finds nothing for a message written before mentions were indexed. A non-positive or
          *       non-integer id, or more than 20 distinct values, is a `400`.
          *     - `watching` (strict `true` or `false`) keeps the threads the CALLER watches (`PUT .../watch`), or, with `false`, the ones they do not.
+         *     - `mentionsMe` (strict `true` or `false`; a repeated key is a `400`) keeps the threads with a LIVE message that addresses the CALLER
+         *       (the "Mentions me" view), or, with `false`, the ones that do not: the message names them with `<@id>`, or names a team they are
+         *       on NOW (`<@team:id>`), or names everyone (`<@everyone>`), or names the watchers (`<@watchers>`) while they watch the thread NOW.
+         *       A caller who is not a member of the room (an `ADMIN`) is addressed by name only, never through a group. `mentionedId` is
+         *       unchanged and stays direct only. It reads the mention indexes only, so it finds nothing for a message written before they existed.
          *     - A well-formed status key, owner id, mentioned user id, field value or tag that matches nothing is an empty page, never an error. Checked in this
          *       order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
          *       what the caller may read.
@@ -1054,8 +1059,9 @@ export interface paths {
          *     (`\n` and `\t` allowed, every other control character and the hidden direction characters
          *     are a `400`). Every required field must be supplied; an unknown key, or a value for a retired key (an unchanged `null` for a retired key is ignored), is a `400`,
          *     as is a value that breaks its type's rule. The thread, its opening message, its `CREATED` history entry and the activity bump of the thread and the room commit
-         *     together, and so do the notifications (`listNotifications`): every other ACTIVE member of the room gets `THREAD_CREATED`, or `MENTIONED`
-         *     when the body names them with `<@id>`. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
+         *     together, and so do the notifications (`listNotifications`): every other ACTIVE member of the room gets `THREAD_CREATED`, or the most
+         *     specific of `MENTIONED` (named with `<@id>`), `TEAM_MENTIONED` (a member of a team the body names with `<@team:id>`) and
+         *     `EVERYONE_MENTIONED` (`<@everyone>`); `<@watchers>` in an opening message reaches nobody. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
          *     beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The request body is at most 192 KiB (`413` beyond it)
          *     and `fields` holds at most 20 keys whose values are primitives, `null` or a list of at most 50 option keys (anything else, a
          *     nested object included, is a `400` before any lock); the stored values may not exceed 439,001 characters of JSON (`400`). The write
@@ -1323,8 +1329,12 @@ export interface paths {
          *     are dropped and the first line's indentation stays (`\n` and `\t` allowed, every other control character and the hidden
          *     direction characters are a `400`). It is stored raw and rendered without HTML. The message, `messageCount + 1` and the
          *     activity bump of the thread and the room commit together, and so do the notifications (`listNotifications`): a `MENTIONED` one for
-         *     each member the body mentions with `<@id>`, and a `THREAD_REPLIED` one for each other WATCHER of the thread (one notice per person,
-         *     the most specific reason; never the author). Rides the per-USER `chat-post` bucket of 120 per minute shared with
+         *     each member the body mentions with `<@id>`, `TEAM_MENTIONED` for each member of the room on the roster of a team it names with
+         *     `<@team:id>` (a team member who is not in the room is never told; a team that is deleted, unknown or has no handle is plain text),
+         *     `WATCHERS_MENTIONED` for each WATCHER of the thread when it names `<@watchers>`, `EVERYONE_MENTIONED` for every member of the room when
+         *     it names `<@everyone>` (any member may), and a `THREAD_REPLIED` one for each other WATCHER of the thread (one notice per person, the most
+         *     specific reason in that order; never the author). At most 20 distinct people, 5 distinct teams and each keyword once count; the rest are
+         *     plain text. A group mention reaching more than 20 people is a wide event (the daily budget below). Rides the per-USER `chat-post` bucket of 120 per minute shared with
          *     the thread POST (`429` beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The
          *     request body is at most 64 KiB (`413` beyond it), and the write waits at most about 3 seconds for the room's write lock before it is
          *     answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
@@ -1363,9 +1373,12 @@ export interface paths {
          *
          *     The body rules are those of the post. Sending the body the message already has (after normalising) is `204` with no write and
          *     no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
-         *     order are untouched. Only the people the edit NEWLY mentions are notified (a person who held a `THREAD_REPLIED` or `THREAD_CREATED` notice of the message gets a
-         *     fresh `MENTIONED` one in its place), and the notification of a mention the edit removed falls back to `THREAD_REPLIED` (the person
-         *     watches the thread) or `THREAD_CREATED` (an opening message) or, for anybody else, is deleted; an edit as such notifies nobody. Last writer wins: the author alone writes it and the room lock serialises their own requests.
+         *     order are untouched. Only the people the edit NEWLY addresses are notified (addressed by the new body, by name or through a team, the
+         *     watchers or everyone, and not by the old one, the old body's groups read as of the edit; a group token the edit KEPT addresses
+         *     nobody again; a person who held a less specific notice of the message gets a fresh one in its place), and the notification of a
+         *     mention the edit removed or made less specific is relabelled in place to the next reason that applies (`THREAD_REPLIED` when the person
+         *     watches the thread, `THREAD_CREATED` for an opening message) or, for anybody else, is deleted; an edit as such notifies nobody. An
+         *     edit that newly addresses more than 20 people counts as a wide event; a relabel alone does not. Last writer wins: the author alone writes it and the room lock serialises their own requests.
          *     The body is at most 64 KiB (`413` beyond it). Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["editMessage"];
@@ -2887,6 +2900,8 @@ export interface components {
             createdAt: number;
             /** @description The room members the body mentions with `<@id>` (an active member when the message was written or edited), by their CURRENT display name, ordered by user id; empty on a tombstone and on a message written before mentions were indexed. A token whose id is not listed here is plain text. */
             mentions: components["schemas"]["MentionedUser"][];
+            /** @description The group mentions of the body that took effect: `<@team:id>` of a team that is active and has a handle (at most 5), `<@watchers>` and `<@everyone>` (once each), teams by id and then the keywords; empty on a tombstone and on a message written before group mentions were indexed. A team shows its CURRENT handle and name. A token that is not listed here is plain text. */
+            groupMentions: components["schemas"]["GroupMention"][];
             /** @description The emoji on the message, in the order each first appeared; empty when there are none and on a tombstone. At most 20 distinct. */
             reactions: components["schemas"]["ReactionSummary"][];
         };
@@ -2898,6 +2913,23 @@ export interface components {
             userId: number;
             /** @description The person's current display name (a soft-deleted account keeps its last one). */
             name: string;
+        };
+        /** @description One group mention of a message. A client shows `<@team:id>` as `@handle`, `<@watchers>` as `@watchers` and `<@everyone>` as `@everyone`, and only when the token is listed here. */
+        GroupMention: {
+            /**
+             * @description Which token: `<@team:id>`, `<@watchers>` or `<@everyone>`. A client treats a value it does not know as plain text.
+             * @enum {string}
+             */
+            kind: "TEAM" | "WATCHERS" | "EVERYONE";
+            /**
+             * Format: int32
+             * @description The id inside the `<@team:id>` token; `null` for the two keywords.
+             */
+            teamId: number | null;
+            /** @description The team's CURRENT mention handle (what follows `@`); `null` for the two keywords. */
+            teamHandle: string | null;
+            /** @description The team's CURRENT display name; `null` for the two keywords. */
+            teamName: string | null;
         };
         /** @description One emoji on a message. The full list of reactors is not part of the contract. */
         ReactionSummary: {
@@ -3402,7 +3434,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) and on the room-lock writes that are not a name or an enrolment write (the room archive, unarchive and delete, a member's role PUT and removal, and the room workflow PUT) the per-USER chat-write bucket (shared by all fourteen) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, and the two notification "seen" POSTs) the per-USER read-state bucket (shared by all four) is exhausted (240/min), on the notification list the per-USER notification-read bucket (240/min) or on the notification-preferences PUT the per-USER notification-prefs bucket (30/min) is exhausted, or the notification list outruns its deadline (`read-timeout`) or finds the caller or server at their maximum of list reads (`read-busy`), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) and on the room-lock writes that are not a name or an enrolment write (the room archive, unarchive and delete, a member's role PUT and removal, and the room workflow PUT) the per-USER chat-write bucket (shared by all fourteen) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the watch PUT (`PUT /api/v1/rooms/{id}/threads/{number}/watch`) the per-USER thread-watch bucket (30/min) is exhausted, on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, and the two notification "seen" POSTs) the per-USER read-state bucket (shared by all four) is exhausted (240/min), on the notification list the per-USER notification-read bucket (240/min) or on the notification-preferences PUT the per-USER notification-prefs bucket (30/min) is exhausted, or the notification list outruns its deadline (`read-timeout`) or finds the caller or server at their maximum of list reads (`read-busy`), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 /** @description Seconds to wait before retrying; sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the rate-limit bucket 429s and the live-ticket store's full 429; not with the login lockout. */
@@ -3468,8 +3500,10 @@ export interface components {
         ThreadStatusFilter: string[];
         /** @description Repeatable - any of these owner ids (the thread list; "mine" is the caller's own id). An id that owns nothing matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
         ThreadOwnerFilter: number[];
-        /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
+        /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
         ThreadWatchingFilter: boolean;
+        /** @description `true` = only the threads with a live message that addresses the CALLER (names them, a team they are on now, everyone, or the watchers while they watch the thread now), `false` = only the ones without; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id. `mentionedId` (direct mentions of any given people) is unchanged. */
+        ThreadMentionsMeFilter: boolean;
         /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
         ThreadMentionFilter: number[];
         /** @description Repeatable `key:value` (the thread list): the field's key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). Any-of within one key, all-of across keys; at most 20 distinct pairs. The key must be an ACTIVE SELECT, MULTI_SELECT or USER field of the room; any other key, a missing colon or a value of the wrong shape is a `400`. */
@@ -4935,7 +4969,7 @@ export interface operations {
                 /** @description Free-text search (API-LIST-005) of the two search routes: case- and accent-insensitive, every term required within one message or the title, a term of three or more characters a prefix. Required UNLESS `watching=true` (the watched-threads view lists with no query); a blank value counts as omitted. A given value is trimmed first, then must be 2 to 100 characters (code points) with at least one letter or digit, else `400`; the schema states only the maximum, because a blank value is legal where `q` is optional. The shared `Q` stays REQUIRED for the user directory. */
                 q?: components["parameters"]["SearchQ"];
                 closed?: boolean;
-                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
+                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
                 watching?: components["parameters"]["ThreadWatchingFilter"];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];
@@ -5000,7 +5034,9 @@ export interface operations {
                 tag?: components["parameters"]["ThreadTagFilter"];
                 /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
                 mentionedId?: components["parameters"]["ThreadMentionFilter"];
-                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
+                /** @description `true` = only the threads with a live message that addresses the CALLER (names them, a team they are on now, everyone, or the watchers while they watch the thread now), `false` = only the ones without; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id. `mentionedId` (direct mentions of any given people) is unchanged. */
+                mentionsMe?: components["parameters"]["ThreadMentionsMeFilter"];
+                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
                 watching?: components["parameters"]["ThreadWatchingFilter"];
             };
             header?: never;
@@ -5634,7 +5670,7 @@ export interface operations {
                 /** @description Free-text search (API-LIST-005) of the two search routes: case- and accent-insensitive, every term required within one message or the title, a term of three or more characters a prefix. Required UNLESS `watching=true` (the watched-threads view lists with no query); a blank value counts as omitted. A given value is trimmed first, then must be 2 to 100 characters (code points) with at least one letter or digit, else `400`; the schema states only the maximum, because a blank value is legal where `q` is optional. The shared `Q` stays REQUIRED for the user directory. */
                 q?: components["parameters"]["SearchQ"];
                 closed?: boolean;
-                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
+                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
                 watching?: components["parameters"]["ThreadWatchingFilter"];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];
@@ -5675,7 +5711,7 @@ export interface operations {
             query?: {
                 /** @description `true` = only seen notices, `false` = only unseen ones; omitted = both. */
                 seen?: boolean;
-                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted or blank = every kind; at most 11 distinct. */
+                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted = every kind; at most 11 distinct. */
                 type?: components["schemas"]["NotificationType"][];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];

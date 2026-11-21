@@ -243,7 +243,8 @@ class NoticeWriterTest {
             )
         }
 
-        assertEquals(NoticeOutcome(1, mapOf(NoticeReason.MENTIONED to 1), listOf(added)), outcome, "only the added one is MADE")
+        val expected = NoticeOutcome(1, mapOf(NoticeReason.MENTIONED to 1), listOf(added), relabelled = 1)
+        assertEquals(expected, outcome, "only the added one is MADE")
         assertEquals(
             mapOf(
                 relabelled to NoticeReason.THREAD_REPLIED,

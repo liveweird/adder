@@ -132,10 +132,11 @@ describe("threadListParams", () => {
       expect(toApiQuery(params({ owner: "me" }), undefined, null)?.ownerId).toBeUndefined();
     });
 
-    test("mention=me asks for the threads mentioning the session's id, and without a session is no filter", () => {
-      expect(toApiQuery(params({ mention: true }), undefined, 7)?.mentionedId).toEqual([7]);
-      expect(toApiQuery(params({ mention: true }), undefined, null)?.mentionedId).toBeUndefined();
-      expect(toApiQuery(params({}), undefined, 7)?.mentionedId).toBeUndefined();
+    test("mention=me asks for the threads that address the caller, by name or through a group, and without a session is no filter", () => {
+      expect(toApiQuery(params({ mention: true }), undefined, 7)?.mentionsMe).toBe(true);
+      expect(toApiQuery(params({ mention: true }), undefined, null)?.mentionsMe).toBeUndefined();
+      expect(toApiQuery(params({ mention: true }), undefined, 7)?.mentionedId).toBeUndefined();
+      expect(toApiQuery(params({}), undefined, 7)?.mentionsMe).toBeUndefined();
     });
 
     test("watching=me asks for the caller's own watched threads, with or without a session id (the server knows the caller)", () => {
@@ -190,10 +191,10 @@ describe("threadListParams", () => {
       expect(activeFilterCount({})).toBe(0);
       expect(activeFilterCount({ tag: ["a", "b", "c"] })).toBe(1);
       expect(activeFilterCount({ status: ["a"], ownerId: [7], tag: ["a"], field: ["k:1"] })).toBe(4);
-      expect(activeFilterCount({ mentionedId: [7] })).toBe(1);
+      expect(activeFilterCount({ mentionsMe: true })).toBe(1);
       expect(activeFilterCount({ watching: true })).toBe(1);
-      expect(activeFilterCount({ status: ["a"], watching: true, mentionedId: [7] })).toBe(3);
-      expect(activeFilterCount({ status: ["a"], ownerId: [7], mentionedId: [7], tag: ["a"], field: ["k:1"] })).toBe(5);
+      expect(activeFilterCount({ status: ["a"], watching: true, mentionsMe: true })).toBe(3);
+      expect(activeFilterCount({ status: ["a"], ownerId: [7], mentionsMe: true, tag: ["a"], field: ["k:1"] })).toBe(5);
       expect(activeFilterCount({ status: ["a", "b"], ownerId: [7], field: ["k:1", "k:2", "j:3"] })).toBe(4);
     });
   });

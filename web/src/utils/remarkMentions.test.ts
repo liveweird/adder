@@ -9,6 +9,16 @@ const mention = (id: number) => ({
   children: [text(`<@${id}>`)],
   data: { hName: "span", hProperties: { "data-mention": String(id) } },
 });
+const team = (id: number) => ({
+  type: "mention",
+  children: [text(`<@team:${id}>`)],
+  data: { hName: "span", hProperties: { "data-mention-team": String(id) } },
+});
+const keyword = (word: "everyone" | "watchers") => ({
+  type: "mention",
+  children: [text(`<@${word}>`)],
+  data: { hName: "span", hProperties: { "data-mention-group": word } },
+});
 const run = (...children: Tree[]): Tree => {
   const tree: Tree = { type: "root", children: [{ type: "paragraph", children }] };
   remarkMentions()(tree);
@@ -18,6 +28,19 @@ const run = (...children: Tree[]): Tree => {
 describe("remarkMentions", () => {
   test("splits a text node into text and mention nodes and keeps the words around the token", () => {
     expect(run(text("Ping <@42> and <@7>, thanks.")) as unknown).toEqual([text("Ping "), mention(42), text(" and "), mention(7), text(", thanks.")]);
+  });
+
+  test("marks a team by id and the two keywords by word", () => {
+    expect(run(text("a <@team:5> <@everyone> <@watchers> <@6>")) as unknown).toEqual([
+      text("a "),
+      team(5),
+      text(" "),
+      keyword("everyone"),
+      text(" "),
+      keyword("watchers"),
+      text(" "),
+      mention(6),
+    ]);
   });
 
   test("a text node with no mention is left exactly as it is", () => {

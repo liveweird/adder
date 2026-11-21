@@ -116,6 +116,8 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
           />
           <MentionTextarea
             roomId={room.id}
+            // A thread that is not started has no watchers but its author: `@watchers` is not offered here.
+            offerWatchers={false}
             label={t("threads.new.bodyLabel")}
             description={t("threads.new.bodyHint")}
             required

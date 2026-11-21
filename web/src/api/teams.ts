@@ -17,10 +17,12 @@ type TeamListQuery = {
   pageSize: number;
   sort?: string;
   name?: string;
+  /** A case- and accent-insensitive substring of the mention handle (the composer's team picker). */
+  handle?: string;
 };
 
 export async function listTeams(q: TeamListQuery): Promise<TeamPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, name: q.name });
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, name: q.name, handle: q.handle });
   return jsonRequest<TeamPage>(`/api/v1/teams?${params}`);
 }
 

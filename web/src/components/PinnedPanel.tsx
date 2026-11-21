@@ -161,7 +161,7 @@ function PinnedItem({
           <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
             {t("rooms.pins.inThread", { thread: threadName })}
           </Text>
-          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(room.id, pin.threadNumber, tag)} mentions={message.mentions}>
+          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(room.id, pin.threadNumber, tag)} mentions={message.mentions} groupMentions={message.groupMentions}>
             {message.body}
           </MarkdownView>
         </>

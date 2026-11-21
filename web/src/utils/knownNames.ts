@@ -3,8 +3,8 @@ import { getSessionSnapshot } from "../api/session";
 import { subscribeLogicalSession } from "./sessionQueryCache";
 
 /**
- * The people's names this session has seen, by user id: the ones a message's `mentions` carry and, later, the ones a pick in the composer
- * chose. It is a plain in-memory map, never persisted and never the authority for a token (a message's own `mentions` is: the SPA follows
+ * The people's names this session has seen, by user id (the ones a message's `mentions` carry and the ones a pick in the composer chose), and
+ * the teams' handles, by team id (a message's `groupMentions` and a team pick). It is a plain in-memory map, never persisted and never the authority for a token (a message's own `mentions` is: the SPA follows
  * the server). It exists so a screen that holds only an id (the composer, editing a body that mentions someone) can still say who.
  * One store is provided above the routes, inside the session boundary (`App.tsx`), so a new sign-in starts with none.
  */
@@ -13,15 +13,24 @@ export type KnownNames = {
   remember: (people: readonly { userId: number; name: string }[]) => void;
   /** The last name seen for `userId`, or undefined. */
   get: (userId: number) => string | undefined;
+  /** Remembers the handles of `teams`; a later handle for the same id wins (a team may be renamed). */
+  rememberTeams: (teams: readonly { teamId: number | null; teamHandle: string | null }[]) => void;
+  /** The last handle seen for team `teamId`, or undefined. */
+  getTeam: (teamId: number) => string | undefined;
 };
 
 export function createKnownNames(): KnownNames {
   const names = new Map<number, string>();
+  const handles = new Map<number, string>();
   return {
     remember: (people) => {
       for (const person of people) names.set(person.userId, person.name);
     },
     get: (userId) => names.get(userId),
+    rememberTeams: (teams) => {
+      for (const team of teams) if (team.teamId !== null && team.teamHandle !== null) handles.set(team.teamId, team.teamHandle);
+    },
+    getTeam: (teamId) => handles.get(teamId),
   };
 }
 

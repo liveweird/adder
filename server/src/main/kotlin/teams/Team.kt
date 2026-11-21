@@ -142,3 +142,9 @@ private fun validateTeamHandle(handle: String) {
 fun validateTeamCreate(request: TeamCreateRequest) = validateTeam(request.name, request.description, request.handle)
 
 fun validateTeamUpdate(request: TeamUpdateRequest) = validateTeam(request.name, request.description, request.handle)
+
+/**
+ * A team a message can mention (`<@team:id>`): active and with a [handle] (`chat-model.md` "Group mentions"); [name] is its current
+ * display name.
+ */
+class MentionableTeam(val id: UInt, val handle: String, val name: String)

@@ -25,6 +25,11 @@ data class MessageResponse(
     val createdAt: Long,
     /** The room members the body mentions with `<@id>`, by current name (at most 20, by user id; empty on a tombstone). */
     val mentions: List<MentionedUser>,
+    /**
+     * The group mentions of the body (`<@team:id>`, `<@watchers>`, `<@everyone>`) that took effect, at most 7 (5 teams, 2 keywords), teams
+     * by id then the keywords; empty on a tombstone. A group token not listed here is plain text.
+     */
+    val groupMentions: List<GroupMention>,
     /** At most [MAX_DISTINCT_REACTIONS], in the order each emoji first appeared; empty on a tombstone (`chat-model.md`). */
     val reactions: List<ReactionSummary>,
 )

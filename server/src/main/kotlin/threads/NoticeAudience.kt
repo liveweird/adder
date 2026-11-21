@@ -8,7 +8,13 @@ package ch.nokillswit.threads
  *  - `members`: the room's ACTIVE members now;
  *  - `watchers`: the thread's watchers who are ALSO active members (a raw read of the watches is never an audience: a deleted account's
  *    or a left member's watch is inert);
- *  - `mentioned`: the members the body names directly (`<@id>`), in order of appearance.
+ *  - `mentioned`: the members the body names directly (`<@id>`), in order of appearance;
+ *  - `teamMentioned`: the room's active members on the roster of a team the body names (`<@team:id>`), already intersected with the
+ *    room (a team member who is not in the room is never told); `watchersMentioned` and `everyoneMentioned`: the body holds `<@watchers>`
+ *    and `<@everyone>` (the people are then `watchers` and `members`).
+ *
+ * A group mention is `TEAM_MENTIONED`, `WATCHERS_MENTIONED` or `EVERYONE_MENTIONED` (not "direct": over the wide-event budget they are
+ * the first to go). `<@watchers>` in an OPENING message reaches nobody (only the author watches); `<@everyone>` reaches every member.
  *
  * Every function answers a list in PRIORITY order, the most specific reason first (the order of [NoticeReason]), each person ONCE with
  * their most specific reason and never the actor: the writer's email budget admits people in this order, so a message that names someone
@@ -21,12 +27,14 @@ package ch.nokillswit.threads
  */
 internal object NoticeAudience {
     /** The reasons that name a person for what the message SAYS (a mention); the base reasons below are for what the thread IS. */
-    private val MENTION_REASONS = setOf(
+    internal val MENTION_REASONS = setOf(
         NoticeReason.MENTIONED,
         NoticeReason.TEAM_MENTIONED,
         NoticeReason.WATCHERS_MENTIONED,
         NoticeReason.EVERYONE_MENTIONED,
     )
+
+    private fun Notice.allApplicable(): List<NoticeReason> = listOf(reason) + fallbacks
 
     /** The most specific reason of each person (the rest as its fallbacks), in priority order, the [actorId] left out. */
     private fun resolved(actorId: UInt, candidates: List<Notice>): List<Notice> =
@@ -35,8 +43,11 @@ internal object NoticeAudience {
         }
 
     /**
-     * A post or an OPENING message by [authorId]: a direct mention is `MENTIONED`; otherwise every active member is told `THREAD_CREATED`
-     * of an opening message (1.1 D4), and the thread's watchers `THREAD_REPLIED` of a reply (1.1 D3). A reply tells no non-watcher.
+     * A post or an OPENING message by [authorId]: a direct mention is `MENTIONED`, then a team mention, the watchers mention and
+     * everyone (the order of [NoticeReason]); otherwise every active member is told `THREAD_CREATED` of an opening message (1.1 D4), and
+     * the thread's watchers `THREAD_REPLIED` of a reply (1.1 D3). A reply tells no non-watcher unless a mention names them. [members]
+     * is read only for an opening message and for `<@everyone>`; [watchers] only for a reply (an opening message's watchers are the
+     * author alone).
      */
     fun ofMessage(
         opening: Boolean,
@@ -44,14 +55,20 @@ internal object NoticeAudience {
         mentioned: Collection<UInt>,
         watchers: Collection<UInt>,
         members: Collection<UInt>,
+        teamMentioned: Collection<UInt> = emptyList(),
+        watchersMentioned: Boolean = false,
+        everyoneMentioned: Boolean = false,
     ): List<Notice> {
         val direct = mentioned.map { Notice(it, NoticeReason.MENTIONED) }
+        val teams = teamMentioned.map { Notice(it, NoticeReason.TEAM_MENTIONED) }
+        val watching = if (watchersMentioned && !opening) watchers.map { Notice(it, NoticeReason.WATCHERS_MENTIONED) } else emptyList()
+        val room = if (everyoneMentioned) members.map { Notice(it, NoticeReason.EVERYONE_MENTIONED) } else emptyList()
         val base = if (opening) {
             members.map { Notice(it, NoticeReason.THREAD_CREATED) }
         } else {
             watchers.map { Notice(it, NoticeReason.THREAD_REPLIED) }
         }
-        return resolved(authorId, direct + base)
+        return resolved(authorId, direct + teams + watching + room + base)
     }
 
     /** A status move by [actorId]: the watchers (the actor never), the reason by the move. */
@@ -77,15 +94,17 @@ internal object NoticeAudience {
 
     /**
      * An EDIT of a message by [authorId] whose notices are [existing] (by recipient): what the new body addresses ([ofMessage] on the
-     * new facts, [mentioned] being everybody it mentions NOW) against what they already hold, the table of `chat-model.md` "Watching, group
-     * mentions and notice kinds (1.1)". Only the NEWLY addressed are told ([added]: addressed by the new body and not by the old one, 1.1
-     * A34; the group tokens of the next step widen the word, not the rule): a mention the edit kept, whose notice is gone (retention, a
-     * switch, a leave and rejoin) or was never made, stays without one.
+     * new facts, [mentioned] being everybody it mentions NOW, the group arguments as there) against what they already hold, the table of
+     * `chat-model.md` "Watching, group mentions and notice kinds (1.1)". Only the NEWLY addressed are told. [before] is the most specific
+     * mention reason each person had from the OLD body (its direct rows and its groups, the caller reads their audience as of the edit,
+     * 1.1 A34, A39): a person is newly addressed at a reason when they were not addressed at it, nor at anything more specific, before. So
+     * a person the edit now names directly is always newly addressed (a group addressed them less specifically), a mention the edit kept
+     * whose notice is gone (retention, a switch, a leave and rejoin) stays without one, and a KEPT group token re-addresses nobody.
      *
      *  - nothing yet, newly MENTIONED: add. (A base notice is never added by an edit: an edit as such makes no notice.)
      *  - a LESS specific notice, newly addressed more specifically: delete and add, so the person has a fresh, unseen notice
      *    (the person is in both [NoticeRevision.remove] and [NoticeRevision.add]);
-     *  - a mention notice, now addressed less specifically: relabelled in place;
+     *  - a mention notice, now addressed less specifically, or a group kind the body no longer earns for the person: relabelled in place;
      *  - a mention notice, now not addressed at all: deleted;
      *  - a base notice that is no longer earned, or any notice of the same reason: kept.
      *
@@ -96,12 +115,18 @@ internal object NoticeAudience {
         authorId: UInt,
         existing: Map<UInt, NoticeReason>,
         mentioned: Collection<UInt>,
-        added: Collection<UInt>,
+        before: Map<UInt, NoticeReason>,
         watchers: Collection<UInt>,
         members: Collection<UInt>,
+        teamMentioned: Collection<UInt> = emptyList(),
+        watchersMentioned: Boolean = false,
+        everyoneMentioned: Boolean = false,
     ): NoticeRevision {
-        val now = ofMessage(opening, authorId, mentioned, watchers, members).associateBy { it.userId }
-        val newly = added.toSet()
+        val now = ofMessage(opening, authorId, mentioned, watchers, members, teamMentioned, watchersMentioned, everyoneMentioned)
+            .associateBy { it.userId }
+        // Newly addressed at a reason: addressed at it now and not at it, nor at anything more specific, BEFORE (1.1 A34, A39).
+        fun newly(user: UInt, target: NoticeReason) =
+            target in MENTION_REASONS && (before[user]?.let { it.ordinal > target.ordinal } ?: true)
         val add = mutableListOf<Notice>()
         val relabel = mutableListOf<Notice>()
         val remove = mutableListOf<UInt>()
@@ -109,11 +134,15 @@ internal object NoticeAudience {
             val held = existing[user]
             val target = notice.reason
             when {
-                held == null -> if (target in MENTION_REASONS && user in newly) add += notice
+                held == null -> if (newly(user, target)) add += notice
                 held == target -> Unit
-                target.ordinal < held.ordinal -> if (user in newly) {
-                    remove += user
-                    add += notice
+                target.ordinal < held.ordinal -> when {
+                    newly(user, target) -> {
+                        remove += user
+                        add += notice
+                    }
+                    // Not newly, and the group kind the person holds is no longer earned by the body: relabelled in place.
+                    held in MENTION_REASONS && held !in notice.allApplicable() -> relabel += notice
                 }
                 held in MENTION_REASONS -> relabel += notice
             }

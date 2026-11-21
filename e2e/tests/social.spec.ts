@@ -1,13 +1,14 @@
 // Social (0.6.0): mentions picked in the composer reach the mentioned member's bell live and open the message; the "Mentions me" filter; a
 // hand-over notifies the new owner; the rail's and the thread list's unread marks and the conversation's "New" line; a reaction from the emoji
 // picker (no content-security-policy violation) seen live by another member, who toggles theirs; the pinned panel and a pin's removal seen live;
-// a member removed from a room loses its notifications; the Notification preferences page keeps a saved switch; a kind switched off in the app stops arriving. Two browser contexts wherever live matters, with no reload in the watching one.
+// a member removed from a room loses its notifications; the Notification preferences page keeps a saved switch; a kind switched off in the app stops arriving;
+// a team mention (1.1.0) reaches the team's members who are in the room and no one else; everyone is told once, with the most specific reason. Two browser contexts wherever live matters, with no reload in the watching one.
 // Owns: its throwaway `e2e-soc-*` rooms and users, removed through the API in an `afterEach` (contexts first, then rooms, then the users). Every room
 // is created by a throwaway user and only copies the seeded Default template. Threads and messages are never deleted: a room's removal hides them.
 // The per-user `live-ticket`, `chat-post`, `chat-write` and `read-state` buckets are only ever spent by throwaway users, far below their limits.
 import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { apiAsUser, conversation, deleteViaApi, expect, login, rail, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, rail, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-social-admin");
@@ -592,5 +593,110 @@ test("everyone in the room hears about a new thread", async ({ page, browser }) 
   await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} started #1 ${title}`) })).toBeVisible();
 
   // The author is never told of their own thread.
+  await expect(bell(author.page)).toHaveAccessibleName(unseenBell(0));
+});
+
+test("a team mention reaches the team's members in the room", async ({ page, browser }) => {
+  // The teammate joins AFTER the thread opened (the room is not told of a thread they were not there for); the outsider never joins the room.
+  const room = await scene(page, { addMate: false });
+  const outsider = await throwawayUser(page, "E2E Soc Outsider", cleanup);
+  const title = uniqueText("Team thread");
+  await startThread(room, title);
+  await addMember(room);
+
+  // The administrator gives a team a mention handle and puts the teammate AND the outsider on its roster, through the API.
+  const { api: adminApi } = await apiAsAdmin();
+  apis.push(adminApi);
+  const handle = uniqueText("e2e-soc");
+  const team = await adminApi.post("/api/v1/teams", { data: { name: handle, handle } });
+  expect(team.status(), await team.text()).toBe(201);
+  const teamId = ((await team.json()) as { id: number }).id;
+  cleanup.unshift(`/api/v1/teams/${teamId}`);
+  for (const member of [room.mate, outsider]) {
+    const added = await adminApi.put(`/api/v1/teams/${teamId}/members/${member.id}`);
+    expect(added.status(), await added.text()).toBe(204);
+  }
+
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, `/rooms/${room.roomId}/threads/1`, room.roomId);
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  // The author types an @ and the team's handle: the list offers the team under "Teams", and picking it turns the word into @handle.
+  const box = author.page.getByRole("textbox", { name: "Reply", exact: true });
+  await box.pressSequentially(`Paging @${handle}`);
+  const option = author.page.getByRole("option", { name: new RegExp(`@${handle}`) });
+  await expect(author.page.getByRole("group", { name: "Teams", exact: true })).toContainText(`@${handle}`);
+  await option.click();
+  await expect(box).toHaveValue(new RegExp(`@${handle}`));
+  await box.pressSequentially("the replica is lagging.");
+  const [posted] = await Promise.all([
+    author.page.waitForResponse((r) => r.request().method() === "POST" && MESSAGES_API.test(r.url()) && r.status() === 201),
+    box.press("Control+Enter"),
+  ]);
+  const message = (await posted.json()) as { id: number; groupMentions: { kind: string; teamHandle: string | null }[] };
+  expect(message.groupMentions.map((group) => `${group.kind}:${group.teamHandle}`)).toEqual([`TEAM:${handle}`]);
+
+  // The teammate (on the team and in the room) is told with no action; the drawer words it.
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expectNoReload(reader);
+  await bell(reader.page).click();
+  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned your team in #1 ${title}`) })).toBeVisible();
+
+  // The message shows the handle (not the token) to everyone who reads it.
+  await expect(messageNamed(author.page, "the replica is lagging.")).toContainText(`@${handle}`);
+
+  // The outsider is on the roster but not in the room: never told (and the room is none of their business).
+  const { api: outsiderApi } = await apiAsUser(outsider.email, outsider.password);
+  apis.push(outsiderApi);
+  const inbox = await outsiderApi.get("/api/v1/notifications");
+  expect(((await inbox.json()) as { total: number }).total, "a team member outside the room is never told").toBe(0);
+});
+
+test("everyone is told once, with the most specific reason", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Everyone thread");
+  await startThread(room, title);
+  await addMember(room);
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, `/rooms/${room.roomId}/threads/1`, room.roomId);
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  // The author names the teammate AND everyone in one message: the composer says how many people that reaches, and does not ask.
+  const box = author.page.getByRole("textbox", { name: "Reply", exact: true });
+  await box.pressSequentially(`@${uniquePart(room.mate)}`);
+  await author.page.getByRole("option", { name: room.mate.name }).click();
+  await box.pressSequentially("and @eve");
+  await author.page.getByRole("option", { name: /@everyone/ }).click();
+  await expect(box).toHaveValue(new RegExp(`@${room.mate.name} and @everyone`));
+  await expect(author.page.getByText("@everyone notifies the other member of this room.")).toBeVisible();
+  const [posted] = await Promise.all([
+    author.page.waitForResponse((r) => r.request().method() === "POST" && MESSAGES_API.test(r.url()) && r.status() === 201),
+    box.press("Control+Enter"),
+  ]);
+  const messageId = ((await posted.json()) as { id: number }).id;
+
+  // The teammate has ONE notice, worded as the mention (the most specific reason), not one for the mention and one for everyone.
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expectNoReload(reader);
+  await bell(reader.page).click();
+  const notice = drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned you in #1 ${title}`) });
+  await expect(notice).toBeVisible();
+  await expect(drawer(reader.page).getByRole("link", { name: /mentioned everyone/ })).toHaveCount(0);
+  await notice.click();
+  await expect(reader.page).toHaveURL(new RegExp(`message=${messageId}`));
+  await expect(messageNamed(reader.page, "@everyone")).toContainText(`@${room.mate.name}`);
+
+  // A second message that names only everyone is worded as such for the same teammate (who has left the thread for the room's list: a
+  // reader looking at the thread would have it acknowledged by the pane); the author is never told of their own.
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+  await postMessage(room, 1, "Standup in five <@everyone>");
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await bell(reader.page).click();
+  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned everyone in #1 ${title}`) })).toBeVisible();
   await expect(bell(author.page)).toHaveAccessibleName(unseenBell(0));
 });

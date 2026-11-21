@@ -30,14 +30,15 @@ class PackageBoundaryTest {
 
     /**
      * Composition-root exceptions to "infra never references a feature": `infra/db/Database.kt` builds and publishes the feature
-     * services (`teams`, `users`, `auth`, `workflows`, `rooms`), `infra/db/ChatWiring.kt` the chat's (`threads`, `notifications`) and
+     * services (`teams`, `users`, `auth`, `workflows`, `rooms`), `infra/db/ChatWiring.kt` the chat's (`threads`, `notifications`, and
+     * the `teams` the mention follower reads) and
      * `infra/db/Bootstrap.kt` seeds the admin through `users`/`auth`.
      * Keyed by path under `server/src/main/kotlin`, valued by the feature packages that file may import;
      * a listed package the file no longer uses fails the test (a stale exception is dead permission).
      */
     private val infraCompositionRoot: Map<String, Set<String>> = mapOf(
         "infra/db/Database.kt" to setOf("auth", "rooms", "teams", "users", "workflows"),
-        "infra/db/ChatWiring.kt" to setOf("notifications", "rooms", "threads"),
+        "infra/db/ChatWiring.kt" to setOf("notifications", "rooms", "teams", "threads"),
         "infra/db/Bootstrap.kt" to setOf("auth", "users"),
     )
 

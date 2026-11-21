@@ -19,6 +19,25 @@ describe("createKnownNames", () => {
   });
 });
 
+describe("createKnownNames: team handles", () => {
+  test("remembers the handles it is given, a later one wins, and a null one is skipped", () => {
+    const names = createKnownNames();
+    expect(names.getTeam(12)).toBeUndefined();
+    names.rememberTeams([
+      { teamId: 12, teamHandle: "oncall" },
+      { teamId: null, teamHandle: null },
+      { teamId: 13, teamHandle: null },
+    ]);
+    names.rememberTeams([{ teamId: 12, teamHandle: "on-call" }]);
+    expect(names.getTeam(12)).toBe("on-call");
+    expect(names.getTeam(13)).toBeUndefined();
+    // People and teams do not share ids.
+    names.remember([{ userId: 12, name: "Ada" }]);
+    expect(names.getTeam(12)).toBe("on-call");
+    expect(names.get(12)).toBe("Ada");
+  });
+});
+
 describe("useKnownNames", () => {
   function Probe() {
     const names = useKnownNames();

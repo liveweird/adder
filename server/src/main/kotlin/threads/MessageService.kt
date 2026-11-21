@@ -131,10 +131,12 @@ class MessageService internal constructor(
             val rows = Messages.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
             val names = userNames(rows.map { it[Messages.authorId].value })
             val mentioned = mentionsOf(rows)
+            val grouped = groupMentionsOf(rows)
             val reacted = reactionsOf(viewerId, rows)
             val items = rows.map {
                 val id = it[Messages.id].value
-                it.toResponse(number, names.getValue(it[Messages.authorId].value), mentioned[id].orEmpty(), reacted[id].orEmpty())
+                val author = names.getValue(it[Messages.authorId].value)
+                it.toResponse(number, author, mentioned[id].orEmpty(), grouped[id].orEmpty(), reacted[id].orEmpty())
             }
             MessageListResult(items, total)
         }
@@ -152,6 +154,7 @@ class MessageService internal constructor(
             row[threads.number],
             userNames(listOf(row[Messages.authorId].value)).getValue(row[Messages.authorId].value),
             mentionsOf(listOf(row))[row[Messages.id].value].orEmpty(),
+            groupMentionsOf(listOf(row))[row[Messages.id].value].orEmpty(),
             reactionsOf(viewerId, listOf(row))[row[Messages.id].value].orEmpty(),
         )
     }
@@ -170,6 +173,15 @@ class MessageService internal constructor(
         )
 
     /**
+     * The group mentions (`<@team:id>`, `<@watchers>`, `<@everyone>`) of the LIVE messages among [rows], in ONE read (none when no body
+     * holds a `<@` token). Runs INSIDE the caller's transaction.
+     */
+    private suspend fun groupMentionsOf(rows: List<ResultRow>): Map<UInt, List<GroupMention>> =
+        mentions.groups.groupsOf(
+            rows.filter { !it[Messages.markedAsDeleted] && it[Messages.body].contains("<@") }.map { it[Messages.id].value },
+        )
+
+    /**
      * The live messages [ids] of room [roomId] as they read now for [viewerId] (their own reactions are marked), by id, inside the
      * CALLER's transaction (a pin listing reads them beside its own rows); an id that is unknown, deleted or of another room is simply
      * absent. One query for the lot, plus the mentions' and the reactions' reads.
@@ -181,11 +193,12 @@ class MessageService internal constructor(
             .where { (Messages.id inList ids.toSet()) and (threads.roomId eq roomId) and Messages.active() }.toList()
         val names = userNames(rows.map { it[Messages.authorId].value })
         val mentioned = mentionsOf(rows)
+        val grouped = groupMentionsOf(rows)
         val reacted = reactionsOf(viewerId, rows)
         return rows.associate {
             val id = it[Messages.id].value
             val author = names.getValue(it[Messages.authorId].value)
-            id to it.toResponse(it[threads.number], author, mentioned[id].orEmpty(), reacted[id].orEmpty())
+            id to it.toResponse(it[threads.number], author, mentioned[id].orEmpty(), grouped[id].orEmpty(), reacted[id].orEmpty())
         }
     }
 
@@ -225,8 +238,12 @@ class MessageService internal constructor(
             notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
             val notices = followPosted(inserted)
             val name = userNames(listOf(authorId)).getValue(authorId)
-            val mentioned = if (request.body.contains("<@")) mentions.mentionsOf(listOf(id))[id].orEmpty() else emptyList()
-            val response = MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp, mentioned, emptyList())
+            val tokens = request.body.contains("<@")
+            val mentioned = if (tokens) mentions.mentionsOf(listOf(id))[id].orEmpty() else emptyList()
+            val grouped = if (tokens) mentions.groups.groupsOf(listOf(id))[id].orEmpty() else emptyList()
+            val response = MessageResponse(
+                id, number, authorId, name, request.body, false, false, null, stamp, mentioned, grouped, emptyList(),
+            )
             PostedMessage(write.thread.id, response, notices)
         }
     }
@@ -302,6 +319,7 @@ class MessageService internal constructor(
         threadNumber: Int,
         authorName: String,
         mentioned: List<MentionedUser>,
+        grouped: List<GroupMention>,
         summaries: List<ReactionSummary>,
     ): MessageResponse {
         val deleted = this[Messages.markedAsDeleted]
@@ -317,6 +335,7 @@ class MessageService internal constructor(
             editedAt = if (deleted) null else this[Messages.editedAt],
             createdAt = this[Messages.createdAt],
             mentions = if (deleted) emptyList() else mentioned,
+            groupMentions = if (deleted) emptyList() else grouped,
             reactions = if (deleted) emptyList() else summaries,
         )
     }

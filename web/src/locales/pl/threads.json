@@ -141,12 +141,22 @@
     "membersLink": "Otwórz stronę Członkowie/członkinie"
   },
   "mention": {
-    "listLabel": "Osoby w tym pokoju",
-    "matches_one": "Pasuje {{count}} osoba",
-    "matches_few": "Pasują {{count}} osoby",
-    "matches_many": "Pasuje {{count}} osób",
-    "matches_other": "Pasuje {{count}} osoby",
-    "none": "Nikt w tym pokoju nie pasuje"
+    "listLabel": "Osoby, zespoły i grupy do wspomnienia",
+    "none": "Nic w tym pokoju nie pasuje",
+    "groupPeople": "Osoby",
+    "groupTeams": "Zespoły",
+    "groupGroups": "Grupy",
+    "everyone": "Wszyscy w tym pokoju",
+    "watchers": "Obserwujący ten wątek",
+    "matches_one": "Pasuje {{count}} wynik",
+    "matches_few": "Pasują {{count}} wyniki",
+    "matches_many": "Pasuje {{count}} wyników",
+    "matches_other": "Pasuje {{count}} wyniku",
+    "everyoneNote_zero": "@everyone nie ma tu kogo więcej powiadomić.",
+    "everyoneNote_one": "@everyone powiadomi drugą osobę w tym pokoju.",
+    "everyoneNote_few": "@everyone powiadomi {{count}} pozostałe osoby w tym pokoju.",
+    "everyoneNote_many": "@everyone powiadomi {{count}} pozostałych osób w tym pokoju.",
+    "everyoneNote_other": "@everyone powiadomi {{count}} pozostałej osoby w tym pokoju."
   },
   "side": {
     "toggle": "Szczegóły",

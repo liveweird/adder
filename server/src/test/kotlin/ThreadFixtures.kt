@@ -44,21 +44,22 @@ import org.jetbrains.exposed.v1.r2dbc.update
  */
 object TestThreads {
     val events: ThreadEventService by lazy { ThreadEventService(sharedDatabaseForTests()) }
-    private val members: RoomMemberService by lazy { RoomMemberService(sharedDatabaseForTests(), TeamService(sharedDatabaseForTests())) }
+    private val teams: TeamService by lazy { TeamService(sharedDatabaseForTests()) }
+    private val members: RoomMemberService by lazy { RoomMemberService(sharedDatabaseForTests(), teams) }
     /** The notice writer (the `ThreadNotices` port) the real services share: a seeded mention makes its notice like a route's. */
     internal val noticeWriter: NoticeWriter by lazy { NoticeWriter() }
     /** The notice reads, "seen" writes and retention. */
     internal val notices: NotificationService by lazy { NotificationService(sharedDatabaseForTests(), TestRooms.service) }
     val messages: MessageService by lazy {
         val database = sharedDatabaseForTests()
-        val mentions = MessageMentionService(members, noticeWriter, watches)
+        val mentions = MessageMentionService(members, noticeWriter, watches, teams)
         MessageService(database, TestRooms.service, MessageTagService(database), mentions, listOf(PinCleanup()))
     }
     val pins: PinService by lazy { PinService(sharedDatabaseForTests(), messages) }
     /** The watches (V26): the same service the real thread writes add the creator's auto-watch through. */
     internal val watches: ThreadWatchService by lazy { ThreadWatchService(sharedDatabaseForTests(), members) }
     val service: ThreadService by lazy {
-        ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, messages, watches)
+        ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, messages, watches, teams)
     }
 
     /**

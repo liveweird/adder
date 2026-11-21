@@ -50,6 +50,7 @@ class MigrationChecksumTest {
         "V27__reshape_notifications.sql" to -684514170,
         "V28__notification_preference_choices.sql" to 1260716694,
         "V29__notification_broadcast_budget.sql" to 164448559,
+        "V30__create_message_group_mentions.sql" to -219235358,
     )
 
     @Test

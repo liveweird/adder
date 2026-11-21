@@ -12,6 +12,7 @@ import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomWorkflowService
 import ch.nokillswit.rooms.WorkflowUsageKey
+import ch.nokillswit.teams.TeamService
 import ch.nokillswit.threads.MessageMentionService
 import ch.nokillswit.threads.MessageReactionService
 import ch.nokillswit.threads.MessageReactionServiceKey
@@ -50,6 +51,7 @@ internal fun Application.publishChatServices(
     roomService: RoomService,
     roomMemberService: RoomMemberService,
     roomWorkflowService: RoomWorkflowService,
+    teamService: TeamService,
     readMaxConcurrent: Int,
     searchMaxConcurrent: Int,
 ) {
@@ -99,7 +101,7 @@ internal fun Application.publishChatServices(
     attributes.put(ThreadWatchServiceKey, threadWatchService)
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
-    val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService)
+    val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService, teamService)
     // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.
     val reactionService = MessageReactionService(database)
     attributes.put(MessageReactionServiceKey, reactionService)
@@ -119,6 +121,7 @@ internal fun Application.publishChatServices(
             threadEventService,
             messageService,
             threadWatchService,
+            teamService,
             readLimiter,
         ),
     )

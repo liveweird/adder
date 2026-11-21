@@ -1,4 +1,4 @@
-import { mentionSegments } from "./mentions";
+import { mentionSegments, type MentionSegment } from "./mentions";
 
 /**
  * The composer's two texts. The CANONICAL text is what is stored and sent: a mention is the token `<@id>` (`utils/mentions.ts`). The SHOWN text is
@@ -8,24 +8,45 @@ import { mentionSegments } from "./mentions";
  * token (the typed text, if any, goes in its place).
  */
 
-/** The name the session knows for an id, or undefined. */
+/** The name the session knows for a person's id, or undefined. */
 export type NameOf = (id: number) => string | undefined;
 
-/** One run: plain text (equal in both texts) or one known mention (`id`; its shown form is `@Name`). Offsets are where the run starts. */
-type Piece = { canonical: string; shown: string; id?: number; cStart: number; sStart: number };
+/** The handle the session knows for a team's id, or undefined. */
+export type HandleOf = (teamId: number) => string | undefined;
+
+/**
+ * One run: plain text (equal in both texts) or one known mention (`atomic`; its shown form is `@Name`, `@handle`, `@watchers` or
+ * `@everyone`). Offsets are where the run starts.
+ */
+type Piece = { canonical: string; shown: string; atomic?: true; id?: number; cStart: number; sStart: number };
 
 export type Shown = { canonical: string; text: string; pieces: readonly Piece[] };
 
 /** The longest `@term` the list searches for (the server's cap on the member name filter is 100). */
 const MAX_MENTION_TERM = 50;
 
-export function toShown(canonical: string, nameOf: NameOf): Shown {
+/** What follows the `@` of a token the session can name: a known person or team, and the two keywords always; undefined for anything else. */
+function shownLabel(segment: MentionSegment, nameOf: NameOf, handleOf: HandleOf): string | undefined {
+  switch (segment.kind) {
+    case "user":
+      return nameOf(segment.id);
+    case "team":
+      return handleOf(segment.id);
+    case "watchers":
+    case "everyone":
+      return segment.kind;
+    default:
+      return undefined;
+  }
+}
+
+export function toShown(canonical: string, nameOf: NameOf, handleOf: HandleOf = () => undefined): Shown {
   const pieces: Piece[] = [];
   let text = "";
   let cStart = 0;
-  const add = (piece: { canonical: string; shown: string; id?: number }) => {
+  const add = (piece: { canonical: string; shown: string; atomic?: true; id?: number }) => {
     const last = pieces[pieces.length - 1];
-    if (piece.id === undefined && last !== undefined && last.id === undefined) {
+    if (piece.atomic === undefined && last !== undefined && last.atomic === undefined) {
       pieces[pieces.length - 1] = { ...last, canonical: last.canonical + piece.canonical, shown: last.shown + piece.shown };
     } else {
       pieces.push({ ...piece, cStart, sStart: text.length });
@@ -34,8 +55,8 @@ export function toShown(canonical: string, nameOf: NameOf): Shown {
     text += piece.shown;
   };
   for (const segment of mentionSegments(canonical) ?? (canonical === "" ? [] : [{ text: canonical }])) {
-    const name = segment.id === undefined ? undefined : nameOf(segment.id);
-    if (segment.id !== undefined && name !== undefined) add({ canonical: segment.text, shown: `@${name}`, id: segment.id });
+    const label = shownLabel(segment, nameOf, handleOf);
+    if (label !== undefined) add({ canonical: segment.text, shown: `@${label}`, atomic: true, id: segment.id });
     else add({ canonical: segment.text, shown: segment.text });
   }
   return { canonical, text, pieces };
@@ -48,7 +69,7 @@ const canonicalEnd = (piece: Piece) => piece.cStart + piece.canonical.length;
 export function toCanonicalOffset(shown: Shown, offset: number): number {
   for (const piece of shown.pieces) {
     if (offset > shownEnd(piece)) continue;
-    if (piece.id === undefined) return piece.cStart + (offset - piece.sStart);
+    if (piece.atomic === undefined) return piece.cStart + (offset - piece.sStart);
     return offset === shownEnd(piece) ? canonicalEnd(piece) : piece.cStart;
   }
   return shown.canonical.length;
@@ -58,7 +79,7 @@ export function toCanonicalOffset(shown: Shown, offset: number): number {
 export function toShownOffset(shown: Shown, offset: number): number {
   for (const piece of shown.pieces) {
     if (offset > canonicalEnd(piece)) continue;
-    if (piece.id === undefined) return piece.sStart + (offset - piece.cStart);
+    if (piece.atomic === undefined) return piece.sStart + (offset - piece.cStart);
     return offset === piece.cStart ? piece.sStart : shownEnd(piece);
   }
   return shown.text.length;
@@ -132,7 +153,7 @@ export function editCanonical(
 ): { canonical: string; caret: number; from: number; to: number } {
   let { from, to, inserted } = changedRange(shown.text, next, caret, selection);
   for (const piece of shown.pieces) {
-    if (piece.id === undefined) continue;
+    if (piece.atomic === undefined) continue;
     const start = piece.sStart;
     const end = shownEnd(piece);
     if (from === to ? from > start && from < end : from < end && to > start) {
@@ -156,7 +177,7 @@ export function editCanonical(
 export type MentionQuery = { from: number; term: string };
 
 function insideMention(shown: Shown, offset: number): boolean {
-  return shown.pieces.some((piece) => piece.id !== undefined && offset >= piece.sStart && offset < shownEnd(piece));
+  return shown.pieces.some((piece) => piece.atomic !== undefined && offset >= piece.sStart && offset < shownEnd(piece));
 }
 
 /**
@@ -183,10 +204,14 @@ export function mentionQuery(shown: Shown, caret: number): MentionQuery | null {
  * the canonical caret after that space. Null when it would not fit in `maxLength`.
  */
 export function pickMention(shown: Shown, query: MentionQuery, caret: number, id: number, maxLength?: number): { canonical: string; caret: number } | null {
+  return pickToken(shown, query, caret, `<@${id}>`, maxLength);
+}
+
+/** [pickMention] for any token (`<@team:5>`, `<@everyone>`, `<@watchers>`, `<@42>`). */
+export function pickToken(shown: Shown, query: MentionQuery, caret: number, token: string, maxLength?: number): { canonical: string; caret: number } | null {
   const cFrom = toCanonicalOffset(shown, query.from);
   const cTo = toCanonicalOffset(shown, caret);
   const following = shown.canonical[cTo];
-  const token = `<@${id}>`;
   const insert = following === " " || following === "\n" ? token : `${token} `;
   const canonical = shown.canonical.slice(0, cFrom) + insert + shown.canonical.slice(cTo);
   if (maxLength !== undefined && canonical.length > maxLength) return null;

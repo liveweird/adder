@@ -21,7 +21,17 @@ const MEMBERS = [
   { userId: 7, name: "Bob", email: "bob@example.test", role: "MEMBER", addedAt: 3 },
 ];
 
-function Harness({ onSend, initial = "", maxLength = 8000 }: { onSend?: () => void; initial?: string; maxLength?: number }) {
+function Harness({
+  onSend,
+  initial = "",
+  maxLength = 8000,
+  offerWatchers,
+}: {
+  onSend?: () => void;
+  initial?: string;
+  maxLength?: number;
+  offerWatchers?: boolean;
+}) {
   const [text, setText] = useState(initial);
   return (
     <>
@@ -31,6 +41,7 @@ function Harness({ onSend, initial = "", maxLength = 8000 }: { onSend?: () => vo
         maxLength={maxLength}
         value={text}
         onChange={setText}
+        offerWatchers={offerWatchers}
         onKeyDown={(event) => {
           if (isSendShortcut(event)) {
             event.preventDefault();
@@ -168,7 +179,7 @@ describe("MentionTextarea", () => {
     const user = userEvent.setup();
     renderWithProviders(<Harness />);
     await user.type(box(), "@an");
-    const list = await screen.findByRole("listbox", { name: "People in this room" });
+    const list = await screen.findByRole("listbox", { name: "People, teams and groups to mention" });
     expect(box()).toHaveAttribute("aria-controls", list.id);
     expect(box()).toHaveAttribute("aria-autocomplete", "list");
     const activeId = () => box().getAttribute("aria-activedescendant");
@@ -176,7 +187,7 @@ describe("MentionTextarea", () => {
     expect(document.getElementById(activeId()!)).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{ArrowDown}");
     expect(document.getElementById(activeId()!)).toHaveAccessibleName(/Anna Other/);
-    expect(await screen.findByText("2 people match")).toBeInTheDocument();
+    expect(await screen.findByText("2 matches")).toBeInTheDocument();
     // Closed, the textarea points at nothing.
     await user.keyboard("{Escape}");
     expect(box()).not.toHaveAttribute("aria-controls");
@@ -187,7 +198,7 @@ describe("MentionTextarea", () => {
     const user = userEvent.setup();
     renderWithProviders(<Harness />);
     await user.type(box(), "@zzz");
-    expect(await screen.findByText("No one in this room matches")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing in this room matches")).toBeInTheDocument();
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 

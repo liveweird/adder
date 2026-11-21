@@ -25,6 +25,8 @@ import classes from "./MarkdownView.module.css";
 //   plain text inside it) to `tagHref(tag)`; the document variant never does, and without `tagHref` a tag stays text.
 //   A message variant given a non-empty `mentions` also reads each `<@id>` token (`remarkMentions`): an id the list names reads `@Name` (marked
 //   when it is the reader), any other id stays the raw token, because the server's list is the verdict. The name is a React text child, never Markdown or HTML.
+//   `groupMentions` does the same for `<@team:id>` (read as `@handle` when the list names the team), `<@watchers>` and `<@everyone>` (read as
+//   themselves when the list holds the keyword); an unlisted group token stays the raw token.
 export type MarkdownVariant = "document" | "message";
 
 type WithNode<T extends keyof React.JSX.IntrinsicElements> = ComponentProps<T> & ExtraProps;
@@ -54,14 +56,38 @@ function MessageLink({ node: _node, ...props }: WithNode<"a">) {
   );
 }
 
-/** The message variant's mention names (by id) and the reader's own id, handed to the `span` renderer through context for the same reason. */
-type MentionContext = { names: ReadonlyMap<number, string>; me: number | null };
-const MentionsContext = createContext<MentionContext>({ names: new Map(), me: null });
+/** One group mention the server listed (`MessageResponse.groupMentions`). */
+export type GroupMentionItem = { kind: "TEAM" | "WATCHERS" | "EVERYONE"; teamId: number | null; teamHandle: string | null };
+
+/**
+ * The message variant's mention names (by id), the listed teams' handles (by team id), the listed keywords and the reader's own id, handed to
+ * the `span` renderer through context for the same reason.
+ */
+type MentionContext = {
+  names: ReadonlyMap<number, string>;
+  teams: ReadonlyMap<number, string>;
+  keywords: ReadonlySet<string>;
+  me: number | null;
+};
+const MentionsContext = createContext<MentionContext>({ names: new Map(), teams: new Map(), keywords: new Set(), me: null });
 
 function MessageSpan({ node: _node, ...props }: WithNode<"span">) {
-  const { names, me } = useContext(MentionsContext);
-  // `data-mention` is set only by `remarkMentions` (a user cannot write it: raw HTML is not rendered).
-  const raw = (props as { "data-mention"?: string })["data-mention"];
+  const { names, teams, keywords, me } = useContext(MentionsContext);
+  // `data-mention*` is set only by `remarkMentions` (a user cannot write it: raw HTML is not rendered).
+  const marks = props as { "data-mention"?: string; "data-mention-team"?: string; "data-mention-group"?: string };
+  const team = marks["data-mention-team"];
+  const group = marks["data-mention-group"];
+  if (team !== undefined || group !== undefined) {
+    const label = team !== undefined ? teams.get(Number(team)) : group !== undefined && keywords.has(group) ? group : undefined;
+    // A group token the server did not list stays the raw token it was written as.
+    if (label === undefined) return <>{props.children}</>;
+    return (
+      <span className={classes.mention} data-mention-group={group ?? "team"} data-mention-team={team}>
+        {`@${label}`}
+      </span>
+    );
+  }
+  const raw = marks["data-mention"];
   if (raw === undefined) return <span {...props} />;
   const id = Number(raw);
   const name = names.get(id);
@@ -101,6 +127,7 @@ export default function MarkdownView({
   variant = "document",
   tagHref,
   mentions,
+  groupMentions,
 }: {
   children: string | null | undefined;
   variant?: MarkdownVariant;
@@ -108,16 +135,26 @@ export default function MarkdownView({
   tagHref?: (tag: string) => string;
   /** The message variant's mentioned people (`MessageResponse.mentions`): only an id listed here reads as a name. */
   mentions?: readonly { userId: number; name: string }[];
+  /** The message variant's group mentions (`MessageResponse.groupMentions`): only a team, `@watchers` or `@everyone` listed here reads as one. */
+  groupMentions?: readonly GroupMentionItem[];
 }) {
   const message = variant === "message";
   const known = useKnownNames();
-  const named = message && mentions !== undefined && mentions.length > 0 ? mentions : undefined;
+  const people = message && mentions !== undefined && mentions.length > 0 ? mentions : undefined;
+  const groups = message && groupMentions !== undefined && groupMentions.length > 0 ? groupMentions : undefined;
+  const named = people ?? groups;
   useEffect(() => {
-    if (named !== undefined) known.remember(named);
-  }, [named, known]);
+    if (people !== undefined) known.remember(people);
+    if (groups !== undefined) known.rememberTeams(groups);
+  }, [people, groups, known]);
   const context = useMemo<MentionContext>(
-    () => ({ names: new Map((named ?? []).map((person) => [person.userId, person.name])), me: getUserId() }),
-    [named],
+    () => ({
+      names: new Map((people ?? []).map((person) => [person.userId, person.name])),
+      teams: new Map((groups ?? []).flatMap((group) => (group.kind === "TEAM" && group.teamId !== null && group.teamHandle !== null ? [[group.teamId, group.teamHandle] as const] : []))),
+      keywords: new Set((groups ?? []).filter((group) => group.kind !== "TEAM").map((group) => group.kind.toLowerCase())),
+      me: getUserId(),
+    }),
+    [people, groups],
   );
   const withTags = message && tagHref !== undefined;
   const plugins =

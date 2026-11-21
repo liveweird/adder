@@ -33,7 +33,7 @@ export interface ThreadListParams {
   status: string[];
   /** One owner: `me` (resolved to the session's id where the request is built, so a shared link means "my threads" for whoever opens it) or a user id. */
   owner: string | null;
-  /** "Mentions me" (`mention=me`): only `me` is read, and it resolves to the session's id where the request is built, like `owner=me`. */
+  /** "Mentions me" (`mention=me`): only `me` is read; the request carries `mentionsMe=true`, which the server resolves to the caller (a direct mention, their team, everyone, the watchers they are in). */
   mention: boolean;
   /** "Watching" (`watching=me`): only `me` is read; the server resolves it to the caller, so a shared link means "my watched threads" for whoever opens it. */
   watching: boolean;
@@ -198,6 +198,8 @@ export interface ThreadListFilters {
   status?: string[];
   ownerId?: number[];
   mentionedId?: number[];
+  /** The threads that address the CALLER, by name or through a group (`mentionsMe=true`); the server knows who the caller is. */
+  mentionsMe?: boolean;
   /** The caller's own watched threads (`watching=true`); the server knows who the caller is. */
   watching?: boolean;
   tag?: string[];
@@ -240,7 +242,7 @@ export function toApiQuery(params: ThreadListParams, workflow: RoomWorkflow | un
     sort: ORDER_SORT[params.order],
     status: params.status.length > 0 ? params.status : undefined,
     ownerId: owners.length > 0 ? owners : undefined,
-    mentionedId: params.mention && me !== null ? [me] : undefined,
+    mentionsMe: params.mention && me !== null ? true : undefined,
     watching: params.watching ? true : undefined,
     tag: params.tag.length > 0 ? params.tag.slice(0, MAX_TAG_VALUES) : undefined,
     field: field.length > 0 ? field : undefined,
@@ -248,7 +250,7 @@ export function toApiQuery(params: ThreadListParams, workflow: RoomWorkflow | un
 }
 
 /** How many filters the panel holds: the statuses, the owner, "mentions me", "watching", the hashtags (one dimension), and each field key with a value (the scope and the order live outside the panel). */
-export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionedId" | "watching" | "tag" | "field">): number {
+export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionsMe" | "watching" | "tag" | "field">): number {
   const fieldKeys = new Set((filters.field ?? []).map(fieldKeyOf));
-  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionedId ? 1 : 0) + (filters.watching ? 1 : 0) + (filters.tag ? 1 : 0) + fieldKeys.size;
+  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionsMe ? 1 : 0) + (filters.watching ? 1 : 0) + (filters.tag ? 1 : 0) + fieldKeys.size;
 }

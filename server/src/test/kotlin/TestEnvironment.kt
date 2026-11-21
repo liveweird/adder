@@ -343,6 +343,21 @@ object TestTeams {
 
     suspend fun seed(name: String): UInt = service.create(ch.nokillswit.teams.TeamCreateRequest(name = name))
 
+    /** A team minted by [seedMentionable]: its id and the handle that follows `@` (a mention is `<@team:id>`). */
+    data class MentionableTeam(val id: UInt, val handle: String, val name: String) {
+        val token: String get() = "<@team:$id>"
+    }
+
+    /** A team with a unique mention handle and [members] on its roster (V25): what `<@team:id>` can name. [prefix] is a lowercase word. */
+    suspend fun seedMentionable(prefix: String, members: Collection<UInt> = emptyList()): MentionableTeam {
+        val unique = java.util.UUID.randomUUID().toString().substring(0, 8)
+        val handle = "$prefix-$unique"
+        val name = "Team $handle"
+        val id = service.create(ch.nokillswit.teams.TeamCreateRequest(name = name, handle = handle))
+        members.forEach { service.addMember(id, it) {} }
+        return MentionableTeam(id, handle, name)
+    }
+
     data class RawTeam(val id: UInt, val name: String, val markedAsDeleted: Boolean)
 
     suspend fun rawRows(): List<RawTeam> = suspendTransaction(sharedTestDatabase) {
@@ -371,6 +386,27 @@ suspend fun awaitLockWait(queryFragment: String, waiters: Int = 1) = withTimeout
             }
             if (waiting >= waiters) break
             delay(50)
+        }
+    }
+}
+
+/** Raw reads of `message_group_mentions` (V30). */
+object TestGroupRows {
+    /** The team ids message [messageId] has a group row for, ascending. */
+    fun teamsOf(messageId: UInt): List<UInt> = PostgresTestSupport.connect().use { c ->
+        val sql = "SELECT team_id FROM message_group_mentions WHERE message_id = ? AND group_kind = 'TEAM' ORDER BY team_id"
+        c.prepareStatement(sql).use { st ->
+            st.setInt(1, messageId.toInt())
+            st.executeQuery().use { rs -> generateSequence { if (rs.next()) rs.getInt(1).toUInt() else null }.toList() }
+        }
+    }
+
+    /** The keyword kinds (`WATCHERS`, `EVERYONE`) message [messageId] has a group row for, sorted. */
+    fun keywordsOf(messageId: UInt): List<String> = PostgresTestSupport.connect().use { c ->
+        val sql = "SELECT group_kind FROM message_group_mentions WHERE message_id = ? AND team_id IS NULL ORDER BY group_kind"
+        c.prepareStatement(sql).use { st ->
+            st.setInt(1, messageId.toInt())
+            st.executeQuery().use { rs -> generateSequence { if (rs.next()) rs.getString(1) else null }.toList() }
         }
     }
 }

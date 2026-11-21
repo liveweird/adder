@@ -311,7 +311,7 @@ test.describe("detail pages and overlays", () => {
       settled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
       before: async (p) => {
         await p.getByRole("textbox", { name: "Reply", exact: true }).pressSequentially("@");
-        await expect(p.getByRole("listbox", { name: "People in this room", exact: true })).toBeVisible();
+        await expect(p.getByRole("listbox", { name: "People, teams and groups to mention", exact: true })).toBeVisible();
         await expect(p.getByRole("option").first()).toBeVisible();
       },
     },

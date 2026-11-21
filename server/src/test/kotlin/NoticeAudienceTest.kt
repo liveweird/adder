@@ -3,7 +3,10 @@ package ch.nokillswit
 import ch.nokillswit.threads.Notice
 import ch.nokillswit.threads.NoticeAudience
 import ch.nokillswit.threads.NoticeReason
+import ch.nokillswit.threads.NoticeReason.EVERYONE_MENTIONED
 import ch.nokillswit.threads.NoticeReason.MENTIONED
+import ch.nokillswit.threads.NoticeReason.TEAM_MENTIONED
+import ch.nokillswit.threads.NoticeReason.WATCHERS_MENTIONED
 import ch.nokillswit.threads.NoticeReason.THREAD_ASSIGNED
 import ch.nokillswit.threads.NoticeReason.THREAD_CLOSED
 import ch.nokillswit.threads.NoticeReason.THREAD_CREATED
@@ -196,7 +199,8 @@ class NoticeAudienceTest {
     @Test
     fun `an edit against the notices the message already holds, case by case`() {
         for (case in editCases) {
-            val revision = NoticeAudience.ofEdit(case.opening, actor, case.existing, case.mentioned, case.added, case.watchers, members)
+            val before = case.mentioned.filter { it !in case.added }.associateWith { MENTIONED }
+            val revision = NoticeAudience.ofEdit(case.opening, actor, case.existing, case.mentioned, before, case.watchers, members)
             assertEquals(case.add, told(revision.add), "${case.name}: add")
             assertEquals(case.relabel, told(revision.relabel), "${case.name}: relabel")
             assertEquals(case.remove.toSet(), revision.remove.toSet(), "${case.name}: remove")
@@ -209,7 +213,195 @@ class NoticeAudienceTest {
 
     @Test
     fun `the author is never in an edit's revision`() {
-        val revision = NoticeAudience.ofEdit(false, actor, emptyMap(), listOf(1u, 2u), listOf(1u, 2u), listOf(1u), members)
+        val revision = NoticeAudience.ofEdit(false, actor, emptyMap(), listOf(1u, 2u), emptyMap(), listOf(1u), members)
         assertEquals(listOf(2u to MENTIONED), told(revision.add))
+    }
+
+    private class GroupMessageCase(
+        val name: String,
+        val opening: Boolean,
+        val mentioned: List<UInt> = emptyList(),
+        val watchers: List<UInt> = emptyList(),
+        val teamMembers: List<UInt> = emptyList(),
+        val watchersMentioned: Boolean = false,
+        val everyoneMentioned: Boolean = false,
+        val expected: List<Pair<UInt, NoticeReason>>,
+    )
+
+    private val groupMessageCases = listOf(
+        GroupMessageCase(
+            "a reply naming a team tells its members in the room, then the watchers",
+            false, watchers = listOf(2u), teamMembers = listOf(3u, 4u),
+            expected = listOf(3u to TEAM_MENTIONED, 4u to TEAM_MENTIONED, 2u to THREAD_REPLIED),
+        ),
+        GroupMessageCase(
+            "a reply naming the watchers tells the watchers but not the author",
+            false, watchers = listOf(1u, 2u, 3u), watchersMentioned = true,
+            expected = listOf(2u to WATCHERS_MENTIONED, 3u to WATCHERS_MENTIONED),
+        ),
+        GroupMessageCase(
+            "naming the watchers in an OPENING message reaches nobody beyond the room's base notice",
+            true, watchers = listOf(1u, 2u), watchersMentioned = true,
+            expected = listOf(2u to THREAD_CREATED, 3u to THREAD_CREATED, 4u to THREAD_CREATED, 5u to THREAD_CREATED, 6u to THREAD_CREATED),
+        ),
+        GroupMessageCase(
+            "naming everyone in a reply tells the whole room, a watcher included, and not the author",
+            false, watchers = listOf(2u), everyoneMentioned = true,
+            expected = listOf(2u to EVERYONE_MENTIONED, 3u to EVERYONE_MENTIONED, 4u to EVERYONE_MENTIONED, 5u to EVERYONE_MENTIONED,
+                6u to EVERYONE_MENTIONED),
+        ),
+        GroupMessageCase(
+            "naming everyone in an opening message tells every member, not 'started a thread'",
+            true, everyoneMentioned = true,
+            expected = listOf(2u to EVERYONE_MENTIONED, 3u to EVERYONE_MENTIONED, 4u to EVERYONE_MENTIONED, 5u to EVERYONE_MENTIONED,
+                6u to EVERYONE_MENTIONED),
+        ),
+        GroupMessageCase(
+            "every reason at once: each person once, the most specific, in priority order",
+            false, mentioned = listOf(5u), watchers = listOf(3u, 4u), teamMembers = listOf(5u, 3u),
+            watchersMentioned = true, everyoneMentioned = true,
+            expected = listOf(5u to MENTIONED, 3u to TEAM_MENTIONED, 4u to WATCHERS_MENTIONED, 2u to EVERYONE_MENTIONED,
+                6u to EVERYONE_MENTIONED),
+        ),
+        GroupMessageCase(
+            "the author is never told, whichever group names them",
+            false, watchers = listOf(1u), teamMembers = listOf(1u, 2u), watchersMentioned = true, everyoneMentioned = true,
+            expected = listOf(2u to TEAM_MENTIONED, 3u to EVERYONE_MENTIONED, 4u to EVERYONE_MENTIONED, 5u to EVERYONE_MENTIONED,
+                6u to EVERYONE_MENTIONED),
+        ),
+        GroupMessageCase("a team nobody in the room is on tells nobody", false, expected = emptyList()),
+    )
+
+    @Test
+    fun `group mentions, case by case`() {
+        for (case in groupMessageCases) {
+            val audience = NoticeAudience.ofMessage(
+                case.opening, actor, case.mentioned, case.watchers, members,
+                case.teamMembers, case.watchersMentioned, case.everyoneMentioned,
+            )
+            assertEquals(case.expected, told(audience), case.name)
+            assertEquals(audience.size, audience.map { it.userId }.toSet().size, "${case.name}: one notice per person")
+        }
+    }
+
+    @Test
+    fun `a person named by several groups falls back through them in priority order`() {
+        val audience = NoticeAudience.ofMessage(
+            false, actor, emptyList(), listOf(3u), members, teamMentioned = listOf(3u), watchersMentioned = true, everyoneMentioned = true,
+        )
+        val three = audience.single { it.userId == 3u }
+        assertEquals(TEAM_MENTIONED, three.reason)
+        assertEquals(listOf(WATCHERS_MENTIONED, EVERYONE_MENTIONED, THREAD_REPLIED), three.fallbacks)
+    }
+
+    private class GroupEditCase(
+        val name: String,
+        val opening: Boolean,
+        val existing: Map<UInt, NoticeReason>,
+        /** The most specific mention reason each person had from the OLD body, as of the edit (1.1 A39). */
+        val before: Map<UInt, NoticeReason>,
+        val watchers: List<UInt> = emptyList(),
+        val teamMembers: List<UInt> = emptyList(),
+        val watchersMentioned: Boolean = false,
+        val everyoneMentioned: Boolean = false,
+        val mentioned: List<UInt> = emptyList(),
+        val add: List<Pair<UInt, NoticeReason>> = emptyList(),
+        val relabel: List<Pair<UInt, NoticeReason>> = emptyList(),
+        val remove: List<UInt> = emptyList(),
+    )
+
+    private val everyoneElse = listOf(2u, 3u, 4u, 5u, 6u)
+
+    private val groupEditCases = listOf(
+        GroupEditCase(
+            "a reply adds everyone: the watcher's reply notice is upgraded (delete and insert), the rest are added",
+            false, mapOf(2u to THREAD_REPLIED), before = emptyMap(), watchers = listOf(2u), everyoneMentioned = true,
+            add = everyoneElse.map { it to EVERYONE_MENTIONED }, remove = listOf(2u),
+        ),
+        GroupEditCase(
+            "a reply drops everyone: a watcher falls back to replied in place, anybody else loses the notice",
+            false, mapOf(2u to EVERYONE_MENTIONED, 3u to EVERYONE_MENTIONED), before = emptyMap(), watchers = listOf(2u),
+            relabel = listOf(2u to THREAD_REPLIED), remove = listOf(3u),
+        ),
+        GroupEditCase(
+            "the opening message drops everyone: every member falls back to 'started a thread' in place",
+            true, everyoneElse.associateWith { EVERYONE_MENTIONED }, before = emptyMap(),
+            relabel = everyoneElse.map { it to THREAD_CREATED },
+        ),
+        GroupEditCase(
+            "the opening message adds everyone: each member's 'started a thread' becomes a fresh notice",
+            true, everyoneElse.associateWith { THREAD_CREATED }, before = emptyMap(), everyoneMentioned = true,
+            add = everyoneElse.map { it to EVERYONE_MENTIONED }, remove = everyoneElse,
+        ),
+        GroupEditCase(
+            "a KEPT everyone re-addresses nobody, though a member who joined since is in the audience",
+            false, emptyMap(), before = everyoneElse.associateWith { EVERYONE_MENTIONED }, everyoneMentioned = true,
+        ),
+        GroupEditCase(
+            "a kept everyone and a direct mention of someone it addressed less specifically: newly mentioned, a fresh notice",
+            false, mapOf(3u to EVERYONE_MENTIONED), before = everyoneElse.associateWith { EVERYONE_MENTIONED }, everyoneMentioned = true,
+            mentioned = listOf(3u), add = listOf(3u to MENTIONED), remove = listOf(3u),
+        ),
+        GroupEditCase(
+            "a kept team and a direct mention of someone it addressed at the same or a more specific reason: nothing",
+            false, mapOf(3u to MENTIONED), before = mapOf(3u to MENTIONED), teamMembers = listOf(3u), mentioned = listOf(3u),
+        ),
+        GroupEditCase(
+            "everyone swapped for a team on an opening message: the team is told afresh, the rest fall back in place",
+            true, everyoneElse.associateWith { EVERYONE_MENTIONED }, before = everyoneElse.associateWith { EVERYONE_MENTIONED },
+            teamMembers = listOf(2u), add = listOf(2u to TEAM_MENTIONED), remove = listOf(2u),
+            relabel = listOf(3u, 4u, 5u, 6u).map { it to THREAD_CREATED },
+        ),
+        GroupEditCase(
+            "the direct mention taken out while everyone is kept: the mention notice falls to everyone in place",
+            false, mapOf(2u to MENTIONED), before = mapOf(2u to MENTIONED) + listOf(3u, 4u, 5u, 6u).associateWith { EVERYONE_MENTIONED },
+            everyoneMentioned = true,
+            relabel = listOf(2u to EVERYONE_MENTIONED),
+        ),
+        GroupEditCase(
+            "a group kind the body no longer earns for a person who was addressed more specifically before: relabelled in place",
+            false, mapOf(2u to EVERYONE_MENTIONED), before = mapOf(2u to TEAM_MENTIONED), teamMembers = listOf(2u),
+            relabel = listOf(2u to TEAM_MENTIONED),
+        ),
+        GroupEditCase(
+            "a team swapped for another: the new team's members are added, the old team's alone lose theirs, the shared keep",
+            false, mapOf(2u to TEAM_MENTIONED, 3u to TEAM_MENTIONED),
+            before = mapOf(2u to TEAM_MENTIONED, 3u to TEAM_MENTIONED), teamMembers = listOf(3u, 4u),
+            add = listOf(4u to TEAM_MENTIONED), remove = listOf(2u),
+        ),
+        GroupEditCase(
+            "a team replaced by everyone: its members are relabelled in place, the others added",
+            false, mapOf(2u to TEAM_MENTIONED), before = mapOf(2u to TEAM_MENTIONED), everyoneMentioned = true,
+            add = listOf(3u, 4u, 5u, 6u).map { it to EVERYONE_MENTIONED }, relabel = listOf(2u to EVERYONE_MENTIONED),
+        ),
+        GroupEditCase(
+            "a reply adds the watchers: a watcher's reply notice is upgraded, another watcher gets one",
+            false, mapOf(2u to THREAD_REPLIED), before = emptyMap(), watchers = listOf(2u, 3u), watchersMentioned = true,
+            add = listOf(2u to WATCHERS_MENTIONED, 3u to WATCHERS_MENTIONED), remove = listOf(2u),
+        ),
+        GroupEditCase(
+            "the opening message adds the watchers: nobody beyond its author watches, nothing changes",
+            true, everyoneElse.associateWith { THREAD_CREATED }, before = emptyMap(), watchers = listOf(1u), watchersMentioned = true,
+        ),
+        GroupEditCase(
+            "a mention notice held through a group the edit removed, with a direct mention added for someone else",
+            false, mapOf(4u to WATCHERS_MENTIONED), before = mapOf(4u to WATCHERS_MENTIONED), mentioned = listOf(6u), watchers = listOf(4u),
+            add = listOf(6u to MENTIONED), relabel = listOf(4u to THREAD_REPLIED),
+        ),
+    )
+
+    @Test
+    fun `an edit that adds, drops or keeps a group mention, case by case`() {
+        for (case in groupEditCases) {
+            val revision = NoticeAudience.ofEdit(
+                case.opening, actor, case.existing, case.mentioned, case.before, case.watchers, members,
+                case.teamMembers, case.watchersMentioned, case.everyoneMentioned,
+            )
+            assertEquals(case.add, told(revision.add), "${case.name}: add")
+            assertEquals(case.relabel, told(revision.relabel), "${case.name}: relabel")
+            assertEquals(case.remove.toSet(), revision.remove.toSet(), "${case.name}: remove")
+            val kept = case.existing.keys - revision.remove.toSet()
+            assertTrue(revision.add.none { it.userId in kept }, "${case.name}: nobody who keeps a notice is counted again")
+        }
     }
 }

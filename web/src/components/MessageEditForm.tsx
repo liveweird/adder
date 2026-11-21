@@ -37,10 +37,11 @@ export default function MessageEditForm({
   const queryClient = useQueryClient();
   const original = message.body ?? "";
   const known = useKnownNames();
-  // The body is edited as stored (tokens and all); the box shows the names of the people it mentions, so they must be known BEFORE the first
+  // The body is edited as stored (tokens and all); the box shows the names of the people and the handles of the teams it mentions, so they must be known BEFORE the first
   // render (the store is not reactive). Remembering is idempotent, which is why a render may do it.
   const [text, setText] = useState(() => {
     known.remember(message.mentions);
+    known.rememberTeams(message.groupMentions);
     return original;
   });
   const [saving, setSaving] = useState(false);

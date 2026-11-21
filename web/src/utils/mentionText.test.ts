@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { editCanonical, mentionQuery, pickMention, toShown, toShownOffset } from "./mentionText";
+import { editCanonical, mentionQuery, pickMention, pickToken, toShown, toShownOffset } from "./mentionText";
 
 const NAMES = new Map<number, string>([
   [5, "Ann Owner"],
@@ -32,6 +32,15 @@ describe("toShown", () => {
   test("the pieces keep ids apart even for one name", () => {
     const shown = toShown("<@5> <@7>", nameOf);
     expect(shown.pieces.filter((piece) => piece.id !== undefined).map((piece) => piece.id)).toEqual([5, 7]);
+  });
+
+  test("a team shows its known handle, the keywords always, and an unknown team stays its token", () => {
+    const handles = new Map([[3, "oncall"]]);
+    const shown = toShown("<@team:3> <@team:4> <@everyone> <@watchers> <@5>", nameOf, (id) => handles.get(id));
+    expect(shown.text).toBe("@oncall <@team:4> @everyone @watchers @Ann Owner");
+    // A keyword and a team are as atomic as a name: one edit inside them removes the whole token.
+    expect(editCanonical(shown, shown.text.replace("@everyone", "@everyne"), 14).canonical).toBe("<@team:3> <@team:4>  <@watchers> <@5>");
+    expect(editCanonical(shown, shown.text.replace("@oncall", "@onall"), 4).canonical).toBe("a <@team:4> <@everyone> <@watchers> <@5>");
   });
 
   test("offsets map from the canonical text to the shown one across a mention", () => {
@@ -193,6 +202,16 @@ describe("mentionQuery", () => {
     expect(query("<@5>", 10)).toBeNull(); // "@Ann Owner|"
     expect(query("<@5>", 4)).toBeNull();
     expect(query("<@5> @b", 13)).toEqual({ from: 11, term: "b" });
+  });
+});
+
+describe("pickToken", () => {
+  test("inserts any token like a person's, with the space after it", () => {
+    const shown = toShown("hi @ev", nameOf);
+    const query = mentionQuery(shown, 6)!;
+    expect(pickToken(shown, query, 6, "<@everyone>")).toEqual({ canonical: "hi <@everyone> ", caret: 15 });
+    expect(pickToken(shown, query, 6, "<@team:12>")).toEqual({ canonical: "hi <@team:12> ", caret: 14 });
+    expect(pickToken(shown, query, 6, "<@watchers>", 10)).toBeNull();
   });
 });
 

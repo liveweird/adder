@@ -198,7 +198,7 @@ describe("the thread filter panel", () => {
     expect(listCalls().at(-1)).not.toContain("ownerId");
   });
 
-  test("Mentions me sits beside Mine, sends the session's id as mentionedId, writes mention=me, and toggles off", async () => {
+  test("Mentions me sits beside Mine, sends mentionsMe, writes mention=me, and toggles off", async () => {
     serve();
     const user = userEvent.setup();
     renderPanel();
@@ -207,14 +207,14 @@ describe("the thread filter panel", () => {
     expect(mentions).toHaveAttribute("aria-pressed", "false");
     expect(Boolean(screen.getByRole("button", { name: "Mine" }).compareDocumentPosition(mentions) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     await user.click(mentions);
-    await waitFor(() => expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false&mentionedId=5"));
+    await waitFor(() => expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false&mentionsMe=true"));
     expect(where()).toBe("/rooms/12?mention=me");
     expect(screen.getByRole("button", { name: "Mentions me" })).toHaveAttribute("aria-pressed", "true");
     // It is a filter of its own: Mine is untouched, and the two compose.
     expect(screen.getByRole("button", { name: "Mine" })).toHaveAttribute("aria-pressed", "false");
     await user.click(screen.getByRole("button", { name: "Mine" }));
     await waitFor(() => expect(where()).toBe("/rooms/12?owner=me&mention=me"));
-    expect(listCalls().at(-1)).toContain("ownerId=5&mentionedId=5");
+    expect(listCalls().at(-1)).toContain("ownerId=5&mentionsMe=true");
     await user.click(screen.getByRole("button", { name: "Mentions me" }));
     await waitFor(() => expect(where()).toBe("/rooms/12?owner=me"));
     expect(listCalls().at(-1)).not.toContain("mentionedId");
@@ -244,7 +244,7 @@ describe("the thread filter panel", () => {
     renderPanel("/rooms/12?mention=me&scope=all");
     await screen.findByRole("navigation", { name: "Threads" });
     expect(within(panelButton()).getByText("1")).toBeInTheDocument();
-    expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&mentionedId=5");
+    expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&mentionsMe=true");
     await user.click(panelButton());
     expect(screen.getByRole("button", { name: "Mentions me" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "Clear filters" }));

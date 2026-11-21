@@ -247,5 +247,206 @@
   "name": "no token at all",
   "body": "just words",
   "ids": []
+ },
+ {
+  "name": "a team token",
+  "body": "Ping <@team:5> please",
+  "ids": [],
+  "teams": [
+   5
+  ]
+ },
+ {
+  "name": "the everyone keyword",
+  "body": "Heads up <@everyone>",
+  "ids": [],
+  "everyone": true
+ },
+ {
+  "name": "the watchers keyword",
+  "body": "<@watchers> a new finding",
+  "ids": [],
+  "watchers": true
+ },
+ {
+  "name": "people, teams and both keywords in one body, each in order of appearance",
+  "body": "<@watchers> <@team:2> <@7> <@everyone> <@team:1> <@3>",
+  "ids": [
+   7,
+   3
+  ],
+  "teams": [
+   2,
+   1
+  ],
+  "everyone": true,
+  "watchers": true
+ },
+ {
+  "name": "a repeated team counts once, where it first appears",
+  "body": "<@team:3> <@team:8> <@team:3>",
+  "ids": [],
+  "teams": [
+   3,
+   8
+  ]
+ },
+ {
+  "name": "a keyword twice is one",
+  "body": "<@everyone> <@everyone> <@watchers> <@watchers>",
+  "ids": [],
+  "everyone": true,
+  "watchers": true
+ },
+ {
+  "name": "the largest team id is a mention",
+  "body": "<@team:2147483647>",
+  "ids": [],
+  "teams": [
+   2147483647
+  ]
+ },
+ {
+  "name": "a team id past int32 is no mention",
+  "body": "<@team:2147483648>",
+  "ids": []
+ },
+ {
+  "name": "an eleven-digit team id is no mention",
+  "body": "<@team:12345678901>",
+  "ids": []
+ },
+ {
+  "name": "team zero is no mention",
+  "body": "<@team:0>",
+  "ids": []
+ },
+ {
+  "name": "a leading zero in a team id is no mention",
+  "body": "<@team:042>",
+  "ids": []
+ },
+ {
+  "name": "a space inside a team token is no mention",
+  "body": "<@team: 4> <@ team:4> <@team :4>",
+  "ids": []
+ },
+ {
+  "name": "a sign in a team id is no mention",
+  "body": "<@team:+4> <@team:-4>",
+  "ids": []
+ },
+ {
+  "name": "a team token needs an id",
+  "body": "<@team:> <@team> <@team:x>",
+  "ids": []
+ },
+ {
+  "name": "the plural or another word is no mention",
+  "body": "<@teams:4> <@here> <@all> <@channel> <@room> <@everyones> <@watcher> <@observers>",
+  "ids": []
+ },
+ {
+  "name": "a keyword is lowercase and exact",
+  "body": "<@Everyone> <@EVERYONE> <@Watchers> <@everyone > <@ everyone> <@Team:4>",
+  "ids": []
+ },
+ {
+  "name": "a keyword with an id inside is no mention",
+  "body": "<@everyone:4> <@watchers:2> <@team:everyone>",
+  "ids": []
+ },
+ {
+  "name": "only five teams count",
+  "body": "<@team:1> <@team:2> <@team:3> <@team:4> <@team:5> <@team:6> <@team:7>",
+  "ids": [],
+  "teams": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ]
+ },
+ {
+  "name": "the sixth distinct team is dropped but a repeat of a kept one is fine",
+  "body": "<@team:1> <@team:2> <@team:3> <@team:4> <@team:5> <@team:6> <@team:1>",
+  "ids": [],
+  "teams": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ]
+ },
+ {
+  "name": "a group token after twenty people still counts",
+  "body": "<@1> <@2> <@3> <@4> <@5> <@6> <@7> <@8> <@9> <@10> <@11> <@12> <@13> <@14> <@15> <@16> <@17> <@18> <@19> <@20> <@21> <@22> <@23> <@24> <@25> <@team:9> <@everyone> <@watchers>",
+  "ids": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12,
+   13,
+   14,
+   15,
+   16,
+   17,
+   18,
+   19,
+   20
+  ],
+  "teams": [
+   9
+  ],
+  "everyone": true,
+  "watchers": true
+ },
+ {
+  "name": "group tokens inside inline code are not read",
+  "body": "`<@everyone>` `<@team:4>` `<@watchers>`",
+  "ids": []
+ },
+ {
+  "name": "group tokens inside a fenced block are not read",
+  "body": "```\n<@everyone>\n<@team:4>\n<@watchers>\n```",
+  "ids": []
+ },
+ {
+  "name": "a group token in a link destination is not read, one in its text is",
+  "body": "[<@team:4>](<@everyone>) [x](https://a.b/<@watchers>)",
+  "ids": [],
+  "teams": [
+   4
+  ]
+ },
+ {
+  "name": "a group token right after a backslash is no mention",
+  "body": "\\<@everyone> \\<@team:4> \\<@watchers>",
+  "ids": []
+ },
+ {
+  "name": "a group token inside an autolink or a bare URL is not read",
+  "body": "<https://a.b/<@everyone>> https://a.b/<@team:4>",
+  "ids": []
+ },
+ {
+  "name": "a group token glued to text and punctuation",
+  "body": "(<@team:4>), <@everyone>! \"<@watchers>\"",
+  "ids": [],
+  "teams": [
+   4
+  ],
+  "everyone": true,
+  "watchers": true
  }
 ]

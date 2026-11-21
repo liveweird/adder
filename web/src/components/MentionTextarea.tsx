@@ -1,43 +1,50 @@
 import { useId, useLayoutEffect, useRef, useState, type ComponentProps, type KeyboardEvent, type SyntheticEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Combobox, Group, Text, VisuallyHidden, useCombobox } from "@mantine/core";
-import { useDebouncedValue } from "@mantine/hooks";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { listRoomMembers } from "../api/rooms";
-import { FILTER_DEBOUNCE_MS } from "../hooks/usePagedSort";
+import { useQuery } from "@tanstack/react-query";
+import { getRoom } from "../api/rooms";
+import { useMentionCandidates, type CandidateGroup } from "../hooks/useMentionCandidates";
 import { useKnownNames } from "../utils/knownNames";
-import { editCanonical, mentionQuery, pickMention, toCanonicalOffset, toShown, toShownOffset, type MentionQuery, type Selection, type Shown } from "../utils/mentionText";
-import { foldDiacritics } from "../utils/text";
-import { roomMemberPickerKey } from "../utils/roomMemberOptions";
+import { mentionsEveryone } from "../utils/mentions";
+import { editCanonical, mentionQuery, pickToken, toCanonicalOffset, toShown, toShownOffset, type MentionQuery, type Selection, type Shown } from "../utils/mentionText";
+import { roomKeys } from "../utils/roomKeys";
 import EmojiTextarea from "./EmojiTextarea";
-
-/** Rows the list offers (the server filters by name; the rest are one more letter away). */
-const LIST_SIZE = 8;
 
 type MentionTextareaProps = Omit<ComponentProps<typeof EmojiTextarea>, "value" | "onChange" | "ref" | "measuredLength"> & {
   roomId: number;
-  /** The CANONICAL text, with `<@id>` tokens; what `onChange` hands back is canonical too. */
+  /** The CANONICAL text, with tokens (`<@id>`, `<@team:id>`, `<@watchers>`, `<@everyone>`); what `onChange` hands back is canonical too. */
   value?: string;
   onChange: (value: string) => void;
+  /** Whether the list offers `@watchers` (default yes): a thread that is not started yet has no watchers but its author. */
+  offerWatchers?: boolean;
 };
 
+const GROUP_LABELS = {
+  people: "threads.mention.groupPeople",
+  teams: "threads.mention.groupTeams",
+  groups: "threads.mention.groupGroups",
+} as const satisfies Record<CandidateGroup, string>;
+
 /**
- * `EmojiTextarea` that mentions people. The caller holds the canonical text (tokens and all: what is stored and sent); the box shows
- * `@Name` for every token whose name the session knows (`utils/mentionText.ts` maps both ways, and an edit that touches a mention removes it
- * whole). Typing `@` at the start of a word, then letters, lists the room's members (`GET /rooms/{id}/members?name=`, 300 ms debounced, eight
- * rows); ArrowDown/ArrowUp move, Enter or Tab picks, Escape closes (and Enter is a newline again); nothing opens during an IME composition.
+ * `EmojiTextarea` that mentions people, teams and groups. The caller holds the canonical text (tokens and all: what is stored and sent); the box
+ * shows `@Name` for every person whose name the session knows, `@handle` for a team whose handle it knows and `@everyone` / `@watchers`
+ * (`utils/mentionText.ts` maps both ways, and an edit that touches a mention removes it whole). Typing `@` at the start of a word, then letters,
+ * lists the room's members (`GET /rooms/{id}/members?name=`, 300 ms debounced, eight rows), then the teams whose handle matches (`GET
+ * /teams?handle=`, from the first letter) and the groups (`@everyone`, `@watchers`; `hooks/useMentionCandidates.ts`); ArrowDown/ArrowUp move,
+ * Enter or Tab picks, Escape closes (and Enter is a newline again); nothing opens during an IME composition. A draft that holds `@everyone`
+ * shows a non-blocking status line with the room's member count (no confirm).
  * While the list is open Enter picks, whatever else is held; closed, Enter keeps its normal meaning and so does the caller's `onKeyDown`.
  *
  * ARIA: the textarea keeps its `textbox` role (a `combobox` role is not allowed on a textarea) and names the list it controls
- * (`aria-controls`) and the highlighted option (`aria-activedescendant`); the list is a labelled `listbox`, and a visually hidden status line says
- * how many people match. The limit counts the stored text, not the shown one.
+ * (`aria-controls`) and the highlighted option (`aria-activedescendant`); the list is a labelled `listbox` of labelled `group`s (People, Teams,
+ * Groups), and a visually hidden status line says how many rows match. The limit counts the stored text, not the shown one.
  */
-export default function MentionTextarea({ roomId, value, onChange, maxLength, onKeyDown, onBlur, onSelect, ...rest }: MentionTextareaProps) {
+export default function MentionTextarea({ roomId, value, onChange, maxLength, onKeyDown, onBlur, onSelect, offerWatchers = true, ...rest }: MentionTextareaProps) {
   const { t } = useTranslation();
   const known = useKnownNames();
   const canonical = value ?? "";
   // Recomputed every render: the names the session knows can change without this component being told, and the box must show what they say now.
-  const shown = toShown(canonical, known.get);
+  const shown = toShown(canonical, known.get, known.getTeam);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
   const [query, setQuery] = useState<MentionQuery | null>(null);
@@ -51,19 +58,8 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
   // Where the caret goes after the next render (shown offset): a re-render with a different shown text moves it to the end.
   const pendingCaret = useRef<number | null>(null);
 
-  const [term] = useDebouncedValue(query?.term ?? "", FILTER_DEBOUNCE_MS);
-  const members = useQuery({
-    // Under the room's members key (and so under ["rooms"]): a room refresh re-reads it.
-    queryKey: [...roomMemberPickerKey(roomId), "mention", term],
-    queryFn: () => listRoomMembers(roomId, { page: 1, pageSize: LIST_SIZE, sort: "name", name: term || undefined }),
-    enabled: query !== null,
-    placeholderData: keepPreviousData,
-  });
-  // Until the read for the CURRENT term is back (the debounce, the request) the list is the previous read: narrowed by the term in the meantime, so
-  // a quick Enter never picks someone the typed letters no longer match.
-  const settled = query !== null && members.data !== undefined && !members.isFetching && term === query.term;
-  const typed = foldDiacritics(query?.term ?? "");
-  const items = (members.data?.items ?? []).filter((member) => settled || foldDiacritics(member.name).includes(typed));
+  const { candidates, settled } = useMentionCandidates(roomId, query, offerWatchers);
+  const items = candidates;
   const open = query !== null && dismissedAt !== toCanonicalOffset(shown, query.from) && items.length > 0;
   // A refetch can shrink the list under the highlighted row.
   const current = Math.min(active, items.length - 1);
@@ -103,7 +99,7 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
       const moved = at >= result.to ? at + (result.caret - result.to) : at;
       return result.canonical[moved] === "@" ? moved : null;
     });
-    const next = toShown(result.canonical, known.get);
+    const next = toShown(result.canonical, known.get, known.getTeam);
     const shownCaret = toShownOffset(next, result.caret);
     pendingCaret.current = shownCaret;
     followCaret(next, shownCaret);
@@ -111,16 +107,16 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
   }
 
   function pick(index: number) {
-    const member = items[index];
-    if (member === undefined || query === null) return;
-    const result = pickMention(shown, query, query.from + 1 + query.term.length, member.userId, maxLength);
+    const item = items[index];
+    if (item === undefined || query === null) return;
+    const result = pickToken(shown, query, query.from + 1 + query.term.length, item.token, maxLength);
     if (result === null) {
       // The token does not fit in the limit: close the list instead of leaving a pick that does nothing.
       setDismissedAt(toCanonicalOffset(shown, query.from));
       return;
     }
-    known.remember([{ userId: member.userId, name: member.name }]);
-    pendingCaret.current = toShownOffset(toShown(result.canonical, known.get), result.caret);
+    item.remember(known);
+    pendingCaret.current = toShownOffset(toShown(result.canonical, known.get, known.getTeam), result.caret);
     selection.current = null;
     setQuery(null);
     setDismissedAt(null);
@@ -160,10 +156,14 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
   }
 
   const status = !settled ? "" : items.length > 0 ? t("threads.mention.matches", { count: items.length }) : t("threads.mention.none");
+  // The room's size, read only while the draft names everyone (the room page's own read: the same cache entry).
+  const everyone = mentionsEveryone(canonical);
+  const room = useQuery({ queryKey: roomKeys.detail(roomId), queryFn: () => getRoom(roomId), enabled: everyone });
+  const groups = (["people", "teams", "groups"] as const).filter((group) => items.some((item) => item.group === group));
 
   return (
     <>
-      <Combobox store={store} keepMounted={false} position="bottom-start" onOptionSubmit={(id) => pick(items.findIndex((member) => String(member.userId) === id))}>
+      <Combobox store={store} keepMounted={false} position="bottom-start" onOptionSubmit={(id) => pick(items.findIndex((item) => item.key === id))}>
         <Combobox.Target withKeyboardNavigation={false} withAriaAttributes={false}>
           <EmojiTextarea
             {...rest}
@@ -197,30 +197,41 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
         </Combobox.Target>
         <Combobox.Dropdown>
           <Combobox.Options id={listId} aria-label={t("threads.mention.listLabel")}>
-            {items.map((member, index) => (
-              <Combobox.Option
-                key={member.userId}
-                id={`${listId}-${index}`}
-                value={String(member.userId)}
-                selected={index === current}
-                aria-selected={index === current}
-                onMouseEnter={() => setActive(index)}
-              >
-                <Group justify="space-between" gap="sm" wrap="nowrap">
-                  <Text size="sm" truncate>
-                    {member.name}
-                  </Text>
-                  {/* The highlighted option is filled with the brand colour (white ink): dimmed grey would not clear AA on it. */}
-                  <Text size="xs" c={index === current ? "inherit" : "dimmed"} truncate>
-                    {member.email}
-                  </Text>
-                </Group>
-              </Combobox.Option>
+            {groups.map((group) => (
+              <Combobox.Group key={group} label={t(GROUP_LABELS[group])}>
+                {items.map((item, index) =>
+                  item.group !== group ? null : (
+                    <Combobox.Option
+                      key={item.key}
+                      id={`${listId}-${index}`}
+                      value={item.key}
+                      selected={index === current}
+                      aria-selected={index === current}
+                      onMouseEnter={() => setActive(index)}
+                    >
+                      <Group justify="space-between" gap="sm" wrap="nowrap">
+                        <Text size="sm" truncate>
+                          {item.name}
+                        </Text>
+                        {/* The highlighted option is filled with the brand colour (white ink): dimmed grey would not clear AA on it. */}
+                        <Text size="xs" c={index === current ? "inherit" : "dimmed"} truncate>
+                          {item.detailKey !== undefined ? t(item.detailKey) : item.detail}
+                        </Text>
+                      </Group>
+                    </Combobox.Option>
+                  ),
+                )}
+              </Combobox.Group>
             ))}
           </Combobox.Options>
         </Combobox.Dropdown>
       </Combobox>
       <VisuallyHidden role="status">{status}</VisuallyHidden>
+      {everyone && room.data !== undefined && (
+        <Text size="xs" c="dimmed" role="status" data-testid="everyone-note">
+          {t("threads.mention.everyoneNote", { count: Math.max(0, room.data.memberCount - 1) })}
+        </Text>
+      )}
     </>
   );
 }

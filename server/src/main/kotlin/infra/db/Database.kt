@@ -309,7 +309,9 @@ suspend fun Application.configureDatabase() {
     attributes.put(RoomServiceKey, roomService)
     val roomMemberService = RoomMemberService(database, teamService)
     attributes.put(RoomMemberServiceKey, roomMemberService)
-    publishChatServices(database, roomService, roomMemberService, roomWorkflowService, readMaxConcurrent, searchMaxConcurrent)
+    publishChatServices(
+        database, roomService, roomMemberService, roomWorkflowService, teamService, readMaxConcurrent, searchMaxConcurrent,
+    )
     attributes.put(
         TokenBlocklistServiceKey,
         TokenBlocklistService(

@@ -217,6 +217,90 @@ class ThreadSchemaTest {
     }
 
     @Test
+    fun `group mentions are unique per message and kind even for the keywords, and go with their message, team and room`() {
+        val marker = UUID.randomUUID().toString().take(8)
+        PostgresTestSupport.connect().use { c ->
+            val user = c.scalar(
+                "INSERT INTO users (\"name\", email, password_hash) VALUES ('Schema', ?, 'x') RETURNING id",
+                "schema-groups-$marker@test",
+            )
+            val room = c.scalar(
+                "INSERT INTO rooms (\"name\", last_activity_at, created_at, updated_at) VALUES (?, 1, 1, 1) RETURNING id",
+                "Schema groups $marker",
+            )
+            val team = c.scalar(
+                "INSERT INTO teams (\"name\", created_at, updated_at) VALUES (?, 1, 1) RETURNING id",
+                "Schema groups $marker",
+            )
+            try {
+                c.exec(
+                    "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position) " +
+                        "VALUES (?, 'open', 'Open', 'BLUE', 'OPEN', TRUE, 0)",
+                    room,
+                )
+                val thread = c.scalar(
+                    "INSERT INTO threads (room_id, \"number\", title, status_key, owner_id, created_by, " +
+                        "last_activity_at, created_at, updated_at) VALUES (?, 1, 'T', 'open', ?, ?, 1, 1, 1) RETURNING id",
+                    room, user, user,
+                )
+                val first = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "one", false, null)
+                val second = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "two", false, null)
+
+                val insert =
+                    "INSERT INTO message_group_mentions (message_id, group_kind, team_id, thread_id, room_id) VALUES (?, ?, ?, ?, ?)"
+                assertEquals(1, c.exec(insert, first, "TEAM", team, thread, room))
+                assertEquals(1, c.exec(insert, first, "EVERYONE", null, thread, room))
+                assertEquals(1, c.exec(insert, first, "WATCHERS", null, thread, room))
+                assertEquals(1, c.exec(insert, second, "EVERYONE", null, thread, room), "another message may name everyone too")
+                assertState(UNIQUE_VIOLATION, "a team once per message") { c.exec(insert, first, "TEAM", team, thread, room) }
+                // NULLS NOT DISTINCT: the keyword rows have a null team and are still unique per message and kind.
+                assertState(UNIQUE_VIOLATION, "a keyword once per message") { c.exec(insert, first, "EVERYONE", null, thread, room) }
+                assertState(FK_VIOLATION, "a group mention needs its message") {
+                    c.exec(insert, Int.MAX_VALUE, "EVERYONE", null, thread, room)
+                }
+                assertState(FK_VIOLATION, "a team mention needs its team") { c.exec(insert, second, "TEAM", Int.MAX_VALUE, thread, room) }
+                assertState(FK_VIOLATION, "a group mention needs its thread") {
+                    c.exec(insert, second, "WATCHERS", null, Int.MAX_VALUE, room)
+                }
+                assertState(FK_VIOLATION, "a group mention needs its room") {
+                    c.exec(insert, second, "WATCHERS", null, thread, Int.MAX_VALUE)
+                }
+
+                assertEquals(1, c.exec("DELETE FROM messages WHERE id = ?", second))
+                val ofSecond = c.scalar("SELECT count(*) FROM message_group_mentions WHERE message_id = ?", second)
+                assertEquals(0, ofSecond, "a message's rows go with it")
+                // Teams are only soft-deleted in the application; a hard delete (never made by it) would take the team rows only.
+                assertEquals(1, c.exec("DELETE FROM teams WHERE id = ?", team))
+                assertEquals(2, c.scalar("SELECT count(*) FROM message_group_mentions WHERE room_id = ?", room), "the keyword rows stay")
+                assertEquals(1, c.exec("DELETE FROM rooms WHERE id = ?", room))
+                assertEquals(0, c.scalar("SELECT count(*) FROM message_group_mentions WHERE room_id = ?", room))
+            } finally {
+                c.exec("DELETE FROM rooms WHERE id = ?", room)
+                c.exec("DELETE FROM teams WHERE id = ?", team)
+                c.exec("DELETE FROM users WHERE id = ?", user)
+            }
+        }
+    }
+
+    @Test
+    fun `the mentionsMe probe reads idx_message_group_mentions_room by room and thread, also as a generic plan`() {
+        // The thread list's group part: an EXISTS per listed thread, correlated on the thread's id. The room and the thread lead the
+        // index, so each probe touches that thread's few rows alone (never the room's). The watchers branch adds an EXISTS on the caller's
+        // watch of that thread, served by the watches' own indexes.
+        val sql = "SELECT 1 FROM message_group_mentions g WHERE g.room_id = ? AND g.thread_id = ? AND " +
+            "(g.group_kind = 'EVERYONE' OR (g.group_kind = 'TEAM' AND g.team_id = ANY(?)) OR " +
+            "(g.group_kind = 'WATCHERS' AND EXISTS (SELECT 1 FROM thread_watches w " +
+            "WHERE w.room_id = g.room_id AND w.user_id = ? AND w.thread_id = g.thread_id)))"
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val plan = explain(sql, "int4, int4, int4[], int8", "1, 1, '{1,2}', 1", mode)
+            assertTrue("idx_message_group_mentions_room" in plan, "$mode: the probe uses the index:\n$plan")
+            assertTrue(Regex("Index Cond:.*thread_id").containsMatchIn(plan), "$mode: the thread rides the index condition:\n$plan")
+            assertTrue("Seq Scan on message_group_mentions" !in plan, "$mode: never a scan of the whole table:\n$plan")
+            assertTrue("Seq Scan on thread_watches" !in plan, "$mode: the watch is an index probe:\n$plan")
+        }
+    }
+
+    @Test
     fun `room pins are unique per thread and per message, a thread and its message may both be pinned, and the rows cascade`() {
         withThread("pins") { c, user, thread ->
             val room = c.scalar("SELECT room_id FROM threads WHERE id = ?", thread)

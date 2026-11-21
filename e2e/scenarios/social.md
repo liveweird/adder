@@ -173,3 +173,35 @@ what the scenario is about.
    - *Expected*: the drawer lists "<author> started #1 <title>".
 4. The author's own bell is looked at.
    - *Expected*: it is named "Notifications (0 unseen)" (nobody is told of their own thread).
+
+## Scenario: a team mention reaches the team's members in the room
+
+1. The administrator mints an author, a reader and an outsider; the author makes a room through the API and starts a thread, THEN adds the reader (the outsider never joins the
+   room). The administrator, through the API, gives a team a mention handle and puts the reader AND the outsider on its roster. The author opens the thread, the reader
+   opens the room's **Threads** view; both sockets subscribe.
+   - *Expected*: the reader's bell is named "Notifications (0 unseen)".
+2. The author types `Paging @` and the team's handle in the **Reply** box.
+   - *Expected*: the list holds the team under a "Teams" heading; picking it turns the word into `@<handle>` in the box.
+3. The author finishes the sentence and presses **Ctrl+Enter**.
+   - *Expected*: the post answers 201 and its `groupMentions` lists the team with its handle.
+4. The reader does nothing.
+   - *Expected*: the bell is named "Notifications (1 unseen)" with no reload; the drawer holds "`<author>` mentioned your team in #1 `<title>`". The author's message
+     reads `@<handle>`.
+5. The outsider's notifications are read through the API.
+   - *Expected*: the total is 0 (a team member who is not in the room is never told).
+
+## Scenario: everyone is told once, with the most specific reason
+
+1. The administrator mints an author and a reader; the author makes a room through the API and starts a thread, THEN adds the reader. The author opens the thread, the reader
+   opens the room's **Threads** view; both sockets subscribe.
+   - *Expected*: the reader's bell is named "Notifications (0 unseen)".
+2. The author picks the reader from the list (`@<name>`), types `and @eve` and picks `@everyone` under the "Groups" heading.
+   - *Expected*: the box reads `@<reader> and @everyone`, and a status line says "@everyone notifies the other member of this room." (no confirmation is asked).
+3. The author presses **Ctrl+Enter**.
+   - *Expected*: the post answers 201.
+4. The reader does nothing.
+   - *Expected*: the bell is named "Notifications (1 unseen)" (one notice, not two) with no reload; the drawer holds "`<author>` mentioned you in #1 `<title>`" and no
+     "mentioned everyone" notice. Following it opens the message, which shows `@everyone`.
+5. The reader goes back to the room's **Threads** view (a reader looking at the thread would have the notice acknowledged by the pane); the author posts a second message
+   through the API that names only everyone.
+   - *Expected*: the bell is named "Notifications (1 unseen)"; the reader's drawer holds "`<author>` mentioned everyone in #1 `<title>`"; the author's own bell stays "Notifications (0 unseen)".

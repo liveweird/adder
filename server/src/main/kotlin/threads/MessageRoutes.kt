@@ -191,7 +191,7 @@ private fun Route.messageDelete(roomService: RoomService, messageService: Messag
  * (at most [MAX_AUDITED_ADDRESSED]): a wide event is a count, never a roster in a log line.
  */
 internal fun auditNoticesCreated(byUserId: UInt, roomId: UInt, threadId: UInt, messageId: UInt?, outcome: NoticeOutcome) {
-    if (outcome.recipients == 0) return
+    if (outcome.recipients == 0 && outcome.relabelled == 0) return
     audit(
         "notification.created",
         "byUserId" to byUserId.toLong(),
@@ -201,5 +201,6 @@ internal fun auditNoticesCreated(byUserId: UInt, roomId: UInt, threadId: UInt, m
         "recipients" to outcome.recipients,
         "kinds" to outcome.kinds.map { (reason, count) -> "${reason.name}:$count" }.sorted().joinToString(","),
         "recipientIds" to outcome.addressed.map { it.toLong() },
+        "relabelled" to outcome.relabelled,
     )
 }

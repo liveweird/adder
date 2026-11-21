@@ -235,6 +235,50 @@ class ChatLogHygieneTest {
     }
 
     /**
+     * A team's handle and name are content too (an ADMIN types them, a message shows them): on the MESSAGE path - a group mention written,
+     * wide, edited, listed by the thread filter or deleted - they leave, and the body that carries the tokens, in no log line of any
+     * logger.
+     * (The ADMIN-written `team.created` and `team.updated` audit lines carry the handle by design and are not this path.)
+     */
+    @Test
+    fun `no log line carries a team handle, a team name or a body through a group mention`() = testApplication {
+        val marker = "hyggrp${UUID.randomUUID().toString().substring(0, 8)}"
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        val teams = mutableListOf<UInt>()
+        try {
+            usePostgresTestcontainer()
+            val owner = seedActor("hyg-gown").also { mintedUsers += it.id }
+            val member = seedActor("hyg-gmem").also { mintedUsers += it.id }
+            val template = TestThreads.seedTemplate().also { mintedTemplates += it }
+            val room = TestRooms.seed(owner.id, template, "Hyg ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
+            TestRooms.addMember(room, member.id)
+            val team = TestTeams.seedMentionable(marker, listOf(owner.id)).also { teams += it.id }
+            val opened = member.client.raw(
+                HttpMethod.Post, "$rooms/$room/threads",
+                """{"title":"T","body":"B $marker-body ${team.token} <@everyone> <@watchers>","fields":{"severity":"s1"}}""",
+            )
+            assertEquals(HttpStatusCode.Created, opened.status)
+            val post = """{"body":"P $marker-post ${team.token} <@everyone>"}"""
+            val posted = member.client.raw(HttpMethod.Post, "$rooms/$room/threads/1/messages", post)
+            assertEquals(HttpStatusCode.Created, posted.status)
+            val messageId = posted.body<MessageResponse>().id
+            assertTrue(team.handle in posted.bodyAsText(), "the response is the one place a handle is read (it is not a log)")
+            val edit = """{"body":"E $marker-edit <@watchers> <@everyone>"}"""
+            assertEquals(HttpStatusCode.NoContent, member.client.raw(HttpMethod.Put, "$rooms/$room/messages/$messageId", edit).status)
+            assertEquals(HttpStatusCode.OK, owner.client.get("$rooms/$room/threads?mentionsMe=true").status)
+            assertEquals(HttpStatusCode.NoContent, member.client.delete("$rooms/$room/messages/$messageId").status)
+
+            val names = capture.events.map { it.message }
+            assertTrue("notification.created" in names && "message.edited" in names, "captured: $names")
+            val leaked = capture.events.filter { marker in it.rendered() || team.handle in it.rendered() || team.name in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a handle, a name or a body")
+        } finally {
+            capture.detach()
+            teams.forEach { TestTeams.service.delete(it) }
+        }
+    }
+
+    /**
      * A search term is user content like a body: the room search must leave it in no log line of any logger, whether the search is
      * answered (200), refused (a control character is a 400 whose detail is a response, never a log) or throttled (the 61st in a minute
      * is the bucket's 429, whose audit line carries the bucket and the user, never the query string). The statement budget's 429 is

@@ -18,8 +18,10 @@ import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.db.lockActiveForWrite
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
+import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.*
+import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 val TeamServiceKey = AttributeKey<TeamService>("TeamService")
@@ -34,6 +36,17 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
 
 /** The ONE sortable whitelist — derived from the column map so the two can never drift. */
 val TEAM_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
+
+/**
+ * The active roster of each team of `$1` (int4[]), at most `$2` users a team, by team then user id, in ONE statement (constant text): the
+ * bound is a window per team, so no team starves another of its share.
+ */
+private const val MENTIONABLE_ROSTERS = """
+SELECT r.team_id, r.user_id FROM (
+    SELECT tm.team_id, tm.user_id, row_number() OVER (PARTITION BY tm.team_id ORDER BY tm.user_id) AS rn
+    FROM team_members tm JOIN users u ON u.id = tm.user_id AND NOT u.marked_as_deleted
+    WHERE tm.team_id = ANY(CAST(? AS int4[]))
+) r WHERE r.rn <= CAST(? AS int4) ORDER BY r.team_id, r.user_id"""
 
 class TeamService(private val database: R2dbcDatabase) {
     object Teams : UIntIdTable("teams"), SoftDeletable {
@@ -237,6 +250,57 @@ class TeamService(private val database: R2dbcDatabase) {
             .orderBy(UserService.Users.id to SortOrder.ASC)
             .limit(MAX_TEAM_MEMBERS)
             .map { it[UserService.Users.id].value }
+            .toList()
+    }
+
+    /**
+     * The teams among [teamIds] a message can MENTION (`<@team:id>`, 1.1): ACTIVE and with a handle; any other id is not in the answer
+     * (plain text). Runs in the caller's transaction when there is one (the message write's, the read's).
+     */
+    suspend fun mentionableTeams(teamIds: Collection<UInt>): Map<UInt, MentionableTeam> = suspendTransaction(database) {
+        if (teamIds.isEmpty()) return@suspendTransaction emptyMap()
+        Teams.select(Teams.id, Teams.handle, Teams.name)
+            .where { (Teams.id inList teamIds.distinct()) and Teams.handle.isNotNull() and Teams.active() }
+            .map { MentionableTeam(it[Teams.id].value, checkNotNull(it[Teams.handle]), it[Teams.name]) }
+            .toList()
+            .associateBy { it.id }
+    }
+
+    /**
+     * The ACTIVE rosters (the set a room's team add copies, [activeRosterIds]) of the mentionable teams among [teamIds], by team: a team
+     * that is unknown, deleted or without a handle is absent. One query for all of them, inside the caller's transaction when there is
+     * one (the audience of a message is read inside the write); at most [MAX_TEAM_MEMBERS] ids PER team (a window `row_number()` per
+     * team, the same bound as [activeRosterIds]; a roster is capped on write too, this is the read's own belt). The manager counts only
+     * when on the roster.
+     */
+    suspend fun mentionableRosters(teamIds: Collection<UInt>): Map<UInt, List<UInt>> = suspendTransaction(database) {
+        if (teamIds.isEmpty()) return@suspendTransaction emptyMap()
+        val mentionable = mentionableTeams(teamIds).keys
+        if (mentionable.isEmpty()) return@suspendTransaction emptyMap()
+        val rosters = TransactionManager.current().exec(
+            MENTIONABLE_ROSTERS,
+            listOf(
+                ArrayColumnType<Int, List<Int>>(IntegerColumnType()) to mentionable.map { it.toInt() },
+                IntegerColumnType() to MAX_TEAM_MEMBERS,
+            ),
+            explicitStatementType = StatementType.SELECT,
+        ) { row ->
+            row.get(0, Int::class.javaObjectType)!!.toUInt() to row.get(1, Long::class.javaObjectType)!!.toUInt()
+        }
+            ?.toList().orEmpty().filterNotNull()
+            .groupBy({ it.first }, { it.second })
+        mentionable.associateWith { rosters[it].orEmpty() }
+    }
+
+    /**
+     * The mentionable teams ([mentionableTeams]: active, with a handle) [userId] is on the roster of NOW: what the thread list's
+     * `mentionsMe` matches a team mention against. Inside the caller's transaction when there is one.
+     */
+    suspend fun teamIdsOf(userId: UInt): List<UInt> = suspendTransaction(database) {
+        TeamMembers.innerJoin(Teams)
+            .select(TeamMembers.teamId)
+            .where { (TeamMembers.userId eq userId) and Teams.handle.isNotNull() and Teams.active() }
+            .map { it[TeamMembers.teamId].value }
             .toList()
     }
 

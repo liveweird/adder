@@ -39,10 +39,10 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
  * **Channels are judged here, when the notice is made** (1.1 D7): ONE read of the recipients' preferences, then per person the kind's
  * in-app switch and email switch (stored deviations over `NotificationType.defaultOn`). A person gets a row only if the notice can reach
  * them: it SHOWS in the app (in-app on; `in_app = true`), or it can be MAILED (email on, a mailer exists, and the actor is inside the
- * daily budget; `in_app = false` when the app switch is off). In-app off and nothing mailable (email off, no mailer or over the budget)
- * makes no row. A row that is not mailable is settled at insert (`emailed_at = created_at`). The budget runs BEFORE the insert, on the
- * email-eligible recipients only, in the order the caller listed them (the most specific first), so a caller that can address a person
- * twice must drop the people who already have a notice of the message (`ofMessage`) before calling.
+ * daily budget; `in_app = false` when the app switch is off). In-app off and nothing mailable makes no row. A row that is not
+ * mailable is settled at insert (`emailed_at = created_at`). The budget runs BEFORE the insert, on the
+ * email-eligible recipients only, in the order the caller listed them (the most specific first); a caller that can address a person
+ * twice drops those who already hold a notice of the message (`ofMessage`).
  */
 internal class NoticeWriter(
     private val emailBudget: NotificationEmailBudget = NotificationEmailBudget(DEFAULT_EMAIL_BUDGET_PER_ACTOR, clock = ::nowMillis),
@@ -51,6 +51,8 @@ internal class NoticeWriter(
     /** The digest's delay (`notifications.email.delaySeconds`): a notice still waiting for it is coalesced into only while younger. */
     private val digestDelayMillis: Long = DEFAULT_DIGEST_DELAY_MILLIS,
 ) : ThreadNotices {
+    private val judger = NoticeJudge(mailAvailable)
+
     override suspend fun forMessage(at: MessageRef, byUserId: UInt, notices: List<Notice>): NoticeOutcome =
         make(at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, notices)
 
@@ -67,101 +69,76 @@ internal class NoticeWriter(
     }
 
     /**
-     * Applies an edit's [revision]: the removed people's notices go, the relabelled ones keep their row (and its seen state) under the
-     * new kind with their channels judged again ([relabel]), the added ones are made like [forMessage]'s. The deletes are ONE statement,
-     * the relabels ONE statement. People whose bell changed (a notice that stopped showing, started showing, or moved in or out of the
-     * addressed kinds) get ONE `notification.created` hint, so their open tabs re-read.
+     * Applies an edit's [revision]: removed notices go, relabelled ones keep their row and seen state under the new kind with the
+     * channels judged again ([NoticeJudge.relabel]), added ones are made like [forMessage]'s; everybody whose bell changed gets ONE hint.
+     *
+     * **One event for the wide-event budget (1.1 A35, A38):** wide when the people it ADDS (actor left out, before the channels are judged)
+     * or the bells its relabels change exceed [WIDE_EVENT_RECIPIENTS]. Refused, the labels still change (a label must not lie), the
+     * relabelled get no hint and only the people named directly are added; the outcome's `relabelled` leaves a trace. **An upgrade deletes
+     * the old row only when its replacement is made**; when it is dropped (the budget, the person's switches, the email budget) the old
+     * row stays only while its kind is still one of the body's reasons for the person, and is otherwise relabelled in place.
      */
     override suspend fun reviseMessage(at: MessageRef, byUserId: UInt, revision: NoticeRevision): NoticeOutcome {
-        val (add, remove) = withoutUnchangedUpgrades(at.messageId, revision)
-        val relabelled = relabel(at.messageId, revision.relabel)
-        val deletes = (remove + relabelled.deleted).toSet()
-        if (deletes.isNotEmpty()) {
-            Notifications.deleteWhere { (Notifications.messageId eq at.messageId) and (Notifications.recipientId inList deletes) }
+        val relabelled = judger.relabel(at.messageId, revision.relabel)
+        val candidates = distinctOthers(revision.add, byUserId)
+        val full = candidates.associateBy { it.userId }
+        val direct = candidates.filter { it.reason in DIRECT }.map { Notice(it.userId, it.reason) }
+        val hinted = relabelled.changedBell.size
+        val admitted = (candidates.size <= WIDE_EVENT_RECIPIENTS && hinted <= WIDE_EVENT_RECIPIENTS) ||
+            emailBudget.admitBroadcast(byUserId, at.roomId, withheld = candidates.size - direct.size + hinted)
+        val offered = if (admitted) candidates else direct
+        val refused = full.keys - offered.map { it.userId }.toSet()
+        val upgrading = revision.remove.filter { it in full }.toSet()
+        val held = if (upgrading.isEmpty()) emptyMap() else judger.heldRows(at.messageId, upgrading.toList())
+        val (add, unchanged) = withoutUnchangedUpgrades(offered, upgrading, held)
+        val adding = add.map { it.userId }.toSet()
+        val removing = revision.remove.filter { it !in refused && it !in unchanged }
+        val replacing = removing.filter { it in adding }.toSet()
+        // A dropped upgrade keeps its old row only while that kind is still earned by the body; else it is relabelled in place.
+        fun stale(user: UInt): Boolean {
+            val reason = held[user]?.type?.toNoticeReason()
+            return reason == null || reason !in full.getValue(user).allReasons()
         }
-        announce(relabelled.changedBell, at.roomId, at.threadNumber, at.messageId)
-        return make(at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, add)
+        val dropped = upgrading.filter { (it in refused || it in unchanged) && stale(it) }
+        val early = judger.relabel(at.messageId, dropped.map { full.getValue(it) })
+        deleteNotices(at.messageId, (removing.filter { it !in replacing } + relabelled.deleted + early.deleted).toSet())
+        var late = NoticeJudge.Relabelled(emptyList(), emptyList())
+        val hints = if (admitted) relabelled.changedBell + early.changedBell else emptyList()
+        val outcome = deliver(at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, add, hints) { delivered ->
+            deleteNotices(at.messageId, replacing.filter { it in delivered }.toSet())
+            late = judger.relabel(at.messageId, replacing.filter { it !in delivered && stale(it) }.map { full.getValue(it) })
+            deleteNotices(at.messageId, late.deleted.toSet())
+            if (admitted) late.changedBell else emptyList()
+        }
+        return outcome.copy(relabelled = relabelled.count + early.count + late.count)
+    }
+
+    private suspend fun deleteNotices(messageId: UInt, recipients: Set<UInt>) {
+        if (recipients.isEmpty()) return
+        Notifications.deleteWhere { (Notifications.messageId eq messageId) and (Notifications.recipientId inList recipients) }
     }
 
     /**
-     * A "delete and insert" upgrade (a less specific notice, now addressed more specifically) is a fresh unseen notice only when the
-     * person's channels really make a DIFFERENT kind of it: when the kind the writer would choose (their fallback when the top kind is
-     * switched off) equals the one they hold, the row stays - no fresh unseen row, no second charge to the email budget.
+     * An upgrade (a less specific notice, now addressed more specifically) is a fresh unseen notice only when the person's channels make
+     * a DIFFERENT kind of it: when the kind the writer would choose (a fallback if the top kind is off) is the one they hold, or no
+     * applicable reason reaches them, the upgrade is dropped (no fresh row, no second charge to the email budget). Answers the notices
+     * to add and the people whose upgrade is dropped.
      */
-    private suspend fun withoutUnchangedUpgrades(messageId: UInt, revision: NoticeRevision): Pair<List<Notice>, Collection<UInt>> {
-        val upgrades = revision.add.filter { it.userId in revision.remove }
-        if (upgrades.isEmpty()) return revision.add to revision.remove
-        val held = heldRows(messageId, upgrades.map { it.userId })
+    private suspend fun withoutUnchangedUpgrades(
+        add: List<Notice>,
+        upgrading: Set<UInt>,
+        held: Map<UInt, NoticeJudge.Held>,
+    ): Pair<List<Notice>, Set<UInt>> {
+        val upgrades = add.filter { it.userId in upgrading }
+        if (upgrades.isEmpty()) return add to emptySet()
         val kinds = upgrades.flatMap { it.allReasons() }.map { it.toNotificationType() }.distinct()
         val preferences = effectivePreferencesOf(upgrades.map { it.userId }, kinds)
-        val unchanged = upgrades.filter { judge(it, preferences)?.type == held[it.userId]?.type }.map { it.userId }.toSet()
-        return revision.add.filter { it.userId !in unchanged } to revision.remove.filter { it !in unchanged }
+        val unchanged = upgrades.filter { upgrade ->
+            val verdict = judger.judge(upgrade, preferences)
+            verdict == null || verdict.type == held[upgrade.userId]?.type
+        }.map { it.userId }.toSet()
+        return add.filter { it.userId !in unchanged } to unchanged
     }
-
-    /** What [relabel] decided: the people whose row goes, and the people whose bell changes (a hint for them). */
-    private class Relabelled(val deleted: List<UInt>, val changedBell: List<UInt>)
-
-    /**
-     * A relabelled notice keeps its row (and its seen state) under the new kind, but the person's channels are judged again for it, with
-     * the usual fallback to their next applicable reason: a kind switched off in the app is no longer shown (`in_app` follows the
-     * verdict), and a row that would be neither shown nor mailable is deleted. Email counts as reachable only while the row has not been
-     * mailed or settled (`emailed_at IS NULL`): that stamp is never reopened, so a settled row cannot be revived by an edit. One read of
-     * the rows, one update, the deletes joining the caller's.
-     */
-    private suspend fun relabel(messageId: UInt, relabels: List<Notice>): Relabelled {
-        if (relabels.isEmpty()) return Relabelled(emptyList(), emptyList())
-        val transaction = TransactionManager.current()
-        val held = heldRows(messageId, relabels.map { it.userId })
-        val kinds = relabels.flatMap { it.allReasons() }.map { it.toNotificationType() }.distinct()
-        val preferences = effectivePreferencesOf(relabels.map { it.userId }, kinds)
-        val deleted = mutableListOf<UInt>()
-        val changed = mutableListOf<UInt>()
-        val updates = mutableListOf<Delivery>()
-        for (notice in relabels) {
-            val row = held[notice.userId] ?: continue
-            val verdict = judge(notice, preferences, emailReachable = row.unmailed)
-            if (verdict == null) {
-                deleted += notice.userId
-                if (row.inApp) changed += notice.userId
-                continue
-            }
-            updates += verdict
-            val addressedBefore = row.type?.let { it in ADDRESSED } ?: false
-            if (row.inApp != verdict.inApp || addressedBefore != (verdict.type in ADDRESSED)) changed += notice.userId
-        }
-        if (updates.isNotEmpty()) {
-            transaction.exec(
-                RELABEL_ROWS,
-                listOf(
-                    ArrayColumnType<Long, List<Long>>(LongColumnType()) to updates.map { it.userId.toLong() },
-                    ArrayColumnType<String, List<String>>(TextColumnType()) to updates.map { it.type.name },
-                    ArrayColumnType<Boolean, List<Boolean>>(BooleanColumnType()) to updates.map { it.inApp },
-                    IntegerColumnType() to messageId.toInt(),
-                ),
-            )
-        }
-        return Relabelled(deleted, changed.distinct())
-    }
-
-    /** The rows [users] hold about message [messageId]: kind, whether they show, whether their mail is still to come. */
-    private suspend fun heldRows(messageId: UInt, users: List<UInt>): Map<UInt, Held> = TransactionManager.current().exec(
-        READ_RELABEL_ROWS,
-        listOf(
-            IntegerColumnType() to messageId.toInt(),
-            ArrayColumnType<Long, List<Long>>(LongColumnType()) to users.map { it.toLong() },
-        ),
-        explicitStatementType = StatementType.SELECT,
-    ) { row ->
-        Held(
-            row.get(0, Long::class.javaObjectType)!!.toUInt(),
-            NotificationType.entries.firstOrNull { it.name == row.get(1, String::class.java) },
-            row.get(2, Boolean::class.javaObjectType) == true,
-            row.get(3, Boolean::class.javaObjectType) == true,
-        )
-    }?.toList().orEmpty().filterNotNull().associateBy { it.userId }
-
-    /** One existing row of an edit's relabel: the person, its kind, whether it shows, and whether its mail is still to come. */
-    private class Held(val userId: UInt, val type: NotificationType?, val inApp: Boolean, val unmailed: Boolean)
 
     override suspend fun messageRemoved(messageId: UInt) {
         Notifications.deleteWhere { Notifications.messageId eq messageId }
@@ -174,27 +151,6 @@ internal class NoticeWriter(
             MARK_THREAD_SEEN_SQL,
             listOf(long to at, long to userId.toLong(), int to threadId.toInt(), int to upToMessageId.toInt()),
         )
-    }
-
-    /** One person the writer will insert a row for: the kind and the two channel verdicts. */
-    private data class Delivery(val userId: UInt, val type: NotificationType, val inApp: Boolean, val email: Boolean)
-
-    private fun Notice.allReasons(): List<NoticeReason> = listOf(reason) + fallbacks
-
-    /**
-     * How [notice] reaches its person: the FIRST of its reasons (the most specific, then the fallbacks in priority order) whose kind is
-     * switched on for the app or for email, with the channels that are on; null when every applicable reason is off on both channels.
-     * [emailReachable] is false when email cannot be the reason (the row was already mailed or settled).
-     */
-    private fun judge(notice: Notice, preferences: Map<UInt, EffectivePreferences>, emailReachable: Boolean = true): Delivery? {
-        val person = preferences[notice.userId] ?: EffectivePreferences.DEFAULTS
-        for (reason in notice.allReasons()) {
-            val type = reason.toNotificationType()
-            val inApp = person.on(type, NotificationChannel.IN_APP)
-            val email = mailAvailable && emailReachable && person.on(type, NotificationChannel.EMAIL)
-            if (inApp || email) return Delivery(notice.userId, type, inApp, email)
-        }
-        return null
     }
 
     /**
@@ -210,15 +166,35 @@ internal class NoticeWriter(
         actorId: UInt,
         notices: List<Notice>,
     ): NoticeOutcome {
-        val everyone = notices.filter { it.userId != actorId }.distinctBy { it.userId }
-        val wanted = withinBroadcastBudget(everyone, roomId, actorId)
-        if (wanted.isEmpty()) return NoticeOutcome.NONE
+        val wanted = withinBroadcastBudget(distinctOthers(notices, actorId), roomId, actorId)
+        return deliver(roomId, threadId, threadNumber, messageId, actorId, wanted)
+    }
+
+    /** [notices] without the actor and with a person once (the first of a person wins: the most specific reason is listed first). */
+    private fun distinctOthers(notices: List<Notice>, actorId: UInt) = notices.filter { it.userId != actorId }.distinctBy { it.userId }
+
+    /**
+     * What [make] does once the wide-event budget has chosen the audience [wanted]: judge the channels (with the fallbacks), coalesce a
+     * repeated thread-level notice into the unseen row the person already holds, run the email budget on what is left, insert in ONE
+     * statement and send ONE hint to the people whose notice shows in the app, plus [extraTargets] (an edit's relabelled people).
+     * [beforeInsert] runs ONCE, with the people who WILL get a row, right before the insert (an upgrade deletes the old row there, never
+     * earlier), also when nobody does; the targets it answers join the hint.
+     */
+    private suspend fun deliver(
+        roomId: UInt,
+        threadId: UInt,
+        threadNumber: Int,
+        messageId: UInt?,
+        actorId: UInt,
+        wanted: List<Notice>,
+        extraTargets: List<UInt> = emptyList(),
+        beforeInsert: suspend (Set<UInt>) -> List<UInt> = { emptyList() },
+    ): NoticeOutcome {
         val preferences = effectivePreferencesOf(
             wanted.map { it.userId },
             wanted.flatMap { it.allReasons() }.map { it.toNotificationType() }.distinct(),
         )
-        val candidates = wanted.mapNotNull { judge(it, preferences) }
-        if (candidates.isEmpty()) return NoticeOutcome.NONE
+        val candidates = wanted.mapNotNull { judger.judge(it, preferences) }
         val now = nowMillis()
         val refreshed = if (messageId == null) refreshThreadNotices(threadId, actorId, now, candidates) else emptyList()
         val refreshedIds = refreshed.map { it.first }.toSet()
@@ -226,12 +202,13 @@ internal class NoticeWriter(
         val over = emailBudget.withheld(actorId, roomId, fresh.filter { it.email }.map { it.userId })
         // Over the budget the email is withheld; a person the app switch also leaves out is reached by nothing: no row.
         val deliveries = fresh.map { if (it.userId in over) it.copy(email = false) else it }.filter { it.inApp || it.email }
+        val late = beforeInsert(deliveries.map { it.userId }.toSet())
         val made = if (deliveries.isEmpty()) emptyList() else insert(roomId, threadId, messageId, actorId, now, deliveries)
         val madeIds = made.map { it.first }.toSet()
         // The hint's targets keep the audience's priority order, the rows made and the rows refreshed alike.
         val shown = deliveries.filter { it.inApp && it.userId in madeIds }.map { it.userId }.toSet() +
             refreshed.filter { it.third }.map { it.first }
-        announce(candidates.map { it.userId }.filter { it in shown }, roomId, threadNumber, messageId)
+        announce(candidates.map { it.userId }.filter { it in shown } + extraTargets + late, roomId, threadNumber, messageId)
         val reasons = (made + refreshed.map { it.first to it.second }).map { (user, type) -> user to type.toNoticeReason() }
         if (reasons.isEmpty()) return NoticeOutcome.NONE
         return NoticeOutcome(
@@ -336,15 +313,6 @@ internal class NoticeWriter(
             NotificationType.THREAD_CLOSED,
             NotificationType.THREAD_REOPENED,
             NotificationType.THREAD_OWNER_CHANGED,
-            NotificationType.THREAD_ASSIGNED,
-        )
-
-        /** The kinds addressed TO the person (the four mention kinds and a hand-over): what the rail's count and the `@` marks count. */
-        val ADDRESSED = setOf(
-            NotificationType.MENTIONED,
-            NotificationType.TEAM_MENTIONED,
-            NotificationType.WATCHERS_MENTIONED,
-            NotificationType.EVERYONE_MENTIONED,
             NotificationType.THREAD_ASSIGNED,
         )
     }
