@@ -15,6 +15,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -72,14 +73,14 @@ class ThreadReadBudgetTest {
     }
 
     /** Waits until a backend waits on a lock in a statement naming [table]: the read under test is blocked. */
-    private suspend fun awaitLockWaiter(table: String) {
+    private suspend fun awaitLockWaiter(table: String, atLeast: Int = 1) {
         repeat(400) {
             val waiting = PostgresTestSupport.connect().use { probe ->
                 probe.prepareStatement(
                     "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid() AND query ILIKE ?",
                 ).use { st ->
                     st.setString(1, "%$table%")
-                    st.executeQuery().use { rs -> rs.next() && rs.getInt(1) > 0 }
+                    st.executeQuery().use { rs -> rs.next() && rs.getInt(1) >= atLeast }
                 }
             }
             if (waiting) return
@@ -153,6 +154,57 @@ class ThreadReadBudgetTest {
             capture.detach()
         }
     }
+
+    @Test
+    fun `the notification list that outruns its budget is 429 read-timeout with resource notifications and no room in the line`() =
+        testApplication {
+            configureApp("threads.readTimeoutSeconds" to "1")
+            startApplication()
+            val owner = actor("rdb-not-to")
+            room(owner) // a member of an active room, so the list gets as far as reading the notices
+            withAuditCapture { capture ->
+                val (response, elapsed) = whileLocked("notifications") { owner.client.get("/api/v1/notifications") }
+                assertEquals(HttpStatusCode.TooManyRequests, response.status)
+                assertEquals("2", response.headers["Retry-After"])
+                assertEquals(READ_TIMEOUT_PROBLEM_TYPE, response.body<ProblemDetail>().type)
+                assertTrue(elapsed in 900..10_000, "it answered at the budget ($elapsed ms)")
+                val event = assertNotNull(
+                    capture.awaitEvent { it.message == "read.timeout" && it.hasKeyValue("resource", "notifications") },
+                )
+                assertTrue(event.hasKeyValue("byUserId", owner.id.toLong()))
+                assertTrue(event.hasKeyValue("roomId", null), "a list of the caller's own notices belongs to no room")
+            }
+            assertEquals(HttpStatusCode.OK, owner.client.get("/api/v1/notifications").status, "the permits are back")
+        }
+
+    @Test
+    fun `a fifth notification list read of one user is 429 read-busy, resource notifications, no room, the four timing out`() =
+        testApplication {
+            configureApp("threads.readTimeoutSeconds" to "3")
+            startApplication()
+            val owner = actor("rdb-not-busy")
+            room(owner)
+            withAuditCapture { capture ->
+                val (answers, _) = whileLocked("notifications") {
+                    coroutineScope {
+                        val held = List(4) { async { owner.client.get("/api/v1/notifications") } }
+                        // The user's four permits are taken, each statement waiting on the lock.
+                        awaitLockWaiter("notifications", atLeast = 4)
+                        val refused = owner.client.get("/api/v1/notifications") // waits about 1 s for a permit, then is refused
+                        refused to held.awaitAll()
+                    }
+                }
+                val (refused, held) = answers
+                assertEquals(HttpStatusCode.TooManyRequests, refused.status)
+                assertEquals("1", refused.headers["Retry-After"])
+                assertEquals(READ_BUSY_PROBLEM_TYPE, refused.body<ProblemDetail>().type)
+                val event = assertNotNull(capture.awaitEvent { it.message == "read.busy" && it.hasKeyValue("resource", "notifications") })
+                assertTrue(event.hasKeyValue("byUserId", owner.id.toLong()) && event.hasKeyValue("limit", "user"))
+                assertTrue(event.hasKeyValue("roomId", null))
+                assertTrue(held.all { it.status == HttpStatusCode.TooManyRequests }, "the four ended at their deadline")
+            }
+            assertEquals(HttpStatusCode.OK, owner.client.get("/api/v1/notifications").status, "the permits are back")
+        }
 
     @Test
     fun `a list read past the process cap is 429 read-busy with Retry-After, audited, while the first one runs into its deadline`() =

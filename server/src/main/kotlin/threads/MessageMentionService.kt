@@ -29,7 +29,8 @@ internal data class MentionChange(val added: List<UInt>, val removed: List<UInt>
  * behind a scrubbed body. The table is hard-deleted (`persistence.md` "Mentions (V17)"). Ids only: a body or a name never reaches a log.
  * It is also the one place the chat tells the notification feature about a mention ([notices], the [ThreadNotices] port): a post notifies
  * the members it mentions, an edit only the newly mentioned (and drops the notice of a mention it removed) and a delete removes every
- * notice of the message, all in the same transaction.
+ * notice of the message, all in the same transaction. (1.1.0 S5 makes only `MENTIONED` here; the watchers and the room join the audience
+ * with `NoticeAudience`.)
  *
  * Only an ACTIVE member of the room, at the moment of the write ([RoomMemberService.activeMemberIds], inside the write), is mentioned; any
  * other id is plain text, no row, never a refusal. [edited] gets only the NEW body (the row has already been overwritten when a follower
@@ -52,13 +53,16 @@ internal class MessageMentionService(
         override val primaryKey = PrimaryKey(messageId, userId)
     }
 
-    override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): List<UInt> =
-        notices.mentioned(ref, authorId, indexInTransaction(ref, body))
+    override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): NoticeOutcome =
+        notices.forMessage(ref, authorId, indexInTransaction(ref, body).map { Notice(it, NoticeReason.MENTIONED) })
 
-    override suspend fun edited(ref: MessageRef, authorId: UInt, body: String): List<UInt> {
+    override suspend fun edited(ref: MessageRef, authorId: UInt, body: String): NoticeOutcome {
         val change = replaceInTransaction(ref, body)
-        notices.mentionsDropped(ref.messageId, change.removed)
-        return notices.mentioned(ref, authorId, change.added)
+        return notices.reviseMessage(
+            ref,
+            authorId,
+            NoticeRevision(add = change.added.map { Notice(it, NoticeReason.MENTIONED) }, remove = change.removed),
+        )
     }
 
     override suspend fun deleted(ref: MessageRef) {

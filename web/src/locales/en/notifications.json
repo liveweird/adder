@@ -10,23 +10,60 @@
   "unseen_other": "{{count}} unseen",
   "inRoom": "{{room}} · {{when}}",
   "toast": {
-    "preferencesSaved": "Notification emails saved"
+    "preferencesSaved": "Notification preferences saved"
   },
   "preferences": {
-    "title": "Notification emails",
-    "description": "Choose which notifications are also sent to you by email.",
-    "section": "Email me when",
+    "title": "Notification preferences",
+    "description": "Choose which notifications show in the app and which are also sent to you by email.",
+    "typeColumn": "Notify me when",
+    "columnInApp": "In-app",
+    "columnEmail": "Email",
+    "allOn": "All on",
+    "allOff": "All off",
+    "allOnAria": "All on: {{column}} in {{group}}",
+    "allOffAria": "All off: {{column}} in {{group}}",
+    "switchAria": "{{label}}: {{column}}",
+    "group": {
+      "mentions": "Mentions",
+      "watching": "Threads you watch",
+      "handed": "Threads handed to you",
+      "rooms": "Rooms"
+    },
     "kind": {
       "MENTIONED": "Someone mentions me",
-      "THREAD_ASSIGNED": "Someone makes me the owner of a thread"
+      "TEAM_MENTIONED": "Someone mentions my team",
+      "WATCHERS_MENTIONED": "Someone mentions the watchers of a thread I watch",
+      "EVERYONE_MENTIONED": "Someone mentions everyone in a room I am in",
+      "THREAD_REPLIED": "A reply in a thread I watch",
+      "THREAD_CREATED": "A new thread in a room I am in",
+      "THREAD_ASSIGNED": "Someone makes me the owner of a thread",
+      "THREAD_OWNER_CHANGED": "The owner of a thread I watch changes",
+      "THREAD_STATUS_CHANGED": "A thread I watch moves to another status",
+      "THREAD_CLOSED": "A thread I watch is closed",
+      "THREAD_REOPENED": "A thread I watch is reopened"
     },
     "emailOff": "Email is off on this server, so no notification emails are sent. Your choices are kept.",
-    "inAppHint": "Notifications under the bell always arrive. An email follows only for a notification you have not seen after a few minutes, as one message listing who, the room and the thread number.",
+    "emailHint": "Email is off by default. An email follows only for a notification you have not seen after a few minutes, as one message listing who, the room and the thread number.",
     "saveFailedStatus": "Saving the choices failed ({{status}})",
     "saveFailedNetwork": "Saving the choices failed. Check your connection and try again."
   },
   "event": {
     "MENTIONED": "{{actor}} mentioned you in #{{number}} {{title}}",
-    "THREAD_ASSIGNED": "{{actor}} made you the owner of #{{number}} {{title}}"
+    "THREAD_ASSIGNED": "{{actor}} made you the owner of #{{number}} {{title}}",
+    "TEAM_MENTIONED": "{{actor}} mentioned your team in #{{number}} {{title}}",
+    "WATCHERS_MENTIONED": "{{actor}} mentioned the watchers of #{{number}} {{title}}",
+    "EVERYONE_MENTIONED": "{{actor}} mentioned everyone in #{{number}} {{title}}",
+    "THREAD_REPLIED": "{{actor}} replied in #{{number}} {{title}}",
+    "THREAD_CREATED": "{{actor}} started #{{number}} {{title}}",
+    "THREAD_OWNER_CHANGED": "{{actor}} changed the owner of #{{number}} {{title}}",
+    "THREAD_STATUS_CHANGED": "{{actor}} moved #{{number}} {{title}} to another status",
+    "THREAD_CLOSED": "{{actor}} closed #{{number}} {{title}}",
+    "THREAD_REOPENED": "{{actor}} reopened #{{number}} {{title}}"
+  },
+  "emptyMentions": "You have no mentions.",
+  "view": {
+    "label": "Show",
+    "all": "All",
+    "mentions": "Mentions"
   }
 }

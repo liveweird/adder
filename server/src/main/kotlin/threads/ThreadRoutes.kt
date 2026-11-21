@@ -153,7 +153,7 @@ private fun Route.threadCreate(roomService: RoomService, threadService: ThreadSe
                 "number" to created.number,
                 "messageId" to created.messageId.toLong(),
             )
-            auditNoticesCreated(caller.userId, roomId, created.id, created.messageId, NOTICE_MENTIONED, created.notified)
+            auditNoticesCreated(caller.userId, roomId, created.id, created.messageId, created.notices)
             val location = ThreadsRoute.Number(ThreadsRoute(RoomsRoute.Id(id = roomId)), created.number.toUInt())
             call.response.header(HttpHeaders.Location, call.application.href(location))
             val thread = threadService.read(roomId, created.number, caller.userId).orVanished("Thread", created.number)
@@ -254,9 +254,7 @@ private fun Route.threadOwner(roomService: RoomService, threadService: ThreadSer
                     "fromUserId" to move.fromUserId.toLong(),
                     "toUserId" to move.toUserId.toLong(),
                 )
-                if (move.notified) {
-                    auditNoticesCreated(caller.userId, roomId, move.threadId, null, NOTICE_THREAD_ASSIGNED, listOf(move.toUserId))
-                }
+                auditNoticesCreated(caller.userId, roomId, move.threadId, null, move.notices)
             }
             call.respond(HttpStatusCode.NoContent)
         }

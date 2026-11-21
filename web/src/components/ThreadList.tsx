@@ -8,7 +8,7 @@ import { listThreads } from "../api/threads";
 import type { RoomResponse } from "../api/rooms";
 import { useRoomPins } from "../hooks/useRoomPins";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
-import { useUnseenNotifications } from "../hooks/useUnseenNotifications";
+import { useAddressedNotifications } from "../hooks/useUnseenNotifications";
 import { useThreadListParams } from "../hooks/useThreadListParams";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { focusThreadPaneState, newThreadPath, threadPath, withListParams } from "../utils/roomLinks";
@@ -46,9 +46,10 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
   const pins = useRoomPins(room.id);
   // A row says in words what its marks mean (a pin, a watch, unread messages, an unseen notice) through one hidden description.
   const noteId = useId();
-  // The bell's unseen notices: a thread that holds one gets an `@` mark (a mention or a hand-over).
-  const unseen = useUnseenNotifications();
-  const noticeThreads = useMemo(() => unseenThreadNumbers(unseen.items, room.id), [unseen.items, room.id]);
+  // The unseen notices ADDRESSED to the caller: a thread that holds one gets an `@` mark (a mention of any kind or a hand-over; a reply or a
+  // new thread never does, 0.6 D1).
+  const addressed = useAddressedNotifications();
+  const noticeThreads = useMemo(() => unseenThreadNumbers(addressed.items, room.id), [addressed.items, room.id]);
   const zone = browserTimeZone();
 
   // The request: owner=me resolved to the session's id, a stale field entry dropped; null while field filters wait for the workflow.

@@ -116,7 +116,7 @@ private fun Route.messagePost(roomService: RoomService, messageService: MessageS
                 "number" to number,
                 "messageId" to posted.message.id.toLong(),
             )
-            auditNoticesCreated(caller.userId, roomId, posted.threadId, posted.message.id, NOTICE_MENTIONED, posted.notified)
+            auditNoticesCreated(caller.userId, roomId, posted.threadId, posted.message.id, posted.notices)
             val location = RoomMessagesRoute.Id(RoomMessagesRoute(RoomsRoute.Id(id = roomId)), posted.message.id)
             call.response.header(HttpHeaders.Location, call.application.href(location))
             call.respond(HttpStatusCode.Created, posted.message)
@@ -148,7 +148,7 @@ private fun Route.messageEdit(roomService: RoomService, messageService: MessageS
                     "threadId" to edit.threadId.toLong(),
                     "messageId" to edit.messageId.toLong(),
                 )
-                auditNoticesCreated(caller.userId, roomId, edit.threadId, edit.messageId, NOTICE_MENTIONED, edit.notified)
+                auditNoticesCreated(caller.userId, roomId, edit.threadId, edit.messageId, edit.notices)
             }
             call.respond(HttpStatusCode.NoContent)
         }
@@ -184,19 +184,22 @@ private fun Route.messageDelete(roomService: RoomService, messageService: Messag
 }
 
 /**
- * The `notification.created` audit line of a write that made notices (nothing when [recipients] is empty), emitted by the message and
- * thread routes AFTER the commit, from the ids the write answered (the audit trail never names a notice that rolled back). Ids only,
- * never a body or a title; [messageId] is null for a hand-over. At most 20 recipients exist: a message mentions at most 20 people.
+ * The `notification.created` audit line of a write that made notices (nothing when it made none), ONE line per event, emitted by the
+ * message and thread routes AFTER the commit, from what the write answered (the audit trail never names a notice that rolled back). Ids
+ * and counts only, never a body or a title; [messageId] is null for a thread-level event (a hand-over). `recipients` counts the notices
+ * made, `kinds` says how many of each (`KIND:count`, sorted, comma-joined) and `recipientIds` names only the people addressed BY NAME
+ * (at most [MAX_AUDITED_ADDRESSED]): a wide event is a count, never a roster in a log line.
  */
-internal fun auditNoticesCreated(byUserId: UInt, roomId: UInt, threadId: UInt, messageId: UInt?, type: String, recipients: List<UInt>) {
-    if (recipients.isEmpty()) return
+internal fun auditNoticesCreated(byUserId: UInt, roomId: UInt, threadId: UInt, messageId: UInt?, outcome: NoticeOutcome) {
+    if (outcome.recipients == 0) return
     audit(
         "notification.created",
         "byUserId" to byUserId.toLong(),
         "roomId" to roomId.toLong(),
         "threadId" to threadId.toLong(),
         "messageId" to messageId?.toLong(),
-        "type" to type,
-        "recipientIds" to recipients.map { it.toLong() },
+        "recipients" to outcome.recipients,
+        "kinds" to outcome.kinds.map { (reason, count) -> "${reason.name}:$count" }.sorted().joinToString(","),
+        "recipientIds" to outcome.addressed.map { it.toLong() },
     )
 }

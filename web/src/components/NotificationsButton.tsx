@@ -1,14 +1,15 @@
 import { useState, useSyncExternalStore, type MouseEvent } from "react";
 import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Anchor, Box, Button, Drawer, Group, Stack, Text, VisuallyHidden } from "@mantine/core";
+import { ActionIcon, Anchor, Box, Button, Drawer, Group, SegmentedControl, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { IconBell, IconBellOff, IconChecks } from "@tabler/icons-react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { listNotifications, markAllNotificationsSeen, markNotificationSeen, NOTIFICATION_TOTAL_CAP, type NotificationItem } from "../api/notifications";
+import { ADDRESSED_TYPES, listNotifications, markAllNotificationsSeen, markNotificationSeen, NOTIFICATION_TOTAL_CAP, type NotificationItem } from "../api/notifications";
 import { getToken } from "../api/session";
 import { useUnseenNotifications } from "../hooks/useUnseenNotifications";
-import { badgeText, notificationKeys } from "../utils/notificationKeys";
+import { useNotificationRetryAfter } from "../hooks/useNotificationRetryAfter";
+import { badgeText, notificationKeys, type NoticeView } from "../utils/notificationKeys";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { notificationsKey } from "../utils/roomKeys";
 import { focusThreadPaneState, threadMessagePath, threadPath } from "../utils/roomLinks";
@@ -23,7 +24,19 @@ import UnreadCue, { UnreadAnchor } from "./UnreadCue";
 const PAGE_SIZE = 20;
 
 /** The kinds this build words; a newer server's kind shows its raw name (the contract: a client treats an unknown value as plain text). */
-const KNOWN_KINDS: readonly string[] = ["MENTIONED", "THREAD_ASSIGNED"] satisfies NotificationItem["type"][];
+const KNOWN_KINDS: readonly string[] = [
+  "MENTIONED",
+  "TEAM_MENTIONED",
+  "WATCHERS_MENTIONED",
+  "EVERYONE_MENTIONED",
+  "THREAD_REPLIED",
+  "THREAD_CREATED",
+  "THREAD_ASSIGNED",
+  "THREAD_OWNER_CHANGED",
+  "THREAD_STATUS_CHANGED",
+  "THREAD_CLOSED",
+  "THREAD_REOPENED",
+] satisfies NotificationItem["type"][];
 
 /** One sentence per notice from ids' current names and the thread's title, text only (`escapeValue` is off because React escapes). */
 function describe(n: NotificationItem, t: TFunction): string {
@@ -31,7 +44,7 @@ function describe(n: NotificationItem, t: TFunction): string {
   return t(`notifications.event.${n.type}`, { actor: n.actorName, number: n.threadNumber, title: n.threadTitle });
 }
 
-/** A notice opens the message that mentions the person (the 0.5.0 jump), or the thread for a hand-over, which has no message. */
+/** A notice opens the message that made it (a mention or a reply: the 0.5.0 jump), or the thread for a thread-level kind (a hand-over, a status move), which has no message. */
 const linkOf = (n: NotificationItem) => (n.messageId === null ? threadPath(n.roomId, n.threadNumber) : threadMessagePath(n.roomId, n.threadNumber, n.messageId));
 
 function NoticeRow({ n, zone, onOpen }: { n: NotificationItem; zone: string; onOpen: (n: NotificationItem, event: MouseEvent<HTMLAnchorElement>) => void }) {
@@ -41,7 +54,7 @@ function NoticeRow({ n, zone, onOpen }: { n: NotificationItem; zone: string; onO
       <Anchor
         component={RouterLink}
         to={linkOf(n)}
-        // A hand-over lands on the thread's pane, which then takes focus (as a list row and a pin do); a message jump focuses the message itself.
+        // A thread-level notice lands on the thread's pane, which then takes focus (as a list row and a pin do); a message jump focuses the message itself.
         state={n.messageId === null ? focusThreadPaneState : undefined}
         onClick={(event: MouseEvent<HTMLAnchorElement>) => onOpen(n, event)}
         display="block"
@@ -70,8 +83,9 @@ function NoticeRow({ n, zone, onOpen }: { n: NotificationItem; zone: string; onO
 
 /**
  * The header bell (Covenant's compact NotificationsButton, ported): a labelled button with the unseen count and a right-hand drawer listing the
- * caller's notices newest first, 20 a page, with "Mark all as seen". Opening a notice marks it seen and goes to its message or thread. No polling
- * (`notification.created` re-reads `["notifications"]`), no delete, no "unseen" toggle, no toast. The drawer's list is read only while it is open.
+ * caller's notices newest first, 20 a page, with "Mark all as seen" and an "All / Mentions" switch (Mentions: the kinds addressed to the reader).
+ * Opening a notice marks it seen and goes to its message or thread. No polling (`notification.created` re-reads `["notifications"]`), no delete,
+ * no "unseen" toggle, no toast. The badge counts ALL unseen notices; the drawer's list is read only while it is open.
  */
 export default function NotificationsButton() {
   const { t } = useTranslation();
@@ -80,17 +94,19 @@ export default function NotificationsButton() {
   const [opened, setOpened] = useState(false);
   const [returnFocus, setReturnFocus] = useState(true);
   const [page, setPage] = useState(1);
+  const [view, setView] = useState<NoticeView>("all");
   // The bell outlives a sign-out until the route guard unmounts the shell: meanwhile it keeps no drawer open and reads nothing without a token.
   const signedIn = useSyncExternalStore(subscribeLogicalSession, () => getToken() !== null, () => false);
   const drawerOpen = opened && signedIn;
   const unseen = useUnseenNotifications();
 
   const listQuery = useQuery({
-    queryKey: notificationKeys.list(page),
-    queryFn: () => listNotifications({ page, pageSize: PAGE_SIZE }),
+    queryKey: notificationKeys.list(page, view),
+    queryFn: () => listNotifications({ page, pageSize: PAGE_SIZE, type: view === "mentions" ? ADDRESSED_TYPES : undefined }),
     enabled: drawerOpen,
     placeholderData: keepPreviousData,
   });
+  useNotificationRetryAfter(listQuery.error);
   const items = listQuery.data?.items ?? [];
   const total = listQuery.data?.total ?? 0;
   // A re-read that emptied the last page (everything on it went) steps back, adjusted during render: to the page before, or to the new last page
@@ -149,20 +165,33 @@ export default function NotificationsButton() {
         closeButtonProps={{ "aria-label": t("common.action.close") }}
       >
         <Stack gap="sm">
-          {anyUnseen && (
-            <Group justify="flex-end">
+          <Group justify="space-between" wrap="wrap" gap="xs">
+            <SegmentedControl
+              size="xs"
+              aria-label={t("notifications.view.label")}
+              value={view}
+              onChange={(next) => {
+                setView(next as NoticeView);
+                setPage(1);
+              }}
+              data={[
+                { value: "all", label: t("notifications.view.all") },
+                { value: "mentions", label: t("notifications.view.mentions") },
+              ]}
+            />
+            {anyUnseen && (
               <Button size="xs" variant="light" leftSection={<IconChecks size={14} />} onClick={() => markAll.mutate()} loading={markAll.isPending}>
                 {t("notifications.markAllSeen")}
               </Button>
-            </Group>
-          )}
+            )}
+          </Group>
           {markAll.isError && <FormErrorAlert>{t("notifications.markAllFailed")}</FormErrorAlert>}
           {listQuery.isLoading ? (
             <LoadingBlock />
-          ) : listQuery.isError ? (
+          ) : listQuery.isError && !listQuery.data ? (
             <ErrorAlert error={listQuery.error} title={t("notifications.loadFailed")} />
           ) : items.length === 0 ? (
-            <EmptyState icon={IconBellOff} label={t("notifications.empty")} />
+            <EmptyState icon={IconBellOff} label={view === "mentions" ? t("notifications.emptyMentions") : t("notifications.empty")} />
           ) : (
             <Box component="ul" m={0} p={0} style={{ listStyle: "none" }}>
               {items.map((n) => (

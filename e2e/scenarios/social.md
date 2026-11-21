@@ -112,17 +112,29 @@ what the scenario is about.
 3. The reader opens the bell.
    - *Expected*: the drawer says "You have no notifications."
 
-## Scenario: the Notification emails page saves a switch and keeps it after a reload
+## Scenario: the Notification preferences page saves a switch and keeps it after a reload
 
 1. The administrator mints a user (the only actor here, no room); the user signs in and opens `/notification-preferences` from the address bar.
-   - *Expected*: the page is titled "Notification emails"; both switches ("Someone mentions me", "Someone makes me the owner of a thread") are on and
-     **Save** is disabled.
-2. The user switches "Someone mentions me" off.
+   - *Expected*: the page is titled "Notification preferences"; "Someone mentions me: In-app" is on, "Someone mentions me: Email" and "Someone makes me
+     the owner of a thread: Email" are off, and **Save** is disabled.
+2. The user switches "Someone mentions me: Email" on.
    - *Expected*: **Save** is enabled.
 3. The user presses **Save**.
-   - *Expected*: the preferences PUT answers 204, the toast "Notification emails saved" shows and Save is disabled again.
+   - *Expected*: the preferences PUT answers 204, the toast "Notification preferences saved" shows and Save is disabled again.
 4. The user reloads the page.
-   - *Expected*: "Someone mentions me" is off and the other switch is still on (the server holds the choice).
+   - *Expected*: "Someone mentions me: Email" is on, the In-app switch is still on and the hand-over email switch is still off (the server holds the choice).
+
+## Scenario: a kind switched off in the app stops arriving
+
+1. The same setup (an owner and a teammate in a room, a thread started through the API); the teammate is signed in and the live channel is up
+   for the room.
+   - *Expected*: the bell says "0 unseen".
+2. The teammate opens `/notification-preferences` (the live channel is up again there), switches "Someone mentions me: In-app" off and presses **Save**.
+   - *Expected*: the PUT answers 204 and the toast "Notification preferences saved" shows.
+3. The owner mentions the teammate in a message and then hands the thread over to the teammate (both through the API).
+   - *Expected*: with no action the bell says "1 unseen" (the hand-over alone).
+4. The teammate opens the bell.
+   - *Expected*: the drawer lists "`<owner>` made you the owner of #1 `<title>`" and no "mentioned you" notice.
 
 ## Not covered here (and why)
 

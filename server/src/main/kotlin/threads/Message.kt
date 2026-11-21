@@ -54,13 +54,13 @@ data class MessageListResult(val items: List<MessageResponse>, val total: Long)
 data class MessageRequest(val body: String)
 
 /**
- * What a post wrote, for the route's `Location` header and audit line: the new message and its thread's row id. [notified] are the people
+ * What a post wrote, for the route's `Location` header and audit line: the new message and its thread's row id. [notices] is what
  * the message's followers told about it ([MessageFollower]); never part of a response body.
  */
-data class PostedMessage(val threadId: UInt, val message: MessageResponse, val notified: List<UInt> = emptyList())
+data class PostedMessage(val threadId: UInt, val message: MessageResponse, val notices: NoticeOutcome = NoticeOutcome.NONE)
 
-/** What an edit changed, for the route's audit line (null when the body was unchanged); [notified]: see [PostedMessage]. */
-data class MessageEdit(val threadId: UInt, val messageId: UInt, val notified: List<UInt> = emptyList())
+/** What an edit changed, for the route's audit line (null when the body was unchanged); [notices]: see [PostedMessage]. */
+data class MessageEdit(val threadId: UInt, val messageId: UInt, val notices: NoticeOutcome = NoticeOutcome.NONE)
 
 /** What a delete wrote, for the route's audit line: whose message it was and whether a moderator (not the author) removed it. */
 data class MessageRemoval(val threadId: UInt, val messageId: UInt, val authorId: UInt, val moderated: Boolean)

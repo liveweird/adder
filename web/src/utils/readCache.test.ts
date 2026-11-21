@@ -48,6 +48,17 @@ describe("markThreadReadInCaches", () => {
     expect(queryClient.getQueryState(notificationKeys.unseen)?.isInvalidated).toBe(true);
   });
 
+  test("the rail's addressed query holding a notice of the thread re-reads the bell too", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(notificationKeys.unseen, page([]));
+    queryClient.setQueryData(notificationKeys.addressed, page([{ id: 1, roomId: 12, threadNumber: 9 }]));
+    markThreadReadInCaches(queryClient, 12, 4, 30);
+    expect(queryClient.getQueryState(notificationKeys.addressed)?.isInvalidated).toBe(false);
+    markThreadReadInCaches(queryClient, 12, 9, 30);
+    expect(queryClient.getQueryState(notificationKeys.addressed)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(notificationKeys.unseen)?.isInvalidated).toBe(true);
+  });
+
   test("a newer message already cached (a live re-read listed it while the write was in flight) keeps the row and re-reads instead of zeroing it", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(roomKeys.messages(12, 4), { pages: [page([{ id: 31 }, { id: 30 }])], pageParams: [undefined] });

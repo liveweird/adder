@@ -149,7 +149,23 @@ interface Pending {
 
 export interface LiveInvalidator {
   handle(frame: LiveServerFrame): void;
+  /** Re-reads [keys] through the same coalescing and spacing as a hint's keys (an aggregate at most every three seconds). */
+  request(keys: readonly QueryKey[]): void;
   dispose(): void;
+}
+
+/** The invalidator of each query client's live channel, so a re-read that is not a hint (the read marker's) can join its queue. */
+const active = new WeakMap<QueryClient, LiveInvalidator>();
+
+/**
+ * Asks for a re-read of [key]: through the tab's live invalidator when there is one, so a read-marker-driven re-read and the hints'
+ * coalesce into at most one flush per spacing window (the notice list is bucketed per user, `security.md`); straight away when no live
+ * channel exists (a page rendered without the shell, a test).
+ */
+export function requestRefresh(queryClient: QueryClient, key: QueryKey): void {
+  const invalidator = active.get(queryClient);
+  if (invalidator) invalidator.request([key]);
+  else void queryClient.invalidateQueries({ queryKey: key });
 }
 
 /**
@@ -212,11 +228,15 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
     }
   }
 
-  return {
+  const invalidator: LiveInvalidator = {
     handle(frame) {
       const spread = frame.type === "resync" || frame.type === "ready" || frame.type === "subscribed";
       const slow = isSlowFrame(frame);
       for (const key of keysForFrame(frame)) queue(key, spread, slow);
+      arm();
+    },
+    request(keys) {
+      for (const key of keys) queue(key, false, false);
       arm();
     },
     dispose() {
@@ -224,6 +244,9 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       timer = null;
       pending.clear();
       lastFlushedAt.clear();
+      if (active.get(queryClient) === invalidator) active.delete(queryClient);
     },
   };
+  active.set(queryClient, invalidator);
+  return invalidator;
 }

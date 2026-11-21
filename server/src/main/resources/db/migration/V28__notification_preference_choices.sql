@@ -1,0 +1,13 @@
+-- Notification preferences as DEVIATIONS from a default that lives in code (1.1.0, `chat-model.md` "Notice kinds (V27, V28)"). V22's table held
+-- the DISABLED (kind, channel) pairs and "no row" meant on. From 1.1.0 every kind is on in the app and OFF for email by default
+-- (`NotificationType.defaultOn(channel)`, frozen with the kind's name), so a row can now say either thing: `enabled = false` is exactly V22's
+-- "switched off" row (the column's default makes every existing row keep that meaning, a 1.0.0 build that inserts without it still means
+-- "off"), `enabled = true` is an opt-in. Only deviations are stored; no row is seeded for anybody, so nothing here rewrites data.
+-- A person with no row of their own gets the defaults: a 1.0.0 user who never touched the switches stops getting the digest (1.1 A28).
+-- The channel gains a second legal value, IN_APP, in code only (`channel` has no CHECK: the V5 rule).
+--
+-- A save keeps an explicit `enabled = false` row for every EMAIL pair that is off (1.1 ignores it, it equals the default), so a build rolled
+-- back to 1.0.0 still reads the person's opt-out as "off" (`persistence.md` "Rollback below 1.1.0").
+--
+-- Delete class: unchanged (HARD, the `user_disabled_features` class, `persistence.md` "Notices (V18)").
+ALTER TABLE user_notification_preferences ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT FALSE;

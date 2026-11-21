@@ -56,6 +56,43 @@ class NotificationEmailTest {
     }
 
     @Test
+    fun `every kind has its own sentence in both languages and none carries a title`() {
+        val english = mapOf(
+            NotificationType.MENTIONED to "Bob mentioned you in #42 (Room)",
+            NotificationType.TEAM_MENTIONED to "Bob mentioned your team in #42 (Room)",
+            NotificationType.WATCHERS_MENTIONED to "Bob mentioned the watchers of #42 (Room)",
+            NotificationType.EVERYONE_MENTIONED to "Bob mentioned everyone in #42 (Room)",
+            NotificationType.THREAD_REPLIED to "Bob replied in #42 (Room)",
+            NotificationType.THREAD_CREATED to "Bob started #42 (Room)",
+            NotificationType.THREAD_ASSIGNED to "Bob made you the owner of #42 (Room)",
+            NotificationType.THREAD_OWNER_CHANGED to "Bob changed the owner of #42 (Room)",
+            NotificationType.THREAD_STATUS_CHANGED to "Bob moved #42 (Room) to another status",
+            NotificationType.THREAD_CLOSED to "Bob closed #42 (Room)",
+            NotificationType.THREAD_REOPENED to "Bob reopened #42 (Room)",
+        )
+        val polish = mapOf(
+            NotificationType.MENTIONED to "Bob wspomina o Tobie w #42 (Room)",
+            NotificationType.TEAM_MENTIONED to "Bob wspomina o Twoim zespole w #42 (Room)",
+            NotificationType.WATCHERS_MENTIONED to "Bob wspomina o obserwujących wątek #42 (Room)",
+            NotificationType.EVERYONE_MENTIONED to "Bob wspomina o wszystkich w #42 (Room)",
+            NotificationType.THREAD_REPLIED to "Bob odpowiada w #42 (Room)",
+            NotificationType.THREAD_CREATED to "Bob zakłada wątek #42 (Room)",
+            NotificationType.THREAD_ASSIGNED to "Bob przekazuje Ci wątek #42 (Room)",
+            NotificationType.THREAD_OWNER_CHANGED to "Bob zmienia właściciela wątku #42 (Room)",
+            NotificationType.THREAD_STATUS_CHANGED to "Bob zmienia status wątku #42 (Room)",
+            NotificationType.THREAD_CLOSED to "Bob zamyka wątek #42 (Room)",
+            NotificationType.THREAD_REOPENED to "Bob ponownie otwiera wątek #42 (Room)",
+        )
+        assertEquals(NotificationType.entries.toSet(), english.keys, "the table covers every kind")
+        for (type in NotificationType.entries) {
+            val en = notificationEmail("Ada", listOf(entry(type, room = "Room")), null, "en").body.lines()
+            val pl = notificationEmail("Ada", listOf(entry(type, room = "Room")), null, "pl").body.lines()
+            assertTrue("- ${english.getValue(type)}" in en, "$type in English: $en")
+            assertTrue("- ${polish.getValue(type)}" in pl, "$type in Polish: $pl")
+        }
+    }
+
+    @Test
     fun `an unknown language reads English`() {
         assertEquals("Adder: 1 unseen notification", notificationEmail("Ada", listOf(entry()), appUrl, "xx").subject)
     }
@@ -131,6 +168,22 @@ class NotificationEmailTest {
             // Only the configured origin's own links may remain: every other line of the mail is free of anything linkable.
             val foreign = mail.body.lines().filterNot { it.startsWith("  $appUrl/") || it.startsWith("Change which emails") }
             assertTrue(foreign.none { linkable(it) }, "$text -> ${mail.body}")
+        }
+    }
+
+    @Test
+    fun `a hostile name or room cannot make an address or a link in any kind or language`() {
+        val hostile = listOf("evil.example.com/login", "https://x.y", "a@b.c", "www.x.y", "mailto:a@b.c")
+        for (type in NotificationType.entries) {
+            for (language in listOf("en", "pl")) {
+                for (text in hostile) {
+                    val mail = notificationEmail(text, listOf(entry(type, actor = text, room = text)), appUrl, language)
+                    val own = { line: String ->
+                        line.startsWith("  $appUrl/") || line.startsWith("Change which emails") || line.startsWith("Zmień, jakie")
+                    }
+                    assertTrue(mail.body.lines().filterNot(own).none { linkable(it) }, "$type/$language/$text -> ${mail.body}")
+                }
+            }
         }
     }
 

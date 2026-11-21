@@ -394,6 +394,68 @@ describe("NotificationsButton", () => {
     expect(await screen.findByRole("button", { name })).toBeInTheDocument();
   });
 
+  test.each([
+    ["MENTIONED", "Ada mentioned you in #42 Awaria bazy"],
+    ["TEAM_MENTIONED", "Ada mentioned your team in #42 Awaria bazy"],
+    ["WATCHERS_MENTIONED", "Ada mentioned the watchers of #42 Awaria bazy"],
+    ["EVERYONE_MENTIONED", "Ada mentioned everyone in #42 Awaria bazy"],
+    ["THREAD_REPLIED", "Ada replied in #42 Awaria bazy"],
+    ["THREAD_CREATED", "Ada started #42 Awaria bazy"],
+    ["THREAD_ASSIGNED", "Ada made you the owner of #42 Awaria bazy"],
+    ["THREAD_OWNER_CHANGED", "Ada changed the owner of #42 Awaria bazy"],
+    ["THREAD_STATUS_CHANGED", "Ada moved #42 Awaria bazy to another status"],
+    ["THREAD_CLOSED", "Ada closed #42 Awaria bazy"],
+    ["THREAD_REOPENED", "Ada reopened #42 Awaria bazy"],
+  ] as const)("a %s notice reads as its own sentence", async (type, sentence) => {
+    listPage = page([notice({ type, messageId: null })]);
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    const drawer = await screen.findByRole("dialog", { name: "Notifications" });
+    const link = await within(drawer).findByRole("link", { name: new RegExp(sentence) });
+    expect(link).toHaveAttribute("href", "/rooms/12/threads/42");
+  });
+
+  test("in Polish every kind has its sentence", async () => {
+    await i18n.changeLanguage("pl");
+    listPage = page([notice({ type: "THREAD_REOPENED", messageId: null }), notice({ id: 5, type: "TEAM_MENTIONED" })]);
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await screen.findByRole("button", { name: /^Powiadomienia/ }));
+    const drawer = await screen.findByRole("dialog", { name: "Powiadomienia" });
+    expect(await within(drawer).findByText("Ada ponownie otwiera wątek #42 Awaria bazy")).toBeInTheDocument();
+    expect(within(drawer).getByText("Ada wspomina o Twoim zespole w #42 Awaria bazy")).toBeInTheDocument();
+  });
+
+  test("the All / Mentions switch asks the server for the addressed kinds only, and back", async () => {
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    const drawer = await screen.findByRole("dialog", { name: "Notifications" });
+    await within(drawer).findByRole("link", { name: /Ada mentioned you/ });
+    const listCalls = () => calls.filter((c) => c.startsWith("GET /api/v1/notifications?") && c.includes("pageSize=20"));
+    expect(listCalls().every((c) => !c.includes("type="))).toBe(true);
+
+    await user.click(within(drawer).getByRole("radio", { name: "Mentions" }));
+    await waitFor(() => expect(listCalls().some((c) => c.includes("type=MENTIONED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED"))).toBe(true));
+    // The badge still counts every unseen notice: its own query never names a type.
+    expect(calls.filter((c) => c.includes("pageSize=100")).every((c) => !c.includes("type="))).toBe(true);
+
+    listPage = page([]);
+    await user.click(within(drawer).getByRole("radio", { name: "All" }));
+    await waitFor(() => expect(listCalls().filter((c) => !c.includes("type=")).length).toBeGreaterThan(1));
+  });
+
+  test("an empty Mentions view says so in its own words", async () => {
+    const user = userEvent.setup();
+    serveListPage = () => page([]);
+    renderBell();
+    await user.click(await bell());
+    const drawer = await screen.findByRole("dialog", { name: "Notifications" });
+    await user.click(within(drawer).getByRole("radio", { name: "Mentions" }));
+    expect(await within(drawer).findByText("You have no mentions.")).toBeInTheDocument();
+  });
+
   test("the drawer is reachable from the keyboard", async () => {
     const user = userEvent.setup();
     renderBell();

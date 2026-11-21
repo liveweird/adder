@@ -5,6 +5,7 @@ import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.rooms.RoomService
+import ch.nokillswit.threads.ReadLimiter
 import ch.nokillswit.threads.ThreadService
 import ch.nokillswit.threads.userNames
 import io.ktor.util.AttributeKey
@@ -54,7 +55,8 @@ val NOTIFICATION_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 /**
  * The READ side of the notices of a member (V18 `notifications`, `chat-model.md` "Notifications (V18)"): the list, the "seen" writes and
  * retention. A notice is a POINTER, ids only; it is made INSIDE the chat's write by [NoticeWriter] (the `ThreadNotices` port). Rows are
- * hard-deleted: with their message ([NoticeWriter.messageRemoved], [NoticeWriter.mentionsDropped]), with the membership they were made for
+ * hard-deleted: with their message ([NoticeWriter.messageRemoved], and an edit through [NoticeWriter.reviseMessage]), with the
+ * membership they were made for
  * (the table's foreign key to `room_members`: a leaver's notices go, a rejoiner starts clean), and by retention ([purgeOlderThan]).
  *
  * The list is the caller's own rows in the ACTIVE rooms they are an ACTIVE member of (an ADMIN outside a room has none of its notices,
@@ -67,6 +69,8 @@ internal class NotificationService(
     private val rooms: RoomService,
     /** The per-actor digest budget (V24); the default is the config default, a test or the composition root passes its own. */
     private val emailBudget: NotificationEmailBudget = NotificationEmailBudget(DEFAULT_EMAIL_BUDGET_PER_ACTOR, ::nowMillis),
+    /** The list's deadline and in-flight caps: the SAME limiter the thread and tag lists use (`threads.readTimeoutSeconds`). */
+    private val readLimiter: ReadLimiter = ReadLimiter(),
 ) {
     /** The notices. Ids only: there is no text column and no soft delete. */
     object Notifications : UIntIdTable("notifications") {
@@ -85,38 +89,51 @@ internal class NotificationService(
 
         /** Null until the email digest claims the notice (V22). */
         val emailedAt = long("emailed_at").nullable()
+
+        /**
+         * False for a mail-only notice (V27): the recipient's in-app switch for its kind was off when it was made; the bell never
+         * shows it.
+         */
+        val inApp = bool("in_app").default(true)
     }
 
     /**
      * One page of the caller's notices, newest first by default: ONE predicate for the count and the rows in ONE transaction. The
      * `total` is CAPPED at [MAX_COUNTED_NOTICES] (the count reads at most that many plus one row), and a page starting at or past the cap
      * is empty without the rows being read (no OFFSET over a flooded recipient's history).
-     * [seen] null is both. The caller's active rooms come first as one array argument (the global search's shape), and no rooms is an
+     * [seen] null is both; [types] (any-of; empty is every kind) narrows to those kinds. Only notices that show in the app are listed
+     * (`in_app`, V27). The caller's active rooms come first as one array argument (the global search's shape), and no rooms is an
      * empty page.
      */
-    suspend fun list(callerUserId: UInt, seen: Boolean?, paging: PageRequest): NotificationListResult =
-        suspendTransaction(database) {
+    suspend fun list(callerUserId: UInt, seen: Boolean?, types: Set<NotificationType>, paging: PageRequest): NotificationListResult =
+        readLimiter.run(database, callerUserId, null, "notifications") { budget ->
+            budget.arm(this)
             val memberRooms = rooms.memberRooms(callerUserId)
-            if (memberRooms.isEmpty()) return@suspendTransaction NotificationListResult(emptyList(), 0)
+            if (memberRooms.isEmpty()) return@run NotificationListResult(emptyList(), 0)
             val n = Notifications
             var predicate: Op<Boolean> = (n.recipientId eq callerUserId) and
                 n.roomId.equalsAnyInt(memberRooms.map { it.id.toInt() }) and
-                (n.type inList NotificationType.entries.map { it.name })
+                n.inApp and
+                (n.type inList (types.ifEmpty { NotificationType.entries.toSet() }).map { it.name })
             seen?.let { predicate = predicate and (if (it) n.seenAt.isNotNull() else n.seenAt.isNull()) }
             // Capped: the count reads at most MAX_COUNTED_NOTICES + 1 rows, so it never grows with a recipient's history.
+            budget.arm(this)
             val counted = n.select(n.id).where { predicate }.limit(MAX_COUNTED_NOTICES + 1).count()
             val total = counted.coerceAtMost(MAX_COUNTED_NOTICES.toLong())
-            // A page that starts at or past the cap holds nothing the capped count admits: the OFFSET never runs.
-            if ((paging.page - 1).toLong() * paging.pageSize >= MAX_COUNTED_NOTICES) {
-                return@suspendTransaction NotificationListResult(emptyList(), total)
+            // Nothing counted, or a page that starts at or past the cap (nothing the capped count admits): the page statement never runs.
+            if (counted == 0L || (paging.page - 1).toLong() * paging.pageSize >= MAX_COUNTED_NOTICES) {
+                return@run NotificationListResult(emptyList(), total)
             }
+            budget.arm(this)
             val rows = n.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
-            if (rows.isEmpty()) return@suspendTransaction NotificationListResult(emptyList(), total)
+            if (rows.isEmpty()) return@run NotificationListResult(emptyList(), total)
+            budget.arm(this)
 
             val threads = ThreadService.Threads
             val threadRows = threads.select(threads.id, threads.number, threads.title)
                 .where { threads.id inList rows.map { it[n.threadId] }.toSet() }
                 .map { it[threads.id].value to (it[threads.number] to it[threads.title]) }.toList().toMap()
+            budget.arm(this)
             val actors = userNames(rows.map { it[n.actorId] })
             val roomById = memberRooms.associateBy { it.id }
             NotificationListResult(
@@ -151,7 +168,8 @@ internal class NotificationService(
     }
 
     /**
-     * Marks every unseen notice of the caller seen at [at], in chunks of [SEEN_BATCH] rows each in its own short transaction (one
+     * Marks every unseen notice of the caller that SHOWS in the app seen at [at] (a mail-only notice, `in_app = false`, is not the
+     * bell's to clear: the digest still owns it), in chunks of [SEEN_BATCH] rows each in its own short transaction (one
      * `UPDATE` over a flooded recipient's thousands of rows would hold its locks and its connection for as long); answers how many.
      * Notices made while it runs (a higher id than the newest at the start) stay unseen, as they would after one statement. Nobody
      * else's row is touched.
@@ -165,7 +183,7 @@ internal class NotificationService(
     ): Int {
         val n = Notifications
         val ceiling = suspendTransaction(database) {
-            n.select(n.id).where { (n.recipientId eq callerUserId) and n.seenAt.isNull() }
+            n.select(n.id).where { (n.recipientId eq callerUserId) and n.seenAt.isNull() and n.inApp }
                 .orderBy(n.id, SortOrder.DESC).limit(1).map { it[n.id].value }.toList().singleOrNull()
         } ?: return 0
         var total = 0
@@ -174,7 +192,7 @@ internal class NotificationService(
             // else between the two statements makes the update short, and stopping there would leave the rest unseen.
             val (selected, moved) = suspendTransaction(database) {
                 val ids = n.select(n.id)
-                    .where { (n.recipientId eq callerUserId) and n.seenAt.isNull() and (n.id lessEq ceiling) }
+                    .where { (n.recipientId eq callerUserId) and n.seenAt.isNull() and n.inApp and (n.id lessEq ceiling) }
                     .orderBy(n.id).limit(chunk).map { it[n.id].value }.toList()
                 afterSelect(ids)
                 ids.size to if (ids.isEmpty()) 0 else n.update({ (n.id inList ids) and n.seenAt.isNull() }) { it[seenAt] = at }

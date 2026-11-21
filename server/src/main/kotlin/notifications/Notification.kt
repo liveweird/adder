@@ -5,22 +5,64 @@ import kotlinx.serialization.Serializable
 
 /**
  * The kinds of notice, PERSISTED by name and frozen (`notifications.notification_type` has no CHECK: this enum is the whitelist, the V5
- * rule). A stored name this build does not know is invisible to every read, never fatal. A new kind is a new constant; none is renamed.
- * `threads/ThreadNotices.kt` names the two the chat creates as constants (a test pins them equal to these).
+ * rule). A stored name this build does not know is invisible to every read, never fatal. A new kind is a new constant; none is renamed. The
+ * kind IS the reason (there is no reason column): `chat-model.md` "Notice kinds (V27, V28)" says which event makes which and in
+ * what priority
+ * (`threads/ThreadNotices.kt` names the reasons; `NoticeKinds.kt` maps the two by an exhaustive `when`). The
+ * DEFAULT of each channel lives here beside the name ([defaultOn]) and is frozen with it.
  */
 @Serializable
 enum class NotificationType {
-    /** The recipient was mentioned in a message (`<@id>`). */
+    /** The recipient was mentioned in a message by name (`<@id>`). */
     MENTIONED,
+
+    /** The recipient is on a team a message mentions (`<@team:id>`). */
+    TEAM_MENTIONED,
+
+    /** The recipient watches the thread and a message in it mentions the watchers (`<@watchers>`). */
+    WATCHERS_MENTIONED,
+
+    /** The recipient is a member of the room and a message mentions everyone (`<@everyone>`). */
+    EVERYONE_MENTIONED,
+
+    /** The recipient watches the thread and somebody replied in it. */
+    THREAD_REPLIED,
+
+    /** Somebody started a thread in a room the recipient is a member of. */
+    THREAD_CREATED,
 
     /** The recipient was made the owner of a thread by someone else. */
     THREAD_ASSIGNED,
+
+    /** The recipient watches the thread and its owner changed (they are not the new owner). */
+    THREAD_OWNER_CHANGED,
+
+    /** The recipient watches the thread and it moved to another status of the same category. */
+    THREAD_STATUS_CHANGED,
+
+    /** The recipient watches the thread and it was closed. */
+    THREAD_CLOSED,
+
+    /** The recipient watches the thread and it was reopened. */
+    THREAD_REOPENED,
+    ;
+
+    /**
+     * Whether a person who never touched their preferences gets this kind through [channel] (1.1 D7 as amended: the app for every kind,
+     * email for none; a person's stored deviations override it). An exhaustive `when` over the kinds, no `else`: a new kind must choose
+     * its defaults here, never inherit one, and the choice is frozen with the name (a stored row only ever says "different from this").
+     */
+    fun defaultOn(channel: NotificationChannel): Boolean = when (this) {
+        MENTIONED, TEAM_MENTIONED, WATCHERS_MENTIONED, EVERYONE_MENTIONED, THREAD_REPLIED, THREAD_CREATED,
+        THREAD_ASSIGNED, THREAD_OWNER_CHANGED, THREAD_STATUS_CHANGED, THREAD_CLOSED, THREAD_REOPENED,
+        -> channel == NotificationChannel.IN_APP
+    }
 }
 
 /**
  * One notice of the caller, for the bell. The row holds ids only: the actor's and the room's names and the thread's number and title are
  * read when the page is read, so a rename shows at once and nothing stored can outlive a leave or a delete (`chat-model.md`
- * "Notifications (V18)"). [messageId] is null for [NotificationType.THREAD_ASSIGNED].
+ * "Notifications (V18)"). [messageId] is null for every thread-level kind (a hand-over, a status move).
  */
 @Serializable
 data class NotificationResponse(

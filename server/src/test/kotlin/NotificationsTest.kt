@@ -1,15 +1,16 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.notifications.MAX_COUNTED_NOTICES
+import ch.nokillswit.notifications.NotificationChannel
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.rooms.RoomMemberRoleRequest
 import ch.nokillswit.rooms.RoomMembersAddRequest
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
-import ch.nokillswit.threads.NOTICE_MENTIONED
-import ch.nokillswit.threads.NOTICE_THREAD_ASSIGNED
+import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadResponse
@@ -228,9 +229,17 @@ class NotificationsTest {
     }
 
     @Test
-    fun `the persisted kind names are the ones the chat declares`() {
-        assertEquals(NOTICE_MENTIONED, NotificationType.MENTIONED.name)
-        assertEquals(NOTICE_THREAD_ASSIGNED, NotificationType.THREAD_ASSIGNED.name)
+    fun `the persisted kind names are the reasons the chat declares, in the same order`() {
+        assertEquals(NoticeReason.entries.map { it.name }, NotificationType.entries.map { it.name })
+        assertEquals(11, NotificationType.entries.size)
+    }
+
+    @Test
+    fun `every kind is on in the app and off by email by default`() {
+        for (type in NotificationType.entries) {
+            assertTrue(type.defaultOn(NotificationChannel.IN_APP), "$type is on in the app")
+            assertEquals(false, type.defaultOn(NotificationChannel.EMAIL), "$type is off by email, the two 1.0 kinds included")
+        }
     }
 
     @Test
@@ -523,14 +532,15 @@ class NotificationsTest {
             )
             assertTrue(event.hasKeyValue("byUserId", cast.ann.id.toLong()))
             assertTrue(event.hasKeyValue("roomId", cast.room.toLong()))
-            assertTrue(event.hasKeyValue("type", "MENTIONED"))
+            assertTrue(event.hasKeyValue("recipients", 1))
+            assertTrue(event.hasKeyValue("kinds", "MENTIONED:1"))
             assertTrue(event.hasKeyValue("recipientIds", listOf(cast.bob.id.toLong())))
             assertTrue(event.keyValuePairs.none { it.value.toString().contains("secret-body") }, "a body is never in an audit line")
 
             val move = cast.owner.client.putJson("$rooms/${cast.room}/threads/1/owner", ThreadOwnerRequest(cast.bob.id))
             assertEquals(HttpStatusCode.NoContent, move.status)
             val handOver = assertNotNull(
-                capture.awaitEvent { it.message == "notification.created" && it.hasKeyValue("type", "THREAD_ASSIGNED") },
+                capture.awaitEvent { it.message == "notification.created" && it.hasKeyValue("kinds", "THREAD_ASSIGNED:1") },
             )
             assertTrue(handOver.hasKeyValue("messageId", null))
             assertTrue(handOver.hasKeyValue("recipientIds", listOf(cast.bob.id.toLong())))
@@ -541,6 +551,135 @@ class NotificationsTest {
             cast.ann.client.post(cast.room, 1, "no mention here")
             assertEquals(before, capture.events.count { it.message == "notification.created" })
         }
+    }
+
+    private class StoredNotice(val inApp: Boolean, val emailedAt: Long?, val createdAt: Long, val seenAt: Long?)
+
+    private fun stored(userId: UInt, room: UInt): List<StoredNotice> = PostgresTestSupport.connect().use { c ->
+        val sql = "SELECT in_app, emailed_at, created_at, seen_at FROM notifications WHERE recipient_id = ? AND room_id = ? ORDER BY id"
+        c.prepareStatement(sql).use { st ->
+            st.setLong(1, userId.toLong())
+            st.setLong(2, room.toLong())
+            st.executeQuery().use { rs ->
+                generateSequence {
+                    if (!rs.next()) return@generateSequence null
+                    StoredNotice(
+                        rs.getBoolean(1),
+                        rs.getLong(2).takeUnless { rs.wasNull() },
+                        rs.getLong(3),
+                        rs.getLong(4).takeUnless { rs.wasNull() },
+                    )
+                }.toList()
+            }
+        }
+    }
+
+    @Test
+    fun `the channels are judged when the notice is made - email off settles it, in-app off hides it, both off makes none`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val cast = cast("nt-chan")
+            val mention = NotificationType.MENTIONED
+
+            // Defaults (the app on, email off): the row shows and is settled, `emailed_at = created_at`, so the digest never scans it.
+            cast.ann.client.post(cast.room, 1, "default ${token(cast.bob)}")
+            val byDefault = stored(cast.bob.id, cast.room).single()
+            assertTrue(byDefault.inApp)
+            assertEquals(byDefault.createdAt, byDefault.emailedAt, "email off: settled at its own instant")
+            assertEquals(1L, cast.bob.client.notices("?seen=false").total)
+
+            // Email opted in: eligible for the digest (emailed_at stays null).
+            TestNotificationPreferences.set(cast.bob.id, mention, NotificationChannel.EMAIL, enabled = true)
+            cast.ann.client.post(cast.room, 1, "mailed ${token(cast.bob)}")
+            assertNull(stored(cast.bob.id, cast.room).last().emailedAt, "email on: the digest may claim it")
+
+            // The app off and email on: a mail-only row. Never listed, counted or cleared by the bell, never hinted.
+            TestNotificationPreferences.set(cast.bob.id, mention, NotificationChannel.IN_APP, enabled = false)
+            NotifyCapture().use { capture ->
+                val hints = capture.during { cast.ann.client.post(cast.room, 1, "mail only ${token(cast.bob)}") }
+                assertEquals(listOf(LiveKind.MESSAGE_POSTED), hints.map { it.kind }, "no notice hint for a notice the bell never shows")
+            }
+            val mailOnly = stored(cast.bob.id, cast.room).last()
+            assertEquals(false, mailOnly.inApp)
+            assertNull(mailOnly.emailedAt)
+            val listed = cast.bob.client.notices()
+            assertEquals(2L, listed.total, "the two in-app notices only")
+            assertEquals(2L, cast.bob.client.notices("?seen=false").total)
+            assertEquals(2, TestThreads.notices.markAllSeen(cast.bob.id, 7L), "seen-all leaves the mail-only row to the digest")
+            assertNull(stored(cast.bob.id, cast.room).last().seenAt)
+
+            // Both off: no row at all, and no hint.
+            TestNotificationPreferences.set(cast.bob.id, mention, NotificationChannel.EMAIL, enabled = false)
+            NotifyCapture().use { capture ->
+                val hints = capture.during { cast.ann.client.post(cast.room, 1, "silent ${token(cast.bob)}") }
+                assertEquals(listOf(LiveKind.MESSAGE_POSTED), hints.map { it.kind })
+            }
+            assertEquals(3, stored(cast.bob.id, cast.room).size, "no fourth row")
+            // The switch covers notices made from then on: switching the app back on does not resurrect the missing one.
+            TestNotificationPreferences.set(cast.bob.id, mention, NotificationChannel.IN_APP, enabled = true)
+            assertEquals(3, stored(cast.bob.id, cast.room).size)
+        }
+
+    @Test
+    fun `a mail-only notice can be marked seen by its recipient, and is the recipient's alone`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("nt-mailonly")
+        TestNotificationPreferences.set(cast.bob.id, NotificationType.MENTIONED, NotificationChannel.EMAIL, enabled = true)
+        TestNotificationPreferences.set(cast.bob.id, NotificationType.MENTIONED, NotificationChannel.IN_APP, enabled = false)
+        cast.ann.client.post(cast.room, 1, "mail only ${token(cast.bob)}")
+        val id = PostgresTestSupport.connect().use { c ->
+            c.prepareStatement("SELECT id FROM notifications WHERE recipient_id = ? AND NOT in_app").use { st ->
+                st.setLong(1, cast.bob.id.toLong())
+                st.executeQuery().use { rs -> rs.next(); rs.getInt(1).toUInt() }
+            }
+        }
+        assertEquals(0L, cast.bob.client.notices().total, "the bell never lists it")
+
+        assertEquals(HttpStatusCode.NotFound, cast.ann.client.seen(id).status, "somebody else's id is a 404, in_app or not")
+        assertNull(seenAt(id))
+        assertEquals(HttpStatusCode.NoContent, cast.bob.client.seen(id).status)
+        assertTrue(seenAt(id) != null, "seen: the digest will not mail it")
+    }
+
+    @Test
+    fun `the 241st notification list read in a minute is 429 on its own bucket and audited`() = testApplication {
+        usePostgresTestcontainer()
+        val limited = seedActor("nt-readbucket").also { mintedUsers += it.id }
+        withAuditCapture { capture ->
+            repeat(240) { n -> assertEquals(HttpStatusCode.OK, limited.client.get(api).status, "read ${n + 1}") }
+            val rejected = limited.client.get(api)
+            assertEquals(HttpStatusCode.TooManyRequests, rejected.status)
+            assertNotNull(rejected.headers["Retry-After"])
+            val event = assertNotNull(
+                capture.awaitEvent { it.message == "rate_limit.exceeded" && it.hasKeyValue("bucket", "notification-read") },
+            )
+            assertTrue(event.hasKeyValue("byUserId", limited.id.toLong()))
+            assertEquals(HttpStatusCode.NoContent, limited.client.seenAll().status, "the seen writes ride read-state, not this one")
+        }
+    }
+
+    @Test
+    fun `the type filter is any-of over the known kinds and an unknown or repeated-beyond-bound value is 400`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("nt-type")
+        cast.ann.client.post(cast.room, 1, "hi ${token(cast.bob)}")
+        val handOver = cast.owner.client.putJson("$rooms/${cast.room}/threads/1/owner", ThreadOwnerRequest(cast.bob.id))
+        assertEquals(HttpStatusCode.NoContent, handOver.status)
+        assertEquals(2L, cast.bob.client.notices().total)
+
+        assertEquals(1L, cast.bob.client.notices("?type=MENTIONED").total)
+        assertEquals(1L, cast.bob.client.notices("?type=THREAD_ASSIGNED").total)
+        assertEquals(2L, cast.bob.client.notices("?type=MENTIONED&type=THREAD_ASSIGNED&type=THREAD_CLOSED").total, "any-of")
+        assertEquals(0L, cast.bob.client.notices("?type=THREAD_CLOSED").total, "a known kind nobody made")
+        assertEquals(1L, cast.bob.client.notices("?type=MENTIONED&type=MENTIONED").total, "a repeated name collapses")
+        assertEquals(2L, cast.bob.client.notices("?type=").total, "a blank value is no filter")
+        assertEquals(1L, cast.bob.client.notices("?type=MENTIONED&seen=false").total, "it combines with the other filters")
+
+        for (bad in listOf("?type=NO_SUCH_KIND", "?type=mentioned", "?type=MENTIONED&type=NO_SUCH_KIND")) {
+            assertEquals(HttpStatusCode.BadRequest, cast.bob.client.get("$api$bad").status, bad)
+        }
+        val tooMany = NotificationType.entries.joinToString("&") { "type=${it.name}" } + "&type=EXTRA"
+        assertEquals(HttpStatusCode.BadRequest, cast.bob.client.get("$api?$tooMany").status, "more distinct values than there are kinds")
     }
 
     @Test
@@ -558,7 +697,7 @@ class NotificationsTest {
             assertTrue(event.hasKeyValue("byUserId", limited.id.toLong()))
             // The other "seen" write rides the same bucket, before its guards: an unknown id costs a token too, and is 429 now.
             assertEquals(HttpStatusCode.TooManyRequests, limited.client.seen(2_000_000_000u).status)
-            assertEquals(HttpStatusCode.OK, limited.client.get(api).status, "the list is not bucketed")
+            assertEquals(HttpStatusCode.OK, limited.client.get(api).status, "the list has its own bucket")
         }
     }
 }

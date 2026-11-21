@@ -10,6 +10,8 @@ import ch.nokillswit.threads.MessageRef
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.MessageTagService
+import ch.nokillswit.threads.NoticeOutcome
+import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadService
 import ch.nokillswit.users.UserRole
@@ -115,7 +117,9 @@ class MessageDerivedRowsTest {
         val outside: Pair<String, Boolean>?,
     )
 
-    private class Recording(private val notifies: List<UInt> = emptyList()) : MessageFollower {
+    private class Recording(notifies: List<UInt> = emptyList()) : MessageFollower {
+        private val told = NoticeOutcome(notifies.size, mapOf(NoticeReason.MENTIONED to notifies.size), notifies)
+
         val calls = mutableListOf<Call>()
 
         private suspend fun record(what: String, ref: MessageRef) {
@@ -125,14 +129,14 @@ class MessageDerivedRowsTest {
             calls += Call(what, ref, row[messages.body], row[messages.markedAsDeleted], committedRow(ref.messageId))
         }
 
-        override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): List<UInt> {
+        override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): NoticeOutcome {
             record("posted:$authorId:$body", ref)
-            return notifies
+            return told
         }
 
-        override suspend fun edited(ref: MessageRef, authorId: UInt, body: String): List<UInt> {
+        override suspend fun edited(ref: MessageRef, authorId: UInt, body: String): NoticeOutcome {
             record("edited:$authorId:$body", ref)
-            return notifies
+            return told
         }
 
         override suspend fun deleted(ref: MessageRef) = record("deleted", ref)
@@ -140,14 +144,14 @@ class MessageDerivedRowsTest {
 
     /** Throws from the named calls (`posted`, `edited`, `deleted`) and records nothing. */
     private class Failing(private val on: Set<String>) : MessageFollower {
-        private fun fail(what: String): List<UInt> {
+        private fun fail(what: String): NoticeOutcome {
             if (what in on) error("the follower failed on $what")
-            return emptyList()
+            return NoticeOutcome.NONE
         }
 
-        override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): List<UInt> = fail("posted")
+        override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): NoticeOutcome = fail("posted")
 
-        override suspend fun edited(ref: MessageRef, authorId: UInt, body: String): List<UInt> = fail("edited")
+        override suspend fun edited(ref: MessageRef, authorId: UInt, body: String): NoticeOutcome = fail("edited")
 
         override suspend fun deleted(ref: MessageRef) {
             fail("deleted")
@@ -211,12 +215,13 @@ class MessageDerivedRowsTest {
         val services = Services(listOf(first, second))
 
         val created: CreatedThread = services.threads.create(w.room, w.caller, threadRequest("Opening"))
-        assertEquals(listOf(5u, 6u, 7u), created.notified, "the union of what the followers answered, each id once")
+        val together = NoticeOutcome(4, mapOf(NoticeReason.MENTIONED to 4), listOf(5u, 6u, 7u))
+        assertEquals(together, created.notices, "the sum of what the followers answered, an addressed person named once")
         val posted = services.messages.post(w.room, created.number, w.caller, MessageRequest("A reply"))
-        assertEquals(listOf(5u, 6u, 7u), posted.notified)
+        assertEquals(together, posted.notices)
         val id = posted.message.id
         val edit = services.messages.edit(w.room, id, w.caller, MessageRequest("A reply, edited"))
-        assertEquals(listOf(5u, 6u, 7u), edit?.notified)
+        assertEquals(together, edit?.notices)
         assertNull(services.messages.edit(w.room, id, w.caller, MessageRequest("A reply, edited")), "the same body is no write and no call")
         services.messages.delete(w.room, id, w.caller)
 

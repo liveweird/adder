@@ -243,7 +243,7 @@ class ThreadSchemaTest {
     }
 
     @Test
-    fun `notifications key on the membership, are unique per message, recipient and kind, and go with their message and their member`() {
+    fun `notifications key on the membership, are unique per message and recipient, and go with their message and their member`() {
         val marker = UUID.randomUUID().toString().take(8)
         PostgresTestSupport.connect().use { c ->
             val user = c.scalar(
@@ -279,10 +279,14 @@ class ThreadSchemaTest {
                     c.exec(insert, other, room, "MENTIONED", user, thread, message)
                 }
                 assertEquals(1, c.exec(insert, user, room, "MENTIONED", other, thread, message))
-                assertState(UNIQUE_VIOLATION, "one notice per message, recipient and kind") {
+                assertState(UNIQUE_VIOLATION, "one notice per message and recipient (V27)") {
                     c.exec(insert, user, room, "MENTIONED", other, thread, message)
                 }
-                assertEquals(1, c.exec(insert, user, room, "A_KIND_FROM_THE_FUTURE", other, thread, message), "the kind carries no CHECK")
+                assertState(UNIQUE_VIOLATION, "whatever the kind: the most specific reason makes the one notice") {
+                    c.exec(insert, user, room, "EVERYONE_MENTIONED", other, thread, message)
+                }
+                val second = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "two", false, null)
+                assertEquals(1, c.exec(insert, user, room, "A_KIND_FROM_THE_FUTURE", other, thread, second), "the kind carries no CHECK")
                 assertEquals(1, c.exec(insert, user, room, "THREAD_ASSIGNED", other, thread, null))
                 val again = c.exec(insert, user, room, "THREAD_ASSIGNED", other, thread, null)
                 assertEquals(1, again, "a hand-over has no message to be unique by")
@@ -295,7 +299,7 @@ class ThreadSchemaTest {
                 assertEquals(4, c.scalar("SELECT count(*) FROM notifications WHERE room_id = ?", room))
 
                 assertEquals(1, c.exec("DELETE FROM messages WHERE id = ?", message))
-                assertEquals(2, c.scalar("SELECT count(*) FROM notifications WHERE room_id = ?", room), "a message's notices go with it")
+                assertEquals(3, c.scalar("SELECT count(*) FROM notifications WHERE room_id = ?", room), "a message's notices go with it")
                 // Removing the member takes every notice of that person in the room: the leak rule is in the schema.
                 assertEquals(1, c.exec("DELETE FROM room_members WHERE room_id = ? AND user_id = ?", room, user))
                 assertEquals(0, c.scalar("SELECT count(*) FROM notifications WHERE room_id = ?", room))
@@ -516,7 +520,26 @@ class ThreadSchemaTest {
         }
     }
 
-    private fun explain(sql: String, types: String, args: String, planCacheMode: String): String {
+    @Test
+    fun `the notification list's type filter is served by idx_notifications_recipient_type, also as a generic plan`() {
+        // The shape of `NotificationService.list`'s capped count (Exposed spells it out; the predicate is the same): the person, the known
+        // kinds the `type` filter narrows to, and `in_app` (every list read has it, so the index is partial on it). A test table is empty,
+        // so the planner would walk the person-only index; with that one out of the way (a rolled-back DROP) the read must be served by the
+        // person-and-kind index, the only one that leads with both, and never by a scan of the table. The newest-first page statement
+        // keeps the person-only index as an alternative, so only its "no table scan" half is pinned.
+        val where = "recipient_id = ? AND room_id = ANY(?) AND in_app AND notification_type IN ('MENTIONED', 'THREAD_ASSIGNED')"
+        val count = "SELECT id FROM notifications WHERE $where LIMIT 1001"
+        val page = "SELECT id FROM notifications WHERE $where ORDER BY id DESC LIMIT 20"
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val plan = explain(count, "int8, int4[]", "1, '{1,2}'", mode, before = "DROP INDEX idx_notifications_recipient")
+            assertTrue("idx_notifications_recipient_type" in plan, "$mode: the kind filter reads the person-and-kind index:\n$plan")
+            assertTrue("Seq Scan on notifications" !in plan, "$mode: never a scan of the whole table:\n$plan")
+            val pagePlan = explain(page, "int8, int4[]", "1, '{1,2}'", mode)
+            assertTrue("Seq Scan on notifications" !in pagePlan, "$mode: the page never scans the table either:\n$pagePlan")
+        }
+    }
+
+    private fun explain(sql: String, types: String, args: String, planCacheMode: String, before: String? = null): String {
         var n = 0
         val numbered = Regex("[?]").replace(sql) { "\$${++n}" }
         return PostgresTestSupport.connect().use { c ->
@@ -527,6 +550,12 @@ class ThreadSchemaTest {
                     st.execute("SET LOCAL enable_seqscan = off")
                     st.execute("SET LOCAL enable_bitmapscan = off")
                     st.execute("SET LOCAL enable_sort = off")
+                    before?.let {
+                        // DDL is transactional: the rollback below puts it back. The ACCESS EXCLUSIVE lock waits at most 5 s for a
+                        // stray reader.
+                        st.execute("SET LOCAL lock_timeout = '5s'")
+                        st.execute(it)
+                    }
                     st.execute("PREPARE unread_plan($types) AS $numbered")
                     buildString {
                         st.executeQuery("EXPLAIN EXECUTE unread_plan($args)").use { rs -> while (rs.next()) appendLine(rs.getString(1)) }

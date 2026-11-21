@@ -111,10 +111,10 @@ class MessageService internal constructor(
     /**
      * Runs every follower's `posted` for a message [insertInTransaction] wrote, INSIDE the same write and AFTER the caller's counters and
      * its own live hint (a follower may emit hints of its own, and the wire order is "the write, then what it caused"). Answers the
-     * union of the people the followers notified. A post and a thread's opening message both call it.
+     * sum of what the followers notified. A post and a thread's opening message both call it.
      */
-    internal suspend fun followPosted(message: InsertedMessage): List<UInt> =
-        followers.flatMap { it.posted(message.ref, message.authorId, message.body, message.at) }.distinct()
+    internal suspend fun followPosted(message: InsertedMessage): NoticeOutcome =
+        followers.fold(NoticeOutcome.NONE) { sum, f -> sum + f.posted(message.ref, message.authorId, message.body, message.at) }
 
     /**
      * One page of thread [threadId]'s messages (its per-room [number] rides on every row), tombstones included. [idLt] keeps only the
@@ -221,11 +221,11 @@ class MessageService internal constructor(
             }
             rooms.touchActivity(roomId, stamp, authorId)
             notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
-            val notified = followPosted(inserted)
+            val notices = followPosted(inserted)
             val name = userNames(listOf(authorId)).getValue(authorId)
             val mentioned = if (request.body.contains("<@")) mentions.mentionsOf(listOf(id))[id].orEmpty() else emptyList()
             val response = MessageResponse(id, number, authorId, name, request.body, false, false, null, stamp, mentioned, emptyList())
-            PostedMessage(write.thread.id, response, notified)
+            PostedMessage(write.thread.id, response, notices)
         }
     }
 
@@ -257,8 +257,8 @@ class MessageService internal constructor(
             }
             notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
             val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId)
-            val notified = followers.flatMap { it.edited(ref, write.message.authorId, request.body) }.distinct()
-            MessageEdit(write.thread.id, messageId, notified)
+            val notices = followers.fold(NoticeOutcome.NONE) { sum, f -> sum + f.edited(ref, write.message.authorId, request.body) }
+            MessageEdit(write.thread.id, messageId, notices)
         }
     }
 

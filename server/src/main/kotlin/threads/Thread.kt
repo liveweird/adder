@@ -101,9 +101,9 @@ data class ThreadListResult(val items: List<ThreadListItem>, val total: Long)
 
 /**
  * What a create wrote: the new thread's row id and per-room [number], and its opening message's id (the audit line names all three).
- * [notified] are the people the opening message's followers told about it ([MessageFollower]).
+ * [notices] is what the opening message's followers told people about it ([MessageFollower]).
  */
-data class CreatedThread(val id: UInt, val number: Int, val messageId: UInt, val notified: List<UInt> = emptyList())
+data class CreatedThread(val id: UInt, val number: Int, val messageId: UInt, val notices: NoticeOutcome = NoticeOutcome.NONE)
 
 /** Trims the title and normalises the body (a control or hidden direction character is a 400, `sanitizeSingleLine`/`sanitizeMultiLine`). */
 fun sanitizedThreadCreate(request: ThreadCreateRequest): ThreadCreateRequest = request.copy(

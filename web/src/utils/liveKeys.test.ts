@@ -3,6 +3,8 @@ import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query
 import { FakeClock } from "../test/socket";
 import { createLiveInvalidator, keysForFrame } from "./liveKeys";
 import { LIVE_EVENT_KINDS, type LiveServerFrame } from "./liveProtocol";
+import { notificationKeys } from "./notificationKeys";
+import { markThreadReadInCaches } from "./readCache";
 import { notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
 
 const event = (kind: string, roomId: number, threadNumber?: number, messageId?: number): LiveServerFrame => ({
@@ -279,6 +281,32 @@ describe("createLiveInvalidator", () => {
     expect(railReads()).toBe(1);
     t.clock.advanceBy(1);
     expect(railReads()).toBe(2);
+  });
+
+  test("a read marker's re-read of the notices joins the hints' queue: one flush per spacing window", () => {
+    const t = setup();
+    t.queryClient.setQueryData(notificationKeys.unseen, { items: [{ id: 1, roomId: 5, threadNumber: 7 }], page: 1, pageSize: 100, total: 1 });
+    const notificationReads = () => t.flushed().filter((key) => JSON.stringify(key) === JSON.stringify(notificationsKey)).length;
+
+    // A hint and two markers in the same moment are ONE re-read after the settle.
+    t.invalidator.handle(event("notification.created", 5, 7, 1));
+    markThreadReadInCaches(t.queryClient, 5, 7, 10);
+    markThreadReadInCaches(t.queryClient, 5, 7, 11);
+    expect(notificationReads()).toBe(0);
+    t.clock.advanceBy(300);
+    expect(notificationReads()).toBe(1);
+
+    // The next marker, a moment later, waits out the 3 s gap since that flush instead of re-reading at once.
+    markThreadReadInCaches(t.queryClient, 5, 7, 12);
+    t.clock.advanceBy(2_000);
+    expect(notificationReads()).toBe(1);
+    t.clock.advanceBy(1_000);
+    expect(notificationReads()).toBe(2);
+
+    // Once the channel is gone the marker re-reads straight away again.
+    t.invalidator.dispose();
+    markThreadReadInCaches(t.queryClient, 5, 7, 13);
+    expect(notificationReads()).toBe(3);
   });
 
   test("a burst of hints settles for 300 ms after the last one and then re-reads each focused key once", () => {

@@ -1,7 +1,7 @@
 // Social (0.6.0): mentions picked in the composer reach the mentioned member's bell live and open the message; the "Mentions me" filter; a
 // hand-over notifies the new owner; the rail's and the thread list's unread marks and the conversation's "New" line; a reaction from the emoji
 // picker (no content-security-policy violation) seen live by another member, who toggles theirs; the pinned panel and a pin's removal seen live;
-// a member removed from a room loses its notifications; the Notification emails page keeps a saved switch. Two browser contexts wherever live matters, with no reload in the watching one.
+// a member removed from a room loses its notifications; the Notification preferences page keeps a saved switch; a kind switched off in the app stops arriving. Two browser contexts wherever live matters, with no reload in the watching one.
 // Owns: its throwaway `e2e-soc-*` rooms and users, removed through the API in an `afterEach` (contexts first, then rooms, then the users). Every room
 // is created by a throwaway user and only copies the seeded Default template. Threads and messages are never deleted: a room's removal hides them.
 // The per-user `live-ticket`, `chat-post`, `chat-write` and `read-state` buckets are only ever spent by throwaway users, far below their limits.
@@ -442,34 +442,68 @@ test("a member removed from a room loses its notifications", async ({ page, brow
   await expect(drawer(leaver.page).getByText("You have no notifications.")).toBeVisible();
 });
 
-test("the Notification emails page saves a switch and keeps it after a reload", async ({ page }) => {
+test("the Notification preferences page saves a switch and keeps it after a reload", async ({ page }) => {
   await admin.login(page);
   const user = await throwawayUser(page, "E2E Soc Prefs", cleanup);
   await login(page, user.email, user.password);
   await page.goto("/notification-preferences");
-  await expect(page.getByRole("heading", { level: 2, name: "Notification emails" })).toBeVisible();
-  const mentions = page.getByRole("switch", { name: "Someone mentions me", exact: true });
-  const handovers = page.getByRole("switch", { name: "Someone makes me the owner of a thread", exact: true });
+  await expect(page.getByRole("heading", { level: 2, name: "Notification preferences" })).toBeVisible();
+  const mentionsInApp = page.getByRole("switch", { name: "Someone mentions me: In-app", exact: true });
+  const mentionsEmail = page.getByRole("switch", { name: "Someone mentions me: Email", exact: true });
+  const handoversEmail = page.getByRole("switch", { name: "Someone makes me the owner of a thread: Email", exact: true });
   const save = page.getByRole("button", { name: "Save", exact: true });
 
-  // A fresh account is emailed for every kind; nothing is saveable until a switch moves.
-  await expect(mentions).toBeChecked();
-  await expect(handovers).toBeChecked();
+  // A fresh account hears everything in the app and is emailed about nothing; nothing is saveable until a switch moves.
+  await expect(mentionsInApp).toBeChecked();
+  await expect(mentionsEmail).not.toBeChecked();
+  await expect(handoversEmail).not.toBeChecked();
   await expect(save).toBeDisabled();
 
-  // Switching mentions off enables Save; the save answers 204 and the page keeps the choice, with the other switch untouched.
-  await mentions.setChecked(false);
+  // Switching mentions' email on enables Save; the save answers 204 and the page keeps the choice, with the other switches untouched.
+  await mentionsEmail.setChecked(true);
   await expect(save).toBeEnabled();
   await Promise.all([
     page.waitForResponse((r) => r.request().method() === "PUT" && PREFERENCES_API.test(r.url()) && r.status() === 204),
     save.click(),
   ]);
-  await expect(page.getByText("Notification emails saved")).toBeVisible();
+  await expect(page.getByText("Notification preferences saved")).toBeVisible();
   await expect(save).toBeDisabled();
 
-  // The server holds it: a reload shows mentions off and hand-overs on.
+  // The server holds it: a reload shows mentions' email on and everything else as it was.
   await page.reload();
-  await expect(page.getByRole("heading", { level: 2, name: "Notification emails" })).toBeVisible();
-  await expect(mentions).not.toBeChecked();
-  await expect(handovers).toBeChecked();
+  await expect(page.getByRole("heading", { level: 2, name: "Notification preferences" })).toBeVisible();
+  await expect(mentionsEmail).toBeChecked();
+  await expect(mentionsInApp).toBeChecked();
+  await expect(handoversEmail).not.toBeChecked();
 });
+
+test("a kind switched off in the app stops arriving", async ({ page, browser }) => {
+  const room = await scene(page);
+  const title = uniqueText("Quiet thread");
+  await startThread(room, title);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  // The teammate switches "Someone mentions me" off in the app and saves, with the live channel up on the preferences page.
+  await openLive(reader, "/notification-preferences", room.roomId);
+  const mentionsInApp = reader.page.getByRole("switch", { name: "Someone mentions me: In-app", exact: true });
+  await mentionsInApp.setChecked(false);
+  await Promise.all([
+    reader.page.waitForResponse((r) => r.request().method() === "PUT" && PREFERENCES_API.test(r.url()) && r.status() === 204),
+    reader.page.getByRole("button", { name: "Save", exact: true }).click(),
+  ]);
+  await expect(reader.page.getByText("Notification preferences saved")).toBeVisible();
+
+  // The owner mentions the teammate, THEN hands the thread over: the notices are made in that order, so once the hand-over has arrived the
+  // mention would have too. The bell holds the hand-over alone.
+  await postMessage(room, 1, `Are you there <@${room.mate.id}>?`);
+  const handOver = await room.api.put(`/api/v1/rooms/${room.roomId}/threads/1/owner`, { data: { ownerId: room.mate.id } });
+  expect(handOver.status(), await handOver.text()).toBe(204);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expectNoReload(reader);
+  await bell(reader.page).click();
+  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} made you the owner of #1 ${title}`) })).toBeVisible();
+  await expect(drawer(reader.page).getByRole("link", { name: /mentioned you/ })).toHaveCount(0);
+});
+

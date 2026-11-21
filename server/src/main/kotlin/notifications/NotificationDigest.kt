@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.ArrayColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
+import org.jetbrains.exposed.v1.core.TextColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -45,7 +46,7 @@ internal const val DIGEST_MAX_NOTICES_PER_RECIPIENT = 50
  * this (oldest first, off `idx_notifications_email_due`). It bounds the work a tick does however many notices are due, and it bounds
  * the backlog one person can be stamped for in a single claim. **The trade-off is fairness**: a person whose notices all lie beyond the
  * oldest [DIGEST_SCAN_CAP] due ones waits for a later tick (the head of the window leaves the index as it is mailed or settled, so the
- * wait is bounded by how fast the head drains). Rows the claim's filters reject (a person inside the interval, a kind switched off) are
+ * wait is bounded by how fast the head drains). Rows the claim's filters reject (a person inside the interval, a kind off for email) are
  * still walked to find those rows; the settle removes the second kind and [DIGEST_STATEMENT_TIMEOUT_SECONDS] bounds the rest.
  */
 internal const val DIGEST_SCAN_CAP = 5_000
@@ -106,8 +107,9 @@ internal data class DigestRun(val claimed: Int, val sent: Int, val failed: Int, 
  * The email digest of unseen notices (`chat-model.md` "Notifications (V18)", `security.md` "Outbound email"). A run (the sweep's tick):
  *
  * 1. **Settles and claims**, one short transaction under a [DIGEST_STATEMENT_TIMEOUT_SECONDS] statement budget ([SETTLE], then
- *    [CLAIM]; both read at most `scanCap` rows): notices of a switched-off kind or a gone account are settled; then the notices still
- *    unseen after [delayMillis] of at most [peopleToClaim] PEOPLE (oldest waiting first; ALL of a person's due notices within the scan,
+ *    [CLAIM]; both read at most `scanCap` rows): notices of a kind that is off for email or a gone account are settled; then the
+ *    notices still unseen after [delayMillis] of at most [peopleToClaim] PEOPLE (oldest waiting first; ALL of a person's due
+ * notices within the scan,
  *    the first [DIGEST_MAX_NOTICES_PER_RECIPIENT] listed and the rest counted, so a flooded person gets one mail, not one a tick) are
  *    marked BEFORE any send, so a notice is mailed at most once and a failed send is not retried (it is audited). A statement past its
  *    budget is logged scrubbed and the run ends with nothing claimed (the transaction rolled back).
@@ -115,7 +117,7 @@ internal data class DigestRun(val claimed: Int, val sent: Int, val failed: Int, 
  *    mails are protected by: they share the `Mailer`; the claims beyond it are released). Right before each send ALL of the recipient's
  *    claimed notices are RE-CHECKED in one short read transaction: the account is active, the notice still exists unseen (a removed
  *    member's notices go with the membership, a deleted message's with it), the room is an active room the person is a member of, the
- *    kind is not switched off and the thread exists. The survivors are listed (the first [DIGEST_MAX_NOTICES_PER_RECIPIENT]) and
+ *    kind's email switch is on and the thread exists. The survivors are listed (the first [DIGEST_MAX_NOTICES_PER_RECIPIENT]) and
  *    counted (the rest). With none the recipient is skipped silently, stays claimed (never mailed later) and claims no slot at the next
  *    tick. No pooled connection is held across the send.
  * 3. **Audits** `notification.email_sent` (userId, count) or `notification.email_failed` (userId, errorType: the class name only), for a
@@ -262,16 +264,20 @@ internal class NotificationDigest(
         queryTimeout = bounds.statementTimeoutSeconds
         val cutoff = LongColumnType() to now - delayMillis
         val floor = LongColumnType() to now - MILLIS_PER_DAY
+        // The kinds whose email is OFF by default (every kind today): a person's stored opt-in is the only way one is due (V28).
+        val offByDefault = ArrayColumnType<String, List<String>>(TextColumnType()) to
+            NotificationType.entries.filter { !it.defaultOn(NotificationChannel.EMAIL) }.map { it.name }
         val settled = TransactionManager.current().exec(
             SETTLE,
-            listOf(cutoff, floor, IntegerColumnType() to bounds.scanCap, LongColumnType() to now),
+            listOf(cutoff, floor, IntegerColumnType() to bounds.scanCap, offByDefault, LongColumnType() to now),
             explicitStatementType = StatementType.SELECT,
         ) { row -> row.get(0, Int::class.javaObjectType) }?.toList().orEmpty().size
-        if (settled > 0) log.info("notification email digest: {} notice(s) of a switched-off kind or a gone account settled", settled)
+        if (settled > 0) log.info("notification email digest: {} notice(s) of a kind off for email or a gone account settled", settled)
         val arguments = listOf(
             cutoff,
             floor,
             ArrayColumnType<Long, List<Long>>(LongColumnType()) to mailedAt.keys.map { it.toLong() },
+            offByDefault,
             IntegerColumnType() to bounds.scanCap,
             IntegerColumnType() to peopleToClaim(batchSize, maxPerRun),
             LongColumnType() to now,
@@ -309,8 +315,10 @@ internal class NotificationDigest(
             n.select(n.id).where { (n.id inList chunk) and n.seenAt.isNull() }.map { it[n.id].value }.toList()
         }.toSet()
         val roomNames = memberRooms(recipientId).associate { it.id to it.name }
-        val off = emailDisabledKinds(recipientId)
-        val kept = claimed.filter { it.id in pending && it.roomId in roomNames && it.type !in off }
+        val switches = effectivePreferences(recipientId)
+        val kept = claimed.filter {
+            it.id in pending && it.roomId in roomNames && switches.on(it.type, NotificationChannel.EMAIL)
+        }
         val threads = ThreadService.Threads
         val numbers = kept.map { it.threadId }.distinct().chunked(RECHECK_CHUNK).flatMap { chunk ->
             threads.select(threads.id, threads.number).where { threads.id inList chunk }

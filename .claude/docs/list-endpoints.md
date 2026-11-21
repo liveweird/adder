@@ -1,8 +1,7 @@
 ### List endpoint conventions
 
 > **Ported.** `server/src/main/kotlin/infra/paging/` (`Paging.kt`, `QueryParams.kt`, `PageResponse.kt`) is Lettuce's
-> implementation, ported via Toadie; `GET /api/v1/users` is the reference implementation. The conventions below are the
-> contract the package enforces.
+> implementation, ported via Toadie; `GET /api/v1/users` is the reference. The conventions below are what the package enforces.
 
 **The generic list rules are owned by `api-guidelines/API-GUIDELINES.md`** (cite the rule IDs):
 
@@ -19,7 +18,7 @@
   scalar key is a `400` (never silent first-value-wins; unknown parameter *names* stay ignored by deliberate
   leniency), see "Repeated keys" below [API-LIST-004].
 - Free text: `q` first, per-column substring only when a UI requires it [API-LIST-005]. The first `q` consumer is `GET /users/directory?q=` (name OR email on
-  one `containsNormalized` predicate for count and rows; `q` REQUIRED, 2 to 100 code points after trimming; pages capped at 20 via its own `DirectoryPageSize` component; spec parameter component `Q`); `GET /users` still filters per column.
+  one `containsNormalized` predicate for count and rows; `q` REQUIRED, 2 to 100 code points trimmed; pages capped at 20 via `DirectoryPageSize`; spec parameter `Q`); `GET /users` still filters per column.
 - Naming: camelCase params; reusable `Page`/`PageSize`/`Sort` under `#/components/parameters`
   `$ref`'d from each list path; one `*Page` envelope schema per resource; sortable/filterable
   whitelists documented per path [API-NAME-001..004].
@@ -34,22 +33,22 @@
 `suspendTransaction` and returns an `XListResult(items, total)`; the route responds
 `paging.toPage(items, total)` and the DTO file declares `typealias XPageResponse = PageResponse<XResponse>`.
 New list endpoints copy `users/` (service `list`, routes `get<X>`, the OpenAPI `$ref`s to the shared
-`Page`/`PageSize`/`Sort` parameters and a per-resource `*Page` schema) rather than re-parsing params.
+`Page`/`PageSize`/`Sort` parameters and a `*Page` schema) rather than re-parsing params.
 
 **Substring filters:** every per-column substring filter must be case- AND accent-insensitive —
 use `containsNormalized` (`infra/db/Sql.kt`, rendering
 `LOWER(public.unaccent(col)) LIKE LOWER(public.unaccent(?))`, extension enabled in V4); never
 hand-roll `lowerCase() like containsPattern(...)`, and keep unaccent-before-LOWER (the reverse
-breaks uppercase-diacritic input under a C-locale database). The SPA mirrors the rule via the
-theme-level `foldedOptionsFilter` (`web/src/utils/text.ts`).
+breaks uppercase-diacritic input under a C-locale database). The SPA mirrors it via the
+theme's `foldedOptionsFilter` (`web/src/utils/text.ts`).
 
-**Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. Ledger: `GET /rooms/{id}/threads` takes `status`, `ownerId`, `field=key:value` (each at most 20 distinct), `mentionedId` (same bound) and `tag` (at most 10 after case folding; any-of within a key, all-of across; `threads/ThreadListFilter.kt`); `closed` and `watching` stay scalar. A new consumer adds a line.
+**Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. Ledger: `GET /rooms/{id}/threads` takes `status`, `ownerId`, `field=key:value` (each at most 20 distinct), `mentionedId` (same bound) and `tag` (at most 10 after case folding; any-of within a key, all-of across; `threads/ThreadListFilter.kt`); `closed` and `watching` stay scalar. `GET /notifications` takes `type` (a known kind, at most 11 distinct, `NotificationType.entries.size`). A new consumer adds a line.
 
-**No shape-exception exists yet.** Every list keeps the paged envelope. A purpose-built document (e.g. a room's thread board, if the chat views need one) answers
-outside it only with a documented cap and a line here in the commit that introduces it (Flow's report drill lists were the precedent).
+**No shape-exception exists yet.** Every list keeps the paged envelope; a purpose-built document (e.g. a thread board) answers
+outside it only with a documented cap and a line here in the commit that introduces it.
 
-**Sub-collections and facets:** a record's own unbounded sub-collection is paged like any other list; the plain `{items}`
-wrapper is reserved for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets`) are not implemented — port Covenant's
+**Sub-collections and facets:** a record's own unbounded sub-collection is paged like any list; the plain `{items}`
+wrapper is for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets`) are not implemented — port Covenant's
 pattern with the first filterable list that needs them.
 
 **Search** is the second `q` consumer: `GET /rooms/{id}/search?q=` and `GET /search?q=` (`q` REQUIRED unless `watching=true`, 1.1; hits are THREADS in the envelope, `SearchPageSize` at most 20; `chat-model.md`).
@@ -60,4 +59,4 @@ pattern with the first filterable list that needs them.
 
 A room's members, threads and a thread's history are the paged sub-collections (whitelists, filters, caps): `chat-model.md` "Paged lists of a room". The thread list also sorts by `status` (workflow order) and filters by repeated `status`, `ownerId`, `field=key:value` and `tag`; the room's tags are a paged list too (`GET /rooms/{id}/tags`, optional `q`).
 
-**The notification list** (`GET /notifications`, unbucketed): the caller's rows, `seen`, sort `id`/`createdAt`, default `-id`. `total` is CAPPED at 1000, an empty page from row 1000 on (registered API-LIST-001 gap).
+**The notification list** (`GET /notifications`, own `notification-read` bucket): the caller's in-app rows, filters `seen` and repeated `type`, sort `id`/`createdAt`, default `-id`. `total` is CAPPED at 1000, an empty page from row 1000 on (registered API-LIST-001 gap).

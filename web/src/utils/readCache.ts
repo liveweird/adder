@@ -1,6 +1,7 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type { MessagePage } from "../api/messages";
 import type { NotificationPage } from "../api/notifications";
+import { requestRefresh } from "./liveKeys";
 import { notificationKeys } from "./notificationKeys";
 import { roomKeys } from "./roomKeys";
 
@@ -45,8 +46,11 @@ export function markThreadReadInCaches(queryClient: QueryClient, roomId: number,
     );
     markRoomSeenInCaches(queryClient, roomId);
   }
-  const unseen = queryClient.getQueryData<NotificationPage>(notificationKeys.unseen);
-  if (unseen?.items.some((item) => item.roomId === roomId && item.threadNumber === threadNumber)) {
-    void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
-  }
+  const holdsNotice = (page: NotificationPage | undefined) =>
+    page?.items.some((item) => item.roomId === roomId && item.threadNumber === threadNumber) === true;
+  // Either query (the badge's or the rail's) holding a notice of this thread means the server has just marked it seen: re-read both.
+  const cached = [notificationKeys.unseen, notificationKeys.addressed].map((key) => queryClient.getQueryData<NotificationPage>(key));
+  // Through the live invalidator's spaced queue (when the tab has one): the list is bucketed per user, and a marker drives this as often as
+  // every two seconds while hints drive the same re-read, so the two coalesce into one flush per spacing window.
+  if (cached.some(holdsNotice)) requestRefresh(queryClient, notificationKeys.all);
 }

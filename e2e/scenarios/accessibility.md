@@ -30,7 +30,7 @@ generated from a list, so a single scenario section stands in for each list.
    - *Expected*: an axe scan (same tags) reports zero violations.
 
 The list covers the Home page, the Search page (its empty form), the Rooms list and its create form, the Teams list, the Users list and its create form, the workflow-template list and its create form, the ADMIN feature-flags screen,
-Change password, Notification emails and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set. The fixture room's own
+Change password, Notification preferences and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set. The fixture room's own
 pages are scanned by the detail-page block, each as its own test (`the room home page (the thread list)`, `the room's thread view`,
 `the thread's side panel`, `the thread's details editor`, `the new-thread form`, the members, workflow and settings pages): the thread list and the three-pane thread view are scanned only
 once both the list and the pane have loaded; the side panel is scanned open (below a wide main area through its **Details** toggle: status select, owner picker, details, history) and again with the details editor open.

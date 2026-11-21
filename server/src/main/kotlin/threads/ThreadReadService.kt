@@ -68,8 +68,8 @@ class ThreadReadService internal constructor(
  * edit and the delete change nothing here: a marker is a position, not a reference to the row.
  */
 internal object AuthorReadMarker : MessageFollower {
-    override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): List<UInt> {
+    override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): NoticeOutcome {
         moveMarkerInTransaction(authorId, ref.threadId, ref.roomId, ref.messageId, at)
-        return emptyList()
+        return NoticeOutcome.NONE
     }
 }

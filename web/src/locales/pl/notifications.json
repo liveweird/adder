@@ -12,23 +12,60 @@
   "unseen_other": "{{count}} nieprzeczytanego",
   "inRoom": "{{room}} · {{when}}",
   "toast": {
-    "preferencesSaved": "Zapisano powiadomienia e-mailem"
+    "preferencesSaved": "Zapisano ustawienia powiadomień"
   },
   "preferences": {
-    "title": "Powiadomienia e-mailem",
-    "description": "Wybierz, które powiadomienia dostajesz też e-mailem.",
-    "section": "Wyślij mi e-mail, gdy",
+    "title": "Ustawienia powiadomień",
+    "description": "Wybierz, które powiadomienia widzisz w aplikacji, a które dostajesz też e-mailem.",
+    "typeColumn": "Powiadom mnie, gdy",
+    "columnInApp": "W aplikacji",
+    "columnEmail": "E-mail",
+    "allOn": "Wszystkie włączone",
+    "allOff": "Wszystkie wyłączone",
+    "allOnAria": "Wszystkie włączone: {{column}} w grupie {{group}}",
+    "allOffAria": "Wszystkie wyłączone: {{column}} w grupie {{group}}",
+    "switchAria": "{{label}}: {{column}}",
+    "group": {
+      "mentions": "Wzmianki",
+      "watching": "Wątki, które obserwujesz",
+      "handed": "Wątki przekazane Tobie",
+      "rooms": "Pokoje"
+    },
     "kind": {
-      "MENTIONED": "ktoś o mnie wspomni",
-      "THREAD_ASSIGNED": "ktoś przekaże mi wątek"
+      "MENTIONED": "Ktoś o mnie wspomina",
+      "TEAM_MENTIONED": "Ktoś wspomina o moim zespole",
+      "WATCHERS_MENTIONED": "Ktoś wspomina o obserwujących wątek, który obserwuję",
+      "EVERYONE_MENTIONED": "Ktoś wspomina o wszystkich w pokoju, do którego należę",
+      "THREAD_REPLIED": "Odpowiedź w wątku, który obserwuję",
+      "THREAD_CREATED": "Nowy wątek w pokoju, do którego należę",
+      "THREAD_ASSIGNED": "Ktoś przekazuje mi wątek",
+      "THREAD_OWNER_CHANGED": "Zmienia się właściciel wątku, który obserwuję",
+      "THREAD_STATUS_CHANGED": "Wątek, który obserwuję, zmienia status",
+      "THREAD_CLOSED": "Wątek, który obserwuję, zostaje zamknięty",
+      "THREAD_REOPENED": "Wątek, który obserwuję, zostaje ponownie otwarty"
     },
     "emailOff": "Ten serwer nie wysyła e-maili, więc żadne powiadomienia e-mailem nie wychodzą. Twoje wybory zostają zapisane.",
-    "inAppHint": "Powiadomienia pod dzwonkiem zawsze do Ciebie docierają. E-mail wysyłamy tylko o powiadomieniu, którego nie przeczytasz w ciągu kilku minut: jedna wiadomość wymienia, kto, w którym pokoju i w którym wątku.",
+    "emailHint": "E-mail jest domyślnie wyłączony. Wysyłamy go tylko o powiadomieniu, którego nie przeczytasz w ciągu kilku minut: jedna wiadomość wymienia, kto, w którym pokoju i w którym wątku.",
     "saveFailedStatus": "Zapis wyborów nie powiódł się ({{status}})",
     "saveFailedNetwork": "Zapis wyborów nie powiódł się. Sprawdź połączenie i spróbuj ponownie."
   },
   "event": {
     "MENTIONED": "{{actor}} wspomina o Tobie w #{{number}} {{title}}",
-    "THREAD_ASSIGNED": "{{actor}} przekazuje Ci wątek #{{number}} {{title}}"
+    "THREAD_ASSIGNED": "{{actor}} przekazuje Ci wątek #{{number}} {{title}}",
+    "TEAM_MENTIONED": "{{actor}} wspomina o Twoim zespole w #{{number}} {{title}}",
+    "WATCHERS_MENTIONED": "{{actor}} wspomina o obserwujących wątek #{{number}} {{title}}",
+    "EVERYONE_MENTIONED": "{{actor}} wspomina o wszystkich w #{{number}} {{title}}",
+    "THREAD_REPLIED": "{{actor}} odpowiada w #{{number}} {{title}}",
+    "THREAD_CREATED": "{{actor}} zakłada wątek #{{number}} {{title}}",
+    "THREAD_OWNER_CHANGED": "{{actor}} zmienia właściciela wątku #{{number}} {{title}}",
+    "THREAD_STATUS_CHANGED": "{{actor}} zmienia status wątku #{{number}} {{title}}",
+    "THREAD_CLOSED": "{{actor}} zamyka wątek #{{number}} {{title}}",
+    "THREAD_REOPENED": "{{actor}} ponownie otwiera wątek #{{number}} {{title}}"
+  },
+  "emptyMentions": "Nie masz wzmianek.",
+  "view": {
+    "label": "Pokaż",
+    "all": "Wszystkie",
+    "mentions": "Wzmianki"
   }
 }

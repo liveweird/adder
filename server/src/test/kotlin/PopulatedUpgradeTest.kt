@@ -4,6 +4,7 @@ import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.notifications.NotificationPageResponse
+import ch.nokillswit.notifications.NotificationPreferencesResponse
 import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.rooms.RoomPageResponse
 import ch.nokillswit.teams.TeamPageResponse
@@ -45,6 +46,8 @@ import org.flywaydb.core.api.MigrationVersion
  *  - no table lost a row and every table is byte for byte what it was (a digest of every row's text over the release's own columns);
  *  - V25's `teams.handle` is null on every row (the soft-deleted included) and V26's backfill made exactly the creator and the current
  *    owner of each thread watchers where they still hold a membership row, stamped with the thread's creation, with no notice;
+ *  - V27 reshaped the notices (`in_app` TRUE on every row, the new unique and bell indexes) and V28's `enabled` column kept the two
+ *    V22 email rows meaning "off", so a 1.0.0 account reads the 1.1.0 defaults (the app on, email off for every kind);
  *  - the application boots on the migrated database and its reads answer, each checked against the OpenAPI contract.
  *
  * The database is created on the fork's Testcontainers server, named uniquely and dropped in a `finally`: the shared suite database is
@@ -94,7 +97,7 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        assertTrue("25" in after && "26" in after, "V25 and V26 ran on the populated database: $after")
+        assertTrue(listOf("25", "26", "27", "28").all { it in after }, "V25 to V28 ran on the populated database: $after")
     }
 
     /** An additive migration may add columns; a dropped or renamed one of the release's columns fails, naming the table. */
@@ -115,6 +118,30 @@ class PopulatedUpgradeTest {
             assertEquals(was.digest, now.digest, "$table: its release columns are byte for byte what they were")
         }
         assertWatchesBackfilled(database)
+        assertNoticesReshaped(database)
+    }
+
+    /**
+     * V27 and V28 on 1.0.0's notices and email switches: every notice keeps showing in the app (`in_app` defaults TRUE), the unique index
+     * is the one-per-message-and-recipient one (the defensive dedup deleted nothing: the row count is checked by the digests), the
+     * unseen index is the bell's, and the two V22 "switched off" rows are still "off" (`enabled` defaults FALSE) with no opt-in row for
+     * anybody.
+     */
+    private fun assertNoticesReshaped(database: String) {
+        val inApp = query(database, "SELECT count(*) FROM notifications WHERE in_app") { it.getLong(1) }.single()
+        assertEquals(6L, inApp, "every notice shows in the app")
+        val indexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'notifications'") { it.getString(1) }.toSet()
+        assertTrue("uq_notifications_message_recipient" in indexes && "idx_notifications_bell" in indexes, "the new indexes: $indexes")
+        assertTrue("uq_notifications_message" !in indexes && "idx_notifications_unseen" !in indexes, "the replaced ones are gone: $indexes")
+        val stored = "SELECT user_id, notification_type, channel, enabled FROM user_notification_preferences ORDER BY 1"
+        val switches = query(database, stored) {
+            listOf(it.getLong(1), it.getString(2), it.getString(3), it.getBoolean(4))
+        }
+        assertEquals(
+            listOf(listOf(2L, "THREAD_ASSIGNED", "EMAIL", false), listOf(3L, "MENTIONED", "EMAIL", false)),
+            switches,
+            "the 1.0.0 rows keep meaning off, and nobody has an opt-in",
+        )
     }
 
     /**
@@ -296,6 +323,12 @@ class PopulatedUpgradeTest {
         assertEquals("Olivia Żółkiewska", unseen.items.first().actorName)
         assertEquals(2L, zoe.getBody<NotificationPageResponse>("/api/v1/notifications?seen=false").total)
         assertEquals(0L, zoe.getBody<NotificationPageResponse>("/api/v1/notifications?seen=true").total)
+        assertEquals(listOf(5u), zoe.getBody<NotificationPageResponse>("/api/v1/notifications?type=THREAD_ASSIGNED").items.map { it.id })
+
+        // A 1.0.0 account that never touched its switches: the app on, email off for every kind (1.1 A28), the old rows no different.
+        val preferences = zoe.getBody<NotificationPreferencesResponse>("/api/v1/users/3/notification-preferences")
+        assertEquals(NotificationType.entries.toList(), preferences.kinds.map { it.type })
+        assertTrue(preferences.kinds.all { it.inApp && !it.email }, "no kind is mailed until the person switches it on")
 
         val own = olivia.getBody<NotificationPageResponse>("/api/v1/notifications?pageSize=100")
         assertEquals(listOf(2u), own.items.map { it.id }, "a soft-deleted room's notice is not listed")

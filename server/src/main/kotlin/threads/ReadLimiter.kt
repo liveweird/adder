@@ -14,8 +14,15 @@ const val DEFAULT_READ_TIMEOUT_SECONDS = 5
 const val DEFAULT_READ_MAX_CONCURRENT = 10
 
 /**
- * The most bounded reads ONE user may have in flight at once. A live hint makes every open tab refetch the room's thread list and, with
- * the filter panel open, the tag list, after the same 300 ms settle (`web/src/utils/liveKeys.ts`): two reads per tab, all in the same
+ * The most notification-list reads ONE user may have in flight (the burst of a hint on one tab is three). The process cap,
+ * `NOTIFICATION_READ_MAX_CONCURRENT`, lives in `infra/db/Database.kt` beside the boot check that counts it.
+ */
+const val NOTIFICATION_READS_PER_USER = 4
+
+/**
+ * The most bounded reads ONE user may have in flight at once (the thread and tag lists; the notice list has its own,
+ * [NOTIFICATION_READS_PER_USER]). A live hint makes every open tab refetch the room's thread list and, with the filter panel open, the
+ * tag list, after the same 300 ms settle (`web/src/utils/liveKeys.ts`): two reads per tab, all in the same
  * instant. 8 is four such tabs together, above any real use; a script that holds more than that is what the cap stops.
  */
 const val MAX_READS_PER_USER = 8
@@ -60,11 +67,14 @@ class ReadLimiter(
     /** How many users have a read in flight: 0 when idle (a test seam for "the map never leaks"). */
     internal fun usersInFlight(): Int = inFlight.size
 
-    /** [resource] names the read (`threads` or `tags`) in the audit lines. */
+    /**
+     * [resource] names the read (`threads`, `tags` or `notifications`) in the audit lines; [roomId] is null for a read that belongs to no
+     * room (the caller's own notification list), and then the lines carry no room id.
+     */
     internal suspend fun <T> run(
         database: R2dbcDatabase,
         callerUserId: UInt,
-        roomId: UInt,
+        roomId: UInt?,
         resource: String,
         block: suspend R2dbcTransaction.(SearchBudget) -> T,
     ): T {
@@ -115,13 +125,13 @@ class ReadLimiter(
         inFlight.compute(userId) { _, count -> if (count == null || count <= 1) null else count - 1 }
     }
 
-    private fun busy(callerUserId: UInt, roomId: UInt, resource: String, limit: String): Nothing {
-        audit("read.busy", "byUserId" to callerUserId.toLong(), "roomId" to roomId.toLong(), "resource" to resource, "limit" to limit)
+    private fun busy(callerUserId: UInt, roomId: UInt?, resource: String, limit: String): Nothing {
+        audit("read.busy", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong(), "resource" to resource, "limit" to limit)
         throw readBusy()
     }
 
-    private fun timedOut(callerUserId: UInt, roomId: UInt, resource: String): Nothing {
-        audit("read.timeout", "byUserId" to callerUserId.toLong(), "roomId" to roomId.toLong(), "resource" to resource)
+    private fun timedOut(callerUserId: UInt, roomId: UInt?, resource: String): Nothing {
+        audit("read.timeout", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong(), "resource" to resource)
         throw readTimeout()
     }
 

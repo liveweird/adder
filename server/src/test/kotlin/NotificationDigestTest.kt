@@ -10,7 +10,9 @@ import ch.nokillswit.notifications.DigestBounds
 import ch.nokillswit.notifications.DIGEST_STATEMENT_TIMEOUT_SECONDS
 import ch.nokillswit.notifications.peopleToClaim
 import ch.nokillswit.notifications.DIGEST_MAX_PER_RUN
+import ch.nokillswit.notifications.NotificationChannel
 import ch.nokillswit.notifications.NotificationDigest
+import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.notifications.NotificationSweep
 import ch.nokillswit.users.UserRole
 import java.sql.Connection
@@ -93,12 +95,14 @@ class NotificationDigestTest {
             }
         }
 
-        suspend fun member(language: String = "en", name: String = "Ann"): Person {
+        suspend fun member(language: String = "en", name: String = "Ann", optedIn: Boolean = true): Person {
             val email = uniqueEmail("dg")
             val suffix = UUID.randomUUID().toString().substring(0, 4)
             val id = TestUsers.seed(email, "pw", role = UserRole.USER, name = "$name-$suffix", language = language)
             mintedUsers += id
             TestRooms.addMember(room, id)
+            // Email is off by default for every kind (1.1 D7): the people of this class opted in, as a 1.0.0 account never has.
+            if (optedIn) TestNotificationPreferences.optInEmail(id)
             return Person(id, email)
         }
 
@@ -274,9 +278,7 @@ class NotificationDigestTest {
         s.notice(ben, type = "THREAD_ASSIGNED")
         s.notice(ben, type = "MENTIONED")
         for ((user, type) in listOf(ann to "THREAD_ASSIGNED", ben to "THREAD_ASSIGNED")) {
-            sql("INSERT INTO user_notification_preferences (user_id, notification_type, channel) VALUES (?, ?, 'EMAIL')") { st ->
-                st.setLong(1, user.id.toLong()); st.setString(2, type); st.executeUpdate()
-            }
+            switchOff(user, type)
         }
         val mailer = RecordingMailer()
 
@@ -288,9 +290,82 @@ class NotificationDigestTest {
         assertEquals(1, ben1.body.lines().count { it.startsWith("- ") }, "the other kind still goes")
         assertTrue(ben1.body.contains("mentioned you"))
 
-        sql("DELETE FROM user_notification_preferences WHERE user_id = ?") { st -> st.setLong(1, ann.id.toLong()); st.executeUpdate() }
+        TestNotificationPreferences.set(ann.id, NotificationType.THREAD_ASSIGNED, NotificationChannel.EMAIL, enabled = true)
         digest(mailer, s, now = { s.now + INTERVAL_SECONDS * SECOND }).run()
         assertTrue(mailer.to(ann.email).isEmpty(), "switching the kind on again does not resurrect a settled notice")
+    }
+
+    @Test
+    fun `a kind that is off by default is never due, and an opt-in is mailed`() = runBlocking {
+        val s = setup()
+        val ann = s.member(optedIn = false)
+        val ben = s.member(optedIn = false)
+        TestNotificationPreferences.set(ben.id, NotificationType.THREAD_CLOSED, NotificationChannel.EMAIL, enabled = true)
+        val annIds = NotificationType.entries.map { s.notice(ann, type = it.name) }
+        val benClosed = s.notice(ben, type = "THREAD_CLOSED")
+        val benReplied = s.notice(ben, type = "THREAD_REPLIED")
+        val mailer = RecordingMailer()
+
+        digest(mailer, s).run()
+
+        assertTrue(mailer.to(ann.email).isEmpty(), "no stored row: the default is off for every kind, so nothing is mailed")
+        assertTrue(annIds.all { emailedAt(it) != null }, "and every one of them is settled, so none fills a scan")
+        val mail = mailer.to(ben.email).single()
+        assertEquals(1, mail.body.lines().count { it.startsWith("- ") }, "only the kind the person opted in to")
+        assertTrue(mail.body.contains("closed #${s.number}"))
+        assertNotNull(emailedAt(benClosed))
+        assertTrue(emailedAt(benReplied) != null, "the other kind is settled, never mailed later")
+    }
+
+    @Test
+    fun `a switch-off is honoured before the claim and between the claim and the send`() = runBlocking {
+        val s = setup()
+        val before = s.member()
+        val between = s.member()
+        val stays = s.member()
+        s.notice(before, type = "THREAD_CLOSED")
+        s.notice(between, type = "THREAD_CLOSED")
+        s.notice(stays, type = "THREAD_CLOSED")
+        TestNotificationPreferences.set(before.id, NotificationType.THREAD_CLOSED, NotificationChannel.EMAIL, enabled = false)
+        val mailer = RecordingMailer()
+
+        digest(mailer, s, afterClaim = {
+            TestNotificationPreferences.set(between.id, NotificationType.THREAD_CLOSED, NotificationChannel.EMAIL, enabled = false)
+        }).run()
+
+        assertTrue(mailer.to(before.email).isEmpty(), "switched off before the claim")
+        assertTrue(mailer.to(between.email).isEmpty(), "switched off after the claim: the send-time re-check reads the switch")
+        assertEquals(1, mailer.to(stays.email).size)
+    }
+
+    @Test
+    fun `a notice of a kind this build does not know is due, claimed and dropped, never mailed`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val future = s.notice(ann, type = "A_FUTURE_KIND")
+        val known = s.notice(ann, type = "THREAD_ASSIGNED")
+        val mailer = RecordingMailer()
+
+        digest(mailer, s).run()
+
+        assertNotNull(emailedAt(future), "it is claimed with the person's other notices (the rule of the rollback notes)")
+        val mail = mailer.to(ann.email).single()
+        assertEquals(1, mail.body.lines().count { it.startsWith("- ") }, "but it is not an entry of the mail")
+        assertEquals("Adder: 1 unseen notification", mail.subject)
+        assertTrue(emailedAt(known) != null)
+    }
+
+    @Test
+    fun `a mail-only notice is mailed like any other`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val id = s.notice(ann)
+        sql("UPDATE notifications SET in_app = false WHERE id = ?") { st -> st.setLong(1, id); st.executeUpdate() }
+        val mailer = RecordingMailer()
+
+        digest(mailer, s).run()
+
+        assertEquals(1, mailer.to(ann.email).size, "in_app = false hides it from the bell, not from the digest")
     }
 
     @Test
@@ -648,11 +723,8 @@ class NotificationDigestTest {
         assertEquals(0, run.released)
     }
 
-    private fun switchOff(user: Person, type: String) {
-        sql("INSERT INTO user_notification_preferences (user_id, notification_type, channel) VALUES (?, ?, 'EMAIL')") { st ->
-            st.setLong(1, user.id.toLong()); st.setString(2, type); st.executeUpdate()
-        }
-    }
+    private fun switchOff(user: Person, type: String) =
+        TestNotificationPreferences.set(user.id, NotificationType.valueOf(type), NotificationChannel.EMAIL, enabled = false)
 
     @Test
     fun `notices of a switched-off kind or a deleted account are settled and never fill a batch`() = runBlocking {

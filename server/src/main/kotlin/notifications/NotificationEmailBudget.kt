@@ -37,11 +37,12 @@ WHERE actor_id = CAST(? AS int8) AND day = CAST(? AS int4)"""
 
 /**
  * The per-actor digest budget (V24, `chat-model.md` "The digest budget", `security.md` "Notices"): the most DISTINCT people one actor's
- * mentions and hand-overs can make eligible for the email digest in a UTC day, [perDay] of them. The bell is not touched: the notice is
- * always made, and over the budget only its email is withheld (the caller stamps `emailed_at`, V22's "settled, never mailed").
+ * notices can make eligible for the email digest in a UTC day, [perDay] of them, whatever the kind. Only the people whose email is on for
+ * the notice are counted. Over the budget only the email is withheld (the writer stamps `emailed_at`, V22's "settled, never mailed"): the
+ * in-app notice is still made when the person's in-app switch is on, and a person the app switch also leaves out gets no row at all.
  *
  * The first [perDay] distinct recipients of the day are admitted, in the order they were reached, and stay admitted for the rest of the
- * day (the same person counts once, however many notices they get); every later person's notices that day are withheld. An ADMIN actor
+ * day (the same person counts once, however many notices they get); every later person's email that day is withheld. An ADMIN actor
  * is NOT exempt: a room owner and an ADMIN can enrol anyone, and the digest names the room the actor chose either way. The day is the
  * epoch day of [clock] (UTC), so the budget resets at 00:00 UTC.
  *
@@ -60,12 +61,13 @@ internal class NotificationEmailBudget(
     }
 
     /**
-     * Of [made], the people a notice was made for by [actorId] in [roomId] (in the order they were reached), answers those whose notice
-     * is over the budget and so withheld from the digest. Audits `notification.email_budget_exceeded` the first time the actor goes over
-     * today (coalesced by the committed `exceeded_at`; a rolled-back write repeats it, which is harmless). Ids and counts only.
+     * Of [eligible], the people [actorId] is about to notify in [roomId] whose email is on for the notice (in the order the caller listed
+     * them, the most specific reason first; this runs BEFORE the insert), answers those over the budget, whose email is withheld.
+     * Audits `notification.email_budget_exceeded` the first time the actor goes over today (coalesced by the committed `exceeded_at`; a
+     * rolled-back write repeats it, which is harmless). Ids and counts only.
      */
-    suspend fun withheld(actorId: UInt, roomId: UInt, made: List<UInt>): Set<UInt> {
-        if (made.isEmpty()) return emptySet()
+    suspend fun withheld(actorId: UInt, roomId: UInt, eligible: List<UInt>): Set<UInt> {
+        if (eligible.isEmpty()) return emptySet()
         val transaction = TransactionManager.current()
         val now = clock()
         val actor = LongColumnType() to actorId.toLong()
@@ -78,7 +80,7 @@ internal class NotificationEmailBudget(
         ) { row -> row.get(0, String::class.java)!! to (row.get(1, Boolean::class.javaObjectType) == true) }
             ?.toList().orEmpty().filterNotNull().single()
         val admitted = admittedText.split(',').filter { it.isNotEmpty() }.map { it.toUInt() }
-        val fresh = made.distinct().filter { it !in admitted }
+        val fresh = eligible.distinct().filter { it !in admitted }
         val room = (perDay - admitted.size).coerceAtLeast(0)
         val newlyAdmitted = fresh.take(room)
         val over = fresh.drop(room).toSet()

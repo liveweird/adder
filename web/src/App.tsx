@@ -23,7 +23,7 @@ import { unseenByRoom } from "./utils/unread";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
 import { useLiveUpdates } from "./hooks/useLiveUpdates";
 import { useRailRooms } from "./hooks/useRailRooms";
-import { useUnseenNotifications } from "./hooks/useUnseenNotifications";
+import { useAddressedNotifications } from "./hooks/useUnseenNotifications";
 import { isBoolean, useStoredState } from "./hooks/useStoredState";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "./hooks/useTelemetryPanel";
 import classes from "./theme.module.css";
@@ -88,9 +88,10 @@ function Shell() {
   // The caller's rooms (the rail under "All rooms"): the toggle for the archived ones is device-level, like the other view settings.
   const [showArchived, setShowArchived] = useStoredState("rooms.rail.showArchived", false, isBoolean);
   const railRooms = useRailRooms(showArchived);
-  // The unseen notices (the bell's one query, shared): their count per room is the `@` number in the rail.
-  const unseenNotices = useUnseenNotifications();
-  const mentions = useMemo(() => unseenByRoom(unseenNotices.items), [unseenNotices.items]);
+  // The unseen notices ADDRESSED to the caller (a mention of any kind, a hand-over; the bell's own query, shared): their count per room is
+  // the `@` number in the rail. A reply or a new thread is in the bell and its badge, never here (0.6 D1).
+  const addressed = useAddressedNotifications();
+  const mentions = useMemo(() => unseenByRoom(addressed.items), [addressed.items]);
   // The tab's one live socket: it follows the ACTIVE rail rooms and the open room (the archived rail and "All rooms" refresh on focus).
   const liveStatus = useLiveUpdates((railRooms.active.data?.items ?? []).map((room) => room.id));
   // The rooms join the leaves in ONE longest-prefix resolution, so /rooms/12/members lights room 12, not "All rooms".

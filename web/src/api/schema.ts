@@ -1583,24 +1583,35 @@ export interface paths {
         };
         /**
          * List the caller's own notifications
-         * @description Any authenticated caller, no further guard and no bucket: the list is the caller's OWN notices, so there is nothing to hide and
+         * @description Any authenticated caller, no further guard: the list is the caller's OWN notices, so there is nothing to hide and
          *     nobody to probe. A notice is listed only while its recipient is an ACTIVE member of its room and the room is active (a deleted
          *     room's notices are hidden; an archived room's are listed, and its link opens it read-only), **an `ADMIN` included**: an `ADMIN`
          *     who is not a member of a room has none of its notices. A member who is removed from a room, or leaves it, loses that room's
          *     notices for good (they are deleted with the membership, so rejoining starts clean), and a deleted message, or a mention an edit
          *     removed, takes its notice with it. A caller who belongs to no room gets an empty page.
          *
-         *     A notice is made INSIDE the write that caused it, in two kinds (`NotificationType`): `MENTIONED` (a post, a thread's opening
-         *     message or an edit that newly mentions the caller with `<@id>`; never for a mention of oneself) and `THREAD_ASSIGNED` (someone
-         *     else made the caller the owner of a thread; nothing when a steward takes the thread themself). Each one reaches the caller's open
-         *     tabs as the live `notification.created` event, on every socket the caller has, subscribed to the room or not; the SPA then re-reads
-         *     this list. Notices older than the retention (90 days by default) are deleted.
+         *     A notice is made INSIDE the write that caused it, one per person and event, labelled with the most specific reason
+         *     (`NotificationType`, eleven kinds). Today's writes make two of them: `MENTIONED` (a post, a thread's opening message or an edit that
+         *     newly mentions the caller with `<@id>`; never for a mention of oneself) and `THREAD_ASSIGNED` (someone else made the caller the owner
+         *     of a thread; nothing when a steward takes the thread themself); the other kinds are named so a client can show them as the writes
+         *     that make them arrive (a reply in a watched thread, a new thread, a status move, a team, watchers or everyone mention). Each
+         *     notice reaches the caller's open tabs as the live `notification.created` event, on every socket the caller has, subscribed to the
+         *     room or not; the SPA then re-reads this list. Notices older than the retention (90 days by default) are deleted.
+         *
+         *     Channels are judged when the notice is made: a kind the caller switched off IN THE APP (`PUT .../notification-preferences`) makes
+         *     no row for them (or a mail-only row, never listed here, when its email is on), so this list, its `total` and `seen-all` hold only
+         *     notices that show in the app.
          *
          *     An item holds ids only on the server: `actorName`, `roomName` and `threadTitle` are read when the page is read, so a rename shows at
-         *     once and nothing stored can outlive a leave or a delete. `messageId` is `null` for `THREAD_ASSIGNED`.
+         *     once and nothing stored can outlive a leave or a delete. `messageId` is `null` for every thread-level kind (`THREAD_ASSIGNED`).
          *
          *     - Sortable fields: `id` (time order), `createdAt`. Default `-id` (newest first; `id` breaks ties).
-         *     - Filter: `seen` (strict `true` or `false`; omitted = both; a repeated key is a `400`).
+         *     - Filters: `seen` (strict `true` or `false`; omitted = both; a repeated key is a `400`); `type` (repeatable, any-of: only notices of
+         *       these kinds; omitted = every kind; each distinct name at most once; an unknown name is a `400`).
+         *     - **Bounds.** The per-USER `notification-read` bucket of 240 per minute (`429` beyond it; spent before the paging checks), and the
+         *       same per-request deadline and in-flight caps as the thread list (`urn:adder:problem:read-timeout`, `read-busy`). A page whose count
+         *       is 0 reads no rows. Each `notification.created` event makes every open tab re-read the list up to three times (the badge, the
+         *       addressed count and, with the drawer open, its page).
          *     - A notice of a kind this server does not know is not listed and not counted.
          *     - `total` is CAPPED at 1000: the server counts at most 1000 rows, so a recipient with more notices than that (or more unseen ones)
          *       reads `1000`, and the bell shows it as "many". A page that starts at row 1000 or later (`(page - 1) * pageSize >= 1000`) is EMPTY
@@ -1672,29 +1683,40 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read which notification emails a user gets (target user or ADMIN)
-         * @description Which kinds of notice are emailed to the user, as the digest below: `kinds` lists every kind with its `email` switch (on unless the
-         *     user switched it off; a new user and a new kind start on). `emailAvailable` is false on a deployment with no outbound email
-         *     (`MAIL_TRANSPORT=disabled`): the switches are stored but nothing is mailed. In-app notices cannot be switched off.
+         * Read a user's notification switches, in the app and by email (target user or ADMIN)
+         * @description Which kinds of notice reach the user, and how: `kinds` lists every kind, in the order of `NotificationType`, with its `inApp`
+         *     switch (the notice shows in the bell; on unless the user switched it off) and its `email` switch (the kind joins the digest below;
+         *     **off unless the user switched it on**, for every kind: email is opt-in since 1.1.0). A person who never saved a choice has the
+         *     defaults; there is no master switch and no kind is locked on. `emailAvailable` is false on a deployment with no outbound email
+         *     (`MAIL_TRANSPORT=disabled`): the email switches are stored but nothing is mailed. Account email (the MFA code, the password-reset
+         *     link) is not a kind: it is sent directly and always goes.
+         *
+         *     **Changed in 1.1.0 (an accepted exception to API-VER-002, `product.md` 1.1 D7 and A28):** email is off by default for every kind, so
+         *     a person who never saved a choice, and a 1.0.0 client's `{"disabled": []}` ("everything on"), now mean every email OFF.
          *
          *     **The digest.** A notice still unseen after 5 minutes by default (`notifications.email.delaySeconds`) is mailed, at most one email
          *     per person per 15 minutes (`notifications.email.minIntervalSeconds`; a person inside it gets everything in one later email),
          *     in the person's language. The email names WHO did it, the room, the thread number and a link; it never carries a thread title or any
          *     message text. A notice is mailed at most once and never when it is older than a day, when the person has left the room or been
-         *     deleted, or when its kind is switched off at that moment. One actor can make at most 20 distinct people a day
-         *     (`notifications.email.maxRecipientsPerActorPerDay`, UTC days) eligible for the digest through their @mentions and hand-overs:
+         *     deleted, or when its kind's email switch is off at that moment. One actor can make at most 20 distinct people a day
+         *     (`notifications.email.maxRecipientsPerActorPerDay`, UTC days) eligible for the digest, whatever the kind:
          *     over that budget the in-app notice is still made and only its email is withheld.
          *
          *     **Target user or `ADMIN`** (`403` otherwise, before anything else is read); an unknown or deleted user is `404`. Unbucketed.
          */
         get: operations["getNotificationPreferences"];
         /**
-         * Replace which notification emails a user gets (target user or ADMIN)
-         * @description A **wholesale replace** of the user's DISABLED `(type, channel)` pairs (an empty `disabled` switches everything on). The only
-         *     channel is `EMAIL`. Order of refusals: `403` (not the target user and not `ADMIN`), then `400` (an unknown kind or channel, a pair
-         *     listed twice), then `404` (an unknown or deleted user). A same-set PUT is a `204` that changes nothing. Audited as
-         *     `user.notification_preferences_changed` (`from` and `to` as sorted `TYPE:CHANNEL` lists) on an actual change only. The change applies to
-         *     notices not yet mailed. Rides the per-user `read-state` bucket (240 a minute, checked before the guards; `429` with `Retry-After`); the body is capped at 16 KiB.
+         * Replace a user's notification switches (target user or ADMIN)
+         * @description A **wholesale replace** of the user's choices: `disabled` lists the `(type, channel)` pairs that are OFF, `enabled` (optional) the
+         *     pairs that are ON, and a pair in neither takes its default (in the app on, by email off, for every kind). So `{"disabled": []}`
+         *     resets everything to the defaults and a client that only knows `disabled` can never switch an email on by accident. Channels are
+         *     `IN_APP` and `EMAIL`. **Changed in 1.1.0:** email is off by default for every kind, so a body that lists nothing switches every email
+         *     off; and a client that omits `enabled` and the `IN_APP` pairs (a 1.0.0 page) resets those to the defaults (accepted, `product.md` 1.1 A28
+         *     and A31). Order of refusals: `403` (not the target user and not `ADMIN`), then `400` (an unknown kind or channel, a pair
+         *     listed twice or in both lists), then `404` (an unknown or deleted user). A same-state PUT is a `204` that changes nothing. Audited as
+         *     `user.notification_preferences_changed` (`from` and `to` list the choices that differ from the defaults, as sorted
+         *     `TYPE:CHANNEL=on|off`) on an actual change only. A switch applies to notices made (in the app) or mailed (email) from then on; it never
+         *     rewrites a notice that exists. Rides its own per-user `notification-prefs` bucket (30 a minute, checked before the guards; `429` with `Retry-After`); the body is capped at 16 KiB.
          */
         put: operations["setNotificationPreferences"];
         post?: never;
@@ -2748,7 +2770,7 @@ export interface components {
             /** Format: int32 */
             threadNumber: number;
             title: string;
-            /** @description The whole title, its hits marked (one plain segment when only a message matched). */
+            /** @description The whole title, its hits marked (one plain segment when only a message matched, and also when a watched-threads search names no `q`, since then nothing is a hit). */
             titleSnippet: components["schemas"]["SnippetSegment"][];
             /** @description The status KEY. */
             status: string;
@@ -2765,10 +2787,10 @@ export interface components {
             lastActivityAt: number;
             /**
              * Format: int64
-             * @description How many live messages of the thread match (0 for a title-only hit).
+             * @description How many live messages of the thread match (0 for a title-only hit, and always 0 for a watched-threads search without `q`).
              */
             matchCount: number;
-            /** @description The three newest matching live messages, newest first. */
+            /** @description The three newest matching live messages, newest first (empty for a title-only hit and for a watched-threads search without `q`). */
             messages: components["schemas"]["MessageSearchHit"][];
         };
         ThreadSearchPage: {
@@ -2949,11 +2971,15 @@ export interface components {
             total: number;
         };
         /**
-         * @description The kind of a notice (persisted, never renamed): `MENTIONED` (the caller was mentioned in a message) and `THREAD_ASSIGNED`
-         *     (someone else made the caller the owner of a thread). A client treats a value it does not know as plain text.
+         * @description The kind of a notice, which is also its reason (persisted, never renamed): `MENTIONED` (named with `<@id>`), `TEAM_MENTIONED` (the
+         *     caller's team was named), `WATCHERS_MENTIONED` (the caller watches the thread and its watchers were named), `EVERYONE_MENTIONED`,
+         *     `THREAD_REPLIED` (a reply in a thread the caller watches), `THREAD_CREATED` (a new thread in a room the caller is in),
+         *     `THREAD_ASSIGNED` (someone else made the caller the owner of a thread), `THREAD_OWNER_CHANGED` (a watched thread changed owner),
+         *     `THREAD_STATUS_CHANGED` (a watched thread moved within a status category), `THREAD_CLOSED` and `THREAD_REOPENED` (a watched thread
+         *     was closed or reopened). One notice per person and event, the most specific reason. A client treats a value it does not know as plain text.
          * @enum {string}
          */
-        NotificationType: "MENTIONED" | "THREAD_ASSIGNED";
+        NotificationType: "MENTIONED" | "TEAM_MENTIONED" | "WATCHERS_MENTIONED" | "EVERYONE_MENTIONED" | "THREAD_REPLIED" | "THREAD_CREATED" | "THREAD_ASSIGNED" | "THREAD_OWNER_CHANGED" | "THREAD_STATUS_CHANGED" | "THREAD_CLOSED" | "THREAD_REOPENED";
         /** @description One notice of the caller. The row holds ids only; the names and the title are read when the list is read. */
         Notification: {
             /**
@@ -2988,33 +3014,37 @@ export interface components {
             threadTitle: string;
             /**
              * Format: int32
-             * @description The message that mentions the caller; `null` for `THREAD_ASSIGNED`.
+             * @description The message that notified the caller; `null` for a thread-level kind (`THREAD_ASSIGNED`, the owner and status kinds).
              */
             messageId: number | null;
         };
         NotificationPreferenceKind: {
             type: components["schemas"]["NotificationType"];
-            /** @description Whether the digest email lists this kind for the user. */
+            /** @description Whether a notice of this kind shows in the bell for the user (on by default). */
+            inApp: boolean;
+            /** @description Whether the digest email lists this kind for the user (off by default, for every kind). */
             email: boolean;
         };
-        /** @description The user's email switches, one per kind of notice, in the order of `NotificationType`. */
+        /** @description The user's in-app and email switches, one pair per kind of notice, in the order of `NotificationType`. */
         NotificationPreferences: {
             /** @description False when the deployment sends no email at all. */
             emailAvailable: boolean;
             kinds: components["schemas"]["NotificationPreferenceKind"][];
         };
         /**
-         * @description The way a notice reaches a person. Only `EMAIL` can be switched off; an in-app notice cannot.
+         * @description The way a notice reaches a person. Every kind has a switch for each; none is locked on.
          * @enum {string}
          */
-        NotificationChannel: "EMAIL";
-        DisabledNotificationPreference: {
+        NotificationChannel: "EMAIL" | "IN_APP";
+        NotificationPreferencePair: {
             type: components["schemas"]["NotificationType"];
             channel: components["schemas"]["NotificationChannel"];
         };
         NotificationPreferencesUpdate: {
-            /** @description The pairs to switch OFF (everything else is on). A pair listed twice is a `400`, and so is a list longer than the number of pairs there are (notification types x channels, 2 today: the bound the server enforces, `MAX_DISABLED_PAIRS`). */
-            disabled: components["schemas"]["DisabledNotificationPreference"][];
+            /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 22 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
+            disabled: components["schemas"]["NotificationPreferencePair"][];
+            /** @description The pairs to switch ON (optional: absent is empty). A pair in neither list takes its default (in the app on, by email off), so a client that sends only `disabled` cannot switch an email on. */
+            enabled?: components["schemas"]["NotificationPreferencePair"][];
         };
         NotificationPage: {
             items: components["schemas"]["Notification"][];
@@ -3362,7 +3392,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) and on the room-lock writes that are not a name or an enrolment write (the room archive, unarchive and delete, a member's role PUT and removal, and the room workflow PUT) the per-USER chat-write bucket (shared by all fourteen) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, the two notification "seen" POSTs and the notification-preferences PUT) the per-USER read-state bucket (shared by all five) is exhausted (240/min), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`) the per-USER directory bucket is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) and on the room-lock writes that are not a name or an enrolment write (the room archive, unarchive and delete, a member's role PUT and removal, and the room workflow PUT) the per-USER chat-write bucket (shared by all fourteen) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, and the two notification "seen" POSTs) the per-USER read-state bucket (shared by all four) is exhausted (240/min), on the notification list the per-USER notification-read bucket (240/min) or on the notification-preferences PUT the per-USER notification-prefs bucket (30/min) is exhausted, or the notification list outruns its deadline (`read-timeout`) or finds the caller or server at their maximum of list reads (`read-busy`), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 /** @description Seconds to wait before retrying; sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the rate-limit bucket 429s and the live-ticket store's full 429; not with the login lockout. */
@@ -5635,6 +5665,8 @@ export interface operations {
             query?: {
                 /** @description `true` = only seen notices, `false` = only unseen ones; omitted = both. */
                 seen?: boolean;
+                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted or blank = every kind; at most 11 distinct. */
+                type?: components["schemas"]["NotificationType"][];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];
                 /** @description Rows per page. Defaults to 20, maximum 100. */
@@ -5665,6 +5697,7 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };

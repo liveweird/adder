@@ -11,11 +11,22 @@ export type NotificationItem = NotificationPage["items"][number];
 /** The server caps `total` here (`NotificationPage.total`): a count at the cap means "at least this many". */
 export const NOTIFICATION_TOTAL_CAP = 1000;
 
+export type NotificationType = NotificationItem["type"];
+
+/**
+ * The kinds ADDRESSED to the reader (a person, a team, the watchers or everyone was named, or a thread was handed to them): the rooms rail's
+ * count and the thread list's `@` mark count only these (0.6 D1, 1.1 A21), and the drawer's "Mentions" view lists only these. The other
+ * kinds (replies, new threads, status and owner moves) show in the bell and its badge, never there.
+ */
+export const ADDRESSED_TYPES: readonly NotificationType[] = ["MENTIONED", "TEAM_MENTIONED", "WATCHERS_MENTIONED", "EVERYONE_MENTIONED", "THREAD_ASSIGNED"];
+
 export interface NotificationQuery {
   page: number;
   pageSize: number;
   /** `false` = the unseen ones only; omitted = both. */
   seen?: boolean;
+  /** Any-of: only these kinds; omitted or empty = every kind. */
+  type?: readonly NotificationType[];
 }
 
 /** One page of the caller's notices, newest first (the server's default `-id`). */
@@ -33,16 +44,20 @@ export async function markAllNotificationsSeen(): Promise<void> {
 }
 
 export type NotificationPreferences = paths["/api/v1/users/{id}/notification-preferences"]["get"]["responses"]["200"]["content"]["application/json"];
-export type NotificationType = NotificationPreferences["kinds"][number]["type"];
+export type NotificationPreferenceKind = NotificationPreferences["kinds"][number];
 type PreferencesUpdate = paths["/api/v1/users/{id}/notification-preferences"]["put"]["requestBody"]["content"]["application/json"];
+export type NotificationPreferencePair = PreferencesUpdate["disabled"][number];
 
-/** Which kinds of notice are emailed to the user (self or ADMIN); `emailAvailable` is false on a deployment with no outbound email. */
+/** Every kind with its in-app and email switch (self or ADMIN); `emailAvailable` is false on a deployment with no outbound email. */
 export async function getNotificationPreferences(userId: number): Promise<NotificationPreferences> {
   return jsonRequest<NotificationPreferences>(`/api/v1/users/${userId}/notification-preferences`);
 }
 
-/** A wholesale replace of the SWITCHED-OFF `(type, channel)` pairs (204): an empty list switches everything on. */
-export async function setNotificationPreferences(userId: number, disabled: PreferencesUpdate["disabled"]): Promise<void> {
-  const body: PreferencesUpdate = { disabled };
+/**
+ * A wholesale replace (204): the pairs that are OFF and the pairs that are ON; a pair in neither takes its default (the app on, email off),
+ * so the page sends every pair in one of the two.
+ */
+export async function setNotificationPreferences(userId: number, disabled: PreferencesUpdate["disabled"], enabled: PreferencesUpdate["disabled"]): Promise<void> {
+  const body: PreferencesUpdate = { disabled, enabled };
   return voidRequest(`/api/v1/users/${userId}/notification-preferences`, { method: "PUT", body: JSON.stringify(body) });
 }

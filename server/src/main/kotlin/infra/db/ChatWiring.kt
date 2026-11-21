@@ -1,6 +1,7 @@
 package ch.nokillswit.infra.db
 
 import ch.nokillswit.infra.config.requireConfigInt
+import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.notifications.MAX_EMAIL_BUDGET_PER_ACTOR
 import ch.nokillswit.notifications.NoticeWriter
 import ch.nokillswit.notifications.NotificationEmailBudget
@@ -20,6 +21,7 @@ import ch.nokillswit.threads.MessageTagServiceKey
 import ch.nokillswit.threads.PinCleanup
 import ch.nokillswit.threads.PinService
 import ch.nokillswit.threads.PinServiceKey
+import ch.nokillswit.threads.NOTIFICATION_READS_PER_USER
 import ch.nokillswit.threads.ReadLimiter
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadReadService
@@ -53,11 +55,19 @@ internal fun Application.publishChatServices(
     // The thread aggregate (V14): a thread write runs under the room lock and reads the room through the rooms/ services only.
     val threadEventService = ThreadEventService(database)
     // The hashtag index (V15) is written inside the message writes, so the message service holds it; a boot reindex reads it back.
-    // The filtered thread list and the tag list share one limiter: ONE `threads.readTimeoutSeconds` deadline per read and at most
+    // The filtered thread list and the tag list share one limiter (the notice list has its own, below): ONE
+    // `threads.readTimeoutSeconds` deadline per read and at most
     // `threads.readMaxConcurrent` reads at once in the process (both boot-validated).
     val readLimiter = ReadLimiter(
         timeoutSeconds = requireConfigInt(environment.config, "threads.readTimeoutSeconds", min = 1, max = 30),
         maxConcurrent = readMaxConcurrent,
+    )
+    // The caller's own notice list has a limiter of its own (the same deadline, a small process cap and per-user cap), so a flood of its
+    // re-reads cannot take the thread lists' share of the pool nor the reverse; `requireReadersUnderPool` counts it.
+    val notificationReadLimiter = ReadLimiter(
+        timeoutSeconds = requireConfigInt(environment.config, "threads.readTimeoutSeconds", min = 1, max = 30),
+        maxConcurrent = NOTIFICATION_READ_MAX_CONCURRENT,
+        perUser = NOTIFICATION_READS_PER_USER,
     )
     val messageTagService = MessageTagService(database, readLimiter)
     attributes.put(MessageTagServiceKey, messageTagService)
@@ -71,8 +81,10 @@ internal fun Application.publishChatServices(
         ),
         clock = ::nowMillis,
     )
-    val noticeWriter = NoticeWriter(emailBudget)
-    attributes.put(NotificationServiceKey, NotificationService(database, roomService, emailBudget))
+    // With no outbound email (`mail.transport=disabled`) nothing is mailed, so a notice the person would only have had by email
+    // makes no row.
+    val noticeWriter = NoticeWriter(emailBudget, mailAvailable = mailer() != null)
+    attributes.put(NotificationServiceKey, NotificationService(database, roomService, emailBudget, notificationReadLimiter))
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
     val messageMentionService = MessageMentionService(roomMemberService, noticeWriter)

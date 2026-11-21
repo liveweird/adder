@@ -30,14 +30,51 @@ private val MORE = LocalizedText(en = "...and %d more", pl = "...i jeszcze %d")
 private val PREFERENCES = LocalizedText(en = "Change which emails you get:", pl = "Zmień, jakie wiadomości dostajesz:")
 private val SUBJECT_PREFIX = LocalizedText(en = "Adder: ", pl = "Adder: ")
 
+/** The sentence of one entry (who, the thread's number, the room's name: never a title): the bell's own wording without the title. */
 private fun entryText(type: NotificationType): LocalizedText = when (type) {
     NotificationType.MENTIONED -> LocalizedText(
         en = "%s mentioned you in #%d (%s)",
         pl = "%s wspomina o Tobie w #%d (%s)",
     )
+    NotificationType.TEAM_MENTIONED -> LocalizedText(
+        en = "%s mentioned your team in #%d (%s)",
+        pl = "%s wspomina o Twoim zespole w #%d (%s)",
+    )
+    NotificationType.WATCHERS_MENTIONED -> LocalizedText(
+        en = "%s mentioned the watchers of #%d (%s)",
+        pl = "%s wspomina o obserwujących wątek #%d (%s)",
+    )
+    NotificationType.EVERYONE_MENTIONED -> LocalizedText(
+        en = "%s mentioned everyone in #%d (%s)",
+        pl = "%s wspomina o wszystkich w #%d (%s)",
+    )
+    NotificationType.THREAD_REPLIED -> LocalizedText(
+        en = "%s replied in #%d (%s)",
+        pl = "%s odpowiada w #%d (%s)",
+    )
+    NotificationType.THREAD_CREATED -> LocalizedText(
+        en = "%s started #%d (%s)",
+        pl = "%s zakłada wątek #%d (%s)",
+    )
     NotificationType.THREAD_ASSIGNED -> LocalizedText(
         en = "%s made you the owner of #%d (%s)",
         pl = "%s przekazuje Ci wątek #%d (%s)",
+    )
+    NotificationType.THREAD_OWNER_CHANGED -> LocalizedText(
+        en = "%s changed the owner of #%d (%s)",
+        pl = "%s zmienia właściciela wątku #%d (%s)",
+    )
+    NotificationType.THREAD_STATUS_CHANGED -> LocalizedText(
+        en = "%s moved #%d (%s) to another status",
+        pl = "%s zmienia status wątku #%d (%s)",
+    )
+    NotificationType.THREAD_CLOSED -> LocalizedText(
+        en = "%s closed #%d (%s)",
+        pl = "%s zamyka wątek #%d (%s)",
+    )
+    NotificationType.THREAD_REOPENED -> LocalizedText(
+        en = "%s reopened #%d (%s)",
+        pl = "%s ponownie otwiera wątek #%d (%s)",
     )
 }
 

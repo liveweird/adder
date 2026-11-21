@@ -6,13 +6,16 @@ import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.SortField
 import ch.nokillswit.infra.paging.optionalBoolean
 import ch.nokillswit.infra.paging.parsePaging
+import ch.nokillswit.infra.paging.repeatedStrings
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.plugins.RateLimits
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Parameters
 import io.ktor.resources.Resource
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.auth.authenticate
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.resources.get
@@ -52,19 +55,30 @@ fun Application.configureNotificationRoutes() {
 }
 
 /**
- * `GET /notifications` (any authenticated caller, no guard, no bucket): the caller's OWN notices only, so there is nothing to disclose
- * and no room to hide; the scope (their active rooms, an ADMIN's too) is in the service's predicate. A bad `page`, `pageSize`, `sort` or
- * `seen` is a `400`. A read: no audit line.
+ * `GET /notifications` (any authenticated caller, no guard; the per-USER `notification-read` bucket, 240 a minute, and the shared
+ * `ReadLimiter`): the caller's OWN notices only, so there is nothing to disclose
+ * and no room to hide; the scope (their active rooms, an ADMIN's too) is in the service's predicate. Only notices that show in the app
+ * are listed (`in_app`). `type` repeats (any-of, every distinct kind at most once); an unknown name, or a bad `page`, `pageSize`, `sort` or
+ * `seen`, is a `400`. A read: no audit line.
  */
 private fun Route.notificationList(notifications: NotificationService) {
-    get<NotificationsRoute> {
-        val caller = call.caller()
-        val paging = call.parsePaging(sortable = NOTIFICATION_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
-        val seen = call.request.queryParameters.optionalBoolean("seen")
-        val result = notifications.list(caller.userId, seen, paging)
-        call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+    rateLimit(RateLimitName(RateLimits.NOTIFICATION_READ)) {
+        get<NotificationsRoute> {
+            val caller = call.caller()
+            val paging = call.parsePaging(sortable = NOTIFICATION_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
+            val seen = call.request.queryParameters.optionalBoolean("seen")
+            val types = call.request.queryParameters.notificationTypes()
+            val result = notifications.list(caller.userId, seen, types, paging)
+            call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+        }
     }
 }
+
+/** The repeatable `type` filter: every distinct kind named, at most one of each; an unknown name is a `400` (never echoed back). */
+private fun Parameters.notificationTypes(): Set<NotificationType> =
+    repeatedStrings("type", NotificationType.entries.size).map { name ->
+        NotificationType.entries.firstOrNull { it.name == name } ?: throw BadRequestException("Unknown notification type")
+    }.toSet()
 
 /**
  * `POST /notifications/{id}/seen`: the per-USER `read-state` bucket first of all (an id sweep spends tokens), then the update scoped to
@@ -81,7 +95,10 @@ private fun Route.notificationSeen(notifications: NotificationService) {
     }
 }
 
-/** `POST /notifications/seen-all`: every unseen notice of the caller, nobody else's, on the same bucket; `204` even if none was unseen. */
+/**
+ * `POST /notifications/seen-all`: every unseen notice of the caller that shows in the app, nobody else's, on the same bucket; `204`
+ * even if none was unseen.
+ */
 private fun Route.notificationSeenAll(notifications: NotificationService) {
     rateLimit(RateLimitName(RateLimits.READ_STATE)) {
         post<NotificationsRoute.SeenAll> {

@@ -7,6 +7,8 @@ import ch.nokillswit.notifications.NotificationEmailBudget
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.threads.MessageRef
 import ch.nokillswit.threads.MessageRequest
+import ch.nokillswit.threads.Notice
+import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.users.UserRole
 import io.ktor.client.call.body
 import io.ktor.client.request.get
@@ -72,6 +74,8 @@ class NotificationEmailBudgetTest {
             val email = uniqueEmail("eb")
             val id = TestUsers.seed(email, "pw", role = UserRole.USER, name = "Person $it").also { id -> mintedUsers += id }
             TestRooms.addMember(room, id)
+            // Email is off by default for every kind (1.1 D7): these people opted in, so the budget has something to spend.
+            TestNotificationPreferences.optInEmail(id)
             Person(id, email)
         }
 
@@ -79,8 +83,9 @@ class NotificationEmailBudgetTest {
         suspend fun mention(service: NoticeWriter, recipients: List<Person>, by: UInt = actor): List<UInt> {
             val messageId = TestThreads.post(room, number, by)
             return suspendTransaction(sharedDatabaseForTests()) {
-                service.mentioned(MessageRef(room, threadId, number, messageId), by, recipients.map { it.id })
-            }
+                val notices = recipients.map { Notice(it.id, NoticeReason.MENTIONED) }
+                service.forMessage(MessageRef(room, threadId, number, messageId), by, notices)
+            }.addressed
         }
     }
 
@@ -144,6 +149,22 @@ class NotificationEmailBudgetTest {
         val mailer = RecordingMailer()
         digest(mailer, System.currentTimeMillis() + 6 * MINUTE).run()
         people.forEach { assertEquals(1, mailer.to(it.email), "mailed") }
+    }
+
+    @Test
+    fun `only people whose email is on for the kind spend the budget`() = runBlocking {
+        val s = scene(UserRole.USER)
+        val (quiet, first, second) = s.people(3)
+        TestNotificationPreferences.clear(quiet.id) // back to the default: email off for every kind
+        val service = service(perDay = 1)
+
+        s.mention(service, listOf(quiet, first, second))
+
+        assertEquals(0, mailable(quiet), "email off: settled at insert, never the digest's")
+        assertEquals(1, notices(quiet).size, "but the bell notice is made")
+        assertEquals(1, mailable(first), "the budget of one went to the first person who can be mailed, not to the one who cannot")
+        assertEquals(0, mailable(second), "and the next is over it")
+        assertEquals(1, notices(second).size)
     }
 
     @Test
@@ -258,7 +279,11 @@ class NotificationEmailBudgetTest {
                     suspendTransaction(sharedDatabaseForTests()) {
                         if (inside.incrementAndGet() == people.size) allInside.complete(Unit)
                         withTimeout(30_000) { allInside.await() }
-                        service.mentioned(MessageRef(s.room, s.threadId, s.number, messages[i]), s.actor, listOf(people[i].id))
+                        service.forMessage(
+                            MessageRef(s.room, s.threadId, s.number, messages[i]),
+                            s.actor,
+                            listOf(Notice(people[i].id, NoticeReason.MENTIONED)),
+                        )
                     }
                 }
             }.awaitAll()
@@ -304,8 +329,11 @@ class NotificationEmailBudgetTest {
         val (a, b) = s.people(2)
         val service = service(perDay = 1)
 
-        suspendTransaction(sharedDatabaseForTests()) { service.ownerAssigned(s.room, s.threadId, s.number, s.actor, a.id) }
-        suspendTransaction(sharedDatabaseForTests()) { service.ownerAssigned(s.room, s.threadId, s.number, s.actor, b.id) }
+        for (person in listOf(a, b)) {
+            suspendTransaction(sharedDatabaseForTests()) {
+                service.forThread(s.room, s.threadId, s.number, s.actor, listOf(Notice(person.id, NoticeReason.THREAD_ASSIGNED)))
+            }
+        }
 
         assertEquals(1, mailable(a))
         assertEquals(0, mailable(b))
@@ -327,6 +355,8 @@ class NotificationEmailBudgetTest {
         TestRooms.addMember(room, ann.id)
         TestRooms.addMember(room, bob.id)
         TestThreads.seed(room, owner.id)
+        TestNotificationPreferences.optInEmail(ann.id)
+        TestNotificationPreferences.optInEmail(bob.id)
 
         val response = owner.client.postJson("/api/v1/rooms/$room/threads/1/messages", MessageRequest("hi <@${ann.id}> <@${bob.id}>"))
         assertEquals(HttpStatusCode.Created, response.status)

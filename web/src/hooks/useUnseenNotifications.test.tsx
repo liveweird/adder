@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useUnseenNotifications } from "./useUnseenNotifications";
+import { useAddressedNotifications, useUnseenNotifications } from "./useUnseenNotifications";
 import { jsonResponse } from "../test/http";
 
 describe("useUnseenNotifications", () => {
@@ -34,5 +34,19 @@ describe("useUnseenNotifications", () => {
     rerender();
     expect(result.current.items).toBe(first);
     await waitFor(() => expect(result.current.items).toHaveLength(1));
+  });
+
+  test("the addressed query names the five addressed kinds and lives under its own key, the badge's names none", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    const both = renderHook(() => ({ all: useUnseenNotifications(), addressed: useAddressedNotifications() }), { wrapper });
+    await waitFor(() => expect(both.result.current.addressed.total).toBe(1));
+    const urls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url));
+    expect(urls.filter((u) => !u.includes("type="))).toHaveLength(1);
+    const typed = urls.filter((u) => u.includes("type="));
+    expect(typed).toHaveLength(1);
+    expect(typed[0]).toContain("seen=false&type=MENTIONED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED");
+    expect(queryClient.getQueryData(["notifications", "unseen"])).toBeDefined();
+    expect(queryClient.getQueryData(["notifications", "addressed"])).toBeDefined();
   });
 });

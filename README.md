@@ -11,7 +11,7 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
 
 - **Mentions** — type `@` in the composer and pick a room member; the mention shows as the person's current name (`<@id>` in the stored body), and the thread list's "Mentions me" filter shows only the threads that mention you.
 - **Notifications** — a bell in the header counts your unseen notices (someone mentioned you, or handed a thread over to you); a click opens the message, "Mark all as seen" clears the count, and new ones arrive live. A notice is ids only
-  (`GET /api/v1/notifications`), kept for 90 days. A notice still unseen after five minutes is summed up in **one email digest** (at most one every 15 minutes; who, the room and the thread number with a link, never the message), switched off per kind under "Notification emails" in the
+  (`GET /api/v1/notifications`), kept for 90 days. A notice still unseen after five minutes is summed up in **one email digest** (at most one every 15 minutes; who, the room and the thread number with a link, never the message), switched ON per kind (it is off by default) under "Notification preferences" in the
   account menu; it needs `MAIL_TRANSPORT=smtp` and `MAIL_APP_URL`.
 - **Unread** — a dot in the rooms rail, unread counts in the thread list and a "New" line in the conversation where you stopped reading, with a jump to it.
 - **Reactions** — one emoji per reaction, shown with its count and the first few people; press it again to take yours back (20 distinct emoji per message, 5 per person).
@@ -264,7 +264,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `NOTIFICATIONS_SWEEP_INTERVAL_SECONDS` | `60` | How often the notification sweep wakes (10..3600); the email digest rides the same tick. |
 | `NOTIFICATIONS_SWEEP_ENABLED` | `true` | `false` keeps the sweep (purge and digest) from starting; the test harness turns it off. |
 | `SEARCH_TIMEOUT_SECONDS` | `5` | The budget of one search request (all its statements); past it the search is cancelled and answers 429 `search-timeout` (1..30). |
-| `SEARCH_MAX_CONCURRENT` | `4` | The most searches this process runs at once; the next answers 429 `search-busy` (1..16). With `THREADS_READ_MAX_CONCURRENT` it must stay below `POSTGRES_POOL_MAX_SIZE`, or a production-mode startup is refused. |
+| `SEARCH_MAX_CONCURRENT` | `4` | The most searches this process runs at once; the next answers 429 `search-busy` (1..16). With `THREADS_READ_MAX_CONCURRENT` and the notification list's fixed cap of 4 it must stay below `POSTGRES_POOL_MAX_SIZE`, or a production-mode startup is refused. |
 | `THREADS_READ_TIMEOUT_SECONDS` | `5` | The budget of one filtered thread-list or tag-list read; past it the read is cancelled and answers 429 `read-timeout` (1..30). |
 | `THREADS_READ_MAX_CONCURRENT` | `10` | The most filtered thread-list and tag-list reads this process runs at once; the next answers 429 `read-busy` (1..16). |
 | `THREADS_TAG_REINDEX_ON_BOOT` | `true` | Index the hashtags of messages written before the index, once after boot and without blocking the start; `false` leaves them unindexed until a boot that has it on. |

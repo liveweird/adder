@@ -250,14 +250,24 @@ internal fun connectPooledDatabase(
 }
 
 /**
- * The fail-closed pool check of production mode: the list reads and the searches each hold ONE pooled connection while they run, so their
- * process caps together must stay below the pool, or a flood of them could take every connection (the rest of the app, the room-write
+ * The notification list's OWN limiter cap (`ChatWiring`; fixed, no config key): at most this many of its reads in the process, so a flood
+ * of notice re-reads (every `notification.created` hint makes each open tab read it up to three times) can never crowd the thread and tag
+ * lists out of `threads.readMaxConcurrent`, nor they it. It is counted by [requireReadersUnderPool] with the other readers.
+ */
+internal const val NOTIFICATION_READ_MAX_CONCURRENT = 4
+
+/**
+ * The fail-closed pool check of production mode: the list reads, the notification list and the searches each hold ONE pooled connection
+ * while they run, so their process caps together must stay below the pool, or a flood of them could take every connection (the rest
+ * of the app, the room-write
  * path included, would then wait for the pool). Development mode skips it: tests run tiny pools on purpose (`ConnectionPoolTest`).
  */
 internal fun requireReadersUnderPool(readMaxConcurrent: Int, searchMaxConcurrent: Int, poolMaxSize: Int) {
-    check(readMaxConcurrent + searchMaxConcurrent < poolMaxSize) {
-        "Config \"threads.readMaxConcurrent\" ($readMaxConcurrent) + \"search.maxConcurrent\" ($searchMaxConcurrent) must stay below " +
-            "\"postgres.pool.maxSize\" ($poolMaxSize), so list reads and searches together can never take the whole pool"
+    val notices = NOTIFICATION_READ_MAX_CONCURRENT
+    check(readMaxConcurrent + searchMaxConcurrent + notices < poolMaxSize) {
+        "Config \"threads.readMaxConcurrent\" ($readMaxConcurrent) + \"search.maxConcurrent\" ($searchMaxConcurrent) + the notification " +
+            "list's cap ($notices) must stay below \"postgres.pool.maxSize\" ($poolMaxSize), so list reads and searches together can " +
+            "never take the whole pool"
     }
 }
 
@@ -277,7 +287,8 @@ private fun connectPooledDatabase(options: ConnectionFactoryOptions, bounds: Poo
  * are always present.
  */
 suspend fun Application.configureDatabase() {
-    // Both are boot-validated here, once: the list reads' and the searches' process caps (`ReadLimiter`, `ThreadSearchService`).
+    // Both are boot-validated here, once: the list reads' and the searches' process caps (`ReadLimiter`, `ThreadSearchService`); the
+    // notification list's own fixed cap is counted with them below.
     val readMaxConcurrent = requireConfigInt(environment.config, "threads.readMaxConcurrent", min = 1, max = 16)
     val searchMaxConcurrent = requireConfigInt(environment.config, "search.maxConcurrent", min = 1, max = 16)
     if (!developmentMode) requireReadersUnderPool(readMaxConcurrent, searchMaxConcurrent, readPoolBounds(environment.config).maxSize)

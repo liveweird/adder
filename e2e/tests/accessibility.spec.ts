@@ -49,7 +49,7 @@ const AUTHED_PAGES: { path: string; heading: string }[] = [
   { path: "/workflow-templates/new", heading: "New workflow template" },
   { path: "/feature-flags", heading: "Feature flags" },
   { path: "/change-password", heading: "Change password" },
-  { path: "/notification-preferences", heading: "Notification emails" },
+  { path: "/notification-preferences", heading: "Notification preferences" },
   { path: "/changelog", heading: "Changelog" },
 ];
 
