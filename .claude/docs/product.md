@@ -310,7 +310,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.1.0** (watching, group mentions, notice kinds; release commit 2026-11-21, not yet tagged); 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.1.0** (watching, group mentions, notice kinds; tagged `v1.1.0` at ec9531e, 2026-11-21); 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
