@@ -3,7 +3,9 @@ package ch.nokillswit
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.threads.SEARCH_BUSY_PROBLEM_TYPE
 import ch.nokillswit.threads.SEARCH_TIMEOUT_PROBLEM_TYPE
+import ch.nokillswit.threads.SnippetSegment
 import ch.nokillswit.threads.ThreadSearchPageResponse
+import ch.nokillswit.threads.WatchRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -59,6 +61,25 @@ class GlobalSearchTest {
             mintedRooms += room
             TestThreads.seed(room, owner.id, title = title, body = body)
         }
+
+    private suspend fun HttpClient.watch(room: UInt, number: Int, watching: Boolean = true) {
+        assertEquals(HttpStatusCode.NoContent, putJson("$rooms/$room/threads/$number/watch", WatchRequest(watching)).status)
+    }
+
+    private suspend fun HttpClient.watched(extra: String = ""): ThreadSearchPageResponse {
+        val response = raw("?watching=true$extra")
+        assertEquals(HttpStatusCode.OK, response.status)
+        return response.body()
+    }
+
+    /** The rows of `thread_watches` for [user] in [room], straight from the table (a deleted room's rows stay, inert). */
+    private fun watchRows(room: UInt, user: UInt): Int = PostgresTestSupport.connect().use { c ->
+        c.prepareStatement("SELECT count(*) FROM thread_watches WHERE room_id = ? AND user_id = ?").use { st ->
+            st.setInt(1, room.toInt())
+            st.setLong(2, user.toLong())
+            st.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
+        }
+    }
 
     private fun word(prefix: String) = prefix + UUID.randomUUID().toString().replace("-", "").take(12)
 
@@ -220,6 +241,212 @@ class GlobalSearchTest {
             assertEquals(HttpStatusCode.OK, client.raw("?q=ab").status, "a caller with no rooms still passes validation")
             assertEquals(HttpStatusCode.OK, client.raw("?q=ab&unknown=1").status, "unknown parameter names are ignored")
         }
+
+    @Test
+    fun `watching true with no q lists the caller's watched threads across rooms, newest activity first, with no snippets`() =
+        testApplication {
+            usePostgresTestcontainer()
+            val ann = actor("gs-wl-ann")
+            val bob = actor("gs-wl-bob")
+            val mine = room(ann, "WatchA", "alpha words", title = "Ann's own")
+            val shared = room(bob, "WatchB", "beta words", title = "Bob's thread")
+            val elsewhere = room(bob, "WatchC", "gamma words", title = "Bob's other room")
+            TestRooms.addMember(shared, ann.id)
+            TestThreads.seed(shared, ann.id, title = "Ann in Bob's room", body = "delta words")
+            TestThreads.setStamps(mine, 1, createdAt = 1, lastActivityAt = 1_000)
+            TestThreads.setStamps(shared, 1, createdAt = 2, lastActivityAt = 2_000)
+            TestThreads.setStamps(shared, 2, createdAt = 3, lastActivityAt = 3_000)
+            TestThreads.setStamps(elsewhere, 1, createdAt = 4, lastActivityAt = 4_000)
+
+            val first = ann.client.watched()
+            assertEquals(2, first.total, "the two threads Ann started watch themselves; Bob's and the other room's do not")
+            assertEquals(listOf(shared to 2, mine to 1), first.items.map { it.roomId to it.threadNumber }, "newest activity first")
+            first.items.forEach { hit ->
+                assertEquals(emptyList(), hit.messages)
+                assertEquals(0, hit.matchCount)
+                assertEquals(listOf(SnippetSegment(hit.title, false)), hit.titleSnippet)
+                assertTrue(hit.roomName.startsWith(if (hit.roomId == mine) "WatchA " else "WatchB "), "each hit names its own room")
+            }
+
+            ann.client.watch(shared, 1)
+            assertEquals(listOf(shared to 2, shared to 1, mine to 1), ann.client.watched().items.map { it.roomId to it.threadNumber })
+            val oldestFirst = ann.client.watched("&sort=lastActivityAt")
+            assertEquals(listOf(mine to 1, shared to 1, shared to 2), oldestFirst.items.map { it.roomId to it.threadNumber })
+            val second = ann.client.watched("&pageSize=2&page=2")
+            assertEquals(3, second.total)
+            assertEquals(listOf(mine to 1), second.items.map { it.roomId to it.threadNumber })
+            TestThreads.closeRaw(shared, 1)
+            assertEquals(listOf(shared to 1), ann.client.watched("&closed=true").items.map { it.roomId to it.threadNumber })
+            assertEquals(2, ann.client.watched("&closed=false").total)
+
+            ann.client.watch(shared, 1, false)
+            ann.client.watch(mine, 1, false)
+            val remaining = ann.client.watched().items.map { it.roomId to it.threadNumber }
+            assertEquals(listOf(shared to 2), remaining, "an unwatch drops the thread")
+            val bobs = bob.client.watched().items.map { it.roomId to it.threadNumber }
+            assertEquals(listOf(elsewhere to 1, shared to 1), bobs, "Bob's own threads, none of Ann's")
+        }
+
+    @Test
+    fun `watching narrows the matches of q across rooms, true to the watched and false to the others`() = testApplication {
+        usePostgresTestcontainer()
+        val term = word("watchq")
+        val ann = actor("gs-wq-ann")
+        val bob = actor("gs-wq-bob")
+        val mine = room(ann, "WqA", "The $term here", title = "Mine")
+        val shared = room(bob, "WqB", "The $term there", title = "Theirs")
+        TestRooms.addMember(shared, ann.id)
+        val third = room(ann, "WqC", "Nothing to find", title = "Unrelated")
+
+        assertEquals(setOf(mine, shared), ann.client.find(term).items.map { it.roomId }.toSet())
+        val watched = ann.client.find(term, "&watching=true")
+        assertEquals(listOf(mine), watched.items.map { it.roomId }, "the one matching thread Ann watches")
+        assertEquals(1, watched.items.single().matchCount, "with a q the hit carries its messages")
+        assertEquals(listOf(shared), ann.client.find(term, "&watching=false").items.map { it.roomId })
+        ann.client.watch(shared, 1)
+        assertEquals(setOf(mine, shared), ann.client.find(term, "&watching=true").items.map { it.roomId }.toSet())
+        assertEquals(emptyList(), ann.client.find(term, "&watching=false").items)
+        assertEquals(
+            setOf(mine, shared, third),
+            ann.client.watched().items.map { it.roomId }.toSet(),
+            "with no q the unrelated thread Ann started is listed too",
+        )
+    }
+
+    @Test
+    fun `q is required unless watching is true`() = testApplication {
+        usePostgresTestcontainer()
+        val loner = actor("gs-wr")
+        val client = loner.client
+
+        val refused = listOf(
+            "",
+            "?watching=false",
+            "?watching=",
+            "?watching=maybe",
+            "?watching=1",
+            "?watching=true&watching=true",
+            "?watching=true&q=a",
+            "?watching=true&q=!!!",
+            "?watching=true&q=ab%07",
+            "?watching=true&q=ab&q=cd",
+            "?watching=true&sort=title",
+            "?watching=true&pageSize=21",
+            "?watching=true&closed=maybe",
+        )
+        for (query in refused) assertEquals(HttpStatusCode.BadRequest, client.raw(query).status, query)
+        val accepted = listOf(
+            "?watching=true",
+            "?watching=true&q=",
+            "?watching=true&q=%20%20",
+            "?watching=true&q=ab",
+            "?watching=false&q=ab",
+            "?watching=true&unknown=1",
+        )
+        for (query in accepted) assertEquals(HttpStatusCode.OK, client.raw(query).status, query)
+        val empty = client.watched()
+        assertEquals(0, empty.total, "a caller with no rooms has nothing watched")
+        assertEquals(emptyList(), empty.items)
+    }
+
+    @Test
+    fun `an ADMIN who is not a member sees no watched thread of that room`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("gs-wadm-own")
+        val admin = actor("gs-wadm", UserRole.ADMIN)
+        val room = room(owner, "AdminDoor", "The inside")
+
+        assertEquals(1, owner.client.watched().total)
+        assertEquals(0, admin.client.watched().total, "no membership, no watches, no hit")
+        TestRooms.addMember(room, admin.id)
+        assertEquals(0, admin.client.watched().total, "a member ADMIN watches only what they chose")
+        admin.client.watch(room, 1)
+        assertEquals(listOf(room), admin.client.watched().items.map { it.roomId })
+    }
+
+    @Test
+    fun `a removed member and a deleted room drop out of the watched view, and a deleted room's watch stays inert`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("gs-wdel-own")
+        val member = actor("gs-wdel-mem")
+        val admin = actor("gs-wdel-adm", UserRole.ADMIN)
+        val kept = room(owner, "WKept", "Kept words")
+        val gone = room(owner, "WGone", "Gone words")
+        val left = room(owner, "WLeft", "Left words")
+        for (room in listOf(kept, gone, left)) {
+            TestRooms.addMember(room, member.id)
+            member.client.watch(room, 1)
+        }
+        assertEquals(setOf(kept, gone, left), member.client.watched().items.map { it.roomId }.toSet())
+
+        assertEquals(HttpStatusCode.NoContent, admin.client.delete("$rooms/$gone").status)
+        assertEquals(1, watchRows(gone, member.id), "the deleted room's watch is still in the table")
+        assertEquals(setOf(kept, left), member.client.watched().items.map { it.roomId }.toSet(), "the view starts from the live rooms")
+        assertEquals(setOf(kept, left), owner.client.watched().items.map { it.roomId }.toSet())
+
+        assertEquals(HttpStatusCode.NoContent, owner.client.delete("$rooms/$left/members/${member.id}").status)
+        assertEquals(0, watchRows(left, member.id), "leaving drops the watches")
+        assertEquals(listOf(kept), member.client.watched().items.map { it.roomId })
+    }
+
+    /**
+     * The watched-threads view sends no query-text and no snippet statement, and its two thread statements keep the room restriction
+     * first, as one array argument, with the watch probe correlated on the thread's own room: the generic plan of the page reaches the
+     * watches through `idx_thread_watches_user_room` and never reads the messages (`persistence.md` "Search (V16)"). Like the q-path pin
+     * above it reads the driver's statement log through a process-wide logger, so it relies on the tests of a class running one at a time
+     * (they do, within a fork): no other test's statements are in the capture.
+     */
+    @Test
+    fun `the watched view sends only the count and the page and probes watches through their index`() = testApplication {
+        usePostgresTestcontainer()
+        val ann = actor("gs-wshape")
+        room(ann, "WShape", "Shape words")
+        val driver = LoggerFactory.getLogger("io.r2dbc.postgresql.QUERY") as ch.qos.logback.classic.Logger
+        val saved = driver.level
+        val capture = LogCapture(driver.name)
+        try {
+            driver.level = ch.qos.logback.classic.Level.DEBUG
+            assertEquals(1, ann.client.watched().total)
+            val all = capture.events.map { it.formattedMessage }
+            val statements = all.filter { "threads.room_id = ANY(" in it }
+            assertEquals(2, statements.size, "the count and the page: $statements")
+            val textSearch = listOf("ts_headline", "string_agg", "to_tsvector", "tsquery")
+            assertTrue(all.none { sql -> textSearch.any { it in sql.lowercase() } }, "no query text and no snippet statement: $all")
+            statements.forEach { sql ->
+                assertTrue("thread_watches" in sql && "EXISTS" in sql.uppercase(), sql)
+                assertTrue("thread_watches.room_id = threads.room_id" in sql, "correlated on the thread's own room: $sql")
+                assertTrue("messages." !in sql && "FROM messages" !in sql, "no message is read: $sql")
+            }
+            assertWatchPlanUsesTheWatchIndex(statements.last().removePrefix("Executing query: "))
+        } finally {
+            driver.level = saved
+            capture.detach()
+        }
+    }
+
+    /** The page statement as a PREPARED statement's GENERIC plan with sequential scans off: the watches come through their index. */
+    private fun assertWatchPlanUsesTheWatchIndex(sql: String) {
+        PostgresTestSupport.connect().use { c ->
+            c.autoCommit = false
+            try {
+                c.createStatement().use { st ->
+                    st.execute("SET LOCAL plan_cache_mode = force_generic_plan")
+                    st.execute("SET LOCAL enable_seqscan = off")
+                    st.execute("PREPARE watch_plan(int4[], int8) AS $sql")
+                    val plan = buildString {
+                        st.executeQuery("EXPLAIN EXECUTE watch_plan('{1,2}', 1)").use { rs ->
+                            while (rs.next()) appendLine(rs.getString(1))
+                        }
+                    }
+                    assertTrue("idx_thread_watches_user_room" in plan, "the watches are read through their index:\n$plan")
+                    assertTrue("hashed SubPlan" !in plan, "no hashed subplan:\n$plan")
+                    assertTrue("messages" !in plan, "no message table in the plan:\n$plan")
+                }
+            } finally {
+                c.rollback()
+            }
+        }
+    }
 
     @Test
     fun `the bucket is shared with the room search`() = testApplication {

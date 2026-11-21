@@ -86,6 +86,17 @@ describe("CommandPalette", () => {
     expect(await screen.findByRole("button", { name: /Show telemetry panel/ })).toBeInTheDocument();
   });
 
+  test("every session's palette has Threads I watch, which opens the search across rooms with the switch on", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: 0 }))));
+    const user = userEvent.setup();
+    renderPalette();
+    palette.open();
+    await user.type(await screen.findByPlaceholderText("Search or jump to a page…"), "watch");
+    await user.click(await screen.findByRole("button", { name: "Threads I watch" }));
+    expect(await screen.findByText("at /search")).toBeInTheDocument();
+    expect(screen.getByText("with ?watching=1")).toBeInTheDocument();
+  });
+
   test("a regular session's palette has no telemetry action", async () => {
     vi.stubGlobal("fetch", vi.fn());
     renderPalette();

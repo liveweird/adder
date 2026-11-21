@@ -38,7 +38,8 @@
     "groupActions": "Akcje",
     "groupSearch": "Szukaj",
     "searchAll": "Szukaj „{{q}}” we wszystkich pokojach",
-    "searchRoom": "Szukaj „{{q}}” w pokoju {{room}}"
+    "searchRoom": "Szukaj „{{q}}” w pokoju {{room}}",
+    "watching": "Wątki, które obserwuję"
   },
   "live": {
     "reconnecting": "Ponowne łączenie…",

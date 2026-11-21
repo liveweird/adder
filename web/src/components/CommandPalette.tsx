@@ -5,7 +5,7 @@ import { ActionIcon, Kbd, Text, UnstyledButton } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { useOs } from "@mantine/hooks";
 import { Spotlight, type SpotlightActionData, type SpotlightActionGroupData, type SpotlightFilterFunction } from "@mantine/spotlight";
-import { IconActivity, IconHash, IconSearch } from "@tabler/icons-react";
+import { IconActivity, IconEye, IconHash, IconSearch } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import { getRoom } from "../api/rooms";
 import { ACCOUNT_NAV, visibleSections } from "../utils/navigation";
@@ -13,7 +13,7 @@ import { useRailRooms } from "../hooks/useRailRooms";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "../hooks/useTelemetryPanel";
 import { parseRoomId, roomPath, roomSearchPath, searchPath } from "../utils/roomLinks";
 import { roomKeys } from "../utils/roomKeys";
-import { queryProblem, searchResultsPath } from "../utils/searchParams";
+import { queryProblem, searchResultsPath, watchedThreadsPath } from "../utils/searchParams";
 import { palette, paletteStore } from "../utils/commandPalette";
 import { foldDiacritics } from "../utils/text";
 import classes from "../theme.module.css";
@@ -48,16 +48,25 @@ export default function CommandPalette() {
 
   const pages: SpotlightActionGroupData = {
     group: t("appShell.palette.groupPages"),
-    actions: [...visibleSections(admin).flatMap((section) => section.items), ...ACCOUNT_NAV].map((leaf) => {
-      const Icon = leaf.icon;
-      return {
-        id: `page:${leaf.to}`,
-        label: t(leaf.label),
-        keywords: leaf.keywords ? [...leaf.keywords] : undefined,
-        leftSection: <Icon size={18} stroke={1.5} />,
-        onClick: () => go(leaf.to),
-      };
-    }),
+    actions: [
+      ...[...visibleSections(admin).flatMap((section) => section.items), ...ACCOUNT_NAV].map((leaf) => {
+        const Icon = leaf.icon;
+        return {
+          id: `page:${leaf.to}`,
+          label: t(leaf.label),
+          keywords: leaf.keywords ? [...leaf.keywords] : undefined,
+          leftSection: <Icon size={18} stroke={1.5} />,
+          onClick: () => go(leaf.to),
+        };
+      }),
+      // The search across rooms with the "Threads I watch" switch on and no term (any caller; a caller with no rooms gets an empty list).
+      {
+        id: "page:watching",
+        label: t("appShell.palette.watching"),
+        leftSection: <IconEye size={18} stroke={1.5} />,
+        onClick: () => go(watchedThreadsPath(searchPath)),
+      },
+    ],
   };
   const roomGroup: SpotlightActionGroupData = {
     group: t("appShell.palette.groupRooms"),

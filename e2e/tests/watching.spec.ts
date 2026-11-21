@@ -1,5 +1,6 @@
 // Watching (1.1.0): a member watches a thread and stops (the toggle in the thread pane, the eye mark on the thread's row, the "Watching" filter,
-// the watcher count), and the creator of a thread watches it from the start. The caller's own state: nothing is pushed, so every check reads
+// the watcher count), the creator of a thread watches it from the start, and the searches' "Threads I watch" switch (and the palette's action)
+// lists the watched threads of a room and across rooms with no search term. The caller's own state: nothing is pushed, so every check reads
 // the page after its own action.
 // Owns: its throwaway `e2e-watch-*` rooms and users (and its own throwaway administrator, which only mints them), removed through the API in an
 // `afterEach` (rooms first, then the users). Every room is created by a throwaway user through the API and only copies the seeded Default
@@ -31,6 +32,7 @@ interface Scene {
   mate: Person;
   roomId: number;
   api: APIRequestContext;
+  templateId: number;
 }
 
 const WATCH_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/watch$/;
@@ -49,18 +51,24 @@ async function scene(page: Page): Promise<Scene> {
   expect(templates.status(), await templates.text()).toBe(200);
   const template = ((await templates.json()) as { items: { id: number; name: string }[] }).items.find((candidate) => candidate.name === "Default");
   expect(template, "the seeded Default template").toBeDefined();
-  const created = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-watch"), templateId: template!.id } });
+  const roomId = await makeRoom(api, template!.id, mate.id);
+  return { owner, mate, roomId, api, templateId: template!.id };
+}
+
+/** A room (unique name) created through `api` from the template, with `mateId` added as a plain member; its removal is queued first. */
+async function makeRoom(api: APIRequestContext, templateId: number, mateId: number): Promise<number> {
+  const created = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-watch"), templateId } });
   expect(created.status(), await created.text()).toBe(201);
   const roomId = ((await created.json()) as { id: number }).id;
   cleanup.unshift(`/api/v1/rooms/${roomId}`);
-  const added = await api.post(`/api/v1/rooms/${roomId}/members`, { data: { userIds: [mate.id] } });
+  const added = await api.post(`/api/v1/rooms/${roomId}/members`, { data: { userIds: [mateId] } });
   expect(added.status(), await added.text()).toBe(200);
-  return { owner, mate, roomId, api };
+  return roomId;
 }
 
-/** Start a thread as the owner through the API; returns its number. */
-async function startThread(room: Scene, title: string): Promise<number> {
-  const created = await room.api.post(`/api/v1/rooms/${room.roomId}/threads`, { data: { title, body: "Seeded through the API." } });
+/** Start a thread as the owner through the API (in `roomId`, the scene's room unless another is named); returns its number. */
+async function startThread(room: Scene, title: string, roomId = room.roomId): Promise<number> {
+  const created = await room.api.post(`/api/v1/rooms/${roomId}/threads`, { data: { title, body: "Seeded through the API." } });
   expect(created.status(), await created.text()).toBe(201);
   return ((await created.json()) as { number: number }).number;
 }
@@ -129,4 +137,62 @@ test("the creator watches a new thread", async ({ page }) => {
   await expect(watchButton(page)).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Watchers: 1")).toBeVisible();
   await expect(threadLink(page, title)).toHaveAccessibleDescription(WATCHING_MARK);
+});
+
+test("the watching filter lists watched threads in the room and across rooms", async ({ page }) => {
+  const room = await scene(page);
+  const roomB = await makeRoom(room.api, room.templateId, room.mate.id);
+  const watchedA = uniqueText("WatchedA");
+  const otherA = uniqueText("OtherA");
+  const watchedB = uniqueText("WatchedB");
+  const otherB = uniqueText("OtherB");
+  const numbers = {
+    watchedA: await startThread(room, watchedA),
+    otherA: await startThread(room, otherA),
+    watchedB: await startThread(room, watchedB, roomB),
+    otherB: await startThread(room, otherB, roomB),
+  };
+  // The teammate watches one thread in each room through the API (the owner's own threads are watched by the owner, not by them).
+  const { api: mateApi } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(mateApi);
+  for (const [roomId, number] of [[room.roomId, numbers.watchedA], [roomB, numbers.watchedB]] as const) {
+    const watch = await mateApi.put(`/api/v1/rooms/${roomId}/threads/${number}/watch`, { data: { watching: true } });
+    expect(watch.status(), await watch.text()).toBe(204);
+  }
+  await login(page, room.mate.email, room.mate.password);
+
+  // The room's search: the switch lists the watched thread with no term (no matching messages, no highlighted words) and the address holds it.
+  await page.goto(`/rooms/${room.roomId}/search`);
+  // Mantine's switch input sits under its track: `force` clicks the input itself (the other specs' switches do the same).
+  await page.getByRole("switch", { name: "Threads I watch" }).click({ force: true });
+  await expect(page.getByRole("switch", { name: "Threads I watch" })).toBeChecked();
+  await expect(page).toHaveURL(/[?&]watching=1(&|$)/);
+  const hits = page.getByRole("list", { name: "Search results", exact: true }).getByRole("article");
+  await expect(hits).toHaveCount(1);
+  await expect(hits.first()).toContainText(watchedA);
+  await expect(page.getByText("1 thread found")).toBeVisible();
+  await expect(page.getByText(otherA)).toHaveCount(0);
+  await expect(page.getByText(/matching message/)).toHaveCount(0);
+  await expect(hits.locator("mark")).toHaveCount(0);
+
+  // The command palette's action opens the search across rooms with the switch on: both watched threads, each naming its room, and no other.
+  await page.goto("/");
+  await page.getByRole("button", { name: /^Search or jump to a page/ }).click();
+  await page.getByPlaceholder("Search or jump to a page…").fill("watch");
+  await page.getByRole("button", { name: "Threads I watch", exact: true }).click();
+  await expect(page).toHaveURL(/\/search\?watching=1$/);
+  await expect(page.getByRole("switch", { name: "Threads I watch" })).toBeChecked();
+  await expect(page.getByText("2 threads found")).toBeVisible();
+  await expect(hits).toHaveCount(2);
+  await expect(hits.filter({ hasText: watchedA })).toBeVisible();
+  await expect(hits.filter({ hasText: watchedB })).toBeVisible();
+  await expect(page.getByText(otherA)).toHaveCount(0);
+  await expect(page.getByText(otherB)).toHaveCount(0);
+
+  // A reload keeps the list; switching off leaves no search behind.
+  await page.reload();
+  await expect(hits).toHaveCount(2);
+  await page.getByRole("switch", { name: "Threads I watch" }).click({ force: true });
+  await expect(page).not.toHaveURL(/watching/);
+  await expect(hits).toHaveCount(0);
 });

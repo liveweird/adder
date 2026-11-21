@@ -115,6 +115,24 @@ describe("RoomSearch page", () => {
     expect(screen.getByRole("radio", { name: "Closed" })).toBeChecked();
   });
 
+  test("the Threads I watch switch asks the room for its watched threads with no term", async () => {
+    const { searches } = serve(() => jsonResponse(200, searchPage([threadHit(3, { matchCount: 0, messages: [], status: "triage" })])));
+    const user = userEvent.setup();
+    renderSearch();
+    await user.click(await screen.findByRole("switch", { name: "Threads I watch" }));
+    expect(await screen.findByRole("link", { name: "#3 Database outage" })).toBeInTheDocument();
+    expect(searches).toEqual(["/api/v1/rooms/12/search?page=1&pageSize=20&watching=true"]);
+    expect(screen.getByTestId("search")).toHaveTextContent("?watching=1");
+    expect(screen.getByText("Triage")).toBeInTheDocument();
+  });
+
+  test("a watching key in the URL searches the room with the scope it names and no term", async () => {
+    const { searches } = serve(() => jsonResponse(200, searchPage([])));
+    renderSearch("/rooms/12/search?watching=1&scope=open");
+    expect(await screen.findByText("You are not watching any threads.")).toBeInTheDocument();
+    expect(searches).toEqual(["/api/v1/rooms/12/search?page=1&pageSize=20&closed=false&watching=true"]);
+  });
+
   test("the scope control searches Open, Closed or All, and goes back to page 1", async () => {
     const { searches } = serve(() => jsonResponse(200, searchPage([threadHit(1)])));
     const user = userEvent.setup();

@@ -7,7 +7,7 @@ import { ApiError } from "../api/http";
 import type { RoomWorkflow } from "../api/rooms";
 import type { SearchQuery, ThreadSearchPage } from "../api/search";
 import { useSearchUrl } from "../hooks/useSearchUrl";
-import { queryProblem, scopeToClosed, SEARCH_PAGE_SIZE, searchErrorMessage } from "../utils/searchParams";
+import { isSearchable, scopeToClosed, SEARCH_PAGE_SIZE, searchErrorMessage } from "../utils/searchParams";
 import EmptyState from "./EmptyState";
 import FormErrorAlert from "./FormErrorAlert";
 import LoadingBlock from "./LoadingBlock";
@@ -39,13 +39,15 @@ export default function SearchBody({
   onGone?: () => void;
 }) {
   const { t } = useTranslation();
-  const { state, submit, setScope, setPage, resetPage } = useSearchUrl();
-  const { q, scope, page } = state;
-  // A term the URL holds but the server would refuse (hand-edited, too short) is never sent; the form says why.
-  const searchable = q !== "" && queryProblem(q) === null;
+  const { state, submit, setScope, setWatching, setPage, resetPage } = useSearchUrl();
+  const { q, scope, watching, page } = state;
+  // A term the URL holds but the server would refuse (hand-edited, too short) is never sent; the form says why. With the "Threads I watch"
+  // toggle on, no term at all is a search too: the list of the threads the caller watches.
+  const searchable = isSearchable(state);
   const { data, isLoading, isError, error, isPlaceholderData, refetch } = useQuery({
-    queryKey: [...baseKey, q, scope, page],
-    queryFn: () => fetchPage({ q, page, pageSize: SEARCH_PAGE_SIZE, closed: scopeToClosed(scope) }),
+    queryKey: [...baseKey, q, scope, page, watching],
+    queryFn: () =>
+      fetchPage({ q: q === "" ? undefined : q, page, pageSize: SEARCH_PAGE_SIZE, closed: scopeToClosed(scope), watching: watching || undefined }),
     enabled: searchable,
     staleTime: SEARCH_STALE_MS,
     placeholderData: keepPreviousData,
@@ -61,10 +63,19 @@ export default function SearchBody({
   }, [emptied, resetPage]);
 
   const answered = searchable && data !== undefined;
+  const emptyLabel = !watching ? t("search.empty", { q }) : q === "" ? t("search.watching.empty") : t("search.watching.emptyQ", { q });
   return (
     <Stack gap="md">
       {/* Submitting the term that is already searched reads it again (the way to retry a failed search, or to refresh a stale one); a new term is a new URL. */}
-      <SearchForm label={label} q={q} scope={scope} onSubmit={(next) => (next === q ? void refetch() : submit(next))} onScope={setScope} />
+      <SearchForm
+        label={label}
+        q={q}
+        scope={scope}
+        watching={watching}
+        onSubmit={(next) => (next === q ? void refetch() : submit(next))}
+        onScope={setScope}
+        onWatching={setWatching}
+      />
       {searchable && isError && <FormErrorAlert>{searchErrorMessage(error, t)}</FormErrorAlert>}
       {searchable && isLoading && <LoadingBlock />}
       {/* A live region that is always there while a search is shown, so the count is announced when it changes. */}
@@ -73,7 +84,7 @@ export default function SearchBody({
           {answered && !isPlaceholderData ? t("search.results.count", { count: data.total }) : ""}
         </Text>
       )}
-      {answered && data.items.length === 0 && !isPlaceholderData && !isError && <EmptyState icon={IconSearch} label={t("search.empty", { q })} />}
+      {answered && data.items.length === 0 && !isPlaceholderData && !isError && <EmptyState icon={IconSearch} label={emptyLabel} />}
       {answered && data.items.length > 0 && (
         <div aria-busy={isPlaceholderData} style={{ opacity: isPlaceholderData ? 0.5 : undefined }}>
           <Stack gap="md">

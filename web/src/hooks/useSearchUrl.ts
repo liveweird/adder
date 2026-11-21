@@ -4,18 +4,19 @@ import { parseSearchParams, writeSearchParams } from "../utils/searchParams";
 import { useLiveSearchParams } from "./useLiveSearchParams";
 
 /**
- * A search page's state (`q`, `scope`, `page`), kept in the URL (`utils/searchParams.ts` is the pure half), so a search survives a reload and
+ * A search page's state (`q`, `scope`, `watching`, `page`), kept in the URL (`utils/searchParams.ts` is the pure half), so a search survives a reload and
  * can be shared or reached with Back. Writes go through `useLiveSearchParams` (a handler captured by an older render still builds on the
- * latest parameters). A new term and a page are history entries (Back returns to the previous search or page); the scope is a refinement,
- * written by `replace`. Anything but the page goes back to page 1 in the same write.
+ * latest parameters). A new term and a page are history entries (Back returns to the previous search or page); the scope and the "Threads I watch"
+ * toggle are refinements, written by `replace`. Anything but the page goes back to page 1 in the same write.
  */
 export function useSearchUrl() {
   const [search, setSearch] = useLiveSearchParams();
   const state = useMemo(() => parseSearchParams(search), [search]);
   const submit = useCallback((q: string) => setSearch((prev) => writeSearchParams(prev, { q })), [setSearch]);
   const setScope = useCallback((scope: Scope) => setSearch((prev) => writeSearchParams(prev, { scope }), { replace: true }), [setSearch]);
+  const setWatching = useCallback((watching: boolean) => setSearch((prev) => writeSearchParams(prev, { watching }), { replace: true }), [setSearch]);
   const setPage = useCallback((page: number) => setSearch((prev) => writeSearchParams(prev, { page })), [setSearch]);
   /** The page was emptied under the reader (the results shrank, or a hand-edited `page=99`): back to the first, by `replace`. */
   const resetPage = useCallback(() => setSearch((prev) => writeSearchParams(prev, { page: 1 }), { replace: true }), [setSearch]);
-  return { state, submit, setScope, setPage, resetPage };
+  return { state, submit, setScope, setWatching, setPage, resetPage };
 }

@@ -29,6 +29,7 @@ import {
   type WorkflowField,
 } from "../utils/threadForm";
 import { showSuccessToast } from "../utils/toast";
+import { WATCH_SEARCH_KEYS } from "../utils/watch";
 import ConfirmActionModal from "./ConfirmActionModal";
 import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
@@ -83,7 +84,8 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
       drafts.set(room.id, null);
       showSuccessToast(t("threads.toast.started"));
       navigate(withListParams(threadPath(room.id, created.number), search), { state: focusThreadPaneState });
-      await refreshQueriesAfterMutation(queryClient, ["rooms"]);
+      // The creator watches the new thread: the watched search lists (outside `["rooms"]`) are stale too.
+      await refreshQueriesAfterMutation(queryClient, ["rooms"], ...WATCH_SEARCH_KEYS);
     } catch (err) {
       setError(threadCreateErrorMessage(err, t));
       setSubmitting(false);

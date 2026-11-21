@@ -26,6 +26,15 @@ describe("search API wrappers", () => {
     expect(lastUrl()).toBe("/api/v1/rooms/5/search?q=outage&page=1&pageSize=20");
   });
 
+  test("watching is sent as true, and q is left out of the watched-threads list", async () => {
+    await searchRooms({ page: 1, pageSize: 20, watching: true });
+    expect(lastUrl()).toBe("/api/v1/search?page=1&pageSize=20&watching=true");
+    await searchRoom(5, { q: "outage", page: 1, pageSize: 20, closed: false, watching: true });
+    expect(lastUrl()).toBe("/api/v1/rooms/5/search?q=outage&page=1&pageSize=20&closed=false&watching=true");
+    await searchRoom(5, { q: "outage", page: 1, pageSize: 20, watching: false });
+    expect(lastUrl()).toBe("/api/v1/rooms/5/search?q=outage&page=1&pageSize=20&watching=false");
+  });
+
   test("searchRooms asks across the caller's rooms, and the term is encoded", async () => {
     await searchRooms({ q: "awaria bazy & co", page: 1, pageSize: 20 });
     expect(lastUrl()).toBe("/api/v1/search?q=awaria+bazy+%26+co&page=1&pageSize=20");

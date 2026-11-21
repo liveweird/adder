@@ -7,6 +7,7 @@ import ch.nokillswit.threads.SEARCH_TIMEOUT_PROBLEM_TYPE
 import ch.nokillswit.threads.SnippetSegment
 import ch.nokillswit.threads.ThreadSearchHit
 import ch.nokillswit.threads.ThreadSearchPageResponse
+import ch.nokillswit.threads.WatchRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -67,6 +68,10 @@ class ThreadSearchTest {
         val response = postJson("$rooms/$room/threads/$number/messages", MessageRequest(body))
         assertEquals(HttpStatusCode.Created, response.status)
         return response.body()
+    }
+
+    private suspend fun HttpClient.watch(room: UInt, number: Int, watching: Boolean = true) {
+        assertEquals(HttpStatusCode.NoContent, putJson("$rooms/$room/threads/$number/watch", WatchRequest(watching)).status)
     }
 
     private fun List<SnippetSegment>.hits(): List<String> = filter { it.hit }.map { it.text }
@@ -281,6 +286,138 @@ class ThreadSearchTest {
             assertEquals(emptyList(), cast.member.client.search(cast.room, hostile).items, hostile)
         }
         assertEquals(listOf(1), cast.member.client.numbers(cast.room, "nothing"), "the table is still there")
+    }
+
+    /** The room's watched-threads list: `watching=true` with no `q` (the thread's creator watches it, so the member's are explicit). */
+    @Test
+    fun `watching true with no q lists the caller's watched threads of the room with no messages and no hit`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("srch-wl")
+        TestThreads.seed(cast.room, cast.owner.id, title = "First thread", body = "alpha words")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Second thread", body = "beta words")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Third thread", body = "gamma words")
+        TestThreads.setStamps(cast.room, 1, createdAt = 1, lastActivityAt = 1_000)
+        TestThreads.setStamps(cast.room, 2, createdAt = 2, lastActivityAt = 3_000)
+        TestThreads.setStamps(cast.room, 3, createdAt = 3, lastActivityAt = 2_000)
+        TestThreads.closeRaw(cast.room, 3)
+        val member = cast.member.client
+        member.watch(cast.room, 1)
+        member.watch(cast.room, 2)
+        member.watch(cast.room, 3)
+        member.watch(cast.room, 3, false)
+
+        val page = member.get("$rooms/${cast.room}/search?watching=true").also { assertEquals(HttpStatusCode.OK, it.status) }
+            .body<ThreadSearchPageResponse>()
+        assertEquals(2, page.total)
+        assertEquals(listOf(2, 1), page.items.map { it.threadNumber }, "newest activity first, as every search")
+        page.items.forEach { hit ->
+            assertEquals(emptyList(), hit.messages, "no query, no snippets")
+            assertEquals(0, hit.matchCount)
+            assertEquals(listOf(SnippetSegment(hit.title, false)), hit.titleSnippet, "the title as one non-hit segment")
+            assertEquals(cast.room, hit.roomId)
+            assertEquals(cast.owner.id, hit.ownerId)
+        }
+        assertEquals(
+            listOf(1, 2),
+            member.get("$rooms/${cast.room}/search?watching=true&sort=lastActivityAt").body<ThreadSearchPageResponse>()
+                .items.map { it.threadNumber },
+        )
+        assertEquals(
+            listOf(1),
+            member.get("$rooms/${cast.room}/search?watching=true&pageSize=1&page=2").body<ThreadSearchPageResponse>()
+                .items.map { it.threadNumber },
+        )
+        TestThreads.closeRaw(cast.room, 1)
+        assertEquals(
+            listOf(1),
+            member.get("$rooms/${cast.room}/search?watching=true&closed=true").body<ThreadSearchPageResponse>()
+                .items.map { it.threadNumber },
+        )
+        // The room owner watches the three threads they made; nothing of the member's leaks into their list.
+        assertEquals(3, cast.owner.client.get("$rooms/${cast.room}/search?watching=true").body<ThreadSearchPageResponse>().total)
+    }
+
+    @Test
+    fun `watching narrows the matches of q, true to the watched threads and false to the others`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("srch-wq")
+        TestThreads.seed(cast.room, cast.owner.id, title = "One", body = "outage here")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Two", body = "outage there")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Three", body = "nothing here")
+        val member = cast.member.client
+        member.watch(cast.room, 1)
+        member.watch(cast.room, 3)
+
+        assertEquals(listOf(1, 2), member.numbers(cast.room, "outage"))
+        val watched = member.search(cast.room, "outage", "&watching=true")
+        assertEquals(listOf(1), watched.items.map { it.threadNumber })
+        assertEquals(1, watched.items.single().matchCount, "with a q the hit carries its messages as ever")
+        assertEquals(1, watched.items.single().messages.size)
+        assertEquals(listOf(2), member.numbers(cast.room, "outage", "&watching=false"))
+        assertEquals(listOf(2), member.numbers(cast.room, "outage", "&watching=false&closed=false"))
+    }
+
+    @Test
+    fun `q is required unless watching is true, and a given q is validated as ever`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("srch-wr")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Quiet", body = "nothing")
+        val client = cast.member.client
+        val refused = listOf(
+            "",
+            "?watching=false",
+            "?watching=",
+            "?watching=maybe",
+            "?watching=1",
+            "?watching=true&watching=true",
+            "?watching=true&q=a",
+            "?watching=true&q=!!!",
+            "?watching=true&q=ab%07",
+            "?watching=true&q=ab&q=cd",
+            "?watching=true&sort=title",
+            "?watching=true&pageSize=21",
+            "?watching=true&closed=maybe",
+        )
+        for (query in refused) assertEquals(HttpStatusCode.BadRequest, client.raw(cast.room, query).status, query)
+        val accepted = listOf(
+            "?watching=true",
+            "?watching=true&q=",
+            "?watching=true&q=%20%20",
+            "?watching=true&q=ok",
+            "?watching=false&q=ok",
+        )
+        for (query in accepted) assertEquals(HttpStatusCode.OK, client.raw(cast.room, query).status, query)
+    }
+
+    @Test
+    fun `a non-member is 404 for the watched list too, and an ADMIN outside the room watches nothing there`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("srch-wa")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Watched by owner", body = "kappa words")
+        val admin = seedActor("srch-wadm", UserRole.ADMIN).also { mintedUsers += it.id }
+
+        assertEquals(HttpStatusCode.NotFound, cast.outsider.client.raw(cast.room, "?watching=true").status)
+        assertEquals(HttpStatusCode.NotFound, cast.outsider.client.raw(cast.room, "?watching=false").status, "404 before 400")
+        val none = admin.client.raw(cast.room, "?watching=true")
+        assertEquals(HttpStatusCode.OK, none.status, "an ADMIN reads every room")
+        assertEquals(0, none.body<ThreadSearchPageResponse>().total, "a non-member has no watches")
+        assertEquals(listOf(1), admin.client.numbers(cast.room, "kappa", "&watching=false"), "and every match is one they do not watch")
+        assertEquals(emptyList(), admin.client.numbers(cast.room, "kappa", "&watching=true"))
+    }
+
+    @Test
+    fun `leaving the room drops the watched threads from the list`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("srch-wl2")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Watched", body = "lambda words")
+        cast.member.client.watch(cast.room, 1)
+        assertEquals(1, cast.member.client.get("$rooms/${cast.room}/search?watching=true").body<ThreadSearchPageResponse>().total)
+
+        assertEquals(HttpStatusCode.NoContent, cast.owner.client.delete("$rooms/${cast.room}/members/${cast.member.id}").status)
+        assertEquals(HttpStatusCode.NotFound, cast.member.client.raw(cast.room, "?watching=true").status)
+        TestRooms.addMember(cast.room, cast.member.id)
+        val rejoined = cast.member.client.get("$rooms/${cast.room}/search?watching=true").body<ThreadSearchPageResponse>()
+        assertEquals(0, rejoined.total, "a clean rejoin")
     }
 
     @Test

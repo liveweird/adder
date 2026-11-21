@@ -2,7 +2,16 @@ import { describe, expect, test } from "vitest";
 import i18n from "../i18n";
 import { ApiError } from "../api/http";
 import { PROBLEM_TYPES } from "./problems";
-import { parseSearchParams, queryProblem, scopeToClosed, searchErrorMessage, searchResultsPath, writeSearchParams } from "./searchParams";
+import {
+  isSearchable,
+  parseSearchParams,
+  queryProblem,
+  scopeToClosed,
+  searchErrorMessage,
+  searchResultsPath,
+  watchedThreadsPath,
+  writeSearchParams,
+} from "./searchParams";
 
 describe("queryProblem: the server's rules, so a bad term never travels", () => {
   test("a searchable term has none", () => {
@@ -32,8 +41,8 @@ describe("queryProblem: the server's rules, so a bad term never travels", () => 
 
 describe("the search URL", () => {
   test("parses the term (trimmed), the scope (default all) and the page (default 1); junk is the default", () => {
-    expect(parseSearchParams(new URLSearchParams("q=%20outage%20&scope=closed&page=3"))).toEqual({ q: "outage", scope: "closed", page: 3 });
-    expect(parseSearchParams(new URLSearchParams(""))).toEqual({ q: "", scope: "all", page: 1 });
+    expect(parseSearchParams(new URLSearchParams("q=%20outage%20&scope=closed&page=3"))).toEqual({ q: "outage", scope: "closed", watching: false, page: 3 });
+    expect(parseSearchParams(new URLSearchParams(""))).toEqual({ q: "", scope: "all", watching: false, page: 1 });
     for (const page of ["0", "-1", "2x", "1e3", "9999999999", ""]) expect(parseSearchParams(new URLSearchParams({ page })).page, page).toBe(1);
     expect(parseSearchParams(new URLSearchParams("scope=nonsense")).scope).toBe("all");
   });
@@ -45,6 +54,30 @@ describe("the search URL", () => {
     expect(writeSearchParams(base, { page: 5 }).toString()).toBe("message=9&q=old&scope=open&page=5");
     expect(writeSearchParams(base, { page: 1 }).toString()).toBe("message=9&q=old&scope=open");
     expect(writeSearchParams(new URLSearchParams("q=a"), { q: "" }).toString()).toBe("");
+  });
+
+  test("the watching key is `1` and nothing else; a write keeps it, omits it when off, and goes back to page 1", () => {
+    expect(parseSearchParams(new URLSearchParams("watching=1")).watching).toBe(true);
+    for (const junk of ["true", "0", "me", "", "2"]) expect(parseSearchParams(new URLSearchParams({ watching: junk })).watching, junk).toBe(false);
+    const base = new URLSearchParams("q=old&scope=open&watching=1&page=4&message=9");
+    expect(writeSearchParams(base, { q: "new" }).toString()).toBe("message=9&q=new&scope=open&watching=1");
+    expect(writeSearchParams(base, { watching: false }).toString()).toBe("message=9&q=old&scope=open");
+    expect(writeSearchParams(new URLSearchParams("q=old&page=3"), { watching: true }).toString()).toBe("q=old&watching=1");
+    expect(writeSearchParams(base, { page: 5 }).toString()).toBe("message=9&q=old&scope=open&watching=1&page=5");
+  });
+
+  test("a state is searchable with a term the server accepts, or with no term while watching; a given bad term never is", () => {
+    expect(isSearchable({ q: "outage", watching: false })).toBe(true);
+    expect(isSearchable({ q: "outage", watching: true })).toBe(true);
+    expect(isSearchable({ q: "", watching: false })).toBe(false);
+    expect(isSearchable({ q: "", watching: true })).toBe(true);
+    expect(isSearchable({ q: "a", watching: true })).toBe(false);
+    expect(isSearchable({ q: "!!!", watching: false })).toBe(false);
+  });
+
+  test("the palette's watched-threads link is the search page with the toggle on and no term", () => {
+    expect(watchedThreadsPath("/search")).toBe("/search?watching=1");
+    expect(watchedThreadsPath("/rooms/7/search")).toBe("/rooms/7/search?watching=1");
   });
 
   test("the scope maps to the closed filter, and a palette link carries the trimmed, encoded term", () => {

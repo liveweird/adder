@@ -14,7 +14,8 @@ import kotlinx.serialization.Serializable
 
 /**
  * Full-text search over message bodies and thread titles (V16, 0.5): the result is a page of THREADS, each with its newest matching
- * messages. `chat-model.md` "Search (V16)" holds the rules.
+ * messages. `chat-model.md` "Search (V16)" holds the rules. Since 1.1 the `watching` filter narrows a search to the threads the caller
+ * watches (or, `false`, does not) and, with `watching=true` alone, lists them with no query at all (`chat-model.md` "Watching (V26)").
  */
 
 /** `q` is 2 to this many CODE POINTS after trimming (an emoji is one, though two UTF-16 units). */
@@ -47,7 +48,8 @@ data class MessageSearchHit(
 /**
  * One matching thread. [status] is the status KEY (the SPA draws the pill where it holds the workflow). [messages] holds the
  * [SEARCH_MESSAGES_PER_THREAD] newest matching live messages, newest first, and [matchCount] counts them all; a title-only hit has no
- * messages and a count of 0. [titleSnippet] is the whole title, its hits marked.
+ * messages and a count of 0, as has every hit of a search with no `q` (the watched-threads view, whose [titleSnippet] is the title as one
+ * non-hit segment). [titleSnippet] is the whole title, its hits marked.
  */
 @Serializable
 data class ThreadSearchHit(
@@ -89,20 +91,27 @@ fun validateSearchQuery(raw: String?): String {
     return q
 }
 
-/** The parameters of a search request, validated: the query, the strict `closed` boolean (null = both) and the page. */
-class SearchParams(val q: String, val closed: Boolean?, val paging: PageRequest)
+/**
+ * The parameters of a search request, validated: the query ([q] is null ONLY with [watching] `true`, the "Threads I watch" view), the
+ * strict `closed` and `watching` booleans (null = both / no filter) and the page.
+ */
+class SearchParams(val q: String?, val closed: Boolean?, val watching: Boolean?, val paging: PageRequest)
 
 /**
- * Reads and validates `q`, `closed`, `page`, `pageSize` (at most [MAX_SEARCH_PAGE_SIZE]) and `sort` of a search; every violation is a `400`
- * and none of them names the term. A repeated key is a `400` (`singleValue`).
+ * Reads and validates `q`, `closed`, `watching`, `page`, `pageSize` (at most [MAX_SEARCH_PAGE_SIZE]) and `sort` of a search; every
+ * violation is a `400` and none of them names the term. A repeated key is a `400` (`singleValue`). `q` is REQUIRED unless `watching` is
+ * `true` (a blank `q` counts as none there, as everywhere); with `watching=true` a given `q` is validated as ever.
  */
 fun ApplicationCall.parseSearchParams(): SearchParams {
     val paging = parsePaging(sortable = SEARCH_SORT_FIELDS, defaultSort = SEARCH_DEFAULT_SORT)
     if (paging.pageSize > MAX_SEARCH_PAGE_SIZE) throw BadRequestException("pageSize must be between 1 and $MAX_SEARCH_PAGE_SIZE")
     val params = request.queryParameters
+    val watching = params.optionalBoolean("watching")
+    val raw = params.optionalString("q")
     return SearchParams(
-        q = validateSearchQuery(params.optionalString("q")),
+        q = if (watching == true && raw == null) null else validateSearchQuery(raw),
         closed = params.optionalBoolean("closed"),
+        watching = watching,
         paging = paging,
     )
 }

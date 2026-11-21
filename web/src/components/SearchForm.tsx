@@ -1,17 +1,34 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Group, SegmentedControl, Stack, TextInput } from "@mantine/core";
+import { Button, Group, SegmentedControl, Stack, Switch, TextInput } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
-import { queryProblem } from "../utils/searchParams";
+import { queryProblem, type QueryProblem } from "../utils/searchParams";
 import { SCOPES, type Scope } from "../utils/threadListParams";
 
 /**
  * The search box: a labelled `type="search"` input with the rules of matching under it, the Open / Closed / All control and a submit button. A
  * search is SUBMITTED, not run as you type (it is a heavier read under its own rate limit). The term is checked here first, with the server's
  * rules: a 400 never echoes the term, so this is the only place that can say what is wrong. When the URL's term changes (Back, a shared link,
- * the palette) the box takes it; a term the URL carries that cannot be searched shows its problem at once.
+ * the palette) the box takes it; a term the URL carries that cannot be searched shows its problem at once. The "Threads I watch" switch lists
+ * the threads the caller watches: with it on, an EMPTY box is a search (the whole list) and a term narrows it.
  */
-export default function SearchForm({ label, q, scope, onSubmit, onScope }: { label: string; q: string; scope: Scope; onSubmit: (q: string) => void; onScope: (scope: Scope) => void }) {
+export default function SearchForm({
+  label,
+  q,
+  scope,
+  watching,
+  onSubmit,
+  onScope,
+  onWatching,
+}: {
+  label: string;
+  q: string;
+  scope: Scope;
+  watching: boolean;
+  onSubmit: (q: string) => void;
+  onScope: (scope: Scope) => void;
+  onWatching: (watching: boolean) => void;
+}) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(q);
   // Say what is wrong only once the reader asked (a submit) or the URL already holds a term; an empty box on arrival is not an error.
@@ -23,12 +40,14 @@ export default function SearchForm({ label, q, scope, onSubmit, onScope }: { lab
     setDraft(q);
     setAsked(q !== "");
   }
-  const problem = asked ? queryProblem(draft) : null;
+  // What is wrong with the box, with the watched list in mind: an empty box is fine while it is on.
+  const check = (raw: string): QueryProblem | null => (watching && raw.trim() === "" ? null : queryProblem(raw));
+  const problem = asked ? check(draft) : null;
 
   function submit(event: FormEvent) {
     event.preventDefault();
     setAsked(true);
-    if (queryProblem(draft) === null) onSubmit(draft.trim());
+    if (check(draft) === null) onSubmit(draft.trim());
   }
 
   return (
@@ -39,7 +58,7 @@ export default function SearchForm({ label, q, scope, onSubmit, onScope }: { lab
           label={label}
           value={draft}
           onChange={(event) => setDraft(event.currentTarget.value)}
-          description={t("search.hint")}
+          description={t(watching ? "search.watching.hintOn" : "search.hint")}
           inputWrapperOrder={["label", "input", "error", "description"]}
           error={problem === null ? undefined : t(`search.error.${problem}`)}
           // Announced when it appears (a submit that was refused), not only found by a reader who goes back to the box.
@@ -48,6 +67,7 @@ export default function SearchForm({ label, q, scope, onSubmit, onScope }: { lab
         />
         <Group gap="sm">
           <Button type="submit">{t("search.submit")}</Button>
+          <Switch label={t("search.watching.label")} checked={watching} onChange={(event) => onWatching(event.currentTarget.checked)} />
           <SegmentedControl
             size="xs"
             aria-label={t("search.scope.aria")}

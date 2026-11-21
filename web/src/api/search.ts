@@ -11,12 +11,17 @@ export type MessageSearchHit = ThreadSearchHit["messages"][number];
 export type SnippetSegment = ThreadSearchHit["titleSnippet"][number];
 
 export interface SearchQuery {
-  /** Trimmed, 2 to 100 characters with a letter or a digit (`utils/searchParams.ts` `queryProblem`): the server answers 400 otherwise, never echoing it. */
-  q: string;
+  /**
+   * Trimmed, 2 to 100 characters with a letter or a digit (`utils/searchParams.ts` `queryProblem`): the server answers 400 otherwise, never echoing it.
+   * Omitted ONLY with `watching: true` (the "Threads I watch" list, which has no query: its hits carry no messages and no marked words).
+   */
+  q?: string;
   page: number;
   pageSize: number;
   /** `true` = only closed threads, `false` = only open ones; omitted = both. */
   closed?: boolean;
+  /** `true` = only the threads the caller watches (and `q` becomes optional), `false` = only the others; omitted = both. */
+  watching?: boolean;
 }
 
 /** One page of the threads of ONE room that match (a non-member and an unknown room get the same 404). Newest activity first. */

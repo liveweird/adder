@@ -1,4 +1,4 @@
-# Watching: the toggle, the row mark, the filter and the creator's own watch
+# Watching: the toggle, the row mark, the filter, the creator's own watch and the search's watched list
 
 - **Spec**: [tests/watching.spec.ts](../tests/watching.spec.ts)
 - **Actors**: its own throwaway administrator (`e2e-watch-admin-*`, `specAdmins`, who only mints the throwaway users); two throwaway regular users per scenario (a
@@ -8,7 +8,7 @@
   `e2e-watch-*` names, created and filled through the owner's API session) and its users, removed through the API in an `afterEach` (rooms first, then the users, so a
   failing step leaves nothing behind). The seeded Default template is shared and read-only: rooms only copy it. Every room is created by a throwaway user, so the seed
   administrator is never a member of one. The per-user `read-state` (240 a minute) and `chat-post` (120) buckets are only ever spent by throwaway users and a scenario
-  stays far below them. Threads are never deleted through the API: a room's removal hides them with it.
+  stays far below them; the search scenario spends a handful of the per-user `search` bucket (60 a minute) and of the `thread-watch` bucket (30) of its own throwaway teammate. Threads are never deleted through the API: a room's removal hides them with it.
 
 A watch is the caller's own state (like a read marker): the server emits no live event for it, so nothing here waits for a push; each check reads the page after
 the action that caused it. Threads the scenario is not about are seeded through the owner's API session; the browser then does what the scenario is about.
@@ -33,3 +33,17 @@ the action that caused it. Threads the scenario is not about are seeded through 
 
 1. The administrator mints a creator and a teammate; the creator makes a room through the API, adds the teammate and starts a thread. The creator signs in and opens it.
    - *Expected*: the button "Watch this thread" is already pressed; "Watchers: 1" is shown; the thread's row is described as "You are watching this thread".
+
+## Scenario: the watching filter lists watched threads in the room and across rooms
+
+1. The administrator mints a creator and a teammate; the creator makes two rooms through the API, adds the teammate to both and starts two threads in each ("WatchedA"
+   and "OtherA" in the first, "WatchedB" and "OtherB" in the second). The teammate watches "WatchedA" and "WatchedB" through the API, then signs in.
+2. The teammate opens the first room's **Search** tab (`/rooms/<id>/search`, by address) and turns on the **Threads I watch** switch, with the box empty.
+   - *Expected*: the address holds `watching=1`; the page says "1 thread found" and lists only "WatchedA"; "OtherA" is not shown; no "matching message" line and no
+     highlighted word appear (there is no search term).
+3. The teammate opens the command palette from Home, types "watch" and picks **Threads I watch**.
+   - *Expected*: the address is `/search?watching=1`; the switch is on; the page says "2 threads found" and lists "WatchedA" and "WatchedB" (each naming its room); neither
+     "OtherA" nor "OtherB" is shown.
+4. The teammate reloads the page, then turns the switch off.
+   - *Expected*: after the reload both watched threads are still listed; after the switch is turned off the address no longer holds `watching` and no results are shown
+     (a search needs a term when the switch is off).

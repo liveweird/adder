@@ -38,7 +38,8 @@
     "groupActions": "Actions",
     "groupSearch": "Search",
     "searchAll": "Search all rooms for “{{q}}”",
-    "searchRoom": "Search {{room}} for “{{q}}”"
+    "searchRoom": "Search {{room}} for “{{q}}”",
+    "watching": "Threads I watch"
   },
   "live": {
     "reconnecting": "Reconnecting…",

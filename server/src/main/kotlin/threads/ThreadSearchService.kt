@@ -21,6 +21,7 @@ import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.not
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.core.wrapAsExpression
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -64,25 +65,47 @@ class ThreadSearchService(
 ) {
     private val permits = Semaphore(maxConcurrent)
 
-    /** The search of one room (the route admitted the caller): 404 when the room vanished since, an empty page for no lexeme. */
-    suspend fun searchRoom(roomId: UInt, callerUserId: UInt, q: String, closed: Boolean?, paging: PageRequest): ThreadSearchResult =
+    /**
+     * The search of one room (the route admitted the caller): 404 when the room vanished since, an empty page for no lexeme. [q] is
+     * null only for the watched-threads view ([watching] `true`, `parseSearchParams`); [watching] is the caller's own filter.
+     */
+    suspend fun searchRoom(
+        roomId: UInt,
+        callerUserId: UInt,
+        q: String?,
+        closed: Boolean?,
+        paging: PageRequest,
+        watching: Boolean? = null,
+    ): ThreadSearchResult =
         budgeted(callerUserId, roomId) { budget ->
             budget.arm(this)
             val room = rooms.summary(roomId) ?: throw NotFoundException("Room not found")
-            searchIn(listOf(room), q, closed, paging, budget)
+            searchIn(listOf(room), callerUserId, q, closed, watching, paging, budget)
         }
 
     /**
      * The search across the rooms [callerUserId] is an ACTIVE member of (`GET /search`, any authenticated caller): the scope is
      * `RoomService.memberRooms`, membership only, an ADMIN's too (an ADMIN outside a room finds nothing of it here). A caller with no
      * rooms gets an empty page without a search. The room list is read first, inside the same budgeted transaction, so no statement of
-     * the search can name a room the caller is not in; a room the caller leaves after this read is gone from the next request.
+     * the search can name a room the caller is not in; a room the caller leaves after this read is gone from the next request. This
+     * read is also what keeps "Threads I watch" (`q` null, [watching] `true`) honest: the view starts from the caller's rooms, never
+     * from `thread_watches`, whose rows outlive a deleted room.
      */
-    suspend fun searchMemberRooms(callerUserId: UInt, q: String, closed: Boolean?, paging: PageRequest): ThreadSearchResult =
+    suspend fun searchMemberRooms(
+        callerUserId: UInt,
+        q: String?,
+        closed: Boolean?,
+        paging: PageRequest,
+        watching: Boolean? = null,
+    ): ThreadSearchResult =
         budgeted(callerUserId, null) { budget ->
             budget.arm(this)
             val memberRooms = rooms.memberRooms(callerUserId)
-            if (memberRooms.isEmpty()) ThreadSearchResult(emptyList(), 0) else searchIn(memberRooms, q, closed, paging, budget)
+            if (memberRooms.isEmpty()) {
+                ThreadSearchResult(emptyList(), 0)
+            } else {
+                searchIn(memberRooms, callerUserId, q, closed, watching, paging, budget)
+            }
         }
 
     /**
@@ -114,20 +137,31 @@ class ThreadSearchService(
 
     /**
      * The statements of a search over [inRooms]: the query text, the count and the page of threads (one predicate: the title matches,
-     * or a LIVE message of the thread does), then the message snippets and the title headlines, for the page's thread ids only.
+     * or a LIVE message of the thread does), then the message snippets and the title headlines, for the page's thread ids only. With
+     * [q] null (the watched-threads view: `watching=true` alone) there is no text to match: the query-text and the two snippet
+     * statements are never sent, the predicate is the rooms and the filters, a hit carries no messages and its title as one non-hit
+     * segment, and the page follows the same `sort` (default newest activity first). [watching] narrows to the threads [callerUserId]
+     * watches (`true`) or does not (`false`), through the S3 watch predicate correlated on each thread's own room.
      */
     private suspend fun R2dbcTransaction.searchIn(
         inRooms: List<RoomSummary>,
-        q: String,
+        callerUserId: UInt,
+        q: String?,
         closed: Boolean?,
+        watching: Boolean?,
         paging: PageRequest,
         budget: SearchBudget,
     ): ThreadSearchResult {
         budget.arm(this)
-        val queryText = ftsQueryText(q) ?: return ThreadSearchResult(emptyList(), 0)
+        val queryText = if (q == null) null else ftsQueryText(q) ?: return ThreadSearchResult(emptyList(), 0)
         val threads = ThreadService.Threads
-        var predicate: Op<Boolean> = threads.roomId.equalsAnyInt(inRooms.map { it.id.toInt() }) and matchesTitleOrMessage(queryText)
+        var predicate: Op<Boolean> = threads.roomId.equalsAnyInt(inRooms.map { it.id.toInt() })
+        queryText?.let { predicate = predicate and matchesTitleOrMessage(it) }
         closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
+        watching?.let {
+            val watched = threadWatchedByInRoomOf(callerUserId, threads.roomId, threads.id)
+            predicate = predicate and (if (it) watched else not(watched))
+        }
         budget.arm(this)
         val total = threads.selectAll().where { predicate }.count()
         budget.arm(this)
@@ -135,10 +169,14 @@ class ThreadSearchService(
         if (rows.isEmpty()) return ThreadSearchResult(emptyList(), total)
 
         val ids = rows.map { it[threads.id].value }
-        budget.arm(this)
-        val matches = messageSnippets(ids, queryText)
-        budget.arm(this)
-        val titles = titleSnippets(ids, queryText)
+        var matches: Map<UInt, ThreadMatches> = emptyMap()
+        var titles: Map<UInt, List<SnippetSegment>> = emptyMap()
+        if (queryText != null) {
+            budget.arm(this)
+            matches = messageSnippets(ids, queryText)
+            budget.arm(this)
+            titles = titleSnippets(ids, queryText)
+        }
         budget.arm(this)
         val names = userNames(rows.map { it[threads.ownerId].value } + matches.values.flatMap { m -> m.messages.map { it.authorId } })
         val byRoom = inRooms.associateBy { it.id }

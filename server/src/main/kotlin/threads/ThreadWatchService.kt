@@ -157,11 +157,25 @@ class ThreadWatchService internal constructor(
  * thread. Correlated on [threadId], the outer list's `threads.id`; the person and the room lead `idx_thread_watches_user_room`, so
  * PostgreSQL probes that person's watches of the room alone (the shape of [threadMentionsAny]).
  */
-internal fun threadWatchedBy(roomId: UInt, userId: UInt, threadId: Column<EntityID<UInt>>): Op<Boolean> {
+internal fun threadWatchedBy(roomId: UInt, userId: UInt, threadId: Column<EntityID<UInt>>): Op<Boolean> =
+    watchExists(userId, threadId) { it.roomId eq roomId }
+
+/**
+ * The same predicate for a list that spans rooms (the search across rooms): the room is the outer row's own, `room_id = <roomColumn>`,
+ * correlated like the thread, so the person's watches are probed through the same index whatever the room. The CALLER's rooms come from
+ * the caller of this predicate (`RoomService.memberRooms`, ANDed in beside it), never from the watches: a watch of a room that is gone
+ * stays in the table, inert, and no statement may start from it.
+ */
+internal fun threadWatchedByInRoomOf(userId: UInt, roomColumn: Column<EntityID<UInt>>, threadId: Column<EntityID<UInt>>): Op<Boolean> =
+    watchExists(userId, threadId) { it.roomId eq roomColumn }
+
+private fun watchExists(
+    userId: UInt,
+    threadId: Column<EntityID<UInt>>,
+    inRoom: (ThreadWatchService.ThreadWatches) -> Op<Boolean>,
+): Op<Boolean> {
     val watches = ThreadWatchService.ThreadWatches
     return exists(
-        watches.select(watches.threadId).where {
-            (watches.userId eq userId) and (watches.roomId eq roomId) and (watches.threadId eq threadId)
-        },
+        watches.select(watches.threadId).where { (watches.userId eq userId) and inRoom(watches) and (watches.threadId eq threadId) },
     )
 }

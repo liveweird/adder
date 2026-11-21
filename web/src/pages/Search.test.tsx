@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import Search from "./Search";
 import { headingOutline } from "../test/headings";
@@ -104,6 +104,63 @@ describe("Search page (all your rooms)", () => {
       [3, "#5 Database outage"],
       [3, "#9 Database outage"],
     ]);
+  });
+
+  test("the Threads I watch switch lists the watched threads with no term, and the hits carry no messages", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([threadHit(4, { matchCount: 0, messages: [], titleSnippet: [{ text: "Database outage", hit: false }] })])));
+    const user = userEvent.setup();
+    renderSearch();
+    await user.click(screen.getByRole("switch", { name: "Threads I watch" }));
+    expect(await screen.findByRole("link", { name: "#4 Database outage" })).toHaveAttribute("href", "/rooms/12/threads/4");
+    expect(searches).toEqual(["/api/v1/search?page=1&pageSize=20&watching=true"]);
+    expect(screen.getByTestId("search")).toHaveTextContent("?watching=1");
+    expect(screen.getByRole("status")).toHaveTextContent("1 thread found");
+    const [article] = screen.getAllByRole("article");
+    expect(within(article).queryByText(/matching message/)).not.toBeInTheDocument();
+    expect(article.querySelector("mark")).toBeNull();
+    expect(screen.getByText(/leave the box empty/i)).toBeInTheDocument();
+  });
+
+  test("the palette link /search?watching=1 opens the list at once, and the switch turns it off again", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([threadHit(4, { matchCount: 0, messages: [] })])));
+    const user = userEvent.setup();
+    renderSearch("/search?watching=1");
+    expect(await screen.findByRole("link", { name: "#4 Database outage" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Threads I watch" })).toBeChecked();
+    await user.click(screen.getByRole("switch", { name: "Threads I watch" }));
+    expect(screen.getByTestId("search")).toHaveTextContent(/^$/);
+    expect(screen.queryByRole("link", { name: "#4 Database outage" })).not.toBeInTheDocument();
+    expect(searches).toEqual(["/api/v1/search?page=1&pageSize=20&watching=true"]);
+  });
+
+  test("a term with the switch on narrows the watched list; an empty box is fine only while it is on", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([threadHit(5)])));
+    const user = userEvent.setup();
+    renderSearch("/search?watching=1");
+    await screen.findByRole("link", { name: "#5 Database outage" });
+    const box = screen.getByRole("searchbox", { name: "Search all your rooms" });
+    await user.type(box, "outage{Enter}");
+    await waitFor(() => expect(searches.at(-1)).toBe("/api/v1/search?q=outage&page=1&pageSize=20&watching=true"));
+    expect(screen.getByTestId("search")).toHaveTextContent("?q=outage&watching=1");
+    await user.clear(box);
+    await user.type(box, "a{Enter}");
+    expect(await screen.findByText("Type at least two characters, with a letter or a digit.")).toBeInTheDocument();
+    await user.clear(box);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent("?watching=1"));
+    expect(screen.queryByText("Type at least two characters, with a letter or a digit.")).not.toBeInTheDocument();
+  });
+
+  test("nothing watched says so, and with a term it names the term", async () => {
+    serve(() => jsonResponse(200, searchPage([])));
+    renderSearch("/search?watching=1");
+    expect(await screen.findByText("You are not watching any threads.")).toBeInTheDocument();
+  });
+
+  test("nothing watched matches a term: the words name the term", async () => {
+    serve(() => jsonResponse(200, searchPage([])));
+    renderSearch("/search?q=outage&watching=1");
+    expect(await screen.findByText("None of the threads you watch matches “outage”.")).toBeInTheDocument();
   });
 
   test("the short-query rule: one character, or no letter or digit, is not sent", async () => {

@@ -52,7 +52,7 @@ outside it only with a documented cap and a line here in the commit that introdu
 wrapper is reserved for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets`) are not implemented — port Covenant's
 pattern with the first filterable list that needs them.
 
-**Search** is the second `q` consumer: `GET /rooms/{id}/search?q=` and `GET /search?q=` (`q` REQUIRED, hits are THREADS in the envelope, `SearchPageSize` at most 20; `chat-model.md`).
+**Search** is the second `q` consumer: `GET /rooms/{id}/search?q=` and `GET /search?q=` (`q` REQUIRED unless `watching=true`, 1.1; hits are THREADS in the envelope, `SearchPageSize` at most 20; `chat-model.md`).
 
 **Pins** are the smallest-bound sub-collection: `GET /rooms/{id}/pins` (`RoomPinPage`, sortable `id`, `pinnedAt`, default `-pinnedAt,-id`, no filter); a room holds at most 50; one page is the whole set.
 

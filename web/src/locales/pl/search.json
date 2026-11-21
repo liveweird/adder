@@ -11,6 +11,12 @@
   },
   "hint": "Słowa są dopasowywane w takiej formie, w jakiej je wpiszesz, bez uwzględniania odmiany. Wyraz od 3 znaków pasuje do początku słowa („awari” znajdzie „awaria”), krótszy musi pasować dokładnie. Wszystkie wyrazy muszą wystąpić w jednej wiadomości albo w tytule. Wielkość liter i znaki diakrytyczne nie mają znaczenia.",
   "empty": "Nic nie pasuje do „{{q}}”.",
+  "watching": {
+    "label": "Wątki, które obserwuję",
+    "hintOn": "Tylko wątki, które obserwujesz: zostaw pole puste, aby zobaczyć wszystkie, albo wpisz frazę, aby je zawęzić. Wyraz od 3 znaków pasuje do początku słowa, krótszy musi pasować dokładnie. Wszystkie wyrazy muszą wystąpić w jednej wiadomości albo w tytule. Wielkość liter i znaki diakrytyczne nie mają znaczenia.",
+    "empty": "Nie obserwujesz żadnych wątków.",
+    "emptyQ": "Żaden z obserwowanych przez Ciebie wątków nie pasuje do „{{q}}”."
+  },
   "error": {
     "tooShort": "Wpisz co najmniej dwa znaki, w tym literę lub cyfrę.",
     "tooLong": "Użyj najwyżej 100 znaków.",

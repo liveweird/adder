@@ -959,7 +959,7 @@ export interface paths {
          *     before any guard, so a refused search costs a token too), visibility (`404`, audited `room.access_denied`), the parameters
          *     (`400`), then the query. A non-member's bad `q` is still a `404`. An archived room is searched.
          *
-         *     - `q` (REQUIRED, 2 to 100 characters after trimming, at least one letter or digit, no control characters; repeating it is a `400`)
+         *     - `q` (REQUIRED unless `watching=true`, below; 2 to 100 characters after trimming, at least one letter or digit, no control characters; repeating it is a `400`)
          *       is matched case- and accent-insensitively: `zolw` finds `Żółw` and the snippet keeps the diacritics. Every term is required
          *       within ONE message or within the title; a term of three or more characters matches as a PREFIX (there is no stemming, so
          *       `awari` finds `awaria` and `awarii`, but `bazy` does not find `baza`), a shorter one matches exactly. There are no operators:
@@ -968,6 +968,12 @@ export interface paths {
          *       Hashtag text is searchable (`#db-outage` indexes `db-outage`, `db` and `outage`). Field values and deleted messages are never
          *       searched.
          *     - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
+         *     - `watching` (strict `true` or `false`; a repeated key is a `400`) keeps the threads the CALLER watches (`PUT .../watch`), or, with
+         *       `false`, the ones they do not; it narrows the matches of `q`. **`q` is optional ONLY with `watching=true`**: that is the room's
+         *       "Threads I watch" list, every thread of the room the caller watches, sorted like any search (default newest activity first),
+         *       with NO query: no text is matched, so each hit has `messages: []`, `matchCount: 0` and its title as one segment with `hit:
+         *       false`. A blank `q` counts as none there; a given `q` is validated as ever. Without `watching=true` (omitted, or `false`) a missing `q` is a `400`. A
+         *       caller who is not a member of the room (an `ADMIN`) watches none, so `watching=true` is an empty page for them.
          *     - Sortable fields: `lastActivityAt`, `createdAt`, `id`. Default `-lastActivityAt` (`id` ascending breaks ties). `pageSize` is at
          *       most 20 (default 20; `400` beyond).
          *
@@ -1536,10 +1542,17 @@ export interface paths {
          *     (`429`; spent before anything else, so a refused search costs a token too), the parameters (`400`: no room is looked at first),
          *     then the query.
          *
-         *     - `q` (REQUIRED, 2 to 100 characters after trimming, at least one letter or digit, no control characters; repeating it is a
+         *     - `q` (REQUIRED unless `watching=true`, below; 2 to 100 characters after trimming, at least one letter or digit, no control characters; repeating it is a
          *       `400`): case- and accent-insensitive, every term required within ONE message or the title, a term of three or more characters
          *       matches as a PREFIX, no operators. Exactly as the room search documents it.
          *     - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
+         *     - `watching` (strict `true` or `false`; a repeated key is a `400`) keeps the threads the CALLER watches (`PUT .../watch`), or, with
+         *       `false`, the ones they do not. **`q` is optional ONLY with `watching=true`**: that is the cross-room "Threads I watch" view,
+         *       every thread the caller watches in the rooms they are an ACTIVE member of (the view starts from those rooms, never from the
+         *       watches: a deleted room's watches are never listed), newest activity first by default, with NO query: each hit has `messages:
+         *       []`, `matchCount: 0` and its title as one segment with `hit: false`. A blank `q` counts as none there; a given `q` is
+         *       validated as ever. Without `watching=true` (omitted, or `false`) a missing `q` is a `400`. The deadline and the cap on
+         *       concurrent searches apply to it unchanged.
          *     - Sortable fields: `lastActivityAt`, `createdAt`, `id`. Default `-lastActivityAt` (`id` ascending breaks ties). `pageSize` is at
          *       most 20 (default 20; `400` beyond).
          *
@@ -3407,13 +3420,15 @@ export interface components {
         SearchPageSize: number;
         /** @description Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
         Q: string;
+        /** @description Free-text search (API-LIST-005) of the two search routes: case- and accent-insensitive, every term required within one message or the title, a term of three or more characters a prefix. Required UNLESS `watching=true` (the watched-threads view lists with no query); a blank value counts as omitted. A given value is trimmed first, then must be 2 to 100 characters (code points) with at least one letter or digit, else `400`; the schema states only the maximum, because a blank value is legal where `q` is optional. The shared `Q` stays REQUIRED for the user directory. */
+        SearchQ: string;
         /** @description Free-text substring of a hashtag (API-LIST-005; the room's tag list). Unlike `Q` it is OPTIONAL and has no minimum, because a picker lists every tag before the user types. Case- and accent-insensitive; trimmed first; at most 50 characters (code points), `400` past that. */
         TagQ: string;
         /** @description Repeatable - any of these status keys (the thread list). A well-formed key that is not a status of the room matches nothing; a malformed one, or more than 20 distinct values, is a `400`. */
         ThreadStatusFilter: string[];
         /** @description Repeatable - any of these owner ids (the thread list; "mine" is the caller's own id). An id that owns nothing matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
         ThreadOwnerFilter: number[];
-        /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. */
+        /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
         ThreadWatchingFilter: boolean;
         /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
         ThreadMentionFilter: number[];
@@ -4876,10 +4891,12 @@ export interface operations {
     };
     searchRoom: {
         parameters: {
-            query: {
-                /** @description Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
-                q: components["parameters"]["Q"];
+            query?: {
+                /** @description Free-text search (API-LIST-005) of the two search routes: case- and accent-insensitive, every term required within one message or the title, a term of three or more characters a prefix. Required UNLESS `watching=true` (the watched-threads view lists with no query); a blank value counts as omitted. A given value is trimmed first, then must be 2 to 100 characters (code points) with at least one letter or digit, else `400`; the schema states only the maximum, because a blank value is legal where `q` is optional. The shared `Q` stays REQUIRED for the user directory. */
+                q?: components["parameters"]["SearchQ"];
                 closed?: boolean;
+                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
+                watching?: components["parameters"]["ThreadWatchingFilter"];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];
                 /** @description Rows per page for the search only (a hit carries up to three snippets). Defaults to 20, maximum 20 (the shared maximum is 100). */
@@ -4943,7 +4960,7 @@ export interface operations {
                 tag?: components["parameters"]["ThreadTagFilter"];
                 /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
                 mentionedId?: components["parameters"]["ThreadMentionFilter"];
-                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. */
+                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
                 watching?: components["parameters"]["ThreadWatchingFilter"];
             };
             header?: never;
@@ -5573,10 +5590,12 @@ export interface operations {
     };
     searchRooms: {
         parameters: {
-            query: {
-                /** @description Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
-                q: components["parameters"]["Q"];
+            query?: {
+                /** @description Free-text search (API-LIST-005) of the two search routes: case- and accent-insensitive, every term required within one message or the title, a term of three or more characters a prefix. Required UNLESS `watching=true` (the watched-threads view lists with no query); a blank value counts as omitted. A given value is trimmed first, then must be 2 to 100 characters (code points) with at least one letter or digit, else `400`; the schema states only the maximum, because a blank value is legal where `q` is optional. The shared `Q` stays REQUIRED for the user directory. */
+                q?: components["parameters"]["SearchQ"];
                 closed?: boolean;
+                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view). */
+                watching?: components["parameters"]["ThreadWatchingFilter"];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];
                 /** @description Rows per page for the search only (a hit carries up to three snippets). Defaults to 20, maximum 20 (the shared maximum is 100). */
