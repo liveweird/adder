@@ -16,6 +16,7 @@ import { roomMembersPath } from "../utils/roomLinks";
 import { MAX_MESSAGE_BODY_LENGTH, messageBodyError, normalizeBody } from "../utils/threadForm";
 import FormErrorAlert from "./FormErrorAlert";
 import MentionTextarea from "./MentionTextarea";
+import classes from "./MessageComposer.module.css";
 
 // Posts in flight, by room and thread, OUTSIDE any component: a composer that is unmounted and mounted again (another thread and back, a tab and
 // back) while its post is still travelling would otherwise start from the kept draft with nothing in flight and post it a second time. The value
@@ -98,6 +99,7 @@ function ComposerForm({ room, thread, onPosted }: ComposerProps) {
 
   return (
     <form
+      className={classes.composer}
       noValidate
       onSubmit={(event) => {
         event.preventDefault();

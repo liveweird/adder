@@ -1,16 +1,26 @@
 /*
- * The conversation's scroller: it holds at most about two thirds of the viewport (the header above and the composer below stay in reach
- * while the messages scroll), and is itself a focusable, labelled region so the keyboard can scroll it (axe: scrollable-region-focusable).
- * The list inside carries no bullets; a hairline separates the messages.
+ * The conversation's scroller, a focusable, labelled region so the keyboard can scroll it (axe: scrollable-region-focusable). The list inside
+ * carries no bullets; a hairline separates the messages.
+ * - Narrow (a main area under 62rem: a phone, a window with the navigation open) the page is not bounded and scrolls: the scroller is
+ *   between 16rem and 60dvh tall, a real conversation whatever the header above it takes, and the composer sticks under it.
+ * - Wide (from 62rem) it is the one part of the thread pane that gives way: in the pane's bounded column (`ThreadPane.module.css`) it takes
+ *   whatever the header and the composer leave (`flex: 1`), never less than 16rem.
  */
 .scroller {
-  max-height: min(65dvh, 44rem);
-  min-height: 6rem;
+  min-height: 16rem;
+  max-height: max(16rem, 60dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--mantine-color-default-border);
   border-radius: var(--mantine-radius-md);
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+
+@container (min-width: 62rem) {
+  .scroller {
+    flex: 1 1 auto;
+    max-height: none;
+  }
 }
 
 .scroller:focus-visible {
@@ -36,4 +46,13 @@
   outline: 3px solid var(--adder-accent-ink);
   outline-offset: -3px;
   background-color: light-dark(var(--mantine-color-default-hover), var(--adder-surface-tint));
+}
+
+/* On paper nothing scrolls: the whole conversation prints. */
+@media print {
+  .scroller {
+    overflow: visible;
+    flex: none;
+    min-height: 0;
+  }
 }

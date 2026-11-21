@@ -40,6 +40,7 @@
     "messages_other": "{{count}} messages"
   },
   "pane": {
+    "actionsAria": "Thread actions",
     "none": "Pick a thread",
     "noneHint": "Choose one from the list, or start a new one.",
     "notFound": "This thread does not exist.",
@@ -153,6 +154,7 @@
     "everyoneNote_other": "@everyone notifies the {{count}} other members of this room."
   },
   "side": {
+    "aria": "Thread details",
     "toggle": "Details",
     "status": "Status",
     "owner": "Owner",

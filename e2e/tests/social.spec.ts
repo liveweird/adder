@@ -256,10 +256,8 @@ test("handing a thread over notifies its new owner", async ({ page, browser }) =
   // The owner passes the thread on: choosing the member does not move it, "Pass on" does.
   await expect(giver.page.getByRole("region", { name: /^#1 / })).toBeVisible();
   const toggle = giver.page.getByRole("button", { name: "Details", exact: true });
-  if (await toggle.isVisible()) {
-    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  }
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   const picker = giver.page.getByRole("combobox", { name: "Owner", exact: true });
   await picker.click();
   await picker.fill(room.mate.name);

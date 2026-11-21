@@ -21,6 +21,7 @@ export default function RoomMemberSelect({
   readOnly,
   error,
   required,
+  labelHidden,
 }: {
   roomId: number;
   label: string;
@@ -31,6 +32,8 @@ export default function RoomMemberSelect({
   readOnly?: boolean;
   error?: ReactNode;
   required?: boolean;
+  /** The label stays the accessible name but is not drawn (a section title already says it). */
+  labelHidden?: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -38,6 +41,7 @@ export default function RoomMemberSelect({
       label={label}
       description={description}
       required={required}
+      labelHidden={labelHidden}
       placeholder={t("threads.memberPicker.placeholder")}
       clearLabel={t("threads.memberPicker.clear", { label })}
       noMatchLabel={t("threads.memberPicker.noMatch")}

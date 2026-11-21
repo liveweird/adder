@@ -2,17 +2,56 @@
  * The thread pane's own grid: the header, the side panel and the conversation, in that DOM order — the panel's h4 sections have to follow the
  * pane's h3 in the outline, so the panel lives INSIDE the pane's region and is only PLACED to the right of the conversation when there is room.
  *
+ * The panel takes space only when it is opened (1.2 D4): `data-open="false"` is `display: none` at EVERY width (out of the tab order and the
+ * accessibility tree), and the header's "Details" button (`aria-expanded`, `aria-controls`) is the way in at every width. The pane carries
+ * `data-side="open"|"closed"` for the same switch, so the wide grid below is built only while the panel is open.
+ *
  * It answers to the width of the MAIN AREA (the container query on `RoomHome.module.css` `.root`), like the room view's own columns:
- * - from 70rem: the third column. The list takes at most 22rem, so the conversation keeps about 27rem beside the 18rem panel, which is
- *   always shown; the "Details" toggle is hidden.
- * - below it (two columns, or master-detail): one column, the panel under the header and above the conversation, folded behind the "Details"
- *   toggle (`data-open="false"` hides it; collapsed it is out of the tab order and the accessibility tree).
- * Used alone (a test, no container) it is the narrow layout.
+ * - open and from 62rem: the third column, in a grid (wide: a grid of the header and the conversation, closed or open; narrow: a flex column). The list takes at most 22rem, so the conversation keeps about 19rem at the threshold and 20rem in a 1280px window (a 63rem container) beside the 18rem panel. The threshold is what lets the composer stay on screen at 1280x720 with the panel open: stacked above the conversation the panel would eat its height.
+ * - open and below it (two columns, or master-detail): one column, the panel under the header and above the conversation, capped at 40dvh and scrolling inside.
+ * - closed: one column, the conversation takes the whole pane.
+ * Wide, the pane is also a height budget: see the grid rows below. Used alone (a test, no container) it is the narrow layout.
  */
 .pane {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--mantine-spacing-sm);
+  /* Narrow: a plain column — the header, the panel (when open), then the conversation's own parts. `.conversation` is `display: contents`
+     here, so the messages and the composer are children of THIS column: the sticky composer's containing block is the whole pane, not just
+     the conversation below a tall panel, and it can stay at the bottom edge of the screen however far down the conversation starts. */
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.pane .conversation {
+  display: contents;
+}
+
+/*
+ * The header's first row: the title, the status pill and the icon group. The title is the part that gives way — up to two lines, then an
+ * ellipsis (the whole text stays in the DOM and in the heading's name) — and keeps 8rem of its own before the pill and the icons wrap to
+ * the row below; and in a narrow pane (the header's own width, below 30rem: a phone, or a stacked pane with the panel open) the title takes
+ * the whole first row and the pill and icons share the next, so it never shrinks to a few characters.
+ */
+.head {
+  container-type: inline-size;
+}
+
+.title {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+@container (max-width: 30rem) {
+  .title {
+    flex-basis: 100%;
+  }
 }
 
 .head,
@@ -25,41 +64,49 @@
   padding: var(--mantine-spacing-sm);
   border: 1px solid var(--mantine-color-default-border);
   border-radius: var(--mantine-radius-md);
+  /* The panel scrolls on its own; it is a focusable, labelled region (`tabIndex` 0 in `ThreadPane.tsx`), so the keyboard reaches the
+     scroller even when no control inside it can be focused (a read-only viewer). Stacked above the conversation it is capped (40dvh). */
+  overflow-y: auto;
+  max-height: 40dvh;
 }
 
 .pane .side[data-open="false"] {
   display: none;
 }
 
-@container (min-width: 70rem) {
+@container (min-width: 62rem) {
+  /* Wide: a grid whose rows are the header (`auto`) and the conversation (`minmax(0, 1fr)`), the pane being bounded to the viewport
+     (`RoomHome.module.css` `data-bound`): a header that wraps shrinks the conversation, never pushes the composer down. */
   .pane {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .pane .conversation {
+    display: flex;
+  }
+
+  .pane[data-side="open"] {
     grid-template-columns: minmax(0, 1fr) 18rem;
-    grid-template-rows: auto 1fr;
     grid-template-areas:
       "head side"
       "conversation side";
     column-gap: var(--mantine-spacing-lg);
   }
 
-  .head {
+  .pane[data-side="open"] .head {
     grid-area: head;
   }
 
-  .conversation {
+  .pane[data-side="open"] .conversation {
     grid-area: conversation;
   }
 
-  .side {
+  /* Beside the conversation the panel spans both rows and is exactly as tall as the pane: it scrolls inside, never past it. */
+  .pane[data-side="open"] .side {
     grid-area: side;
-    align-self: start;
-  }
-
-  /* Specific enough to beat the folded rule above whatever the order the bundler emits the two in. */
-  .pane .side[data-open] {
-    display: block;
-  }
-
-  .pane .toggle {
-    display: none;
+    max-height: none;
+    min-height: 0;
   }
 }

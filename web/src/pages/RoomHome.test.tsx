@@ -86,8 +86,11 @@ describe("RoomHome page", () => {
     serve(mockFetch);
     const { container } = renderHome();
     expect(await screen.findByRole("heading", { level: 2, name: "Night Shift" })).toBeInTheDocument();
-    expect(screen.getByText("Handover notes")).toBeInTheDocument();
+    // The description is not a line of the header: it sits behind "About this room" until asked for.
+    expect(screen.queryByText("Handover notes")).not.toBeInTheDocument();
     expect(screen.getByText("3 members")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "About this room" }));
+    expect(await screen.findByText("Handover notes")).toBeInTheDocument();
     expect(screen.queryByText("Archived")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to rooms" })).toHaveAttribute("href", "/rooms");
     expect(screen.getByRole("link", { name: "Threads" })).toHaveAttribute("aria-current", "page");
@@ -223,6 +226,8 @@ describe("RoomHome page", () => {
     renderHome();
     expect(await screen.findByText("Archived")).toBeInTheDocument();
     expect(screen.getByText("1 member")).toBeInTheDocument();
+    // No description, no "About this room".
+    expect(screen.queryByRole("button", { name: "About this room" })).not.toBeInTheDocument();
     await screen.findByRole("navigation", { name: "Threads" });
     expect(screen.queryByRole("link", { name: "New thread" })).not.toBeInTheDocument();
   });

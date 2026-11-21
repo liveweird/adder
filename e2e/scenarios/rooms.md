@@ -18,8 +18,8 @@
 3. They fill a unique `e2e-room-*` name and a description and pick the **Incident** workflow template.
    - *Expected*: the picker previews the template's five statuses (Triage, Investigating, Mitigating, Monitoring, Resolved).
 4. They click **Create**.
-   - *Expected*: the create answers 201 and the app opens the room: its h2 is the name, the description and "1 member"
-     show, the **Threads** tab is current, the thread list is empty ("No open threads") and the pane says "Pick a thread".
+   - *Expected*: the create answers 201 and the app opens the room: its h2 is the name and "1 member" shows in the compact header;
+     the description is not on the page until **About this room** opens it (Escape closes it again); the **Threads** tab is current, the thread list is empty ("No open threads") and the pane says "Pick a thread".
      They click **New thread**: the app is at `/rooms/<id>/threads/new`, the **Threads** tab is still current, and after
      **More fields** the form offers the copied fields Severity, Component, Jira link and ETA (all optional in Incident).
      They open the **Workflow** tab: Status 1 is "Triage" with the Open category checked, Status 5 is "Resolved" with the

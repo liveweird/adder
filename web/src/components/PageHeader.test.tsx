@@ -32,4 +32,31 @@ describe("PageHeader", () => {
     rerender(<PageHeader title="Night Shift" documentTitle="Members · Night Shift" />);
     expect(document.title).toBe("Members · Night Shift · Adder");
   });
+
+  test("compact: one row with an icon-only back link that keeps its name, the title still the h2, the description, the toolbar and the actions", () => {
+    renderWithProviders(
+      <PageHeader
+        compact
+        title="Night Shift"
+        description={<span>3 members</span>}
+        backTo={{ to: "/rooms", label: "Back to rooms" }}
+        actions={<button type="button">Pinned</button>}
+        toolbar={<div data-testid="toolbar" />}
+      />,
+    );
+    expect(screen.getByRole("heading", { level: 2, name: "Night Shift" })).toBeInTheDocument();
+    const back = screen.getByRole("link", { name: "Back to rooms" });
+    expect(back).toHaveAttribute("href", "/rooms");
+    expect(back).toHaveTextContent("");
+    expect(screen.getByText("3 members")).toBeInTheDocument();
+    expect(screen.getByTestId("toolbar")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pinned" })).toBeInTheDocument();
+    expect(document.title).toBe("Night Shift · Adder");
+  });
+
+  test("compact with the title alone renders no link and no description", () => {
+    renderWithProviders(<PageHeader compact title="Users" />);
+    expect(screen.getByRole("heading", { level: 2, name: "Users" })).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
 });

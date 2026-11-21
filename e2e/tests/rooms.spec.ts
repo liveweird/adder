@@ -50,7 +50,12 @@ test("a user creates a room from the Incident template and finds it in the rooms
   // The creator lands on the room: its header, the Threads tab open, the (still empty) thread list and the pane's prompt.
   await expect(page).toHaveURL(new RegExp(`/rooms/${id}$`));
   await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
+  // The description is not a line of the compact header: it sits behind "About this room".
+  await expect(page.getByText("Playwright's own room")).toBeHidden();
+  await page.getByRole("button", { name: "About this room" }).click();
   await expect(page.getByText("Playwright's own room")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Playwright's own room")).toBeHidden();
   await expect(page.getByText("1 member", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Threads", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("No open threads")).toBeVisible();

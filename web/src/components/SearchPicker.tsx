@@ -29,6 +29,7 @@ export default function SearchPicker({
   picked,
   onPick,
   compact = false,
+  labelHidden = false,
   clearable = true,
   minTermLength = 0,
   minTermHint,
@@ -58,6 +59,8 @@ export default function SearchPicker({
   onPick: (picked: PickedOption | null) => void;
   /** An inline cell (a table row): the small size, and the label is the control's accessible name, not a visible caption. */
   compact?: boolean;
+  /** The label is the control's accessible name only (`aria-label`), not a visible caption: the section it sits in already says it (the side panel's Owner). */
+  labelHidden?: boolean;
   /** Whether the clear button is offered (default). A caller whose empty pick means "nothing chosen yet" shows it only once there is one. */
   clearable?: boolean;
   /**
@@ -105,8 +108,8 @@ export default function SearchPicker({
   return (
     <>
       <Select
-        label={compact ? undefined : label}
-        aria-label={compact ? label : undefined}
+        label={compact || labelHidden ? undefined : label}
+        aria-label={compact || labelHidden ? label : undefined}
         size={compact ? "xs" : undefined}
         // The hint is a standing description (aria-describedby), not only the empty dropdown's message: a screen reader hears the minimum on focus.
         description={[description, minTermHint].filter(Boolean).join(" ") || undefined}

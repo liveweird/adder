@@ -74,6 +74,7 @@ export default function ThreadOwnerSelect({ room, thread, steward }: { room: Roo
       <RoomMemberSelect
         roomId={room.id}
         label={t("threads.owner.label")}
+        labelHidden
         description={t("threads.owner.hint")}
         picked={picked}
         onPick={setChoice}

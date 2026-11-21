@@ -58,10 +58,9 @@ async function seedThreadsInWaiting(roomId: number, owner: { email: string; pass
   }
 }
 
-/** Opens a thread's side panel: a third column in a wide main area, otherwise folded behind the "Details" toggle (hidden by CSS when wide, so visibility decides). */
+/** Opens a thread's side panel: collapsed until the header's "Details" button opens it (remembered per browser, so one an earlier step opened stays open). */
 async function openDetails(page: Page): Promise<void> {
   const toggle = page.getByRole("button", { name: "Details", exact: true });
-  if (!(await toggle.isVisible())) return;
   if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 }

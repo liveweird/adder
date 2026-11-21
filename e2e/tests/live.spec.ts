@@ -137,16 +137,14 @@ async function reply(page: Page, text: string): Promise<void> {
 }
 
 /**
- * Opens the thread's side panel (a third column in a wide main area, folded behind "Details" below that). The pane is awaited FIRST: the
- * toggle renders with it, and one looked for earlier reads as hidden.
+ * Opens the thread's side panel (collapsed until the header's "Details" button opens it, and remembered per browser). The pane is awaited FIRST:
+ * the button renders with it.
  */
 async function openDetails(page: Page): Promise<void> {
   await expect(page.getByRole("region", { name: /^#\d+ / })).toBeVisible();
   const toggle = page.getByRole("button", { name: "Details", exact: true });
-  if (await toggle.isVisible()) {
-    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  }
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
 }
 

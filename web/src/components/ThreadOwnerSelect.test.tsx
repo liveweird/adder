@@ -41,6 +41,14 @@ describe("ThreadOwnerSelect", () => {
     localStorage.clear();
   });
 
+  test("the picker's label is its accessible name only: the section title above it is the one visible \"Owner\"", () => {
+    respond(204);
+    const { container } = renderOwner(true);
+    expect(screen.getByRole("combobox", { name: "Owner" })).toBeInTheDocument();
+    expect(container.querySelector("label")).toBeNull();
+    expect(screen.getByText("Search the room's members to pass the thread on.")).toBeInTheDocument();
+  });
+
   test("anyone who is not a steward just reads the owner, with the rule", () => {
     respond(204);
     renderOwner(false);

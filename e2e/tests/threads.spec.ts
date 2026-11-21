@@ -6,7 +6,7 @@
 // by a throwaway user, so the seed administrator is never a member of one; the per-user `room-name` (30 a minute), `room-members` (60) and
 // `chat-post` (120) buckets are far from reached. Threads are never deleted: a room's removal hides its threads with it.
 import type { Page } from "@playwright/test";
-import { conversation, createRoomViaUi, deleteViaApi, expect, login, rail, signOut, specAdmins, test, throwawayUser, uniqueText } from "./helpers";
+import { conversation, createRoomViaUi, deleteViaApi, expect, login, rail, signOut, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-threads-admin");
@@ -84,19 +84,15 @@ async function openThread(page: Page, roomId: number, title: string, { closed = 
 }
 
 /**
- * Opens the thread's side panel. In a wide main area it is a third column that is always there (and the toggle is hidden); below that it
- * is folded behind the "Details" toggle, which is the way in. `isVisible` does not wait, so the pane is awaited FIRST (the toggle renders with
- * it; a toggle looked for before the pane has loaded reads as "hidden" and the panel would stay folded), and the panel is awaited settled at
- * the end: its Status section is the first thing drawn once it shows.
+ * Opens the thread's side panel: collapsed at every width until the header's "Details" button opens it (1.2 D4), and the choice is remembered in
+ * the browser, so a panel an earlier step left open is already open. The pane is awaited FIRST (the button renders with it), and the panel is
+ * awaited settled at the end: its Status section is the first thing drawn once it shows.
  */
 async function openDetails(page: Page): Promise<void> {
   await expect(page.getByRole("region", { name: /^#\d+ / })).toBeVisible();
   const toggle = page.getByRole("button", { name: "Details", exact: true });
-  // Hidden (`display: none`) in the wide layout, so visibility is the test, not presence.
-  if (await toggle.isVisible()) {
-    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  }
+  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
 }
 
@@ -418,4 +414,94 @@ test("the owner passes the thread on, the new owner edits its details, and the h
   await expect(page.getByRole("heading", { level: 3, name: `#1 ${newTitle}` })).toBeVisible();
   await openDetails(page);
   await expect(page.getByRole("group", { name: "History", exact: true }).locator(".mantine-Timeline-item")).toHaveCount(7);
+});
+
+test("the details panel opens on demand and stays open for the next thread", async ({ page }) => {
+  await admin.login(page);
+  const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
+  await signOut(page);
+
+  await login(page, owner.email, owner.password);
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"), "Default", cleanup);
+  const first = uniqueText("Panel first");
+  const second = uniqueText("Panel second");
+  await startThreadViaUi(page, roomId, first, "The first thread.");
+  await startThreadViaUi(page, roomId, second, "The second thread.");
+
+  // Collapsed by default: the header's Details button says so, the panel's sections are not on the page, and the conversation has the room —
+  // at the suite's 1280x720 the composer's Send is on screen without scrolling.
+  await openThread(page, roomId, first);
+  const details = page.getByRole("button", { name: "Details", exact: true });
+  await expect(details).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeHidden();
+  await expect(statusSelect(page)).toBeHidden();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
+
+  // Opening it shows Status, Owner, Details and History beside (or above) the conversation.
+  await details.click();
+  await expect(details).toHaveAttribute("aria-expanded", "true");
+  for (const name of ["Status", "Owner", "Details", "History"]) await expect(page.getByRole("heading", { level: 4, name, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
+
+  // The choice is the person's, not the thread's: the next thread opens with the panel open, and so does a reload.
+  await threadList(page).getByRole("link", { name: new RegExp(second) }).click();
+  await expect(page.getByRole("heading", { level: 3, name: `#2 ${second}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 3, name: `#2 ${second}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
+
+  // The pane is a column bounded by the viewport, so nothing in the header can push the composer off the screen: Send stays in view with the panel
+  // OPEN at both sizes, and with a title far too long for the header's row (it ends in an ellipsis; the heading's name is still the whole title).
+  const longTitle = uniqueText("A very long thread title that cannot possibly fit on the one row the header gives it beside the status and the four icon buttons");
+  await startThreadViaUi(page, roomId, longTitle, "A thread with a long title.");
+  await expect(page.getByRole("heading", { level: 3, name: `#3 ${longTitle}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
+  for (const size of [
+    { width: 1280, height: 720 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(size);
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight), `no page scroll at ${size.width}x${size.height}`).toBe(true);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await threadList(page).getByRole("link", { name: new RegExp(second) }).click();
+
+  // Closing it is remembered the same way.
+  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 3, name: `#2 ${second}` })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeHidden();
+
+  // Narrow layouts are not bounded: the page scrolls, the conversation keeps a real height (at least 16rem) and the composer sticks to the bottom
+  // edge, so Send is in view both at the top of the page and after scrolling to its bottom. A phone first (375x740, panel closed): the long
+  // title also keeps a readable box (two lines, not a few characters beside the icons).
+  const sendInView = async (where: string) => {
+    const send = page.getByRole("button", { name: "Send", exact: true });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(send, `Send at the top, ${where}`).toBeInViewport();
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await expect(send, `Send at the bottom, ${where}`).toBeInViewport();
+    expect((await conversation(page).boundingBox())!.height, `the conversation's height, ${where}`).toBeGreaterThanOrEqual(256);
+  };
+  await page.setViewportSize({ width: 375, height: 740 });
+  await page.goto(`/rooms/${roomId}/threads/3`);
+  const heading = page.getByRole("heading", { level: 3, name: `#3 ${longTitle}` });
+  await expect(heading).toBeVisible();
+  expect((await heading.boundingBox())!.width, "the title's box on a phone").toBeGreaterThanOrEqual(200);
+  await sendInView("on a phone");
+
+  // The panel stacked above the conversation (1024x720, the navigation open: the main area is too narrow for the third column).
+  await page.setViewportSize({ width: 1024, height: 720 });
+  await page.goto(`/rooms/${roomId}/threads/3`);
+  await expect(heading).toBeVisible();
+  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
+  await sendInView("with the panel stacked open");
 });

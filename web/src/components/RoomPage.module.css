@@ -1,0 +1,25 @@
+/*
+ * An open thread bounds the room page to the viewport — in a WIDE main area only (from 62rem, the same width at which the thread's side panel
+ * becomes a third column): the room's header takes what it needs (one row, or two when it wraps) and the room view below it takes the rest
+ * (`RoomHome.module.css` `data-bound`), so no header above the conversation can push the composer off the screen. The bound is the viewport
+ * less the shell header and the main area's vertical padding (AppShell `padding="md"`, top and bottom), and never under 28rem. Below 62rem
+ * (a phone, a window with the navigation open) the page is NOT bounded: it scrolls, the conversation keeps its own height and the composer
+ * sticks to the bottom edge (`MessageComposer.module.css`). A page of any other tab is not bounded. `.frame` is the container the width is
+ * read from: the main area's content width, the same one `RoomHome.module.css` `.root` measures.
+ */
+.frame {
+  container-type: inline-size;
+}
+
+@container (min-width: 62rem) {
+  .fill {
+    height: max(28rem, calc(100dvh - var(--app-shell-header-height, 48px) - 2 * var(--mantine-spacing-md)));
+  }
+}
+
+/* On paper the page is as tall as its content. */
+@media print {
+  .fill {
+    height: auto !important;
+  }
+}

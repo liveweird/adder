@@ -104,6 +104,19 @@ describe("ThreadPane: watching the thread", () => {
     expect(button()).toHaveAttribute("aria-pressed", "false");
   });
 
+  test("a refusal is drawn in a full-width row of the header, outside the icon group", async () => {
+    const user = userEvent.setup();
+    serve(() => jsonResponse(429, { title: "Too many requests", status: 429 }));
+    renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
+    await user.click(await screen.findByRole("button", { name: "Watch this thread" }));
+    const alert = await screen.findByRole("alert");
+    const actions = screen.getByRole("group", { name: "Thread actions" });
+    expect(actions).toContainElement(button());
+    expect(actions).not.toContainElement(alert);
+    // The head (title row, alert, meta line) holds both, so the alert is a row of its own there.
+    expect(alert.parentElement).toBe(actions.parentElement!.parentElement);
+  });
+
   test("a 404 (removed from the room meanwhile) says so and re-reads the room", async () => {
     const user = userEvent.setup();
     serve(() => jsonResponse(404, { title: "Not found", status: 404 }));

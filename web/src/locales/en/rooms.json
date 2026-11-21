@@ -9,6 +9,9 @@
   "backToRooms": "Back to rooms",
   "openAria": "Open room {{name}}",
   "showArchived": "Include archived rooms",
+  "about": {
+    "button": "About this room"
+  },
   "archivedBadge": "Archived",
   "memberCount_one": "{{count}} member",
   "memberCount_other": "{{count}} members",

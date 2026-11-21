@@ -25,7 +25,7 @@ export default function RoomTabs({ id, active }: { id: number; active: RoomTabKe
           key={tab.key}
           component={RouterLink}
           to={tab.to}
-          size="compact-md"
+          size="compact-sm"
           variant={tab.key === active ? "light" : "subtle"}
           color={tab.key === active ? undefined : "gray"}
           aria-current={tab.key === active ? "page" : undefined}

@@ -33,7 +33,7 @@ The list covers the Home page, the Search page (its empty form), the Rooms list 
 Change password, Notification preferences and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set. The fixture room's own
 pages are scanned by the detail-page block, each as its own test (`the room home page (the thread list)`, `the room's thread view`,
 `the thread's side panel`, `the thread's details editor`, `the new-thread form`, the members, workflow and settings pages): the thread list and the three-pane thread view are scanned only
-once both the list and the pane have loaded; the side panel is scanned open (below a wide main area through its **Details** toggle: status select, owner picker, details, history) and again with the details editor open.
+once both the list and the pane have loaded; the side panel is scanned open (through the header's **Details** button, collapsed until pressed at every width: status select, owner picker, details, history), again with the details editor open, and once more as the READ-ONLY panel of a thread in an archived room (its status, owner and details are plain text or disabled, so the panel is a scrollable region with nothing focusable inside: it must itself be the focusable, labelled "Thread details" region).
 The 0.6.0 overlays are scanned scoped to their dialog, once the dialog has settled at full opacity: the header's notification drawer (opened from the bell; the
 teammate's message mentions the admin, so it lists that notice) and the fixture room's pinned panel (opened from **Pinned (n)**, listing the pinned thread and the pinned message).
 

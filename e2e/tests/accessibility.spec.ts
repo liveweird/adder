@@ -168,6 +168,7 @@ test.describe("detail pages and overlays", () => {
   let threadTitle: string;
   // A second fixture room, archived: its workflow page is the read-only view (plain text, not the editor).
   let archivedRoomId: number | undefined;
+  let archivedThreadNumber: number; // written before the archive: its side panel is the read-only one
 
   test.beforeAll(async () => {
     ({ api, userId: adminId } = await apiAsUser(admins.first.email, admins.first.password));
@@ -193,6 +194,7 @@ test.describe("detail pages and overlays", () => {
     const archived = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-axe-room"), templateId: defaultTemplate!.id } });
     expect(archived.status(), await archived.text()).toBe(201);
     archivedRoomId = (await archived.json() as { id: number }).id;
+    ({ threadNumber: archivedThreadNumber } = await seedThread(api, archivedRoomId));
     const archive = await api.post(`/api/v1/rooms/${archivedRoomId}/archive`);
     expect(archive.status(), await archive.text()).toBe(204);
   });
@@ -224,11 +226,10 @@ test.describe("detail pages and overlays", () => {
     expect(failures, "fixture teardown").toEqual([]);
   });
 
-  /** Opens the thread's side panel when it is folded behind the "Details" toggle (a narrower main area); in the wide layout it is always there. */
+  /** Opens the thread's side panel: collapsed until the header's "Details" button opens it (remembered per browser, so one already open stays open). */
   const openSidePanel = async (page: Page) => {
     const toggle = page.getByRole("button", { name: "Details", exact: true });
-    // The toggle is `display: none` in the wide layout, so visibility (not presence) says whether the panel is folded.
-    if ((await toggle.isVisible()) && (await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
+    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
     await expect(page.getByRole("combobox", { name: "Thread status", exact: true })).toBeVisible();
   };
 
@@ -264,6 +265,8 @@ test.describe("detail pages and overlays", () => {
         await expect(p.getByText("Started the thread in Open")).toBeVisible();
       },
     },
+    // The read-only panel: an ARCHIVED room's thread refuses every write, so nothing in the panel takes focus; the panel itself is the focusable, labelled region.
+    { name: "the side panel of a thread in an archived room (read-only)", asOwner: true, path: () => `/rooms/${archivedRoomId}/threads/${archivedThreadNumber}`, settled: (p) => p.getByRole("region", { name: new RegExp(`^#${archivedThreadNumber} `) }), before: async (p) => { await openSidePanel(p); await expect(p.getByRole("region", { name: "Thread details", exact: true })).toBeVisible(); } },
     // The details editor open: the title and the (Default template: none) fields, the Cancel and Save buttons.
     {
       name: "the thread's details editor", asOwner: true,

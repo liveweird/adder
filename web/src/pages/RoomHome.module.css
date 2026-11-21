@@ -3,7 +3,7 @@
  * the viewport (a container query on `.root`), because the sidebar (240px, or 64px as a rail) and the ADMIN telemetry aside take their
  * share of the viewport and would otherwise crush the pane at widths a viewport query calls roomy.
  *
- * - from 46rem of main area: two columns, the list `minmax(18rem, 22rem)` and the pane `1fr`. The side panel's third column (`18rem`, from 70rem
+ * - from 46rem of main area: two columns, the list `minmax(18rem, 22rem)` and the pane `1fr`. The side panel's third column (`18rem`, from 62rem
  *   of main area; below it the "Details" toggle above the conversation) is the THREAD PANE's own grid (`components/ThreadPane.module.css`, which
  *   answers to this same container): the panel's h4 sections must follow the pane's h3 in the outline, so it lives inside the pane's region and
  *   is only placed beside the conversation.
@@ -13,6 +13,9 @@
  */
 .root {
   container-type: inline-size;
+  /* Inside a bounded room page (`RoomPage.module.css` `.fill`, wide only) the room view takes what the room header leaves; elsewhere the page is auto-height and these do nothing. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .layout {
@@ -25,6 +28,30 @@
 .list,
 .pane {
   min-width: 0;
+}
+
+/*
+ * An open thread (`data-bound`), in a WIDE main area (from 62rem): the layout is exactly as tall as the bounded page leaves it
+ * (`RoomPage.module.css`), and the pane — header, conversation, composer — is a column that fills it, so a header that wraps can never push the
+ * composer off the screen (the conversation gives way, down to its own minimum, and only then does the page scroll). The list keeps its own
+ * height and scrolls with the page, as before. Below 62rem nothing is bounded: the page scrolls and the composer sticks to the bottom edge.
+ */
+@container (min-width: 62rem) {
+  .layout[data-bound] {
+    height: 100%;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .layout[data-bound] .list {
+    align-self: start;
+  }
+
+  .layout[data-bound] .pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
 }
 
 @container (max-width: 45.99rem) {

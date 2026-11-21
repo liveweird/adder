@@ -32,12 +32,14 @@ export default function RoomHome({ isNew = false }: { isNew?: boolean }) {
   const { id, number: numberParam } = useParams();
   const { search } = useLocation();
   const inPane = isNew || numberParam !== undefined;
+  // An open thread fills the viewport below the room header (its conversation scrolls inside, its composer stays in reach); the list and the form do not.
+  const bound = numberParam !== undefined && !isNew;
   const focusView = numberParam !== undefined && parseFocus(new URLSearchParams(search));
   return (
-    <RoomPage idParam={id} tab="home">
+    <RoomPage idParam={id} tab="home" fill={bound}>
       {(room) => (
         <div className={classes.root}>
-          <div className={classes.layout} data-pane={inPane ? "thread" : "list"} data-focus={focusView || undefined}>
+          <div className={classes.layout} data-pane={inPane ? "thread" : "list"} data-focus={focusView || undefined} data-bound={bound || undefined}>
             <div className={classes.list}>
               <ThreadList room={room} activeNumber={parseThreadNumber(numberParam)} />
             </div>

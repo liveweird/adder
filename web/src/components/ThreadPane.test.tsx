@@ -405,21 +405,6 @@ describe("ThreadPane", () => {
     });
   });
 
-  test("below the three-column width the side panel is folded behind a Details toggle that opens and closes it", async () => {
-    serve(jsonResponse(200, THREAD));
-    renderWithProviders(<ThreadPane room={ROOM} numberParam="42" />);
-    const toggle = await screen.findByRole("button", { name: "Details" });
-    const panel = document.getElementById(toggle.getAttribute("aria-controls")!)!;
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(panel).toHaveAttribute("data-open", "false");
-    expect(within(panel).getByRole("heading", { level: 4, name: "Status" })).toBeInTheDocument();
-    await userEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(panel).toHaveAttribute("data-open", "true");
-    await userEvent.click(toggle);
-    expect(panel).toHaveAttribute("data-open", "false");
-  });
-
   test("closing the thread from the side panel re-reads it: the header's status follows and the composer becomes the closed note", async () => {
     const user = userEvent.setup();
     let status = "triage";

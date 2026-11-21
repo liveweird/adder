@@ -54,8 +54,8 @@
 
 1. The admin creates an owner and a teammate and signs out; the owner creates a room from the Default template, adds the teammate and
    starts a thread, then signs out.
-2. The teammate (a plain member, not the thread's owner) opens the thread and the side panel (below a wide main area the **Details**
-   toggle opens it) and picks **In progress** in the status select.
+2. The teammate (a plain member, not the thread's owner) opens the thread and the side panel (the header's **Details** button
+   opens it) and picks **In progress** in the status select.
    - *Expected*: the select reads "Open" first; there is no Owner picker for them; the move answers 204 and the select and the pane's
      header read "In progress".
 3. They open the status select again.
@@ -91,6 +91,34 @@
      link value anywhere in the history: it records that they changed, not what they were), then "Moved the thread
      from Triage to Investigating" under the teammate's name, "Passed the thread from <owner> to <teammate>", and last "Started the thread
      in Triage" under the owner's name. After a reload there are still seven.
+
+## Scenario: the details panel opens on demand and stays open for the next thread
+
+1. The admin creates an owner and signs out; the owner creates a room from the Default template and starts two threads.
+2. The owner opens the first thread.
+   - *Expected*: the header's **Details** button reads `aria-expanded="false"`; the side panel's sections (the Status heading, the
+     status select) are not on the page; the composer's **Send** button is on screen without scrolling (the suite's 1280x720
+     viewport: the compact headers give the conversation the height).
+3. They press **Details**.
+   - *Expected*: the button reads `aria-expanded="true"` and the panel's four sections, Status, Owner, Details and History, show.
+4. They open the second thread from the list (no reload), then reload the page.
+   - *Expected*: the second thread opens with the panel already open, and so does the page after the reload: the choice is one
+     switch per person per browser, not the thread's.
+5. With the panel still open they start a third thread whose title is far too long for the header's row, and look at it at 1280x720 and
+   at 1440x900.
+   - *Expected*: the heading's name is the whole title (the row shows it ending in an ellipsis), the panel's sections show, **Send** is on
+     screen at both sizes and the page does not scroll: the pane is a column bounded by the viewport, so a wrapping header cannot push the
+     composer down. They go back to the second thread.
+6. They press **Details** again and reload.
+   - *Expected*: the panel is closed (`aria-expanded="false"`, its sections not on the page): closing is remembered the same way.
+7. Below the three-column width the page is not bounded: it scrolls, the conversation keeps a real height and the composer sticks to the
+   bottom edge. On a phone (375x740, panel closed) they open the long-titled thread.
+   - *Expected*: the heading's box is at least 200px wide (two lines, never a few characters squeezed beside the icons); **Send** is on
+     screen at the top of the page and after scrolling the page to its bottom; the conversation is at least 16rem (256px) tall.
+8. At 1024x720 with the navigation open (the main area is too narrow for the third column, so the panel stacks above the conversation)
+   they open the panel.
+   - *Expected*: the panel shows (capped, scrolling inside) and the same three things hold: **Send** in view at the top and at the bottom of
+     the page, the conversation at least 256px tall.
 
 ## Not covered here (and why)
 

@@ -9,6 +9,9 @@
   "backToRooms": "Wróć do pokoi",
   "openAria": "Otwórz pokój {{name}}",
   "showArchived": "Uwzględnij zarchiwizowane pokoje",
+  "about": {
+    "button": "O tym pokoju"
+  },
   "archivedBadge": "Zarchiwizowany",
   "memberCount_one": "{{count}} członek/członkini",
   "memberCount_few": "{{count}} członków/członkiń",

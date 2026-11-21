@@ -42,6 +42,7 @@
     "messages_other": "{{count}} wiadomości"
   },
   "pane": {
+    "actionsAria": "Działania na wątku",
     "none": "Wybierz wątek",
     "noneHint": "Wybierz jeden z listy albo rozpocznij nowy.",
     "notFound": "Ten wątek nie istnieje.",
@@ -159,6 +160,7 @@
     "everyoneNote_other": "@everyone powiadomi {{count}} pozostałej osoby w tym pokoju."
   },
   "side": {
+    "aria": "Szczegóły wątku",
     "toggle": "Szczegóły",
     "status": "Status",
     "owner": "Właściciel/ka",
