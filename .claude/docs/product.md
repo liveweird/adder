@@ -230,7 +230,7 @@ Taken without asking, in the 0.6.0 plan. Detail and the rules they became: `chat
 Taken without asking, in the 1.1.0 plan. Detail and the rules they became: `chat-model.md` "Watching, group mentions and notice kinds (1.1)".
 
 - **1.1 A1. The term is "watch"** (PL "obserwuj"); the composer's list also matches the typed word `observers`, and "observe" appears nowhere else.
-- **1.1 A2. Watching is the caller's own state:** no room lock, no live hint, the `read-state` bucket. It is audited (`thread.watch_changed`) because it changes who a write notifies.
+- **1.1 A2. Watching is the caller's own state:** no room lock, no live hint, its own `thread-watch` bucket (30 a minute). It is audited (`thread.watch_changed`) because it changes who a write notifies.
 - **1.1 A3. Auto-watch is the creator and each new owner** (again on a later hand-over after an unwatch). Reply and mention do not watch (1.1 D10).
 - **1.1 A4. Existing threads are backfilled:** V26 makes each thread's creator and current owner who are still members a watcher, with no notice.
 - **1.1 A5. `watcherCount` is on the wire; the list of watchers is not** (`BACKLOG.md`).
@@ -248,7 +248,7 @@ Taken without asking, in the 1.1.0 plan. Detail and the rules they became: `chat
 - **1.1 A17. Defaults are frozen with the kind name;** the table stores deviations only.
 - **1.1 A18. The email budget counts mailable recipients only,** one pool for every kind, no carve-out.
 - **1.1 A19. The wide-event budget is 500 a UTC day** (1.1 D9), configurable.
-- **1.1 A20. Live: per-recipient targets,** one hint per event, at most 499 ids.
+- **1.1 A20. Live: per-recipient targets,** one hint per event, at most 500 ids (499 when a member acts).
 - **1.1 A21. The rail count and the `@` mark stay "addressed to me":** the four mention kinds plus `THREAD_ASSIGNED` (0.6 D1 stands); activity notices fill the bell only.
 - **1.1 A22. `q` is optional only with `watching=true`;** search has no `mentionsMe`.
 - **1.1 A23. No confirm before `@everyone`;** a non-blocking line shows the member count.

@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-11-20. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-11-21. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/` (the roadmap: `.claude/docs/product.md`).
@@ -19,15 +19,15 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 
 ## Chat MVP (0.5–0.6)
 
-- [new] **Mentions: `@room` and `@here`, and mentioning someone who is not a member.** 0.6.0 mentions active members only; any other id stays plain text (0.6 A4). Add the group tokens, and an offer to add the named person to the room.
+- [new] **Mentions: `@here`, and mentioning someone who is not a member.** 1.1.0 ships `<@everyone>`, `<@watchers>` and `<@team:id>`; an id that is not an active member still stays plain text, and `@here` does not exist (1.1 A16). Add `@here`, and an offer to add the named person to the room.
 - [new] **Mentions and hashtags: blank indented code and raw HTML in the shared pre-pass.** `textOutsideCodeAndLinks` (`threads/MarkdownText.kt`) does not see an indented code block (four spaces, then `<@5>`), a raw HTML block or an image's alt text, so the server indexes (and notifies) a mention the SPA shows raw. Blanking them there would close the gap for mentions and change which hashtags are indexed too (`#tag` in an indented block stops being a tag), so it needs the hashtag case table and a note in the release text. The disagreement is documented in `web-internals.md` "Mentions in messages" and pinned by a SPA test.
-- [new] **Notices for being added to a room, for a reply in a thread one owns, and for a reaction.** 0.6.0 notifies a mention and a hand-over only (0.6 A10).
+- [new] **Notices for being added to a room and for a reaction.** 1.1.0 has eleven kinds, replies among them (a watcher is told, and the owner watches); being added to a room and a reaction have none (1.1 A8).
 - [new] **Reactions: the full list of who reacted.** A message shows each emoji's count and the first three names (0.6 A25); add a paged read of the reactors.
 - [new] **Reactions: the official emoji list.** The server checks that a value is one emoji grapheme by rule, not by list, so a chain of up to five pictographs joined by a zero-width joiner passes (`chat-model.md` "Reactions (V20)").
 - [new] **Unread: an "unread" filter on the thread list, and "Mark all as read" in a room.** The second would raise `read_from`, which is why that column is its own.
 - [new] **Unread: a count in the browser tab title.** Needs the hidden-tab socket rule revisited (a hidden tab closes its socket after 5 minutes, `live.md`).
 - [new] **Unread: read state pushed between a person's tabs.** A `BroadcastChannel` would do it with no server change; 0.6.0 lets another tab catch up on focus.
-- [new] **Notifications: browser push, an in-app switch per kind, and muting a thread.** 0.6.0 notices cannot be switched off in the app (0.6 A15); only the email is per kind.
+- [new] **Notifications: browser push, and muting a thread.** 1.1.0 has an in-app and an email switch per kind (1.1 D7). Browser push is a third channel; muting a thread would silence its mentions too (stopping to watch only ends the activity notices).
 - [new] **Pins: a visible mark, and the pins always at hand in an open thread.** A pinned thread or message is hardly marked at all (the user, 2026-11-21): give it a clear mark where it is shown (the message, the thread-list row, the thread header). And while a thread is open, its pins should always be visible, at least as a collapsible strip, instead of only in the room header's pinned panel.
 - [new] **Room view: better use of screen space.** (the user, 2026-11-21) (1) The right-hand side panel (status, owner, fields, history) is always shown but rarely used: it should take space only when needed (collapsed by default, opened on demand). (2) The header takes a lot of vertical space: make it more compact.
 - [new] **People and rooms as links wherever their names appear.** (the user, 2026-11-21) A person's name (a message author, a mention, an owner, the actor of a notice) and a room's name (a notice, a search hit) should be a link to its screen, not a plain label. A room has one (`/rooms/:id`); a person has none any member can open (the `/users` pages are ADMIN-only), so this needs a read-only profile page first, and a rule for what a non-ADMIN may see on it.
@@ -49,10 +49,15 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
   safety net. Since 0.6.0 the per-user delivery class exists (a hint's targets reach every socket of those users); what is still missing is a hint without a room.
 - [new] **Live: skip the writer tab's echo.** The tab that made a write refetches twice, once for its own mutation and once for the hint. Tag the hint with the
   writer's socket (or a client id) so that tab can skip it.
-- [new] **E2E: the live-ticket bucket is shared across a full parallel run.** The seed admin's `live-ticket` bucket (60/min per user) is shared by every Playwright
-  worker that signs in as it, so live specs use throwaway users; a new live spec must do the same.
-- [new] **Notifications: bound what one recipient can pile up.** A per-recipient cap on UNSEEN notices (the list's `total` is capped at 1000, the rows are not), and batching the two writes that still touch every row in one statement: `threadRead` (marks a thread's notices seen) and the removal cascade of a leaving member's notices. `seen-all` is already chunked by 1,000 rows, one short transaction each.
+- [new] **Notifications: bound what one recipient can pile up (more pressing since 1.1.0).** Eleven kinds, watching and group mentions make a busy room fill the bell far faster than 0.6.0 did, and retention stays 90 days (1.1 A25). A per-recipient cap on UNSEEN notices (the list's `total` is capped at 1000, the rows are not), and batching the two writes that still touch every row in one statement: `threadRead` (marks a thread's notices seen) and the removal cascade of a leaving member's notices. `seen-all` is already chunked by 1,000 rows, one short transaction each.
 - [new] **Boot purge: probe each derived table through its message index.** `StaleDerivedRows` finds the deleted messages that still carry a mention, reaction, pin or notice by a `UNION` over the four tables (30 s statement budget). At a very large size, probe each table through its `message_id` index per candidate batch instead of one union.
+- [new] **Watching: the list of who watches a thread.** 1.1.0 puts `watcherCount` on the wire and not the people (1.1 A5). Add a paged read (members only) and, with it, an answer to who may see it.
+- [new] **Notices: name the team in a team-mention notice.** The notice says "mentioned you", not which team did (1.1 A14); `message_group_mentions` has the team, so the bell and the digest can say "mentioned your team <name>".
+- [new] **Notices: one bell row per busy thread.** Replies and mentions stay one notice per message (status and owner moves already fold into one unseen row, 1.1 A37); a watched incident thread can still fill the bell. Collapse a thread's unseen activity notices into one row ("12 replies in #42") in the bell and the digest; pairs with the per-recipient unseen cap above.
+- [new] **Notices: status and owner detail through an `event_id`.** A status or owner notice says that something moved, not from what to what; point the notice at its `thread_events` row so the bell can show the move.
+- [new] **Watching: watch on reply, with a sticky unwatch.** 1.1.0 watches on create and on hand-over only (1.1 D10). Watching on reply needs a `state` column on `thread_watches` so that a person who unwatched is not pulled back (about a day more).
+- [new] **Account-management notices: port Lettuce's locked-on `PASSWORD_CHANGED` / `ACCOUNT_REACTIVATED`.** Adder sends the MFA code and the reset link only (1.1 A29); a "your password changed" and an "account reactivated" email are a locked-on kind that no preference can switch off.
+- [new] **API guidelines: two lines for the lost-update inventory (the user owns the file).** Add to `api-guidelines/API-GUIDELINES.md` "Lost-update inventory" (API-CACHE-003): (1) `PUT /api/v1/rooms/{id}/threads/{number}/watch` is a single-value set of the caller's own state, last writer wins by design, a repeat is an idempotent `204` (`ThreadWatchTest`); (2) `PUT /api/v1/users/{id}/notification-preferences` is a full replace, last-write-wins and accepted, so a stale client resets what it does not know (1.1 A31).
 
 ## 1.0.0 checkup (2026-11-20)
 

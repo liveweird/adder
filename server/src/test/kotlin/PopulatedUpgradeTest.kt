@@ -97,7 +97,7 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        assertTrue(listOf("25", "26", "27", "28", "29").all { it in after }, "V25 to V29 ran on the populated database: $after")
+        assertTrue(listOf("25", "26", "27", "28", "29", "30").all { it in after }, "V25 to V30 ran on the populated database: $after")
     }
 
     /** An additive migration may add columns; a dropped or renamed one of the release's columns fails, naming the table. */

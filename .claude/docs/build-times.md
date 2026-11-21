@@ -47,7 +47,7 @@ node scripts/timings/local-times.mjs record web-gates -- sh -c 'cd web && npm ru
 node scripts/timings/local-times.mjs report                       # latest / median 5 / previous 5 / flags
 node scripts/timings/local-times.mjs slow-tests                   # top classes + cases from server/build/test-results/test
 node scripts/timings/local-times.mjs slow-tests --forks 2         # + the fork-balance block (needs a weights file, see "Fork balancing" below)
-node scripts/timings/local-times.mjs test-weights                 # per-class weights of a full run -> server/test-weights.tsv (the committed file was re-measured on 2026-11-20)
+node scripts/timings/local-times.mjs test-weights                 # per-class weights of a full run -> server/test-weights.tsv (the committed file was re-measured on 2026-11-21)
 ```
 
 **The one entry point — `scripts/gates.sh [server|web|e2e|all]`** (default `all`) runs the gates the way CI does,
@@ -101,7 +101,7 @@ orients you):
 The targets were Flow's per-gate claims scaled down for a foundation-sized suite until 2026-11-20; "Status check, 2026-11-20" below sets each from its measured series and says why the four that moved moved. The rule for changing one is below ("Review cadence").
 
 **Fork balancing (ported).** The `-Pforks` default is 1; `scripts/gates.sh` runs 2 (`ADDER_FORKS`, 1..8) and CI runs `-Pforks=2` (`TEST_FORKS`). The class order is weight-balanced from
-`server/test-weights.tsv` (`test-fixtures.md` "Balanced fork order"); the committed weights were re-measured from a full run on 2026-11-20 (the checkup), so **re-measure them** again at every milestone check
+`server/test-weights.tsv` (`test-fixtures.md` "Balanced fork order"); the committed weights were re-measured from a full run on 2026-11-21 (1.1.0), so **re-measure them** again at every milestone check
 and whenever the CI summary's fork-balance block warns (`node scripts/timings/local-times.mjs test-weights`).
 
 ## Investigation log
