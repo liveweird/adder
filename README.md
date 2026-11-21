@@ -5,11 +5,17 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.0.0 — the checkup, on 0.6.0 social, 0.5.0 find, 0.4.0 live updates, 0.3.0 threads and messages, 0.2.0 rooms and the 0.1.0 foundation)
+## What's here today (1.1.0 — watching, group mentions and notice kinds, on 1.0.0 the checkup, 0.6.0 social, 0.5.0 find, 0.4.0 live updates, 0.3.0 threads and messages, 0.2.0 rooms and the 0.1.0 foundation)
 
-Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 0.6.0 makes the rooms social:
+Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 1.1.0 lets people follow what matters and address groups:
 
-- **Mentions** — type `@` in the composer and pick a room member; the mention shows as the person's current name (`<@id>` in the stored body), and the thread list's "Mentions me" filter shows only the threads that mention you.
+- **Watching** — watch a thread (you watch the ones you start and the ones handed to you); a "Watching" filter on the thread list and a "Threads I watch" search, in one room and across rooms, show only those threads. Watchers are told of replies, status changes (close and reopen included) and owner changes (`PUT /api/v1/rooms/{id}/threads/{number}/watch`).
+- **Notification kinds** — eleven kinds (a new thread in a room, a reply, a status change, a hand-over, the four mentions, ...); each person is told at most once per event, with the most specific reason. "Notification preferences" is a grid of an in-app and an email switch per kind: in-app is on by default and **email is off by default for every kind**, so an upgrade from 1.0.0 stops the digest until each person switches it on. Account email (the MFA code, the password-reset link) is not a notification and always goes.
+- **Group mentions** — `@team-handle` (an ADMIN gives a team a mention handle in the team editor), `@watchers` and `@everyone`, usable by any room member; an event that would notify more than 20 people counts against its author's budget of 500 such events a day.
+
+0.6.0 made the rooms social:
+
+- **Mentions** — type `@` in the composer and pick a room member (or a team or a group, 1.1.0); the mention shows as the person's current name (`<@id>` in the stored body), and the thread list's "Mentions me" filter shows only the threads that mention you.
 - **Notifications** — a bell in the header counts your unseen notices (someone mentioned you or your team, handed a thread over, or replied in or moved a thread you watch); a click opens the message, "Mark all as seen" clears the count, and new ones arrive live. A notice is ids only
   (`GET /api/v1/notifications`), kept for 90 days. A notice still unseen after five minutes is summed up in **one email digest** (at most one every 15 minutes; who, the room and the thread number with a link, never the message), switched ON per kind (it is off by default) under "Notification preferences" in the
   account menu; it needs `MAIL_TRANSPORT=smtp` and `MAIL_APP_URL`.
@@ -62,7 +68,7 @@ The 0.1.0 foundation:
 
 ## Roadmap
 
-0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (shipped) · 0.5.0 find: filters, sort, search, hashtags (shipped) · 0.6.0 social: mentions, notifications, reactions, pins, unread (shipped) · 1.0.0 the checkup (shipped).
+0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (shipped) · 0.5.0 find: filters, sort, search, hashtags (shipped) · 0.6.0 social: mentions, notifications, reactions, pins, unread (shipped) · 1.0.0 the checkup (shipped) · 1.1.0 watching, group mentions, notice kinds (shipped).
 The scope of each version and the decisions behind it: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`; open items: `BACKLOG.md`. `CLAUDE.md`'s "Product" and
 "Donors" sections say which sibling project each capability ports from.
 

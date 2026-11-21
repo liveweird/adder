@@ -17,6 +17,24 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.1.0",
+    date: "2026-11-21",
+    en: `**Adder 1.1.0: watching, group mentions and notification choices.**
+
+- **Email notifications are now off for every kind, including mentions and hand-overs.** If you got the email digest before, switch it back on: open "Notification preferences" in the account menu and tick "Email" for the kinds you want. Emails for your account itself, such as password reset links and sign-in codes, are not affected and are always sent.
+- Watch a thread to follow it: press "Watch this thread" in a thread. You watch the threads you start and the ones handed over to you, and you can stop at any time. "Watching" on the thread list, and "Threads I watch" in the menu and in search, show only those threads.
+- New notifications: a new thread in a room you are in, a reply in a thread you watch, and a watched thread that moves to another status, is closed or reopened, or changes owner. Each person gets one notification per event, with the most specific reason.
+- Mention a whole group: \`@\` and a team's handle (for example \`@night-shift\`) for the people on a team, \`@watchers\` for those who watch the thread, and \`@everyone\` for the room. An administrator sets a team's mention handle in the team editor. Anyone in the room can use them. The composer shows how many people \`@everyone\` will notify.
+- "Notification preferences" is now a grid: for each of the eleven kinds, choose whether it shows in the app (on by default) and whether it is also sent by email (off by default).`,
+    pl: `**Adder 1.1.0: obserwowanie, wzmianki grupowe i wybór powiadomień.**
+
+- **Powiadomienia e-mailem są teraz domyślnie wyłączone dla każdego rodzaju, także dla wzmianek i przekazania wątku.** Jeśli dotąd dostawałeś/aś e-mail z podsumowaniem, włącz go ponownie: otwórz „Ustawienia powiadomień” w menu konta i zaznacz „E-mail” przy rodzajach, które chcesz dostawać. Wiadomości dotyczące samego konta, takie jak linki do resetu hasła i kody logowania, nie zmieniają się i zawsze są wysyłane.
+- Obserwuj wątek, aby go śledzić: naciśnij „Obserwuj ten wątek” w wątku. Obserwujesz wątki, które zakładasz, i te, które ktoś Ci przekazał, i w każdej chwili możesz przestać. „Obserwowane” na liście wątków oraz „Wątki, które obserwuję” w menu i w wyszukiwaniu pokazują tylko te wątki.
+- Nowe powiadomienia: nowy wątek w pokoju, w którym jesteś, odpowiedź w obserwowanym wątku oraz obserwowany wątek, który zmienia status, zostaje zamknięty lub otwarty ponownie albo zmienia właściciela/kę. Każda osoba dostaje jedno powiadomienie o zdarzeniu, z najbardziej szczegółowym powodem.
+- Wspomnij całą grupę: \`@\` i uchwyt zespołu (na przykład \`@night-shift\`) dla osób z zespołu, \`@watchers\` dla osób obserwujących wątek i \`@everyone\` dla całego pokoju. Uchwyt do wzmianek zespołu ustawia administrator/ka w edytorze zespołu. Mogą ich używać wszyscy w pokoju. Pole wiadomości pokazuje, ile osób powiadomi \`@everyone\`.
+- „Ustawienia powiadomień” to teraz siatka: dla każdego z jedenastu rodzajów wybierasz, czy pokazuje się w aplikacji (domyślnie tak) i czy jest też wysyłany e-mailem (domyślnie nie).`,
+  },
+  {
     version: "1.0.0",
     date: "2026-11-21",
     en: `**Adder 1.0.0: the checkup.**
