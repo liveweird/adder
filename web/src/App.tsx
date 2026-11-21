@@ -41,6 +41,7 @@ const RoomMembers = lazy(() => import("./pages/RoomMembers"));
 const RoomSettings = lazy(() => import("./pages/RoomSettings"));
 const RoomWorkflow = lazy(() => import("./pages/RoomWorkflow"));
 const Person = lazy(() => import("./pages/Person"));
+const Tags = lazy(() => import("./pages/Tags"));
 const Teams = lazy(() => import("./pages/Teams"));
 const TeamDetails = lazy(() => import("./pages/TeamDetails"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
@@ -302,6 +303,7 @@ export default function App() {
               <Route path="workflow-templates" element={<WorkflowTemplates />} />
               <Route path="workflow-templates/new" element={<CreateWorkflowTemplate />} />
               <Route path="workflow-templates/:id/edit" element={<EditWorkflowTemplate />} />
+              <Route path="tags" element={<Tags />} />
             </Route>
             <Route path="change-password" element={<ChangePassword />} />
             <Route path="notification-preferences" element={<NotificationPreferences />} />

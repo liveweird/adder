@@ -369,6 +369,8 @@ rows, a minute), and every rejection is the generic `429` problem plus the coale
 minute). `UserDirectoryTest` pins the bounds, 120 then `429`, per user, and the audit event.
 **`GET /api/v1/users/directory/{id}` (1.2 D7)** is mounted in the SAME `rateLimit` block, so one entry read and one list page spend the same 120 a minute (pinned by a mixed 60+60 run); the `rate_limit.exceeded` path then carries the id (an id, no secret). It is no new disclosure: the same three-field entry the list gives, an unknown and a removed id one `404`, so it is an active/inactive oracle over the id space exactly as the member-add `400` below already is (bounded by the bucket).
 
+**`GET /api/v1/tag-categories` (1.2, V32) is unbucketed on purpose:** the whole registry is one bounded read (at most 100 categories of 100 tags, a few KB) that any signed-in user may make; it names no person and no room, so it is no enumeration surface and needs no per-user bucket. Its ADMIN writes ride no bucket either (a handful a day, serialised by the table lock whose wait is bounded to 3 s: `persistence.md` "Tag categories (V32)").
+
 **What the user directory discloses, and to whom** (a deliberate widening of the ADMIN-only user list, the user's decision D2, 2026-11-17, who accepts name+email
 disclosure to any signed-in user): to every signed-in user, the `id`, `name` and `email` of every ACTIVE account, searchable by name or email
 (case- and accent-insensitive). Never roles (who is an ADMIN), feature flags, language, MFA state, timestamps or the password hash: `UserDirectoryEntry` is a

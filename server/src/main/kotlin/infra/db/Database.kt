@@ -13,6 +13,8 @@ import ch.nokillswit.rooms.RoomServiceKey
 import ch.nokillswit.rooms.RoomWorkflowService
 import ch.nokillswit.rooms.RoomWorkflowServiceKey
 import ch.nokillswit.rooms.useRoomLockWait
+import ch.nokillswit.tags.TagCategoryService
+import ch.nokillswit.tags.TagCategoryServiceKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.teams.TeamServiceKey
 import ch.nokillswit.users.UserService
@@ -300,6 +302,8 @@ suspend fun Application.configureDatabase() {
     attributes.put(UserServiceKey, userService)
     val teamService = TeamService(database)
     attributes.put(TeamServiceKey, teamService)
+    // The ADMIN tag registry (V32, 1.2.0): its writes are the one user of `lockingTransaction` (`infra/db/Locking.kt`).
+    attributes.put(TagCategoryServiceKey, TagCategoryService(database))
     val workflowTemplateService = WorkflowTemplateService(database)
     attributes.put(WorkflowTemplateServiceKey, workflowTemplateService)
     // The room aggregate (V13): a room copies a template at creation, so the room service reads the template service.

@@ -17,6 +17,7 @@ import enNotifications from "./locales/en/notifications.json";
 import enPeople from "./locales/en/people.json";
 import enRooms from "./locales/en/rooms.json";
 import enSearch from "./locales/en/search.json";
+import enTags from "./locales/en/tags.json";
 import enTeams from "./locales/en/teams.json";
 import enThreads from "./locales/en/threads.json";
 import enTelemetry from "./locales/en/telemetry.json";
@@ -67,6 +68,7 @@ export const en = {
   people: enPeople,
   rooms: enRooms,
   search: enSearch,
+  tags: enTags,
   teams: enTeams,
   threads: enThreads,
   telemetry: enTelemetry,

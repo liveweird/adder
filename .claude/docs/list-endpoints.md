@@ -17,8 +17,7 @@
   bracket operators only where needed; strict `true`/`false` booleans; enums by string name; a repeated
   scalar key is a `400` (never silent first-value-wins; unknown parameter *names* stay ignored by deliberate
   leniency), see "Repeated keys" below [API-LIST-004].
-- Free text: `q` first, per-column substring only when a UI requires it [API-LIST-005]. The first `q` consumer is `GET /users/directory?q=` (name OR email on
-  one `containsNormalized` predicate for count and rows; `q` REQUIRED, 2 to 100 code points trimmed; pages capped at 20 via `DirectoryPageSize`; spec parameter `Q`); `GET /users` and `GET /teams` (`name`, `handle`: the team-mention picker) still filter per column.
+- Free text: `q` first, per-column substring only when a UI requires it [API-LIST-005]. Consumers: the directory, searches; the rest filter per column (ledger below).
 - Naming: camelCase params; reusable `Page`/`PageSize`/`Sort` under `#/components/parameters`
   `$ref`'d from each list path; one `*Page` envelope schema per resource; sortable/filterable
   whitelists documented per path [API-NAME-001..004].
@@ -42,9 +41,9 @@ hand-roll `lowerCase() like containsPattern(...)`, and keep unaccent-before-LOWE
 breaks uppercase-diacritic input under a C-locale database). The SPA mirrors it via the
 theme's `foldedOptionsFilter` (`web/src/utils/text.ts`).
 
-**Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. Ledger: `GET /rooms/{id}/threads` takes `status`, `ownerId`, `field=key:value` (each at most 20 distinct), `mentionedId` (same bound) and `tag` (at most 10 after case folding; any-of within a key, all-of across; `threads/ThreadListFilter.kt`); `closed`, `watching` and `mentionsMe` stay scalar. `GET /notifications` takes `type` (a known kind, at most 11 distinct, `NotificationType.entries.size`). A new consumer adds a line.
+**Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. The ledger (which endpoint takes which key, and the bounds) is in `chat-model.md` "List endpoint ledger"; a new consumer adds a line there.
 
-**Member filters (1.2 D7).** `GET /rooms` and `GET /teams` take `memberId` (one optional STRICT id via `optionalPositiveId`: ASCII digits, 1 to int32, one value; anything else, a blank `memberId=` too, is a `400` that does not echo the value; an unknown or removed person an empty page; spec parameter `MemberId`): the rooms or teams that ACTIVE user belongs to, ANDed with the caller's own scope (the profile page's lists). Scalar, so it is not in the repeated-keys ledger.
+**Bounded wrapper `{items}`:** `GET /tag-categories` only (admin-curated, at most 100 x 100).
 
 **No shape-exception exists yet.** Every list keeps the paged envelope; a purpose-built document (e.g. a thread board) answers
 outside it only with a documented cap and a line here in the commit that introduces it.
@@ -53,12 +52,4 @@ outside it only with a documented cap and a line here in the commit that introdu
 wrapper is for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets`) are not implemented — port Covenant's
 pattern with the first filterable list that needs them.
 
-**Search** is the second `q` consumer: `GET /rooms/{id}/search?q=` and `GET /search?q=` (`q` REQUIRED unless `watching=true`, 1.1; hits are THREADS in the envelope, `SearchPageSize` at most 20; `chat-model.md`).
-
-**Pins** are the smallest-bound sub-collection: `GET /rooms/{id}/pins` (`RoomPinPage`, sortable `id`, `pinnedAt`, default `-pinnedAt,-id`, no filter); a room holds at most 50; one page is the whole set.
-
-**Keyset inside the envelope:** `GET .../messages?id[lt]=` (the first bracket filter; `optionalUInt`; default `-id`): `total` counts AFTER it, so `total > items.length` means older rows exist.
-
-A room's members, threads and a thread's history are the paged sub-collections (whitelists, filters, caps): `chat-model.md` "Paged lists of a room". The thread list also sorts by `status` (workflow order) and filters by repeated `status`, `ownerId`, `field=key:value` and `tag`; the room's tags are a paged list too (`GET /rooms/{id}/tags`, optional `q`).
-
-**The notification list** (`GET /notifications`, own `notification-read` bucket): the caller's in-app rows, filters `seen` and repeated `type`, sort `id`/`createdAt`, default `-id`. `total` is CAPPED at 1000, an empty page from row 1000 on (registered API-LIST-001 gap).
+**Ledger.** Search (`q` rules, the `SearchPageSize` cap), pins, the keyset `id[lt]` on messages, the member, notification and thread-list filters and the repeated-key bounds: `chat-model.md` "List endpoint ledger".

@@ -1,6 +1,7 @@
 import type { ParseKeys } from "i18next";
-import { IconDoor, IconBellCog, IconHistory, IconHome2, IconKey, IconListCheck, IconSearch, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
+import { IconDoor, IconBellCog, IconHistory, IconHome2, IconKey, IconListCheck, IconSearch, IconTags, IconToggleLeft, IconUsers, IconUsersGroup, type Icon } from "@tabler/icons-react";
 import { roomsPath, searchPath } from "./roomLinks";
+import { tagsPath } from "./tagLinks";
 import { teamsPath } from "./teamLinks";
 import { usersPath } from "./userLinks";
 import { workflowTemplatesPath } from "./workflowTemplateLinks";
@@ -37,7 +38,7 @@ export const homePath = "/";
  * toggle. Home is visible to everyone; the Rooms section holds the static "All rooms" leaf (the shell renders the caller's
  * rooms rail under it, and those dynamic entries join `activeNavPath`); the Administration section holds Teams (everyone reads
  * the flat teams list; only its create/edit/delete are ADMIN) alongside the ADMIN-only Users, Workflow
- * templates and Feature flags leaves — a non-admin session sees just Teams there.
+ * templates, Tags and Feature flags leaves — a non-admin session sees just Teams there.
  */
 /** The section the shell renders the rooms rail in. */
 export const ROOMS_SECTION: ParseKeys = "appShell.section.rooms";
@@ -60,6 +61,7 @@ const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: teamsPath, label: "appShell.nav.teams", icon: IconUsersGroup },
       { to: usersPath, label: "appShell.nav.users", icon: IconUsers, adminOnly: true },
       { to: workflowTemplatesPath, label: "appShell.nav.workflowTemplates", icon: IconListCheck, adminOnly: true },
+      { to: tagsPath, label: "appShell.nav.tags", icon: IconTags, adminOnly: true },
       { to: "/feature-flags", label: "appShell.nav.featureFlags", icon: IconToggleLeft, adminOnly: true },
     ],
   },

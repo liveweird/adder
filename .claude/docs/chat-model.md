@@ -538,6 +538,27 @@ Binding for 1.2.0. The code lands in steps (plan steps S1 to S12; where a rule n
 - **The profile** (`/people/:id`, outside `RequireAdmin`): name, email, the person's teams, the rooms the viewer shares with them; never the role, feature flags, language, MFA or sign-in times; a removed or unknown person is the same "not available" page; an ADMIN also sees every room of the person and an "Edit user" link (1.2 A15: a link is not checked when drawn).
 - **Where names are links** is the list in 1.2 D6. A mention in a message is a link (person or team) except inside a link's own text, where it stays a `span`; `@everyone` and `@watchers` are never links. A thread-list row and a bell row are each ONE link, so a name inside cannot nest a link: list rows keep the owner as text, and the bell row uses the "card with several links" pattern (the thread link keeps the whole sentence as its accessible name and covers the row; the actor and room links sit above it). Not linked: reaction tooltips (the wire has names, no ids), the ADMIN Users table, a history actor flagged `actorDeleted`.
 
+### List endpoint ledger (moved from `list-endpoints.md`, 1.2)
+
+Per-endpoint detail of the list rules; the generic rules stay in `list-endpoints.md`.
+
+- **The first `q` consumer** is `GET /users/directory?q=` (name OR email on
+  one `containsNormalized` predicate for count and rows; `q` REQUIRED, 2 to 100 code points trimmed; pages capped at 20 via `DirectoryPageSize`; spec parameter `Q`); `GET /users` and `GET /teams` (`name`, `handle`: the team-mention picker) still filter per column.
+
+- **Repeated keys.** Ledger: `GET /rooms/{id}/threads` takes `status`, `ownerId`, `field=key:value` (each at most 20 distinct), `mentionedId` (same bound) and `tag` (at most 10 after case folding; any-of within a key, all-of across; `threads/ThreadListFilter.kt`); `closed`, `watching` and `mentionsMe` stay scalar. `GET /notifications` takes `type` (a known kind, at most 11 distinct, `NotificationType.entries.size`).
+
+**Member filters (1.2 D7).** `GET /rooms` and `GET /teams` take `memberId` (one optional STRICT id via `optionalPositiveId`: ASCII digits, 1 to int32, one value; anything else, a blank `memberId=` too, is a `400` that does not echo the value; an unknown or removed person an empty page; spec parameter `MemberId`): the rooms or teams that ACTIVE user belongs to, ANDed with the caller's own scope (the profile page's lists). Scalar, so it is not in the repeated-keys ledger.
+
+**Search** is the second `q` consumer: `GET /rooms/{id}/search?q=` and `GET /search?q=` (`q` REQUIRED unless `watching=true`, 1.1; hits are THREADS in the envelope, `SearchPageSize` at most 20; `chat-model.md`).
+
+**Pins** are the smallest-bound sub-collection: `GET /rooms/{id}/pins` (`RoomPinPage`, sortable `id`, `pinnedAt`, default `-pinnedAt,-id`, no filter); a room holds at most 50; one page is the whole set.
+
+**Keyset inside the envelope:** `GET .../messages?id[lt]=` (the first bracket filter; `optionalUInt`; default `-id`): `total` counts AFTER it, so `total > items.length` means older rows exist.
+
+A room's members, threads and a thread's history are the paged sub-collections (whitelists, filters, caps): `chat-model.md` "Paged lists of a room". The thread list also sorts by `status` (workflow order) and filters by repeated `status`, `ownerId`, `field=key:value` and `tag`; the room's tags are a paged list too (`GET /rooms/{id}/tags`, optional `q`).
+
+**The notification list** (`GET /notifications`, own `notification-read` bucket): the caller's in-app rows, filters `seen` and repeated `type`, sort `id`/`createdAt`, default `-id`. `total` is CAPPED at 1000, an empty page from row 1000 on (registered API-LIST-001 gap).
+
 ### Hashtags on rows, and `#42` (1.2 A8, 1.2 A9)
 
 - **Wire.** `ThreadListItem.hashtags` and `ThreadResponse.hashtags`: the distinct folded keys of the thread's live messages, alphabetical, at most 20. One constant-text statement per page reads them for the page's thread ids over `idx_message_tags_thread (thread_id, tag)` (V31: the V15 index leads with `(room_id, tag)`, which would scan the room's whole tag index on the hottest read); the measured time is recorded in `persistence.md` "Hashtags (V15)".
@@ -546,6 +567,7 @@ Binding for 1.2.0. The code lands in steps (plan steps S1 to S12; where a rule n
 ### Tags (V32, V33; 1.2 D1 to 1.2 D3)
 
 - **The registry** (`tags/`, a foundation package like `teams/`; Hammurabi's port, numbers and grammar in 1.2 A2): one global registry. `GET /tag-categories` any authenticated, answering `{items}` (a bounded, admin-curated set); `POST`, `PUT /{id}` and `DELETE /{id}` ADMIN only, the guard before the header, the body and the id; PUT and DELETE under `X-Expected-Revision` inside a `lockingTransaction` (`infra/db/Locking.kt`, for the registry ONLY; the room lock is untouched). Audit `tag_category.created|updated|deleted`; no live hint (1.2 A7). V32 seeds **Kind** and **Area** (1.2 D2), stamped like V12's.
+- **No in-place rename.** A tag name IS its key: renaming one is a drop plus an add, which is a NEW tag row; threads that carry the old one keep it as `retired` until their next tag save. Registry names fold CASE (trimmed, whitespace collapsed, lower-cased), not accents: `cafe` and `café` are two tags (1.2 A2). Names sort by code point everywhere (`persistence.md` "Tag categories (V32)").
 - **`thread_tags (thread_id, tag_id, added_at, added_by)`** (V33), primary key `(thread_id, tag_id)`, hard-deleted join (every change is a `thread_events` row); `thread_id` cascades with the thread, `tag_id` has no `ON DELETE` rule (a tag is only ever retired), plus `idx_thread_tags_tag (tag_id, thread_id)`.
 - **`PUT /rooms/{id}/threads/{number}/tags`** `{tags: [names]}`, at most 20, a whole-set replace applied as a diff, `204`. **Who** (1.2 D1): any member and an ADMIN while the thread is open; on a CLOSED thread only its stewards; an archived room is `409`. **Order:** 401; `chat-write` (429); visibility (404, audited); a lock-free read of the thread (404) and, when it is closed, `requireThreadSteward` (403) BEFORE the header and the body; `X-Expected-Revision` (400); the body (400: more than 20 names, judged before any name is normalised; the grammar; a repeat). Then under the room lock (`withThreadWrite`): the guard again; the thread (404); the steward check again when closed (403); archived (409); the revision (409 `revision-conflict`); every name must be a LIVE tag (400, a fixed detail that echoes no name); the diff. The body ceiling is the 16 KiB small-PUT limit (`THREAD_SMALL_PUT_PATH`).
 - **A real change** deletes and inserts `thread_tags` rows, appends ONE `TAGS_CHANGED` event (`{added, removed}`, names joined with ", "), bumps `revision` and `updated_at`, emits `thread.updated` and audits `thread.tags_changed` (ids, counts, the names). **The same set** is a `204` that writes nothing. **Not activity** (1.2 A4): no rail bump, no "new" dot, no unread, no notice, `last_activity_at` untouched, the `ThreadNotices` port not called. A save rides the thread's `revision` (1.2 A3).

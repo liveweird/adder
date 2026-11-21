@@ -48,6 +48,7 @@ ktor:
       - ch.nokillswit.users.UserRoutesKt.configureUserRoutes
       - ch.nokillswit.teams.TeamRoutesKt.configureTeamRoutes
       - ch.nokillswit.workflows.WorkflowTemplateRoutesKt.configureWorkflowTemplateRoutes
+      - ch.nokillswit.tags.TagCategoryRoutesKt.configureTagCategoryRoutes
       # Rooms (V13): the record and its lifecycle, the room's own workflow, then its members (three modules in one package, the auth/ precedent).
       - ch.nokillswit.rooms.RoomRoutesKt.configureRoomRoutes
       - ch.nokillswit.rooms.RoomWorkflowRoutesKt.configureRoomWorkflowRoutes

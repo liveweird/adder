@@ -1,0 +1,40 @@
+{
+  "title": "Tagi",
+  "intro": "Jedyne tagi, które może mieć wątek, pogrupowane w kategorie. Każdy może je czytać; administratorzy/rki zarządzają kategoriami i ich tagami (tag należy dokładnie do jednej kategorii).",
+  "empty": "Nie ma jeszcze kategorii tagów",
+  "loadFailed": "Nie udało się wczytać kategorii tagów",
+  "newCategory": "Nowa kategoria",
+  "createTitle": "Nowa kategoria tagów",
+  "editTitle": "Edytuj kategorię tagów",
+  "retiredAria": "{{name}} (wycofany)",
+  "column": {
+    "name": "Kategoria",
+    "description": "Opis",
+    "tags": "Tagi"
+  },
+  "field": {
+    "tagsHint": "Naciśnij Enter lub przecinek, aby dodać każdy tag. Dozwolone są litery, cyfry, spacje oraz . _ / + # : - ; wielkie litery są zamieniane na małe; tag należy tylko do jednej kategorii."
+  },
+  "validation": {
+    "nameLength": "Nazwa musi mieć od 1 do 60 znaków",
+    "descriptionLength": "Opis może mieć najwyżej 500 znaków",
+    "tagsRequired": "Dodaj co najmniej jeden tag",
+    "tagsCount": "Najwyżej {{max}} tagów",
+    "tag": "Tag „{{tag}}” musi mieć od 1 do {{max}} znaków: litery i cyfry, a w środku spacje oraz . _ / + # : -",
+    "tagsDuplicate": "Tagi nie mogą się powtarzać"
+  },
+  "saveForbidden": "Tylko administratorzy/rki mogą edytować kategorie tagów",
+  "saveConflict": "Nazwa kategorii albo jeden z jej tagów jest już zajęty",
+  "saveInvalid": "Co najmniej jedno pole jest nieprawidłowe",
+  "saveStale": "Inny/a administrator/ka zmienił/a tę kategorię po jej otwarciu. Twoja zmiana nie została zapisana: zamknij to okno i otwórz kategorię ponownie, aby zobaczyć najnowszą wersję.",
+  "saveGone": "Ta kategoria już nie istnieje — odśwież stronę",
+  "deleteTitle": "Usunąć kategorię tagów?",
+  "deleteFailed": "Nie udało się usunąć kategorii tagów",
+  "deleteStale": "Ta kategoria została zmieniona po jej otwarciu, więc nie została usunięta. Odśwież stronę i sprawdź jej tagi, zanim ją usuniesz.",
+  "deleteBody": "„{{name}}” i jej tagi znikną z rejestru. Wątki, które mają te tagi, zachowają je jako wycofane, dopóki tagi nie zostaną zmienione.",
+  "toast": {
+    "created": "Utworzono kategorię tagów",
+    "saved": "Zapisano kategorię tagów",
+    "deleted": "Usunięto kategorię tagów"
+  }
+}

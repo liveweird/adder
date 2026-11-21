@@ -134,6 +134,10 @@ private val UNIQUE_CONSTRAINT_CONFLICTS = mapOf(
     "uq_teams_handle_active" to UniqueConflict("A team with this mention handle already exists", listOf("handle")),
     "uq_workflow_templates_name_active" to UniqueConflict("A workflow template with this name already exists"),
     "uq_rooms_name_active" to UniqueConflict("A room with this name already exists"),
+    "uq_tag_categories_name_active" to UniqueConflict("A tag category with this name already exists"),
+    // The registry's table lock makes this unreachable through the service (a clash is judged first, naming the owner); the net for any
+    // writer outside it.
+    "uq_tags_name" to UniqueConflict("A tag with this name already exists"),
 )
 
 private val GENERIC_UNIQUE_CONFLICT = UniqueConflict("Resource already exists")

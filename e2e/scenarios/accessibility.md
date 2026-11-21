@@ -69,6 +69,11 @@ teammate's message mentions the admin, so it lists that notice) and the fixture 
 1. The admin signs in, opens `/teams` and clicks **New team**.
    - *Expected*: the modal settles at full opacity with the heading "New team" and an axe scan scoped to the dialog reports zero violations.
 
+## Scenario: a tag category editor modal has no WCAG A/AA violations
+
+1. The admin signs in, opens `/tags` and clicks **New category**.
+   - *Expected*: the modal settles at full opacity with the heading "New tag category" and an axe scan scoped to the dialog reports zero violations.
+
 ## Scenario: `<path>` has no WCAG A/AA violations in the dark scheme
 
 1. The browser context emulates the dark colour scheme (Playwright `colorScheme: "dark"`; the
@@ -110,7 +115,7 @@ The states (the detail-page block's list, `DETAIL_PAGES`, plus the overlays and 
 - **the conversation with the new-messages marker**: the teammate posts through the API just before the admin opens the thread, so the "New messages" separator is on screen when the scan runs;
 - **the room's search results** and **the search results across rooms**: a search for the fixture thread's unique title lists it (the room's workflow pill in the room's search; the Open pill and the room's name across rooms);
 - **the workflow template's edit page**: the seeded Default template, opened and scanned with its fields showing, never saved;
-- the edit-user and user-features pages, the reset-password page and its confirm page, the not-found page; the room's "Leave this room?" dialog, the notification drawer, the pinned panel and a team editor modal (each scoped to its dialog).
+- the edit-user and user-features pages, the reset-password page and its confirm page, the not-found page; the room's "Leave this room?" dialog, the notification drawer, the pinned panel, a team editor modal and a tag category editor modal (each scoped to its dialog).
 
 ## Scenario: `<state>` has no WCAG A/AA violations in the dark scheme
 

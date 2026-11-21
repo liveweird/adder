@@ -47,10 +47,17 @@ const AUTHED_PAGES: { path: string; heading: string }[] = [
   { path: "/users/new", heading: "New user" },
   { path: "/workflow-templates", heading: "Workflow templates" },
   { path: "/workflow-templates/new", heading: "New workflow template" },
+  { path: "/tags", heading: "Tags" },
   { path: "/feature-flags", heading: "Feature flags" },
   { path: "/change-password", heading: "Change password" },
   { path: "/notification-preferences", heading: "Notification preferences" },
   { path: "/changelog", heading: "Changelog" },
+];
+
+/** The registry editor modals the overlay scans open (a team's, a tag category's): the page, its "New" button and the dialog's heading. */
+const EDITOR_MODALS = [
+  { subject: "a team editor modal", path: "/teams", open: "New team", title: "New team" },
+  { subject: "a tag category editor modal", path: "/tags", open: "New category", title: "New tag category" },
 ];
 
 // The light pass keeps its original titles; the dark pass (Playwright's `colorScheme: "dark"`, which
@@ -445,14 +452,17 @@ test.describe("detail pages and overlays", () => {
       await scan(page, '[role="dialog"]');
     });
 
-    test(`a team editor modal has no WCAG A/AA violations${suffix}`, async ({ page }) => {
-      await signIn(page, "/teams");
-      await page.getByRole("button", { name: "New team" }).click();
-      const modal = await settledDialog(page);
-      await expect(modal.getByRole("heading", { name: "New team" })).toBeVisible();
-      await expectScheme(page, scheme);
-      await scan(page, '[role="dialog"]');
-    });
+    // The two registry editors, each opened from its page's "New" button and scanned scoped to its dialog.
+    for (const { subject, path, open, title } of EDITOR_MODALS) {
+      test(`${subject} has no WCAG A/AA violations${suffix}`, async ({ page }) => {
+        await signIn(page, path);
+        await page.getByRole("button", { name: open }).click();
+        const modal = await settledDialog(page);
+        await expect(modal.getByRole("heading", { name: title })).toBeVisible();
+        await expectScheme(page, scheme);
+        await scan(page, '[role="dialog"]');
+      });
+    }
   }
   registerDetailScans("light");
   test.describe("dark scheme", () => {

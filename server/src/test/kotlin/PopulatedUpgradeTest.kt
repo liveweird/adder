@@ -7,6 +7,7 @@ import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.notifications.NotificationPreferencesResponse
 import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.rooms.RoomPageResponse
+import ch.nokillswit.tags.TagCategoryList
 import ch.nokillswit.teams.TeamPageResponse
 import ch.nokillswit.threads.MessagePageResponse
 import ch.nokillswit.threads.MessageResponse
@@ -97,11 +98,41 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        assertTrue(listOf("25", "26", "27", "28", "29", "30", "31").all { it in after }, "V25 to V31 ran on the populated database: $after")
+        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32")
+        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V32 ran on the populated database: $after")
         val tagIndexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'message_tags'") { it.getString(1) }
             .toSet()
         val both = "idx_message_tags_thread" in tagIndexes && "idx_message_tags_room_tag" in tagIndexes
         assertTrue(both, "V31's index sits beside V15's: $tagIndexes")
+        assertTagRegistrySeeded(database)
+    }
+
+    /**
+     * V32 creates the registry and seeds it, and no row of the release is involved: Kind and Area, ten live tags in their own category
+     * (stamped, revision 1), with `uq_tag_categories_name_active` and `uq_tags_name` in place. The release's tables are byte for byte what
+     * they were (the digests of the caller).
+     */
+    private fun assertTagRegistrySeeded(database: String) {
+        val seeded = query(
+            database,
+            "SELECT c.\"name\", c.revision, c.created_at > 0, string_agg(t.\"name\", ',' ORDER BY t.\"name\") " +
+                "FROM tag_categories c JOIN tags t ON t.category_id = c.id AND NOT t.marked_as_deleted " +
+                "WHERE NOT c.marked_as_deleted GROUP BY c.id ORDER BY c.\"name\"",
+        ) { listOf(it.getString(1), it.getLong(2), it.getBoolean(3), it.getString(4)) }
+        assertEquals(
+            listOf(
+                listOf("Area", 1L, true, "customer,data,infrastructure,process,security"),
+                listOf("Kind", 1L, true, "action,announcement,decision,postmortem,question"),
+            ),
+            seeded,
+            "V32's seed",
+        )
+        val registryIndexes = "SELECT indexname FROM pg_indexes WHERE tablename IN ('tag_categories', 'tags')"
+        val indexes = query(database, registryIndexes) { it.getString(1) }.toSet()
+        assertTrue(
+            listOf("uq_tag_categories_name_active", "uq_tags_name", "idx_tags_category").all { it in indexes },
+            "the registry's indexes: $indexes",
+        )
     }
 
     /** An additive migration may add columns; a dropped or renamed one of the release's columns fails, naming the table. */
@@ -189,6 +220,10 @@ class PopulatedUpgradeTest {
         startApplication()
         val olivia = authedClient(OLIVIA, PASSWORD)
         assertRoomsAndTeams(olivia)
+        // V32: the registry reads through the API over the migrated database (the ordinary user's read; the seed, not the release's rows).
+        val registry = olivia.getBody<TagCategoryList>("/api/v1/tag-categories").items
+        assertEquals(listOf("Area", "Kind"), registry.map { it.name }, "V32's two seeded categories")
+        assertEquals(listOf(5, 5), registry.map { it.tags.size })
         assertThreadList(olivia)
         assertThreadAndHistory(olivia)
         assertMessagesPinsAndSearch(olivia, database)

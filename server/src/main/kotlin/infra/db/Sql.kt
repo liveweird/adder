@@ -73,3 +73,20 @@ fun <T> T?.orVanished(resource: String, id: Any, phase: String = "between create
 /** `GREATEST(column, value)`: a monotonic stamp (read state only moves forward), so a later writer's larger instant is never lowered. */
 fun Expression<Long>.greatestOf(value: Long): Expression<Long> =
     CustomFunction("GREATEST", LongColumnType(), this, longParam(value))
+
+/**
+ * `<expr> COLLATE "C"`: ordering by code point (UTF-8 byte order), never by the database's locale, so a sort the database does and one
+ * Kotlin does (`String.compareTo` orders by UTF-16 unit; for the one difference, supplementary characters, see the tag registry's
+ * `CODE_POINT_ORDER`) agree and a name's place never depends on the server's libc ("a-c" sorts before "ab", as in V20's emoji tie-break).
+ */
+fun <T : String?> Expression<T>.collateC(): Expression<T> {
+    val inner = this
+    return object : Expression<T>() {
+        override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+            queryBuilder {
+                append(inner)
+                append(" COLLATE \"C\"")
+            }
+        }
+    }
+}

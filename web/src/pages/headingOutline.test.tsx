@@ -42,7 +42,7 @@ function emptyApi() {
     if (url.startsWith("/api/v1/rooms/1/threads/1/messages?")) return Promise.resolve(jsonResponse(200, { ...PAGE, items: [MESSAGE], total: 1 }));
     if (url.startsWith("/api/v1/rooms/1/threads/1/events?")) return Promise.resolve(jsonResponse(200, PAGE));
     if (url.startsWith("/api/v1/rooms/1/threads?")) return Promise.resolve(jsonResponse(200, { ...PAGE, items: [THREAD_ITEM], total: 1 }));
-    if (/\/api\/v1\/(users|teams|workflow-templates|rooms)(\?|$)|\/api\/v1\/rooms\/1\/members\?/.test(url)) return Promise.resolve(jsonResponse(200, PAGE));
+    if (/\/api\/v1\/(users|teams|workflow-templates|tag-categories|rooms)(\?|$)|\/api\/v1\/rooms\/1\/members\?/.test(url)) return Promise.resolve(jsonResponse(200, PAGE));
     return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
   });
 }
