@@ -141,15 +141,31 @@ describe("NotificationsButton", () => {
     await user.click(await bell());
     const drawer = await screen.findByRole("dialog", { name: "Notifications" });
     const mention = await within(drawer).findByRole("link", { name: /<b>Ada<\/b> mentioned you in #42 \*\*Awaria\*\*/ });
-    expect(mention).toHaveTextContent(`Payments outage · ${formatDateTime(AT, ZONE)}`);
-    expect(within(mention).getByText("Unseen")).toBeInTheDocument();
+    // The notice's link is named for the unseen word and the sentence (its text is what follows the actor, whose own link stands beside it: a
+    // link may not hold a link); the room and the time follow as the room link and the row's text.
+    expect(mention).toHaveAccessibleName("Unseen <b>Ada</b> mentioned you in #42 **Awaria**");
+    const row = mention.closest("li")!;
+    expect(row).toHaveTextContent(`Payments outage · ${formatDateTime(AT, ZONE)}`);
     // The unseen row carries the shared blue dot; the seen one has none.
-    expect(mention.querySelectorAll("[data-unread-cue=dot]")).toHaveLength(1);
-    expect(within(drawer).getByRole("link", { name: /Bob made you/ }).querySelector("[data-unread-cue]")).toBeNull();
-    expect(within(drawer).getByRole("link", { name: /Bob made you the owner of #5 Runbook/ })).toHaveTextContent("Ops ·");
+    expect(row.querySelectorAll("[data-unread-cue=dot]")).toHaveLength(1);
+    const seen = within(drawer).getByRole("link", { name: /Bob made you/ });
+    expect(seen.closest("li")!.querySelector("[data-unread-cue]")).toBeNull();
+    expect(seen).toHaveAccessibleName("Bob made you the owner of #5 Runbook");
+    expect(seen.closest("li")).toHaveTextContent("Ops ·");
     expect(drawer.querySelector("b")).toBeNull();
     // A seen one has no "Unseen" word.
-    expect(within(within(drawer).getByRole("link", { name: /Bob made you/ })).queryByText("Unseen")).not.toBeInTheDocument();
+    expect(seen.getAttribute("aria-label")).not.toMatch(/Unseen/);
+  });
+
+  test("following the actor's or the room's link inside a row closes the drawer without marking the notice seen", async () => {
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    const drawer = await screen.findByRole("dialog", { name: "Notifications" });
+    await user.click(await within(drawer).findByRole("link", { name: "Ada" }));
+    expect(screen.getByLabelText("where")).toHaveTextContent("/people/7");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(calls.some((call) => call.startsWith("POST"))).toBe(false);
   });
 
   test("a click marks the notice seen and opens the message the notice is about", async () => {
@@ -423,8 +439,8 @@ describe("NotificationsButton", () => {
     renderBell();
     await user.click(await screen.findByRole("button", { name: /^Powiadomienia/ }));
     const drawer = await screen.findByRole("dialog", { name: "Powiadomienia" });
-    expect(await within(drawer).findByText("Ada ponownie otwiera wątek #42 Awaria bazy")).toBeInTheDocument();
-    expect(within(drawer).getByText("Ada wspomina o Twoim zespole w #42 Awaria bazy")).toBeInTheDocument();
+    expect(await within(drawer).findByRole("link", { name: /Ada ponownie otwiera wątek #42 Awaria bazy/ })).toBeInTheDocument();
+    expect(within(drawer).getByRole("link", { name: /Ada wspomina o Twoim zespole w #42 Awaria bazy/ })).toBeInTheDocument();
   });
 
   test("the All / Mentions switch asks the server for the addressed kinds only, and back", async () => {

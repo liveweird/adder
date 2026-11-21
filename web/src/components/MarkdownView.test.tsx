@@ -222,15 +222,34 @@ describe("MarkdownView (message): mentions", () => {
     ]);
     expect(document.querySelector("img")).toBeNull();
     expect(document.querySelector("strong")).toBeNull();
-    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    // The only links are the two profile links: the name's Markdown is text, so no link of its own comes out of it.
+    expect(screen.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/people/5", "/people/9"]);
     expect(screen.getByText("@**Ada** <img src=x onerror=alert(1)>")).toBeInTheDocument();
     expect(screen.getByText("@[Bob](https://evil.example) #tag")).toBeInTheDocument();
   });
 
   test("a mention in a link's text is shown inside the link, and code is left alone", () => {
     renderView("[see <@5>](https://example.com) `<@9>`", "message", undefined, people);
-    expect(screen.getByRole("link", { name: "see @Ada Lovelace" })).toHaveAttribute("href", "https://example.com");
+    const link = screen.getByRole("link", { name: "see @Ada Lovelace" });
+    expect(link).toHaveAttribute("href", "https://example.com");
+    // A link may not hold a link: inside the link's own text the mention is a span, and it is the only link there is.
+    expect(link.querySelector("a")).toBeNull();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByText("@Ada Lovelace").tagName).toBe("SPAN");
     expect(screen.getByText("<@9>").tagName).toBe("CODE");
+  });
+
+  test("a listed person's mention is a link to their profile, the reader's own too", () => {
+    localStorage.setItem("adder.auth.userId", "5");
+    renderView("<@5> and <@9>", "message", undefined, people);
+    expect(screen.getByRole("link", { name: "@Ada Lovelace" })).toHaveAttribute("href", "/people/5");
+    expect(screen.getByRole("link", { name: "@Ada Lovelace" })).toHaveAttribute("data-self", "true");
+    expect(screen.getByRole("link", { name: "@Bob" })).toHaveAttribute("href", "/people/9");
+  });
+
+  test("an unlisted id is a link to nobody: the raw token stays text", () => {
+    renderView("Ping <@77>", "message", undefined, people);
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
   });
 
   // Known disagreement (web-internals.md "Mentions in messages"): the server's pre-pass does not blank an indented code block, a raw HTML
@@ -301,6 +320,16 @@ describe("MarkdownView (message): group mentions", () => {
     expect(screen.getByText("@everyone")).toHaveAttribute("data-mention-group", "everyone");
     expect(screen.getByText(/not <@team:99>\./)).toBeInTheDocument();
     expect(screen.queryByText(/<@team:12>/)).toBeNull();
+  });
+
+  test("a listed team is a link to its page, the keywords never are, and a team in a link's text is a span", () => {
+    renderView("Hey <@team:12>, <@watchers> and <@everyone>", "message", undefined, undefined, groups);
+    expect(screen.getByRole("link", { name: "@oncall" })).toHaveAttribute("href", "/teams/12");
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    cleanup();
+    renderView("[page <@team:12>](https://example.com)", "message", undefined, undefined, groups);
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByText("@oncall").tagName).toBe("SPAN");
   });
 
   test("a keyword the server did not list stays the raw token, the other one is read", () => {

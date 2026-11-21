@@ -87,6 +87,9 @@ describe("ThreadPane", () => {
     renderWithProviders(<ThreadPane room={ROOM} numberParam="42" />);
     const region = await screen.findByRole("region", { name: "#42 Disk full on db-3" });
     expect(region).toHaveTextContent("Owner: Ann Owner");
+    // The owner and the starter are links to their profiles, in the sentence (1.2 D6).
+    expect(within(screen.getByText(/^Owner:/)).getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
+    expect(within(screen.getByText(/^Started by/)).getByRole("link", { name: "Bob Starter" })).toHaveAttribute("href", "/people/6");
     expect(region).toHaveTextContent("3 messages");
     const zone = browserTimeZone();
     expect(region).toHaveTextContent(`Started by Bob Starter on ${formatDateTime(STARTED, zone)}`);

@@ -195,6 +195,7 @@ Every list page composes the same ported Lettuce blocks — copy `pages/Users.ts
   `openAria`), which is what tests and e2e locate. A real link, not an onClick: cmd/middle-click
   opens a tab and it takes keyboard focus. Route families are spelled out ONCE in
   `utils/<area>Links.ts` — never hand-assemble a URL.
+- **A person's or a room's name is a link wherever it stands on its own** (1.2 D6): `components/PersonLink.tsx` (`/people/:id`; a site that KNOWS the person is gone draws plain text instead) and `components/RoomLink.tsx`, underlined at rest (`quiet` mutes the ink in dense columns), never nested in a row that is itself a link (the bell row is the card-with-several-links pattern, `NoticeRow.tsx`). A sentence that holds one goes through `utils/slots.tsx` (`slot` + `fillSlots`), **never `<Trans>`** (it parses typed values as markup). Which sites link and in what style: `web-internals.md` "Names as links".
 - Row action buttons carry interpolated aria-labels (`<area>.editAria` etc.) — unit tests and e2e
   locate by them; table tests query cells by **text**, not `cell` role names. **Row actions**: a
   row with more than two actions bundles them under `components/RowActionsMenu.tsx` — an

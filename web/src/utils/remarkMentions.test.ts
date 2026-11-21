@@ -58,9 +58,17 @@ describe("remarkMentions", () => {
     expect(run(image) as unknown).toEqual([image]);
   });
 
-  test("enters a link's text, where a hashtag would not be", () => {
-    const [link] = run({ type: "link", url: "https://example.com", children: [text("see <@12>")] } as unknown as Tree) as unknown as Tree[];
-    expect(link.children).toEqual([text("see "), mention(12)]);
+  test("enters a link's text, where a hashtag would not be, and flags the mention there: a link may not hold a link", () => {
+    const flagged = <T extends { data: { hProperties: Record<string, string> } }>(node: T) => ({
+      ...node,
+      data: { ...node.data, hProperties: { ...node.data.hProperties, "data-in-link": "true" } },
+    });
+    const [link] = run({ type: "link", url: "https://example.com", children: [text("see <@12> <@team:3>")] } as unknown as Tree) as unknown as Tree[];
+    expect(link.children).toEqual([text("see "), flagged(mention(12)), text(" "), flagged(team(3))]);
+    const [reference] = run({ type: "linkReference", children: [{ type: "emphasis", children: [text("<@5>")] }] } as unknown as Tree) as unknown as Tree[];
+    expect(JSON.stringify(reference)).toContain('"data-in-link":"true"');
+    // Outside a link the same token carries no flag.
+    expect(JSON.stringify(run(text("<@5>")))).not.toContain("data-in-link");
   });
 
   test("reaches text nested in emphasis, strong, lists and quotes", () => {

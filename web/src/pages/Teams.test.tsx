@@ -108,7 +108,9 @@ describe("Teams page", () => {
     expect(await screen.findByRole("link", { name: "Open team Payments" })).toHaveAttribute("href", "/teams/1");
     expect(screen.getByText("Money movers")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Manager" })).toBeInTheDocument();
-    expect(screen.getByText("Mia Manager")).toBeInTheDocument();
+    // The manager is a link to their profile (1.2 D6); a team with none shows a dash and no link.
+    expect(within(screen.getByRole("row", { name: /Payments/ })).getByRole("link", { name: "Mia Manager" })).toHaveAttribute("href", "/people/7");
+    expect(within(screen.getByRole("row", { name: /Identity/ })).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/teams/2"]);
     // The mention handle reads as @handle, or a dash for a team without one.
     expect(screen.getByRole("columnheader", { name: /Mention handle/ })).toBeInTheDocument();
     expect(within(screen.getByRole("row", { name: /Payments/ })).getByText("@payments")).toBeInTheDocument();

@@ -43,8 +43,8 @@
  * A pinned message (1.2 D5): a gray bar down its left edge on a quiet gray tint, beside the "Pinned by {name}" line with the pin icon that the
  * item draws (words and shapes; the hue is never the only carrier). Pinned is a neutral state, so gray, not the olive accent or the unread blue.
  * The bar is a real border (it survives forced colours; a box-shadow would not) and the margin pulls it out into the scroller's padding, so the
- * text of a pinned message stays aligned with the others': bar + gap = 9px, inside the 12px padding. gray-6 is 3.5:1 on the light surface,
- * gray-5 7:1 on the dark one.
+ * text of a pinned message stays aligned with the others': bar + gap = 9px, inside the 12px padding. gray-6 is 3.3:1 on white and 3.1:1 on the canvas and
+ * on this tint, gray-5 6.5:1 or more on the dark surfaces (`theme.test.ts` pins both).
  */
 .list > li[data-pinned] {
   --pin-bar: 3px;

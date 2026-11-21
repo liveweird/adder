@@ -1,7 +1,7 @@
 /*
  * One pin of the room, as the drawer and the open thread's strip draw it (1.2 D5): a neutral gray bar down the left edge beside the pin icon and
  * the "Pinned by" words. Pinned is a neutral state (gray, never the olive accent or the unread blue); the bar is the shape, the words and the
- * icon say it, so the mark is not colour alone. gray-6 is 3.5:1 on the light surface, gray-5 7:1 on the dark one.
+ * icon say it, so the mark is not colour alone. gray-6 is 3.3:1 on white and 3.1:1 on the canvas and the tint, gray-5 6.5:1 or more on the dark surfaces (`theme.test.ts`).
  */
 .card {
   border-left: 3px solid light-dark(var(--mantine-color-gray-6), var(--mantine-color-gray-5));

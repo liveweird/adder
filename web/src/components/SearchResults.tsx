@@ -5,6 +5,8 @@ import type { RoomWorkflow } from "../api/rooms";
 import type { MessageSearchHit, ThreadSearchHit } from "../api/search";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { threadMessagePath, threadPath } from "../utils/roomLinks";
+import PersonLink from "./PersonLink";
+import RoomLink from "./RoomLink";
 import Snippet from "./Snippet";
 import StatusPill from "./StatusPill";
 import ThreadStatusPill from "./ThreadStatusPill";
@@ -28,7 +30,9 @@ function MessageRow({ hit, message, zone }: { hit: ThreadSearchHit; message: Mes
 /**
  * One search hit: the thread (a heading whose link goes to the thread) with where it stands, then up to three of its newest matching
  * messages, each a link that names the message to jump to. Where the room's workflow is at hand (the room's own search) the status is its pill;
- * a search across rooms carries no workflow, so it shows Open or Closed, the room and an Archived badge for an archived room.
+ * a search across rooms carries no workflow, so it shows Open or Closed, the room and an Archived badge for an archived room. The room and the owner are
+ * links (1.2 D6: `RoomLink`, `PersonLink`), siblings of the thread's heading link; a matching message's row is ONE link to the message, so its author
+ * (in the dimmed line of that link) stays text rather than nest a link in a link.
  */
 function Hit({ hit, statuses, showRoom, zone }: { hit: ThreadSearchHit; statuses: RoomWorkflow["statuses"] | undefined; showRoom: boolean; zone: string }) {
   const { t } = useTranslation();
@@ -52,18 +56,14 @@ function Hit({ hit, statuses, showRoom, zone }: { hit: ThreadSearchHit; statuses
           ) : (
             <ThreadStatusPill statuses={statuses} statusKey={hit.status} size="sm" />
           )}
-          {showRoom && (
-            <Text size="xs" c="dimmed">
-              {hit.roomName}
-            </Text>
-          )}
+          {showRoom && <RoomLink id={hit.roomId} name={hit.roomName} size="xs" />}
           {showRoom && hit.roomArchived && (
             <Badge color="gray" size="sm">
               {t("rooms.archivedBadge")}
             </Badge>
           )}
           <Text size="xs" c="dimmed">
-            {hit.ownerName} · {t("threads.row.messages", { count: hit.messageCount })} · {formatDateTime(hit.lastActivityAt, zone)}
+            <PersonLink id={hit.ownerId} name={hit.ownerName} inherit /> · {t("threads.row.messages", { count: hit.messageCount })} · {formatDateTime(hit.lastActivityAt, zone)}
           </Text>
         </Group>
         {hit.matchCount > 0 && (

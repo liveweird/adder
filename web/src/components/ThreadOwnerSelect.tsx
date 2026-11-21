@@ -9,6 +9,7 @@ import { isStaleWrite, threadOwnerErrorMessage } from "../utils/threadActions";
 import { threadEditBlock } from "../utils/threadAccess";
 import { showSuccessToast } from "../utils/toast";
 import FormErrorAlert from "./FormErrorAlert";
+import PersonLink from "./PersonLink";
 import RoomMemberSelect from "./RoomMemberSelect";
 import type { PickedOption } from "./SearchPicker";
 import { roomKeys } from "../utils/roomKeys";
@@ -18,7 +19,7 @@ import { WATCH_SEARCH_KEYS } from "../utils/watch";
  * The thread's owner, and — for a STEWARD only (the thread's owner while a member, a room OWNER, an ADMIN; D1) — the way to pass it on: a
  * picker over the room's active members (`RoomMemberSelect`, the server accepts nobody else) and an explicit "Pass on" button, so choosing a
  * name in the list never hands the thread over by itself. A closed thread and an archived room refuse the hand-over (409), so there the owner
- * is plain text under the reason ("reopen it first" only for a steward, who can follow it); anyone else just reads the name and the plain rule. A 403, 404 or 409 re-reads the room (the standing moved), and so does a
+ * is the owner's name, a link to their profile (1.2 D6), under the reason ("reopen it first" only for a steward, who can follow it); anyone else just reads the name and the plain rule. The picker (a steward on a live, open thread) shows the owner in its input, which holds no link: the header's "Owner" line carries it. A 403, 404 or 409 re-reads the room (the standing moved), and so does a
  * 400 (the person left the room meanwhile — the picker's list is stale); a failure shows under the control.
  */
 export default function ThreadOwnerSelect({ room, thread, steward }: { room: RoomResponse; thread: ThreadResponse; steward: boolean }) {
@@ -36,7 +37,9 @@ export default function ThreadOwnerSelect({ room, thread, steward }: { room: Roo
   if (note !== null) {
     return (
       <Stack gap={2}>
-        <Text size="sm">{thread.ownerName}</Text>
+        <Text size="sm">
+          <PersonLink id={thread.ownerId} name={thread.ownerName} inherit />
+        </Text>
         <Text size="xs" c="dimmed">
           {t(`threads.owner.${note}`)}
         </Text>

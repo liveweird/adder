@@ -37,6 +37,12 @@
   padding-inline: 0.25em;
 }
 
+/* The mention is a link (1.2 D6) in the text colour on its tint: the body's links are olive-ish by the Typography default, and a name chip is text,
+   not accent. It is underlined at rest by the rule above (an own mention already was). */
+.message a.mention {
+  color: inherit;
+}
+
 .mentionSelf {
   font-weight: 700;
   text-decoration: underline;

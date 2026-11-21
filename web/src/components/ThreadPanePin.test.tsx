@@ -125,7 +125,7 @@ describe("ThreadPane: pinning the thread", () => {
       expect(found).toHaveAttribute("data-pinned", "true");
       return found!;
     });
-    expect(within(item).getByText("Pinned by Ann Owner")).toBeInTheDocument();
+    expect(within(item).getByText(/^Pinned by/)).toHaveTextContent("Pinned by Ann Owner");
     // Expanding keeps the conversation: the strip lists the pin with its jump, and the pane records that the list is open.
     await user.click(toggle);
     expect(within(strip).getByRole("link", { name: /^Show in thread/ })).toHaveAttribute("href", "/rooms/12/threads/42?message=1");

@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Group, Stack, Text, Timeline } from "@mantine/core";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
@@ -15,7 +16,8 @@ export type TimelineItem = {
   title: string;
   /** Dimmed body lines under the title (see `utils/eventChanges.ts`). */
   lines: string[];
-  who: string;
+  /** Who did it: text, or a `PersonLink` (the caller decides; a deleted account stays text). */
+  who: ReactNode;
   /** Epoch milliseconds, shown in the browser's time zone. */
   when: number;
 };

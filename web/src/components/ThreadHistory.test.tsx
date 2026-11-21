@@ -63,6 +63,15 @@ describe("ThreadHistory", () => {
     renderWithProviders(<ThreadHistory roomId={12} number={42} />);
     expect(await screen.findByText("MESSAGE_PINNED")).toBeInTheDocument();
     expect(screen.getByText(/Zed \(deleted account\)/)).toBeInTheDocument();
+    // A deleted account has no profile to open: its name stays text, never a dead link.
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  test("the actor of an entry is a link to their profile", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, eventPage([makeEvent({ id: 2, actorId: 8, actorName: "Bob" }), makeEvent({ id: 1, actorId: 5, actorName: "Ann Owner" })])));
+    renderWithProviders(<ThreadHistory roomId={12} number={42} />);
+    expect(await screen.findByRole("link", { name: "Bob" })).toHaveAttribute("href", "/people/8");
+    expect(screen.getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
   });
 
   test("an empty history says so; a failed read is an alert, not an empty history", async () => {

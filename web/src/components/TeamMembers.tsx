@@ -12,6 +12,7 @@ import { showSuccessToast } from "../utils/toast";
 import ConfirmActionModal from "./ConfirmActionModal";
 import EmptyState from "./EmptyState";
 import FormErrorAlert from "./FormErrorAlert";
+import PersonLink from "./PersonLink";
 import type { PickedOption } from "./SearchPicker";
 import UserDirectorySelect from "./UserDirectorySelect";
 
@@ -117,9 +118,7 @@ export default function TeamMembers({ team, canManage }: { team: TeamResponse; c
                 {team.members.map((member) => (
                   <Table.Tr key={member.userId}>
                     <Table.Td>
-                      <Text size="sm" fw={500}>
-                        {member.name}
-                      </Text>
+                      <PersonLink id={member.userId} name={member.name} size="sm" fw={500} />
                     </Table.Td>
                     <Table.Td>
                       <Text size="sm">{member.email}</Text>

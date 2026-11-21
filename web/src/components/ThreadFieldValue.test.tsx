@@ -41,9 +41,12 @@ describe("ThreadFieldValue", () => {
     expect(show("MULTI_SELECT", ["s1", "gone"])).toHaveTextContent("S1, gone (removed option)");
   });
 
-  test("a USER reads as the name the thread carries; an unknown id as #id", () => {
+  test("a USER is a link to the profile under the name the thread carries; an unknown id is the plain #id, no dead link", () => {
     expect(show("USER", 12)).toHaveTextContent("Ann Owner");
+    expect(screen.getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/12");
     expect(show("USER", 99)).toHaveTextContent("#99");
+    expect(screen.queryByRole("link", { name: "#99" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
   });
 
   test("a URL is a link that opens in a new tab without the opener; anything but http(s) is plain text", () => {

@@ -173,6 +173,23 @@ describe("PinnedPanel", () => {
     expect(trigger).not.toHaveFocus();
   });
 
+  test("the author of a pinned message and who pinned it are links to their profiles, and following one closes the drawer without returning focus to the button", async () => {
+    const user = userEvent.setup();
+    serve();
+    renderPanel();
+    const trigger = await screen.findByRole("button", { name: "Pinned (2)" });
+    const dialog = await openPanel(user);
+    expect(within(dialog).getByRole("link", { name: "Cy Author" })).toHaveAttribute("href", "/people/7");
+    expect(within(dialog).getByRole("link", { name: "Bob Starter" })).toHaveAttribute("href", "/people/6");
+    // Ann Owner pinned the thread (5): her name is in the "Pinned by" line of that card.
+    expect(within(dialog).getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
+    await user.click(within(dialog).getByRole("link", { name: "Bob Starter" }));
+    expect(screen.getByLabelText("where")).toHaveTextContent("/people/6");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await settle();
+    expect(trigger).not.toHaveFocus();
+  });
+
   test("a message pin shows the message as Markdown and its thread, and Open in thread carries message=", async () => {
     const user = userEvent.setup();
     serve();

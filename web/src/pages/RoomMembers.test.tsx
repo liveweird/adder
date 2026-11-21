@@ -170,6 +170,9 @@ describe("RoomMembers page", () => {
     // The date, role and a "You" marker on the caller's own row.
     const own = within(table).getByRole("row", { name: /Olga Owner/ });
     expect(within(own).getByText("You")).toBeInTheDocument();
+    // A member's name is a link to their profile (1.2 D6), one tab stop in the row; the email stays text.
+    expect(within(own).getByRole("link", { name: "Olga Owner" })).toHaveAttribute("href", "/people/7");
+    expect(within(table).getByRole("link", { name: "Max Member" })).toHaveAttribute("href", "/people/8");
     expect(within(own).getByText("Owner")).toBeInTheDocument();
     // Added 2026-10-31T20:00Z: the 1st in the pinned zone (Auckland), the reader's day rather than UTC's.
     expect(within(own).getByText("2026-11-01")).toBeInTheDocument();

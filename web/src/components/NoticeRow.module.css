@@ -1,0 +1,35 @@
+/*
+ * One notice of the bell's drawer: the CARD WITH SEVERAL LINKS pattern (1.2 D6). The row opens its thread or message, and inside it the actor and
+ * the room are links of their own, so the thread link cannot wrap the row's text (a link may not hold a link). It holds the sentence AFTER the actor's name, carries the whole sentence
+ * as its accessible name, and its ::after stretches over the row, so a click anywhere opens the notice; the actor and room links sit above it
+ * (`position: relative` + `z-index`) and take their own clicks. The ring is drawn on the ::after so that it surrounds the row, not the few words.
+ */
+.row {
+  position: relative;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.row:hover {
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+}
+
+.open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.open:focus-visible {
+  outline: none;
+}
+
+.open:focus-visible::after {
+  outline: 2px solid var(--adder-accent-ink);
+  outline-offset: -2px;
+}
+
+/* The sentence and the room line: the name links lift above the stretched link. */
+.row a:not(.open) {
+  position: relative;
+  z-index: 1;
+}

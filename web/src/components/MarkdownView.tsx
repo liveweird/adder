@@ -6,6 +6,8 @@ import remarkGemoji from "remark-gemoji";
 import { Link as RouterLink } from "react-router-dom";
 import { getUserId } from "../api/session";
 import { useKnownNames } from "../utils/knownNames";
+import { personPath } from "../utils/personLinks";
+import { teamPath } from "../utils/teamLinks";
 import remarkHashtags from "../utils/remarkHashtags";
 import remarkMentions from "../utils/remarkMentions";
 import classes from "./MarkdownView.module.css";
@@ -27,6 +29,9 @@ import classes from "./MarkdownView.module.css";
 //   when it is the reader), any other id stays the raw token, because the server's list is the verdict. The name is a React text child, never Markdown or HTML.
 //   `groupMentions` does the same for `<@team:id>` (read as `@handle` when the list names the team), `<@watchers>` and `<@everyone>` (read as
 //   themselves when the list holds the keyword); an unlisted group token stays the raw token.
+//   A listed person's and team's mention is a router link to their page (1.2 D6: `/people/:id`, `/teams/:id`; the "mention" chip, underlined like
+//   every link in a body and in the text colour), except inside a link's own text (`remarkMentions` flags it `data-in-link`: a link may not hold
+//   a link), and `@everyone` and `@watchers` are never links. The variant therefore needs a router wherever it shows a mention.
 export type MarkdownVariant = "document" | "message";
 
 type WithNode<T extends keyof React.JSX.IntrinsicElements> = ComponentProps<T> & ExtraProps;
@@ -74,14 +79,21 @@ const MentionsContext = createContext<MentionContext>({ names: new Map(), teams:
 function MessageSpan({ node: _node, ...props }: WithNode<"span">) {
   const { names, teams, keywords, me } = useContext(MentionsContext);
   // `data-mention*` is set only by `remarkMentions` (a user cannot write it: raw HTML is not rendered).
-  const marks = props as { "data-mention"?: string; "data-mention-team"?: string; "data-mention-group"?: string };
+  const marks = props as { "data-mention"?: string; "data-mention-team"?: string; "data-mention-group"?: string; "data-in-link"?: string };
+  // Inside a link's own text a mention stays a span: a link may not hold a link.
+  const linked = marks["data-in-link"] === undefined;
   const team = marks["data-mention-team"];
   const group = marks["data-mention-group"];
   if (team !== undefined || group !== undefined) {
     const label = team !== undefined ? teams.get(Number(team)) : group !== undefined && keywords.has(group) ? group : undefined;
     // A group token the server did not list stays the raw token it was written as.
     if (label === undefined) return <>{props.children}</>;
-    return (
+    // `@everyone` and `@watchers` name no page: only a team is a link.
+    return team !== undefined && linked ? (
+      <RouterLink to={teamPath(Number(team))} className={classes.mention} data-mention-group="team" data-mention-team={team}>
+        {`@${label}`}
+      </RouterLink>
+    ) : (
       <span className={classes.mention} data-mention-group={group ?? "team"} data-mention-team={team}>
         {`@${label}`}
       </span>
@@ -94,8 +106,13 @@ function MessageSpan({ node: _node, ...props }: WithNode<"span">) {
   // An id the server did not list stays the raw token it was written as.
   if (name === undefined) return <>{props.children}</>;
   const self = id === me;
-  return (
-    <span className={self ? `${classes.mention} ${classes.mentionSelf}` : classes.mention} data-mention={raw} data-self={self ? "true" : undefined}>
+  const className = self ? `${classes.mention} ${classes.mentionSelf}` : classes.mention;
+  return linked ? (
+    <RouterLink to={personPath(id)} className={className} data-mention={raw} data-self={self ? "true" : undefined}>
+      {`@${name}`}
+    </RouterLink>
+  ) : (
+    <span className={className} data-mention={raw} data-self={self ? "true" : undefined}>
       {`@${name}`}
     </span>
   );

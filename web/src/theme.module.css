@@ -108,6 +108,14 @@
   text-decoration-color: var(--adder-accent-ink);
 }
 
+/* A "quiet" link (PersonLink/RoomLink `quiet`): underlined at rest like every name link, but in a muted ink so a column of names (message authors,
+   the history's actors) does not shout; the accent returns on hover (the rule above, higher specificity). The muted ink is the pin bar's pair
+   (gray-6 is 3.3:1 on white and 3.1:1 on the canvas and on the pinned tint, gray-5 6.5:1 or more on the dark surfaces; `theme.test.ts` pins both), so the cue itself clears 3:1. */
+.anchorQuiet {
+  text-decoration-color: light-dark(var(--mantine-color-gray-6), var(--mantine-color-gray-5));
+  text-underline-offset: 0.15em;
+}
+
 /* The header's command-palette trigger: reads as a search field (hairline, hover-tinted,
    dimmed placeholder text, the shortcut as a Kbd on the right) but is a button. */
 .paletteTrigger {

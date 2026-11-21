@@ -50,23 +50,30 @@ describe("MessageItem", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  test("the author is a link to their profile, named by the name alone", () => {
+    renderItem(makeMessage({ authorId: 7, authorName: "Cy Author" }), { edit: false, remove: null });
+    expect(screen.getByRole("link", { name: "Cy Author" })).toHaveAttribute("href", "/people/7");
+  });
+
   test("a pinned message says who pinned it, with the pin shape, and is marked for its bar; an unpinned one and a tombstone carry nothing", () => {
-    const withPin = (message: MessageResponse, pinnedBy?: string) => (
+    const withPin = (message: MessageResponse, pinnedBy?: { id: number; name: string }) => (
       <ul>
         <MessageItem roomId={12} message={message} actions={{ edit: false, remove: null }} zone={ZONE} pinnedBy={pinnedBy} />
       </ul>
     );
-    const { rerender } = renderWithProviders(withPin(makeMessage(), "Ann Owner"));
+    const { rerender } = renderWithProviders(withPin(makeMessage(), { id: 5, name: "Ann Owner" }));
     const item = screen.getByRole("listitem");
     expect(item).toHaveAttribute("data-pinned", "true");
-    const line = within(item).getByText("Pinned by Ann Owner");
-    // The icon is decoration: the words are the mark.
+    const line = within(item).getByText(/^Pinned by/);
+    expect(line).toHaveTextContent("Pinned by Ann Owner");
+    // The pinner is a link to their profile, in the sentence; the icon is decoration: the words are the mark.
+    expect(within(line).getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
     expect(line.parentElement?.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     rerender(withPin(makeMessage()));
     expect(screen.getByRole("listitem")).not.toHaveAttribute("data-pinned");
     expect(screen.queryByText(/^Pinned by/)).not.toBeInTheDocument();
     // A deleted message loses its pin on the server; until the pins are re-read it must not wear the mark.
-    rerender(withPin(makeMessage({ deleted: true, body: null }), "Ann Owner"));
+    rerender(withPin(makeMessage({ deleted: true, body: null }), { id: 5, name: "Ann Owner" }));
     expect(screen.getByRole("listitem")).not.toHaveAttribute("data-pinned");
     expect(screen.queryByText(/^Pinned by/)).not.toBeInTheDocument();
   });
@@ -99,7 +106,8 @@ describe("MessageItem", () => {
 
   test("a tombstone shows no body, so no tag link", () => {
     renderItem(makeMessage({ body: null, deleted: true }), { edit: false, remove: null });
-    expect(screen.queryByRole("link")).toBeNull();
+    // The only link left is the author's profile.
+    expect(screen.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/people/7"]);
   });
 
   test("an edited message carries the marker, with its time as visible text", () => {

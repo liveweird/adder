@@ -89,6 +89,17 @@ describe("theme colour tokens (WCAG AA)", () => {
     }
   });
 
+  it("the pin bar and the quiet link underline (gray-6 light, gray-5 dark) clear 3:1 on every surface they sit on", () => {
+    const gray = DEFAULT_THEME.colors.gray;
+    // Light: white, the canvas, the surface tint and the pinned message's own tint (gray-0).
+    for (const surface of [WHITE, LIGHT_TOKENS.canvas, LIGHT_TOKENS.surfaceTint, gray[0]]) {
+      expect(contrast(gray[6], surface), `gray-6 on ${surface}`).toBeGreaterThanOrEqual(3);
+    }
+    for (const surface of [DEFAULT_THEME.colors.dark[7], DEFAULT_THEME.colors.dark[6], DARK_TOKENS.canvas, DARK_TOKENS.surfaceTint]) {
+      expect(contrast(gray[5], surface), `gray-5 on ${surface}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
   it("the unread cue is a blue (not the brand, red or teal)", () => {
     const blue = DEFAULT_THEME.colors.blue;
     expect(blue).toContain(LIGHT_TOKENS.unreadFill);

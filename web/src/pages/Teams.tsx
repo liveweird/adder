@@ -10,6 +10,7 @@ import ClearableTextInput from "../components/ClearableTextInput";
 import ConfirmDeleteModal from "../components/ConfirmDeleteModal";
 import FilterPanel from "../components/FilterPanel";
 import PageHeader from "../components/PageHeader";
+import PersonLink from "../components/PersonLink";
 import RegistryListTable from "../components/RegistryListTable";
 import RowActionsMenu from "../components/RowActionsMenu";
 import SortHeader from "../components/SortHeader";
@@ -127,9 +128,13 @@ export default function Teams() {
                   </Text>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" c={team.managerName ? undefined : "dimmed"}>
-                    {team.managerName ?? "—"}
-                  </Text>
+                  {team.managerId !== null && team.managerName ? (
+                    <PersonLink id={team.managerId} name={team.managerName} size="sm" />
+                  ) : (
+                    <Text size="sm" c="dimmed">
+                      {team.managerName ?? "—"}
+                    </Text>
+                  )}
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm">{team.memberCount}</Text>

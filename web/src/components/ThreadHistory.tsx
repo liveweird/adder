@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { listThreadEvents } from "../api/threads";
 import { describeEvent, eventLines } from "../utils/threadEvents";
 import EventTimeline from "./EventTimeline";
+import PersonLink from "./PersonLink";
 import { roomKeys } from "../utils/roomKeys";
 
 /** Ten a page: the history sits in a narrow side panel, newest first. */
@@ -12,8 +13,8 @@ const PAGE_SIZE = 10;
 /**
  * A thread's change history (Toadie's `CatalogFileHistory`): the server's structured events rendered in the viewer's language, newest first
  * (server-ordered, never re-sorted here), ten to a page. Under `["rooms", "threads", roomId, "events", number, page]`, so any write that
- * refreshes the thread's queries or the whole `["rooms"]` prefix refreshes the trail too. The actor's name carries a note when the account has
- * since been deleted (the recorded name stays).
+ * refreshes the thread's queries or the whole `["rooms"]` prefix refreshes the trail too. The actor's name is a (quiet) link to their profile (1.2 D6); when the account has
+ * since been deleted (`actorDeleted`) the recorded name stays as plain text with a note, never a dead link.
  */
 export default function ThreadHistory({ roomId, number }: { roomId: number; number: number }) {
   const { t } = useTranslation();
@@ -34,7 +35,7 @@ export default function ThreadHistory({ roomId, number }: { roomId: number; numb
         key: event.id,
         title: describeEvent(event, t),
         lines: eventLines(event, t),
-        who: event.actorDeleted ? t("threads.history.userDeleted", { name: event.actorName }) : event.actorName,
+        who: event.actorDeleted ? t("threads.history.userDeleted", { name: event.actorName }) : <PersonLink id={event.actorId} name={event.actorName} quiet inherit />,
         when: event.createdAt,
       }))}
       isLoading={isLoading}

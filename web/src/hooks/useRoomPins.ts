@@ -16,7 +16,7 @@ export function useRoomPins(roomId: number) {
     () => ({
       threadNumbers: new Set((items ?? []).filter((pin) => pin.kind === "THREAD").map((pin) => pin.threadNumber)),
       messageIds: new Set((items ?? []).flatMap((pin) => (pin.kind === "MESSAGE" && pin.message ? [pin.message.id] : []))),
-      pinnedByMessage: new Map((items ?? []).flatMap((pin) => (pin.kind === "MESSAGE" && pin.message ? [[pin.message.id, pin.pinnedByName] as const] : []))),
+      pinnedByMessage: new Map((items ?? []).flatMap((pin) => (pin.kind === "MESSAGE" && pin.message ? [[pin.message.id, { id: pin.pinnedById, name: pin.pinnedByName }] as const] : []))),
     }),
     [items],
   );

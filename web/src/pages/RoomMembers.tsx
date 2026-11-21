@@ -18,6 +18,7 @@ import RoomMembersAdd from "../components/RoomMembersAdd";
 import RoomPage from "../components/RoomPage";
 import RowActionsMenu from "../components/RowActionsMenu";
 import SortHeader from "../components/SortHeader";
+import PersonLink from "../components/PersonLink";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
 import { isOneOfOrNull, useStoredState } from "../hooks/useStoredState";
 import { browserTimeZone, formatDate } from "../utils/formatDate";
@@ -210,9 +211,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
               <Table.Tr key={member.userId}>
                 <Table.Td>
                   <Group gap="xs" wrap="nowrap">
-                    <Text size="sm" fw={500}>
-                      {member.name}
-                    </Text>
+                    <PersonLink id={member.userId} name={member.name} size="sm" fw={500} />
                     {self && <Badge>{t("rooms.members.you")}</Badge>}
                   </Group>
                 </Table.Td>

@@ -81,7 +81,10 @@ describe("TeamDetails page", () => {
     renderPage();
     expect(await screen.findByRole("heading", { level: 2, name: "Payments" })).toBeInTheDocument();
     expect(screen.getByText("Money movers")).toBeInTheDocument();
-    expect(screen.getByText("Manager: Cara New")).toBeInTheDocument();
+    expect(screen.getByText(/^Manager:/)).toHaveTextContent("Manager: Cara New");
+    expect(within(screen.getByText(/^Manager:/)).getByRole("link", { name: "Cara New" })).toHaveAttribute("href", "/people/12");
+    // The roster names the same person: another link to the same profile.
+    expect(screen.getAllByRole("link", { name: "Cara New" })).toHaveLength(2);
     expect(screen.getByText("Mention handle: @payments")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /operations for/i })).not.toBeInTheDocument();

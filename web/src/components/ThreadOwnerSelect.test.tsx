@@ -52,7 +52,8 @@ describe("ThreadOwnerSelect", () => {
   test("anyone who is not a steward just reads the owner, with the rule", () => {
     respond(204);
     renderOwner(false);
-    expect(screen.getByText("Ann Owner")).toBeInTheDocument();
+    // The owner's name is a link to their profile (1.2 D6).
+    expect(screen.getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
     expect(screen.getByText("Only the thread owner, a room owner or an administrator can pass the thread on.")).toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pass on" })).not.toBeInTheDocument();
@@ -65,10 +66,11 @@ describe("ThreadOwnerSelect", () => {
     expect(screen.queryByText(/Reopen it first/)).not.toBeInTheDocument();
   });
 
-  test("a closed thread and an archived room refuse the hand-over: the owner is plain text under the reason, even for a steward", () => {
+  test("a closed thread and an archived room refuse the hand-over: the owner is a name under the reason, even for a steward", () => {
     respond(204);
     const { unmount } = renderOwner(true, { thread: { closed: true } });
     expect(screen.getByText("A closed thread cannot be passed on. Reopen it first.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     unmount();
     renderOwner(true, { room: { archived: true } });

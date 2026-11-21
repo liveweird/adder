@@ -10,11 +10,13 @@ import { useAdmin } from "../auth";
 import { getTeam } from "../api/teams";
 import EditPageLoadState from "../components/EditPageLoadState";
 import PageHeader from "../components/PageHeader";
+import PersonLink from "../components/PersonLink";
 import TeamEditorModal from "../components/TeamEditorModal";
 import TeamMembers from "../components/TeamMembers";
 import { loadErrorMessage } from "../utils/saveError";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { teamsPath } from "../utils/teamLinks";
+import { fillSlots, slot } from "../utils/slots";
 
 /**
  * One team (`/teams/:id`): its name, description, manager and roster. Everyone reads it, its manager included; an ADMIN
@@ -67,7 +69,9 @@ export default function TeamDetails() {
               </Text>
             )}
             <Text span display="block">
-              {data.managerName ? t("teams.managerLine", { name: data.managerName }) : t("teams.noManager")}
+              {data.managerName && data.managerId !== null
+                ? fillSlots(t("teams.managerLine", { name: slot("name") }), { name: <PersonLink id={data.managerId} name={data.managerName} inherit /> })
+                : t("teams.noManager")}
             </Text>
           </>
         }

@@ -19,6 +19,7 @@ import { useRoomPins } from "../hooks/useRoomPins";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { messagePinsOf } from "../utils/pins";
+import { fillSlots, slot } from "../utils/slots";
 import { parseThreadNumber, wantsThreadPaneFocus } from "../utils/roomLinks";
 import { parseFocus, parseMessageAnchor, writeFocus } from "../utils/threadListParams";
 import EmptyState from "./EmptyState";
@@ -28,6 +29,7 @@ import HeaderIconButton from "./HeaderIconButton";
 import LoadingBlock from "./LoadingBlock";
 import MessageComposer from "./MessageComposer";
 import MessageList from "./MessageList";
+import PersonLink from "./PersonLink";
 import PinMark from "./PinMark";
 import ThreadPinButton from "./ThreadPinButton";
 import ThreadPinStrip from "./ThreadPinStrip";
@@ -40,7 +42,7 @@ import { roomKeys } from "../utils/roomKeys";
 /**
  * The room view's conversation pane for `/rooms/:id/threads/:number`: the thread's header — `#42 Title` as the pane's heading, its
  * status, owner, message count and when it started and last moved (the browser's time zone) — then the conversation (`MessageList`, newest at
- * the bottom) and the reply box (`MessageComposer`, or the note that says why there is none). The header is two rows (the heading with the status pill and the icon actions — focus, pin, watch, details — then one dimmed line). The side panel (`ThreadSidePanel`: Status, Owner, Details, History) is part of the pane and collapsed at every width until the header's "Details" button opens it (remembered per person per browser, 1.2 D4); open, it is placed beside the conversation from a wide main area and above it below that (`ThreadPane.module.css`). A number that names no thread (not a plain positive number, or a 404) reads as one "does not exist". The section is
+ * the bottom) and the reply box (`MessageComposer`, or the note that says why there is none). The header is two rows (the heading with the status pill and the icon actions — focus, pin, watch, details — then one dimmed line). The side panel (`ThreadSidePanel`: Status, Owner, Details, History) is part of the pane and collapsed at every width until the header's "Details" button opens it (remembered per person per browser, 1.2 D4); open, it is placed beside the conversation from a wide main area and above it below that (`ThreadPane.module.css`). The owner and the starter in the dimmed line are links to their profiles (1.2 D6, `PersonLink`, in the sentence: `fillSlots`). A number that names no thread (not a plain positive number, or a 404) reads as one "does not exist". The section is
  * programmatically focusable and takes focus once its thread has loaded after a navigation that asked for it (a list row, a started
  * thread — `wantsThreadPaneFocus`), the `RoomWorkflowForm` precedent: the clicked row is left behind in the list. A `replace` (a filter
  * change, the focus toggle) never asks for it, and neither does a jump to a message (the conversation focuses that message).
@@ -152,13 +154,15 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           {/* In the dimmed line, not beside the status pill: in the first row the badge would wrap the icons onto a second row in a pane beside the open side panel (1280x720), and the composer's Send would leave the screen. */}
           {pinnedThreads.has(thread.number) && <PinMark size="sm" />}
           <Text size="xs" c="dimmed">
-            {t("threads.pane.owner", { name: thread.ownerName })}
+            {fillSlots(t("threads.pane.owner", { name: slot("name") }), { name: <PersonLink id={thread.ownerId} name={thread.ownerName} inherit /> })}
           </Text>
           <Text size="xs" c="dimmed">
             {t("threads.row.messages", { count: thread.messageCount })}
           </Text>
           <Text size="xs" c="dimmed">
-            {t("threads.pane.started", { name: thread.createdByName, when: formatDateTime(thread.createdAt, zone) })}
+            {fillSlots(t("threads.pane.started", { name: slot("name"), when: formatDateTime(thread.createdAt, zone) }), {
+              name: <PersonLink id={thread.createdById} name={thread.createdByName} inherit />,
+            })}
           </Text>
           <Text size="xs" c="dimmed">
             {t("threads.pane.lastActivity", { when: formatDateTime(thread.lastActivityAt, zone) })}

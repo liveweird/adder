@@ -198,7 +198,7 @@ test("a mention picked in the composer reaches the mentioned member's bell witho
   await bell(reader.page).click();
   const notice = drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned you in #1 ${title}`) });
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("Unseen");
+  await expect(notice).toHaveAccessibleName(/^Unseen /);
 
   // Opening the notice goes to the message (`?message=`), shows it and the badge clears.
   await notice.click();

@@ -38,7 +38,23 @@ describe("SearchResults", () => {
   test("a title-only hit has no message list and no count", () => {
     renderWithProviders(<SearchResults label="Search results" hits={[threadHit(42, { matchCount: 0, messages: [] })]} statuses={STATUSES} showRoom={false} />);
     expect(screen.queryByText(/matching message/)).not.toBeInTheDocument();
-    expect(screen.getAllByRole("link")).toHaveLength(1);
+    // The thread's heading link and the owner's profile: nothing else.
+    expect(screen.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/rooms/12/threads/42", "/people/7"]);
+  });
+
+  test("the owner is a link to their profile and, across rooms, the room is a link to the room; a message row stays one link, its author text", () => {
+    renderWithProviders(<SearchResults label="Search results" showRoom hits={[threadHit(42, { matchCount: 1, messages: [messageHit(991)] })]} />);
+    const article = screen.getByRole("article");
+    expect(within(article).getByRole("link", { name: "Ada" })).toHaveAttribute("href", "/people/7");
+    expect(within(article).getByRole("link", { name: "Night Shift" })).toHaveAttribute("href", "/rooms/12");
+    // The matching message's author is inside the message link: no link in a link.
+    const row = within(article).getAllByRole("link").find((link) => link.getAttribute("href")?.includes("message="));
+    expect(row?.querySelector("a")).toBeNull();
+  });
+
+  test("inside a room the room name is not drawn, so it is not a link either", () => {
+    renderWithProviders(<SearchResults label="Search results" hits={[threadHit(42)]} statuses={STATUSES} showRoom={false} />);
+    expect(screen.queryByRole("link", { name: "Night Shift" })).not.toBeInTheDocument();
   });
 
   test("in a room the status is the workflow's pill, with no room name", () => {
