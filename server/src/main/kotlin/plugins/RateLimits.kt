@@ -79,8 +79,8 @@ internal class RateLimitAuditThrottle(
 
 /**
  * Every token bucket the routes ride (per client IP, the live-connect included, except [TELEMETRY], [DIRECTORY], [ROOM_NAME],
- * [ROOM_MEMBERS], [CHAT_POST], [CHAT_WRITE], [CHAT_READ], [READ_STATE], [LIVE_TICKET], [SEARCH] and [PASSWORD_CHANGE]: per signed-in
- * user), named in one place
+ * [ROOM_MEMBERS], [CHAT_POST], [CHAT_WRITE], [CHAT_READ], [READ_STATE], [THREAD_WATCH], [LIVE_TICKET], [SEARCH] and [PASSWORD_CHANGE]:
+ * per signed-in user), named in one place
  * so a
  * feature module never has to know another's constant (the auth module used to import the try-it bucket's name — a layering
  * inversion the checkup removed). Route files reference these names; only this plugin installs them.
@@ -156,12 +156,21 @@ object RateLimits {
     /**
      * The writes that only move the caller's OWN view of what they have read share ONE bucket per signed-in user: the two notification
      * "seen" POSTs, the thread read marker and the room "seen" write (`threads/ThreadReadRoutes.kt`, `rooms/RoomMemberRoutes.kt`) and
-     * the notification-preferences PUT. 240/min in every mode (the [CHAT_WRITE] figure): the SPA marks a
-     * notice seen on a click and acknowledges what its reader scrolled to a few times a minute, so 4 a second is a script. They take
-     * no room lock and emit no hint, so the bound is for a runaway client, not for the room. The bucket sits BEFORE the guards, so a
-     * refused or unknown-id write spends a token too (an id sweep is throttled).
+     * the notification-preferences PUT (the watch PUT has its own, [THREAD_WATCH]). 240/min in every mode (the [CHAT_WRITE] figure): the
+     * SPA marks a notice seen on a click and acknowledges what its reader scrolled to a few times a minute, so 4 a second is a script.
+     * They take no room lock and emit no hint, so the bound is for a runaway client, not for the room. The bucket sits BEFORE the guards,
+     * so a refused or unknown-id write spends a token too (an id sweep is throttled).
      */
     const val READ_STATE = "read-state"
+
+    /**
+     * `PUT /api/v1/rooms/{id}/threads/{number}/watch` (`threads/ThreadWatchRoutes.kt`) rides its OWN per-signed-in-user bucket: 30/min in
+     * every mode. A person watches or stops watching a thread a few times an hour, so 30 a minute is a script. Unlike the read-state
+     * writes it is audited (`thread.watch_changed`, one line per change), so the bound also keeps a toggling client from flooding the
+     * audit log, and it keeps the read marker's [READ_STATE] budget to the markers. No room lock and no hint, like [READ_STATE].
+     * The bucket sits BEFORE the guards, so a refused write spends a token too.
+     */
+    const val THREAD_WATCH = "thread-watch"
     /**
      * `POST /api/v1/live/tickets` - the single-use ticket a tab exchanges for its live-update WebSocket - rides a per-USER bucket (the
      * [TELEMETRY] idiom): 60/min in every mode. A tab mints one per (re)connect, so a person needs a handful an hour; a flapping
@@ -210,6 +219,7 @@ object RateLimits {
     private const val CHAT_WRITE_PER_MINUTE = 240
     private const val CHAT_READ_PER_MINUTE = 300
     private const val READ_STATE_PER_MINUTE = 240
+    private const val THREAD_WATCH_PER_MINUTE = 30
     private const val LIVE_TICKET_PER_MINUTE = 60
     private const val SEARCH_PER_MINUTE = 60
     private const val PASSWORD_CHANGE_PER_MINUTE = 5
@@ -249,6 +259,7 @@ object RateLimits {
     internal fun chatWriteLimit() = CHAT_WRITE_PER_MINUTE
     internal fun chatReadLimit() = CHAT_READ_PER_MINUTE
     internal fun readStateLimit() = READ_STATE_PER_MINUTE
+    internal fun threadWatchLimit() = THREAD_WATCH_PER_MINUTE
     internal fun liveTicketLimit() = LIVE_TICKET_PER_MINUTE
     internal fun searchLimit() = SEARCH_PER_MINUTE
     internal fun passwordChangeLimit() = PASSWORD_CHANGE_PER_MINUTE
@@ -258,7 +269,7 @@ object RateLimits {
 
 /**
  * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER telemetry, directory,
- * room-name, room-members, chat-post, chat-write, chat-read, read-state, live-ticket, search and password-change buckets.
+ * room-name, room-members, chat-post, chat-write, chat-read, read-state, thread-watch, live-ticket, search and password-change buckets.
  * Login and password-reset follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
  * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before
@@ -286,6 +297,7 @@ fun Application.configureRateLimits() {
             CHAT_WRITE to chatWriteLimit(),
             CHAT_READ to chatReadLimit(),
             READ_STATE to readStateLimit(),
+            THREAD_WATCH to threadWatchLimit(),
             LIVE_TICKET to liveTicketLimit(),
             SEARCH to searchLimit(),
             PASSWORD_CHANGE to passwordChangeLimit(),
@@ -303,8 +315,8 @@ fun Application.configureRateLimits() {
                 }
             }
         }
-        // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post, chat-write, chat-read, read-state, live-ticket,
-        // search, password-change).
+        // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post, chat-write, chat-read, read-state, thread-watch,
+        // live-ticket, search, password-change).
         // The routes mount them INSIDE `authenticate {}` (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt,
         // threads/ThreadRoutes.kt, live/LiveRoutes.kt, threads/ThreadSearchRoutes.kt, notifications/NotificationRoutes.kt), so this key
         // runs only for a verified token:

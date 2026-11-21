@@ -34,6 +34,7 @@ class ThreadStatusService internal constructor(
     private val members: RoomMemberService,
     private val events: ThreadEventService,
     private val notices: ThreadNotices,
+    private val watches: ThreadWatchService,
 ) {
     /**
      * Moves thread [number] to the status [targetKey], in this order: the target must be an ACTIVE status of the room (an unknown or
@@ -105,6 +106,8 @@ class ThreadStatusService internal constructor(
                 threadOwnerChangedEvent(thread.ownerId, newOwnerId, names.getValue(thread.ownerId), names.getValue(newOwnerId)),
                 stamp,
             )
+            // The new owner watches the thread they receive (1.1 D1; again on a later hand-over after an unwatch), whoever passes it on.
+            watches.addInTransaction(thread.id, newOwnerId, stamp)
             rooms.touchActivity(roomId, stamp, caller.userId)
             notifyLive(LiveHint(LiveKind.THREAD_OWNER_CHANGED, roomId, threadNumber = number))
             val notified = notices.ownerAssigned(roomId, thread.id, number, caller.userId, newOwnerId)

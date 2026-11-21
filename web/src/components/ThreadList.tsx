@@ -3,7 +3,7 @@ import { Link as RouterLink, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Button, Group, SegmentedControl, Select, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { IconAt, IconMessages, IconPinFilled, IconPlus } from "@tabler/icons-react";
+import { IconAt, IconEyeFilled, IconMessages, IconPinFilled, IconPlus } from "@tabler/icons-react";
 import { listThreads } from "../api/threads";
 import type { RoomResponse } from "../api/rooms";
 import { useRoomPins } from "../hooks/useRoomPins";
@@ -44,7 +44,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
   const workflow = useRoomWorkflow(room.id);
   // A pinned thread's row carries a mark; "is it pinned" is the room's pins query (shared with the header and the pane), a failed read marks nothing.
   const pins = useRoomPins(room.id);
-  // A row says in words what its marks mean (a pin, unread messages, an unseen notice) through one hidden description.
+  // A row says in words what its marks mean (a pin, a watch, unread messages, an unseen notice) through one hidden description.
   const noteId = useId();
   // The bell's unseen notices: a thread that holds one gets an `@` mark (a mention or a hand-over).
   const unseen = useUnseenNotifications();
@@ -118,10 +118,12 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
               const unread = thread.unreadCount > 0;
               const notice = noticeThreads.has(thread.number);
               const pinned = pins.threadNumbers.has(thread.number);
+              const watching = thread.watching;
               const note = [
                 unread && t(thread.unreadCount >= UNREAD_COUNT_CAP ? "threads.unread.rowCap" : "threads.unread.row", { count: thread.unreadCount }),
                 notice && t("threads.unread.notice"),
                 pinned && t("threads.pin.mark"),
+                watching && t("threads.watch.mark"),
               ]
                 .filter(Boolean)
                 .join(". ");
@@ -143,6 +145,12 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                             <>
                               {" "}
                               <IconPinFilled size={12} aria-hidden="true" />
+                            </>
+                          )}
+                          {watching && (
+                            <>
+                              {" "}
+                              <IconEyeFilled size={12} aria-hidden="true" />
                             </>
                           )}
                         </Text>

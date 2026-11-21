@@ -43,10 +43,10 @@ hand-roll `lowerCase() like containsPattern(...)`, and keep unaccent-before-LOWE
 breaks uppercase-diacritic input under a C-locale database). The SPA mirrors the rule via the
 theme-level `foldedOptionsFilter` (`web/src/utils/text.ts`).
 
-**Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. Ledger: `GET /rooms/{id}/threads` takes `status`, `ownerId`, `field=key:value` (each at most 20 distinct), `mentionedId` (same bound) and `tag` (at most 10 after case folding; any-of within a key, all-of across; `threads/ThreadListFilter.kt`); `closed` stays scalar. A new consumer adds a line.
+**Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. Ledger: `GET /rooms/{id}/threads` takes `status`, `ownerId`, `field=key:value` (each at most 20 distinct), `mentionedId` (same bound) and `tag` (at most 10 after case folding; any-of within a key, all-of across; `threads/ThreadListFilter.kt`); `closed` and `watching` stay scalar. A new consumer adds a line.
 
 **No shape-exception exists yet.** Every list keeps the paged envelope. A purpose-built document (e.g. a room's thread board, if the chat views need one) answers
-outside it only with a documented cap and a line here in the commit that introduces it; Flow's report drill lists (`{meta, bar, items[<=500], total, truncated}`) were the precedent.
+outside it only with a documented cap and a line here in the commit that introduces it (Flow's report drill lists were the precedent).
 
 **Sub-collections and facets:** a record's own unbounded sub-collection is paged like any other list; the plain `{items}`
 wrapper is reserved for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets`) are not implemented — port Covenant's

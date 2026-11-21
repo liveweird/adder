@@ -219,9 +219,14 @@ class ChatLogHygieneTest {
                 member.client.raw(HttpMethod.Put, "$rooms/$room/messages/$messageId", """{"body":"E $marker-edit"}""").status,
             )
             assertEquals(HttpStatusCode.NoContent, member.client.delete("$rooms/$room/messages/$messageId").status)
+            // A watch is audited and carries ids only: the thread's title (the marker) reaches no line of it.
+            val watch = "$rooms/$room/threads/1/watch"
+            assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, watch, """{"watching":false}""").status)
+            assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, watch, """{"watching":true}""").status)
 
             val names = capture.events.map { it.message }
             assertTrue("notification.created" in names && "message.edited" in names && "thread.owner_changed" in names, "captured: $names")
+            assertTrue("thread.watch_changed" in names, "a watch is audited: $names")
             val leaked = capture.events.filter { marker in it.rendered() }
             assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a title or a body")
         } finally {

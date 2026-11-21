@@ -10,6 +10,7 @@ import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadStatusRequest
 import ch.nokillswit.threads.ThreadUpdateRequest
+import ch.nokillswit.threads.WatchRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -192,6 +193,20 @@ class ThreadAuthzMatrixTest {
         },
         Operation("PUT read marker of an unknown thread", notFound, notFound, notFound, notFound, forbidden) { client, base, cast ->
             client.putJson("$base/threads/99/read-marker", ReadMarkerRequest(cast.other))
+        },
+        // Watching is a member's own state: any member of the room (no steward rule), an ADMIN outside it is 403 before any lookup; a
+        // closed thread can be watched.
+        Operation("PUT watch", notFound, noContent, noContent, noContent, forbidden) { client, base, _ ->
+            client.putJson("$base/threads/1/watch", WatchRequest(true))
+        },
+        Operation("PUT unwatch", notFound, noContent, noContent, noContent, forbidden) { client, base, _ ->
+            client.putJson("$base/threads/1/watch", WatchRequest(false))
+        },
+        Operation("PUT watch of a CLOSED thread", notFound, noContent, noContent, noContent, forbidden, ::closeThread) { client, base, _ ->
+            client.putJson("$base/threads/1/watch", WatchRequest(true))
+        },
+        Operation("PUT watch of an unknown thread", notFound, notFound, notFound, notFound, forbidden) { client, base, _ ->
+            client.putJson("$base/threads/99/watch", WatchRequest(true))
         },
         // Pins: any reader lists them; any MEMBER pins (no steward rule), an ADMIN outside the room is 403 before any lookup.
         Operation("GET pins", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/pins") },

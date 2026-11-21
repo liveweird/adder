@@ -55,6 +55,8 @@ data class ThreadListItem(
     val createdAt: Long,
     /** Messages the CALLER has not read, 0 to [MAX_UNREAD_COUNT] (that many is "that many or more"); 0 for someone who is no member. */
     val unreadCount: Int,
+    /** The CALLER watches the thread (`chat-model.md` "Watching (V26)"); false for someone who is no member. */
+    val watching: Boolean,
 )
 
 @Serializable
@@ -86,6 +88,10 @@ data class ThreadResponse(
     val unreadCount: Int,
     /** The first of those messages (of the newest [MAX_UNREAD_COUNT] unread), null when none is unread or the caller is no member. */
     val firstUnreadMessageId: UInt?,
+    /** The CALLER watches the thread; false for someone who is no member. */
+    val watching: Boolean,
+    /** How many active members watch the thread (the list of them is not on the wire). */
+    val watcherCount: Int,
 )
 
 typealias ThreadPageResponse = PageResponse<ThreadListItem>

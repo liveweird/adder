@@ -29,7 +29,7 @@ const q = (query: string) => new URLSearchParams(query);
 describe("threadListParams", () => {
   test("a bare URL reads as the plain list", () => {
     expect(parseThreadListParams(q(""))).toEqual(DEFAULT_THREAD_LIST_PARAMS);
-    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, tag: [], field: [], page: 1 });
+    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], field: [], page: 1 });
   });
 
   test("the round trip: what a write spells, a read gives back", () => {
@@ -41,9 +41,21 @@ describe("threadListParams", () => {
         }
       }
     }
-    const filtered = { status: ["triage", "on-hold"], owner: "me", mention: true, tag: ["Wdro\u017cenie", "hawai'i", "1/2price", "a 1/2"], field: ["severity:s1", "severity:s2", "lead:42"] };
+    const filtered = { status: ["triage", "on-hold"], owner: "me", mention: true, watching: true, tag: ["Wdro\u017cenie", "hawai'i", "1/2price", "a 1/2"], field: ["severity:s1", "severity:s2", "lead:42"] };
     expect(parseThreadListParams(writeThreadListParams(q(""), filtered))).toEqual({ ...DEFAULT_THREAD_LIST_PARAMS, ...filtered });
     expect(parseThreadListParams(writeThreadListParams(q(""), { owner: "42" })).owner).toBe("42");
+  });
+
+  test("watching reads only `me`: any other value, and a repeat of it, is the default", () => {
+    expect(parseThreadListParams(q("watching=me")).watching).toBe(true);
+    for (const junk of ["watching=", "watching=1", "watching=true", "watching=ME", "watching=42", "watching=you&watching=me"]) {
+      expect(parseThreadListParams(q(junk)).watching).toBe(false);
+    }
+    expect(writeThreadListParams(q(""), { watching: true }).toString()).toBe("watching=me");
+    expect(writeThreadListParams(q("watching=me&page=3"), { watching: false }).toString()).toBe("");
+    expect(writeThreadListParams(q("owner=me&mention=me"), { watching: true }).toString()).toBe("owner=me&mention=me&watching=me");
+    expect(rememberedQuery(q("watching=me&page=2"))).toBe("watching=me");
+    expect(hasListKeys(q("watching=me"))).toBe(true);
   });
 
   test("mention reads only `me`: any other value, and a repeat of it, is the default", () => {
@@ -126,6 +138,12 @@ describe("threadListParams", () => {
       expect(toApiQuery(params({}), undefined, 7)?.mentionedId).toBeUndefined();
     });
 
+    test("watching=me asks for the caller's own watched threads, with or without a session id (the server knows the caller)", () => {
+      expect(toApiQuery(params({ watching: true }), undefined, 7)?.watching).toBe(true);
+      expect(toApiQuery(params({ watching: true }), undefined, null)?.watching).toBe(true);
+      expect(toApiQuery(params({}), undefined, 7)?.watching).toBeUndefined();
+    });
+
     test("statuses, the all scope and the workflow order are sent as they are", () => {
       expect(toApiQuery(params({ status: ["triage"], scope: "all", order: "status" }), undefined, 1)).toMatchObject({ status: ["triage"], closed: undefined, sort: "status" });
     });
@@ -173,6 +191,8 @@ describe("threadListParams", () => {
       expect(activeFilterCount({ tag: ["a", "b", "c"] })).toBe(1);
       expect(activeFilterCount({ status: ["a"], ownerId: [7], tag: ["a"], field: ["k:1"] })).toBe(4);
       expect(activeFilterCount({ mentionedId: [7] })).toBe(1);
+      expect(activeFilterCount({ watching: true })).toBe(1);
+      expect(activeFilterCount({ status: ["a"], watching: true, mentionedId: [7] })).toBe(3);
       expect(activeFilterCount({ status: ["a"], ownerId: [7], mentionedId: [7], tag: ["a"], field: ["k:1"] })).toBe(5);
       expect(activeFilterCount({ status: ["a", "b"], ownerId: [7], field: ["k:1", "k:2", "j:3"] })).toBe(4);
     });

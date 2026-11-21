@@ -59,7 +59,8 @@ val THREAD_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys + STATUS_SORT
  * (`rooms/RoomLock.kt`, via `withThreadWrite`): the room row lock is the thread lock
  * (`chat-model.md` "Guard order and locking"). Cross-feature reads: names come straight from `users`, and room data only through the
  * `rooms/` services ([RoomWorkflowService.snapshot], [RoomMemberService.activeMemberIds], [RoomService.touchActivity]); the list is in
- * `persistence.md`.
+ * `persistence.md`. The caller's own watch of a thread is [ThreadWatchService]'s: this service reads it for the list and the thread
+ * and writes the creator's auto-watch inside [create].
  */
 class ThreadService(
     private val database: R2dbcDatabase,
@@ -68,6 +69,7 @@ class ThreadService(
     private val members: RoomMemberService,
     private val events: ThreadEventService,
     private val messages: MessageService,
+    private val watches: ThreadWatchService,
     private val readLimiter: ReadLimiter = ReadLimiter(),
 ) {
     object Threads : UIntIdTable("threads") {
@@ -104,7 +106,7 @@ class ThreadService(
             val sortsByStatus = paging.sort.any { it.name == STATUS_SORT }
             budget.arm(this)
             val workflow = if (filter.needsWorkflow || sortsByStatus) workflows.snapshot(roomId) else null
-            val predicate = filter.predicate(roomId, workflow)
+            val predicate = filter.predicate(roomId, callerUserId, workflow)
             val columns: Map<String, Expression<*>> = workflow?.takeIf { sortsByStatus }
                 ?.let { SORTABLE_COLUMNS + (STATUS_SORT to statusOrder(it)) } ?: SORTABLE_COLUMNS
             budget.arm(this)
@@ -117,6 +119,8 @@ class ThreadService(
             // A caller who is no member (an ADMIN outside the room) has no read state: every count is 0.
             val unread = members.unreadSince(roomId, callerUserId)
                 ?.let { unreadCountsOf(callerUserId, it, rows.map { row -> row[Threads.id].value }) }.orEmpty()
+            budget.arm(this)
+            val watching = watches.watchingAmong(roomId, callerUserId, rows.map { row -> row[Threads.id].value })
             ThreadListResult(
                 items = rows.map {
                     ThreadListItem(
@@ -131,6 +135,7 @@ class ThreadService(
                         lastActivityAt = it[Threads.lastActivityAt],
                         createdAt = it[Threads.createdAt],
                         unreadCount = unread[it[Threads.id].value] ?: 0,
+                        watching = it[Threads.id].value in watching,
                     )
                 },
                 total = total,
@@ -149,9 +154,11 @@ class ThreadService(
         val userFieldKeys = activeTypes.filterValues { it == FieldType.USER }.keys
         val fieldUserIds = userFieldKeys.mapNotNull { (values[it] as? JsonPrimitive)?.longOrNull?.toUInt() }
         val names = userNames(listOf(row[Threads.ownerId].value, row[Threads.createdBy].value) + fieldUserIds)
-        val unread = members.unreadSince(roomId, callerUserId)?.let { unreadOfThread(callerUserId, row[Threads.id].value, it) }
+        val threadId = row[Threads.id].value
+        val unread = members.unreadSince(roomId, callerUserId)?.let { unreadOfThread(callerUserId, threadId, it) }
+        val watching = watches.watchingAmong(roomId, callerUserId, listOf(threadId))
         ThreadResponse(
-            id = row[Threads.id].value,
+            id = threadId,
             number = number,
             title = row[Threads.title],
             status = row[Threads.statusKey],
@@ -170,6 +177,8 @@ class ThreadService(
             updatedAt = row[Threads.updatedAt],
             unreadCount = unread?.count ?: 0,
             firstUnreadMessageId = unread?.firstMessageId,
+            watching = threadId in watching,
+            watcherCount = watches.count(threadId),
         )
     }
 
@@ -202,8 +211,8 @@ class ThreadService(
      * Starts a thread in ONE room write, in this order (`chat-model.md` "Guard order and locking"): the member guard ([memberGuard]) on the
      * re-read caller and standing, an archived room is the typed `409`, the room's workflow snapshot gives the
      * initial status and the field definitions, the kernel validates the field values (a `400`, required fields at create), the
-     * next per-room number, the thread (`message_count` = 1), its opening message, the `CREATED` event and the activity bump of the
-     * thread and the room. Any throw rolls everything back.
+     * next per-room number, the thread (`message_count` = 1), the creator's watch, its opening message, the `CREATED` event and the
+     * activity bump of the thread and the room. Any throw rolls everything back.
      */
     suspend fun create(roomId: UInt, caller: CallerPrincipal, raw: ThreadCreateRequest): CreatedThread {
         // Sanitised AND validated service-side (both idempotent after the route): a direct caller can never hand a control character on.
@@ -231,6 +240,8 @@ class ThreadService(
                 it[createdAt] = stamp
                 it[updatedAt] = stamp
             }[Threads.id].value
+            // The creator watches their own thread (1.1 D1), under the room lock the member guard ran under: they cannot have left.
+            watches.addInTransaction(threadId, caller.userId, stamp)
             val opening = messages.insertInTransaction(roomId, threadId, number, caller.userId, request.body, hashtags, stamp)
             events.record(threadId, caller.userId, threadCreatedEvent(initial.key, initial.label), stamp)
             rooms.touchActivity(roomId, stamp, caller.userId)

@@ -682,6 +682,8 @@ paths:
         - Sortable fields: `id`, `name`, `handle`, `createdAt`, `updatedAt`. Default `id` ascending. A team without a handle sorts last
           ascending (and first descending).
         - Filters: `name` and `handle` (each a case- and accent-insensitive substring; a team without a handle never matches `handle`).
+        - The `handle` filter is the substring search of the composer's team-mention picker (1.1.0 S7), its UI consumer: the optional `q` free-text
+          rule of API-LIST-005 (a per-column substring only where a UI needs it) is met by that picker.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1487,6 +1489,7 @@ paths:
           those people (`<@id>` in its body, the person an active member of the room when it was written or edited); the filter reads
           the mention index only, so it finds nothing for a message written before mentions were indexed. A non-positive or
           non-integer id, or more than 20 distinct values, is a `400`.
+        - `watching` (strict `true` or `false`) keeps the threads the CALLER watches (`PUT .../watch`), or, with `false`, the ones they do not.
         - A well-formed status key, owner id, mentioned user id, field value or tag that matches nothing is an empty page, never an error. Checked in this
           order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
           what the caller may read.
@@ -1510,6 +1513,7 @@ paths:
         - $ref: '#/components/parameters/ThreadFieldFilter'
         - $ref: '#/components/parameters/ThreadTagFilter'
         - $ref: '#/components/parameters/ThreadMentionFilter'
+        - $ref: '#/components/parameters/ThreadWatchingFilter'
       responses:
         '200':
           description: A page of threads
@@ -1703,6 +1707,44 @@ paths:
       responses:
         '204':
           description: Recorded, or already read that far
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/threads/{number}/watch:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/ThreadNumberPath'
+    put:
+      tags: [threads]
+      operationId: setThreadWatch
+      summary: Watch or stop watching a thread
+      description: |
+        Any MEMBER of the room watches or unwatches any thread of it (a non-member is the uniform `404`; an `ADMIN` who is not a member is
+        `403`: they have no state of their own in the room). A single-value set with a body: the CALLER's own watch, nobody else's.
+        Checked in this order: authentication (`401`), the per-USER `thread-watch` bucket of 30 per minute (its own, apart from the read
+        marker's; `429` beyond it; spent before any guard, so a refused write costs a token), visibility (`404`), the member rule (`403`) before the body, the body (`400`: `watching` must be a boolean), then the
+        caller's own membership (`404` when they were removed meanwhile) and the thread (`404`). The state the thread already has is a
+        `204` with nothing written and no audit line; a change is audited (`thread.watch_changed`).
+
+        A closed thread and an ARCHIVED room can be watched and unwatched: a watch is the member's own state, not a write to the room.
+        It takes NO room lock (it holds only the caller's own membership row for the commit), emits no live event and moves no activity
+        order; the caller's other tabs catch up on focus. The creator of a thread and each new owner of one watch it automatically, and may
+        stop. Leaving or being removed from the room drops the person's watches. What a watch does is read through `watching` and
+        `watcherCount` of the thread and `watching` of the thread list and its filter.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WatchRequest'
+      responses:
+        '204':
+          description: Watching or not as asked, or already so
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -2583,6 +2625,12 @@ components:
         items: { type: integer, format: int32, minimum: 1 }
       style: form
       explode: true
+    ThreadWatchingFilter:
+      name: watching
+      in: query
+      required: false
+      description: '`true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none.'
+      schema: { type: boolean }
     ThreadMentionFilter:
       name: mentionedId
       in: query
@@ -3708,6 +3756,8 @@ components:
         - updatedAt
         - unreadCount
         - firstUnreadMessageId
+        - watching
+        - watcherCount
       properties:
         id: { type: integer, format: int32, minimum: 1 }
         number: { type: integer, format: int32, minimum: 1, description: The per-room number (`#42`); never reused. }
@@ -3743,9 +3793,11 @@ components:
           minimum: 1
           nullable: true
           description: The first of those messages; `null` when none is unread or the caller is not a member.
+        watching: { type: boolean, description: The CALLER watches the thread (`PUT .../watch`); `false` for someone who is not a member. }
+        watcherCount: { type: integer, format: int32, minimum: 0, description: 'How many active members watch the thread; who they are is not on the wire.' }
     ThreadListItem:
       type: object
-      required: [id, number, title, status, closed, ownerId, ownerName, messageCount, lastActivityAt, createdAt, unreadCount]
+      required: [id, number, title, status, closed, ownerId, ownerName, messageCount, lastActivityAt, createdAt, unreadCount, watching]
       properties:
         id: { type: integer, format: int32, minimum: 1 }
         number: { type: integer, format: int32, minimum: 1 }
@@ -3763,6 +3815,7 @@ components:
           minimum: 0
           maximum: 100
           description: 'Messages the CALLER has not read (the newest 100 after their marker are counted, so 100 is "100 or more"); 0 for someone who is not a member.'
+        watching: { type: boolean, description: The CALLER watches the thread (`PUT .../watch`); `false` for someone who is not a member. }
     ThreadPage:
       type: object
       required: [items, page, pageSize, total]
@@ -3962,6 +4015,11 @@ components:
       required: [messageId]
       properties:
         messageId: { type: integer, format: int32, minimum: 1, description: 'The message the caller has read up to, and including; one of the thread''s own messages, a deleted one included.' }
+    WatchRequest:
+      type: object
+      required: [watching]
+      properties:
+        watching: { type: boolean, description: 'Whether the caller watches the thread after the call.' }
     ReactionRequest:
       type: object
       required: [emoji, reacted]

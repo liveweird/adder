@@ -14,7 +14,7 @@ import RoomTagSelect from "./RoomTagSelect";
 
 /**
  * The thread list's filter panel (inside the shared `FilterPanel`, stacked: the room view's left rail is narrow): the statuses (with the
- * workflow's thread counts), the room's hashtags (`RoomTagSelect`, searched on the server), the owner ("Mine" is `owner=me`, "Mentions me" is `mention=me`, the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
+ * workflow's thread counts), the room's hashtags (`RoomTagSelect`, searched on the server), the owner ("Mine" is `owner=me`, "Mentions me" is `mention=me`, "Watching" is `watching=me`, the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
  * USER field of the room's workflow. Every control writes the URL through `update`; the panel only draws what the URL says.
  * "Clear filters" is the hook's `clear`: the panel's filters and the page only, the scope and the order stay.
  */
@@ -85,6 +85,9 @@ export default function ThreadFilters({
               onClick={() => update({ mention: !params.mention })}
             >
               {t("threads.filters.mentionsMe")}
+            </Button>
+            <Button size="compact-xs" variant={params.watching ? "light" : "default"} aria-pressed={params.watching} onClick={() => update({ watching: !params.watching })}>
+              {t("threads.filters.watching")}
             </Button>
           </Group>
           <MemberFilterSelect

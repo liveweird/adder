@@ -21,6 +21,7 @@ import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
@@ -106,6 +107,19 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
      */
     suspend fun markSeenInTransaction(roomId: UInt, userId: UInt, at: Long): Boolean =
         members.update({ (members.roomId eq roomId) and (members.userId eq userId) }) { it[seenAt] = seenAt.greatestOf(at) } > 0
+
+    /**
+     * Holds [userId]'s membership row of room [roomId] for the rest of the caller's transaction (`FOR KEY SHARE`) and answers whether it
+     * exists (false = they are not, or no longer, a member: the route's `404`). A removal deletes the row under the room lock and waits
+     * for the share lock, so a write that follows (a watch, whose composite foreign key names this row) can never fail the key under it;
+     * two holders never block each other. Takes NO room lock and writes nothing: INSIDE the caller's transaction, like
+     * [markSeenInTransaction].
+     */
+    suspend fun holdMembership(roomId: UInt, userId: UInt): Boolean =
+        members.select(members.userId)
+            .where { (members.roomId eq roomId) and (members.userId eq userId) }
+            .forUpdate(ForUpdateOption.PostgreSQL.ForKeyShare)
+            .toList().isNotEmpty()
 
     /** [markSeenInTransaction] in a transaction of its own (`POST /rooms/{id}/seen`). */
     suspend fun markSeen(roomId: UInt, userId: UInt, at: Long): Boolean =

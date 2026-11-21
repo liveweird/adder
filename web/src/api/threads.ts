@@ -30,10 +30,12 @@ type ThreadListQuery = {
   field?: string[];
   /** Any of these hashtags, as typed or as `listRoomTags` returned them (the server folds case and accents); at most 10 distinct. */
   tag?: string[];
+  /** `true` = only the threads the CALLER watches (the SPA's "Watching" filter); omitted = all. */
+  watching?: boolean;
 };
 
 export async function listThreads(roomId: number, q: ThreadListQuery): Promise<ThreadPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), mentionedId: q.mentionedId?.map(String), field: q.field, tag: q.tag });
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), mentionedId: q.mentionedId?.map(String), field: q.field, tag: q.tag, watching: q.watching });
   return jsonRequest<ThreadPage>(`/api/v1/rooms/${roomId}/threads?${params}`);
 }
 
@@ -81,6 +83,14 @@ export async function setThreadOwner(roomId: number, number: number, ownerId: nu
  */
 export async function setThreadReadMarker(roomId: number, number: number, messageId: number): Promise<void> {
   await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/read-marker`, { method: "PUT", body: JSON.stringify({ messageId }) });
+}
+
+/**
+ * Watches (`watching` true) or stops watching (false) the thread: the caller's own state, 204, nothing written when it already is so, no
+ * live hint. Any member of the room (a closed thread and an archived room included); an ADMIN who is not a member gets a 403.
+ */
+export async function setThreadWatch(roomId: number, number: number, watching: boolean): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/watch`, { method: "PUT", body: JSON.stringify({ watching }) });
 }
 
 /** One page of the thread's history, newest first (the server's default order). */

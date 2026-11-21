@@ -387,6 +387,21 @@ describe("ThreadList", () => {
     expect(screen.getByRole("link", { name: /Old alert/ })).not.toHaveAccessibleDescription("Pinned");
   });
 
+  test("a watched thread's row carries a mark, described in words, and a thread the caller does not watch carries none", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/rooms/12/threads?")) {
+        return Promise.resolve(jsonResponse(200, { ...THREADS, items: THREADS.items.map((thread, index) => ({ ...thread, watching: index === 0 })) }));
+      }
+      if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+      if (url.startsWith("/api/v1/rooms/12/pins?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
+      return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+    });
+    renderList();
+    const watched = await screen.findByRole("link", { name: /Disk full on db-3/ });
+    await waitFor(() => expect(watched).toHaveAccessibleDescription("You are watching this thread"));
+    expect(screen.getByRole("link", { name: /Old alert/ })).not.toHaveAccessibleDescription("You are watching this thread");
+  });
+
   test("a failed pins read marks nothing", async () => {
     serve();
     renderList();

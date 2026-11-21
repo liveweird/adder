@@ -313,7 +313,7 @@ class ChatWriteLimitsTest {
         }
 
     @Test
-    fun `the status, owner, read-marker, reaction and preferences PUTs take at most 16 KiB`() = testApplication {
+    fun `the status, owner, read-marker, watch, reaction and preferences PUTs take at most 16 KiB`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("cw-small")
         val room = room(owner)
@@ -324,6 +324,9 @@ class ChatWriteLimitsTest {
         val marker = "$rooms/$room/threads/1/read-marker"
         assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, marker, big).status)
         assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, marker, """{"messageId":$message}""").status)
+        val watch = "$rooms/$room/threads/1/watch"
+        assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, watch, big).status)
+        assertEquals(HttpStatusCode.NoContent, owner.client.raw(HttpMethod.Put, watch, """{"watching":true}""").status)
         val reaction = "$rooms/$room/messages/$message/reaction"
         assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, reaction, big).status)
         val thumbsUp = """{"emoji":"👍","reacted":true}"""

@@ -160,7 +160,8 @@ class MessageDerivedRowsTest {
         private val members = RoomMemberService(database, TeamService(database))
         val mentions = MessageMentionService(members, TestThreads.noticeWriter)
         val messages = MessageService(database, TestRooms.service, MessageTagService(database), mentions, followers)
-        val threads = ThreadService(database, TestRooms.service, TestRooms.workflows, members, TestThreads.events, messages)
+        val threads =
+            ThreadService(database, TestRooms.service, TestRooms.workflows, members, TestThreads.events, messages, TestThreads.watches)
     }
 
     /**

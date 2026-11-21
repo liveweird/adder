@@ -46,6 +46,7 @@ class MigrationChecksumTest {
         "V23__scrub_history_values.sql" to -61957710,
         "V24__create_notification_email_budget.sql" to -1359655116,
         "V25__add_team_handles.sql" to 178172747,
+        "V26__create_thread_watches.sql" to -1388442755,
     )
 
     @Test

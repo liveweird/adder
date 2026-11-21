@@ -10,7 +10,9 @@ import ch.nokillswit.rooms.RoomWorkflowSnapshot
 import ch.nokillswit.rooms.SnapshotStatus
 import ch.nokillswit.threads.ThreadPageResponse
 import ch.nokillswit.threads.ThreadService
+import ch.nokillswit.threads.WatchRequest
 import ch.nokillswit.threads.statusOrder
+import ch.nokillswit.users.UserRole
 import ch.nokillswit.workflows.FieldType
 import ch.nokillswit.workflows.StatusCategory
 import io.ktor.client.HttpClient
@@ -398,6 +400,40 @@ class ThreadListFilterTest {
     }
 
     @Test
+    fun `watching keeps the threads the caller watches, and false the ones they do not`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("flt-wa")
+        val member = actor("flt-wa-m")
+        val admin = seedActor("flt-wa-adm", UserRole.ADMIN).also { mintedUsers += it.id }
+        val room = room(owner, member)
+        repeat(3) { TestThreads.seed(room, owner.id) }
+        TestThreads.closeRaw(room, 3, "done")
+        assertEquals(listOf(1, 2, 3), owner.client.numbers(room, "?watching=true"), "a creator watches what they start")
+        assertEquals(emptyList(), owner.client.numbers(room, "?watching=false"))
+        assertEquals(emptyList(), member.client.numbers(room, "?watching=true"))
+        assertEquals(listOf(1, 2, 3), member.client.numbers(room, "?watching=false"))
+
+        assertEquals(HttpStatusCode.NoContent, member.client.putJson("$rooms/$room/threads/2/watch", WatchRequest(true)).status)
+        assertEquals(HttpStatusCode.NoContent, member.client.putJson("$rooms/$room/threads/3/watch", WatchRequest(true)).status)
+        assertEquals(listOf(2, 3), member.client.numbers(room, "?watching=true"))
+        assertEquals(listOf(1), member.client.numbers(room, "?watching=false"))
+        assertEquals(listOf(3), member.client.numbers(room, "?watching=true&closed=true"), "combined with another filter")
+        assertEquals(listOf(2), member.client.numbers(room, "?watching=true&closed=false&status=open"))
+        val page = member.client.get("$rooms/$room/threads?watching=true&pageSize=1").body<ThreadPageResponse>()
+        assertEquals(2L, page.total, "the total counts after the filter")
+        val items = member.client.get("$rooms/$room/threads").body<ThreadPageResponse>().items
+        assertEquals(mapOf(1 to false, 2 to true, 3 to true), items.associate { it.number to it.watching }, "the flag of each row")
+
+        // A caller who is no member watches nothing; a blank value filters nothing; a repeat or a non-boolean is 400.
+        assertEquals(emptyList(), admin.client.numbers(room, "?watching=true"))
+        assertEquals(listOf(1, 2, 3), admin.client.numbers(room, "?watching=false"))
+        assertEquals(listOf(1, 2, 3), owner.client.numbers(room, "?watching="))
+        for (query in listOf("?watching=yes", "?watching=1", "?watching=TRUE", "?watching=true&watching=false")) {
+            assertEquals(HttpStatusCode.BadRequest, owner.client.statusOf(room, query), query)
+        }
+    }
+
+    @Test
     fun `a non-member is 404 whatever the filter`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("flt-404")
@@ -405,7 +441,9 @@ class ThreadListFilterTest {
         val room = room(owner)
         TestThreads.seed(room, owner.id)
 
-        val queries = listOf("", "?status=open", "?status=Bad_Key", "?field=nocolon", "?field=note:x", "?ownerId=0", "?sort=nope")
+        val queries = listOf(
+            "", "?status=open", "?status=Bad_Key", "?field=nocolon", "?field=note:x", "?ownerId=0", "?sort=nope", "?watching=maybe",
+        )
         for (query in queries) {
             assertEquals(HttpStatusCode.NotFound, outsider.client.statusOf(room, query), query)
         }

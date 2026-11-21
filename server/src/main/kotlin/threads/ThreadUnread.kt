@@ -60,7 +60,8 @@ ON CONFLICT (user_id, thread_id) DO UPDATE
 /** What a member has not read of one thread: [count] (0 to [MAX_UNREAD_COUNT]) and the first of those messages, null for none. */
 internal data class ThreadUnread(val count: Int, val firstMessageId: UInt?)
 
-private val INTS = ArrayColumnType<Int, List<Int>>(IntegerColumnType())
+/** The `int4[]` argument type of the batched reads of this package (constant statement text whatever the number of ids). */
+internal val INTS = ArrayColumnType<Int, List<Int>>(IntegerColumnType())
 
 /**
  * The unread counts of [threadIds] for member [userId] whose floor is [since], by thread (a thread with nothing unread may be absent).

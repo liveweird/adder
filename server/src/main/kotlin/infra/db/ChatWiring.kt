@@ -30,6 +30,8 @@ import ch.nokillswit.threads.ThreadService
 import ch.nokillswit.threads.ThreadServiceKey
 import ch.nokillswit.threads.ThreadStatusService
 import ch.nokillswit.threads.ThreadStatusServiceKey
+import ch.nokillswit.threads.ThreadWatchService
+import ch.nokillswit.threads.ThreadWatchServiceKey
 import ch.nokillswit.threads.ThreadWorkflowUsage
 import io.ktor.server.application.Application
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
@@ -83,6 +85,9 @@ internal fun Application.publishChatServices(
     attributes.put(MessageServiceKey, messageService)
     attributes.put(PinServiceKey, PinService(database, messageService))
     attributes.put(ThreadReadServiceKey, ThreadReadService(database, roomMemberService, noticeWriter))
+    // The watches (V26): the caller's own state, toggled without the room lock; the thread writes add the auto-watches inside themselves.
+    val threadWatchService = ThreadWatchService(database, roomMemberService)
+    attributes.put(ThreadWatchServiceKey, threadWatchService)
     attributes.put(
         ThreadServiceKey,
         ThreadService(
@@ -92,6 +97,7 @@ internal fun Application.publishChatServices(
             roomMemberService,
             threadEventService,
             messageService,
+            threadWatchService,
             readLimiter,
         ),
     )
@@ -108,7 +114,9 @@ internal fun Application.publishChatServices(
     )
     attributes.put(
         ThreadStatusServiceKey,
-        ThreadStatusService(database, roomService, roomWorkflowService, roomMemberService, threadEventService, noticeWriter),
+        ThreadStatusService(
+            database, roomService, roomWorkflowService, roomMemberService, threadEventService, noticeWriter, threadWatchService,
+        ),
     )
     // The workflow's thread-usage port (S6): rooms/ declares it and never imports threads/, so this root registers the implementation.
     attributes.put(WorkflowUsageKey, ThreadWorkflowUsage(roomWorkflowService, threadEventService))

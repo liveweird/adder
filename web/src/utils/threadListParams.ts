@@ -35,6 +35,8 @@ export interface ThreadListParams {
   owner: string | null;
   /** "Mentions me" (`mention=me`): only `me` is read, and it resolves to the session's id where the request is built, like `owner=me`. */
   mention: boolean;
+  /** "Watching" (`watching=me`): only `me` is read; the server resolves it to the caller, so a shared link means "my watched threads" for whoever opens it. */
+  watching: boolean;
   /** Any-of these hashtags (empty = no filter), as typed or as the room's tag list spells them; the server folds case and accents. */
   tag: string[];
   /** `key:value` pairs: any-of within a field key, all-of across keys. Judged against the room's workflow where the request is built. */
@@ -43,10 +45,10 @@ export interface ThreadListParams {
   page: number;
 }
 
-export const DEFAULT_THREAD_LIST_PARAMS: ThreadListParams = { scope: "open", order: "activity", status: [], owner: null, mention: false, tag: [], field: [], page: 1 };
+export const DEFAULT_THREAD_LIST_PARAMS: ThreadListParams = { scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], field: [], page: 1 };
 
 /** Every query key the list owns, in the order a URL spells them. */
-const LIST_KEYS = ["scope", "order", "status", "owner", "mention", "tag", "field", "page"] as const;
+const LIST_KEYS = ["scope", "order", "status", "owner", "mention", "watching", "tag", "field", "page"] as const;
 
 /** A positive integer of at most nine digits; anything else (`0`, `-1`, `2x`, `1e3`, a huge number) is junk. */
 const PAGE = /^[1-9]\d{0,8}$/;
@@ -89,6 +91,7 @@ export function parseThreadListParams(search: URLSearchParams): ThreadListParams
     status: repeated(search, "status", isKey),
     owner: owner !== null && (owner === "me" || isUserId(owner)) ? owner : DEFAULT_THREAD_LIST_PARAMS.owner,
     mention: search.get("mention") === "me",
+    watching: search.get("watching") === "me",
     tag: repeated(search, "tag", isTag, MAX_TAG_VALUES),
     field: repeated(search, "field", isFieldEntry),
     page: page !== null && PAGE.test(page) ? Number(page) : DEFAULT_THREAD_LIST_PARAMS.page,
@@ -130,6 +133,7 @@ function serialize(params: ThreadListParams): URLSearchParams {
   for (const status of params.status) out.append("status", status);
   if (params.owner !== DEFAULT_THREAD_LIST_PARAMS.owner) out.set("owner", String(params.owner));
   if (params.mention) out.set("mention", "me");
+  if (params.watching) out.set("watching", "me");
   for (const tag of params.tag) out.append("tag", tag);
   for (const entry of params.field) out.append("field", entry);
   if (params.page !== DEFAULT_THREAD_LIST_PARAMS.page) out.set("page", String(params.page));
@@ -194,6 +198,8 @@ export interface ThreadListFilters {
   status?: string[];
   ownerId?: number[];
   mentionedId?: number[];
+  /** The caller's own watched threads (`watching=true`); the server knows who the caller is. */
+  watching?: boolean;
   tag?: string[];
   field?: string[];
 }
@@ -235,13 +241,14 @@ export function toApiQuery(params: ThreadListParams, workflow: RoomWorkflow | un
     status: params.status.length > 0 ? params.status : undefined,
     ownerId: owners.length > 0 ? owners : undefined,
     mentionedId: params.mention && me !== null ? [me] : undefined,
+    watching: params.watching ? true : undefined,
     tag: params.tag.length > 0 ? params.tag.slice(0, MAX_TAG_VALUES) : undefined,
     field: field.length > 0 ? field : undefined,
   };
 }
 
-/** How many filters the panel holds: the statuses, the owner, "mentions me", the hashtags (one dimension), and each field key with a value (the scope and the order live outside the panel). */
-export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionedId" | "tag" | "field">): number {
+/** How many filters the panel holds: the statuses, the owner, "mentions me", "watching", the hashtags (one dimension), and each field key with a value (the scope and the order live outside the panel). */
+export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionedId" | "watching" | "tag" | "field">): number {
   const fieldKeys = new Set((filters.field ?? []).map(fieldKeyOf));
-  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionedId ? 1 : 0) + (filters.tag ? 1 : 0) + fieldKeys.size;
+  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionedId ? 1 : 0) + (filters.watching ? 1 : 0) + (filters.tag ? 1 : 0) + fieldKeys.size;
 }

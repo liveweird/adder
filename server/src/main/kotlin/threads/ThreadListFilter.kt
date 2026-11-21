@@ -23,6 +23,7 @@ import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.intLiteral
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.not
 
 // The thread list's filters (`chat-model.md` "The thread list: filters and sorts"): parsed from the query string in the route (after the
 // visibility 404, so a non-member's bad filter is still a 404) and turned into ONE predicate for the count and the rows. The `field`
@@ -53,11 +54,14 @@ data class ThreadListFilter(
     val tags: List<String> = emptyList(),
     /** A live message of the thread mentions any of these people (int32 ids of 1 or more; one nobody was mentioned as matches nothing). */
     val mentionedIds: List<UInt> = emptyList(),
+    /** `true`: only the threads the CALLER watches; `false`: only those they do not (a non-member watches none); null: all. */
+    val watching: Boolean? = null,
 )
 
 /** The filters of the thread list; a malformed key, id or pair, or too many values, is a `400` ([BadRequestException]). */
-fun Parameters.threadListFilter(closed: Boolean?): ThreadListFilter = ThreadListFilter(
+fun Parameters.threadListFilter(closed: Boolean?, watching: Boolean? = null): ThreadListFilter = ThreadListFilter(
     closed = closed,
+    watching = watching,
     statuses = repeatedStrings("status", MAX_FILTER_VALUES).onEach { requireKey(it, "Status key '${it.shown()}'") },
     ownerIds = userIdFilter("ownerId"),
     fields = repeatedStrings("field", MAX_FILTER_VALUES).map(::fieldCriterion),
@@ -95,10 +99,11 @@ private fun fieldCriterion(raw: String): FieldCriterion {
 internal val ThreadListFilter.needsWorkflow: Boolean get() = fields.isNotEmpty()
 
 /**
- * The ONE predicate of the count and the rows. [workflow] is the room's snapshot and is required when [ThreadListFilter.fields] is not
+ * The ONE predicate of the count and the rows, for the list of [callerUserId] (the `watching` filter is theirs). [workflow] is the
+ * room's snapshot and is required when [ThreadListFilter.fields] is not
  * empty; a field key that is unknown, retired or of a type that has no filter (TEXT, URL, DATE, NUMBER) is a `400`.
  */
-internal fun ThreadListFilter.predicate(roomId: UInt, workflow: RoomWorkflowSnapshot?): Op<Boolean> {
+internal fun ThreadListFilter.predicate(roomId: UInt, callerUserId: UInt, workflow: RoomWorkflowSnapshot?): Op<Boolean> {
     val threads = ThreadService.Threads
     var predicate: Op<Boolean> = threads.roomId eq roomId
     closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
@@ -106,6 +111,10 @@ internal fun ThreadListFilter.predicate(roomId: UInt, workflow: RoomWorkflowSnap
     if (ownerIds.isNotEmpty()) predicate = predicate and (threads.ownerId inList ownerIds)
     if (mentionedIds.isNotEmpty()) predicate = predicate and threadMentionsAny(roomId, threads.id, mentionedIds)
     if (tags.isNotEmpty()) predicate = predicate and threadCarriesAnyTag(roomId, threads.id, tags)
+    watching?.let {
+        val watched = threadWatchedBy(roomId, callerUserId, threads.id)
+        predicate = predicate and (if (it) watched else not(watched))
+    }
     fields.groupBy { it.key }.forEach { (key, criteria) ->
         val field = workflow?.fields?.firstOrNull { it.key == key && !it.retired }
             ?: throw BadRequestException("Unknown field '${key.shown()}'")

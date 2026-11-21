@@ -220,6 +220,24 @@ describe("the thread filter panel", () => {
     expect(listCalls().at(-1)).not.toContain("mentionedId");
   });
 
+  test("Watching sits beside Mentions me, sends watching=true, writes watching=me, composes with Mine, and Clear drops it", async () => {
+    serve();
+    const user = userEvent.setup();
+    renderPanel();
+    await openPanel(user);
+    const watching = screen.getByRole("button", { name: "Watching" });
+    expect(Boolean(screen.getByRole("button", { name: "Mentions me" }).compareDocumentPosition(watching) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    await user.click(watching);
+    await waitFor(() => expect(listCalls().at(-1)).toBe("/api/v1/rooms/12/threads?page=1&pageSize=50&sort=-lastActivityAt&closed=false&watching=true"));
+    expect(where()).toBe("/rooms/12?watching=me");
+    expect(screen.getByRole("button", { name: "Watching" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Mine" }));
+    await waitFor(() => expect(where()).toBe("/rooms/12?owner=me&watching=me"));
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(where()).toBe("/rooms/12"));
+    expect(screen.getByRole("button", { name: "Watching" })).toHaveAttribute("aria-pressed", "false");
+  });
+
   test("the badge counts Mentions me as one filter and Clear filters removes it", async () => {
     serve();
     const user = userEvent.setup();

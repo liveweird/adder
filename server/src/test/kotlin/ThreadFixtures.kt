@@ -16,6 +16,7 @@ import ch.nokillswit.threads.PinService
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadService
+import ch.nokillswit.threads.ThreadWatchService
 import ch.nokillswit.workflows.FieldType
 import ch.nokillswit.workflows.StatusCategory
 import ch.nokillswit.workflows.StatusColour
@@ -54,8 +55,10 @@ object TestThreads {
         MessageService(database, TestRooms.service, MessageTagService(database), mentions, listOf(PinCleanup()))
     }
     val pins: PinService by lazy { PinService(sharedDatabaseForTests(), messages) }
+    /** The watches (V26): the same service the real thread writes add the creator's auto-watch through. */
+    internal val watches: ThreadWatchService by lazy { ThreadWatchService(sharedDatabaseForTests(), members) }
     val service: ThreadService by lazy {
-        ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, messages)
+        ThreadService(sharedDatabaseForTests(), TestRooms.service, TestRooms.workflows, members, events, messages, watches)
     }
 
     /**

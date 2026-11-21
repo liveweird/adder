@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.notifications.MARK_THREAD_SEEN_SQL
 import ch.nokillswit.threads.THREAD_UNREAD_SQL
 import ch.nokillswit.threads.UNREAD_COUNTS_SQL
+import ch.nokillswit.threads.WATCHING_AMONG_SQL
 import java.sql.Connection
 import java.sql.SQLException
 import java.util.UUID
@@ -443,6 +444,40 @@ class ThreadSchemaTest {
     }
 
     @Test
+    fun `watches have their membership key, one row per member and thread, and go with the member and the thread`() {
+        withThread("watches") { c, user, thread ->
+            val room = c.scalar("SELECT room_id FROM threads WHERE id = ?", thread)
+            val insert = "INSERT INTO thread_watches (thread_id, user_id, room_id, created_at) VALUES (?, ?, ?, 1)"
+            assertState(FK_VIOLATION, "a watch needs the membership row") { c.exec(insert, thread, user, room) }
+            val join = "INSERT INTO room_members (room_id, user_id, \"role\", added_at) VALUES (?, ?, 'MEMBER', 7)"
+            assertEquals(1, c.exec(join, room, user))
+            assertState(FK_VIOLATION, "the key names the room the member belongs to") { c.exec(insert, thread, user, room + 1) }
+            assertEquals(1, c.exec(insert, thread, user, room))
+            assertState(UNIQUE_VIOLATION, "one watch per member and thread") { c.exec(insert, thread, user, room) }
+
+            assertEquals(1, c.exec("DELETE FROM room_members WHERE room_id = ? AND user_id = ?", room, user))
+            assertEquals(0L, c.scalar("SELECT count(*) FROM thread_watches WHERE user_id = ?", user), "the membership key took the watch")
+            assertEquals(1, c.exec(join, room, user))
+            assertEquals(0L, c.scalar("SELECT count(*) FROM thread_watches WHERE user_id = ?", user), "rejoining starts clean")
+            assertEquals(1, c.exec(insert, thread, user, room))
+            assertEquals(1, c.exec("DELETE FROM threads WHERE id = ?", thread))
+            assertEquals(0L, c.scalar("SELECT count(*) FROM thread_watches WHERE user_id = ?", user), "the thread took the watch")
+        }
+    }
+
+    @Test
+    fun `the watching read is an index probe, never a scan of thread_watches, also as a generic plan`() {
+        // The list page's one batched read: the person and the room lead idx_thread_watches_user_room and the thread ids ride its last
+        // column, so the read touches that person's watches of that room alone. On a tiny test table the planner may as well probe the
+        // primary key per thread id (equally an index, and cheaper there), so the pin is "an index of the table, never a sequential scan".
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val plan = explain(WATCHING_AMONG_SQL, "int8, int4, int4[]", "1, 1, '{1,2}'", mode)
+            assertTrue("idx_thread_watches_user_room" in plan || "thread_watches_pkey" in plan, "$mode: the read probes an index:\n$plan")
+            assertTrue("Seq Scan on thread_watches" !in plan, "$mode: never a scan of the whole table:\n$plan")
+        }
+    }
+
+    @Test
     fun `the unread statements read idx_messages_thread, also as a generic plan`() {
         // Each statement as a PREPARED one over its argument types, with sequential scans, bitmap scans and sorts off (a test table is
         // tiny, so its statistics can make a bitmap or forward read plus a sort look cheaper; a real thread of thousands does not): the
@@ -456,6 +491,17 @@ class ThreadSchemaTest {
                 assertTrue("Index Scan Backward" in plan, "$mode: newest first, so the limit stops early:\n$plan")
                 assertTrue("Seq Scan on messages" !in plan, "$mode: never a scan of the whole table:\n$plan")
             }
+        }
+    }
+
+    @Test
+    fun `the membership cascade finds a member's watches through idx_thread_watches_user_room, also as a generic plan`() {
+        // A member row's delete (a leave, a removal) drops that person's watches of that room by (room_id, user_id), the shape of the
+        // foreign key's cascade statement: only the person-and-room index leads with both, the primary key leads with the thread.
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val plan = explain("SELECT thread_id FROM thread_watches WHERE room_id = ? AND user_id = ?", "int4, int8", "1, 1", mode)
+            assertTrue("idx_thread_watches_user_room" in plan, "$mode: the cascade uses the person-and-room index:\n$plan")
+            assertTrue("Seq Scan on thread_watches" !in plan, "$mode: never a scan of the whole table:\n$plan")
         }
     }
 

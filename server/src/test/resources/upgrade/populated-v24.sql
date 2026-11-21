@@ -1,11 +1,15 @@
--- A populated database at the v0.6.0 schema (Flyway V22): one or more rows in EVERY table, written the way the 0.6.0 server wrote
+-- A populated database at the 1.0.0 schema (Flyway V24): one or more rows in EVERY table, written the way the 1.0.0 server wrote
 -- them (the shapes of the stored values: persistence.md, chat-model.md), for PopulatedUpgradeTest, which then migrates it to the
--- latest version. Plain SQL against the V22 schema; it must keep matching V22 (an applied migration never changes), so it is
+-- latest version. Plain SQL against the V24 schema; it must keep matching V24 (an applied migration never changes), so it is
 -- not edited when a later migration lands. One placeholder is substituted by the test: {{PASSWORD_HASH}} (a bcrypt hash).
 --
+-- It is the 0.6.0 fixture (`populated-v22.sql`, deleted when this one replaced it) carried forward through V23 and V24 the way a real
+-- 1.0.0 database holds it: the history already scrubbed (no title, no TEXT or URL value: the shapes V23 leaves and the server writes
+-- since), and the per-actor digest budget (V24) holding rows. The upgrade to 1.1.0 is therefore the path real deployments take.
+--
 -- Values are realistic on purpose: Polish diacritics, CJK, RTL, emoji with modifiers, a combining mark, the longest title (200), the
--- longest TEXT field (500), the longest URL (2000) and the longest message body (8000), soft-deleted rows, retired statuses and fields.
--- Every value V23 must scrub carries the marker SECRET; no value it must keep does.
+-- longest TEXT field (500), the longest URL (2000) and the longest message body (8000), soft-deleted rows, retired statuses and fields,
+-- and (for V26's backfill) threads whose creator or owner is a member, a soft-deleted member and no member at all.
 
 CREATE FUNCTION pg_temp.t(minutes integer) RETURNS bigint LANGUAGE sql IMMUTABLE AS
     $$ SELECT 1795082400000::bigint + minutes::bigint * 60000 $$;   -- 2026-11-19T10:00:00Z plus N minutes
@@ -96,7 +100,8 @@ INSERT INTO room_fields (room_id, "key", label, "type", options, required, posit
     (3, 'note',       'Notatka',        'TEXT',         '[]', FALSE, 0, FALSE);
 
 -- ----------------------------------------------------------------------------------------------------------------------------
--- Threads (V14; V16's generated vector is computed by the server): numbers 1..6 in room 1, 1..2 in room 2, 1 in room 3.
+-- Threads (V14; V16's generated vector is computed by the server): numbers 1..6 in room 1, 1..2 in room 2, 1 in room 3. Thread 7's owner
+-- (user 4) is no member of room 2, thread 5's creator and owner is a soft-deleted member: V26's backfill reads both.
 -- ----------------------------------------------------------------------------------------------------------------------------
 INSERT INTO threads (id, room_id, "number", title, status_key, owner_id, created_by, fields, revision, message_count, closed_at, last_activity_at, created_at, updated_at) VALUES
     (1, 1, 1, 'Baza danych: wysoka latencja zapytań 🔥 (orders-db)', 'investigating', 3, 2,
@@ -123,7 +128,7 @@ INSERT INTO threads (id, room_id, "number", title, status_key, owner_id, created
      jsonb_build_object('lead', 6, 'impact', 0.25),
      2, 1, NULL, pg_temp.t(40), pg_temp.t(40), pg_temp.t(41)),
     (6, 1, 6, left(repeat('Długi tytuł wątku — ', 20), 200), 'monitoring', 2, 2, '{}'::jsonb, 1, 1, NULL, pg_temp.t(50), pg_temp.t(50), pg_temp.t(50)),
-    (7, 2, 1, 'Zaplanować przegląd kwartalny', 'in-progress', 2, 2,
+    (7, 2, 1, 'Zaplanować przegląd kwartalny', 'in-progress', 4, 2,
      jsonb_build_object('owner_note', 'hunter2 dla przeglądu', 'priority', 'p2', 'shared', 'https://example.test/q?k=1'),
      2, 2, NULL, pg_temp.t(20), pg_temp.t(5), pg_temp.t(20)),
     (8, 2, 2, 'Pusta kolumna', 'open', 3, 3, '{}'::jsonb, 1, 1, NULL, pg_temp.t(15), pg_temp.t(15), pg_temp.t(15)),
@@ -172,56 +177,61 @@ INSERT INTO room_pins (id, room_id, thread_id, message_id, pinned_by, pinned_at)
     (3, 2, 7, NULL, 2, pg_temp.t(21));
 
 -- ----------------------------------------------------------------------------------------------------------------------------
--- The history (V14): every event type, the OLD shapes V23 scrubs, and the shapes it must leave alone.
+-- The history (V14, scrubbed by V23): every event type, in the shapes the 1.0.0 server writes. A title is never kept, nor the value of
+-- a TEXT or URL field, nor of a field the room does not know; the values of SELECT, MULTI_SELECT, USER, DATE and NUMBER fields stay
+-- (a retired one too: it is hidden on read, not erased).
 -- ----------------------------------------------------------------------------------------------------------------------------
 INSERT INTO thread_events (id, thread_id, user_id, created_at, event_type, params) VALUES
-    -- thread 1 (room 1): the opening title, TEXT and URL values, SELECT / DATE / NUMBER / USER / MULTI_SELECT values, retired and unknown fields
-    (1,  1, 2, pg_temp.t(1),  'CREATED',       '{"title":"SECRET Baza danych: wysoka latencja zapytań 🔥","status":"triage","statusLabel":"Triaż"}'),
-    (2,  1, 2, pg_temp.t(2),  'FIELD_CHANGED', '{"field":"summary","fieldLabel":"Podsumowanie","to":"' || left(repeat('SECRET-zażółć gęślą ', 40), 500) || '"}'),
-    (3,  1, 2, pg_temp.t(3),  'FIELD_CHANGED', '{"field":"runbook","fieldLabel":"Runbook","from":"https://wiki.example.test/old?token=SECRET","to":"' || left('https://wiki.example.test/runbook?token=SECRET&q=' || repeat('x', 2000), 2000) || '"}'),
+    -- thread 1 (room 1): the opening, TEXT and URL changes without their values, SELECT / DATE / NUMBER / USER / MULTI_SELECT values, retired and unknown fields
+    (1,  1, 2, pg_temp.t(1),  'CREATED',       '{"status":"triage","statusLabel":"Triaż"}'),
+    (2,  1, 2, pg_temp.t(2),  'FIELD_CHANGED', '{"field":"summary","fieldLabel":"Podsumowanie"}'),
+    (3,  1, 2, pg_temp.t(3),  'FIELD_CHANGED', '{"field":"runbook","fieldLabel":"Runbook"}'),
     (4,  1, 2, pg_temp.t(4),  'FIELD_CHANGED', '{"field":"severity","fieldLabel":"Ważność","to":"S3"}'),
     (5,  1, 3, pg_temp.t(6),  'FIELD_CHANGED', '{"field":"severity","fieldLabel":"Ważność","from":"S3","to":"S2"}'),
     (6,  1, 3, pg_temp.t(7),  'FIELD_CHANGED', '{"field":"due","fieldLabel":"Termin","from":"2026-11-30","to":"2026-12-24"}'),
     (7,  1, 3, pg_temp.t(8),  'FIELD_CHANGED', '{"field":"impact","fieldLabel":"Dotknięci","from":"900","to":"1250.5"}'),
     (8,  1, 3, pg_temp.t(9),  'FIELD_CHANGED', '{"field":"lead","fieldLabel":"Prowadzący","from":"Olivia Żółkiewska","to":"Zoë Ångström"}'),
     (9,  1, 6, pg_temp.t(10), 'FIELD_CHANGED', '{"field":"components","fieldLabel":"Komponenty","from":"Baza danych","to":"Baza danych, API"}'),
-    (10, 1, 2, pg_temp.t(11), 'FIELD_CHANGED', '{"field":"note","fieldLabel":"Notatka","from":"SECRET hasło \"quoted\" 🔑","to":"SECRET dwa"}'),
-    (11, 1, 2, pg_temp.t(12), 'FIELD_CHANGED', '{"field":"link","fieldLabel":"Link","to":"https://example.test/?apikey=SECRET"}'),
+    (10, 1, 2, pg_temp.t(11), 'FIELD_CHANGED', '{"field":"note","fieldLabel":"Notatka"}'),
+    (11, 1, 2, pg_temp.t(12), 'FIELD_CHANGED', '{"field":"link","fieldLabel":"Link"}'),
     (12, 1, 2, pg_temp.t(13), 'FIELD_CHANGED', '{"field":"deadline","fieldLabel":"Deadline","from":"2026-11-25","to":"2026-11-30"}'),
-    (13, 1, 2, pg_temp.t(14), 'FIELD_CHANGED', '{"field":"ghost","fieldLabel":"Duch","from":"SECRET a","to":"SECRET b"}'),
+    (13, 1, 2, pg_temp.t(14), 'FIELD_CHANGED', '{"field":"ghost","fieldLabel":"Duch"}'),
     (14, 1, 2, pg_temp.t(15), 'FIELD_CHANGED', '{"field":"summary","fieldLabel":"Podsumowanie"}'),
-    (15, 1, 2, pg_temp.t(16), 'TITLE_CHANGED', '{"from":"SECRET Baza danych: wysoka latencja","to":"SECRET Baza danych: wysoka latencja zapytań 🔥"}'),
-    (16, 1, 3, pg_temp.t(17), 'TITLE_CHANGED', '{"from":"SECRET Baza danych: wysoka latencja zapytań 🔥","to":"Baza danych: wysoka latencja zapytań 🔥 (orders-db) SECRET"}'),
+    (15, 1, 2, pg_temp.t(16), 'TITLE_CHANGED', '{}'),
+    (16, 1, 3, pg_temp.t(17), 'TITLE_CHANGED', '{}'),
     (17, 1, 2, pg_temp.t(18), 'STATUS_CHANGED','{"from":"triage","to":"investigating","fromLabel":"Triaż","toLabel":"Analiza"}'),
     (18, 1, 2, pg_temp.t(19), 'OWNER_CHANGED', '{"fromId":"2","toId":"3","fromName":"Olivia Żółkiewska","toName":"Zoë Ångström"}'),
     (19, 1, 3, pg_temp.t(20), 'FIELD_CHANGED', '{"field":"shared","fieldLabel":"Wspólne","from":"A","to":"B"}'),
     (20, 1, 2, pg_temp.t(21), 'FIELD_CHANGED', '{"field":"legacy_sev","fieldLabel":"Dawna ważność","from":"S1","to":"S2"}'),
     -- threads 2 and 3: a creation, moves, a close, a reopen and a second close
-    (21, 2, 2, pg_temp.t(10), 'CREATED',       '{"title":"SECRET Wyciek tokenu w logach","status":"triage","statusLabel":"Triaż"}'),
-    (22, 3, 3, pg_temp.t(20), 'CREATED',       '{"title":"SECRET Awaria CDN","status":"triage","statusLabel":"Triaż"}'),
+    (21, 2, 2, pg_temp.t(10), 'CREATED',       '{"status":"triage","statusLabel":"Triaż"}'),
+    (22, 3, 3, pg_temp.t(20), 'CREATED',       '{"status":"triage","statusLabel":"Triaż"}'),
     (23, 3, 3, pg_temp.t(30), 'STATUS_CHANGED','{"from":"triage","to":"mitigating","fromLabel":"Triaż","toLabel":"Mitygacja"}'),
     (24, 3, 2, pg_temp.t(40), 'CLOSED',        '{"from":"mitigating","to":"resolved","fromLabel":"Mitygacja","toLabel":"Rozwiązane"}'),
     (25, 3, 2, pg_temp.t(50), 'REOPENED',      '{"from":"resolved","to":"monitoring","fromLabel":"Rozwiązane","toLabel":"Monitorowanie"}'),
     (26, 3, 2, pg_temp.t(70), 'CLOSED',        '{"from":"monitoring","to":"resolved","fromLabel":"Monitorowanie","toLabel":"Rozwiązane"}'),
-    -- thread 4: already in the shape a post-scrub server writes (no title, an empty rename)
+    -- thread 4: a creation and an empty rename
     (27, 4, 4, pg_temp.t(30), 'CREATED',       '{"status":"triage","statusLabel":"Triaż"}'),
     (28, 4, 4, pg_temp.t(31), 'TITLE_CHANGED', '{}'),
     -- thread 5: a deleted actor, a retired status replaced
-    (29, 5, 6, pg_temp.t(40), 'CREATED',       '{"title":"SECRET Wątek byłego pracownika","status":"blocked-legacy","statusLabel":"Zablokowane"}'),
+    (29, 5, 6, pg_temp.t(40), 'CREATED',       '{"status":"blocked-legacy","statusLabel":"Zablokowane"}'),
     (30, 5, 2, pg_temp.t(41), 'STATUS_REPLACED','{"from":"blocked-legacy","to":"triage","fromLabel":"Zablokowane","toLabel":"Triaż"}'),
-    -- thread 6: the longest title
-    (31, 6, 2, pg_temp.t(50), 'CREATED',       '{"title":"' || left(repeat('SECRET Długi tytuł wątku — ', 20), 200) || '","status":"monitoring","statusLabel":"Monitorowanie"}'),
+    -- thread 6: the longest title (not kept in the history)
+    (31, 6, 2, pg_temp.t(50), 'CREATED',       '{"status":"monitoring","statusLabel":"Monitorowanie"}'),
     -- room 2 (a key that is a SELECT in room 1 is a URL here), room 3
-    (32, 7, 2, pg_temp.t(5),  'CREATED',       '{"title":"SECRET Zaplanować przegląd kwartalny","status":"open","statusLabel":"Otwarte"}'),
-    (33, 7, 2, pg_temp.t(6),  'TITLE_CHANGED', '{"from":"SECRET Przegląd","to":"SECRET Zaplanować przegląd kwartalny"}'),
-    (34, 7, 2, pg_temp.t(7),  'FIELD_CHANGED', '{"field":"owner_note","fieldLabel":"Notatka właściciela","to":"SECRET hunter2 dla przeglądu"}'),
+    (32, 7, 2, pg_temp.t(5),  'CREATED',       '{"status":"open","statusLabel":"Otwarte"}'),
+    (33, 7, 2, pg_temp.t(6),  'TITLE_CHANGED', '{}'),
+    (34, 7, 2, pg_temp.t(7),  'FIELD_CHANGED', '{"field":"owner_note","fieldLabel":"Notatka właściciela"}'),
     (35, 7, 2, pg_temp.t(8),  'FIELD_CHANGED', '{"field":"priority","fieldLabel":"Priorytet","from":"P1","to":"P2"}'),
-    (36, 7, 2, pg_temp.t(9),  'FIELD_CHANGED', '{"field":"shared","fieldLabel":"Wspólne","from":"https://example.test/?k=SECRET","to":"https://example.test/q?k=SECRET"}'),
-    (37, 8, 3, pg_temp.t(15), 'CREATED',       '{"title":"SECRET Pusta kolumna","status":"open","statusLabel":"Otwarte"}'),
-    (38, 9, 2, pg_temp.t(30), 'CREATED',       '{"title":"SECRET Wątek w usuniętym pokoju","status":"open","statusLabel":"Otwarte"}'),
-    (39, 9, 2, pg_temp.t(31), 'FIELD_CHANGED', '{"field":"note","fieldLabel":"Notatka","to":"SECRET hunter2"}'),
-    -- a TEXT field cleared: only `from` is set
-    (40, 1, 2, pg_temp.t(22), 'FIELD_CHANGED', '{"field":"summary","fieldLabel":"Podsumowanie","from":"SECRET stary opis awarii"}');
+    (36, 7, 2, pg_temp.t(9),  'FIELD_CHANGED', '{"field":"shared","fieldLabel":"Wspólne"}'),
+    (37, 8, 3, pg_temp.t(15), 'CREATED',       '{"status":"open","statusLabel":"Otwarte"}'),
+    (38, 9, 2, pg_temp.t(30), 'CREATED',       '{"status":"open","statusLabel":"Otwarte"}'),
+    (39, 9, 2, pg_temp.t(31), 'FIELD_CHANGED', '{"field":"note","fieldLabel":"Notatka"}'),
+    -- a TEXT field cleared: no value is kept
+    (40, 1, 2, pg_temp.t(22), 'FIELD_CHANGED', '{"field":"summary","fieldLabel":"Podsumowanie"}'),
+    -- hand-overs that produced the owners of threads 3 and 7: thread 7 went to user 4, who has since left room 2 (no membership row there)
+    (41, 3, 3, pg_temp.t(45), 'OWNER_CHANGED', '{"fromId":"3","toId":"2","fromName":"Zoë Ångström","toName":"Olivia Żółkiewska"}'),
+    (42, 7, 2, pg_temp.t(10), 'OWNER_CHANGED', '{"fromId":"2","toId":"4","fromName":"Olivia Żółkiewska","toName":"李雷 (Li Lei)"}');
 
 -- ----------------------------------------------------------------------------------------------------------------------------
 -- Read state (V19), notices (V18, V22's emailed_at) and their email switches (V22).
@@ -241,10 +251,17 @@ INSERT INTO user_notification_preferences (user_id, notification_type, channel) 
     (3, 'MENTIONED', 'EMAIL'), (2, 'THREAD_ASSIGNED', 'EMAIL');
 
 -- ----------------------------------------------------------------------------------------------------------------------------
+-- The per-actor digest budget (V24): the people one actor's notices made eligible for the email digest on one UTC day (epoch day 20776).
+-- ----------------------------------------------------------------------------------------------------------------------------
+INSERT INTO notification_email_budget (actor_id, day, recipients, exceeded_at) VALUES
+    (2, 20776, '{3,6}',     NULL),
+    (3, 20776, '{2,4,5,6}', pg_temp.t(11));
+
+-- ----------------------------------------------------------------------------------------------------------------------------
 -- Telemetry (V9): the ops schema.
 -- ----------------------------------------------------------------------------------------------------------------------------
 INSERT INTO ops.telemetry_processes (id, role, instance, started_at, last_seen, build_version, build_commit, processors, heap_max_bytes, container_limit_bytes) VALUES
-    (1, 'app', 'adder-0', pg_temp.t(-600), pg_temp.t(100), '0.6.0', '1a2b3c4d', 4, 1073741824, 2147483648);
+    (1, 'app', 'adder-0', pg_temp.t(-600), pg_temp.t(100), '1.0.0', '1a2b3c4d', 4, 1073741824, 2147483648);
 INSERT INTO ops.telemetry_samples (resolution, ts, process_id, metric, label, n, avg, max) VALUES
     (3600, pg_temp.t(0),  1, 'jvm.heap.used', '', 60, 412345678.5, 512345678),
     (3600, pg_temp.t(60), 1, 'http.requests', 'GET /api/v1/rooms', 12, 3.5, 17),

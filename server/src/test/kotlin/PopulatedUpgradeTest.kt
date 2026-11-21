@@ -2,7 +2,6 @@ package ch.nokillswit
 
 import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.authz.RoomRole
-import ch.nokillswit.infra.json.decodeParams
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.notifications.NotificationType
@@ -38,22 +37,22 @@ import org.flywaydb.core.api.MigrationVersion
 
 /**
  * The populated-upgrade test (checkup C-TEST-3): every other test applies the migrations to an EMPTY database, which cannot see a
- * migration that mishandles rows. This one builds the schema of the previous release (v0.6.0, Flyway V22) in a database of its OWN,
- * fills every table with realistic rows (`upgrade/populated-v22.sql`: plain SQL, Unicode, values at their limits, soft-deleted rows,
- * the old history shapes V23 scrubs), migrates it to the latest version, and checks that
+ * migration that mishandles rows. This one builds the schema of the previous release (1.0.0, Flyway V24) in a database of its OWN,
+ * fills every table with realistic rows (`upgrade/populated-v24.sql`: plain SQL, Unicode, values at their limits, soft-deleted rows,
+ * the history in the shapes the 1.0.0 server writes), migrates it to the latest version, and checks that
  *
  *  - Flyway applied every migration and validates the history;
- *  - no table lost a row and every table V23 and V24 did not touch is byte for byte what it was (a digest of every row's text);
- *  - V23 scrubbed exactly what `persistence.md` "History scrub (V23)" says, row by row, and left every other event alone;
- *  - V24's table exists and is empty, and V25's `teams.handle` is null on every row (the soft-deleted included);
+ *  - no table lost a row and every table is byte for byte what it was (a digest of every row's text over the release's own columns);
+ *  - V25's `teams.handle` is null on every row (the soft-deleted included) and V26's backfill made exactly the creator and the current
+ *    owner of each thread watchers where they still hold a membership row, stamped with the thread's creation, with no notice;
  *  - the application boots on the migrated database and its reads answer, each checked against the OpenAPI contract.
  *
  * The database is created on the fork's Testcontainers server, named uniquely and dropped in a `finally`: the shared suite database is
  * never touched, so the test is order-independent and safe in parallel forks. The migrations run OUTSIDE `testApplication`, so
  * its 60 s limit covers only the boot and the reads. A new migration needs no edit here unless it breaks the upgrade (that is the
  * point): the digests cover the release's own columns, so an additive column is ignored while a dropped or renamed one fails. A
- * deliberate API change may still need edits to the read-through assertions. The V22 script is never edited, because an applied
- * migration's schema does not change.
+ * deliberate API change may still need edits to the read-through assertions. The V24 script is never edited, because an applied
+ * migration's schema does not change. (V23's scrub of the history is proven by `ThreadHistoryScrubTest`, which runs the file itself.)
  */
 class PopulatedUpgradeTest {
     @Test
@@ -67,13 +66,10 @@ class PopulatedUpgradeTest {
             val columns = columns(database)
             val before = snapshot(database, columns)
             assertTrue(before.isNotEmpty() && before.values.all { it.rows > 0 }, "every table of the release holds rows: $before")
-            val eventsBefore = events(database)
-            val fieldTypes = fieldTypes(database)
 
             assertAllMigrationsApplied(database)
             assertColumnsKept(columns, columns(database))
             assertDataPreserved(database, before, snapshot(database, columns))
-            assertHistoryScrubbed(eventsBefore, events(database), fieldTypes)
 
             migratedApiServes(database)
         } finally {
@@ -98,7 +94,7 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        assertTrue("23" in after && "24" in after && "25" in after, "V23, V24 and V25 ran on the populated database: $after")
+        assertTrue("25" in after && "26" in after, "V25 and V26 ran on the populated database: $after")
     }
 
     /** An additive migration may add columns; a dropped or renamed one of the release's columns fails, naming the table. */
@@ -110,52 +106,42 @@ class PopulatedUpgradeTest {
     }
 
     private fun assertDataPreserved(database: String, before: Map<String, TableState>, after: Map<String, TableState>) {
-        val budget = columns(database)["public.notification_email_budget"]
-        assertNotNull(budget, "V24's table exists")
-        val budgetRows = snapshot(database, mapOf("public.notification_email_budget" to budget)).values.single().rows
-        assertEquals(0L, budgetRows, "V24's table is empty")
         // V25 adds teams.handle with no backfill: not one team of the release, the soft-deleted included, holds a handle.
         val handles = query(database, "SELECT count(*) FROM teams WHERE handle IS NOT NULL") { it.getLong(1) }.single()
         assertEquals(0L, handles, "V25's column is empty on every migrated team, deleted ones too")
         for ((table, was) in before) {
             val now = after.getValue(table)
             assertEquals(was.rows, now.rows, "$table keeps every row")
-            // thread_events is the one table a migration (V23) rewrites (its params); its rows are compared one by one below.
-            if (table != "public.thread_events") {
-                assertEquals(was.digest, now.digest, "$table: its release columns are byte for byte what they were")
-            }
+            assertEquals(was.digest, now.digest, "$table: its release columns are byte for byte what they were")
         }
+        assertWatchesBackfilled(database)
     }
 
-    private fun assertHistoryScrubbed(before: List<StoredEvent>, after: List<StoredEvent>, fieldTypes: Map<Pair<Int, String>, String>) {
-        assertEquals(before.map { it.id }, after.map { it.id })
-        var scrubbed = 0
-        var untouched = 0
-        for ((was, now) in before.zip(after)) {
-            assertEquals(was.copy(params = ""), now.copy(params = ""), "only params may change (event ${was.id})")
-            val expected = expectedScrub(was, fieldTypes)
-            if (expected == null) {
-                assertEquals(was.params, now.params, "event ${was.id} (${was.type}) is not rewritten")
-                untouched++
-            } else {
-                assertEquals(expected, decodeParams(now.params), "event ${was.id} (${was.type}) keeps its shape and loses its values")
-                scrubbed++
-            }
-        }
-        // The script's census: 3 renames, 8 creations with a title and 9 TEXT / URL / retired / unknown-field changes (one a
-        // cleared value, `from` only) are scrubbed.
-        assertEquals(20, scrubbed)
-        assertEquals(20, untouched)
-        assertTrue(after.none { "SECRET" in it.params }, "no scrubbed value is left in the history")
-        assertTrue(before.count { "SECRET" in it.params } >= scrubbed, "the script did plant them")
-        // Named rows: a retired DATE and a retired SELECT keep their values (hidden on read, not erased), and so does a SELECT
-        // whose key is a URL in another room.
-        val byId = after.associateBy { it.id }
-        assertEquals("2026-11-30", decodeParams(byId.getValue(12).params)["to"])
-        assertEquals("S2", decodeParams(byId.getValue(20).params)["to"])
-        assertEquals("B", decodeParams(byId.getValue(19).params)["to"])
-        assertNull(decodeParams(byId.getValue(36).params)["to"], "the same key as a URL in the other room is scrubbed")
-        assertEquals("{}", byId.getValue(15).params)
+    /**
+     * V26 makes a thread's creator and its current owner watchers when they still hold a membership row (a soft-deleted member's row
+     * counts, the watch is inert), once when they are one person, and nobody else: thread 7's owner (user 4) is no member of room 2.
+     * Each watch is stamped with its thread's creation and the backfill makes no notice (the notices table is byte for byte what it was).
+     */
+    private fun assertWatchesBackfilled(database: String) {
+        val expected = listOf(
+            1 to 2, 1 to 3, // thread 1: creator 2, owner 3
+            2 to 2, // creator and owner are one person
+            3 to 2, 3 to 3, // creator 3, owner 2
+            4 to 4,
+            5 to 6, // a soft-deleted member
+            6 to 2,
+            7 to 2, // creator 2; the owner (4) left room 2
+            8 to 3,
+            9 to 2, // a soft-deleted room keeps its threads' watches
+        )
+        val watches = query(database, "SELECT thread_id, user_id FROM thread_watches ORDER BY 1, 2") { it.getInt(1) to it.getInt(2) }
+        assertEquals(expected, watches, "the backfill: creators and owners who still hold a membership row")
+        val wrongRoom = query(
+            database,
+            "SELECT count(*) FROM thread_watches w JOIN threads t ON t.id = w.thread_id " +
+                "WHERE w.room_id <> t.room_id OR w.created_at <> t.created_at",
+        ) { it.getLong(1) }.single()
+        assertEquals(0L, wrongRoom, "a watch carries its thread's room and its creation instant")
     }
 
     // ---- the application on the migrated database ----------------------------------------------------------------------------
@@ -172,6 +158,7 @@ class PopulatedUpgradeTest {
         assertThreadAndHistory(olivia)
         assertMessagesPinsAndSearch(olivia, database)
         assertNotifications(olivia, authedClient(ZOE, PASSWORD))
+        assertWatching(olivia, authedClient(ZOE, PASSWORD))
     }
 
     private suspend fun assertRoomsAndTeams(olivia: HttpClient) {
@@ -208,6 +195,22 @@ class PopulatedUpgradeTest {
         assertEquals(listOf(2, 4, 5, 1, 6, 3), numbers("&sort=status"), "workflow order of the live statuses, ties by id")
         val longTitle = olivia.getBody<ThreadPageResponse>("/api/v1/rooms/1/threads?pageSize=100").items.single { it.number == 6 }.title
         assertEquals(200, longTitle.length)
+    }
+
+    /** The backfilled watches through the API: the person's flag, the filter and the count (a deleted member's watch is not counted). */
+    private suspend fun assertWatching(olivia: HttpClient, zoe: HttpClient) {
+        suspend fun numbers(client: HttpClient, query: String) =
+            client.getBody<ThreadPageResponse>("/api/v1/rooms/1/threads?pageSize=100$query").items.map { it.number }.sorted()
+
+        assertEquals(listOf(1, 2, 3, 6), numbers(olivia, "&watching=true"), "olivia created 1, 2 and 6 and owns 2, 3 and 6")
+        assertEquals(listOf(4, 5), numbers(olivia, "&watching=false"))
+        assertEquals(listOf(1, 3), numbers(zoe, "&watching=true"), "zoe owns 1 and created 3")
+        val one = olivia.getBody<ThreadResponse>("/api/v1/rooms/1/threads/1")
+        assertTrue(one.watching)
+        assertEquals(2, one.watcherCount)
+        val five = olivia.getBody<ThreadResponse>("/api/v1/rooms/1/threads/5")
+        assertFalse(five.watching)
+        assertEquals(0, five.watcherCount, "the only watcher of thread 5 is a deleted account")
     }
 
     private suspend fun assertThreadAndHistory(olivia: HttpClient) {
@@ -322,7 +325,7 @@ class PopulatedUpgradeTest {
 
     private fun populate(database: String) {
         val hash = runBlocking { hashPassword(PASSWORD, cost = 4) }
-        val script = checkNotNull(javaClass.getResourceAsStream("/upgrade/populated-v22.sql")).use { it.readBytes().decodeToString() }
+        val script = checkNotNull(javaClass.getResourceAsStream("/upgrade/populated-v24.sql")).use { it.readBytes().decodeToString() }
         assertTrue("{{PASSWORD_HASH}}" in script)
         execute(script.replace("{{PASSWORD_HASH}}", hash), database)
     }
@@ -358,52 +361,13 @@ class PopulatedUpgradeTest {
             ) { TableState(it.getLong(1), it.getString(2)) }.single()
         }
 
-    private fun events(database: String): List<StoredEvent> = query(
-        database,
-        "SELECT e.id, e.thread_id, t.room_id, e.user_id, e.created_at, e.event_type, e.params " +
-            "FROM thread_events e JOIN threads t ON t.id = e.thread_id ORDER BY e.id",
-    ) { StoredEvent(it.getInt(1), it.getInt(2), it.getInt(3), it.getLong(4), it.getLong(5), it.getString(6), it.getString(7)) }
-
-    private fun fieldTypes(database: String): Map<Pair<Int, String>, String> =
-        query(database, "SELECT room_id, \"key\", \"type\" FROM room_fields") {
-            (it.getInt(1) to it.getString(2)) to it.getString(3)
-        }.toMap()
-
-    /** What a history row's params must become, or null when V23 leaves the row alone: `persistence.md` "History scrub (V23)". */
-    private fun expectedScrub(event: StoredEvent, fieldTypes: Map<Pair<Int, String>, String>): Map<String, String>? {
-        val params = decodeParams(event.params)
-        return when (event.type) {
-            "TITLE_CHANGED" -> emptyMap<String, String>().takeIf { event.params != "{}" }
-            "CREATED" -> (params - "title").takeIf { "title" in params }
-            "FIELD_CHANGED" -> {
-                val type = fieldTypes[event.roomId to params["field"].orEmpty()]
-                val holdsValue = "from" in params || "to" in params
-                (params - "from" - "to").takeIf { holdsValue && (type == null || type !in RECORDED_FIELD_TYPES) }
-            }
-            else -> null
-        }
-    }
-
     private data class TableState(val rows: Long, val digest: String)
 
-    private data class StoredEvent(
-        val id: Int,
-        val threadId: Int,
-        val roomId: Int,
-        val userId: Long,
-        val createdAt: Long,
-        val type: String,
-        val params: String,
-    )
-
     private companion object {
-        /** The last migration v0.6.0 shipped (`git ls-tree v0.6.0 server/src/main/resources/db/migration`): V22. */
-        const val PREVIOUS_RELEASE_VERSION = "22"
+        /** The last migration 1.0.0 shipped (`git ls-tree v1.0.0 server/src/main/resources/db/migration`): V24. */
+        const val PREVIOUS_RELEASE_VERSION = "24"
         const val PASSWORD = "upgrade-pass-1!"
         const val OLIVIA = "olivia.owner@upgrade.test"
         const val ZOE = "zoe@upgrade.test"
-
-        /** The field types whose values stay in the history (the V23 allow-list; every other type, and an unknown field, is scrubbed). */
-        val RECORDED_FIELD_TYPES = setOf("SELECT", "MULTI_SELECT", "USER", "DATE", "NUMBER")
     }
 }

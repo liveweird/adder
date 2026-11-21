@@ -24,6 +24,7 @@
     "owner": "Owner",
     "mine": "Mine",
     "mentionsMe": "Mentions me",
+    "watching": "Watching",
     "clear": "Clear filters"
   },
   "empty": {
@@ -245,6 +246,16 @@
       "archived": "This room was archived in the meantime, so its pins can no longer be changed.",
       "limit": "This room already has {{count}} pins. Unpin one first.",
       "conflict": "The room changed in the meantime. Reload the page and try again.",
+      "tooManyRequests": "You are changing things too quickly. Wait a minute and try again."
+    }
+  },
+  "watch": {
+    "thread": "Watch this thread",
+    "count": "Watchers: {{count}}",
+    "mark": "You are watching this thread",
+    "error": {
+      "forbidden": "Only members of the room can watch threads.",
+      "gone": "This thread no longer exists, or you no longer have access to its room — reload the page",
       "tooManyRequests": "You are changing things too quickly. Wait a minute and try again."
     }
   },

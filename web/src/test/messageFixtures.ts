@@ -43,6 +43,8 @@ export function makeThread(overrides: Partial<ThreadResponse> = {}): ThreadRespo
     updatedAt: SOME_TIME,
     unreadCount: 0,
     firstUnreadMessageId: null,
+    watching: false,
+    watcherCount: 1,
     ...overrides,
   };
 }

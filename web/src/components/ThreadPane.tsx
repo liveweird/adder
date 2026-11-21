@@ -20,6 +20,7 @@ import MessageList from "./MessageList";
 import ThreadPinButton from "./ThreadPinButton";
 import ThreadSidePanel from "./ThreadSidePanel";
 import ThreadStatusPill from "./ThreadStatusPill";
+import ThreadWatchButton from "./ThreadWatchButton";
 import classes from "./ThreadPane.module.css";
 import { roomKeys } from "../utils/roomKeys";
 
@@ -128,6 +129,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             {t("threads.focus.on")}
           </Button>
           <ThreadPinButton room={room} threadNumber={thread.number} />
+          <ThreadWatchButton room={room} thread={thread} />
           <Button
             className={classes.toggle}
             variant="default"

@@ -24,6 +24,7 @@
     "owner": "Właściciel/ka",
     "mine": "Moje",
     "mentionsMe": "Wzmianki o mnie",
+    "watching": "Obserwowane",
     "clear": "Wyczyść filtry"
   },
   "empty": {
@@ -253,6 +254,16 @@
       "archived": "Ten pokój został w międzyczasie zarchiwizowany, więc jego przypięć nie można już zmieniać.",
       "limit": "Ten pokój ma już {{count}} przypięć. Najpierw odepnij któreś.",
       "conflict": "Pokój zmienił się w międzyczasie. Odśwież stronę i spróbuj ponownie.",
+      "tooManyRequests": "Zmieniasz zbyt szybko. Odczekaj minutę i spróbuj ponownie."
+    }
+  },
+  "watch": {
+    "thread": "Obserwuj ten wątek",
+    "count": "Obserwujący: {{count}}",
+    "mark": "Obserwujesz ten wątek",
+    "error": {
+      "forbidden": "Wątki mogą obserwować tylko członkowie/członkinie pokoju.",
+      "gone": "Ten wątek już nie istnieje albo nie masz już dostępu do jego pokoju — odśwież stronę",
       "tooManyRequests": "Zmieniasz zbyt szybko. Odczekaj minutę i spróbuj ponownie."
     }
   },

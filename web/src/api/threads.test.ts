@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createThread, getThread, listRoomTags, listThreadEvents, listThreads, setThreadOwner, setThreadReadMarker, setThreadStatus, updateThreadDetails } from "./threads";
+import { createThread, getThread, listRoomTags, listThreadEvents, listThreads, setThreadOwner, setThreadReadMarker, setThreadStatus, setThreadWatch, updateThreadDetails } from "./threads";
 
 describe("threads API wrappers", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -39,6 +39,14 @@ describe("threads API wrappers", () => {
     mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 50, total: 0 })));
     await listThreads(5, { page: 1, pageSize: 50, mentionedId: [7, 9] });
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&mentionedId=7&mentionedId=9");
+  });
+
+  test("listThreads sends watching=true and leaves it out when unset", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 50, total: 0 })));
+    await listThreads(5, { page: 1, pageSize: 50, watching: true });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&watching=true");
+    await listThreads(5, { page: 1, pageSize: 50 });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50");
   });
 
   test("listRoomTags reads a room's tags with paging, sort and the substring filter, and omits what is unset", async () => {
@@ -87,6 +95,14 @@ describe("threads API wrappers", () => {
     mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 2, pageSize: 10, total: 12 })));
     await expect(listThreadEvents(5, 42, { page: 2, pageSize: 10 })).resolves.toMatchObject({ total: 12 });
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads/42/events?page=2&pageSize=10");
+  });
+
+  test("setThreadWatch PUTs the state the caller wants", async () => {
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    await setThreadWatch(5, 42, true);
+    expect([lastCall()[0], lastCall()[1].method, lastCall()[1].body]).toEqual(["/api/v1/rooms/5/threads/42/watch", "PUT", JSON.stringify({ watching: true })]);
+    await setThreadWatch(5, 42, false);
+    expect(lastCall()[1].body).toBe(JSON.stringify({ watching: false }));
   });
 
   test("setThreadReadMarker PUTs the message id the reader has reached", async () => {

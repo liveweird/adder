@@ -476,6 +476,8 @@ export interface paths {
          *     - Sortable fields: `id`, `name`, `handle`, `createdAt`, `updatedAt`. Default `id` ascending. A team without a handle sorts last
          *       ascending (and first descending).
          *     - Filters: `name` and `handle` (each a case- and accent-insensitive substring; a team without a handle never matches `handle`).
+         *     - The `handle` filter is the substring search of the composer's team-mention picker (1.1.0 S7), its UI consumer: the optional `q` free-text
+         *       rule of API-LIST-005 (a per-column substring only where a UI needs it) is met by that picker.
          */
         get: operations["listTeams"];
         put?: never;
@@ -1019,6 +1021,7 @@ export interface paths {
          *       those people (`<@id>` in its body, the person an active member of the room when it was written or edited); the filter reads
          *       the mention index only, so it finds nothing for a message written before mentions were indexed. A non-positive or
          *       non-integer id, or more than 20 distinct values, is a `400`.
+         *     - `watching` (strict `true` or `false`) keeps the threads the CALLER watches (`PUT .../watch`), or, with `false`, the ones they do not.
          *     - A well-formed status key, owner id, mentioned user id, field value or tag that matches nothing is an empty page, never an error. Checked in this
          *       order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
          *       what the caller may read.
@@ -1169,6 +1172,41 @@ export interface paths {
          *     count it clears is `unreadCount` of the thread read and of the thread list.
          */
         put: operations["setThreadReadMarker"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Watch or stop watching a thread
+         * @description Any MEMBER of the room watches or unwatches any thread of it (a non-member is the uniform `404`; an `ADMIN` who is not a member is
+         *     `403`: they have no state of their own in the room). A single-value set with a body: the CALLER's own watch, nobody else's.
+         *     Checked in this order: authentication (`401`), the per-USER `thread-watch` bucket of 30 per minute (its own, apart from the read
+         *     marker's; `429` beyond it; spent before any guard, so a refused write costs a token), visibility (`404`), the member rule (`403`) before the body, the body (`400`: `watching` must be a boolean), then the
+         *     caller's own membership (`404` when they were removed meanwhile) and the thread (`404`). The state the thread already has is a
+         *     `204` with nothing written and no audit line; a change is audited (`thread.watch_changed`).
+         *
+         *     A closed thread and an ARCHIVED room can be watched and unwatched: a watch is the member's own state, not a write to the room.
+         *     It takes NO room lock (it holds only the caller's own membership row for the commit), emits no live event and moves no activity
+         *     order; the caller's other tabs catch up on focus. The creator of a thread and each new owner of one watch it automatically, and may
+         *     stop. Leaving or being removed from the room drops the person's watches. What a watch does is read through `watching` and
+         *     `watcherCount` of the thread and `watching` of the thread list and its filter.
+         */
+        put: operations["setThreadWatch"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2602,6 +2640,13 @@ export interface components {
              * @description The first of those messages; `null` when none is unread or the caller is not a member.
              */
             firstUnreadMessageId: number | null;
+            /** @description The CALLER watches the thread (`PUT .../watch`); `false` for someone who is not a member. */
+            watching: boolean;
+            /**
+             * Format: int32
+             * @description How many active members watch the thread; who they are is not on the wire.
+             */
+            watcherCount: number;
         };
         ThreadListItem: {
             /** Format: int32 */
@@ -2632,6 +2677,8 @@ export interface components {
              * @description Messages the CALLER has not read (the newest 100 after their marker are counted, so 100 is "100 or more"); 0 for someone who is not a member.
              */
             unreadCount: number;
+            /** @description The CALLER watches the thread (`PUT .../watch`); `false` for someone who is not a member. */
+            watching: boolean;
         };
         ThreadPage: {
             items: components["schemas"]["ThreadListItem"][];
@@ -2827,6 +2874,10 @@ export interface components {
              * @description The message the caller has read up to, and including; one of the thread's own messages, a deleted one included.
              */
             messageId: number;
+        };
+        WatchRequest: {
+            /** @description Whether the caller watches the thread after the call. */
+            watching: boolean;
         };
         ReactionRequest: {
             /** @description ONE emoji when adding, any other text is `400`; when removing, the stored value within the length bounds. */
@@ -3362,6 +3413,8 @@ export interface components {
         ThreadStatusFilter: string[];
         /** @description Repeatable - any of these owner ids (the thread list; "mine" is the caller's own id). An id that owns nothing matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
         ThreadOwnerFilter: number[];
+        /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. */
+        ThreadWatchingFilter: boolean;
         /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
         ThreadMentionFilter: number[];
         /** @description Repeatable `key:value` (the thread list): the field's key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). Any-of within one key, all-of across keys; at most 20 distinct pairs. The key must be an ACTIVE SELECT, MULTI_SELECT or USER field of the room; any other key, a missing colon or a value of the wrong shape is a `400`. */
@@ -4890,6 +4943,8 @@ export interface operations {
                 tag?: components["parameters"]["ThreadTagFilter"];
                 /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
                 mentionedId?: components["parameters"]["ThreadMentionFilter"];
+                /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted or an empty value = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. */
+                watching?: components["parameters"]["ThreadWatchingFilter"];
             };
             header?: never;
             path: {
@@ -5073,6 +5128,40 @@ export interface operations {
         };
         responses: {
             /** @description Recorded, or already read that far */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setThreadWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Watching or not as asked, or already so */
             204: {
                 headers: {
                     [name: string]: unknown;
