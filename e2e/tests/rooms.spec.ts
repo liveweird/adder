@@ -91,8 +91,8 @@ test("a user creates a room from the Incident template and finds it in the rooms
   await openFilters(page);
   await page.getByLabel("Name", { exact: true }).fill(name);
   const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: `Open room ${name}` }) });
-  await expect(row.getByRole("cell").nth(1)).toHaveText("Owner");
-  await expect(row.getByRole("cell").nth(2)).toHaveText("1");
+  await expect(row.getByText("Owner", { exact: true })).toBeVisible();
+  await expect(row.getByRole("cell", { name: "1", exact: true })).toBeVisible();
 });
 
 const MEMBERS_API = /\/api\/v1\/rooms\/\d+\/members(\/\d+)?$/;
@@ -238,7 +238,7 @@ test("a non-member cannot open a room while an administrator can", async ({ page
   await expect(page.getByText("No rooms yet")).toBeVisible();
   await page.getByRole("radiogroup", { name: "Which rooms to list" }).getByText("All", { exact: true }).click();
   const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: `Open room ${name}` }) });
-  await expect(row.getByRole("cell").nth(1)).toHaveText("—");
+  await expect(row.getByText(/^Role:\s*—$/)).toBeVisible();
   await page.getByRole("link", { name: `Open room ${name}` }).click();
   await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
   await expect(page.getByText(NOT_A_MEMBER)).toHaveCount(0);
