@@ -125,6 +125,14 @@ Room-view polish: pins, room-view space, names as links, tags, hashtags, the unr
 - **1.2 D8 (Q8). The tab title counts the bell's number,** every unseen in-app notice: `(3) Incident 42 · Adder`. It follows each person's per-kind switches, so the tab never disagrees with the bell. The alternatives were only what is addressed to me, that number plus a dot, and unread threads or messages across rooms (a new cross-room count; 0.6 D1 decided against exact unread counts).
 - **1.2 D9 (Q9). The hidden tab goes quiet instead of closing (changes 0.4 D3).** After 5 minutes hidden the tab leaves every room and keeps the socket for personal frames only (one small re-read of the bell, its count and its addressed list, per notice, at most one a minute); after 8 hours hidden it closes as before and the title drops its number, never showing a stale one. Tabs of one browser tell each other when notices were seen (`BroadcastChannel`, no server change), or a hidden tab would keep saying `(3)` after the notices were read elsewhere. The cost, accepted: a forgotten hidden tab stays signed in up to 8 h + 1 h instead of 5 min + 1 h (the 5-minute close was the only thing that let an open browser's session idle out) and holds one of the person's 16 sockets meanwhile. The alternatives were quiet with no limit, keeping the 5-minute close (the title loses its number after 5 minutes), and polling once a minute while hidden.
 
+### 1.3.0 Quotes (the user's, 2026-11-22)
+
+"Reply to" a message, as Slack and Teams have it: a member picks a message, writes a reply, and the reply shows whose message it answers and what it said; a click leads back to the message. The plan put three questions (Q1 to Q3) to the user, who took the recommendation on two and amended the third; 1.3 D1 to 1.3 D3 are those answers in order. The rules they became: `chat-model.md` "Quotes (1.3)".
+
+- **1.3 D1 (Q1). The word is "quote", everywhere.** In Adder every message of a thread is already a "reply" (the box is labelled "Reply", the bell says "replied in #42", the kind is `THREAD_REPLIED`), so the new thing needs a word of its own. The menu item is "Quote" (PL "Cytuj"), the composer says "Quoting Anna Nowak", the bell says "Anna quoted your message in #42 Title"; on the wire and in the schema `quotedMessageId`, `quote`, `quoted_message_id` and `MESSAGE_QUOTED`. The changelog introduces it as "reply to a message by quoting it". The alternatives were "Reply" in the UI with "quote" underneath (Slack's and Teams's words, at the price of one word for two things) and "Reply" on the wire too (`THREAD_REPLIED` and `MESSAGE_REPLIED` for different things, for good).
+- **1.3 D2 (Q2). The author of a quoted message is told.** A twelfth notice kind, `MESSAGE_QUOTED`: in-app on and email off like every kind, its own two switches on the preferences page under Mentions, counted as addressed to the person (the rail's number, the thread's `@` mark, the bell's "Mentions" view); never for quoting yourself. Why: a member who asks a question in someone else's thread does not watch it (1.1 D10), so without it nothing tells them it was answered. The cost is a persisted name that can never be renamed. The alternatives were no notice in 1.3.0 (the kind can be added later with no migration) and counting a quote as a direct mention (nobody could mute quotes apart from mentions).
+- **1.3 D3 (Q3). Two ways to quote: the kebab item and a one-click icon.** "Quote" is the first item of a message's kebab menu AND an always-visible icon button beside the menu on every message a member may quote (the plan recommended the menu item alone). The one-click button is the commonest action in a dense column, and the user took the cost of one more control on each row. The alternative was the menu item alone, and a toolbar that appears on hover (Adder has no hover toolbar; it cannot be reached by keyboard or touch without a second mechanism). A keyboard shortcut stays out (`BACKLOG.md`).
+
 ## Assumptions (taken without asking; change on request)
 
 - ADMIN may read every room (the family's ADMIN-overrides posture); a non-member gets `404`, never `403`.
@@ -315,6 +323,30 @@ Taken without asking, in the 1.2.0 plan (the user accepted the list on 2026-11-2
 
 Reversed or changed: **0.4 D3 and 0.4 A4** (the hidden-tab close, by 1.2 D9) and the 0.2.0 note that `lockingTransaction` is not ported (ported for the registry only). 0.2 D2 stands (1.2 D7 adds no field to the directory entry `{id, name, email}`), and so do 0.6 D1 and 0.6 D4.
 
+### 1.3.0 Quotes
+
+Taken without asking, in the 1.3.0 plan (the user answered its three questions on 2026-11-22: the decisions above). Detail and the rules they became: `chat-model.md` "Quotes (1.3)".
+
+- **1.3 A1. A quote points at one message of the same thread;** a new thread's opening message quotes nothing.
+- **1.3 A2. A quote is set when the message is posted;** an edit cannot add, change or remove it.
+- **1.3 A3. Nothing of the quoted text is stored with the quoting message.** The quote shows the quoted message as it reads now, at most 1,000 characters of it on the wire.
+- **1.3 A4. A deleted quoted message reads "The quoted message was deleted." in every quote of it;** the quote stays a link to the tombstone.
+- **1.3 A5. Quoting your own message is allowed.**
+- **1.3 A6. One level:** no quote inside a quote.
+- **1.3 A7. A quote chosen and then deleted before sending is refused on Send with its own words;** the composer line does not watch the message and shows what it read when it was picked.
+- **1.3 A8. An unknown id, a message of another thread or room and a deleted message are one answer** (a typed `400`).
+- **1.3 A9. A quote is not a mention:** "Mentions me" does not list a thread for a quote.
+- **1.3 A10. (1.3 D2) The notice counts as addressed,** sits under Mentions on the preferences page and survives a refused wide event.
+- **1.3 A11. (1.3 D2) Deleting the quoted message leaves the notice about the reply.**
+- **1.3 A12. The quote draft lives with the reply draft, in memory;** a reload drops both.
+- **1.3 A13. The jump is the 0.5 jump unchanged** (ten loads of 50) and adds a history entry, as the pin strip's does.
+- **1.3 A14. The pinned drawer, the pin strip, search hits and the bell show a quoting message's own text only.**
+- **1.3 A15. `message.posted` gains `quotedMessageId` in the audit trail.**
+- **1.3 A16. A 1.2 tab that saves notification preferences leaves the new kind at its default.**
+- **1.3 A17. No keyboard shortcut for quoting.**
+
+Extended: **1.1's eleven notice kinds** (a twelfth, `MESSAGE_QUOTED`, by 1.3 D2). Nothing else of 0.x to 1.2 is reversed: 1.1 D10 stands (a quote does not make a watcher), and so do 0.3 D2 (a moderator's delete of a leaked credential stays effective in every quote of it) and 0.2 D2.
+
 ### 0.3.0 threads and messages
 
 Taken without asking: the user was away (2026-11-18) and said to take the architect's recommended defaults. **D1 and D2 are the architect's recommended
@@ -350,7 +382,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.2.0** (room view, tags, unread; tagged `v1.2.0` at 6018f17, 2026-11-22); 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21); 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.2.0** (room view, tags, unread; tagged `v1.2.0` at 6018f17, 2026-11-22); **1.3.0 (quotes) is in progress** on `feat/1.3.0-reply-to`, unreleased; 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21); 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -363,6 +395,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.0.0 Checkup** (shipped) | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |
 | **1.1.0 Watching, group mentions, notice kinds** (shipped) | Members watch threads (`PUT .../watch`, a creator and a new owner watch automatically, a "threads I watch" filter on the list and both searches); `<@team:id>`, `<@watchers>` and `<@everyone>` mentions with team handles; eleven notice kinds (every event notifies each person at most once, with the most specific reason; new-thread notices go to every member, activity to watchers); an in-app and an email switch per kind, email off by default for all (1.1 D7); a wide-event budget; V25 to V30. `chat-model.md` "Watching, group mentions and notice kinds (1.1)" |
 | **1.2.0 Room view** (shipped) | A collapsed-by-default side panel and a compact room header (1.2 D4); pins marked in place with a strip in the open thread (1.2 D5); names as links with a profile page any member can open (`/people/:id`, 1.2 D6, 1.2 D7); a thread's hashtags on rows and header and `#42` as a link; an ADMIN tag registry (Kind and Area seeded) and curated tags on threads with a `threadTag` filter on the list and both searches (1.2 D1 to 1.2 D3); an "unread" list filter and "Mark all as read"; the unseen count in the tab title with a quiet hidden tab (1.2 D8, 1.2 D9); V31 to V34. `chat-model.md` "Room view, tags and unread (1.2)" |
+| **1.3.0 Quotes** (in progress) | A message quotes one earlier message of its own thread, a live reference that shows the quoted message as it reads now and says so when it was deleted (`quotedMessageId` on the POST, `quote` on every message; the "Quote" menu item and an always-visible quote icon, a line above the box, a block above the text that jumps back; 1.3 D1, D3); the quoted author is told by a twelfth notice kind, `MESSAGE_QUOTED` (1.3 D2); V35. `chat-model.md` "Quotes (1.3)" |
 
 ## Donors
 
