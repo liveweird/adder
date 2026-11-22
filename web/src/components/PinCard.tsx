@@ -6,7 +6,7 @@ import type { RoomPin } from "../api/pins";
 import type { RoomResponse, RoomWorkflow } from "../api/rooms";
 import { useThreadRefHref } from "../hooks/useThreadRefHref";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
-import { pinExcerpt } from "../utils/pinExcerpt";
+import { messageExcerpt } from "../utils/messageExcerpt";
 import { focusThreadPaneState, listRouteSearch, tagFilterPath, threadMessagePath, threadPath, withListParams } from "../utils/roomLinks";
 import { fillSlots, slot } from "../utils/slots";
 import { parseFocus, writeFocus } from "../utils/threadListParams";
@@ -86,7 +86,7 @@ export default function PinCard({
       )}
       {message && compact && (
         <Text size="sm" lineClamp={2} className={classes.excerpt}>
-          {pinExcerpt(message)}
+          {messageExcerpt(message)}
         </Text>
       )}
       <Group gap={4} wrap="nowrap" align="flex-start">

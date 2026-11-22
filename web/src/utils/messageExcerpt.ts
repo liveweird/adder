@@ -34,7 +34,7 @@ const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
  * `firstLineOnly` is the collapsed line ("the first line of the newest pin"); otherwise the lines are joined by spaces. At most 280 graphemes
  * (an emoji sequence is never cut in the middle), then an ellipsis. A tombstone has no body and quotes nothing.
  */
-export function pinExcerpt(message: Pick<MessageResponse, "body" | "mentions" | "groupMentions">, firstLineOnly = false): string {
+export function messageExcerpt(message: Pick<MessageResponse, "body" | "mentions" | "groupMentions">, firstLineOnly = false): string {
   // Per message object (the query cache hands the same one back until a refetch): the strip and the cards re-render far more often than a body changes.
   const cached = excerpts.get(message) ?? [undefined, undefined];
   const slot = firstLineOnly ? 0 : 1;

@@ -7,7 +7,7 @@ import { useRoomPins } from "../hooks/useRoomPins";
 import { useUnpin } from "../hooks/useUnpin";
 import type { RoomPin } from "../api/pins";
 import { canPin, messagePinsOf } from "../utils/pins";
-import { pinExcerpt } from "../utils/pinExcerpt";
+import { messageExcerpt } from "../utils/messageExcerpt";
 import FormErrorAlert from "./FormErrorAlert";
 import PinCard from "./PinCard";
 import classes from "./ThreadPinStrip.module.css";
@@ -50,7 +50,7 @@ export default function ThreadPinStrip({
 
   const more = pins.length - 1;
   const mayUnpin = canPin(room);
-  const excerpt = pinExcerpt(newest, true);
+  const excerpt = messageExcerpt(newest, true);
   const collapsed = t("threads.pinStrip.collapsed", { excerpt });
   const moreText = more > 0 ? t("threads.pinStrip.more", { count: more }) : "";
   const label = open ? t("threads.pinStrip.expanded", { count: pins.length }) : t(more > 0 ? "threads.pinStrip.collapsedMore" : "threads.pinStrip.collapsed", { excerpt, count: more });
