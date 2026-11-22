@@ -7,6 +7,7 @@ import { getSessionSnapshot } from "../api/session";
 import { bindBrowserSignals, browserClock, LiveClient, type LiveDependencies, type LiveStatus } from "../utils/liveClient";
 import { createLiveInvalidator } from "../utils/liveKeys";
 import { liveUrl } from "../utils/liveProtocol";
+import { reportLiveStatus } from "../utils/queryClient";
 import { parseRoomId } from "../utils/roomLinks";
 import { subscribeLogicalSession } from "../utils/sessionQueryCache";
 
@@ -52,7 +53,10 @@ export function useLiveUpdates(railRoomIds: readonly number[], overrides: LiveOv
       clock,
       mintTicket,
       onFrame: invalidator.handle,
-      onStatus: setStatus,
+      onStatus: (next) => {
+        reportLiveStatus(next);
+        setStatus(next);
+      },
       // The tab's quiet flag, not the socket's status: it is told BEFORE the status and the wake-up `resync`, so that backfill is not filtered.
       onQuiet: invalidator.setQuiet,
     });

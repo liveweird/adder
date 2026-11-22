@@ -25,7 +25,9 @@ import ch.nokillswit.threads.PinService
 import ch.nokillswit.threads.PinServiceKey
 import ch.nokillswit.threads.NOTIFICATION_READS_PER_USER
 import ch.nokillswit.threads.ReadLimiter
+import ch.nokillswit.threads.THREAD_READS_PER_USER
 import ch.nokillswit.threads.ThreadEventService
+import ch.nokillswit.threads.ThreadReadLimiters
 import ch.nokillswit.threads.ThreadReadService
 import ch.nokillswit.threads.ThreadReadServiceKey
 import ch.nokillswit.threads.ThreadSearchService
@@ -60,7 +62,7 @@ internal fun Application.publishChatServices(
     // The thread aggregate (V14): a thread write runs under the room lock and reads the room through the rooms/ services only.
     val threadEventService = ThreadEventService(database)
     // The hashtag index (V15) is written inside the message writes, so the message service holds it; a boot reindex reads it back.
-    // The filtered thread list and the tag list share one limiter (the notice list has its own, below): ONE
+    // The filtered thread list and the tag list share one limiter (the thread detail and the notice list have their own, below): ONE
     // `threads.readTimeoutSeconds` deadline per read and at most
     // `threads.readMaxConcurrent` reads at once in the process (both boot-validated).
     val readLimiter = ReadLimiter(
@@ -73,6 +75,13 @@ internal fun Application.publishChatServices(
         timeoutSeconds = requireConfigInt(environment.config, "threads.readTimeoutSeconds", min = 1, max = 30),
         maxConcurrent = NOTIFICATION_READ_MAX_CONCURRENT,
         perUser = NOTIFICATION_READS_PER_USER,
+    )
+    // The thread detail has a limiter of its own too (the same deadline): it is NOT in the `chat-read` bucket, so an unbucketed loop of it
+    // must not be able to take the lists' permits (`requireReadersUnderPool` counts its cap).
+    val threadReadLimiter = ReadLimiter(
+        timeoutSeconds = requireConfigInt(environment.config, "threads.readTimeoutSeconds", min = 1, max = 30),
+        maxConcurrent = THREAD_READ_MAX_CONCURRENT,
+        perUser = THREAD_READS_PER_USER,
     )
     val messageTagService = MessageTagService(database, readLimiter)
     attributes.put(MessageTagServiceKey, messageTagService)
@@ -129,7 +138,7 @@ internal fun Application.publishChatServices(
             teamService,
             messageTagService,
             threadTagService,
-            readLimiter,
+            ThreadReadLimiters(readLimiter, threadReadLimiter),
         ),
     )
     // The full-text search (V16): one read transaction under ONE `search.timeoutSeconds` deadline, at most `search.maxConcurrent` at once

@@ -249,12 +249,42 @@ export class ApiError extends Error {
 }
 
 /**
- * The QueryClient's retry policy (wired in main.tsx): never retry a 4xx — the server's
+ * The two typed 429s of a READ that load refused or cut short (`read-busy`: the caller's or the server's in-flight cap, the answer
+ * carries `Retry-After: 1`; `read-timeout`: the deadline, `Retry-After: 2`; `utils/problems.ts` names them, pinned equal in `api.test.ts`).
+ * Unlike every other 4xx, the same request is likely to be answered a moment later, so a query retries it once.
+ */
+const LOAD_REFUSALS: ReadonlySet<string> = new Set(["urn:adder:problem:read-busy", "urn:adder:problem:read-timeout"]);
+
+function isLoadRefusal(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 429 && error.type !== undefined && LOAD_REFUSALS.has(error.type);
+}
+
+/**
+ * The QueryClient's retry policy (wired in `utils/queryClient.ts`): never retry a 4xx — the server's
  * answer won't change, and retrying only delays the error UI (a 403 used to sit behind
- * ~7 s of backoff); transient failures (network, timeout, 5xx) get up to two retries.
+ * ~7 s of backoff); transient failures (network, timeout, 5xx) get up to two retries. The one 4xx exception is a read refused
+ * for load (`read-busy`, `read-timeout`, a 429): it gets ONE retry, after `Retry-After` (`queryRetryDelay`), so opening a thread
+ * under load does not show "load failed" for a moment the server itself calls short.
  */
 export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  if (isLoadRefusal(error)) return failureCount < 1;
   return failureCount < 2 && !(error instanceof ApiError && error.status >= 400 && error.status < 500);
+}
+
+/** The longest a refused read waits before its one retry, whatever `Retry-After` says. */
+const MAX_LOAD_RETRY_MS = 5_000;
+/** Tabs refused in the same instant (one wide event) add a random 0 to this much, so they do not retry in lock step. */
+const LOAD_RETRY_JITTER_MS = 1_000;
+
+/**
+ * The QueryClient's retry delay: a load refusal waits its `Retry-After` (at least 1 s, at most [MAX_LOAD_RETRY_MS]) plus a random
+ * jitter; everything else keeps TanStack's own backoff (1 s, 2 s, ... up to 30 s).
+ */
+export function queryRetryDelay(failureCount: number, error: unknown): number {
+  if (!isLoadRefusal(error)) return Math.min(1000 * 2 ** failureCount, 30_000);
+  const base = Math.min(Math.max(error.retryAfterMs ?? 1_000, 1_000), MAX_LOAD_RETRY_MS);
+  // Not a security use: it only spreads retries (the lint rule wants the platform's generator, as `useNotificationRetryAfter` does).
+  return base + (crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32) * LOAD_RETRY_JITTER_MS;
 }
 
 /** `Retry-After` in whole seconds (the only form the server sends) as milliseconds; anything else is "none". */

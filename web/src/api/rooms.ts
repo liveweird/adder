@@ -92,7 +92,9 @@ export async function markRoomSeen(id: number): Promise<void> {
 
 /**
  * "Mark all as read" (204, idempotent, no live hint): every thread of the room reads as read for the caller up to now and their unseen notices
- * of the room are seen. Members only (an ADMIN outside the room is a 403, a non-member a 404). View state: nothing is audited.
+ * of the room are seen. Members only (an ADMIN outside the room is a 403, a non-member a 404). One call per person at a time (a second is a `429`
+ * `read-busy`). Audited on the server: ONE `room.read_all` line when the call settled
+ * notices or failed part-way (a call with nothing to settle writes none).
  */
 export async function markRoomRead(id: number): Promise<void> {
   await voidRequest(`/api/v1/rooms/${id}/read-all`, { method: "POST" });

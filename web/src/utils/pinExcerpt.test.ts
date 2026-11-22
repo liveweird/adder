@@ -60,8 +60,46 @@ describe("pinExcerpt", () => {
     expect(pinExcerpt({ ...plain, body: "x".repeat(281) })).toBe(`${"x".repeat(280)}…`);
   });
 
+  test("a link label reads as its text, an unclosed or unlinked bracket stays as written, and a `[` before the label stays in it", () => {
+    expect(pinExcerpt({ ...plain, body: "see [the docs](https://x.y/z) now" })).toBe("see the docs now");
+    expect(pinExcerpt({ ...plain, body: "a [b] c [d](e) f [g" })).toBe("a [b] c d f [g");
+    expect(pinExcerpt({ ...plain, body: "[x [y](u)" })).toBe("x [y");
+    expect(pinExcerpt({ ...plain, body: "[a](" })).toBe("[a](");
+  });
+
   test("a tombstone and a blank body quote nothing", () => {
     expect(pinExcerpt({ ...plain, body: null })).toBe("");
     expect(pinExcerpt({ ...plain, body: " \n " })).toBe("");
+  });
+
+  test("an unclosed emphasis or link over a whole 8,000-character body is read in a few milliseconds, and the excerpt is the ordinary one", () => {
+    const hostile = ["*a ", "_a ", "**a ", "~~a ", "[a", "[](", " _a", "[a]x", "[a](", "[a]("];
+    for (const unit of hostile) {
+      const body = unit.repeat(Math.ceil(8_000 / unit.length)).slice(0, 8_000);
+      // The best of a few runs, on a fresh object each (the excerpt is memoized per object): a loaded runner may delay one, not all.
+      const best = Math.min(
+        ...Array.from({ length: 5 }, () => {
+          const started = performance.now();
+          pinExcerpt({ ...plain, body });
+          return performance.now() - started;
+        }),
+      );
+      expect(best, `${JSON.stringify(unit)} x ${body.length}`).toBeLessThan(10);
+    }
+    // Nothing closes, so nothing is unwrapped: the text reads as written, to 280 graphemes.
+    expect(pinExcerpt({ ...plain, body: "*a ".repeat(2_666) })).toBe(`${"*a ".repeat(2_666).slice(0, 280).trimEnd()}…`);
+    // A pair that closes is still unwrapped past a hostile start, and after a long line the next one is still read.
+    expect(pinExcerpt({ ...plain, body: `*a ${"b ".repeat(10)}**bold** and _em_\nnext` })).toBe(`*a ${"b ".repeat(10)}bold and em next`);
+  });
+
+  test("the excerpt is memoized per message object, the collapsed line and the whole one apart", () => {
+    const message = { ...plain, body: "First line\nSecond line" };
+    expect(pinExcerpt(message, true)).toBe("First line");
+    expect(pinExcerpt(message)).toBe("First line Second line");
+    // The same object answers from memory (the query cache hands the same one back until a refetch replaces it); a new object is read afresh.
+    message.body = "Changed";
+    expect(pinExcerpt(message, true)).toBe("First line");
+    expect(pinExcerpt(message)).toBe("First line Second line");
+    expect(pinExcerpt({ ...message })).toBe("Changed");
   });
 });

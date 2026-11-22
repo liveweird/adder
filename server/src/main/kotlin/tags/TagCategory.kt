@@ -66,7 +66,8 @@ fun normalizedTagName(raw: String): String = sanitizeSingleLine(raw, "Tag").repl
 /**
  * A normalised tag name's rule: 1-[MAX_TAG_NAME_LENGTH] characters of the [TAG_GRAMMAR]. The detail echoes the offending name for the
  * editor's sake but never an over-long one whole: past the limit it is cut to [MAX_TAG_NAME_LENGTH] code points and an ellipsis (a 400's
- * detail is logged and returned, and a request may carry up to the body ceiling in one name).
+ * detail is returned to the caller, never logged (`ErrorHandling` answers it and writes no line), and a request may carry up to the
+ * body ceiling in one name).
  */
 fun requireValidTagName(name: String) {
     if (name.codePoints().anyMatch { it in BLANK_RENDERING_LETTERS }) {
@@ -84,18 +85,28 @@ fun requireValidTagName(name: String) {
     }
 }
 
-/** Trims the payload (the name via the control-character-rejecting sanitiser) and normalises every tag name. */
-fun sanitizedTagCategoryRequest(request: TagCategoryRequest): TagCategoryRequest = TagCategoryRequest(
-    name = sanitizeSingleLine(request.name, "Name"),
-    description = sanitizedDescription(request.description),
-    tags = request.tags.map(::normalizedTagName),
-)
+/**
+ * Trims the payload (the name via the control-character-rejecting sanitiser) and normalises every tag name. The COUNT is judged first
+ * (the same `400` as [validateTagCategoryRequest]): a body of thousands of names is refused before any of them is normalised.
+ */
+fun sanitizedTagCategoryRequest(request: TagCategoryRequest): TagCategoryRequest {
+    requireTagCount(request.tags.size)
+    return TagCategoryRequest(
+        name = sanitizeSingleLine(request.name, "Name"),
+        description = sanitizedDescription(request.description),
+        tags = request.tags.map(::normalizedTagName),
+    )
+}
+
+private fun requireTagCount(count: Int) {
+    if (count > MAX_CATEGORY_TAGS) throw BadRequestException("A category holds at most $MAX_CATEGORY_TAGS tags")
+}
 
 /** The registry's validation rules - enforced by the route AND re-checked by the service. */
 fun validateTagCategoryRequest(request: TagCategoryRequest) {
     requireNameAndDescription(request.name, request.description, MAX_CATEGORY_NAME_LENGTH, MAX_CATEGORY_DESCRIPTION_LENGTH)
     if (request.tags.isEmpty()) throw BadRequestException("A category needs at least one tag")
-    if (request.tags.size > MAX_CATEGORY_TAGS) throw BadRequestException("A category holds at most $MAX_CATEGORY_TAGS tags")
+    requireTagCount(request.tags.size)
     request.tags.forEach(::requireValidTagName)
     requireNoDuplicates(request.tags, "Tags must not repeat")
 }

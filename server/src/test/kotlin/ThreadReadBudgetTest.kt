@@ -118,8 +118,8 @@ class ThreadReadBudgetTest {
 
     @Test
     fun `a thread list that outruns its budget is 429 read-timeout, audited, with the filter value in no log`() = testApplication {
-        // ONE process permit: the 200 after the timeout proves the timed-out read gave its permit back.
-        configureApp("threads.readTimeoutSeconds" to "1", "threads.readMaxConcurrent" to "1")
+        // The 200 after the timeout proves the timed-out read gave its permit back (the detail pool is three, the user's two slots).
+        configureApp("threads.readTimeoutSeconds" to "1")
         startApplication()
         val owner = actor("rdb-thr")
         val room = room(owner)
@@ -138,8 +138,8 @@ class ThreadReadBudgetTest {
 
     @Test
     fun `a tag list that outruns its budget is 429 read-timeout, audited, with the filter value in no log`() = testApplication {
-        // ONE process permit: the 200 after the timeout proves the timed-out read gave its permit back.
-        configureApp("threads.readTimeoutSeconds" to "1", "threads.readMaxConcurrent" to "1")
+        // The 200 after the timeout proves the timed-out read gave its permit back (the detail pool is three, the user's two slots).
+        configureApp("threads.readTimeoutSeconds" to "1")
         startApplication()
         val owner = actor("rdb-tag")
         val room = room(owner)
@@ -299,7 +299,116 @@ class ThreadReadBudgetTest {
     }
 
     @Test
-    fun `chat-read is ONE bucket for the thread list and the tag list - 300 a minute per user, then 429 with its audit line`() =
+    fun `a thread read that outruns its budget is 429 read-timeout with resource thread, and its permit comes back`() = testApplication {
+        // The 200 after the timeout proves the timed-out read gave its permit back (the detail pool is three, the user's two slots).
+        configureApp("threads.readTimeoutSeconds" to "1")
+        startApplication()
+        val owner = actor("rdb-det")
+        val room = room(owner)
+        val number = TestThreads.seed(room, owner.id, title = "Slow detail").number
+        val capture = LogCapture(ch.qos.logback.classic.Logger.ROOT_LOGGER_NAME)
+        try {
+            val (response, elapsed) = whileLocked("message_tags") { owner.client.get("$rooms/$room/threads/$number") }
+            assertReadTimeout(response, elapsed, "thread", owner, room, "no-filter-value", capture)
+            assertEquals(HttpStatusCode.OK, owner.client.get("$rooms/$room/threads/$number").status)
+        } finally {
+            capture.detach()
+        }
+    }
+
+    /** The thread read has its OWN limiter: a list holding the only list permit leaves it its permits, and it is not in the bucket. */
+    @Test
+    fun `the thread read has its own permits, apart from the lists, and is not in their bucket`() = testApplication {
+        configureApp("threads.readTimeoutSeconds" to "3", "threads.readMaxConcurrent" to "1")
+        startApplication()
+        val owner = actor("rdb-det-1")
+        val other = actor("rdb-det-2")
+        val room = room(owner)
+        TestRooms.addMember(room, other.id)
+        val number = TestThreads.seed(room, owner.id, title = "Own permits").number
+        val (answers, _) = whileLocked("threads") {
+            coroutineScope {
+                val slow = async { owner.client.get("$rooms/$room/threads") }
+                awaitLockWaiter("threads")
+                // The ONE list permit is taken. The detail read of ANOTHER user is not refused for it: it gets a permit of its own, reaches
+                // the database and waits on the same lock until its deadline (a `read-busy` here would mean a shared pool).
+                other.client.get("$rooms/$room/threads/$number") to slow.await()
+            }
+        }
+        val (detail, list) = answers
+        assertEquals(HttpStatusCode.TooManyRequests, detail.status)
+        assertEquals(READ_TIMEOUT_PROBLEM_TYPE, detail.body<ProblemDetail>().type, "its own permit: it ran, and timed out")
+        assertEquals(READ_TIMEOUT_PROBLEM_TYPE, list.body<ProblemDetail>().type)
+        // Not in `chat-read`: more than its 300 a minute of detail reads is never a bucket 429 (a busy thread re-reads it every settle).
+        repeat(310) { n -> assertEquals(HttpStatusCode.OK, owner.client.get("$rooms/$room/threads/$number").status, "detail ${n + 1}") }
+    }
+
+    @Test
+    fun `a third thread read of one user is 429 read-busy, resource thread, the two timing out`() = testApplication {
+        configureApp("threads.readTimeoutSeconds" to "3")
+        startApplication()
+        val owner = actor("rdb-det-busy")
+        val room = room(owner)
+        val number = TestThreads.seed(room, owner.id, title = "Per user").number
+        withAuditCapture { capture ->
+            val (answers, _) = whileLocked("message_tags") {
+                coroutineScope {
+                    val held = List(2) { async { owner.client.get("$rooms/$room/threads/$number") } }
+                    // The user's two detail slots are taken, each read waiting on the hashtag lock.
+                    awaitLockWaiter("message_tags", atLeast = 2)
+                    val refused = owner.client.get("$rooms/$room/threads/$number") // waits about 1 s for a slot, then is refused
+                    refused to held.awaitAll()
+                }
+            }
+            val (refused, held) = answers
+            assertEquals(HttpStatusCode.TooManyRequests, refused.status)
+            assertEquals("1", refused.headers["Retry-After"])
+            assertEquals(READ_BUSY_PROBLEM_TYPE, refused.body<ProblemDetail>().type)
+            val event = assertNotNull(capture.awaitEvent { it.message == "read.busy" && it.hasKeyValue("resource", "thread") })
+            assertTrue(event.hasKeyValue("byUserId", owner.id.toLong()) && event.hasKeyValue("limit", "user"))
+            assertTrue(event.hasKeyValue("suppressed", 0L), "the first line of the minute folds nothing: ${event.keyValuePairs}")
+            assertTrue(held.all { it.status == HttpStatusCode.TooManyRequests }, "the two ended at their deadline")
+        }
+        assertEquals(HttpStatusCode.OK, owner.client.get("$rooms/$room/threads/$number").status, "the slots are back")
+    }
+
+    @Test
+    fun `a thread read past the detail pool of three is 429 read-busy with limit process, and the lists are untouched`() = testApplication {
+        configureApp("threads.readTimeoutSeconds" to "3")
+        startApplication()
+        val first = actor("rdb-det-proc-1")
+        val second = actor("rdb-det-proc-2")
+        val third = actor("rdb-det-proc-3")
+        val room = room(first)
+        TestRooms.addMember(room, second.id)
+        TestRooms.addMember(room, third.id)
+        val number = TestThreads.seed(room, first.id, title = "Pool").number
+        val emptyRoom = room(third)
+        withAuditCapture { capture ->
+            val (answers, _) = whileLocked("message_tags") {
+                coroutineScope {
+                    // Two slots of one user and one of another: the pool of three is spent.
+                    val held = listOf(first, first, second).map { user -> async { user.client.get("$rooms/$room/threads/$number") } }
+                    awaitLockWaiter("message_tags", atLeast = 3)
+                    // The lists have their own pool: a list read (of a room with no thread, so it needs no hashtag) is answered.
+                    val list = third.client.get("$rooms/$emptyRoom/threads")
+                    val refused = third.client.get("$rooms/$room/threads/$number") // a stranger to the pool waits 1 s and is refused
+                    Triple(list, refused, held.awaitAll())
+                }
+            }
+            val (list, refused, held) = answers
+            assertEquals(HttpStatusCode.OK, list.status, "a full detail pool leaves the list pool alone")
+            assertEquals(HttpStatusCode.TooManyRequests, refused.status)
+            assertEquals(READ_BUSY_PROBLEM_TYPE, refused.body<ProblemDetail>().type)
+            val event = assertNotNull(capture.awaitEvent { it.message == "read.busy" && it.hasKeyValue("byUserId", third.id.toLong()) })
+            assertTrue(event.hasKeyValue("resource", "thread") && event.hasKeyValue("limit", "process"))
+            assertTrue(held.all { it.status == HttpStatusCode.TooManyRequests }, "the three ended at their deadline")
+        }
+        assertEquals(HttpStatusCode.OK, third.client.get("$rooms/$room/threads/$number").status, "the permits are back")
+    }
+
+    @Test
+    fun `chat-read is ONE bucket for the thread list, the tag list and the registry - 300 a minute per user, then 429`() =
         testApplication {
             usePostgresTestcontainer()
             val limited = actor("rdb-bucket")
@@ -309,10 +418,17 @@ class ThreadReadBudgetTest {
 
             withAuditCapture { capture ->
                 // A 400 spends a token too: the bucket sits before the guards, so the sweep stays cheap.
-                repeat(150) { n ->
+                repeat(100) { n ->
                     assertEquals(HttpStatusCode.BadRequest, limited.client.get("$rooms/$room/threads?pageSize=0").status, "list ${n + 1}")
                     assertEquals(HttpStatusCode.BadRequest, limited.client.get("$rooms/$room/tags?pageSize=0").status, "tags ${n + 1}")
+                    // The whole registry (up to about half a megabyte at its caps) spends from the same bucket (1.2 branch audit).
+                    assertEquals(HttpStatusCode.OK, limited.client.get("/api/v1/tag-categories").status, "registry ${n + 1}")
                 }
+                assertEquals(
+                    HttpStatusCode.TooManyRequests,
+                    limited.client.get("/api/v1/tag-categories").status,
+                    "the registry is refused too",
+                )
                 val rejectedList = limited.client.get("$rooms/$room/threads")
                 assertEquals(HttpStatusCode.TooManyRequests, rejectedList.status)
                 assertNotNull(rejectedList.headers["Retry-After"])

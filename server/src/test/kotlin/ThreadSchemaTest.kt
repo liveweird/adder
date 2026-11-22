@@ -43,6 +43,12 @@ class ThreadSchemaTest {
                 "INSERT INTO thread_tags (thread_id, tag_id, added_at, added_by) " +
                 "SELECT 1500000000 + t, k, 1, 1 FROM generate_series(1, 200) AS t, generate_series(1, 5) AS k; " +
                 "ANALYZE threads; ANALYZE thread_tags"
+
+        // Ids no sequence has issued (an int4 serial would need 1.5 billion rows): the threads, messages and room the hashtag plan tests
+        // seed into a rolled-back transaction, so a row another test committed under a small id cannot reach their assertions.
+        const val SEED_BASE = 1_500_000_000
+        const val SEED_MESSAGE_BASE = 1_000_000_000
+        const val SEED_ROOM = 2_000_000_000
         const val INSERT_MESSAGE =
             "INSERT INTO messages (thread_id, author_id, body, created_at, marked_as_deleted, deleted_by) VALUES (?, ?, ?, 1, ?, ?)"
     }
@@ -721,6 +727,69 @@ class ThreadSchemaTest {
         }
     }
 
+    @Test
+    fun `a thread of few tags and many rows costs a bounded loop of index probes, never a walk of its rows, also as a generic plan`() {
+        // The loose index scan of V31's index: the first thread holds 3 distinct tags over 60,000 rows (a `SELECT DISTINCT ... LIMIT 20`
+        // read every one of them, about 20,000 index entries a tag); the second holds 30 tags over 300 rows. Run for real (EXPLAIN
+        // ANALYZE), the index hands over a handful of entries, one per probe, whatever the row count. The threads and messages are ids
+        // nobody is issued (`SEED_BASE`: the sequences never get there), so no other test's committed rows can reach the assertions.
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val plan = explain(
+                HASHTAGS_OF_SQL, "int4[]", "", mode, restrictPlanner = false, analyze = true, seed = ::seedFewTagsManyRows,
+            )
+            assertTrue("Recursive Union" in plan, "$mode: the keys are a recursive chain of probes:\n$plan")
+            assertTrue("Seq Scan on message_tags" !in plan, "$mode: never a scan of the whole table:\n$plan")
+            assertTrue("idx_message_tags_room_tag" !in plan, "$mode: never the room's index:\n$plan")
+            val probes = Regex("Index Only Scan using idx_message_tags_thread.*\\(actual rows=([0-9.]+) loops=(\\d+)\\)")
+                .findAll(plan).map { it.groupValues[1].toDouble() * it.groupValues[2].toInt() }.toList()
+            assertTrue(probes.isNotEmpty(), "$mode: the thread index is read:\n$plan")
+            assertTrue(Regex("Index Cond:.*tag >").containsMatchIn(plan), "$mode: each next key is a chained `tag >` probe:\n$plan")
+            // At most 20 probes per listed thread (3 threads) plus the first key of each: 63 entries, against ~60,000 for a walk.
+            assertTrue(probes.sum() <= 63, "$mode: no more than one index entry per probe (${probes.sum()} read):\n$plan")
+        }
+        // The keys themselves: thread 1 its 3 tags, thread 2 its first 20 of 30 (key order), the empty thread 3 nothing.
+        PostgresTestSupport.connect().use { c ->
+            c.autoCommit = false
+            try {
+                seedFewTagsManyRows(c)
+                val rows = c.prepareStatement(HASHTAGS_OF_SQL).use { st ->
+                    st.setArray(1, c.createArrayOf("integer", arrayOf(SEED_BASE + 1, SEED_BASE + 2, SEED_BASE + 3)))
+                    st.executeQuery().use { rs -> generateSequence { if (rs.next()) rs.getInt(1) to rs.getString(2) else null }.toList() }
+                }
+                val byThread = rows.groupBy({ it.first }, { it.second })
+                assertEquals(listOf("tag0", "tag1", "tag2"), byThread[SEED_BASE + 1])
+                assertEquals(20, byThread.getValue(SEED_BASE + 2).size)
+                assertEquals(byThread.getValue(SEED_BASE + 2).sorted(), byThread.getValue(SEED_BASE + 2), "key order")
+                assertEquals(byThread.getValue(SEED_BASE + 2).distinct(), byThread.getValue(SEED_BASE + 2), "distinct")
+                assertTrue(SEED_BASE + 3 !in byThread, "a thread with no hashtag is absent")
+            } finally {
+                c.rollback()
+            }
+        }
+    }
+
+    /**
+     * Thread `SEED_BASE + 1`: 3 tags x 20,000 messages in ONE room (60,000 rows); `+ 2`: 30 tags x 10 messages; `+ 3`: none, analysed,
+     * with foreign keys off inside the rolled-back transaction. The thread, room and message ids are ones the sequences never issue.
+     * Returns the statement's argument: the three thread ids.
+     */
+    private fun seedFewTagsManyRows(c: Connection): String {
+        c.createStatement().use { st ->
+            st.execute("SET LOCAL session_replication_role = replica")
+            st.execute(
+                "INSERT INTO message_tags (message_id, thread_id, room_id, tag) " +
+                    "SELECT $SEED_MESSAGE_BASE + k, $SEED_BASE + 1, $SEED_ROOM, 'tag' || (k % 3) FROM generate_series(1, 60000) AS k",
+            )
+            st.execute(
+                "INSERT INTO message_tags (message_id, thread_id, room_id, tag) " +
+                    "SELECT $SEED_MESSAGE_BASE + 100000 + k, $SEED_BASE + 2, $SEED_ROOM, 'tag' || (k % 30) " +
+                    "FROM generate_series(1, 300) AS k",
+            )
+            st.execute("ANALYZE message_tags")
+        }
+        return "'{${SEED_BASE + 1},${SEED_BASE + 2},${SEED_BASE + 3}}'"
+    }
+
     /**
      * 100 threads of ONE room with 200 tag rows each over 30 tags, analysed: the spread of a room whose rows all share `room_id`. The rows
      * are written with foreign keys off (`session_replication_role`, the shared container's user is a superuser) inside the rolled-back
@@ -731,11 +800,12 @@ class ThreadSchemaTest {
             st.execute("SET LOCAL session_replication_role = replica")
             st.execute(
                 "INSERT INTO message_tags (message_id, thread_id, room_id, tag) " +
-                    "SELECT (t * 1000 + k), t, 1, 'tag' || (k % 30) FROM generate_series(1, 100) AS t, generate_series(1, 200) AS k",
+                    "SELECT ($SEED_MESSAGE_BASE + t * 1000 + k), $SEED_BASE + t, $SEED_ROOM, 'tag' || (k % 30) " +
+                    "FROM generate_series(1, 100) AS t, generate_series(1, 200) AS k",
             )
             st.execute("ANALYZE message_tags")
         }
-        return "'{1,50,100}'"
+        return "'{${SEED_BASE + 1},${SEED_BASE + 50},${SEED_BASE + 100}}'"
     }
 
     @Test
@@ -770,12 +840,13 @@ class ThreadSchemaTest {
 
     @Test
     fun `the threadTag filter and a page's tags are index probes of thread_tags, never a scan, also as a generic plan`() {
-        // The list's `threadTag` predicate is `EXISTS (SELECT 1 FROM thread_tags WHERE thread_id = threads.id AND tag_id IN (...))` and a
-        // page's tags are one `thread_id = ANY(...)` read joined to `tags`: the primary key (thread_id, tag_id) answers both, and
-        // `idx_thread_tags_tag` the other direction. On a seeded spread of 200 threads with five tags each, sequential scans off, the plan
-        // names an index of the table and never scans it whole.
-        val filter = "SELECT t.id FROM threads t WHERE t.room_id = ? AND EXISTS " +
-            "(SELECT 1 FROM thread_tags tt WHERE tt.thread_id = t.id AND tt.tag_id IN (?, ?))"
+        // The list's `threadTag` predicate is a correlated SCALAR probe, `(SELECT 1 FROM thread_tags WHERE thread_id = threads.id AND
+        // tag_id IN (...) LIMIT 1) IS NOT NULL` (`threadCarriesAnyThreadTag`: never an `EXISTS`, which the planner may flatten into a
+        // semi-join that starts from the tag side and so takes time from the tag's GLOBAL usage), and a page's tags are one
+        // `thread_id = ANY(...)` read joined to `tags`: the primary key (thread_id, tag_id) answers both. On a seeded spread of 200
+        // threads with five tags each, sequential scans off, the plan names an index of the table and never scans it whole.
+        val filter = "SELECT t.id FROM threads t WHERE t.room_id = ? AND " +
+            "(SELECT 1 FROM thread_tags tt WHERE tt.thread_id = t.id AND tt.tag_id IN (?, ?) LIMIT 1) IS NOT NULL"
         val page = "SELECT tt.thread_id, tg.\"name\", tg.marked_as_deleted FROM thread_tags tt JOIN tags tg ON tg.id = tt.tag_id " +
             "WHERE tt.thread_id = ANY(?)"
         for (mode in listOf("auto", "force_generic_plan")) {
@@ -787,6 +858,10 @@ class ThreadSchemaTest {
                 val plan = explain(sql, types, args, mode, restrictPlanner = true, before = SEED_THREAD_TAGS)
                 assertTrue("thread_tags_pkey" in plan || "idx_thread_tags_tag" in plan, "$mode: an index of thread_tags:\n$plan")
                 assertTrue("Seq Scan on thread_tags" !in plan, "$mode: never a scan of the whole table:\n$plan")
+                if (sql === filter) {
+                    assertTrue("SubPlan" in plan, "$mode: a per-thread probe, not a flattened join:\n$plan")
+                    assertTrue("Semi Join" !in plan && "Hash" !in plan, "$mode: never a join that starts from the tag side:\n$plan")
+                }
             }
         }
     }
@@ -910,6 +985,7 @@ class ThreadSchemaTest {
         before: String? = null,
         seed: ((Connection) -> String)? = null,
         restrictPlanner: Boolean = true,
+        analyze: Boolean = false,
     ): String {
         var n = 0
         val numbered = Regex("[?]").replace(sql) { "\$${++n}" }
@@ -932,7 +1008,8 @@ class ThreadSchemaTest {
                     }
                     st.execute("PREPARE unread_plan($types) AS $numbered")
                     buildString {
-                        st.executeQuery("EXPLAIN EXECUTE unread_plan($arguments)").use { rs ->
+                        val explain = if (analyze) "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF)" else "EXPLAIN"
+                        st.executeQuery("$explain EXECUTE unread_plan($arguments)").use { rs ->
                             while (rs.next()) appendLine(rs.getString(1))
                         }
                     }

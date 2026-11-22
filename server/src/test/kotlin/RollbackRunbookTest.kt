@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import java.io.File
+import java.nio.file.Files
 import java.sql.Connection
 import java.util.UUID
 import kotlin.test.Test
@@ -171,5 +172,47 @@ class RollbackRunbookTest {
                 c.rollback()
             }
         }
+    }
+
+    /**
+     * The claim under "Rollback below 1.2.0": a binary that ships only the 1.1.0 migrations (V1 to V30, the same bytes: an applied file is
+     * never edited) boots against the 1.2 schema (V34), because Flyway's default `ignoreMigrationPatterns` is `*:future`. A Flyway over
+     * a copy of the V1 to V30 files, configured as `infra/db/Flyway.kt` configures the app (no `ignoreMigrationPatterns`, no
+     * `validateOnMigrate`), validates and migrates nothing; with the pattern replaced by one that does NOT ignore future migrations the
+     * same instance refuses, so the test fails the day somebody turns the default off.
+     */
+    @Test
+    fun `a Flyway that ships only the 1_1_0 migrations validates and boots against the 1_2 schema`() {
+        PostgresTestSupport.ensureMigrated()
+        val shipped11 = Files.createTempDirectory("flyway-1.1.0-")
+        try {
+            val source = File(System.getProperty("repo.root") ?: "..", "server/src/main/resources/db/migration")
+            val v11 = source.listFiles { f -> f.name.endsWith(".sql") }.orEmpty()
+                .filter { Regex("V(\\d+)__.*").matchEntire(it.name)!!.groupValues[1].toInt() <= LAST_1_1_0_MIGRATION }
+            assertEquals((1..LAST_1_1_0_MIGRATION).toList(), v11.map { it.name.substringAfter('V').substringBefore("__").toInt() }.sorted())
+            v11.forEach { it.copyTo(File(shipped11.toFile(), it.name)) }
+            fun flyway(vararg ignore: String) = org.flywaydb.core.Flyway.configure()
+                .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
+                .locations("filesystem:${shipped11.toAbsolutePath()}")
+                .apply { if (ignore.isNotEmpty()) ignoreMigrationPatterns(*ignore) }
+                .load()
+
+            val old = flyway()
+            val newest = old.info().applied().maxOf { it.version.version.toInt() }
+            assertTrue(newest > LAST_1_1_0_MIGRATION, "the shared schema is ahead of the 1.1.0 set (V$newest)")
+            old.validate()
+            assertEquals(0, old.migrate().migrationsExecuted, "the old jar's boot migrates nothing")
+            assertTrue(
+                runCatching { flyway("*:missing").validate() }.isFailure,
+                "with future migrations NOT ignored the same set is refused: the default is what the runbook relies on",
+            )
+        } finally {
+            shipped11.toFile().deleteRecursively()
+        }
+    }
+
+    private companion object {
+        /** The newest migration 1.1.0 shipped (V25 to V30 are its own; V31 to V34 are 1.2.0's). */
+        const val LAST_1_1_0_MIGRATION = 30
     }
 }

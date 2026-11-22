@@ -175,8 +175,10 @@ jwt:
   # Short-lived access token used as the API bearer; the SPA silently refreshes it.
   accessExpiresInSeconds: "$JWT_ACCESS_EXPIRES_IN_SECONDS:900"
   # Longer-lived refresh token exchanged at POST /api/v1/refresh. Pure-sliding with rotation: each
-  # refresh mints a fresh pair and retires the presented refresh token (security.refresh below), so an
-  # idle session ends only after this window elapses.
+  # refresh mints a fresh pair and retires the presented refresh token (security.refresh below). A tab nobody
+  # looks at is NOT silent: a visible tab refreshes at every access-token expiry, and a hidden one keeps doing so
+  # for at most 8 hours (the client's hidden-tab rule, security.md "1.2 D9"), so the session ends this window
+  # after the last refresh, up to 8 hours + this window after the last real use.
   refreshExpiresInSeconds: "$JWT_REFRESH_EXPIRES_IN_SECONDS:3600"
 
 bootstrap:
@@ -337,8 +339,9 @@ threads:
   readTimeoutSeconds: "$THREADS_READ_TIMEOUT_SECONDS:5"
   # The most filtered thread-list and tag-list reads this process runs AT ONCE (`threads/ReadLimiter.kt`, `ReadLimiter`): a read waits at most
   # 1 s for a permit, then is answered 429 `read-busy` with `Retry-After: 1`, before any pool connection is asked for. Keep it well below
-  # `postgres.pool.maxSize` (20): a read holds ONE connection. (At most 8 reads per user are in flight besides, and the boot refuses a value that with `search.maxConcurrent` would reach the pool size.) 1..16.
-  readMaxConcurrent: "$THREADS_READ_MAX_CONCURRENT:10"
+  # `postgres.pool.maxSize` (20): a read holds ONE connection. (At most 8 reads per user are in flight besides, and the boot refuses a value
+  # that, with `search.maxConcurrent`, the notice list's cap (4) and the thread detail's own cap (3), would reach the pool size: 8 + 4 + 4 + 3 = 19.) 1..16.
+  readMaxConcurrent: "$THREADS_READ_MAX_CONCURRENT:8"
   # Index the hashtags of messages written before the index (V15, `messages.tags_version` 0) once after boot, in batches, without blocking
   # the start (`threads/MessageTagReindex.kt`). Off leaves them unindexed until a boot that has it on; a grammar bump needs it on. The switch
   # covers the reindex ONLY: the purge of the tag rows of deleted messages runs at every boot (it only deletes rows that must not exist).

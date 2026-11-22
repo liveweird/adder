@@ -11,6 +11,7 @@ import ch.nokillswit.tags.TagCategory
 import ch.nokillswit.tags.TagCategoryList
 import ch.nokillswit.tags.TagCategoryRequest
 import ch.nokillswit.tags.TagCategoryService
+import ch.nokillswit.tags.sanitizedTagCategoryRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -22,22 +23,24 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.testing.testApplication
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.selectAll
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
-import kotlin.test.AfterTest
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
 
 /**
  * The tag registry (V32, `persistence.md` "Tag categories (V32)", 1.2 D2; Hammurabi's `TagCategoryTest` ported): ADMIN-only writes,
@@ -416,5 +419,13 @@ class TagCategoryTest {
             admin.postJson("/api/v1/tag-categories", TagCategoryRequest("", null, emptyList()))
             assertEquals(before, capture.events.count { it.message == "tag_category.created" }, "a refused create does not audit")
         }
+    }
+
+    @Test
+    fun `the tag count is judged before any name is normalised`() {
+        // 101 names, the first one holding a control character: normalising first would refuse THAT name; the count is refused first.
+        val request = TagCategoryRequest("Count", null, listOf("bad\u0007name") + (1..MAX_CATEGORY_TAGS).map { "t$it" })
+        val refused = assertFailsWith<BadRequestException> { sanitizedTagCategoryRequest(request) }
+        assertEquals("A category holds at most $MAX_CATEGORY_TAGS tags", refused.message)
     }
 }

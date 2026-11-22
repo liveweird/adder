@@ -31,6 +31,7 @@ import kotlinx.serialization.json.longOrNull
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
 import org.jetbrains.exposed.v1.r2dbc.*
+import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 val ThreadServiceKey = AttributeKey<ThreadService>("ThreadService")
@@ -74,7 +75,7 @@ class ThreadService(
     private val teams: TeamService,
     private val tags: MessageTagService,
     private val threadTags: ThreadTagService,
-    private val readLimiter: ReadLimiter = ReadLimiter(),
+    private val readLimiters: ThreadReadLimiters = ThreadReadLimiters(),
 ) {
     object Threads : UIntIdTable("threads") {
         val roomId = reference("room_id", RoomService.Rooms)
@@ -102,18 +103,20 @@ class ThreadService(
      * One page of the room's threads: one predicate ([predicate]) for the count and the rows, in one transaction. The rows select only
      * the columns a [ThreadListItem] shows: never `fields`, the jsonb document that can be tens of kilobytes per thread (page size 100
      * would otherwise load megabytes the list never reads). The room's workflow snapshot is read only when a `field` filter or
-     * `sort=status` needs it, so the plain list keeps its two queries. The whole read runs through the [readLimiter]:
+     * `sort=status` needs it, so the plain list keeps its two queries. The whole read runs through the [ThreadReadLimiters.lists]:
      * ONE deadline (`threads.readTimeoutSeconds`, past it the audited `429` `read-timeout`) and the in-flight caps (`read-busy`).
      */
     suspend fun list(callerUserId: UInt, roomId: UInt, filter: ThreadListFilter, paging: PageRequest): ThreadListResult =
-        readLimiter.run(database, callerUserId, roomId, "threads") { budget ->
+        readLimiters.lists.run(database, callerUserId, roomId, "threads") { budget ->
             val sortsByStatus = paging.sort.any { it.name == STATUS_SORT }
             budget.arm(this)
             val workflow = if (filter.needsWorkflow || sortsByStatus) workflows.snapshot(roomId) else null
             // The caller's floor of unread counting, read ONCE: null for someone who is no member (an ADMIN outside the room has no
             // read state). The `unread` filter, the `mentionsMe` filter (a group mention addresses members alone) and the counts share it.
+            budget.arm(this)
             val floor = members.unreadSince(roomId, callerUserId)
             val addressable = filter.mentionsMe != null && floor != null
+            budget.arm(this)
             val callerTeams = if (addressable) teams.teamIdsOf(callerUserId) else emptyList()
             // The `threadTag` names are resolved to registry ids (retired ones too) in this transaction; an unknown name has no id.
             budget.arm(this)
@@ -161,20 +164,49 @@ class ThreadService(
 
     /**
      * The thread [number] of room [roomId] as its ACTIVE fields show it to [callerUserId] (the unread count and the first unread message
-     * are THEIRS, 0 and null for someone who is no member), or null when there is none.
+     * are THEIRS, 0 and null for someone who is no member), or null when there is none. Runs through the [ThreadReadLimiters.detail]
+     * limiter (resource `thread`): ONE deadline for its statements (`threads.readTimeoutSeconds`, past it the audited `429`
+     * `read-timeout`) and the in-flight caps (`read-busy`), so a pile of messages, hashtags or watchers can never hold a pooled
+     * connection for long. It is NOT in the `chat-read` bucket (a live hint re-reads the open thread within the settle time, unspaced,
+     * so a busy thread would spend the bucket the lists live on, `security.md`), and for the same reason its permits are its OWN, not
+     * the lists': an unbucketed loop of detail reads can fill its own small pool and no more.
      */
-    suspend fun read(roomId: UInt, number: Int, callerUserId: UInt): ThreadResponse? = suspendTransaction(database) {
+    suspend fun read(roomId: UInt, number: Int, callerUserId: UInt): ThreadResponse? =
+        readLimiters.detail.run(database, callerUserId, roomId, "thread") { budget -> readThread(roomId, number, callerUserId, budget) }
+
+    /**
+     * The thread a create just wrote, as [read] shows it, WITHOUT the limiter: the write has already committed, so its `201` must not
+     * turn into a `429` (the thread has one message and no history, the cost is a constant).
+     */
+    suspend fun readCreated(roomId: UInt, number: Int, callerUserId: UInt): ThreadResponse? =
+        suspendTransaction(database) { readThread(roomId, number, callerUserId, null) }
+
+    /** The statements of [read], INSIDE the caller's transaction, armed with [budget] before each when there is one. */
+    private suspend fun R2dbcTransaction.readThread(roomId: UInt, number: Int, callerUserId: UInt, budget: SearchBudget?): ThreadResponse? {
+        budget?.arm(this)
         val row = Threads.selectAll().where { (Threads.roomId eq roomId) and (Threads.number eq number) }.toList().singleOrNull()
-            ?: return@suspendTransaction null
+            ?: return null
+        budget?.arm(this)
         val activeTypes = workflows.activeFieldTypes(roomId)
         val values = storedFields(row[Threads.fieldValues]).filterKeys { it in activeTypes }
         val userFieldKeys = activeTypes.filterValues { it == FieldType.USER }.keys
         val fieldUserIds = userFieldKeys.mapNotNull { (values[it] as? JsonPrimitive)?.longOrNull?.toUInt() }
+        budget?.arm(this)
         val names = userNames(listOf(row[Threads.ownerId].value, row[Threads.createdBy].value) + fieldUserIds)
         val threadId = row[Threads.id].value
-        val unread = members.unreadSince(roomId, callerUserId)?.let { unreadOfThread(callerUserId, threadId, it) }
+        budget?.arm(this)
+        val floor = members.unreadSince(roomId, callerUserId)
+        budget?.arm(this)
+        val unread = floor?.let { unreadOfThread(callerUserId, threadId, it) }
+        budget?.arm(this)
         val watching = watches.watchingAmong(roomId, callerUserId, listOf(threadId))
-        ThreadResponse(
+        budget?.arm(this)
+        val watcherCount = watches.count(threadId)
+        budget?.arm(this)
+        val hashtags = tags.hashtagsOf(listOf(threadId))[threadId].orEmpty()
+        budget?.arm(this)
+        val curated = threadTags.forThreads(listOf(threadId))[threadId].orEmpty()
+        return ThreadResponse(
             id = threadId,
             number = number,
             title = row[Threads.title],
@@ -195,9 +227,9 @@ class ThreadService(
             unreadCount = unread?.count ?: 0,
             firstUnreadMessageId = unread?.firstMessageId,
             watching = threadId in watching,
-            watcherCount = watches.count(threadId),
-            hashtags = tags.hashtagsOf(listOf(threadId))[threadId].orEmpty(),
-            tags = threadTags.forThreads(listOf(threadId))[threadId].orEmpty(),
+            watcherCount = watcherCount,
+            hashtags = hashtags,
+            tags = curated,
         )
     }
 

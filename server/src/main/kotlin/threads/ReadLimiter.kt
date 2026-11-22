@@ -1,6 +1,7 @@
 package ch.nokillswit.threads
 
 import ch.nokillswit.audit.audit
+import ch.nokillswit.plugins.RateLimitAuditThrottle
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
@@ -10,8 +11,12 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 /** The default of `threads.readTimeoutSeconds`: a normal list answers in milliseconds, so this is a runaway's ceiling. */
 const val DEFAULT_READ_TIMEOUT_SECONDS = 5
 
-/** The default of `threads.readMaxConcurrent`: well under the pool's 20 connections, so the lists never starve the rest of the app. */
-const val DEFAULT_READ_MAX_CONCURRENT = 10
+/**
+ * The default of `threads.readMaxConcurrent` (the thread list and the tag list): well under the pool's 20 connections, so the lists never
+ * starve the rest of the app. 8, so that with the searches (4), the notice list (4) and the thread detail (its own
+ * pool, `THREAD_READ_MAX_CONCURRENT` in `infra/db/Database.kt`, 3) the readers together are 19, below the pool of 20 (the boot check).
+ */
+const val DEFAULT_READ_MAX_CONCURRENT = 8
 
 /**
  * The most notification-list reads ONE user may have in flight. It is HALF the process cap, `NOTIFICATION_READ_MAX_CONCURRENT` (4, in
@@ -22,10 +27,20 @@ const val DEFAULT_READ_MAX_CONCURRENT = 10
 const val NOTIFICATION_READS_PER_USER = 2
 
 /**
- * The most bounded reads ONE user may have in flight at once (the thread and tag lists; the notice list has its own,
- * [NOTIFICATION_READS_PER_USER]). A live hint makes every open tab refetch the room's thread list and, with the filter panel open, the
- * tag list, after the same 300 ms settle (`web/src/utils/liveKeys.ts`): two reads per tab, all in the same
- * instant. 8 is four such tabs together, above any real use; a script that holds more than that is what the cap stops.
+ * The most thread-detail reads ONE user may have in flight. The detail read has its OWN limiter (`ChatWiring.kt`: process cap
+ * `THREAD_READ_MAX_CONCURRENT` = 3, fixed, in `infra/db/Database.kt` beside the boot check that counts it), because it is NOT in the
+ * `chat-read` bucket (a live hint re-reads the open thread unspaced): an unbucketed loop of it must never be able to take
+ * `threads.readMaxConcurrent` from the bucketed lists, nor they it. A hint makes ONE detail read per open tab, a few milliseconds each,
+ * so 2 slots serve two tabs at once and a third queues for the bounded wait ([READ_PERMIT_WAIT_MILLIS]); 2 of the pool's 3 keeps one
+ * account (however many tabs or scripts) from holding every slot.
+ */
+const val THREAD_READS_PER_USER = 2
+
+/**
+ * The most bounded reads ONE user may have in flight at once (the thread and tag lists; the notice list and the thread detail have their
+ * own, [NOTIFICATION_READS_PER_USER] and [THREAD_READS_PER_USER]). A live hint makes every open tab refetch the room's thread list and,
+ * with the filter panel open, the tag list, after the same 300 ms settle (`web/src/utils/liveKeys.ts`): two reads per tab, all in the
+ * same instant. 8 is four such tabs together, above any real use; a script that holds more than that is what the cap stops.
  */
 const val MAX_READS_PER_USER = 8
 
@@ -38,15 +53,28 @@ const val READ_PERMIT_WAIT_MILLIS = 1_000L
 private const val PERMIT_POLL_MILLIS = 20L
 
 /**
- * The bounds of the two reads that scan a room's rows (the filtered thread list and the tag list), the way the search is bounded
- * (`ThreadSearchService`): ONE deadline per read and a cap on how many run at once, so a flood of slow reads can never hold the pool.
+ * The two limiters `ThreadService` reads through: [lists] for the filtered thread list (resource `threads`, `chat-read`-bucketed) and
+ * [detail] for one thread's detail (resource `thread`, unbucketed), each its own pool of permits and per-user slots, so one kind of read
+ * cannot crowd out the other. `ChatWiring.kt` passes the configured sizes; the defaults are for a service built by hand (a test).
+ */
+class ThreadReadLimiters(
+    val lists: ReadLimiter = ReadLimiter(),
+    val detail: ReadLimiter = ReadLimiter(perUser = THREAD_READS_PER_USER),
+)
+
+/**
+ * The bounds of the reads that scan a room's rows (the filtered thread list and the tag list), of the thread detail and of the
+ * notice list, the way the search is bounded (`ThreadSearchService`): ONE deadline per read and a cap on how many run at once, so a
+ * flood of slow reads can never hold the pool. THREE instances exist (`ChatWiring.kt`), each its own pool of permits and per-user
+ * slots: the lists (`threads` and `tags`, `chat-read`-bucketed), the thread detail (`thread`, unbucketed) and the notice list
+ * (`notifications`), so a flood of one kind can never crowd out another.
  *
  * - **Deadline.** [run] executes its block in one read transaction under ONE [SearchBudget] of [timeoutSeconds] (the search's budget,
  *   reused: each statement's `queryTimeout` is the time left, the only way a statement timeout may be set, `persistence.md`
  *   "Connection pool"). A statement the budget cancelled (SQLSTATE `57014`), or a deadline spent between two statements, is the audited
  *   `429` `read-timeout` (`read.timeout`).
- * - **In-flight caps.** At most [perUser] reads of one user run at once, and at most [maxConcurrent] in the whole process (both reads
- *   together, one limiter is shared). Both are `tryAcquire`s polled for at most [maxWaitMillis] IN TOTAL (a legitimate burst after a
+ * - **In-flight caps.** At most [perUser] reads of one user run at once, and at most [maxConcurrent] in the whole process (of the
+ *   resources THIS instance serves). Both are `tryAcquire`s polled for at most [maxWaitMillis] IN TOTAL (a legitimate burst after a
  *   live hint, several tabs at once, queues briefly), then refused as the audited `429` `read-busy` (`read.busy`). The wait happens
  *   BEFORE a pool connection is asked for, so a queued read holds none: a read holds a connection only while it runs, and at most
  *   [maxConcurrent] do (the boot check keeps that, with the searches, under the pool size).
@@ -65,14 +93,17 @@ class ReadLimiter(
     // loudly instead of silently raising the cap (`ThreadSearchService` does the same).
     private val permits = Semaphore(maxConcurrent)
     private val inFlight = ConcurrentHashMap<UInt, Int>()
-    private val busyAudited = ConcurrentHashMap<UInt, Long>()
+
+    // The coalescing of the two reads no `chat-read` bucket bounds (`COALESCED_RESOURCES`): one line a minute per user and resource,
+    // with `suppressed` (the `rate_limit.exceeded` idiom, `plugins/RateLimits.kt`; the keys are the signed-in accounts, so it is bounded).
+    private val auditThrottle = RateLimitAuditThrottle()
 
     /** How many users have a read in flight: 0 when idle (a test seam for "the map never leaks"). */
     internal fun usersInFlight(): Int = inFlight.size
 
     /**
-     * [resource] names the read (`threads`, `tags` or `notifications`) in the audit lines; [roomId] is null for a read that belongs to no
-     * room (the caller's own notification list), and then the lines carry no room id.
+     * [resource] names the read (`threads`, `tags`, `thread` (the one thread's detail) or `notifications`) in the audit lines; [roomId]
+     * is null for a read that belongs to no room (the caller's own notification list), and then the lines carry no room id.
      */
     internal suspend fun <T> run(
         database: R2dbcDatabase,
@@ -129,25 +160,27 @@ class ReadLimiter(
     }
 
     /**
-     * The refusal of the caller's own notice list is audited ONCE per user and minute: one wide event makes hundreds of tabs read at the
-     * same instant and the overflow is refused together, so a line per refusal would be a wave of identical lines. The other resources
-     * are still one line per refusal. The map holds at most the users refused in the current minute (it is swept when it grows).
+     * The audit line of a refusal, or null when the read's resource is coalesced and a line was already written this minute. The two
+     * reads that no `chat-read` bucket bounds, the caller's own notice list and the thread detail, are audited ONCE per user, resource
+     * and minute, with the count folded since the last line (`suppressed`): one wide event makes hundreds of tabs read at the same
+     * instant and the overflow is refused together, and a script can hold a user's slots and be refused at the pace of the 1 s wait (or
+     * run to the 5 s deadline again and again), so a line per refusal would be a flood of identical lines. The bucketed lists
+     * (`threads`, `tags`) are still one line per refusal, with `suppressed` 0.
      */
-    private fun firstBusyOfMinute(callerUserId: UInt): Boolean {
-        val minute = System.currentTimeMillis() / MILLIS_PER_MINUTE
-        if (busyAudited.size > MAX_BUSY_USERS_TRACKED) busyAudited.entries.removeIf { it.value != minute }
-        return busyAudited.put(callerUserId, minute) != minute
-    }
+    private fun auditSuppressed(event: String, callerUserId: UInt, resource: String): Long? =
+        if (resource !in COALESCED_RESOURCES) 0L else auditThrottle.admit("$event:$resource:$callerUserId")
 
     private fun busy(callerUserId: UInt, roomId: UInt?, resource: String, limit: String): Nothing {
-        if (resource != NOTIFICATIONS_RESOURCE || firstBusyOfMinute(callerUserId)) {
-            audit("read.busy", *readFields(callerUserId, roomId, resource), "limit" to limit)
+        auditSuppressed("read.busy", callerUserId, resource)?.let { suppressed ->
+            audit("read.busy", *readFields(callerUserId, roomId, resource), "limit" to limit, "suppressed" to suppressed)
         }
         throw readBusy()
     }
 
     private fun timedOut(callerUserId: UInt, roomId: UInt?, resource: String): Nothing {
-        audit("read.timeout", *readFields(callerUserId, roomId, resource))
+        auditSuppressed("read.timeout", callerUserId, resource)?.let { suppressed ->
+            audit("read.timeout", *readFields(callerUserId, roomId, resource), "suppressed" to suppressed)
+        }
         throw readTimeout()
     }
 
@@ -160,8 +193,6 @@ class ReadLimiter(
 
     private companion object {
         const val NANOS_PER_MILLI = 1_000_000L
-        const val MILLIS_PER_MINUTE = 60_000L
-        const val NOTIFICATIONS_RESOURCE = "notifications"
-        const val MAX_BUSY_USERS_TRACKED = 10_000
+        val COALESCED_RESOURCES = setOf("notifications", "thread")
     }
 }

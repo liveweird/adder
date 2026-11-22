@@ -4,6 +4,17 @@ import { mentionSegments } from "./mentions";
 /** The most a collapsed line or an expanded card quotes of a pinned message, in graphemes; CSS cuts the rest to one or two lines. */
 const EXCERPT_LIMIT = 280;
 
+/**
+ * A line is cut to this many UTF-16 units BEFORE it is unwrapped (a guard on top of the linear unwrapping: the work per line is bounded
+ * whatever an 8,000-character body holds). Generous on purpose: the excerpt is 280 GRAPHEMES, and one emoji sequence is up to ~16 units
+ * (`family.repeat(300)` is 2,400), so a cut of a few hundred units would shorten ordinary emoji-heavy text. 1.2 branch audit: `*a *a *a ...`
+ * took 35 to 60 ms per call before the unwrapping was made linear.
+ */
+const LINE_CUT = 16 * EXCERPT_LIMIT;
+
+/** The excerpts already computed, per message object: `[first line only, whole]`. */
+const excerpts = new WeakMap<object, [string | undefined, string | undefined]>();
+
 const FENCE = /^\s*(?:```|~~~)/;
 const HAS_WORD = /[\p{L}\p{N}]/u;
 // ONE heading, quote, bullet or list-number marker at the start of a line (stripped repeatedly: a quote may hold a bullet, `> - x`).
@@ -24,6 +35,18 @@ const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
  * (an emoji sequence is never cut in the middle), then an ellipsis. A tombstone has no body and quotes nothing.
  */
 export function pinExcerpt(message: Pick<MessageResponse, "body" | "mentions" | "groupMentions">, firstLineOnly = false): string {
+  // Per message object (the query cache hands the same one back until a refetch): the strip and the cards re-render far more often than a body changes.
+  const cached = excerpts.get(message) ?? [undefined, undefined];
+  const slot = firstLineOnly ? 0 : 1;
+  const known = cached[slot];
+  if (known !== undefined) return known;
+  const excerpt = computeExcerpt(message, firstLineOnly);
+  cached[slot] = excerpt;
+  excerpts.set(message, cached);
+  return excerpt;
+}
+
+function computeExcerpt(message: Pick<MessageResponse, "body" | "mentions" | "groupMentions">, firstLineOnly: boolean): string {
   const { prose, code } = splitLines(message.body ?? "");
   const words = prose.filter((line) => HAS_WORD.test(line));
   const chosen = words.length > 0 ? words : prose.length > 0 ? prose : code;
@@ -43,10 +66,17 @@ function splitLines(body: string): { prose: string[]; code: string[] } {
       fenced = !fenced;
       continue;
     }
-    const line = fenced ? raw.trim() : unwrap(stripMarkers(raw.trim())).trim();
+    const line = fenced ? raw.trim() : unwrap(stripMarkers(cutLine(raw.trim()))).trim();
     if (line !== "") (fenced ? code : prose).push(line);
   }
   return { prose, code };
+}
+
+/** [line] cut to [LINE_CUT] units, never between the two halves of a surrogate pair. */
+function cutLine(line: string): string {
+  if (line.length <= LINE_CUT) return line;
+  const high = line.charCodeAt(LINE_CUT - 1);
+  return line.slice(0, high >= 0xd800 && high <= 0xdbff ? LINE_CUT - 1 : LINE_CUT);
 }
 
 function stripMarkers(line: string): string {
@@ -55,14 +85,22 @@ function stripMarkers(line: string): string {
   return out;
 }
 
-/** `[text](url)` reads as `text`: a plain scan (a label holds no `]`, a target no `)`), not a regex. */
+/**
+ * `[text](url)` reads as `text`: a plain scan (a label holds no `]`, a target no `)`), not a regex. LINEAR: the closing `]` of an
+ * opening `[` and the `)` after it are found once and reused by every later `[` before that `]`, and with no `]` left the scan stops.
+ */
 function unwrapLinks(text: string): string {
   let out = "";
   let from = 0;
+  let close = -1;
+  let end = -1;
   for (let open = text.indexOf("["); open >= 0; open = text.indexOf("[", from)) {
-    const close = text.indexOf("]", open);
-    const end = text.startsWith("(", close + 1) ? text.indexOf(")", close + 2) : -1;
-    if (close < 0 || end < 0) {
+    if (close < open) {
+      close = text.indexOf("]", open);
+      if (close < 0) break;
+      end = text.startsWith("(", close + 1) ? text.indexOf(")", close + 2) : -1;
+    }
+    if (end < 0) {
       out += text.slice(from, open + 1);
       from = open + 1;
       continue;
@@ -97,8 +135,10 @@ function unwrapDelimited(text: string, delimiter: string, wordBounded: boolean):
     const opens = open >= 0 && text.charAt(open + size).trim() !== "" && open + size < text.length && !(wordBounded && open > 0 && WORD_CHAR.test(text.charAt(open - 1)));
     const close = opens ? findClose(text, delimiter, open + size, wordBounded) : -1;
     if (close < 0) {
-      // No pair from here: keep the text up to the delimiter and look again past it (or stop when there is none).
-      if (open < 0) break;
+      // No pair from here: keep the text up to the delimiter and look again past it (or stop when there is none). An opening that WAS valid
+      // and found no close means there is no valid close anywhere past it (the check depends on the text around the close alone), so a
+      // later opening cannot find one either: stop instead of rescanning the rest for each of them (that was quadratic).
+      if (open < 0 || opens) break;
       out += text.slice(from, open + size);
       from = open + size;
       continue;

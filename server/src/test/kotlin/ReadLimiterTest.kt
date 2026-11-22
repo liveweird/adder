@@ -78,6 +78,33 @@ class ReadLimiterTest {
     }
 
     @Test
+    fun `the refusals of the thread read and the notice list are one line a minute per user and resource, the bucketed lists are not`() =
+        runBlocking {
+            // The coalescing window is the wall-clock minute: not across a boundary, or the second window writes its own line.
+            val untilNextMinute = 60_000 - System.currentTimeMillis() % 60_000
+            if (untilNextMinute < 5_000) delay(untilNextMinute + 100)
+            val limiter = ReadLimiter(perUser = 1, maxWaitMillis = 50)
+            withAuditCapture { capture ->
+                val held = hold(limiter, 7u)
+                repeat(3) { n ->
+                    assertFailsWith<TooManyRequestsException> { limiter.run(database, 7u, room, "thread") { "x" } }.assertBusy()
+                    assertFailsWith<TooManyRequestsException> { limiter.run(database, 7u, null, "notifications") { "x" } }.assertBusy()
+                    assertFailsWith<TooManyRequestsException> { limiter.run(database, 7u, room, "tags") { "x" } }.assertBusy()
+                    assertEquals(n + 1, capture.events.count { it.message == "read.busy" && it.hasKeyValue("resource", "tags") })
+                }
+                assertEquals(1, capture.events.count { it.message == "read.busy" && it.hasKeyValue("resource", "thread") })
+                val busy = capture.events.filter { it.message == "read.busy" }
+                val threadLines = busy.filter { it.hasKeyValue("resource", "thread") }
+                assertTrue(threadLines.all { it.hasKeyValue("suppressed", 0L) }, "nothing folded yet")
+                // The bucketed list's lines are not coalesced, and carry no folded count.
+                assertTrue(busy.filter { it.hasKeyValue("resource", "tags") }.all { it.hasKeyValue("suppressed", 0L) })
+                assertEquals(1, capture.events.count { it.message == "read.busy" && it.hasKeyValue("resource", "notifications") })
+                held.release.complete(Unit)
+                assertEquals("done", held.result.await())
+            }
+        }
+
+    @Test
     fun `tabs that fire together are not refused - six concurrent reads of one user all succeed`() = runBlocking {
         val limiter = ReadLimiter()
         // The shape of a live hint: three tabs refetch the thread list and the tag list in the same instant.

@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { jsonResponse } from "../test/http";
+import { PROBLEM_TYPES } from "../utils/problems";
 import {
   ApiError,
   authedFetch,
   buildQuery,
   isTimeoutError,
   jsonRequest,
+  queryRetryDelay,
   shouldRetryQuery,
   safeJson,
   timeoutSignal,
@@ -132,6 +134,31 @@ describe("ApiError and helpers", () => {
     expect(shouldRetryQuery(0, new ApiError(500, null))).toBe(true);
     expect(shouldRetryQuery(1, new Error("network"))).toBe(true);
     expect(shouldRetryQuery(2, new Error("network"))).toBe(false);
+    // The other 429s (a bucket, `room-busy`, `search-busy`) are still refusals to show.
+    expect(shouldRetryQuery(0, new ApiError(429, { type: PROBLEM_TYPES.searchBusy }))).toBe(false);
+    expect(shouldRetryQuery(0, new ApiError(429, null))).toBe(false);
+  });
+
+  test("a read refused for load (read-busy, read-timeout) is retried ONCE, and only as a 429", () => {
+    for (const type of [PROBLEM_TYPES.readBusy, PROBLEM_TYPES.readTimeout]) {
+      expect(shouldRetryQuery(0, new ApiError(429, { type }))).toBe(true);
+      expect(shouldRetryQuery(1, new ApiError(429, { type }))).toBe(false);
+      expect(shouldRetryQuery(0, new ApiError(403, { type }))).toBe(false);
+    }
+  });
+
+  test("queryRetryDelay waits the Retry-After of a load refusal, within its cap and jitter, and backs off the rest as TanStack does", () => {
+    const busy = (retryAfterMs: number | null) => new ApiError(429, { type: PROBLEM_TYPES.readBusy }, retryAfterMs);
+    for (let n = 0; n < 20; n++) {
+      expect(queryRetryDelay(0, busy(2_000))).toBeGreaterThanOrEqual(2_000);
+      expect(queryRetryDelay(0, busy(2_000))).toBeLessThan(3_000);
+      expect(queryRetryDelay(0, busy(null))).toBeGreaterThanOrEqual(1_000);
+      expect(queryRetryDelay(0, busy(0))).toBeGreaterThanOrEqual(1_000);
+      expect(queryRetryDelay(0, busy(60_000))).toBeLessThan(6_000);
+    }
+    expect(queryRetryDelay(0, new Error("network"))).toBe(1_000);
+    expect(queryRetryDelay(2, new ApiError(500, null))).toBe(4_000);
+    expect(queryRetryDelay(9, new Error("network"))).toBe(30_000);
   });
 
   test("safeJson returns null for a non-JSON body", async () => {

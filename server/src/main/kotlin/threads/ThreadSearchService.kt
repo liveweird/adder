@@ -149,10 +149,12 @@ class ThreadSearchService(
      * non-hit segment, and the page follows the same `sort` (default newest activity first). [watching] narrows to the threads
      * [callerUserId] watches (`true`) or does not (`false`), through the S3 watch predicate correlated on each thread's own room.
      * [tagNames] narrows to the threads that carry ANY of those curated tags (retired ones included): the names are resolved to registry
-     * ids in this transaction, a name nobody ever held has no id, and when NONE has one the answer is an empty page with no further
-     * statement. The tag predicate is `EXISTS` on `thread_tags` correlated on the thread, ANDed AFTER the rooms, so a thread of a room
-     * the caller is not in can never surface through it (`persistence.md` "Thread tags (V33)"). Every hit carries its `tags`, read in
-     * ONE statement for the page's thread ids.
+     * ids in this transaction (a name nobody ever held has no id and is probed as one that matches nothing, so the request does the same
+     * statements and the same work as for a tag nobody uses: no timing tells "never a tag" from "retired" or "unused"). The tag predicate
+     * is a correlated scalar probe of `thread_tags` per thread ([threadCarriesAnyThreadTag]), ANDed AFTER the rooms, so a thread of a
+     * room the caller is not in can never surface through it NOR set the time it takes: the work follows the caller's own threads, never
+     * the tag's global usage (`persistence.md` "Thread tags (V33)", `security.md`). Every hit carries its `tags`, read in ONE statement
+     * for the page's thread ids.
      */
     private suspend fun R2dbcTransaction.searchIn(
         inRooms: List<RoomSummary>,
@@ -164,19 +166,15 @@ class ThreadSearchService(
         paging: PageRequest,
         budget: SearchBudget,
     ): ThreadSearchResult {
-        val tagIds = if (tagNames.isEmpty()) {
-            emptyList()
-        } else {
-            budget.arm(this)
-            threadTags.idsOf(tagNames).ifEmpty { return ThreadSearchResult(emptyList(), 0) }
-        }
+        budget.arm(this)
+        val tagIds = threadTags.idsOf(tagNames)
         budget.arm(this)
         val queryText = if (q == null) null else ftsQueryText(q) ?: return ThreadSearchResult(emptyList(), 0)
         val threads = ThreadService.Threads
         var predicate: Op<Boolean> = threads.roomId.equalsAnyInt(inRooms.map { it.id.toInt() })
         queryText?.let { predicate = predicate and matchesTitleOrMessage(it) }
         closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
-        if (tagIds.isNotEmpty()) predicate = predicate and threadCarriesAnyThreadTag(threads.id, tagIds)
+        if (tagNames.isNotEmpty()) predicate = predicate and threadCarriesAnyThreadTag(threads.id, tagIds)
         watching?.let {
             val watched = threadWatchedByInRoomOf(callerUserId, threads.roomId, threads.id)
             predicate = predicate and (if (it) watched else not(watched))

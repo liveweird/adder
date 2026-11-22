@@ -271,9 +271,9 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `NOTIFICATIONS_SWEEP_INTERVAL_SECONDS` | `60` | How often the notification sweep wakes (10..3600); the email digest rides the same tick. |
 | `NOTIFICATIONS_SWEEP_ENABLED` | `true` | `false` keeps the sweep (purge and digest) from starting; the test harness turns it off. |
 | `SEARCH_TIMEOUT_SECONDS` | `5` | The budget of one search request (all its statements); past it the search is cancelled and answers 429 `search-timeout` (1..30). |
-| `SEARCH_MAX_CONCURRENT` | `4` | The most searches this process runs at once; the next answers 429 `search-busy` (1..16). With `THREADS_READ_MAX_CONCURRENT` and the notification list's fixed cap of 4 it must stay below `POSTGRES_POOL_MAX_SIZE`, or a production-mode startup is refused. |
+| `SEARCH_MAX_CONCURRENT` | `4` | The most searches this process runs at once; the next answers 429 `search-busy` (1..16). With `THREADS_READ_MAX_CONCURRENT`, the notification list's fixed cap of 4 and the thread detail's fixed cap of 3 it must stay below `POSTGRES_POOL_MAX_SIZE`, or a production-mode startup is refused. |
 | `THREADS_READ_TIMEOUT_SECONDS` | `5` | The budget of one filtered thread-list or tag-list read; past it the read is cancelled and answers 429 `read-timeout` (1..30). |
-| `THREADS_READ_MAX_CONCURRENT` | `10` | The most filtered thread-list and tag-list reads this process runs at once; the next answers 429 `read-busy` (1..16). |
+| `THREADS_READ_MAX_CONCURRENT` | `8` | The most filtered thread-list and tag-list reads this process runs at once; the next answers 429 `read-busy` (1..16). |
 | `THREADS_TAG_REINDEX_ON_BOOT` | `true` | Index the hashtags of messages written before the index, once after boot and without blocking the start; `false` leaves them unindexed until a boot that has it on. |
 | `POSTGRES_JDBC_URL` | `jdbc:postgresql://localhost:5439/adder` | Flyway's JDBC URL. |
 | `POSTGRES_R2DBC_URL` | `r2dbc:postgresql://localhost:5439/adder` | The runtime R2DBC URL. |

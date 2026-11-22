@@ -161,7 +161,7 @@ private fun Route.threadCreate(roomService: RoomService, threadService: ThreadSe
             auditNoticesCreated(caller.userId, roomId, created.id, created.messageId, created.notices)
             val location = ThreadsRoute.Number(ThreadsRoute(RoomsRoute.Id(id = roomId)), created.number.toUInt())
             call.response.header(HttpHeaders.Location, call.application.href(location))
-            val thread = threadService.read(roomId, created.number, caller.userId).orVanished("Thread", created.number)
+            val thread = threadService.readCreated(roomId, created.number, caller.userId).orVanished("Thread", created.number)
             call.respond(HttpStatusCode.Created, thread)
         }
     }

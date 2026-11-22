@@ -206,17 +206,19 @@ class ConnectionPoolTest {
     }
 
     // Production mode only (the tests above run tiny pools on purpose): the list reads and the searches each hold one connection while
-    // they run, so their process caps (10 + 4 by default, plus the notification list's own 4) together must stay BELOW the pool. The
-    // boundary is the pool size 18 -> 19.
+    // they run, so their process caps (8 + 4 by default, plus the notification list's own 4 and the thread detail's own 3) together must
+    // stay BELOW the pool. The boundary is the pool size 19 -> 20.
     @Test
     fun `production mode refuses a pool the list reads and the searches could take whole`() = testApplication {
         configureApp(
             "jwt.secret" to strongJwtSecret(), "security.encryption.key" to strongEncryptionKey(), "mail.transport" to "disabled",
-            "postgres.pool.maxSize" to "18",
+            "postgres.pool.maxSize" to "19",
         )
         serverConfig { developmentMode = false }
         withSeedRestored {
-            assertStartupFails("\"search.maxConcurrent\" (4) + the notification list's cap (4) must stay below") { startApplication() }
+            assertStartupFails(
+                "\"search.maxConcurrent\" (4) + the notification list's cap (4) + the thread detail's cap (3) must stay below",
+            ) { startApplication() }
         }
     }
 
@@ -224,7 +226,7 @@ class ConnectionPoolTest {
     fun `production mode passes the pool check one connection above the caps`() = testApplication {
         configureApp(
             "jwt.secret" to strongJwtSecret(), "security.encryption.key" to strongEncryptionKey(), "mail.transport" to "disabled",
-            "postgres.pool.maxSize" to "19",
+            "postgres.pool.maxSize" to "20",
         )
         serverConfig { developmentMode = false }
         // The pool check passed: the boot reaches the NEXT fail-closed check (the seed password), not this one.

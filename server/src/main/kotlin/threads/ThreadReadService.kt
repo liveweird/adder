@@ -2,8 +2,8 @@ package ch.nokillswit.threads
 
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.NotFoundException
-import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.plugins.RateLimitAuditThrottle
 import ch.nokillswit.rooms.RoomMemberService
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
@@ -79,53 +79,83 @@ class ThreadReadService internal constructor(
      * One per person at a time: a second call while one runs is the typed `429` `read-busy` with `Retry-After` (the caller's other
      * requests are unaffected), so a script cannot queue calls that each hold a pooled connection. Idempotent. A failure after step 1
      * leaves a retryable state: the floor is raised, the notices not all settled, the slot is freed and the client saw an error;
-     * calling again settles the rest (the ceiling is re-read, so only what is still unseen is worked on). ONE `room.read_all` audit
-     * line closes every call that got past step 1: `complete=true` with the count, or `complete=false` with the count so far.
+     * calling again settles the rest (the ceiling is re-read, so only what is still unseen is worked on). The audit trail is bounded
+     * by what the call DID, not by how often it was made (the bucket allows 240 a minute): ONE `room.read_all` line closes a call that
+     * settled at least one notice (`complete=true` with the count) and every call that FAILED or was CANCELLED after step 1
+     * (`complete=false` with the count so far; the line is written from a `finally`, a plain synchronous log call, so a cancelled
+     * request cannot skip it); a call that found nothing to settle writes none. A refusal for the in-flight rule is the `read.busy`
+     * line, COALESCED to one a minute per person (`suppressed` carries the refusals folded since the last line).
      */
     suspend fun markRoomRead(roomId: UInt, userId: UInt, chunk: Int = ROOM_SEEN_CHUNK): Int {
         if (!inFlight.add(userId)) {
-            audit("read.busy", "byUserId" to userId.toLong(), "roomId" to roomId.toLong(), "resource" to "read-all", "limit" to "user")
+            busyAudit.admit("read.busy:read-all:$userId")?.let { suppressed ->
+                audit(
+                    "read.busy",
+                    "byUserId" to userId.toLong(),
+                    "roomId" to roomId.toLong(),
+                    "resource" to "read-all",
+                    "limit" to "user",
+                    "suppressed" to suppressed,
+                )
+            }
             throw readAllBusy()
         }
+        try {
+            return raiseAndSettle(roomId, userId, chunk)
+        } finally {
+            inFlight.remove(userId)
+        }
+    }
+
+    /**
+     * Both steps of [markRoomRead] and its audit line (see there): the settled count. Step 1 is INSIDE the `try`, so a cancellation that
+     * strikes right after it commits still leaves the one `complete=false` line. `floorRaised` is the last statement of step 1's block,
+     * so a `404` (no membership row) and a failure before the raise write nothing; a commit that then fails writes one spurious line.
+     */
+    private suspend fun raiseAndSettle(roomId: UInt, userId: UInt, chunk: Int): Int {
+        var settled = 0
+        var floorRaised = false
+        var finished = false
+        fun line(complete: Boolean) = audit(
+            "room.read_all",
+            "byUserId" to userId.toLong(),
+            "roomId" to roomId.toLong(),
+            "settled" to settled,
+            "complete" to complete,
+        )
         try {
             val (at, ceiling) = suspendTransaction(database) {
                 val at = nowMillis()
                 if (!members.markAllReadInTransaction(roomId, userId, at)) throw NotFoundException("Room not found")
-                at to notices.roomUnseenCeiling(roomId, userId)
+                val ceiling = notices.roomUnseenCeiling(roomId, userId)
+                floorRaised = true
+                at to ceiling
             }
-            var settled = 0
-            fun line(complete: Boolean) = audit(
-                "room.read_all",
-                "byUserId" to userId.toLong(),
-                "roomId" to roomId.toLong(),
-                "settled" to settled,
-                "complete" to complete,
-            )
-            catchingFailures(
-                {
-                    var after = 0u
-                    do {
-                        // The loop runs while the chunk SELECTED was full (not while it UPDATED a full one): a row that is not moved
-                        // (seen or deleted by someone else) makes the update short, and stopping there would leave the rest unseen.
-                        val done = if (ceiling == null) {
-                            SeenChunk(0, 0)
-                        } else {
-                            suspendTransaction(database) { notices.roomSeenChunk(roomId, userId, at, after, ceiling, chunk) }
-                        }
-                        settled += done.moved
-                        after = done.lastId ?: after
-                    } while (done.selected == chunk)
-                },
-                { failure ->
-                    line(complete = false)
-                    throw failure
-                },
-            )
-            line(complete = true)
-            return settled
+            settleChunks(roomId, userId, at, ceiling, chunk) { settled += it }
+            finished = true
         } finally {
-            inFlight.remove(userId)
+            // A failure AND a cancellation (the client went away mid-call, also right after step 1 committed) leave the floor raised and
+            // the notices part-settled: the line is the only trace of it. `audit` is a plain synchronous log call, so it runs on a
+            // cancelled coroutine too.
+            if (floorRaised && !finished) line(complete = false)
         }
+        if (settled > 0) line(complete = true)
+        return settled
+    }
+
+    private suspend fun settleChunks(roomId: UInt, userId: UInt, at: Long, ceiling: UInt?, chunk: Int, onMoved: (Int) -> Unit) {
+        var after = 0u
+        do {
+            // The loop runs while the chunk SELECTED was full (not while it UPDATED a full one): a row that is not moved
+            // (seen or deleted by someone else) makes the update short, and stopping there would leave the rest unseen.
+            val done = if (ceiling == null) {
+                SeenChunk(0, 0)
+            } else {
+                suspendTransaction(database) { notices.roomSeenChunk(roomId, userId, at, after, ceiling, chunk) }
+            }
+            onMoved(done.moved)
+            after = done.lastId ?: after
+        } while (done.selected == chunk)
     }
 
     /**
@@ -134,6 +164,9 @@ class ThreadReadService internal constructor(
      * allow one call per person each, still bounded by the `read-state` bucket and the pool.
      */
     private val inFlight: MutableSet<UInt> = ConcurrentHashMap.newKeySet()
+
+    /** Coalesces the `read.busy` line of a refused second call: one a minute per person (the `rate_limit.exceeded` idiom). */
+    private val busyAudit = RateLimitAuditThrottle()
 }
 
 /**

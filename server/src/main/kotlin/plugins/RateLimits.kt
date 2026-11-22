@@ -153,7 +153,8 @@ object RateLimits {
      * minute; a person on three tabs, paging and filtering by hand besides (a few a second at the very most), stays under 200. 300 is
      * 5/s: above any real use with room to spare, so a normal member in a busy room is never refused, and a script is. The bucket sits
      * BEFORE the guards, so a refused or invalid read spends a token too. The per-request deadline (`threads.readTimeoutSeconds`) is
-     * the other half.
+     * the other half. Since 1.2 the whole tag registry read (`GET /tag-categories`, up to about half a megabyte at its caps) spends
+     * from the same bucket: it carries no deadline of its own: two short statements over the registry's tables, no room row is scanned.
      */
     const val CHAT_READ = "chat-read"
     /**

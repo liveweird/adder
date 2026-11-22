@@ -78,13 +78,21 @@ const val MAX_THREAD_HASHTAGS = 20
 
 /**
  * The hashtags of a page of threads, ONE statement: per thread id, its distinct tags in key order, at most [MAX_THREAD_HASHTAGS]. Each
- * thread is one probe of `idx_message_tags_thread (thread_id, tag)` (V31), which hands the keys over already ordered, so the `LIMIT` stops
- * the probe early and the room's tag index is never scanned. Deleted messages hold no rows. Argument: the thread ids. Constant text.
+ * thread is a LOOSE INDEX SCAN of `idx_message_tags_thread (thread_id, tag)` (V31): a recursive CTE reads the smallest key, then each next
+ * one with a chained `tag > previous ... LIMIT 1` probe, so a thread costs at most [MAX_THREAD_HASHTAGS] index descents WHATEVER its row
+ * count (a `SELECT DISTINCT ... LIMIT` walks every entry of a key before it moves on, and a thread of three tags and millions of rows
+ * would read them all). The room's tag index is never scanned. Deleted messages hold no rows. Argument: the thread ids. Constant text.
  */
 internal const val HASHTAGS_OF_SQL = """
 SELECT t.id, h.tag
 FROM unnest(CAST(? AS int4[])) AS t(id)
-CROSS JOIN LATERAL (SELECT DISTINCT mt.tag FROM message_tags mt WHERE mt.thread_id = t.id ORDER BY mt.tag LIMIT $MAX_THREAD_HASHTAGS) h
+CROSS JOIN LATERAL (
+  WITH RECURSIVE keys(tag, n) AS (
+    (SELECT mt.tag, 1 FROM message_tags mt WHERE mt.thread_id = t.id ORDER BY mt.tag LIMIT 1)
+    UNION ALL
+    SELECT (SELECT mt.tag FROM message_tags mt WHERE mt.thread_id = t.id AND mt.tag > k.tag ORDER BY mt.tag LIMIT 1), k.n + 1
+    FROM keys k WHERE k.tag IS NOT NULL AND k.n < $MAX_THREAD_HASHTAGS)
+  SELECT keys.tag FROM keys WHERE keys.tag IS NOT NULL) h
 ORDER BY t.id, h.tag"""
 
 /** A message whose body is to be (re)indexed: where it lives and what it says. */

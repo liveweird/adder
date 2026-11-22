@@ -52,8 +52,10 @@ fun Application.configureThreadReadRoutes() {
                 }
                 // "Mark all as read" (1.2): the same order up to the member guard (there is no body), then the caller's own floor and
                 // notices (`ThreadReadService.markRoomRead`: one in flight per person, else the typed 429 `read-busy`). 204 whether
-                // anything was unread or not; an archived room is marked too. NO live hint, but ONE audit line `room.read_all` (written by
-                // the service, `complete` true or false), because unlike the marker it settles an unbounded number of notices.
+                // anything was unread or not; an archived room is marked too. NO live hint. The service writes ONE audit line
+                // `room.read_all` for a call that settled at least one notice (`complete=true`) or failed or was cancelled after the floor
+                // was raised (`complete=false`); a no-op call and a refusal (403, 404) write none, and the in-flight 429 writes its own
+                // coalesced `read.busy` line (`resource=read-all`).
                 post<RoomReadAllRoute> { route ->
                     val caller = call.caller()
                     val roomId = route.parent.id

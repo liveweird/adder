@@ -259,17 +259,26 @@ internal fun connectPooledDatabase(
 internal const val NOTIFICATION_READ_MAX_CONCURRENT = 4
 
 /**
- * The fail-closed pool check of production mode: the list reads, the notification list and the searches each hold ONE pooled connection
- * while they run, so their process caps together must stay below the pool, or a flood of them could take every connection (the rest
- * of the app, the room-write
- * path included, would then wait for the pool). Development mode skips it: tests run tiny pools on purpose (`ConnectionPoolTest`).
+ * The thread detail's OWN limiter cap (`ChatWiring`; fixed, no config key): at most this many `GET .../threads/{number}` reads in the
+ * process. The detail read is not in the `chat-read` bucket (a live hint re-reads the open thread unspaced), so an unbucketed loop of it
+ * must never be able to take `threads.readMaxConcurrent` from the bucketed lists, nor they it. Each read takes a few milliseconds, so 3
+ * serve a room of a few dozen people re-reading after one hint within the 1 s permit wait. Counted by [requireReadersUnderPool].
+ */
+internal const val THREAD_READ_MAX_CONCURRENT = 3
+
+/**
+ * The fail-closed pool check of production mode: the list reads, the thread detail, the notification list and the searches each hold ONE
+ * pooled connection while they run, so their process caps together must stay below the pool, or a flood of them could take every
+ * connection (the rest of the app, the room-write path included, would then wait for the pool). Development mode skips it: tests run
+ * tiny pools on purpose (`ConnectionPoolTest`).
  */
 internal fun requireReadersUnderPool(readMaxConcurrent: Int, searchMaxConcurrent: Int, poolMaxSize: Int) {
     val notices = NOTIFICATION_READ_MAX_CONCURRENT
-    check(readMaxConcurrent + searchMaxConcurrent + notices < poolMaxSize) {
+    val detail = THREAD_READ_MAX_CONCURRENT
+    check(readMaxConcurrent + searchMaxConcurrent + notices + detail < poolMaxSize) {
         "Config \"threads.readMaxConcurrent\" ($readMaxConcurrent) + \"search.maxConcurrent\" ($searchMaxConcurrent) + the notification " +
-            "list's cap ($notices) must stay below \"postgres.pool.maxSize\" ($poolMaxSize), so list reads and searches together can " +
-            "never take the whole pool"
+            "list's cap ($notices) + the thread detail's cap ($detail) must stay below \"postgres.pool.maxSize\" ($poolMaxSize), so " +
+            "reads and searches together can never take the whole pool"
     }
 }
 

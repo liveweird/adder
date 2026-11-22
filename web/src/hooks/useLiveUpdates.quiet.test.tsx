@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { FakeClock, lastSocket, makeLive, SocketStub } from "../test/socket";
 import { resetTabVisibility, setTabVisible } from "../test/visibility";
+import { mayRefetchOnReconnect } from "../utils/queryClient";
 import { useLiveUpdates } from "./useLiveUpdates";
 
 const MINUTE = 60_000;
@@ -67,6 +68,20 @@ describe("useLiveUpdates: the hidden tab", () => {
     act(() => lastSocket().receive({ type: "event", kind: "notification.created", roomId: 12, threadNumber: 3, messageId: 9 }));
     act(() => t.clock.advanceBy(5_000));
     expect(t.flushed().slice(before)).toEqual([JSON.stringify(["notifications"])]);
+  });
+
+  test("eight hours hidden: the status is idle and the reconnect refetch is off until the tab is shown again", async () => {
+    const t = setup();
+    await act(settle);
+    act(() => makeLive(lastSocket()));
+    expect(mayRefetchOnReconnect({ visibilityState: "visible" })).toBe(true);
+    setTabVisible(false);
+    act(() => t.clock.advanceBy(8 * 60 * MINUTE));
+    expect(t.result.current).toBe("idle");
+    expect(mayRefetchOnReconnect({ visibilityState: "visible" })).toBe(false);
+    setTabVisible(true);
+    expect(t.result.current).toBe("connecting");
+    expect(mayRefetchOnReconnect({ visibilityState: "visible" })).toBe(true);
   });
 
   test("shown again: live at once, the room subscribed back and every room query re-read (the backfill)", async () => {

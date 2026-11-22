@@ -666,7 +666,9 @@ export interface paths {
          * The tag registry
          * @description Any authenticated user (the tag picker and the Tags page). Every active category with its live tags - a bounded,
          *     admin-curated set (at most 100 categories of at most 100 tags), so the plain `{items}` wrapper instead of the paged
-         *     envelope, name-ordered case-insensitively with the id as the tiebreaker, each category's tags alphabetical.
+         *     envelope, name-ordered case-insensitively with the id as the tiebreaker, each category's tags alphabetical. At those caps the
+         *     document is about half a megabyte (100 x 100 names of up to 40 characters), so the read rides the per-USER `chat-read` bucket
+         *     of 300 per minute shared with the thread list and the tag list of a room (`429` beyond it; spent before any check).
          */
         get: operations["listTagCategories"];
         put?: never;
@@ -1062,10 +1064,10 @@ export interface paths {
          *       picker), at most 50 characters (`400` beyond). A repeated key is a `400`. It is not the thread list's `tag`, which is an exact,
          *       repeatable key.
          *
-         *     Rides the per-USER `chat-read` bucket of 300 per minute shared with the thread list (`429` beyond it; the bucket is spent
+         *     Rides the per-USER `chat-read` bucket of 300 per minute shared with the thread list and the registry read (`429` beyond it; the bucket is spent
          *     before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
          *     list past it is answered `429` of type `urn:adder:problem:read-timeout` with `Retry-After: 2`, audited without the filter value.
-         *     At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list and the tag list together, a read
+         *     At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list, the tag list and the thread read together, a read
          *     waits about 1 second for a slot): past either it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
          *     (the server is loaded; retry shortly, nothing to narrow).
          */
@@ -1187,10 +1189,10 @@ export interface paths {
          *       order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
          *       what the caller may read.
          *     - A row carries the status KEY; labels and colours come from the room's workflow (`GET /rooms/{id}/workflow`).
-         *     - Rides the per-USER `chat-read` bucket of 300 per minute shared with `GET /rooms/{id}/tags` (`429` beyond it; the bucket is spent
+         *     - Rides the per-USER `chat-read` bucket of 300 per minute shared with `GET /rooms/{id}/tags` and `GET /tag-categories` (`429` beyond it; the bucket is spent
          *       before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
          *       list past it is answered `429` of type `urn:adder:problem:read-timeout` with `Retry-After: 2`, audited without the filter values.
-         *       At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list and the tag list together, a read
+         *       At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list, the tag list and the thread read together, a read
          *       waits about 1 second for a slot): past either it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
          *       (the server is loaded; retry shortly, nothing to narrow).
          */
@@ -1241,6 +1243,12 @@ export interface paths {
          * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`, as does an unknown number). `fields` holds the ACTIVE
          *     fields' stored values only (a retired field keeps its value, hidden, and it returns if the field is revived); `fieldUserNames`
          *     maps the user ids held by USER fields to display names. `revision` is what the details PUT names in `X-Expected-Revision`.
+         *
+         *     The read runs under the lists' deadline (5 seconds by default; past it `429` of type `urn:adder:problem:read-timeout` with
+         *     `Retry-After: 2`) and its OWN in-flight caps (2 per user and 3 in the process, apart from the lists' permits;
+         *     `urn:adder:problem:read-busy` with `Retry-After: 1`: the server is loaded, retry shortly). It is NOT in the `chat-read` bucket:
+         *     a live hint re-reads the open thread every few hundred milliseconds in a busy thread, which would spend the lists' budget, and
+         *     for the same reason it does not share the lists' permits.
          */
         get: operations["getThread"];
         /**
@@ -2798,8 +2806,8 @@ export interface components {
              *     - `urn:adder:problem:pin-limit` (409): the room already holds its 50 pins.
              *     - `urn:adder:problem:reaction-limit` (409): the message or the caller is at the reaction limit.
              *     - `urn:adder:problem:room-busy` (429, `Retry-After`): the room's write lock stayed busy; retry.
-             *     - `urn:adder:problem:read-timeout` (429, `Retry-After`): a filtered thread list or a tag list outran its deadline.
-             *     - `urn:adder:problem:read-busy` (429, `Retry-After`): the caller or the server is at its maximum of list reads.
+             *     - `urn:adder:problem:read-timeout` (429, `Retry-After`): a filtered thread list, a tag list or a thread read outran its deadline.
+             *     - `urn:adder:problem:read-busy` (429, `Retry-After`): the caller or the server is at its maximum of list and thread reads.
              *     - `urn:adder:problem:search-timeout` (429, `Retry-After`): a search outran its deadline.
              *     - `urn:adder:problem:search-busy` (429, `Retry-After`): the server is at its maximum of concurrent searches.
              *     - `urn:adder:problem:live-socket-limit` (429, `Retry-After`): the caller already holds their maximum of live sockets.
@@ -3683,7 +3691,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
-        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`, and one entry of it, `/api/v1/users/directory/{id}`) the per-USER directory bucket (shared by both) is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) and on the room-lock writes that are not a name or an enrolment write (the room archive, unarchive and delete, a member's role PUT and removal, and the room workflow PUT) the per-USER chat-write bucket (shared by all fourteen) is exhausted (240/min), on the thread list and the tag list (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`) the per-USER chat-read bucket (shared by both) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`), on the watch PUT (`PUT /api/v1/rooms/{id}/threads/{number}/watch`) the per-USER thread-watch bucket (30/min) is exhausted, on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, and the two notification "seen" POSTs) the per-USER read-state bucket (shared by all four) is exhausted (240/min), on a tag-registry write (`POST /api/v1/tag-categories`, `PUT` and `DELETE /api/v1/tag-categories/{id}`) the registry's table lock stayed held by another writer for about 3 seconds (`urn:adder:problem:room-busy`, `Retry-After: 1`, nothing was written), on the notification list the per-USER notification-read bucket (240/min) or on the notification-preferences PUT the per-USER notification-prefs bucket (30/min) is exhausted, or the notification list outruns its deadline (`read-timeout`) or finds the caller or server at their maximum of list reads (`read-busy`), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
+        /** @description Throttled — either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory (`/api/v1/users/directory`, and one entry of it, `/api/v1/users/directory/{id}`) the per-USER directory bucket (shared by both) is exhausted (120/min), on creating or renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min), on adding room members (`POST /api/v1/rooms/{id}/members`) the per-USER room-members bucket is exhausted (60/min), on starting a thread or posting a message (`POST /api/v1/rooms/{id}/threads`, `POST /api/v1/rooms/{id}/threads/{number}/messages`) the per-USER chat-post bucket (shared by both) is exhausted (120/min), on the other thread and message writes (the thread details, status and owner PUTs, a message edit and a message delete, the thread and message pin PUTs and the reaction PUT) and on the room-lock writes that are not a name or an enrolment write (the room archive, unarchive and delete, a member's role PUT and removal, and the room workflow PUT) the per-USER chat-write bucket (shared by all fourteen) is exhausted (240/min), on the thread list, the tag list and the registry read (`GET /api/v1/rooms/{id}/threads`, `GET /api/v1/rooms/{id}/tags`, `GET /api/v1/tag-categories`) the per-USER chat-read bucket (shared by all three) is exhausted (300/min), the read outruns its deadline (`urn:adder:problem:read-timeout`, `Retry-After: 2`), or the caller or the server already runs its maximum of list reads (`urn:adder:problem:read-busy`, `Retry-After: 1`; the thread read `GET /api/v1/rooms/{id}/threads/{number}` has the deadline and the caps but not the bucket), on the watch PUT (`PUT /api/v1/rooms/{id}/threads/{number}/watch`) the per-USER thread-watch bucket (30/min) is exhausted, on the view-state writes (the thread read-marker PUT, `POST /api/v1/rooms/{id}/seen`, and the two notification "seen" POSTs) the per-USER read-state bucket (shared by all four) is exhausted (240/min), on a tag-registry write (`POST /api/v1/tag-categories`, `PUT` and `DELETE /api/v1/tag-categories/{id}`) the registry's table lock stayed held by another writer for about 3 seconds (`urn:adder:problem:room-busy`, `Retry-After: 1`, nothing was written), on the notification list the per-USER notification-read bucket (240/min) or on the notification-preferences PUT the per-USER notification-prefs bucket (30/min) is exhausted, or the notification list outruns its deadline (`read-timeout`) or finds the caller or server at their maximum of list reads (`read-busy`), on a search (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`) the per-USER search bucket (shared by both) is exhausted (60/min), or the search outruns its request deadline (`urn:adder:problem:search-timeout`, `Retry-After: 2`), or the server already runs its maximum of concurrent searches (`urn:adder:problem:search-busy`, `Retry-After: 1`), on minting a live-update ticket (`POST /api/v1/live/tickets`) the per-USER live-ticket bucket is exhausted (60/min), the server already holds its maximum of pending tickets (answered with `Retry-After: 30`) or the caller already holds 16 sockets (`urn:adder:problem:live-socket-limit`, `Retry-After: 60`), on the live-update WebSocket (`GET /api/v1/live`) the per-IP live-connect bucket is exhausted (600/min), or, on /login, the per-account lockout is active (account-specific detail). Any room write (the record, archive, delete, workflow, member, thread and message writes) whose room stayed locked by other writers for about 3 seconds is a `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1` (retry; nothing was written). `Retry-After` is sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the per-bucket 429s and the live-ticket store's full `429` (30 s, the ticket TTL), not with the login lockout, so it is declared optional. All carry a ProblemDetail body. */
         TooManyRequests: {
             headers: {
                 /** @description Seconds to wait before retrying; sent with every typed 429 (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`, `live-socket-limit`), the rate-limit bucket 429s and the live-ticket store's full 429; not with the login lockout. */
@@ -4782,6 +4790,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };
@@ -5571,6 +5580,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };

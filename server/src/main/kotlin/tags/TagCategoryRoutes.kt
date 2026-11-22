@@ -7,12 +7,15 @@ import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.infra.ProblemTypes
 import ch.nokillswit.infra.revision.expectedRevision
+import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.plugins.isLockNotAvailable
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
+import io.ktor.server.plugins.ratelimit.RateLimitName
+import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
 import io.ktor.server.resources.delete
 import io.ktor.server.resources.get
@@ -61,9 +64,14 @@ fun Application.configureTagCategoryRoutes() {
 
     routing {
         authenticate {
-            get<TagCategoriesRoute> {
-                call.caller()
-                call.respond(HttpStatusCode.OK, TagCategoryList(service.list()))
+            // The whole registry is one document of up to about half a megabyte (100 x 100 names of 40 characters, `TagCategory.kt`), so
+            // the read rides the per-USER `chat-read` bucket with the room reads (before every check, as they do): the picker and the
+            // filter panel read it a few times a minute at the very most, a script reads it at 5 a second.
+            rateLimit(RateLimitName(RateLimits.CHAT_READ)) {
+                get<TagCategoriesRoute> {
+                    call.caller()
+                    call.respond(HttpStatusCode.OK, TagCategoryList(service.list()))
+                }
             }
             post<TagCategoriesRoute> {
                 val caller = call.caller()

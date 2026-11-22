@@ -211,6 +211,27 @@ class ThreadTagSearchTest {
     }
 
     @Test
+    fun `a name the registry never held runs the same thread statements as a tag nobody uses, so no timing tells them apart`() =
+        testApplication {
+            val w = world("tsrch-same")
+            val driver = LoggerFactory.getLogger("io.r2dbc.postgresql.QUERY") as ch.qos.logback.classic.Logger
+            val saved = driver.level
+            val capture = LogCapture(driver.name)
+            try {
+                driver.level = ch.qos.logback.classic.Level.DEBUG
+                fun threadStatements() = capture.events.map { it.formattedMessage }.filter { "threads.room_id = ANY(" in it }
+                assertEquals(0L, w.ann.client.everywhere(tagged(w.t4)).total, "a registry tag nobody carries")
+                val used = threadStatements().size
+                assertTrue(used >= 2, "the count and the page: $used")
+                assertEquals(0L, w.ann.client.everywhere(tagged("never-held-${UUID.randomUUID().toString().take(8)}")).total)
+                assertEquals(2 * used, threadStatements().size, "the same statements for a name the registry never held")
+            } finally {
+                driver.level = saved
+                capture.detach()
+            }
+        }
+
+    @Test
     fun `a malformed tag filter and a missing q are 400s, the tag bound is 20, and a non-member still gets 404`() = testApplication {
         val w = world("tsrch-400")
         val client = w.ann.client
@@ -293,7 +314,8 @@ class ThreadTagSearchTest {
             val threadStatements = all.filter { "threads.room_id = ANY(" in it }
             assertEquals(2, threadStatements.size, "the count and the page: $threadStatements")
             threadStatements.forEach { sql ->
-                assertTrue("thread_tags" in sql && "EXISTS" in sql.uppercase(), "the tag probe: $sql")
+                assertTrue("thread_tags" in sql && "LIMIT 1" in sql.uppercase(), "the tag probe is a scalar probe with LIMIT 1: $sql")
+                assertTrue("EXISTS" !in sql.uppercase(), "never an EXISTS the planner may flatten into a tag-side join: $sql")
                 assertTrue("thread_tags.thread_id = threads.id" in sql, "correlated on the thread: $sql")
                 assertTrue("messages" !in sql, "no message is read: $sql")
                 val roomsFirst = sql.indexOf("threads.room_id = ANY(") < sql.indexOf("thread_tags")
@@ -307,13 +329,19 @@ class ThreadTagSearchTest {
             capture.detach()
         }
         for (mode in listOf("auto", "force_generic_plan")) {
-            for (tag in listOf(1, 7)) {
+            // Tag 0 is the id a name the registry never held is probed as (`threadCarriesAnyThreadTag`).
+            for (tag in listOf(1, 7, 0)) {
                 val plan = explainTagPage(planned, tag, mode)
                 assertTrue("Seq Scan" !in plan, "$mode, tag $tag: no scan of the whole threads or thread_tags table:\n$plan")
                 val tagIndex = "idx_thread_tags_tag" in plan || "thread_tags_pkey" in plan
                 assertTrue(tagIndex, "$mode, tag $tag: thread_tags through an index:\n$plan")
-                assertTrue("idx_threads_room_" in plan || "threads_pkey" in plan, "$mode, tag $tag: threads through an index:\n$plan")
+                val threadsIndex = "idx_threads_room_" in plan || "threads_pkey" in plan || "uq_threads_room_number" in plan
+                assertTrue(threadsIndex, "$mode, tag $tag: threads through an index (the caller's rooms first):\n$plan")
                 assertTrue("messages" !in plan, "no message table in the plan:\n$plan")
+                // The time must not follow the tag's usage (1.2 branch audit): one probe per thread of the caller's rooms, never a
+                // join that starts from the tag side and reads every thread that carries it.
+                assertTrue("SubPlan" in plan, "$mode, tag $tag: a per-thread probe:\n$plan")
+                assertTrue("Semi Join" !in plan && "Hash" !in plan, "$mode, tag $tag: no join from the tag side:\n$plan")
             }
         }
     }
@@ -322,7 +350,7 @@ class ThreadTagSearchTest {
      * The captured page statement of the tag view, PREPARED and explained over a seeded spread inside a rolled-back transaction of the
      * shared container: 30,000 threads in 1,000 rooms with 12 tags (tag 1 on about a fifth of them, each other tag on one in twelve), the
      * caller in 40 rooms. Foreign keys are off for the seed (`replica`), the tables are analysed, the planner is NOT restricted: this is
-     * the plan the server would choose (measured at 0.6 to 1.0 ms with `EXPLAIN ANALYZE`, `persistence.md` "Thread tags (V33)").
+     * the plan the server would choose (`persistence.md` "Thread tags (V33)" has the measured times).
      */
     private fun explainTagPage(sql: String, tag: Int, mode: String): String = PostgresTestSupport.connect().use { c ->
         c.autoCommit = false

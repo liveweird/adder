@@ -34,10 +34,10 @@ internal class SearchBudget(totalSeconds: Int, private val clock: () -> Long = S
 }
 
 /**
- * The ONE budgeted read transaction (the search's and the two list reads'): [block] runs in a single transaction under a fresh
- * [SearchBudget] of [timeoutSeconds]. A statement the budget cancelled (SQLSTATE `57014`) or a deadline spent between two statements
- * calls [onTimeout], which audits and throws the caller's typed `429`; any other failure propagates untouched. The cancelled statement's
- * cause is deliberately dropped (a database failure's message can echo a bound value).
+ * The ONE budgeted read transaction (the search's, the list reads', the thread detail's and the notice list's): [block] runs in a
+ * single transaction under a fresh [SearchBudget] of [timeoutSeconds]. A statement the budget cancelled (SQLSTATE `57014`) or a
+ * deadline spent between two statements calls [onTimeout], which audits and throws the caller's typed `429`; any other failure
+ * propagates untouched. The cancelled statement's cause is deliberately dropped (a database failure's message can echo a bound value).
  */
 internal suspend fun <T> budgetedTransaction(
     database: R2dbcDatabase,

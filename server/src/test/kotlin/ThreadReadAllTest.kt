@@ -30,6 +30,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -434,12 +435,11 @@ class ThreadReadAllTest {
         }
         assertEquals(0, unseenIn(cast.room, cast.bob.id), "three chunks of at most 1,000")
         assertEquals(4, unseenIn(cast.room, cast.alice.id), "somebody else's pile")
-        // Nothing to settle: still one line, with a count of zero.
+        // Nothing to settle: no line at all (the bucket allows 240 calls a minute; the trail records what a call DID). The line is
+        // written before the response, so none is pending.
         withAuditCapture { capture ->
             assertEquals(HttpStatusCode.NoContent, cast.bob.client.readAll(cast.room).status)
-            val line = capture.awaitEvent { it.message == "room.read_all" && it.hasKeyValue("byUserId", cast.bob.id.toLong()) }
-            assertNotNull(line)
-            assertTrue(line.hasKeyValue("settled", 0))
+            assertTrue(capture.events.none { it.message == "room.read_all" }, capture.events.map { it.message }.toString())
         }
     }
 
@@ -556,6 +556,10 @@ class ThreadReadAllTest {
                         assertEquals("urn:adder:problem:read-busy", second.body<ProblemDetail>().type)
                         val line = capture.awaitEvent { it.message == "read.busy" && it.hasKeyValue("resource", "read-all") }
                         assertNotNull(line)
+                        assertTrue(line.hasKeyValue("suppressed", 0L), "the first refusal of the window folds none: ${line.keyValuePairs}")
+                        // Coalesced: more refusals inside the minute are still 429, with NO further line.
+                        repeat(3) { assertEquals(HttpStatusCode.TooManyRequests, cast.bob.client.readAll(cast.room).status) }
+                        assertEquals(1, capture.events.count { it.message == "read.busy" && it.hasKeyValue("resource", "read-all") })
                         // Somebody else's call is not affected by Bob's.
                         assertEquals(HttpStatusCode.NoContent, cast.alice.client.readAll(cast.room).status)
                     }
@@ -604,6 +608,43 @@ class ThreadReadAllTest {
         // The slot is free (the next call is not the 429) and a plain retry settles the rest.
         assertEquals(HttpStatusCode.NoContent, cast.bob.client.readAll(cast.room).status)
         assertEquals(0, unseenIn(cast.room, cast.bob.id))
+    }
+
+    @Test
+    fun `a failure inside the floor transaction rolls the floor back and writes no line`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = populated("ra-tx1")
+        val before = floors(cast.room, cast.bob.id)
+        val real: ThreadNotices = TestThreads.noticeWriter
+        val stub = object : ThreadNotices by real {
+            override suspend fun roomUnseenCeiling(roomId: UInt, userId: UInt): UInt? = error("the ceiling failed")
+        }
+        val database = sharedDatabaseForTests()
+        val failing = ThreadReadService(database, RoomMemberService(database, TeamService(database)), stub)
+        withAuditCapture { capture ->
+            val failure = runCatching { failing.markRoomRead(cast.room, cast.bob.id) }.exceptionOrNull()
+            assertTrue(failure is IllegalStateException, "the failure propagates untouched: $failure")
+            assertTrue(capture.events.none { it.message == "room.read_all" }, "the floor was never raised, so there is nothing to trace")
+        }
+        assertEquals(before, floors(cast.room, cast.bob.id), "the floor update rolled back with its transaction")
+        assertEquals(HttpStatusCode.NoContent, cast.bob.client.readAll(cast.room).status, "the slot was freed")
+    }
+
+    @Test
+    fun `a call cancelled after the floor was raised still writes its incomplete line`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = populated("ra-cancel")
+        val thread = checkNotNull(TestThreads.raw(cast.room, 1)).id
+        pile(cast.room, cast.bob.id, thread, cast.alice.id, 3)
+        val cancelled = serviceWith { _, _ -> throw CancellationException("the client went away") }
+        withAuditCapture { capture ->
+            val failure = runCatching { cancelled.markRoomRead(cast.room, cast.bob.id) }.exceptionOrNull()
+            assertTrue(failure is CancellationException, "the cancellation propagates untouched: $failure")
+            val line = capture.awaitEvent { it.message == "room.read_all" && it.hasKeyValue("byUserId", cast.bob.id.toLong()) }
+            assertNotNull(line)
+            assertTrue(line.hasKeyValue("complete", false), "a cancelled call says so: ${line.keyValuePairs}")
+        }
+        assertEquals(HttpStatusCode.NoContent, cast.bob.client.readAll(cast.room).status, "the slot was freed")
     }
 
     @Test
