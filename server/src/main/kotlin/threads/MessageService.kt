@@ -60,6 +60,9 @@ class MessageService internal constructor(
      */
     private val followers: List<MessageFollower> = listOf<MessageFollower>(mentions) + followers + reactions.follower + AuthorReadMarker
 
+    /** The ONE assembly of message rows into responses, shared by [list], [read] and [readInTransaction] (`MessageAssembly.kt`). */
+    private val assembly = MessageAssembly(mentions, reactions)
+
     object Messages : UIntIdTable("messages"), SoftDeletable {
         val threadId = reference("thread_id", ThreadService.Threads)
         val authorId = reference("author_id", UserService.Users)
@@ -129,16 +132,7 @@ class MessageService internal constructor(
             idLt?.let { predicate = predicate and (Messages.id less it) }
             val total = Messages.selectAll().where { predicate }.count()
             val rows = Messages.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
-            val names = userNames(rows.map { it[Messages.authorId].value })
-            val mentioned = mentionsOf(rows)
-            val grouped = groupMentionsOf(rows)
-            val reacted = reactionsOf(viewerId, rows)
-            val items = rows.map {
-                val id = it[Messages.id].value
-                val author = names.getValue(it[Messages.authorId].value)
-                it.toResponse(number, author, mentioned[id].orEmpty(), grouped[id].orEmpty(), reacted[id].orEmpty())
-            }
-            MessageListResult(items, total)
+            MessageListResult(assembly.responses(rows, viewerId) { number }, total)
         }
 
     /**
@@ -150,36 +144,8 @@ class MessageService internal constructor(
         val row = Messages.innerJoin(threads).selectAll()
             .where { (Messages.id eq messageId) and (threads.roomId eq roomId) and Messages.active() }
             .toList().singleOrNull() ?: return@suspendTransaction null
-        row.toResponse(
-            row[threads.number],
-            userNames(listOf(row[Messages.authorId].value)).getValue(row[Messages.authorId].value),
-            mentionsOf(listOf(row))[row[Messages.id].value].orEmpty(),
-            groupMentionsOf(listOf(row))[row[Messages.id].value].orEmpty(),
-            reactionsOf(viewerId, listOf(row))[row[Messages.id].value].orEmpty(),
-        )
+        assembly.responses(listOf(row), viewerId) { it[threads.number] }.single()
     }
-
-    /** The reactions of the LIVE messages among [rows] as [viewerId] sees them, in ONE read. Runs INSIDE the caller's transaction. */
-    private suspend fun reactionsOf(viewerId: UInt, rows: List<ResultRow>): Map<UInt, List<ReactionSummary>> =
-        reactions.summaries(viewerId, rows.filterNot { it[Messages.markedAsDeleted] }.map { it[Messages.id].value })
-
-    /**
-     * The mentions of the LIVE messages among [rows], in ONE read (none when no body holds a `<@` token: most pages). Runs INSIDE the
-     * caller's transaction.
-     */
-    private suspend fun mentionsOf(rows: List<ResultRow>): Map<UInt, List<MentionedUser>> =
-        mentions.mentionsOf(
-            rows.filter { !it[Messages.markedAsDeleted] && it[Messages.body].contains("<@") }.map { it[Messages.id].value },
-        )
-
-    /**
-     * The group mentions (`<@team:id>`, `<@watchers>`, `<@everyone>`) of the LIVE messages among [rows], in ONE read (none when no body
-     * holds a `<@` token). Runs INSIDE the caller's transaction.
-     */
-    private suspend fun groupMentionsOf(rows: List<ResultRow>): Map<UInt, List<GroupMention>> =
-        mentions.groups.groupsOf(
-            rows.filter { !it[Messages.markedAsDeleted] && it[Messages.body].contains("<@") }.map { it[Messages.id].value },
-        )
 
     /**
      * The live messages [ids] of room [roomId] as they read now for [viewerId] (their own reactions are marked), by id, inside the
@@ -191,15 +157,7 @@ class MessageService internal constructor(
         val threads = ThreadService.Threads
         val rows = Messages.innerJoin(threads).selectAll()
             .where { (Messages.id inList ids.toSet()) and (threads.roomId eq roomId) and Messages.active() }.toList()
-        val names = userNames(rows.map { it[Messages.authorId].value })
-        val mentioned = mentionsOf(rows)
-        val grouped = groupMentionsOf(rows)
-        val reacted = reactionsOf(viewerId, rows)
-        return rows.associate {
-            val id = it[Messages.id].value
-            val author = names.getValue(it[Messages.authorId].value)
-            id to it.toResponse(it[threads.number], author, mentioned[id].orEmpty(), grouped[id].orEmpty(), reacted[id].orEmpty())
-        }
+        return assembly.responses(rows, viewerId) { it[threads.number] }.associateBy { it.id }
     }
 
     /**
@@ -313,31 +271,6 @@ class MessageService internal constructor(
     private suspend fun isOpening(threadId: UInt, messageId: UInt): Boolean {
         val first = Messages.id.min()
         return Messages.select(first).where { Messages.threadId eq threadId }.toList().single()[first]?.value == messageId
-    }
-
-    private fun ResultRow.toResponse(
-        threadNumber: Int,
-        authorName: String,
-        mentioned: List<MentionedUser>,
-        grouped: List<GroupMention>,
-        summaries: List<ReactionSummary>,
-    ): MessageResponse {
-        val deleted = this[Messages.markedAsDeleted]
-        val authorId = this[Messages.authorId].value
-        return MessageResponse(
-            id = this[Messages.id].value,
-            threadNumber = threadNumber,
-            authorId = authorId,
-            authorName = authorName,
-            body = if (deleted) null else this[Messages.body],
-            deleted = deleted,
-            deletedByModerator = this[Messages.deletedBy]?.value.let { it != null && it != authorId },
-            editedAt = if (deleted) null else this[Messages.editedAt],
-            createdAt = this[Messages.createdAt],
-            mentions = if (deleted) emptyList() else mentioned,
-            groupMentions = if (deleted) emptyList() else grouped,
-            reactions = if (deleted) emptyList() else summaries,
-        )
     }
 }
 
