@@ -1,7 +1,7 @@
 package ch.nokillswit.threads
 
 /**
- * Why somebody is told about an event (`chat-model.md` "Notice kinds (V27, V28)"): the chat's own vocabulary, eleven names that
+ * Why somebody is told about an event (`chat-model.md` "Notice kinds (V27, V28)"): the chat's own vocabulary, twelve names that
  * `notifications/NoticeKinds.kt` maps to the persisted `NotificationType` by an exhaustive `when` (a new reason does not compile until it
  * is mapped, and a test pins every name equal to its kind). The order is the PRIORITY of a message event, the most specific first; a
  * hand-over is `THREAD_ASSIGNED` over `THREAD_OWNER_CHANGED`. Public only because [NoticeOutcome] rides the public write results
@@ -9,6 +9,9 @@ package ch.nokillswit.threads
  */
 enum class NoticeReason {
     MENTIONED,
+
+    /** The author of a quoted message (1.3), right after `MENTIONED`: the order is the priority, and it is NOT a mention reason. */
+    MESSAGE_QUOTED,
     TEAM_MENTIONED,
     WATCHERS_MENTIONED,
     EVERYONE_MENTIONED,
@@ -49,8 +52,8 @@ internal class NoticeRevision(
 /**
  * What a call made, for the route's `notification.created` audit line (ids and counts only): [recipients] is the number of notices made
  * or refreshed (a repeated thread-level notice replaces the person's unseen one), [kinds] how many of each reason, [addressed] the
- * people a notice was made for BY NAME (a direct mention or a hand-over), at most [MAX_AUDITED_ADDRESSED] of them (the rest of a wide
- * event is a count, never 499 ids in a log line).
+ * people a notice was made for BY NAME (a direct mention, a quoted message's author or a hand-over), at most [MAX_AUDITED_ADDRESSED] of
+ * them (the rest of a wide event is a count, never 499 ids in a log line).
  */
 data class NoticeOutcome(
     val recipients: Int = 0,
@@ -77,8 +80,11 @@ data class NoticeOutcome(
     }
 }
 
-/** The most directly addressed people one audit line names: a message mentions at most 20 people by name, and one more says "or more". */
-internal const val MAX_AUDITED_ADDRESSED = 21
+/**
+ * The most directly addressed people one audit line names: a message mentions at most 20 people by name, its quoted message's author
+ * is one more (1.3), and one more says "or more".
+ */
+internal const val MAX_AUDITED_ADDRESSED = 22
 
 /**
  * What the chat tells the notification feature (`chat-model.md` "Notifications (V18)", "Notice kinds (V27, V28)"): `threads/` declares this

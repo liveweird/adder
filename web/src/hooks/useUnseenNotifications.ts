@@ -32,7 +32,7 @@ export function useUnseenNotifications() {
 }
 
 /**
- * The caller's unseen notices of the ADDRESSED kinds (`ADDRESSED_TYPES`: a mention of any kind, a hand-over) under
+ * The caller's unseen notices of the ADDRESSED kinds (`ADDRESSED_TYPES`: a mention of any kind, a quote of their message, a hand-over) under
  * `["notifications", "addressed"]`: their count per room is the rail's `@` number and their threads carry the thread list's `@` mark
  * (0.6 D1 stays). Re-read by the same hints as the badge, because it sits under the same `["notifications"]` prefix.
  */

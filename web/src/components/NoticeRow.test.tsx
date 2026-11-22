@@ -70,7 +70,7 @@ describe("NoticeRow", () => {
   test.each(["en", "pl"] as const)("every notifications.event key in %s holds the actor once, with words after it", (lng) => {
     const t = i18n.getFixedT(lng);
     const kinds = Object.keys(enNotifications.event);
-    expect(kinds).toHaveLength(11);
+    expect(kinds).toHaveLength(12);
     for (const kind of kinds) {
       const sentence = t(`notifications.event.${kind as keyof typeof enNotifications.event}`, { actor: slot("actor"), number: 42, title: "T" });
       const parts = sentence.split(slot("actor"));

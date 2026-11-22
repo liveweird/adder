@@ -33,6 +33,7 @@
     },
     "kind": {
       "MENTIONED": "Ktoś o mnie wspomina",
+      "MESSAGE_QUOTED": "Ktoś cytuje moją wiadomość",
       "TEAM_MENTIONED": "Ktoś wspomina o moim zespole",
       "WATCHERS_MENTIONED": "Ktoś wspomina o obserwujących wątek, który obserwuję",
       "EVERYONE_MENTIONED": "Ktoś wspomina o wszystkich w pokoju, do którego należę",
@@ -51,6 +52,7 @@
   },
   "event": {
     "MENTIONED": "{{actor}} wspomina o Tobie w #{{number}} {{title}}",
+    "MESSAGE_QUOTED": "{{actor}} cytuje Twoją wiadomość w #{{number}} {{title}}",
     "THREAD_ASSIGNED": "{{actor}} przekazuje Ci wątek #{{number}} {{title}}",
     "TEAM_MENTIONED": "{{actor}} wspomina o Twoim zespole w #{{number}} {{title}}",
     "WATCHERS_MENTIONED": "{{actor}} wspomina o obserwujących wątek #{{number}} {{title}}",

@@ -75,7 +75,8 @@ internal class NoticeWriter(
      *
      * **One event for the wide-event budget (1.1 A35, A38):** wide when the people it ADDS (actor left out, before the channels are judged)
      * or the bells its relabels change exceed [WIDE_EVENT_RECIPIENTS]. Refused, the labels still change (a label must not lie), the
-     * relabelled get no hint and only the people named directly are added; the outcome's `relabelled` leaves a trace. **An upgrade deletes
+     * relabelled get no hint and only the people named directly are added (an edit never counts a quoted author as named directly: the
+     * quote did not change); the outcome's `relabelled` leaves a trace. **An upgrade deletes
      * the old row only when its replacement is made**; when it is dropped (the budget, the person's switches, the email budget) the old
      * row stays only while its kind is still one of the body's reasons for the person, and is otherwise relabelled in place.
      */
@@ -83,7 +84,9 @@ internal class NoticeWriter(
         val relabelled = judger.relabel(at.messageId, revision.relabel)
         val candidates = distinctOthers(revision.add, byUserId)
         val full = candidates.associateBy { it.userId }
-        val direct = candidates.filter { it.reason in DIRECT }.map { Notice(it.userId, it.reason) }
+        // A quote never changes, so an edit never makes MESSAGE_QUOTED the reason that names a person directly: an edit that adds a group
+        // mention for the quoted author is a group notice (budgeted and withheld like any), only a `<@id>` mention keeps its place.
+        val direct = candidates.filter { it.reason in EDIT_DIRECT }.map { Notice(it.userId, it.reason) }
         val hinted = relabelled.changedBell.size
         val admitted = (candidates.size <= WIDE_EVENT_RECIPIENTS && hinted <= WIDE_EVENT_RECIPIENTS) ||
             emailBudget.admitBroadcast(byUserId, at.roomId, withheld = candidates.size - direct.size + hinted)
@@ -285,7 +288,8 @@ internal class NoticeWriter(
 
     /**
      * The wide-event budget (V29): an event reaching more than [WIDE_EVENT_RECIPIENTS] people counts one against the actor's day. Over
-     * the budget only the people named directly ([DIRECT]: a `<@id>` mention, a hand-over) stay; the write itself is never refused.
+     * the budget only the people named directly ([DIRECT]: a `<@id>` mention, the author of a quoted message, a hand-over) stay; the write
+     * itself is never refused.
      */
     private suspend fun withinBroadcastBudget(wanted: List<Notice>, roomId: UInt, actorId: UInt): List<Notice> {
         if (wanted.size <= WIDE_EVENT_RECIPIENTS) return wanted
@@ -329,8 +333,14 @@ internal class NoticeWriter(
     }
 
     private companion object {
-        /** The reasons that name a person themself (the audit line lists them: a direct mention and a hand-over). */
-        val DIRECT = setOf(NoticeReason.MENTIONED, NoticeReason.THREAD_ASSIGNED)
+        /**
+         * The reasons that name a person themself (the audit line lists them: a direct mention, the author of a quoted message and a
+         * hand-over); a refused wide event keeps them.
+         */
+        val DIRECT = setOf(NoticeReason.MENTIONED, NoticeReason.MESSAGE_QUOTED, NoticeReason.THREAD_ASSIGNED)
+
+        /** [DIRECT] for an EDIT: the quote is not among them (see [reviseMessage]). */
+        val EDIT_DIRECT = DIRECT - NoticeReason.MESSAGE_QUOTED
 
         /** The default of the digest delay (`notifications.email.delaySeconds`, 300). */
         const val DEFAULT_DIGEST_DELAY_MILLIS = 300_000L

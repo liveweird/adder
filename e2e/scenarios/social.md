@@ -280,3 +280,15 @@ what the scenario is about.
 6. The tab is shown again.
    - *Expected*: the socket reconnects (a socket is open again): the title starts "(1) " again and the bell is named "Notifications (1 unseen)".
 
+## Scenario: a quote reaches the quoted author's bell without a reload and opens the reply
+
+1. The administrator mints an author (the room's owner) and a reader; the author makes a room through the API and starts a thread, THEN adds the reader. The reader asks a question in the
+   thread through the API and signs in; the reader opens the room's **Threads** view (in the room, not in the thread); the socket subscribes.
+   - *Expected*: the reader's bell is named "Notifications (0 unseen)".
+2. The author answers through the API with a message that QUOTES the reader's question (`quotedMessageId`); the reader does not watch the thread and is not mentioned.
+   - *Expected*: the bell is named "Notifications (1 unseen)" with no reload, and the room's link in the rail is described as "1 unseen notification" (a quote is addressed to its author).
+3. The reader opens the bell.
+   - *Expected*: the drawer holds a link "`<author>` quoted your message in #1 `<title>`", marked unseen.
+4. The reader clicks it.
+   - *Expected*: the address holds `message=<id>` of the author's answer; the drawer closes; the answer is shown; the bell says "0 unseen" and the rail's description is gone; the document
+     was still not reloaded.

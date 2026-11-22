@@ -31,6 +31,7 @@
     },
     "kind": {
       "MENTIONED": "Someone mentions me",
+      "MESSAGE_QUOTED": "Someone quotes my message",
       "TEAM_MENTIONED": "Someone mentions my team",
       "WATCHERS_MENTIONED": "Someone mentions the watchers of a thread I watch",
       "EVERYONE_MENTIONED": "Someone mentions everyone in a room I am in",
@@ -49,6 +50,7 @@
   },
   "event": {
     "MENTIONED": "{{actor}} mentioned you in #{{number}} {{title}}",
+    "MESSAGE_QUOTED": "{{actor}} quoted your message in #{{number}} {{title}}",
     "THREAD_ASSIGNED": "{{actor}} made you the owner of #{{number}} {{title}}",
     "TEAM_MENTIONED": "{{actor}} mentioned your team in #{{number}} {{title}}",
     "WATCHERS_MENTIONED": "{{actor}} mentioned the watchers of #{{number}} {{title}}",

@@ -11,6 +11,7 @@ import ch.nokillswit.threads.NoticeReason
 
 internal fun NoticeReason.toNotificationType(): NotificationType = when (this) {
     NoticeReason.MENTIONED -> NotificationType.MENTIONED
+    NoticeReason.MESSAGE_QUOTED -> NotificationType.MESSAGE_QUOTED
     NoticeReason.TEAM_MENTIONED -> NotificationType.TEAM_MENTIONED
     NoticeReason.WATCHERS_MENTIONED -> NotificationType.WATCHERS_MENTIONED
     NoticeReason.EVERYONE_MENTIONED -> NotificationType.EVERYONE_MENTIONED
@@ -25,6 +26,7 @@ internal fun NoticeReason.toNotificationType(): NotificationType = when (this) {
 
 internal fun NotificationType.toNoticeReason(): NoticeReason = when (this) {
     NotificationType.MENTIONED -> NoticeReason.MENTIONED
+    NotificationType.MESSAGE_QUOTED -> NoticeReason.MESSAGE_QUOTED
     NotificationType.TEAM_MENTIONED -> NoticeReason.TEAM_MENTIONED
     NotificationType.WATCHERS_MENTIONED -> NoticeReason.WATCHERS_MENTIONED
     NotificationType.EVERYONE_MENTIONED -> NoticeReason.EVERYONE_MENTIONED

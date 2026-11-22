@@ -16,6 +16,7 @@ import classes from "./NoticeRow.module.css";
 /** The kinds this build words; a newer server's kind shows its raw name (the contract: a client treats an unknown value as plain text). */
 const KNOWN_KINDS: readonly string[] = [
   "MENTIONED",
+  "MESSAGE_QUOTED",
   "TEAM_MENTIONED",
   "WATCHERS_MENTIONED",
   "EVERYONE_MENTIONED",

@@ -395,7 +395,7 @@ class NotifyHintsTest {
     }
 
     @Test
-    fun `a quoting post emits its one message posted hint and a refused quote emits nothing`() = testApplication {
+    fun `a quoting post emits message posted then the quoted author's notice, a refused quote nothing`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("hint-qown")
         val author = actor("hint-qaut")
@@ -407,14 +407,21 @@ class NotifyHintsTest {
         NotifyCapture().use { capture ->
             val posted = arrayOfNulls<UInt>(1)
             val hints = capture.during {
-                // No notice rides a quote yet (1.3 S5): one `message.posted`, like any post.
+                // The quoted author (the owner, an active member) is told: `message.posted`, then the notice to them alone.
                 val ok = author.client.postJson(path, MessagePostRequest("An answer", quoted))
                 ok.expect(HttpStatusCode.Created)
                 posted[0] = ok.body<MessageResponse>().id
                 author.client.postJson(path, MessagePostRequest("To nothing", quoted + 1_000_000u)).expect(HttpStatusCode.BadRequest)
                 author.client.postJson(path, MessagePostRequest("To zero", 0u)).expect(HttpStatusCode.BadRequest)
             }
-            assertEquals(listOf(hint(LiveKind.MESSAGE_POSTED, room, thread = 1, message = posted[0])), hints, "a refusal hints nothing")
+            assertEquals(
+                listOf(
+                    hint(LiveKind.MESSAGE_POSTED, room, thread = 1, message = posted[0]),
+                    hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = posted[0], targets = listOf(owner.id)),
+                ),
+                hints,
+                "a refusal hints nothing; the quote's notice follows the post's own hint",
+            )
         }
     }
 

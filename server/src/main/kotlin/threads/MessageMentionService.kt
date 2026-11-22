@@ -71,11 +71,14 @@ internal class MessageMentionService(
     /**
      * A post tells the people it mentions directly, the teams, watchers and room it names (`<@team:id>`, `<@watchers>`, `<@everyone>`)
      * and the audience of its kind ([NoticeAudience.ofMessage]): the thread's watchers for a reply, every active member for an opening
-     * message. Every audience is read INSIDE the write, under the room lock, and only what the body needs.
+     * message. Every audience is read INSIDE the write, under the room lock, and only what the body needs. The author of the message
+     * a post quotes (1.3) is told `MESSAGE_QUOTED` when they are an ACTIVE member now and not the author: their membership is judged in
+     * the very statement that judges the people the body mentions, because a notice for a non-member would break `fk_notifications_member`.
      */
     override suspend fun posted(ref: MessageRef, authorId: UInt, body: String, at: Long): NoticeOutcome {
         val parsed = parseMentions(body)
-        val mentioned = indexInTransaction(ref, body, parsed)
+        val quotedAuthor = ref.quotedAuthor()?.takeIf { it != authorId }
+        val (mentioned, quoted) = indexChecked(ref, parsed, quotedAuthor)
         val named = groups.resolve(parsed)
         groups.insertInTransaction(ref, named)
         val opening = ref.opening()
@@ -90,6 +93,7 @@ internal class MessageMentionService(
             teamMentioned = teamMembers,
             watchersMentioned = named.watchers,
             everyoneMentioned = named.everyone,
+            quoted = quoted,
         )
         return notices.forMessage(ref, authorId, audience)
     }
@@ -125,6 +129,8 @@ internal class MessageMentionService(
             opening -> inRoom(ref.roomId, (change.removed + change.added + holders).distinct())
             else -> emptyList()
         }
+        // The author of the quoted message, when they are still an active member (one more statement, only past the early returns).
+        val quoted = ref.quotedAuthor()?.takeIf { it != authorId }?.let { inRoom(ref.roomId, listOf(it)).firstOrNull() }
         val revision = NoticeAudience.ofEdit(
             opening,
             authorId,
@@ -136,6 +142,7 @@ internal class MessageMentionService(
             teamMentioned = reach.teamMembers(now.rosters.values),
             watchersMentioned = now.watchers,
             everyoneMentioned = now.everyone,
+            quoted = quoted,
         )
         return if (revision.isEmpty) NoticeOutcome.NONE else notices.reviseMessage(ref, authorId, revision)
     }
@@ -177,10 +184,20 @@ internal class MessageMentionService(
     }
 
     /** Indexes the mentions of a NEW message [ref] (no row exists yet) and answers the members mentioned, in order of appearance. */
-    suspend fun indexInTransaction(ref: MessageRef, body: String, parsed: ParsedMentions = parseMentions(body)): List<UInt> {
-        val mentioned = parsed.users.takeIf { it.isNotEmpty() }?.let { activeMembers(ref.roomId, it) }.orEmpty()
+    suspend fun indexInTransaction(ref: MessageRef, body: String, parsed: ParsedMentions = parseMentions(body)): List<UInt> =
+        indexChecked(ref, parsed, null).first
+
+    /**
+     * [indexInTransaction] that also judges [quotedAuthor], the author of the message a post quotes: ONE membership statement for the
+     * mentioned people and the quoted author together (none when there is neither). Answers the members mentioned, in order of
+     * appearance, and the quoted author when they are an ACTIVE member now (null otherwise: no notice may name a non-member).
+     */
+    private suspend fun indexChecked(ref: MessageRef, parsed: ParsedMentions, quotedAuthor: UInt?): Pair<List<UInt>, UInt?> {
+        val asked = (parsed.users + listOfNotNull(quotedAuthor)).distinct()
+        val active = if (asked.isEmpty()) emptySet() else members.activeMemberIds(ref.roomId, asked.map { it.toLong() })
+        val mentioned = parsed.users.filter { it.toLong() in active }
         insert(ref, mentioned)
-        return mentioned
+        return mentioned to quotedAuthor?.takeIf { it.toLong() in active }
     }
 
     /**

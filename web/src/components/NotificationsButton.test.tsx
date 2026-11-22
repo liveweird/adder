@@ -411,7 +411,7 @@ describe("NotificationsButton", () => {
   });
 
   test.each([
-    ["MENTIONED", "Ada mentioned you in #42 Awaria bazy"],
+    ["MENTIONED", "Ada mentioned you in #42 Awaria bazy"], ["MESSAGE_QUOTED", "Ada quoted your message in #42 Awaria bazy"],
     ["TEAM_MENTIONED", "Ada mentioned your team in #42 Awaria bazy"],
     ["WATCHERS_MENTIONED", "Ada mentioned the watchers of #42 Awaria bazy"],
     ["EVERYONE_MENTIONED", "Ada mentioned everyone in #42 Awaria bazy"],
@@ -453,7 +453,7 @@ describe("NotificationsButton", () => {
     expect(listCalls().every((c) => !c.includes("type="))).toBe(true);
 
     await user.click(within(drawer).getByRole("radio", { name: "Mentions" }));
-    await waitFor(() => expect(listCalls().some((c) => c.includes("type=MENTIONED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED"))).toBe(true));
+    await waitFor(() => expect(listCalls().some((c) => c.includes("type=MENTIONED&type=MESSAGE_QUOTED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED"))).toBe(true));
     // The badge still counts every unseen notice: its own query never names a type.
     expect(calls.filter((c) => c.includes("pageSize=100")).every((c) => !c.includes("type="))).toBe(true);
 

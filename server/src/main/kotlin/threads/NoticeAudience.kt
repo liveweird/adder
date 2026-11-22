@@ -11,7 +11,9 @@ package ch.nokillswit.threads
  *  - `mentioned`: the members the body names directly (`<@id>`), in order of appearance;
  *  - `teamMentioned`: the room's active members on the roster of a team the body names (`<@team:id>`), already intersected with the
  *    room (a team member who is not in the room is never told); `watchersMentioned` and `everyoneMentioned`: the body holds `<@watchers>`
- *    and `<@everyone>` (the people are then `watchers` and `members`).
+ *    and `<@everyone>` (the people are then `watchers` and `members`);
+ *  - `quoted`: the author of the message this one quotes (1.3), already an ACTIVE member of the room and not the actor: they are told
+ *    `MESSAGE_QUOTED`, which outranks every group mention and the base reasons but not a direct mention.
  *
  * A group mention is `TEAM_MENTIONED`, `WATCHERS_MENTIONED` or `EVERYONE_MENTIONED` (not "direct": over the wide-event budget they are
  * the first to go). `<@watchers>` in an OPENING message reaches nobody (only the author watches); `<@everyone>` reaches every member.
@@ -26,7 +28,10 @@ package ch.nokillswit.threads
  * workflow PUT's `moveThreads` have no function.
  */
 internal object NoticeAudience {
-    /** The reasons that name a person for what the message SAYS (a mention); the base reasons below are for what the thread IS. */
+    /**
+     * The reasons that name a person for what the message SAYS (a mention); the base reasons below are for what the thread IS.
+     * `MESSAGE_QUOTED` is in NEITHER set: a quote never changes, so an edit never adds or removes it by itself.
+     */
     internal val MENTION_REASONS = setOf(
         NoticeReason.MENTIONED,
         NoticeReason.TEAM_MENTIONED,
@@ -43,11 +48,11 @@ internal object NoticeAudience {
         }
 
     /**
-     * A post or an OPENING message by [authorId]: a direct mention is `MENTIONED`, then a team mention, the watchers mention and
-     * everyone (the order of [NoticeReason]); otherwise every active member is told `THREAD_CREATED` of an opening message (1.1 D4), and
-     * the thread's watchers `THREAD_REPLIED` of a reply (1.1 D3). A reply tells no non-watcher unless a mention names them. [members]
-     * is read only for an opening message and for `<@everyone>`; [watchers] only for a reply (an opening message's watchers are the
-     * author alone).
+     * A post or an OPENING message by [authorId]: a direct mention is `MENTIONED`, then the author of the [quoted] message
+     * (`MESSAGE_QUOTED`), a team mention, the watchers mention and everyone (the order of [NoticeReason]); otherwise every active
+     * member is told `THREAD_CREATED` of an opening message (1.1 D4), and the thread's watchers `THREAD_REPLIED` of a reply (1.1 D3).
+     * A reply tells no non-watcher unless a mention names them. [members] is read only for an opening message and for `<@everyone>`;
+     * [watchers] only for a reply (an opening message's watchers are the author alone).
      */
     fun ofMessage(
         opening: Boolean,
@@ -58,8 +63,10 @@ internal object NoticeAudience {
         teamMentioned: Collection<UInt> = emptyList(),
         watchersMentioned: Boolean = false,
         everyoneMentioned: Boolean = false,
+        quoted: UInt? = null,
     ): List<Notice> {
         val direct = mentioned.map { Notice(it, NoticeReason.MENTIONED) }
+        val quote = listOfNotNull(quoted).map { Notice(it, NoticeReason.MESSAGE_QUOTED) }
         val teams = teamMentioned.map { Notice(it, NoticeReason.TEAM_MENTIONED) }
         val watching = if (watchersMentioned && !opening) watchers.map { Notice(it, NoticeReason.WATCHERS_MENTIONED) } else emptyList()
         val room = if (everyoneMentioned) members.map { Notice(it, NoticeReason.EVERYONE_MENTIONED) } else emptyList()
@@ -68,7 +75,7 @@ internal object NoticeAudience {
         } else {
             watchers.map { Notice(it, NoticeReason.THREAD_REPLIED) }
         }
-        return resolved(authorId, direct + teams + watching + room + base)
+        return resolved(authorId, direct + quote + teams + watching + room + base)
     }
 
     /** A status move by [actorId]: the watchers (the actor never), the reason by the move. */
@@ -109,6 +116,14 @@ internal object NoticeAudience {
      *  - a base notice that is no longer earned, or any notice of the same reason: kept.
      *
      * Nobody who already holds a notice that stays is in [NoticeRevision.add], so the email budget never counts them twice.
+     *
+     * The author of the [quoted] message (1.3) is one more person with a reason above the group mentions. "Newly addressed" is judged on
+     * the person's most specific MENTION reason among ALL that apply to them (the top reason and its fallbacks), no longer on their top
+     * reason: the two are the same for everybody who is not a quoted author (a mention always outranks a base reason), and a quote is
+     * the first reason that can sit above a group mention without being one. So a quoted author who holds `MESSAGE_QUOTED` and is newly
+     * named directly gets a fresh `MENTIONED`; one who holds `MENTIONED` and loses the token is relabelled to `MESSAGE_QUOTED`; one who
+     * holds `MESSAGE_QUOTED` and is newly addressed by `@everyone` is told nothing; one who holds a base reason or nothing (quotes
+     * switched off) and is newly addressed by `@everyone` is told like any member, with the first of their reasons that is switched on.
      */
     fun ofEdit(
         opening: Boolean,
@@ -121,12 +136,17 @@ internal object NoticeAudience {
         teamMentioned: Collection<UInt> = emptyList(),
         watchersMentioned: Boolean = false,
         everyoneMentioned: Boolean = false,
+        quoted: UInt? = null,
     ): NoticeRevision {
-        val now = ofMessage(opening, authorId, mentioned, watchers, members, teamMentioned, watchersMentioned, everyoneMentioned)
-            .associateBy { it.userId }
-        // Newly addressed at a reason: addressed at it now and not at it, nor at anything more specific, BEFORE (1.1 A34, A39).
-        fun newly(user: UInt, target: NoticeReason) =
-            target in MENTION_REASONS && (before[user]?.let { it.ordinal > target.ordinal } ?: true)
+        val now = ofMessage(
+            opening, authorId, mentioned, watchers, members, teamMentioned, watchersMentioned, everyoneMentioned, quoted,
+        ).associateBy { it.userId }
+        // Newly addressed: by the person's most specific MENTION reason among all that apply now, addressed at it and not at it, nor at
+        // anything more specific, BEFORE (1.1 A34, A39). No mention reason applies: nothing is newly said to them.
+        fun newly(notice: Notice): Boolean {
+            val reason = notice.allApplicable().filter { it in MENTION_REASONS }.minByOrNull { it.ordinal } ?: return false
+            return before[notice.userId]?.let { it.ordinal > reason.ordinal } ?: true
+        }
         val add = mutableListOf<Notice>()
         val relabel = mutableListOf<Notice>()
         val remove = mutableListOf<UInt>()
@@ -134,10 +154,10 @@ internal object NoticeAudience {
             val held = existing[user]
             val target = notice.reason
             when {
-                held == null -> if (newly(user, target)) add += notice
+                held == null -> if (newly(notice)) add += notice
                 held == target -> Unit
                 target.ordinal < held.ordinal -> when {
-                    newly(user, target) -> {
+                    newly(notice) -> {
                         remove += user
                         add += notice
                     }

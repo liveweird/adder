@@ -4,6 +4,8 @@ package ch.nokillswit.threads
  * Where one message lives: the ids a follower needs, so it never reads the thread again ([threadNumber] is the per-room number).
  * [opening] is true for the first message of its thread (the notice audience of a thread's opening message is the whole room); it is
  * exact for a post and an edit (asked lazily: an edit that changes no mention never pays for the query), and a delete does not read it.
+ * [quotedAuthor] is the author of the message this one quotes (1.3), asked the same way: a post knows it (its quote check read it), an
+ * edit reads it only past its early returns, a delete never.
  */
 internal class MessageRef(
     val roomId: UInt,
@@ -11,14 +13,26 @@ internal class MessageRef(
     val threadNumber: Int,
     val messageId: UInt,
     private val openingOf: suspend () -> Boolean,
+    private val quotedAuthorOf: suspend () -> UInt? = { null },
 ) {
-    constructor(roomId: UInt, threadId: UInt, threadNumber: Int, messageId: UInt, opening: Boolean) :
-        this(roomId, threadId, threadNumber, messageId, { opening })
+    constructor(roomId: UInt, threadId: UInt, threadNumber: Int, messageId: UInt, opening: Boolean, quotedAuthor: UInt? = null) :
+        this(roomId, threadId, threadNumber, messageId, { opening }, { quotedAuthor })
 
     private var openingKnown: Boolean? = null
+    private var quotedKnown = false
+    private var quotedAuthorKnown: UInt? = null
 
     /** Whether this is the thread's first message; an edit asks lazily (one query, only when its mentions changed), a post knows. */
     suspend fun opening(): Boolean = openingKnown ?: openingOf().also { openingKnown = it }
+
+    /** The author of the message this one quotes, or null when it quotes none; an edit asks lazily (one query), a post knows. */
+    suspend fun quotedAuthor(): UInt? {
+        if (!quotedKnown) {
+            quotedAuthorKnown = quotedAuthorOf()
+            quotedKnown = true
+        }
+        return quotedAuthorKnown
+    }
 }
 
 /**

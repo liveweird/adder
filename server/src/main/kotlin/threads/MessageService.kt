@@ -96,7 +96,8 @@ class MessageService internal constructor(
      * [hashtags] is [parseHashtags] of [body], parsed by the caller BEFORE it took the room lock (a parse is work, and the lock is held).
      * [threadNumber] is the thread's per-room number, for the followers; [opening] says the message opens a new thread (the audience of
      * a thread's first message is the whole room, a reply's is its watchers). [quotedMessageId] is the message of the same thread the
-     * new one quotes, already CHECKED by the caller under the lock ([checkedQuote]); only a post passes one. The followers do NOT run
+     * new one quotes, already CHECKED by the caller under the lock ([checkedQuote]), and [quotedAuthorId] its author (what the check read,
+     * for the notice followers); only a post passes them. The followers do NOT run
      * here: the caller runs them with [followPosted] once it has written the counters and the write's own live hint, so a follower's
      * hint comes after it.
      */
@@ -110,6 +111,7 @@ class MessageService internal constructor(
         at: Long,
         opening: Boolean = false,
         quotedMessageId: UInt? = null,
+        quotedAuthorId: UInt? = null,
     ): InsertedMessage {
         // `insertReturning(id)`, not `insert`: a plain insert answers `RETURNING *`, which would send the generated `search` vector (about
         // as large as the body, V16) back on every post. The generated column is never in this table object, so only the id returns.
@@ -122,7 +124,7 @@ class MessageService internal constructor(
             if (quotedMessageId != null) it[Messages.quotedMessageId] = quotedMessageId
         }.single()[Messages.id].value
         tags.insertInTransaction(id, threadId, roomId, hashtags)
-        return InsertedMessage(id, MessageRef(roomId, threadId, threadNumber, id, opening), authorId, body, at)
+        return InsertedMessage(id, MessageRef(roomId, threadId, threadNumber, id, opening, quotedAuthorId), authorId, body, at)
     }
 
     /**
@@ -209,7 +211,8 @@ class MessageService internal constructor(
             val authorId = write.caller.userId
             val stamp = nowMillis()
             val inserted = insertInTransaction(
-                roomId, write.thread.id, number, authorId, request.body, hashtags, stamp, quotedMessageId = quotedMessageId,
+                roomId, write.thread.id, number, authorId, request.body, hashtags, stamp,
+                quotedMessageId = quotedMessageId, quotedAuthorId = quoted?.authorId,
             )
             val id = inserted.id
             val threads = ThreadService.Threads
@@ -260,7 +263,11 @@ class MessageService internal constructor(
                 tags.replaceInTransaction(messageId, write.thread.id, roomId, newTags)
             }
             notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
-            val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId) { isOpening(write.thread.id, messageId) }
+            val ref = MessageRef(
+                roomId, write.thread.id, write.thread.number, messageId,
+                openingOf = { isOpening(write.thread.id, messageId) },
+                quotedAuthorOf = { authorQuotedBy(messageId) },
+            )
             val notices = followers.fold(NoticeOutcome.NONE) { sum, f -> sum + f.edited(ref, write.message.authorId, request.body) }
             MessageEdit(write.thread.id, messageId, notices)
         }

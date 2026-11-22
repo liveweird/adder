@@ -75,6 +75,7 @@ describe("NotificationPreferences page", () => {
     // Every kind of the contract is drawn once per column, in a named table.
     expect(screen.getAllByRole("switch")).toHaveLength(KINDS.length * 2);
     expect(within(screen.getByRole("table", { name: "Rooms" })).getByText("A new thread in a room I am in")).toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Mentions" })).getByText("Someone quotes my message")).toBeInTheDocument();
     expect(screen.queryByText(/Email is off on this server/)).not.toBeInTheDocument();
     // Nothing changed: nothing to save.
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -107,7 +108,7 @@ describe("NotificationPreferences page", () => {
     renderWithProviders(<NotificationPreferences />);
     await app(MENTIONED);
     await user.click(screen.getByRole("button", { name: "All on: Email in Mentions" }));
-    for (const label of [MENTIONED, "Someone mentions my team", "Someone mentions everyone in a room I am in"]) {
+    for (const label of [MENTIONED, "Someone quotes my message", "Someone mentions my team", "Someone mentions everyone in a room I am in"]) {
       expect(email(label)).toBeChecked();
       expect(screen.getByRole("switch", { name: `${label}: In-app` })).toBeChecked();
     }

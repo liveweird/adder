@@ -4,7 +4,9 @@ import ch.nokillswit.infra.db.active
 import ch.nokillswit.threads.MessageService.Messages
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.Expression
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.alias
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -124,4 +126,18 @@ internal suspend fun quotedMessagesOf(rows: List<ResultRow>): Map<UInt, QuotedMe
         val quoted = known[row[Messages.quotedMessageId]?.value]?.takeIf { it.threadId == row[Messages.threadId].value }
         quoted?.let { row[Messages.id].value to it }
     }.toMap()
+}
+
+/**
+ * The author of the message that message [messageId] quotes, or null when it quotes none: ONE joined read of the message's
+ * `quoted_message_id` and that row's author, asked by an edit only past its early returns (an edit never changes a quote, but the author
+ * of the quoted message is one of the people its new mentions are weighed against, `NoticeAudience.ofEdit`). A quoted message that was
+ * deleted since still has its author. Runs INSIDE the caller's transaction.
+ */
+internal suspend fun authorQuotedBy(messageId: UInt): UInt? {
+    val quoted = Messages.alias("quoted")
+    return Messages.join(quoted, JoinType.INNER, Messages.quotedMessageId, quoted[Messages.id])
+        .select(quoted[Messages.authorId])
+        .where { Messages.id eq messageId }
+        .toList().singleOrNull()?.get(quoted[Messages.authorId])?.value
 }

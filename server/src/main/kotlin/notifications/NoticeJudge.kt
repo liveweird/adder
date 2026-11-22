@@ -17,9 +17,13 @@ internal data class Delivery(val userId: UInt, val type: NotificationType, val i
 /** The reason a notice names and the ones it falls back to, in priority order: every reason that applies to the person. */
 internal fun Notice.allReasons(): List<NoticeReason> = listOf(reason) + fallbacks
 
-/** The kinds addressed TO the person (the four mention kinds and a hand-over): what the rail's count and the `@` marks count. */
+/**
+ * The kinds addressed TO the person (the four mention kinds, a quote of their message and a hand-over): what the rail's count and the
+ * `@` marks count.
+ */
 private val ADDRESSED_KINDS = setOf(
     NotificationType.MENTIONED,
+    NotificationType.MESSAGE_QUOTED,
     NotificationType.TEAM_MENTIONED,
     NotificationType.WATCHERS_MENTIONED,
     NotificationType.EVERYONE_MENTIONED,

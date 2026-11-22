@@ -1545,7 +1545,9 @@ export interface paths {
          *     are dropped and the first line's indentation stays (`\n` and `\t` allowed, every other control character and the hidden
          *     direction characters are a `400`). It is stored raw and rendered without HTML. The message, `messageCount + 1` and the
          *     activity bump of the thread and the room commit together, and so do the notifications (`listNotifications`): a `MENTIONED` one for
-         *     each member the body mentions with `<@id>`, `TEAM_MENTIONED` for each member of the room on the roster of a team it names with
+         *     each member the body mentions with `<@id>`, `MESSAGE_QUOTED` for the author of the quoted message (an ACTIVE member of the room now,
+         *     never the poster; a person who left the room or whose account was deleted is not told and the post still succeeds),
+         *     `TEAM_MENTIONED` for each member of the room on the roster of a team it names with
          *     `<@team:id>` (a team member who is not in the room is never told; a team that is deleted, unknown or has no handle is plain text),
          *     `WATCHERS_MENTIONED` for each WATCHER of the thread when it names `<@watchers>`, `EVERYONE_MENTIONED` for every member of the room when
          *     it names `<@everyone>` (any member may), and a `THREAD_REPLIED` one for each other WATCHER of the thread (one notice per person, the most
@@ -1833,8 +1835,11 @@ export interface paths {
          *     removed, takes its notice with it. A caller who belongs to no room gets an empty page.
          *
          *     A notice is made INSIDE the write that caused it, one per person and event, labelled with the most specific reason
-         *     (`NotificationType`, eleven kinds). The writes make these: `MENTIONED` (a post, a thread's opening message or an edit that
-         *     newly mentions the caller with `<@id>`; never for a mention of oneself), `THREAD_REPLIED` (a reply in a thread the caller watches),
+         *     (`NotificationType`, twelve kinds). The writes make these: `MENTIONED` (a post, a thread's opening message or an edit that
+         *     newly mentions the caller with `<@id>`; never for a mention of oneself), `MESSAGE_QUOTED` (a post that quotes a message of the caller's;
+         *     never for quoting one's own message, and not for a caller who is no longer an active member of the room; an edit of that post can
+         *     also make it, when it newly names a group the caller is in and they hold no notice of it, or turn the caller's `MENTIONED` notice
+         *     into it when the edit drops the `<@id>` mention), `THREAD_REPLIED` (a reply in a thread the caller watches),
          *     `THREAD_CREATED` (a new thread in a room the caller is a member of), `THREAD_ASSIGNED` and `THREAD_OWNER_CHANGED` (a hand-over: the
          *     new owner, and the thread's other watchers; nothing for a steward who takes the thread themself), and `THREAD_STATUS_CHANGED`,
          *     `THREAD_CLOSED` and `THREAD_REOPENED` (a status move of a thread the caller watches); the three group-mention kinds (a team, the
@@ -3328,15 +3333,17 @@ export interface components {
             total: number;
         };
         /**
-         * @description The kind of a notice, which is also its reason (persisted, never renamed): `MENTIONED` (named with `<@id>`), `TEAM_MENTIONED` (the
+         * @description The kind of a notice, which is also its reason (persisted, never renamed): `MENTIONED` (named with `<@id>`), `MESSAGE_QUOTED` (a reply
+         *     quoted a message of the caller's, `quotedMessageId` of `postThreadMessage`), `TEAM_MENTIONED` (the
          *     caller's team was named), `WATCHERS_MENTIONED` (the caller watches the thread and its watchers were named), `EVERYONE_MENTIONED`,
          *     `THREAD_REPLIED` (a reply in a thread the caller watches), `THREAD_CREATED` (a new thread in a room the caller is in),
          *     `THREAD_ASSIGNED` (someone else made the caller the owner of a thread), `THREAD_OWNER_CHANGED` (a watched thread changed owner),
          *     `THREAD_STATUS_CHANGED` (a watched thread moved within a status category), `THREAD_CLOSED` and `THREAD_REOPENED` (a watched thread
-         *     was closed or reopened). One notice per person and event, the most specific reason. A client treats a value it does not know as plain text.
+         *     was closed or reopened). One notice per person and event, the most specific reason (`MENTIONED`, then `MESSAGE_QUOTED`, then the group
+         *     mentions, then `THREAD_REPLIED`). A client treats a value it does not know as plain text.
          * @enum {string}
          */
-        NotificationType: "MENTIONED" | "TEAM_MENTIONED" | "WATCHERS_MENTIONED" | "EVERYONE_MENTIONED" | "THREAD_REPLIED" | "THREAD_CREATED" | "THREAD_ASSIGNED" | "THREAD_OWNER_CHANGED" | "THREAD_STATUS_CHANGED" | "THREAD_CLOSED" | "THREAD_REOPENED";
+        NotificationType: "MENTIONED" | "MESSAGE_QUOTED" | "TEAM_MENTIONED" | "WATCHERS_MENTIONED" | "EVERYONE_MENTIONED" | "THREAD_REPLIED" | "THREAD_CREATED" | "THREAD_ASSIGNED" | "THREAD_OWNER_CHANGED" | "THREAD_STATUS_CHANGED" | "THREAD_CLOSED" | "THREAD_REOPENED";
         /** @description One notice of the caller. The row holds ids only; the names and the title are read when the list is read. */
         Notification: {
             /**
@@ -3398,7 +3405,7 @@ export interface components {
             channel: components["schemas"]["NotificationChannel"];
         };
         NotificationPreferencesUpdate: {
-            /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 22 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
+            /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 24 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
             disabled: components["schemas"]["NotificationPreferencePair"][];
             /** @description The pairs to switch ON (optional: absent is empty). A pair in neither list takes its default (in the app on, by email off), so a client that sends only `disabled` cannot switch an email on. */
             enabled?: components["schemas"]["NotificationPreferencePair"][];
@@ -6284,7 +6291,7 @@ export interface operations {
             query?: {
                 /** @description `true` = only seen notices, `false` = only unseen ones; omitted = both. */
                 seen?: boolean;
-                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted = every kind; at most 11 distinct. */
+                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted = every kind; at most 12 distinct. */
                 type?: components["schemas"]["NotificationType"][];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];

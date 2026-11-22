@@ -36,6 +36,10 @@ private fun entryText(type: NotificationType): LocalizedText = when (type) {
         en = "%s mentioned you in #%d (%s)",
         pl = "%s wspomina o Tobie w #%d (%s)",
     )
+    NotificationType.MESSAGE_QUOTED -> LocalizedText(
+        en = "%s quoted your message in #%d (%s)",
+        pl = "%s cytuje Twoją wiadomość w #%d (%s)",
+    )
     NotificationType.TEAM_MENTIONED -> LocalizedText(
         en = "%s mentioned your team in #%d (%s)",
         pl = "%s wspomina o Twoim zespole w #%d (%s)",

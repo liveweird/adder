@@ -14,11 +14,11 @@ export const NOTIFICATION_TOTAL_CAP = 1000;
 export type NotificationType = NotificationItem["type"];
 
 /**
- * The kinds ADDRESSED to the reader (a person, a team, the watchers or everyone was named, or a thread was handed to them): the rooms rail's
- * count and the thread list's `@` mark count only these (0.6 D1, 1.1 A21), and the drawer's "Mentions" view lists only these. The other
- * kinds (replies, new threads, status and owner moves) show in the bell and its badge, never there.
+ * The kinds ADDRESSED to the reader (a person, a team, the watchers or everyone was named, their message was quoted, or a thread was
+ * handed to them): the rooms rail's count and the thread list's `@` mark count only these (0.6 D1, 1.1 A21), and the drawer's "Mentions"
+ * view lists only these. The other kinds (replies, new threads, status and owner moves) show in the bell and its badge, never there.
  */
-export const ADDRESSED_TYPES: readonly NotificationType[] = ["MENTIONED", "TEAM_MENTIONED", "WATCHERS_MENTIONED", "EVERYONE_MENTIONED", "THREAD_ASSIGNED"];
+export const ADDRESSED_TYPES: readonly NotificationType[] = ["MENTIONED", "MESSAGE_QUOTED", "TEAM_MENTIONED", "WATCHERS_MENTIONED", "EVERYONE_MENTIONED", "THREAD_ASSIGNED"];
 
 export interface NotificationQuery {
   page: number;

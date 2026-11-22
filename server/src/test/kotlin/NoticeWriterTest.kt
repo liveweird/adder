@@ -83,7 +83,11 @@ class NoticeWriterTest {
         assertEquals(NoticeReason.entries.size, outcome.recipients)
         assertEquals(NoticeReason.entries.associateWith { 1 }, outcome.kinds, "one notice per reason, a repeat of a person adds none")
         assertEquals(
-            listOf(s.people[NoticeReason.MENTIONED.ordinal], s.people[NoticeReason.THREAD_ASSIGNED.ordinal]),
+            listOf(
+                s.people[NoticeReason.MENTIONED.ordinal],
+                s.people[NoticeReason.MESSAGE_QUOTED.ordinal],
+                s.people[NoticeReason.THREAD_ASSIGNED.ordinal],
+            ),
             outcome.addressed,
             "only the people named themselves are listed for the audit",
         )

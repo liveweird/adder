@@ -241,7 +241,8 @@ class NotificationsTest {
     @Test
     fun `the persisted kind names are the reasons the chat declares, in the same order`() {
         assertEquals(NoticeReason.entries.map { it.name }, NotificationType.entries.map { it.name })
-        assertEquals(11, NotificationType.entries.size)
+        assertEquals(12, NotificationType.entries.size)
+        assertEquals("MESSAGE_QUOTED", NotificationType.entries[1].name, "right after MENTIONED: the order is the priority")
     }
 
     @Test

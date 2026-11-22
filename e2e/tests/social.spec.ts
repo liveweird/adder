@@ -5,7 +5,8 @@
 // the thread list's "Unread" filter and "Mark all as read" (1.2.0);
 // the tab title counts the bell's number and a second tab of the same browser follows a "seen"; a hidden tab goes quiet, keeps counting, and closes after eight hours (1.2.0);
 // a member removed from a room loses its notifications; the Notification preferences page keeps a saved switch; a kind switched off in the app stops arriving;
-// a team mention (1.1.0) reaches the team's members who are in the room and no one else; everyone is told once, with the most specific reason. Two browser contexts wherever live matters, with no reload in the watching one.
+// a team mention (1.1.0) reaches the team's members who are in the room and no one else; everyone is told once, with the most specific reason;
+// a quote (1.3.0) reaches the quoted message's author. Two browser contexts wherever live matters, with no reload in the watching one.
 // Owns: its throwaway `e2e-soc-*` rooms and users, removed through the API in an `afterEach` (contexts first, then rooms, then the users). Every room
 // is created by a throwaway user and only copies the seeded Default template. Threads and messages are never deleted: a room's removal hides them.
 // The per-user `live-ticket`, `chat-post`, `chat-write` and `read-state` buckets are only ever spent by throwaway users, far below their limits.
@@ -109,9 +110,9 @@ async function startThread(room: Scene, title: string, body = "Seeded through th
   return ((await created.json()) as { number: number }).number;
 }
 
-/** Post a message as the owner through the API (a `<@id>` token is a mention); returns its id. */
-async function postMessage(room: Scene, number: number, body: string): Promise<number> {
-  const posted = await room.api.post(`/api/v1/rooms/${room.roomId}/threads/${number}/messages`, { data: { body } });
+/** Post a message as the owner through the API (a `<@id>` token is a mention, `quotedMessageId` quotes a message of the thread); returns its id. */
+async function postMessage(room: Scene, number: number, body: string, quotedMessageId?: number): Promise<number> {
+  const posted = await room.api.post(`/api/v1/rooms/${room.roomId}/threads/${number}/messages`, { data: quotedMessageId === undefined ? { body } : { body, quotedMessageId } });
   expect(posted.status(), await posted.text()).toBe(201);
   return ((await posted.json()) as { id: number }).id;
 }
@@ -999,4 +1000,42 @@ test("a hidden tab goes quiet and keeps counting, and closes after eight hours",
   await expect(reader.page).toHaveTitle(titled(1));
   await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
   await expect.poll(() => socketOpen, { message: "a socket is open again" }).toBe(true);
+});
+
+test("a quote reaches the quoted author's bell without a reload and opens the reply", async ({ page, browser }) => {
+  // The teammate joins AFTER the thread opened (so their bell starts empty) and asks a question; the owner then answers by quoting it. The quote is made
+  // through the API: the composer's "Quote" is the threads spec's subject, this one is about who is told.
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Quoted thread");
+  await startThread(room, title);
+  await addMember(room);
+  const { api: mateApi } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(mateApi);
+  const asked = await mateApi.post(`/api/v1/rooms/${room.roomId}/threads/1/messages`, { data: { body: "Can anyone confirm the cause?" } });
+  expect(asked.status(), await asked.text()).toBe(201);
+  const questionId = ((await asked.json()) as { id: number }).id;
+  const reader = await signedIn(browser, room.mate);
+  // The teammate is in the room but not in the thread: a notice stays unseen until its message is read.
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  // The owner quotes the question: the teammate does not watch the thread and is not mentioned, yet the bell counts it with no action, and the room in
+  // the rail says so in words (a quote is ADDRESSED to its author, like a mention).
+  const answerId = await postMessage(room, 1, "It was the replica lag.", questionId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expect(rail(reader.page).getByRole("link", { name: room.roomName })).toHaveAccessibleDescription(/1 unseen notification/);
+  await expectNoReload(reader);
+  await bell(reader.page).click();
+  const notice = drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} quoted your message in #1 ${title}`) });
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveAccessibleName(/^Unseen /);
+
+  // Opening the notice goes to the REPLY (`?message=`), shows it and the badge clears.
+  await notice.click();
+  await expect(reader.page).toHaveURL(new RegExp(`/rooms/${room.roomId}/threads/1\\?.*message=${answerId}`));
+  await expect(drawer(reader.page)).toHaveCount(0);
+  await expect(messageNamed(reader.page, "It was the replica lag.")).toBeVisible();
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+  await expect(rail(reader.page).getByRole("link", { name: room.roomName })).not.toHaveAccessibleDescription(/unseen notification/);
+  await expectNoReload(reader);
 });

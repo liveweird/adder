@@ -5,6 +5,7 @@ import ch.nokillswit.threads.NoticeAudience
 import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.threads.NoticeReason.EVERYONE_MENTIONED
 import ch.nokillswit.threads.NoticeReason.MENTIONED
+import ch.nokillswit.threads.NoticeReason.MESSAGE_QUOTED
 import ch.nokillswit.threads.NoticeReason.TEAM_MENTIONED
 import ch.nokillswit.threads.NoticeReason.WATCHERS_MENTIONED
 import ch.nokillswit.threads.NoticeReason.THREAD_ASSIGNED
@@ -403,5 +404,113 @@ class NoticeAudienceTest {
             val kept = case.existing.keys - revision.remove.toSet()
             assertTrue(revision.add.none { it.userId in kept }, "${case.name}: nobody who keeps a notice is counted again")
         }
+    }
+
+    // The author of a quoted message (1.3) is user 3 in every case below; user 1 is the author of the quoting message.
+    private val quotedAuthor = 3u
+
+    @Test
+    fun `a quote outranks every group and base reason and yields only to a direct mention`() {
+        fun one(notices: List<Notice>, user: UInt) = notices.single { it.userId == user }
+        val everything = NoticeAudience.ofMessage(
+            false, actor, emptyList(), listOf(3u), members, teamMentioned = listOf(3u), watchersMentioned = true, everyoneMentioned = true,
+            quoted = quotedAuthor,
+        )
+        val three = one(everything, quotedAuthor)
+        assertEquals(MESSAGE_QUOTED, three.reason)
+        assertEquals(listOf(TEAM_MENTIONED, WATCHERS_MENTIONED, EVERYONE_MENTIONED, THREAD_REPLIED), three.fallbacks)
+        assertEquals(everything.map { it.userId }.toSet().size, everything.size, "one notice per person")
+
+        val mentioned = one(NoticeAudience.ofMessage(false, actor, listOf(quotedAuthor), listOf(3u), members, quoted = quotedAuthor), 3u)
+        assertEquals(MENTIONED, mentioned.reason, "a direct mention wins over the quote")
+        assertEquals(listOf(MESSAGE_QUOTED, THREAD_REPLIED), mentioned.fallbacks)
+
+        assertEquals(
+            listOf(quotedAuthor to MESSAGE_QUOTED),
+            told(NoticeAudience.ofMessage(false, actor, emptyList(), emptyList(), members, quoted = quotedAuthor)),
+            "a quote tells a non-watcher who is not mentioned",
+        )
+        assertEquals(
+            emptyList(),
+            told(NoticeAudience.ofMessage(false, actor, emptyList(), emptyList(), members, quoted = actor)),
+            "quoting oneself tells nobody",
+        )
+    }
+
+    private class QuoteEditCase(
+        val name: String,
+        val existing: Map<UInt, NoticeReason>,
+        val mentioned: List<UInt> = emptyList(),
+        /** The most specific mention reason each person had from the OLD body. */
+        val before: Map<UInt, NoticeReason> = emptyMap(),
+        val watchers: List<UInt> = emptyList(),
+        val everyoneMentioned: Boolean = false,
+        val add: List<Pair<UInt, NoticeReason>> = emptyList(),
+        val relabel: List<Pair<UInt, NoticeReason>> = emptyList(),
+        val remove: List<UInt> = emptyList(),
+    )
+
+    private val quoteEditCases = listOf(
+        QuoteEditCase(
+            "holds the quote notice, the edit adds a direct mention: a fresh MENTIONED replaces it",
+            mapOf(3u to MESSAGE_QUOTED), mentioned = listOf(3u), add = listOf(3u to MENTIONED), remove = listOf(3u),
+        ),
+        QuoteEditCase(
+            "holds MENTIONED, the edit drops the token: relabelled to the quote in place, never deleted",
+            mapOf(3u to MENTIONED), before = mapOf(3u to MENTIONED), relabel = listOf(3u to MESSAGE_QUOTED),
+        ),
+        QuoteEditCase(
+            "holds the quote notice, the edit adds @everyone: nothing for them, the others are told",
+            mapOf(3u to MESSAGE_QUOTED), everyoneMentioned = true, add = listOf(2u, 4u, 5u, 6u).map { it to EVERYONE_MENTIONED },
+        ),
+        QuoteEditCase(
+            "holds a reply notice (quotes switched off), the edit adds @everyone: told afresh like any member",
+            mapOf(3u to THREAD_REPLIED), watchers = listOf(3u), everyoneMentioned = true,
+            add = listOf(3u to MESSAGE_QUOTED) + listOf(2u, 4u, 5u, 6u).map { it to EVERYONE_MENTIONED },
+            remove = listOf(3u),
+        ),
+        QuoteEditCase(
+            "holds nothing (quotes switched off), the edit adds @everyone: told like any member",
+            emptyMap(), everyoneMentioned = true,
+            add = listOf(3u to MESSAGE_QUOTED) + listOf(2u, 4u, 5u, 6u).map { it to EVERYONE_MENTIONED },
+        ),
+        QuoteEditCase(
+            "holds nothing, the edit addresses them no more than before: nothing (a base notice is never added)",
+            emptyMap(), mentioned = listOf(2u), add = listOf(2u to MENTIONED),
+        ),
+        QuoteEditCase(
+            "holds nothing, a KEPT everyone: nothing (the edit re-addresses nobody)",
+            emptyMap(), everyoneMentioned = true, before = listOf(2u, 3u, 4u, 5u, 6u).associateWith { EVERYONE_MENTIONED },
+        ),
+        QuoteEditCase(
+            "holds the quote notice, nothing about them changes: nothing",
+            mapOf(3u to MESSAGE_QUOTED), watchers = listOf(3u),
+        ),
+    )
+
+    @Test
+    fun `an edit of a message that quotes, case by case`() {
+        for (case in quoteEditCases) {
+            val revision = NoticeAudience.ofEdit(
+                false, actor, case.existing, case.mentioned, case.before, case.watchers, members,
+                everyoneMentioned = case.everyoneMentioned, quoted = quotedAuthor,
+            )
+            assertEquals(case.add, told(revision.add), "${case.name}: add")
+            assertEquals(case.relabel, told(revision.relabel), "${case.name}: relabel")
+            assertEquals(case.remove.toSet(), revision.remove.toSet(), "${case.name}: remove")
+            val kept = case.existing.keys - revision.remove.toSet()
+            assertTrue(revision.add.none { it.userId in kept }, "${case.name}: nobody who keeps a notice is counted again")
+        }
+    }
+
+    @Test
+    fun `a quoted author told afresh by an edit keeps the quote and the group reason as fallbacks, in priority order`() {
+        val revision = NoticeAudience.ofEdit(
+            false, actor, emptyMap(), emptyList(), emptyMap(), listOf(quotedAuthor), members,
+            everyoneMentioned = true, quoted = quotedAuthor,
+        )
+        val three = revision.add.single { it.userId == quotedAuthor }
+        assertEquals(MESSAGE_QUOTED, three.reason)
+        assertEquals(listOf(EVERYONE_MENTIONED, THREAD_REPLIED), three.fallbacks)
     }
 }
