@@ -1,9 +1,12 @@
-import { Group, Paper, Radio, SegmentedControl, Stack, Text } from "@mantine/core";
+import type { CSSProperties } from "react";
+import { Paper, Radio, SegmentedControl, Stack, Text } from "@mantine/core";
 import { useTranslation } from "react-i18next";
+import { statusHue } from "../utils/workflowColours";
 import type { RowErrors, StatusCategory, StatusDraft } from "../utils/workflowForm";
 import RowControls from "./RowControls";
 import StatusColourSelect from "./StatusColourSelect";
 import WorkflowIdentityInputs from "./WorkflowIdentityInputs";
+import classes from "./WorkflowStatusRow.module.css";
 
 /**
  * One status of a workflow: label(s), key, colour, an Open/Closed category (locked while threads use the status), the radio
@@ -34,12 +37,33 @@ export default function WorkflowStatusRow({
   const { t } = useTranslation();
   const position = index + 1;
   const locked = status.threadCount > 0;
+  const hue = statusHue(status.colour);
+  const accentStyle = {
+    "--workflow-row-accent": `light-dark(var(--mantine-color-${hue}-6), var(--mantine-color-${hue}-4))`,
+  } as CSSProperties;
   return (
-    <Paper withBorder p="sm" role="group" aria-label={t("workflows.statuses.rowAria", { position })}>
-      <Group align="flex-start" gap="md" wrap="wrap">
-        <WorkflowIdentityInputs row={status} labelColumns={labelColumns} errors={errors} onChange={onChange} />
+    <Paper withBorder p="md" role="group" aria-label={t("workflows.statuses.rowAria", { position })} className={classes.row} style={accentStyle}>
+      <div className={classes.header}>
+        <Text size="xs" fw={650} c="dimmed">
+          {t("workflows.statuses.rowAria", { position })}
+        </Text>
+        <RowControls
+          index={index}
+          count={count}
+          onMoveUp={() => onMove(-1)}
+          onMoveDown={() => onMove(1)}
+          onRemove={onRemove}
+          moveUpLabel={t("workflows.statuses.moveUpAria", { position })}
+          moveDownLabel={t("workflows.statuses.moveDownAria", { position })}
+          removeLabel={t("workflows.statuses.removeAria", { position })}
+        />
+      </div>
+      <div className={classes.grid}>
+        <div className={classes.identity}>
+          <WorkflowIdentityInputs row={status} labelColumns={labelColumns} errors={errors} onChange={onChange} />
+        </div>
         <StatusColourSelect value={status.colour} onChange={(colour) => onChange({ ...status, colour })} />
-        <Stack gap={4}>
+        <Stack gap={4} className={classes.category}>
           <Text size="sm" fw={500} id={`${status.id}-category`}>
             {t("workflows.statuses.category")}
           </Text>
@@ -59,25 +83,16 @@ export default function WorkflowStatusRow({
             </Text>
           )}
         </Stack>
-        <Radio
-          name="workflow-initial-status"
-          label={t("workflows.statuses.initial")}
-          checked={status.initial}
-          onChange={onSetInitial}
-          disabled={status.category !== "OPEN"}
-          mt={26}
-        />
-        <RowControls
-          index={index}
-          count={count}
-          onMoveUp={() => onMove(-1)}
-          onMoveDown={() => onMove(1)}
-          onRemove={onRemove}
-          moveUpLabel={t("workflows.statuses.moveUpAria", { position })}
-          moveDownLabel={t("workflows.statuses.moveDownAria", { position })}
-          removeLabel={t("workflows.statuses.removeAria", { position })}
-        />
-      </Group>
+        <div className={classes.initial}>
+          <Radio
+            name="workflow-initial-status"
+            label={t("workflows.statuses.initial")}
+            checked={status.initial}
+            onChange={onSetInitial}
+            disabled={status.category !== "OPEN"}
+          />
+        </div>
+      </div>
     </Paper>
   );
 }

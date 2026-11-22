@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Group, SegmentedControl, Stack, Switch, TextInput } from "@mantine/core";
+import { Button, Paper, SegmentedControl, Stack, Switch, Text, TextInput } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
 import { useTagCategories } from "../hooks/useTagCategories";
 import { queryProblem, type QueryProblem } from "../utils/searchParams";
 import { tagOptionGroups } from "../utils/threadTags";
 import { SCOPES, type Scope } from "../utils/threadListParams";
 import FilterMultiSelect from "./FilterMultiSelect";
+import classes from "./SearchForm.module.css";
 
 /**
  * The search box: a labelled `type="search"` input with the rules of matching under it, the Open / Closed / All control and a submit button. A
@@ -64,42 +65,59 @@ export default function SearchForm({
   }
 
   return (
-    <form role="search" onSubmit={submit} noValidate>
-      <Stack gap="xs">
-        <TextInput
-          type="search"
-          label={label}
-          value={draft}
-          onChange={(event) => setDraft(event.currentTarget.value)}
-          description={t(watching ? "search.watching.hintOn" : threadTag.length > 0 ? "search.tags.hintOn" : "search.hint")}
-          inputWrapperOrder={["label", "input", "error", "description"]}
-          error={problem === null ? undefined : t(`search.error.${problem}`)}
-          // Announced when it appears (a submit that was refused), not only found by a reader who goes back to the box.
-          errorProps={{ role: "alert" }}
-          leftSection={<IconSearch size={16} />}
-        />
-        <FilterMultiSelect
-          label={t("search.tags.label")}
-          emptyLabel={t("threads.filters.all")}
-          w="100%"
-          maw={420}
-          data={tagOptionGroups(categories.data ?? [])}
-          value={threadTag}
-          onChange={onThreadTag}
-          nothingFoundMessage={t("threads.filters.noTags")}
-        />
-        <Group gap="sm">
-          <Button type="submit">{t("search.submit")}</Button>
-          <Switch label={t("search.watching.label")} checked={watching} onChange={(event) => onWatching(event.currentTarget.checked)} />
-          <SegmentedControl
-            size="xs"
-            aria-label={t("search.scope.aria")}
-            value={scope}
-            onChange={(value) => onScope(value as Scope)}
-            data={SCOPES.map((value) => ({ value, label: t(`threads.scope.${value}`) }))}
+    <Paper component="form" role="search" onSubmit={submit} noValidate withBorder className={classes.surface}>
+      <Stack gap="md">
+        <div className={classes.queryRow}>
+          <TextInput
+            className={classes.query}
+            size="md"
+            type="search"
+            name="q"
+            label={label}
+            value={draft}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            description={t(watching ? "search.watching.hintOn" : threadTag.length > 0 ? "search.tags.hintOn" : "search.hint")}
+            inputWrapperOrder={["label", "input", "error", "description"]}
+            error={problem === null ? undefined : t(`search.error.${problem}`)}
+            // Announced when it appears (a submit that was refused), not only found by a reader who goes back to the box.
+            errorProps={{ role: "alert" }}
+            leftSection={<IconSearch size={18} />}
           />
-        </Group>
+          <Button type="submit" size="md" className={classes.submit}>
+            {t("search.submit")}
+          </Button>
+        </div>
+        <fieldset className={classes.filters}>
+          <legend className={classes.legend}>{t("search.filters.label")}</legend>
+          <div className={classes.filterGrid}>
+            <Stack gap={4} className={classes.scope}>
+              <Text size="sm" fw={500}>{t("search.scope.label")}</Text>
+              <SegmentedControl
+                fullWidth
+                aria-label={t("search.scope.aria")}
+                value={scope}
+                onChange={(value) => onScope(value as Scope)}
+                data={SCOPES.map((value) => ({ value, label: t(`threads.scope.${value}`) }))}
+              />
+            </Stack>
+            <FilterMultiSelect
+              label={t("search.tags.label")}
+              emptyLabel={t("threads.filters.all")}
+              w="100%"
+              data={tagOptionGroups(categories.data ?? [])}
+              value={threadTag}
+              onChange={onThreadTag}
+              nothingFoundMessage={t("threads.filters.noTags")}
+            />
+            <Switch
+              className={classes.watching}
+              label={t("search.watching.label")}
+              checked={watching}
+              onChange={(event) => onWatching(event.currentTarget.checked)}
+            />
+          </div>
+        </fieldset>
       </Stack>
-    </form>
+    </Paper>
   );
 }

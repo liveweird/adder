@@ -1,0 +1,80 @@
+.row {
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(20rem, 2fr) minmax(11rem, 0.8fr) minmax(9rem, 0.6fr);
+  align-items: start;
+  gap: var(--mantine-spacing-md);
+}
+
+.identity,
+.identity > div {
+  min-inline-size: 0;
+  inline-size: 100%;
+}
+
+.required {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.25rem;
+  padding-block-start: 1.6rem;
+}
+
+.options {
+  margin-block-start: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: light-dark(var(--adder-surface-tint), var(--mantine-color-dark-8));
+}
+
+.optionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--mantine-spacing-sm);
+}
+
+@container (max-width: 58rem) {
+  .grid {
+    grid-template-columns: minmax(18rem, 2fr) minmax(10rem, 1fr);
+  }
+
+  .required {
+    grid-column: 1 / -1;
+    padding-block-start: 0;
+  }
+}
+
+@container (max-width: 42rem) {
+  .grid,
+  .optionRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .options {
+    padding: var(--mantine-spacing-sm);
+  }
+
+  .optionRow + .optionRow {
+    padding-block-start: var(--mantine-spacing-sm);
+    border-block-start: 1px solid var(--mantine-color-default-border);
+  }
+}
+
+@media (pointer: coarse) {
+  .header button,
+  .optionRow button {
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+}

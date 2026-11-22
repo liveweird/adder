@@ -1,0 +1,27 @@
+.layout {
+  display: grid;
+  align-items: start;
+  gap: var(--mantine-spacing-md);
+}
+
+.layout:not([data-manage]) .details {
+  max-inline-size: 40rem;
+}
+
+@container (min-width: 48rem) {
+  .layout[data-manage] {
+    grid-template-columns: minmax(0, 1.75fr) minmax(16rem, 1fr);
+  }
+}
+
+.panel {
+  padding: clamp(1rem, 3cqi, 1.5rem);
+  min-inline-size: 0;
+}
+
+.formActions {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  padding-block-start: var(--mantine-spacing-sm);
+  border-block-start: 1px solid var(--mantine-color-default-border);
+}

@@ -143,8 +143,9 @@ describe("reading and editing", () => {
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
     expect(headingOutline()).toEqual([
       [2, "Night Shift"],
-      [3, "Statuses"],
-      [3, "Fields"],
+      [3, "Workflow"],
+      [4, "Statuses"],
+      [4, "Fields"],
     ]);
   });
 
@@ -298,15 +299,18 @@ describe("read-only", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByText("Open · Initial status")).toBeInTheDocument();
     expect(screen.getAllByText("Closed", { selector: "p" })).toHaveLength(2);
-    expect(screen.getByText("Severity").closest("li")).toHaveTextContent("Severity — Select, RequiredOptions: S1");
+    expect(screen.getByText("Severity").closest("li")).toHaveTextContent("Options: S1");
+    expect(screen.getByText("Select")).toBeInTheDocument();
+    expect(screen.getByText("Required")).toBeInTheDocument();
     expect(screen.getByText("Options: S1")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add status" })).not.toBeInTheDocument();
     expect(headingOutline()).toEqual([
       [2, "Night Shift"],
-      [3, "Statuses"],
-      [3, "Fields"],
+      [3, "Workflow"],
+      [4, "Statuses"],
+      [4, "Fields"],
     ]);
   });
 

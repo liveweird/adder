@@ -1,10 +1,12 @@
 import { useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Stack } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { searchRoom } from "../api/search";
 import type { RoomResponse } from "../api/rooms";
 import RoomPage from "../components/RoomPage";
+import RoomTabHeader from "../components/RoomTabHeader";
 import SearchBody from "../components/SearchBody";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { roomKeys } from "../utils/roomKeys";
@@ -17,17 +19,21 @@ function RoomSearchBody({ room }: { room: RoomResponse }) {
   // The search answering 404 means the room is gone or the caller no longer reads it: re-read the room, which then shows not-found.
   const onGone = useCallback(() => void queryClient.invalidateQueries({ queryKey: roomKeys.detail(room.id) }), [queryClient, room.id]);
   return (
-    // Keyed by the room: moving to another room (its record already cached, so this body is not unmounted) must not show the previous room's hits
-    // as the placeholder of the new search.
-    <SearchBody
-      key={room.id}
-      label={t("search.room.label")}
-      baseKey={roomKeys.search(room.id)}
-      fetchPage={(query) => searchRoom(room.id, query)}
-      statuses={workflow.data?.statuses}
-      showRoom={false}
-      onGone={onGone}
-    />
+    <Stack gap="md">
+      <RoomTabHeader title={t("search.room.title")} description={t("search.room.description")} />
+      {/* Keyed by the room: moving to another room (its record already cached, so this body is not unmounted) must not show the previous room's hits
+          as the placeholder of the new search. */}
+      <SearchBody
+        key={room.id}
+        label={t("search.room.label")}
+        initialLabel={t("search.room.start")}
+        baseKey={roomKeys.search(room.id)}
+        fetchPage={(query) => searchRoom(room.id, query)}
+        statuses={workflow.data?.statuses}
+        showRoom={false}
+        onGone={onGone}
+      />
+    </Stack>
   );
 }
 

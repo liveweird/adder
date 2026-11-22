@@ -98,8 +98,9 @@ describe("RoomSettings page", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
     expect(headingOutline()).toEqual([
       [2, "Day Shift"],
-      [3, "Details"],
-      [3, "Archive and delete"],
+      [3, "Room settings"],
+      [4, "Room details"],
+      [4, "Room availability"],
     ]);
   });
 
@@ -214,7 +215,8 @@ describe("RoomSettings page", () => {
     serve(mockFetch, { ...ROOM, archived: true });
     const user = userEvent.setup();
     renderSettings();
-    expect(await screen.findByText("Archived")).toBeInTheDocument();
+    const availability = await screen.findByRole("region", { name: "Room availability" });
+    expect(within(availability).getByText("Archived")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Unarchive room" }));
     const dialog = await screen.findByRole("dialog", { name: "Unarchive this room?" });
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));

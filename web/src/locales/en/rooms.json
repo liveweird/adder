@@ -67,7 +67,9 @@
     "templateRequired": "Pick a workflow template"
   },
   "settings": {
-    "detailsTitle": "Details",
+    "title": "Room settings",
+    "description": "Change the room’s name, description, or availability.",
+    "detailsTitle": "Room details",
     "archivedNote": "This room is archived, so its details are read-only. Unarchive it to edit them.",
     "readOnlyNote": "Only the room's owners and administrators can change these settings.",
     "saveForbidden": "Only the room's owners and administrators can change its details",
@@ -75,7 +77,9 @@
     "saveArchived": "This room was archived in the meantime, so it can no longer be edited.",
     "saveInvalid": "One or more fields are invalid",
     "saveGone": "This room no longer exists, or you no longer have access to it — reload the page",
-    "lifecycleTitle": "Archive and delete",
+    "availabilityTitle": "Room availability",
+    "active": "Active",
+    "deleteSectionTitle": "Danger zone",
     "archiveHint": "An archived room is read-only. Its members and history stay, and you can unarchive it at any time.",
     "archiveAction": "Archive room",
     "archiveTitle": "Archive this room?",
@@ -95,7 +99,7 @@
     }
   },
   "workflow": {
-    "hint": "This is the room's own copy of its workflow: the statuses and the extra fields every thread carries. Saving changes it for everyone in the room.",
+    "hint": "Statuses and custom fields for this room’s threads.",
     "groupAria": "Room workflow",
     "loadFailed": "Could not load the workflow",
     "archivedNote": "This room is archived, so its workflow is read-only. Unarchive it to edit it.",
@@ -127,6 +131,7 @@
   },
   "members": {
     "title": "Members",
+    "description": "See who has access to this room and their role.",
     "addTitle": "Add people",
     "addPersonLabel": "Add a person",
     "addPerson": "Add person",

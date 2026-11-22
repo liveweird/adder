@@ -17,6 +17,7 @@ import {
 import RowControls from "./RowControls";
 import ValidationError from "./ValidationError";
 import WorkflowIdentityInputs from "./WorkflowIdentityInputs";
+import classes from "./WorkflowFieldRow.module.css";
 
 /**
  * One custom field of a workflow: label(s), key, a type (fixed once the field is persisted), a Required switch and, for the
@@ -46,25 +47,12 @@ export default function WorkflowFieldRow({
   const position = index + 1;
   const setOptions = (options: DraftRow[]) => onChange({ ...field, options });
   return (
-    <Paper withBorder p="sm" role="group" aria-label={t("workflows.fields.rowAria", { position })}>
+    <Paper withBorder p="md" role="group" aria-label={t("workflows.fields.rowAria", { position })} className={classes.row}>
       <Stack gap="sm">
-        <Group align="flex-start" gap="md" wrap="wrap">
-          <WorkflowIdentityInputs row={field} labelColumns={labelColumns} errors={rowErrors[field.id]} onChange={onChange} />
-          <Select
-            label={t("workflows.fields.type")}
-            data={FIELD_TYPES.map((type) => ({ value: type, label: t(`workflows.fieldType.${type}`) }))}
-            value={field.type}
-            allowDeselect={false}
-            onChange={(type) => onChange({ ...field, type: type as FieldType })}
-            disabled={field.persisted}
-            description={field.persisted ? t("workflows.fields.typeLocked") : undefined}
-          />
-          <Switch
-            label={t("workflows.fields.required")}
-            checked={field.required}
-            onChange={(event) => onChange({ ...field, required: event.currentTarget.checked })}
-            mt={26}
-          />
+        <div className={classes.header}>
+          <Text size="xs" fw={650} c="dimmed">
+            {t("workflows.fields.rowAria", { position })}
+          </Text>
           <RowControls
             index={index}
             count={count}
@@ -75,20 +63,43 @@ export default function WorkflowFieldRow({
             moveDownLabel={t("workflows.fields.moveDownAria", { position })}
             removeLabel={t("workflows.fields.removeAria", { position })}
           />
-        </Group>
+        </div>
+        <div className={classes.grid}>
+          <div className={classes.identity}>
+            <WorkflowIdentityInputs row={field} labelColumns={labelColumns} errors={rowErrors[field.id]} onChange={onChange} />
+          </div>
+          <Select
+            label={t("workflows.fields.type")}
+            data={FIELD_TYPES.map((type) => ({ value: type, label: t(`workflows.fieldType.${type}`) }))}
+            value={field.type}
+            allowDeselect={false}
+            onChange={(type) => onChange({ ...field, type: type as FieldType })}
+            disabled={field.persisted}
+            description={field.persisted ? t("workflows.fields.typeLocked") : undefined}
+          />
+          <div className={classes.required}>
+            <Switch
+              label={t("workflows.fields.required")}
+              checked={field.required}
+              onChange={(event) => onChange({ ...field, required: event.currentTarget.checked })}
+            />
+          </div>
+        </div>
         {takesOptions(field.type) && (
-          <Stack gap="xs" pl="md" role="group" aria-label={t("workflows.options.title")}>
-            <Text size="sm" fw={500}>
+          <Stack gap="sm" role="group" aria-label={t("workflows.options.title")} className={classes.options}>
+            <Text size="sm" fw={650}>
               {t("workflows.options.title")}
             </Text>
             {field.options.map((option, optionIndex) => (
-              <Group key={option.id} align="flex-start" gap="md" wrap="wrap">
-                <WorkflowIdentityInputs
-                  row={option}
-                  labelColumns={labelColumns}
-                  errors={rowErrors[option.id]}
-                  onChange={(next) => setOptions(replaceItem(field.options, next))}
-                />
+              <div key={option.id} className={classes.optionRow}>
+                <div className={classes.identity}>
+                  <WorkflowIdentityInputs
+                    row={option}
+                    labelColumns={labelColumns}
+                    errors={rowErrors[option.id]}
+                    onChange={(next) => setOptions(replaceItem(field.options, next))}
+                  />
+                </div>
                 <RowControls
                   index={optionIndex}
                   count={field.options.length}
@@ -99,7 +110,7 @@ export default function WorkflowFieldRow({
                   moveDownLabel={t("workflows.options.moveDownAria", { position: optionIndex + 1 })}
                   removeLabel={t("workflows.options.removeAria", { position: optionIndex + 1 })}
                 />
-              </Group>
+              </div>
             ))}
             <ValidationError message={rowErrors[field.id]?.options} />
             <Group>

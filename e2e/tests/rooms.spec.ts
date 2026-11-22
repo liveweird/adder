@@ -135,8 +135,12 @@ test("the owner adds a person and a whole team, hands over ownership and leaves"
   await expect(page.getByRole("link", { name: "Members", exact: true })).toHaveAttribute("aria-current", "page");
   const table = page.getByRole("table", { name: "Members", exact: true });
   const rowOf = (email: string) => table.getByRole("row").filter({ hasText: email });
-  await expect(rowOf(owner.email).getByRole("cell").nth(2)).toHaveText("Owner");
+  await expect(rowOf(owner.email).getByText("Owner", { exact: true })).toBeVisible();
   await expect(rowOf(owner.email).getByText("You", { exact: true })).toBeVisible();
+
+  // The header takes the owner from the roster to the two add paths.
+  await page.getByRole("link", { name: "Add people", exact: true }).press("Enter");
+  await expect(page.getByRole("heading", { name: "Add people", exact: true })).toBeFocused();
 
   // Add a person from the directory: they join as a plain member.
   const personPicker = page.getByRole("combobox", { name: "Add a person" });
@@ -147,8 +151,19 @@ test("the owner adds a person and a whole team, hands over ownership and leaves"
     page.waitForResponse((r) => r.request().method() === "POST" && MEMBERS_API.test(r.url()) && r.status() === 200),
     page.getByRole("button", { name: "Add person", exact: true }).click(),
   ]);
-  await expect(rowOf(person.email).getByRole("cell").nth(2)).toHaveText("Member");
+  await expect(rowOf(person.email).getByText("Member", { exact: true })).toBeVisible();
   await expect(page.getByText("2 members", { exact: true })).toBeVisible();
+
+  // The responsive roster keeps member actions inside the card.
+  const desktop = page.viewportSize()!;
+  await page.setViewportSize({ width: 390, height: 844 });
+  const memberRow = rowOf(person.email);
+  const memberActions = memberRow.getByRole("button", { name: `Operations for ${person.name}` });
+  await expect(memberActions).toBeVisible();
+  const [cardBounds, actionBounds] = await Promise.all([memberRow.boundingBox(), memberActions.boundingBox()]);
+  expect(actionBounds!.x).toBeGreaterThan(cardBounds!.x);
+  expect(actionBounds!.x + actionBounds!.width).toBeLessThan(cardBounds!.x + cardBounds!.width);
+  await page.setViewportSize(desktop);
 
   // Add a whole team: the confirm states how many people it holds, and the one who already belongs is skipped.
   const teamPicker = page.getByRole("combobox", { name: "Add a whole team" });
@@ -163,7 +178,7 @@ test("the owner adds a person and a whole team, hands over ownership and leaves"
     dialog.getByRole("button", { name: "Add team", exact: true }).click(),
   ]);
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(rowOf(mate.email).getByRole("cell").nth(2)).toHaveText("Member");
+  await expect(rowOf(mate.email).getByText("Member", { exact: true })).toBeVisible();
   await expect(page.getByText("3 members", { exact: true })).toBeVisible();
   await expect(table.getByRole("row")).toHaveCount(4); // the header and three members
 
@@ -174,14 +189,14 @@ test("the owner adds a person and a whole team, hands over ownership and leaves"
     page.getByRole("dialog").getByRole("button", { name: "Leave room", exact: true }).click(),
   ]);
   await expect(page.getByRole("alert").filter({ hasText: LAST_OWNER })).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`/rooms/${id}/members$`));
+  await expect(page).toHaveURL(new RegExp(`/rooms/${id}/members(#room-members-add)?$`));
 
   // Hand ownership over, then leave: the room is gone from the owner's rail and from their reach.
   await Promise.all([
     page.waitForResponse((r) => r.request().method() === "PUT" && MEMBERS_API.test(r.url()) && r.status() === 204),
     rowOperation(page, person.name, "Make owner"),
   ]);
-  await expect(rowOf(person.email).getByRole("cell").nth(2)).toHaveText("Owner");
+  await expect(rowOf(person.email).getByText("Owner", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Leave room", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Leave this room?" })).toBeVisible();
   await Promise.all([
@@ -273,7 +288,7 @@ test("an owner archives and unarchives a room and an administrator deletes it", 
     page.getByRole("dialog").getByRole("button", { name: "Archive room" }).click(),
   ]);
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByText("Archived", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Room availability" })).toContainText("Archived");
   await expect(nameBox).not.toBeEditable();
   await expect(page.getByRole("button", { name: "Unarchive room" })).toBeVisible();
   await expect(rail(page).getByRole("link", { name, exact: true })).toHaveCount(0);
@@ -308,4 +323,31 @@ test("an owner archives and unarchives a room and an administrator deletes it", 
   await expect(page).toHaveURL(/\/rooms$/);
   await page.goto(`/rooms/${id}`);
   await expect(page.getByText(NOT_A_MEMBER)).toBeVisible();
+});
+
+test("the room tabs stay in view and open their controls on a phone", async ({ page }) => {
+  await admin.login(page);
+  const owner = await throwawayUser(page, "E2E Room Navigation", cleanup);
+  await signOut(page);
+  await login(page, owner.email, owner.password);
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-room"), "Incident", cleanup);
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  const nav = page.getByRole("navigation", { name: "Room pages" });
+  const tabs = [
+    { name: "Search", path: "search", content: page.getByRole("searchbox") },
+    { name: "Members", path: "members", content: page.getByRole("heading", { name: "Members", exact: true }).first() },
+    { name: "Workflow", path: "workflow", content: page.getByRole("heading", { name: "Statuses", exact: true }) },
+    { name: "Settings", path: "settings", content: page.getByRole("textbox", { name: "Name", exact: true }) },
+  ];
+  for (const { name, path, content } of tabs) {
+    const link = nav.getByRole("link", { name, exact: true });
+    await expect(link).toBeInViewport({ ratio: 1 });
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/${path}$`));
+    await expect(link).toHaveAttribute("aria-current", "page");
+    await expect(nav.locator("[aria-current=page]")).toHaveCount(1);
+    await expect(content).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  }
 });

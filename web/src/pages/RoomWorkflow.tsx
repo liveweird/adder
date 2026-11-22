@@ -9,6 +9,7 @@ import { getRoomWorkflow, type RoomResponse } from "../api/rooms";
 import ErrorAlert from "../components/ErrorAlert";
 import LoadingBlock from "../components/LoadingBlock";
 import RoomPage from "../components/RoomPage";
+import RoomTabHeader from "../components/RoomTabHeader";
 import RoomWorkflowForm from "../components/RoomWorkflowForm";
 import { canManageRoom } from "../utils/roomAccess";
 import { toRoomWorkflowDraft, type RoomWorkflow, type WorkflowDraft } from "../utils/workflowForm";
@@ -96,10 +97,16 @@ function WorkflowBody({ room }: { room: RoomResponse }) {
  */
 export default function RoomWorkflow() {
   const { id } = useParams();
+  const { t } = useTranslation();
   // Keyed by the room: another room's page never inherits this one's seed, draft or revision.
   return (
     <RoomPage idParam={id} tab="workflow">
-      {(room) => <WorkflowBody key={room.id} room={room} />}
+      {(room) => (
+        <>
+          <RoomTabHeader title={t("workflows.room.title")} description={t("rooms.workflow.hint")} />
+          <WorkflowBody key={room.id} room={room} />
+        </>
+      )}
     </RoomPage>
   );
 }

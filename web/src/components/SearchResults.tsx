@@ -11,13 +11,14 @@ import Snippet from "./Snippet";
 import StatusPill from "./StatusPill";
 import TagPills from "./TagPills";
 import ThreadStatusPill from "./ThreadStatusPill";
+import classes from "./SearchResults.module.css";
 
 /** The plain words of a snippet: the accessible name of a link whose visible text `<mark>` splits. */
 const plain = (segments: readonly { text: string }[]) => segments.map((segment) => segment.text).join("");
 
 function MessageRow({ hit, message, zone }: { hit: ThreadSearchHit; message: MessageSearchHit; zone: string }) {
   return (
-    <Anchor component={RouterLink} to={threadMessagePath(hit.roomId, hit.threadNumber, message.id)} display="block" underline="hover">
+    <Anchor component={RouterLink} to={threadMessagePath(hit.roomId, hit.threadNumber, message.id)} className={classes.message} underline="hover">
       <Text size="xs" c="dimmed">
         {message.authorName} · {formatDateTime(message.createdAt, zone)}
       </Text>
@@ -38,31 +39,35 @@ function MessageRow({ hit, message, zone }: { hit: ThreadSearchHit; message: Mes
 function Hit({ hit, statuses, showRoom, zone }: { hit: ThreadSearchHit; statuses: RoomWorkflow["statuses"] | undefined; showRoom: boolean; zone: string }) {
   const { t } = useTranslation();
   return (
-    <Paper component="article" withBorder p="sm">
-      <Stack gap="xs">
-        <Title order={3} size="h5" style={{ overflowWrap: "anywhere" }}>
-          {/* `<mark>` splits the visible words into pieces, so the link is named by the plain title. */}
-          <Anchor component={RouterLink} to={threadPath(hit.roomId, hit.threadNumber)} inherit aria-label={`#${hit.threadNumber} ${plain(hit.titleSnippet)}`}>
-            <Text span c="dimmed" inherit>{`#${hit.threadNumber} `}</Text>
-            <Snippet segments={hit.titleSnippet} />
-          </Anchor>
-        </Title>
-        <Group gap="xs">
-          {showRoom ? (
-            // Neutral gray for both: with no workflow at hand there is no status colour to show, and blue means "in progress"
-            // (web/CLAUDE.md); gray is what a room's initial "Open" status wears. The word, not the hue, tells the two apart.
-            <StatusPill color="gray" dot size="sm">
-              {t(hit.closed ? "search.results.closed" : "search.results.open")}
-            </StatusPill>
-          ) : (
-            <ThreadStatusPill statuses={statuses} statusKey={hit.status} size="sm" />
-          )}
+    <Paper component="article" withBorder className={classes.card}>
+      <Stack gap="sm">
+        <div className={classes.headingRow}>
+          <Title order={showRoom ? 3 : 4} size="h5" className={classes.title}>
+            {/* `<mark>` splits the visible words into pieces, so the link is named by the plain title. */}
+            <Anchor component={RouterLink} to={threadPath(hit.roomId, hit.threadNumber)} inherit aria-label={`#${hit.threadNumber} ${plain(hit.titleSnippet)}`}>
+              <Text span c="dimmed" inherit className={classes.number}>{`#${hit.threadNumber} `}</Text>
+              <Snippet segments={hit.titleSnippet} />
+            </Anchor>
+          </Title>
+          <Group gap="xs" className={classes.state}>
+            {showRoom ? (
+              // Neutral gray for both: with no workflow at hand there is no status colour to show, and blue means "in progress"
+              // (web/CLAUDE.md); gray is what a room's initial "Open" status wears. The word, not the hue, tells the two apart.
+              <StatusPill color="gray" dot size="sm">
+                {t(hit.closed ? "search.results.closed" : "search.results.open")}
+              </StatusPill>
+            ) : (
+              <ThreadStatusPill statuses={statuses} statusKey={hit.status} size="sm" wrap />
+            )}
+            {showRoom && hit.roomArchived && (
+              <Badge color="gray" size="sm">
+                {t("rooms.archivedBadge")}
+              </Badge>
+            )}
+          </Group>
+        </div>
+        <Group gap="xs" className={classes.meta}>
           {showRoom && <RoomLink id={hit.roomId} name={hit.roomName} size="xs" />}
-          {showRoom && hit.roomArchived && (
-            <Badge color="gray" size="sm">
-              {t("rooms.archivedBadge")}
-            </Badge>
-          )}
           <Text size="xs" c="dimmed">
             <PersonLink id={hit.ownerId} name={hit.ownerName} inherit /> · {t("threads.row.messages", { count: hit.messageCount })} · {formatDateTime(hit.lastActivityAt, zone)}
           </Text>
@@ -74,18 +79,18 @@ function Hit({ hit, statuses, showRoom, zone }: { hit: ThreadSearchHit; statuses
           </div>
         )}
         {hit.matchCount > 0 && (
-          <>
+          <div className={classes.matches}>
             <Text size="sm" fw={500}>
               {t("search.results.matches", { count: hit.matchCount })}
             </Text>
-            <Stack component="ul" gap="xs" m={0} p={0} style={{ listStyle: "none" }}>
+            <Stack component="ul" gap={4} m={0} p={0} className={classes.messageList}>
               {hit.messages.map((message) => (
                 <li key={message.id}>
                   <MessageRow hit={hit} message={message} zone={zone} />
                 </li>
               ))}
             </Stack>
-          </>
+          </div>
         )}
       </Stack>
     </Paper>
@@ -96,7 +101,7 @@ function Hit({ hit, statuses, showRoom, zone }: { hit: ThreadSearchHit; statuses
 export default function SearchResults({ hits, statuses, showRoom, label }: { hits: readonly ThreadSearchHit[]; statuses?: RoomWorkflow["statuses"]; showRoom: boolean; label: string }) {
   const zone = browserTimeZone();
   return (
-    <Stack component="ol" aria-label={label} gap="sm" m={0} p={0} style={{ listStyle: "none" }}>
+    <Stack component="ol" aria-label={label} gap="sm" m={0} p={0} className={classes.results}>
       {hits.map((hit) => (
         <li key={`${hit.roomId}/${hit.threadNumber}`}>
           <Hit hit={hit} statuses={statuses} showRoom={showRoom} zone={zone} />

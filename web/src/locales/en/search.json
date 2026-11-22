@@ -1,10 +1,17 @@
 {
   "submit": "Search",
   "scope": {
+    "label": "Thread state",
     "aria": "Which threads to search"
   },
+  "filters": {
+    "label": "Filters"
+  },
   "room": {
-    "label": "Search this room"
+    "title": "Search",
+    "description": "Find threads and messages in this room.",
+    "label": "Keywords",
+    "start": "Enter keywords or use the filters to find a thread."
   },
   "all": {
     "label": "Search all your rooms"

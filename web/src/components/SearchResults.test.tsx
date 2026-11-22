@@ -19,9 +19,9 @@ describe("SearchResults", () => {
     const link = screen.getByRole("link", { name: "#42 Database outage" });
     expect(link).toHaveAttribute("href", "/rooms/12/threads/42");
     expect(link.querySelector("mark")?.textContent).toBe("outage");
-    expect(screen.getByRole("heading", { level: 3, name: "#42 Database outage" })).toContainElement(link);
+    expect(screen.getByRole("heading", { level: 4, name: "#42 Database outage" })).toContainElement(link);
     expect(screen.getByRole("link", { name: "#43 Disk full" })).toHaveAttribute("href", "/rooms/12/threads/43");
-    expect(headingOutline().map(([level]) => level)).toEqual([3, 3]);
+    expect(headingOutline().map(([level]) => level)).toEqual([4, 4]);
   });
 
   test("a message snippet is a link to the thread that names the message, headed by its author and time", () => {

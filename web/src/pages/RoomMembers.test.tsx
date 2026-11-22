@@ -167,6 +167,9 @@ describe("RoomMembers page", () => {
     const table = await screen.findByRole("table", { name: "Members" });
     expect(await within(table).findByText("max@example.test")).toBeInTheDocument();
     expect(within(table).getAllByRole("row")).toHaveLength(4);
+    expect(screen.getByText("See who has access to this room and their role.")).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: "Add a person" })).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: "Add a whole team" })).toBeInTheDocument();
     // The date, role and a "You" marker on the caller's own row.
     const own = within(table).getByRole("row", { name: /Olga Owner/ });
     expect(within(own).getByText("You")).toBeInTheDocument();
@@ -185,8 +188,8 @@ describe("RoomMembers page", () => {
     expect(document.title).toBe("Members · Night Shift · Adder");
     expect(headingOutline()).toEqual([
       [2, "Night Shift"],
-      [3, "Add people"],
       [3, "Members"],
+      [4, "Add people"],
     ]);
     expect(memberCalls(mockFetch)).toEqual(["/api/v1/rooms/12/members?page=1&pageSize=20&sort=name"]);
   });

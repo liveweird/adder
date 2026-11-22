@@ -39,8 +39,8 @@
    tab.
    - *Expected*: the app is at `/rooms/:id/members`, the **Members** tab is current, and the table lists one row: the owner,
      with the role Owner and a "You" marker.
-2. They search the **Add a person** picker for the person's name, pick the "name (email)" option and click **Add person**.
-   - *Expected*: the add answers 200; the person's row appears with the role Member and the header reads "2 members".
+2. They activate **Add people** from the header with the keyboard. Focus moves to the add section. They search the **Add a person** picker for the person's name, pick the "name (email)" option and click **Add person**.
+   - *Expected*: the add answers 200; the person's row appears with the role Member and the header reads "2 members". At phone width the member card contains the row actions button.
 3. They search the **Add a whole team** picker for the team, pick it and click **Add team**.
    - *Expected*: a dialog "Add the team?" says the team has 2 people; confirming answers 200 and closes it. The teammate's
      row appears as Member (the person, who already belongs, is skipped), the header reads "3 members" and the table holds
@@ -90,6 +90,13 @@
 6. They click **Delete room** and confirm **Delete**.
    - *Expected*: the delete answers 204, the app lands on `/rooms`, and the room's URL now shows "This room does not exist,
      or you are not a member of it."
+
+## Scenario: the room tabs stay in view and open their controls on a phone
+
+1. An owner creates an Incident room and narrows the browser to 390 × 844.
+2. They open **Search**, **Members**, **Workflow**, and **Settings** in turn from the room navigation.
+   - *Expected* — Each link fits on screen, takes the reader to its own route, and is the only current link. The search box,
+     member heading, status editor, and room name field load on their respective pages. The page does not scroll sideways.
 
 ## Not covered here (and why)
 

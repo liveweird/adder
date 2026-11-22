@@ -1,0 +1,27 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.625rem 1rem;
+}
+
+.intro {
+  display: grid;
+  gap: 0.25rem;
+  min-inline-size: 0;
+}
+
+.title {
+  font-size: clamp(1.25rem, 4cqi, 1.625rem);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}

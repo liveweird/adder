@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { Button, Group, Stack, Text, Title } from "@mantine/core";
-import { IconPlus } from "@tabler/icons-react";
+import { useId, useState } from "react";
+import { Button, Group, Stack, Text, ThemeIcon, Title } from "@mantine/core";
+import { IconForms, IconPlus, IconRoute } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import {
   MAX_FIELDS,
@@ -25,6 +25,7 @@ import RetireStatusModal from "./RetireStatusModal";
 import ValidationError from "./ValidationError";
 import WorkflowFieldRow from "./WorkflowFieldRow";
 import WorkflowStatusRow from "./WorkflowStatusRow";
+import classes from "./WorkflowEditor.module.css";
 
 /**
  * The workflow editor for BOTH documents: a room's workflow (`labelColumns` 1, one plain label) and a template's (2, English
@@ -43,14 +44,19 @@ export default function WorkflowEditor({
   labelColumns,
   errors,
   conflictKeys,
+  headingOrder = 3,
 }: {
   draft: WorkflowDraft;
   onChange: (draft: WorkflowDraft) => void;
   labelColumns: 1 | 2;
   errors?: WorkflowErrors;
   conflictKeys?: readonly string[];
+  /** A room tab already has its own h3; standalone template forms use h3 section headings. */
+  headingOrder?: 3 | 4;
 }) {
   const { t } = useTranslation();
+  const statusesTitleId = useId();
+  const fieldsTitleId = useId();
   const rows = errors?.rows ?? {};
   // The status whose Remove click is waiting for a replacement choice (it stays in the draft until then).
   const [removingId, setRemovingId] = useState<string | null>(null);
@@ -89,15 +95,22 @@ export default function WorkflowEditor({
   };
 
   return (
-    <Stack gap="xl">
-      <Stack gap="sm">
-        <Title order={3} size="h4">
-          {t("workflows.statuses.title")}
-        </Title>
-        <Text size="sm" c="dimmed">
-          {t("workflows.statuses.hint")}
-        </Text>
-        <div role="radiogroup" aria-label={t("workflows.statuses.initial")} style={{ display: "contents" }}>
+    <Stack gap="xl" className={classes.editor}>
+      <section className={classes.section} aria-labelledby={statusesTitleId}>
+        <div className={classes.sectionHeader}>
+          <ThemeIcon variant="light" color="gray" size="lg" radius="md" aria-hidden="true">
+            <IconRoute size={20} />
+          </ThemeIcon>
+          <div>
+            <Title order={headingOrder} size="h4" id={statusesTitleId}>
+              {t("workflows.statuses.title")}
+            </Title>
+            <Text size="sm" c="dimmed" maw="68ch">
+              {t("workflows.statuses.hint")}
+            </Text>
+          </div>
+        </div>
+        <Stack role="radiogroup" aria-label={t("workflows.statuses.initial")} gap="sm">
           {draft.statuses.map((status, index) => (
             <WorkflowStatusRow
               key={status.id}
@@ -112,12 +125,14 @@ export default function WorkflowEditor({
               onRemove={() => requestRemove(status)}
             />
           ))}
+        </Stack>
+        <div className={classes.validation}>
+          <ValidationError message={errors?.statuses} />
+          <ValidationError message={errors?.initial} />
+          <ValidationError message={errors?.closed} />
         </div>
-        <ValidationError message={errors?.statuses} />
-        <ValidationError message={errors?.initial} />
-        <ValidationError message={errors?.closed} />
         {draft.retired.length > 0 && (
-          <Stack gap={4} role="group" aria-label={t("workflows.retired.title")}>
+          <Stack gap={4} role="group" aria-label={t("workflows.retired.title")} className={classes.retired}>
             {draft.retired.map((retired) => {
               const { status } = retired;
               const target = replacementTarget(draft, retired);
@@ -149,30 +164,39 @@ export default function WorkflowEditor({
             {t("workflows.statuses.add")}
           </Button>
         </Group>
-      </Stack>
+      </section>
 
-      <Stack gap="sm">
-        <Title order={3} size="h4">
-          {t("workflows.fields.title")}
-        </Title>
-        <Text size="sm" c="dimmed">
-          {t("workflows.fields.hint")}
-        </Text>
-        {draft.fields.map((field, index) => (
-          <WorkflowFieldRow
-            key={field.id}
-            field={field}
-            index={index}
-            count={draft.fields.length}
-            labelColumns={labelColumns}
-            rowErrors={rows}
-            onChange={(next) => onChange({ ...draft, fields: replaceItem(draft.fields, next) })}
-            onMove={(delta) => onChange({ ...draft, fields: moveItem(draft.fields, index, delta) })}
-            onRemove={() => onChange({ ...draft, fields: removeItem(draft.fields, field.id) })}
-          />
-        ))}
+      <section className={classes.section} aria-labelledby={fieldsTitleId}>
+        <div className={classes.sectionHeader}>
+          <ThemeIcon variant="light" color="gray" size="lg" radius="md" aria-hidden="true">
+            <IconForms size={20} />
+          </ThemeIcon>
+          <div>
+            <Title order={headingOrder} size="h4" id={fieldsTitleId}>
+              {t("workflows.fields.title")}
+            </Title>
+            <Text size="sm" c="dimmed" maw="68ch">
+              {t("workflows.fields.hint")}
+            </Text>
+          </div>
+        </div>
+        <Stack gap="sm">
+          {draft.fields.map((field, index) => (
+            <WorkflowFieldRow
+              key={field.id}
+              field={field}
+              index={index}
+              count={draft.fields.length}
+              labelColumns={labelColumns}
+              rowErrors={rows}
+              onChange={(next) => onChange({ ...draft, fields: replaceItem(draft.fields, next) })}
+              onMove={(delta) => onChange({ ...draft, fields: moveItem(draft.fields, index, delta) })}
+              onRemove={() => onChange({ ...draft, fields: removeItem(draft.fields, field.id) })}
+            />
+          ))}
+        </Stack>
         {draft.fields.length === 0 && (
-          <Text size="sm" c="dimmed">
+          <Text size="sm" c="dimmed" className={classes.empty}>
             {t("workflows.fields.empty")}
           </Text>
         )}
@@ -188,7 +212,7 @@ export default function WorkflowEditor({
             {t("workflows.fields.add")}
           </Button>
         </Group>
-      </Stack>
+      </section>
 
       <RetireStatusModal
         status={ask?.status ?? null}

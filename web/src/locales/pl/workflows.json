@@ -3,6 +3,9 @@
   "labelIn": "Etykieta ({{language}})",
   "key": "Klucz",
   "keyLocked": "Klucza zapisanego elementu nie można zmienić.",
+  "room": {
+    "title": "Przepływ pracy"
+  },
   "statuses": {
     "title": "Statusy",
     "hint": "Stany, przez które przechodzi wątek. Dokładnie jeden jest statusem początkowym, a co najmniej jeden zamyka wątek.",

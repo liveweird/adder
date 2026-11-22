@@ -305,7 +305,7 @@ test.describe("detail pages and overlays", () => {
     // Settled once the editor has loaded: the first status row's label is in (the fixture room is a copy of Default, the admin its owner).
     { name: "the room workflow page", path: () => `/rooms/${roomId}/workflow`, settled: (p) => p.getByRole("group", { name: "Status 1", exact: true }).getByRole("textbox", { name: "Label" }) },
     // The read-only view: an archived room's workflow is plain text under a note.
-    { name: "the archived room's read-only workflow page", path: () => `/rooms/${archivedRoomId}/workflow`, settled: (p) => p.getByRole("heading", { level: 3, name: "Statuses" }) },
+    { name: "the archived room's read-only workflow page", path: () => `/rooms/${archivedRoomId}/workflow`, settled: (p) => p.getByRole("heading", { level: 4, name: "Statuses" }) },
     { name: "the room settings page", path: () => `/rooms/${roomId}/settings`, settled: (p) => p.getByRole("heading", { level: 2, name: roomName }) },
     // The open filter panel of the thread list (collapsed by default; the toggle persists per browser, so it is opened explicitly).
     {
