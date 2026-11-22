@@ -2,7 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.tags.TagCategory
-import ch.nokillswit.tags.TagCategoryList
+import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.tags.TagCategoryRequest
 import ch.nokillswit.tags.TagCategoryService
 import ch.nokillswit.threads.ThreadTagService
@@ -88,7 +88,7 @@ suspend fun HttpClient.postCategory(name: String = categoryName(), tags: List<St
 
 /** The stored revision of the category [id] as [this] reads it now (1 for an unknown id, so a 404 test still sends a valid header). */
 suspend fun HttpClient.categoryRevision(id: UInt): Long =
-    get("/api/v1/tag-categories").body<TagCategoryList>().items.firstOrNull { it.id == id }?.revision ?: 1L
+    get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>().items.firstOrNull { it.id == id }?.revision ?: 1L
 
 /** Replaces the category [id] as [this] under [revision] (default: its current one; any status code). */
 suspend fun HttpClient.saveCategory(
@@ -110,4 +110,4 @@ suspend fun HttpClient.deleteCategory(id: UInt, revision: Long? = null): HttpRes
 
 /** The live tags of every category [this] can read, flattened. */
 suspend fun HttpClient.registryTags(): Set<String> =
-    get("/api/v1/tag-categories").body<TagCategoryList>().items.flatMap { it.tags }.toSet()
+    get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>().items.flatMap { it.tags }.toSet()

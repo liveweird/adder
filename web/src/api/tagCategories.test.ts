@@ -17,10 +17,39 @@ describe("tag registry API wrappers", () => {
 
   const lastCall = () => mockFetch.mock.calls.at(-1) as [string, RequestInit];
 
-  test("the registry is read whole and unwrapped from its items", async () => {
-    mockFetch.mockResolvedValue(jsonResponse(200, { items: [{ id: 1, name: "Kind", description: null, revision: 1, tags: ["data"] }] }));
-    expect(await getTagCategories()).toEqual([{ id: 1, name: "Kind", description: null, revision: 1, tags: ["data"] }]);
-    expect(lastCall()[0]).toBe("/api/v1/tag-categories");
+  const category = (id: number) => ({ id, name: `Category ${id}`, description: null, revision: 1, tags: [`tag-${id}`] });
+
+  test("the registry is read whole in one page of the maximum size and unwrapped from its items", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { items: [category(1)], page: 1, pageSize: 100, total: 1 }));
+    expect(await getTagCategories()).toEqual([category(1)]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(lastCall()[0]).toBe("/api/v1/tag-categories?page=1&pageSize=100");
+  });
+
+  test("the next page is fetched while total says more exist, and the pages concatenate in order", async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse(200, { items: [category(1), category(2)], page: 1, pageSize: 100, total: 3 }))
+      .mockResolvedValueOnce(jsonResponse(200, { items: [category(3)], page: 2, pageSize: 100, total: 3 }));
+    expect((await getTagCategories()).map((c) => c.id)).toEqual([1, 2, 3]);
+    expect(mockFetch.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/tag-categories?page=1&pageSize=100",
+      "/api/v1/tag-categories?page=2&pageSize=100",
+    ]);
+  });
+
+  test("an empty page ends the walk even when total claims more, so a shrinking registry never loops", async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse(200, { items: [category(1)], page: 1, pageSize: 100, total: 2 }))
+      .mockResolvedValueOnce(jsonResponse(200, { items: [], page: 2, pageSize: 100, total: 1 }));
+    expect((await getTagCategories()).map((c) => c.id)).toEqual([1]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  test("a category that shifts into the next page is kept once", async () => {
+    mockFetch
+      .mockResolvedValueOnce(jsonResponse(200, { items: [category(1), category(2)], page: 1, pageSize: 100, total: 3 }))
+      .mockResolvedValueOnce(jsonResponse(200, { items: [category(2), category(3)], page: 2, pageSize: 100, total: 3 }));
+    expect((await getTagCategories()).map((c) => c.id)).toEqual([1, 2, 3]);
   });
 
   test("create, replace and delete address the collection and the member", async () => {

@@ -8,7 +8,7 @@ import ch.nokillswit.tags.MAX_CATEGORY_TAGS
 import ch.nokillswit.tags.MAX_TAG_CATEGORIES
 import ch.nokillswit.tags.MAX_TAG_NAME_LENGTH
 import ch.nokillswit.tags.TagCategory
-import ch.nokillswit.tags.TagCategoryList
+import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.tags.TagCategoryRequest
 import ch.nokillswit.tags.TagCategoryService
 import ch.nokillswit.tags.sanitizedTagCategoryRequest
@@ -25,6 +25,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.testing.testApplication
+import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -53,7 +54,7 @@ class TagCategoryTest {
     fun cleanUp() = runBlocking { TestTags.purge() }
 
     private suspend fun listed(client: HttpClient): List<TagCategory> =
-        client.get("/api/v1/tag-categories").body<TagCategoryList>().items
+        client.get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>().items
 
     @Test
     fun `the migration seeds the Kind and Area categories and any authenticated user reads them`() = testApplication {
@@ -418,6 +419,66 @@ class TagCategoryTest {
             val before = capture.events.count { it.message == "tag_category.created" }
             admin.postJson("/api/v1/tag-categories", TagCategoryRequest("", null, emptyList()))
             assertEquals(before, capture.events.count { it.message == "tag_category.created" }, "a refused create does not audit")
+        }
+    }
+
+    private suspend fun HttpClient.page(query: String): TagCategoryPageResponse =
+        get("/api/v1/tag-categories$query").body<TagCategoryPageResponse>()
+
+    @Test
+    fun `the registry read is a paged envelope - the pages walk the whole registry and total counts the active ones`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("tagpage", UserRole.ADMIN)
+        val created = List(3) { admin.createCategory() }
+        val all = admin.page("?pageSize=100")
+        assertEquals(1, all.page)
+        assertEquals(100, all.pageSize)
+        assertEquals(all.items.size.toLong(), all.total, "the registry fits one page of the maximum size")
+        val walked = mutableListOf<TagCategory>()
+        var page = 1
+        while (true) {
+            val slice = admin.page("?page=$page&pageSize=2")
+            assertEquals(page, slice.page)
+            assertEquals(2, slice.pageSize)
+            assertEquals(all.total, slice.total, "total is the active count whatever the page")
+            if (slice.items.isEmpty()) break
+            assertTrue(slice.items.size <= 2)
+            walked += slice.items
+            page++
+        }
+        assertEquals(all.items, walked, "pages of two concatenate to the one page of a hundred, in the same order")
+        assertEquals(20, admin.page("").pageSize, "the default page size is the shared 20")
+        assertEquals(emptyList(), admin.page("?page=100000").items, "a page past the end is empty, not an error")
+        admin.deleteCategory(created[0].id)
+        assertEquals(all.total - 1, admin.page("?pageSize=100").total, "a deleted category is no longer counted")
+    }
+
+    @Test
+    fun `the default order is the lower-cased name by code point and sort= reorders it`() = testApplication {
+        usePostgresTestcontainer()
+        val admin = seededClient("tagsort", UserRole.ADMIN)
+        val marker = UUID.randomUUID().toString().take(8)
+        // Case-insensitive: "alpha" before "Bravo" (a plain code-point order would put the capital first).
+        val bravo = admin.createCategory(name = "Bravo $marker")
+        val alpha = admin.createCategory(name = "alpha $marker")
+        val ours = setOf(alpha.id, bravo.id)
+        fun TagCategoryPageResponse.mine() = items.filter { it.id in ours }.map { it.id }
+        assertEquals(listOf(alpha.id, bravo.id), admin.page("?pageSize=100").mine(), "default: name ascending, case-insensitively")
+        assertEquals(listOf(alpha.id, bravo.id), admin.page("?pageSize=100&sort=name").mine())
+        assertEquals(listOf(bravo.id, alpha.id), admin.page("?pageSize=100&sort=-name").mine())
+        assertEquals(listOf(bravo.id, alpha.id).sortedBy { it }, admin.page("?pageSize=100&sort=id").mine())
+        assertEquals(listOf(bravo.id, alpha.id).sortedByDescending { it }, admin.page("?pageSize=100&sort=-id").mine())
+    }
+
+    @Test
+    fun `a bad page, page size or sort is a 400 and a repeated key too`() = testApplication {
+        usePostgresTestcontainer()
+        val reader = seededClient("tagpage400")
+        for (query in listOf(
+            "?page=0", "?page=x", "?pageSize=0", "?pageSize=101", "?pageSize=x", "?sort=revision", "?sort=name,-name", "?sort=,",
+            "?sort=id,name,name", "?page=1&page=2", "?pageSize=5&pageSize=6",
+        )) {
+            assertEquals(HttpStatusCode.BadRequest, reader.get("/api/v1/tag-categories$query").status, query)
         }
     }
 

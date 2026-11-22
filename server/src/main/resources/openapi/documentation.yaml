@@ -996,18 +996,30 @@ paths:
       operationId: listTagCategories
       summary: The tag registry
       description: |
-        Any authenticated user (the tag picker and the Tags page). Every active category with its live tags - a bounded,
-        admin-curated set (at most 100 categories of at most 100 tags), so the plain `{items}` wrapper instead of the paged
-        envelope, name-ordered case-insensitively with the id as the tiebreaker, each category's tags alphabetical. At those caps the
-        document is about half a megabyte (100 x 100 names of up to 40 characters), so the read rides the per-USER `chat-read` bucket
-        of 300 per minute shared with the thread list and the tag list of a room (`429` beyond it; spent before any check).
+        Any authenticated user (the tag picker and the Tags page). A page of the active categories, each with its live tags
+        alphabetical (by code point). The registry holds at most 100 categories of at most 100 tags, so the SPA reads it whole with
+        `pageSize=100`.
+
+        - Sortable fields: `id`, `name` (lower-cased, by code point, so `alpha` comes before `Bravo`). Default `name` ascending; the
+          `id` tiebreaker is appended.
+        - No filters.
+        - `total` counts the active categories, before paging.
+
+        A page is about half a megabyte at most (100 categories x 100 names of up to 40 characters), so the read rides the per-USER
+        `chat-read` bucket of 300 per minute shared with the thread list and the tag list of a room (`429` beyond it; spent before any
+        check).
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
       responses:
         '200':
-          description: The categories
+          description: A page of categories
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TagCategoryList'
+                $ref: '#/components/schemas/TagCategoryPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
@@ -3756,13 +3768,20 @@ components:
           type: array
           items: { type: string }
           description: The category's live tags (normalised), alphabetical.
-    TagCategoryList:
+    TagCategoryPage:
       type: object
-      required: [items]
+      required: [items, page, pageSize, total]
       properties:
         items:
           type: array
-          items: { $ref: '#/components/schemas/TagCategory' }
+          items:
+            $ref: '#/components/schemas/TagCategory'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total:
+          type: integer
+          format: int64
+          minimum: 0
 
     WorkflowTemplateRequest:
       type: object

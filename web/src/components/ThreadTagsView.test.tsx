@@ -49,7 +49,7 @@ describe("tags in the room view", () => {
       if (url.startsWith("/api/v1/rooms/12/threads?")) return Promise.resolve(jsonResponse(200, { items, page: 1, pageSize: 50, total: items.length }));
       if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, thread));
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, SIDE_WORKFLOW));
-      if (url === "/api/v1/tag-categories") return Promise.resolve(jsonResponse(200, { items: [] }));
+      if (url.startsWith("/api/v1/tag-categories?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: 0 }));
       if (url.startsWith("/api/v1/rooms/12/pins?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
       if (url.startsWith("/api/v1/rooms/12/threads/42/messages?")) return Promise.resolve(jsonResponse(200, messagePage([makeMessage({ id: 1 })])));
       if (url.startsWith("/api/v1/rooms/12/threads/42/events?")) return Promise.resolve(jsonResponse(200, eventPage([makeEvent()])));

@@ -6,6 +6,8 @@ import ch.nokillswit.authz.TooManyRequestsException
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.infra.ProblemTypes
+import ch.nokillswit.infra.paging.parsePaging
+import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.infra.revision.expectedRevision
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.plugins.isLockNotAvailable
@@ -64,13 +66,15 @@ fun Application.configureTagCategoryRoutes() {
 
     routing {
         authenticate {
-            // The whole registry is one document of up to about half a megabyte (100 x 100 names of 40 characters, `TagCategory.kt`), so
+            // A page of the registry is up to about half a megabyte (100 categories of 100 names of 40 characters, `TagCategory.kt`), so
             // the read rides the per-USER `chat-read` bucket with the room reads (before every check, as they do): the picker and the
             // filter panel read it a few times a minute at the very most, a script reads it at 5 a second.
             rateLimit(RateLimitName(RateLimits.CHAT_READ)) {
                 get<TagCategoriesRoute> {
                     call.caller()
-                    call.respond(HttpStatusCode.OK, TagCategoryList(service.list()))
+                    val paging = call.parsePaging(sortable = TAG_CATEGORY_SORT_FIELDS, defaultSort = TAG_CATEGORY_DEFAULT_SORT)
+                    val result = service.list(paging)
+                    call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
                 }
             }
             post<TagCategoriesRoute> {

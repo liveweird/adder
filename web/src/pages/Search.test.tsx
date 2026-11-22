@@ -48,6 +48,9 @@ const CATEGORIES = {
     { id: 1, name: "Kind", description: null, revision: 1, tags: ["decision", "question"] },
     { id: 2, name: "Area", description: null, revision: 1, tags: ["security"] },
   ],
+  page: 1,
+  pageSize: 100,
+  total: 2,
 };
 
 /** A fetch that answers every search as `answer` says and records the URLs asked (the registry read is answered and not recorded). */
@@ -57,7 +60,7 @@ function serve(answer: (url: string) => Response): string[] {
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/v1/tag-categories") return Promise.resolve(jsonResponse(200, CATEGORIES));
+      if (url.startsWith("/api/v1/tag-categories?")) return Promise.resolve(jsonResponse(200, CATEGORIES));
       searches.push(url);
       return Promise.resolve(answer(url));
     }),

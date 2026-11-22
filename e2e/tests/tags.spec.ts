@@ -14,6 +14,8 @@ import { apiAsAdmin, apiAsUser, createUserViaUi, deleteViaApi, expect, login, si
 const admin = specAdmins("e2e-tags-admin");
 
 const REGISTRY = "/api/v1/tag-categories";
+/** The whole registry: it is paged on the wire (default 20), so a read that looks a category up asks for the maximum page. */
+const REGISTRY_ALL = `${REGISTRY}?pageSize=100`;
 type Category = { id: number; name: string; revision: number; tags: string[] };
 
 // API teardown, so a failing step leaves neither the category nor the user behind. A category is deleted under its CURRENT revision.
@@ -24,7 +26,7 @@ test.afterEach(async () => {
   if (ids.length > 0) {
     const { api } = await apiAsAdmin();
     try {
-      const items = ((await (await api.get(REGISTRY)).json()) as { items: Category[] }).items;
+      const items = ((await (await api.get(REGISTRY_ALL)).json()) as { items: Category[] }).items;
       for (const id of ids) {
         const category = items.find((item) => item.id === id);
         if (category) expect((await api.delete(`${REGISTRY}/${id}`, { headers: { "X-Expected-Revision": String(category.revision) } })).status()).toBe(204);
@@ -94,7 +96,7 @@ test("an admin curates a tag category", async ({ page }) => {
   const stale = page.getByRole("dialog", { name: "Edit tag category" });
   await expect(stale.getByLabel("Name")).toHaveValue(renamed);
   const { api } = await apiAsUser(admin.first.email, admin.first.password);
-  const current = ((await (await api.get(REGISTRY)).json()) as { items: Category[] }).items.find((item) => item.id === id)!;
+  const current = ((await (await api.get(REGISTRY_ALL)).json()) as { items: Category[] }).items.find((item) => item.id === id)!;
   const other = await api.put(`${REGISTRY}/${id}`, {
     data: { name: renamed, description: null, tags: current.tags },
     headers: { "X-Expected-Revision": String(current.revision) },
@@ -106,7 +108,7 @@ test("an admin curates a tag category", async ({ page }) => {
   await stale.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(stale).toHaveCount(0);
   await expect(rowOf(page, renamed)).toBeVisible();
-  const stored = ((await (await api.get(REGISTRY)).json()) as { items: Category[] }).items.find((item) => item.id === id)!;
+  const stored = ((await (await api.get(REGISTRY_ALL)).json()) as { items: Category[] }).items.find((item) => item.id === id)!;
   expect(stored.name).toBe(renamed);
   await api.dispose();
 
@@ -138,7 +140,7 @@ test("a regular user reads the registry through the API but has no Tags page and
 
   const { api } = await apiAsUser(user.email, user.password);
   try {
-    const read = await api.get(REGISTRY);
+    const read = await api.get(REGISTRY_ALL);
     expect(read.status()).toBe(200);
     const registry = (await read.json()) as { items: { name: string; tags: string[] }[] };
     expect(registry.items.map((item) => item.name)).toEqual(expect.arrayContaining(["Kind", "Area"]));

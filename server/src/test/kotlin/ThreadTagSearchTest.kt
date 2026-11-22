@@ -1,7 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
-import ch.nokillswit.tags.TagCategoryList
+import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.threads.ThreadSearchPageResponse
 import ch.nokillswit.threads.ThreadTag
 import ch.nokillswit.threads.ThreadTagsRequest
@@ -191,7 +191,8 @@ class ThreadTagSearchTest {
     @Test
     fun `a retired tag still finds its threads and is marked, a name the registry never held matches nothing`() = testApplication {
         val w = world("tsrch-retired")
-        val category = w.admin.client.get("/api/v1/tag-categories").body<TagCategoryList>().items.single { it.id == w.categoryId }
+        val registry = w.admin.client.get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>()
+        val category = registry.items.single { it.id == w.categoryId }
         val retired = w.admin.client.saveCategory(category.id, tags = category.tags - w.t2, name = category.name)
         assertEquals(HttpStatusCode.NoContent, retired.status)
 

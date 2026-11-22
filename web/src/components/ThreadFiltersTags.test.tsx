@@ -19,6 +19,9 @@ const CATEGORIES = {
     { id: 1, name: "Kind", description: null, revision: 1, tags: ["decision", "question"] },
     { id: 2, name: "Area", description: null, revision: 1, tags: ["security"] },
   ],
+  page: 1,
+  pageSize: 100,
+  total: 2,
 };
 const THREADS = { items: [], page: 1, pageSize: 50, total: 0 };
 const HASHTAGS = { items: [{ tag: "outage", threadCount: 4 }], page: 1, pageSize: 50, total: 1 };
@@ -38,7 +41,7 @@ describe("the thread filter panel's Tags control", () => {
       if (url.startsWith("/api/v1/rooms/12/threads?")) return Promise.resolve(jsonResponse(200, THREADS));
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
       if (url.startsWith("/api/v1/rooms/12/tags?")) return Promise.resolve(jsonResponse(200, HASHTAGS));
-      if (url === "/api/v1/tag-categories") return Promise.resolve(jsonResponse(200, CATEGORIES));
+      if (url.startsWith("/api/v1/tag-categories?")) return Promise.resolve(jsonResponse(200, CATEGORIES));
       return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
     });
     vi.stubGlobal("fetch", mockFetch);

@@ -7,12 +7,15 @@ import { jsonResponse } from "../test/http";
 import { makeRoom, makeThread } from "../test/messageFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 
-type Categories = { items: { id: number; name: string; description: null; revision: number; tags: string[] }[] };
+type Categories = { items: { id: number; name: string; description: null; revision: number; tags: string[] }[]; page: number; pageSize: number; total: number };
 const CATEGORIES: Categories = {
   items: [
     { id: 1, name: "Kind", description: null, revision: 1, tags: ["decision", "question"] },
     { id: 2, name: "Area", description: null, revision: 1, tags: ["data", "security"] },
   ],
+  page: 1,
+  pageSize: 100,
+  total: 2,
 };
 
 /** The panel beside the thread query it normally sits under, so a refetch reaches it as it would in the side panel. */
@@ -39,7 +42,7 @@ describe("the thread's Tags section (1.2 D1, 1.2 A6)", () => {
     mockFetch = vi.fn((url: string, init?: RequestInit) => {
       if (init?.method === "PUT") return Promise.resolve(putStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(putStatus, putBody));
       if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, server));
-      if (url === "/api/v1/tag-categories") return Promise.resolve(jsonResponse(200, categories));
+      if (url.startsWith("/api/v1/tag-categories?")) return Promise.resolve(jsonResponse(200, categories));
       return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
     });
     vi.stubGlobal("fetch", mockFetch);
@@ -120,7 +123,7 @@ describe("the thread's Tags section (1.2 D1, 1.2 A6)", () => {
 
   test("a 400 re-reads the registry and the thread: the retirement that raced the editor is then shown, and the next save goes through", async () => {
     // The registry the editor cached still lists `soon-gone`; by the time of the save it does not, so the save is a 400.
-    categories = { items: [{ id: 1, name: "Kind", description: null, revision: 1, tags: ["data", "soon-gone"] }] };
+    categories = { items: [{ id: 1, name: "Kind", description: null, revision: 1, tags: ["data", "soon-gone"] }], page: 1, pageSize: 100, total: 1 };
     server = makeThread({ number: 42, revision: 4, tags: [{ name: "soon-gone", retired: false }, { name: "data", retired: false }] });
     putStatus = 400;
     putBody = { title: "Bad request", status: 400 };
@@ -130,13 +133,13 @@ describe("the thread's Tags section (1.2 D1, 1.2 A6)", () => {
     await picker();
     await user.click(screen.getByRole("button", { name: "Remove data" }));
     await user.click(screen.getByRole("button", { name: "Remove soon-gone" }));
-    categories = { items: [{ id: 1, name: "Kind", description: null, revision: 2, tags: ["data"] }] };
+    categories = { items: [{ id: 1, name: "Kind", description: null, revision: 2, tags: ["data"] }], page: 1, pageSize: 100, total: 1 };
     server = makeThread({ number: 42, revision: 4, tags: [{ name: "soon-gone", retired: true }, { name: "data", retired: false }] });
     await user.click(screen.getByRole("button", { name: "Save tags" }));
     expect(await screen.findByText(/The tags could not be saved/)).toBeInTheDocument();
     const retired = await waitFor(() => document.querySelector("[data-retired]") as HTMLElement);
     expect(within(retired).getByText("soon-gone (retired)")).toBeInTheDocument();
-    expect(mockFetch.mock.calls.filter(([url]) => url === "/api/v1/tag-categories").length).toBeGreaterThan(1);
+    expect(mockFetch.mock.calls.filter(([url]) => String(url).startsWith("/api/v1/tag-categories?")).length).toBeGreaterThan(1);
     // The draft was edited, so it is kept; a save of it now names only live tags.
     putStatus = 204;
     await user.click(screen.getByRole("button", { name: "Save tags" }));

@@ -6,10 +6,14 @@ import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.collateC
 import ch.nokillswit.infra.db.lockingTransaction
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.paging.PageRequest
+import ch.nokillswit.infra.paging.SortField
+import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.infra.revision.requireRevision
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.Expression
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
@@ -52,6 +56,21 @@ val CODE_POINT_ORDER: Comparator<String> = Comparator { a, b ->
 }
 
 /**
+ * The registry list's sortable columns. `name` is the registry's ONE order of category names: lower-cased by code point (`COLLATE "C"`),
+ * the default of `GET /tag-categories`, so a page, its sort and the order of the whole registry never depend on the server's libc.
+ */
+private val SORTABLE_COLUMNS: Map<String, Expression<*>> = mapOf(
+    "id" to TagCategoryService.TagCategories.id,
+    "name" to TagCategoryService.TagCategories.name.lowerCase().collateC(),
+)
+
+/** The ONE sortable whitelist: derived from the column map, never typed twice (`conventions.md`). */
+val TAG_CATEGORY_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
+
+/** The default sort of `GET /tag-categories`: the registry's name order (the `id` tiebreaker is appended by `parsePaging`). */
+val TAG_CATEGORY_DEFAULT_SORT: List<SortField> = listOf(SortField("name", descending = false))
+
+/**
  * The tag registry (`tag_categories` + `tags`, V32). Every mutation is a [lockingTransaction] (a table lock that also covers an empty
  * registry, Toadie's protocol, `infra/db/Locking.kt`), so two admins editing at once queue instead of both claiming the same tag. A tag is
  * a row: removing it from a category, or deleting the category, RETIRES it (`marked_as_deleted`) rather than deleting it, so the threads
@@ -82,17 +101,23 @@ class TagCategoryService(private val database: R2dbcDatabase) {
     private suspend fun <T> writeTransaction(block: suspend R2dbcTransaction.() -> T): T =
         lockingTransaction(database, TAG_REGISTRY_LOCK_WAIT_MILLIS, LOCK_TAG_CATEGORIES_SHARE_ROW_EXCLUSIVE, block = block)
 
-    /** Every active category by lower-cased name by code point (the id breaks ties), with its live tags in [CODE_POINT_ORDER]. */
-    suspend fun list(): List<TagCategory> = suspendTransaction(database) {
-        val rows = categories.selectAll().where { categories.active() }
-            .orderBy(categories.name.lowerCase().collateC() to SortOrder.ASC, categories.id to SortOrder.ASC).toList()
+    /**
+     * One page of the active categories ([paging]'s sort, `name` by default), each with its live tags in [CODE_POINT_ORDER]. The count and
+     * the page rows share ONE transaction and one predicate (the registry holds at most [MAX_TAG_CATEGORIES], so the SPA reads it whole).
+     */
+    suspend fun list(paging: PageRequest): TagCategoryListResult = suspendTransaction(database) {
+        val total = categories.selectAll().where { categories.active() }.count()
+        val rows = categories.selectAll().where { categories.active() }.applyPaging(paging, SORTABLE_COLUMNS).toList()
         val tagsByCategory = tags.selectAll().where { tags.active() and (tags.categoryId inList rows.map { it[categories.id] }) }
             .orderBy(tags.name.collateC() to SortOrder.ASC).toList()
             .groupBy({ it[tags.categoryId].value }, { it[tags.name] })
-        rows.map {
-            val id = it[categories.id].value
-            TagCategory(id, it[categories.name], it[categories.description], it[categories.revision], tagsByCategory[id].orEmpty())
-        }
+        TagCategoryListResult(
+            items = rows.map {
+                val id = it[categories.id].value
+                TagCategory(id, it[categories.name], it[categories.description], it[categories.revision], tagsByCategory[id].orEmpty())
+            },
+            total = total,
+        )
     }
 
     /**

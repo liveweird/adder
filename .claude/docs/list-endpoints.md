@@ -43,13 +43,11 @@ theme's `foldedOptionsFilter` (`web/src/utils/text.ts`).
 
 **Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. The ledger (which endpoint takes which key, and the bounds) is in `chat-model.md` "List endpoint ledger"; a new consumer adds a line there.
 
-**Bounded wrapper `{items}`:** `GET /tag-categories` only (admin-curated, at most 100 x 100).
-
-**No shape-exception exists yet.** Every list keeps the paged envelope; a purpose-built document (e.g. a thread board) answers
+**No shape-exception exists.** Every list keeps the paged envelope, the tag registry's included (it answers 100 per page at most, so the SPA
+reads it whole in `pageSize=100` pages: `chat-model.md` "List endpoint ledger"); a purpose-built document (e.g. a thread board) answers
 outside it only with a documented cap and a line here in the commit that introduces it.
 
-**Sub-collections and facets:** a record's own unbounded sub-collection is paged like any list; the plain `{items}`
-wrapper is for genuinely bounded, admin-curated sets. Facet counts (`GET .../facets`) are not implemented — port Covenant's
+**Sub-collections and facets:** a record's own sub-collection is paged like any list, however small. Facet counts (`GET .../facets`) are not implemented — port Covenant's
 pattern with the first filterable list that needs them.
 
 **Ledger.** Search (`q` rules, the `SearchPageSize` cap), pins, the keyset `id[lt]` on messages, the member, notification and thread-list filters and the repeated-key bounds: `chat-model.md` "List endpoint ledger".

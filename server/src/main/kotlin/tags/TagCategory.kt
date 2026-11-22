@@ -1,5 +1,6 @@
 package ch.nokillswit.tags
 
+import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.requireNameAndDescription
 import ch.nokillswit.infra.validation.requireNoDuplicates
 import ch.nokillswit.infra.validation.sanitizeSingleLine
@@ -24,9 +25,11 @@ data class TagCategory(
     val tags: List<String>,
 )
 
-/** The whole registry; plain `{items}` because it is a bounded, admin-curated set (`list-endpoints.md`). */
-@Serializable
-data class TagCategoryList(val items: List<TagCategory>)
+/** A page of the registry in the shared list envelope (`list-endpoints.md`); the SPA reads all of it (at most 100) at `pageSize=100`. */
+typealias TagCategoryPageResponse = PageResponse<TagCategory>
+
+/** One page of the registry and the total of active categories (before paging), as [TagCategoryService.list] answers. */
+data class TagCategoryListResult(val items: List<TagCategory>, val total: Long)
 
 /** Create and replace share the shape: a PUT is a full replace of the category, its tag list included. */
 @Serializable

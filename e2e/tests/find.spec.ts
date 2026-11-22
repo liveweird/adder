@@ -23,7 +23,7 @@ test.afterEach(async () => {
   if (ids.length > 0) {
     const { api } = await apiAsAdmin();
     try {
-      const items = ((await (await api.get("/api/v1/tag-categories")).json()) as { items: { id: number; revision: number }[] }).items;
+      const items = ((await (await api.get("/api/v1/tag-categories?pageSize=100")).json()) as { items: { id: number; revision: number }[] }).items;
       for (const id of ids) {
         const category = items.find((item) => item.id === id);
         if (category) expect((await api.delete(`/api/v1/tag-categories/${id}`, { headers: { "X-Expected-Revision": String(category.revision) } })).status()).toBe(204);

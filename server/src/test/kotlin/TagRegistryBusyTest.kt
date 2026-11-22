@@ -4,7 +4,7 @@ import ch.nokillswit.infra.ProblemTypes
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.tags.TAG_REGISTRY_LOCK_WAIT_MILLIS
-import ch.nokillswit.tags.TagCategoryList
+import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.tags.TagCategoryRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.call.body
@@ -49,7 +49,7 @@ class TagRegistryBusyTest {
                     raw.createStatement().use { it.execute("LOCK TABLE tag_categories IN SHARE ROW EXCLUSIVE MODE") }
                     try {
                         // Ordinary reads stay available meanwhile.
-                        assertEquals(HttpStatusCode.OK, admin.get("/api/v1/tag-categories").status)
+                        assertEquals(HttpStatusCode.OK, admin.get("/api/v1/tag-categories?pageSize=100").status)
                         val started = System.nanoTime()
                         val refused = admin.postJson("/api/v1/tag-categories", TagCategoryRequest(name, null, listOf(uniqueTag())))
                         val elapsed = (System.nanoTime() - started) / 1_000_000
@@ -69,7 +69,7 @@ class TagRegistryBusyTest {
                 assertTrue(capture.events.none { it.message == "tag_category.created" }, "and nothing was created")
             }
 
-            val listed = admin.get("/api/v1/tag-categories").body<TagCategoryList>().items
+            val listed = admin.get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>().items
             assertTrue(listed.none { it.name == name }, "the refused create wrote nothing")
             val db = application.attributes[R2dbcDatabaseKey]
             assertEquals("0", suspendTransaction(db) { showHere("lock_timeout") }, "no lock_timeout left on the pooled connection")

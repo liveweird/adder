@@ -1,7 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
-import ch.nokillswit.tags.TagCategoryList
+import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.threads.ThreadPageResponse
 import ch.nokillswit.threads.ThreadTag
 import ch.nokillswit.threads.ThreadTagsRequest
@@ -114,7 +114,8 @@ class ThreadTagFilterTest {
     fun `a retired tag still finds the threads that kept it`() = testApplication {
         val f = fixture("tfilt-retired")
         val (a) = f.tags
-        val category = f.cast.admin.client.get("/api/v1/tag-categories").body<TagCategoryList>().items.single { a in it.tags }
+        val registry = f.cast.admin.client.get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>()
+        val category = registry.items.single { a in it.tags }
         f.cast.admin.client.saveCategory(category.id, tags = category.tags - a, name = category.name)
         val member = f.cast.member.client
         assertEquals(listOf(1, 2), member.numbers(f.room, "&threadTag=${enc(a)}"))

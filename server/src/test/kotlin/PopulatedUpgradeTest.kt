@@ -7,7 +7,7 @@ import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.notifications.NotificationPreferencesResponse
 import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.rooms.RoomPageResponse
-import ch.nokillswit.tags.TagCategoryList
+import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.teams.TeamPageResponse
 import ch.nokillswit.threads.MessagePageResponse
 import ch.nokillswit.threads.MessageResponse
@@ -247,7 +247,7 @@ class PopulatedUpgradeTest {
         val olivia = authedClient(OLIVIA, PASSWORD)
         assertRoomsAndTeams(olivia)
         // V32: the registry reads through the API over the migrated database (the ordinary user's read; the seed, not the release's rows).
-        val registry = olivia.getBody<TagCategoryList>("/api/v1/tag-categories").items
+        val registry = olivia.getBody<TagCategoryPageResponse>("/api/v1/tag-categories?pageSize=100").items
         assertEquals(listOf("Area", "Kind"), registry.map { it.name }, "V32's two seeded categories")
         assertEquals(listOf(5, 5), registry.map { it.tags.size })
         assertThreadList(olivia)

@@ -22,7 +22,7 @@ import { tagCategoryDeleteErrorMessage } from "../utils/tagCategoryForm";
  * The tag registry (`/tags`, ADMIN-only: the nav entry and the route are - UX only, the server's `requireAdmin` is the rule, and reading the
  * registry stays open to every signed-in user, which the thread tag picker will rely on): every category with its tags as neutral pills, a
  * modal per category (name, description, tags) to create and edit, and a confirmed soft delete. The registry is a bounded, admin-curated set
- * (at most 100 categories), so it is one table without paging (Hammurabi's page, ported).
+ * (at most 100 categories), so it is one table; `getTagCategories` walks the wire's pages (Hammurabi's page, ported).
  */
 export default function Tags() {
   const { t } = useTranslation();

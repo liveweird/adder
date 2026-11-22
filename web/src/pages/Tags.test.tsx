@@ -23,7 +23,7 @@ function serve(mockFetch: FetchMock, items = REGISTRY.items, mutations: Mutation
     if (method === "POST") return Promise.resolve((mutations.POST ?? (() => jsonResponse(201, { id: 9, name: "New", description: null, revision: 1, tags: ["x"] })))());
     if (method === "PUT") return Promise.resolve((mutations.PUT ?? (() => new Response(null, { status: 204 })))());
     if (method === "DELETE") return Promise.resolve((mutations.DELETE ?? (() => new Response(null, { status: 204 })))());
-    return Promise.resolve(url === "/api/v1/tag-categories" ? jsonResponse(200, { items }) : jsonResponse(404, { title: "x", status: 404 }));
+    return Promise.resolve(url.startsWith("/api/v1/tag-categories?") ? jsonResponse(200, { items, page: 1, pageSize: 100, total: items.length }) : jsonResponse(404, { title: "x", status: 404 }));
   });
 }
 
@@ -34,7 +34,7 @@ function call(mockFetch: FetchMock, method: string, url: string) {
   return { body: init.body ? JSON.parse(init.body as string) : undefined, revision: new Headers(init.headers).get("X-Expected-Revision") };
 }
 
-const reads = (mockFetch: FetchMock) => mockFetch.mock.calls.filter(([u, init]) => u === "/api/v1/tag-categories" && !(init as RequestInit | undefined)?.method).length;
+const reads = (mockFetch: FetchMock) => mockFetch.mock.calls.filter(([u, init]) => String(u).startsWith("/api/v1/tag-categories?") && !(init as RequestInit | undefined)?.method).length;
 
 describe("Tags page", () => {
   let mockFetch: FetchMock;

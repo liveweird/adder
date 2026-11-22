@@ -5,7 +5,7 @@ import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.infra.revision.REVISION_CONFLICT_PROBLEM_TYPE
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
-import ch.nokillswit.tags.TagCategoryList
+import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.threads.ThreadEventPageResponse
 import ch.nokillswit.threads.ThreadPageResponse
 import ch.nokillswit.threads.ThreadResponse
@@ -284,7 +284,7 @@ class ThreadTagsTest {
         assertEquals(emptyList(), w.names(), "nothing was written, the live one included")
 
         // Retire `b` in the registry: dropping it from its category retires the row, so a save may not name it.
-        val category = w.cast.admin.client.get("/api/v1/tag-categories").body<TagCategoryList>().items
+        val category = w.cast.admin.client.get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>().items
             .single { b in it.tags }
         w.cast.admin.client.saveCategory(category.id, tags = category.tags - b, name = category.name).expect(HttpStatusCode.NoContent)
         val retired = w.save(member, listOf(b))
@@ -328,7 +328,7 @@ class ThreadTagsTest {
         w.save(member, listOf(a, b)).expect(HttpStatusCode.NoContent)
 
         // The registry retires `a`: dropping it from its category (a rename is a drop plus an add).
-        val category = w.cast.admin.client.get("/api/v1/tag-categories").body<TagCategoryList>().items
+        val category = w.cast.admin.client.get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>().items
             .single { a in it.tags }
         w.cast.admin.client.saveCategory(category.id, tags = category.tags - a, name = category.name).expect(HttpStatusCode.NoContent)
 
@@ -354,7 +354,7 @@ class ThreadTagsTest {
         val w = tagged("ttag-catdel", count = 2)
         val member = w.cast.member.client
         w.save(member, w.tags).expect(HttpStatusCode.NoContent)
-        val category = w.cast.admin.client.get("/api/v1/tag-categories").body<TagCategoryList>().items
+        val category = w.cast.admin.client.get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>().items
             .single { w.tags.first() in it.tags }
         w.cast.admin.client.deleteCategory(category.id).expect(HttpStatusCode.NoContent)
         assertEquals(w.tags.map { ThreadTag(it, true) }, member.thread(w.room).tags)

@@ -664,11 +664,18 @@ export interface paths {
         };
         /**
          * The tag registry
-         * @description Any authenticated user (the tag picker and the Tags page). Every active category with its live tags - a bounded,
-         *     admin-curated set (at most 100 categories of at most 100 tags), so the plain `{items}` wrapper instead of the paged
-         *     envelope, name-ordered case-insensitively with the id as the tiebreaker, each category's tags alphabetical. At those caps the
-         *     document is about half a megabyte (100 x 100 names of up to 40 characters), so the read rides the per-USER `chat-read` bucket
-         *     of 300 per minute shared with the thread list and the tag list of a room (`429` beyond it; spent before any check).
+         * @description Any authenticated user (the tag picker and the Tags page). A page of the active categories, each with its live tags
+         *     alphabetical (by code point). The registry holds at most 100 categories of at most 100 tags, so the SPA reads it whole with
+         *     `pageSize=100`.
+         *
+         *     - Sortable fields: `id`, `name` (lower-cased, by code point, so `alpha` comes before `Bravo`). Default `name` ascending; the
+         *       `id` tiebreaker is appended.
+         *     - No filters.
+         *     - `total` counts the active categories, before paging.
+         *
+         *     A page is about half a megabyte at most (100 categories x 100 names of up to 40 characters), so the read rides the per-USER
+         *     `chat-read` bucket of 300 per minute shared with the thread list and the tag list of a room (`429` beyond it; spent before any
+         *     check).
          */
         get: operations["listTagCategories"];
         put?: never;
@@ -2539,8 +2546,12 @@ export interface components {
             /** @description The category's live tags (normalised), alphabetical. */
             tags: string[];
         };
-        TagCategoryList: {
+        TagCategoryPage: {
             items: components["schemas"]["TagCategory"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
         };
         WorkflowTemplateRequest: {
             name: string;
@@ -4773,22 +4784,36 @@ export interface operations {
     };
     listTagCategories: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The categories */
+            /** @description A page of categories */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TagCategoryList"];
+                    "application/json": components["schemas"]["TagCategoryPage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];

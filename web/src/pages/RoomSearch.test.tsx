@@ -51,7 +51,7 @@ function serve(answer: SearchAnswer): { searches: string[]; mock: ReturnType<typ
     const url = String(input);
     if (url === "/api/v1/rooms/12") return Promise.resolve(jsonResponse(200, ROOM));
     if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
-    if (url === "/api/v1/tag-categories") return Promise.resolve(jsonResponse(200, { items: [{ id: 1, name: "Kind", description: null, revision: 1, tags: ["question"] }] }));
+    if (url.startsWith("/api/v1/tag-categories?")) return Promise.resolve(jsonResponse(200, { items: [{ id: 1, name: "Kind", description: null, revision: 1, tags: ["question"] }], page: 1, pageSize: 100, total: 1 }));
     if (url.startsWith("/api/v1/rooms/12/search?")) {
       searches.push(url);
       return Promise.resolve(answer(url));
