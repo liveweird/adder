@@ -4,9 +4,11 @@ import type { ThreadFormValues } from "../utils/threadForm";
 
 /**
  * The message a reply is about to quote (1.3), as it read when it was picked: what the composer's line shows (`ComposerQuote`) and the id the post
- * sends. It does not follow the message afterwards (1.3 A7): a quote deleted before Send is refused with its own words.
+ * sends. The composer keeps it honest from what it already knows (1.3 A7, `utils/quoteDraft.ts`): the loaded conversation showing the message
+ * edited refreshes the text, showing it deleted, or a post refused with `quote-unavailable`, BLANKS it (`unavailable`: the author stays, the text
+ * goes, so a moderator's delete is effective here too).
  */
-export type QuoteDraft = Pick<MessageResponse, "id" | "authorId" | "authorName" | "body" | "mentions" | "groupMentions">;
+export type QuoteDraft = Pick<MessageResponse, "id" | "authorId" | "authorName" | "body" | "mentions" | "groupMentions"> & { unavailable?: true };
 
 /**
  * Unsent drafts, in memory only: the new-thread form's, one per room, and the reply composer's text and quote, one per thread. Leaving the

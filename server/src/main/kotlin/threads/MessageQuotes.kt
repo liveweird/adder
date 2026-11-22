@@ -130,13 +130,16 @@ internal suspend fun quotedMessagesOf(rows: List<ResultRow>): Map<UInt, QuotedMe
 
 /**
  * The author of the message that message [messageId] quotes, or null when it quotes none: ONE joined read of the message's
- * `quoted_message_id` and that row's author, asked by an edit only past its early returns (an edit never changes a quote, but the author
- * of the quoted message is one of the people its new mentions are weighed against, `NoticeAudience.ofEdit`). A quoted message that was
- * deleted since still has its author. Runs INSIDE the caller's transaction.
+ * `quoted_message_id` and that row's author, asked by an edit only past its early returns (an edit never changes a quote, but the
+ * author of the quoted message is one of the people its new mentions are weighed against, `NoticeAudience.ofEdit`). A quoted message
+ * that was deleted since still has its author (its notice stays: "Quotes (1.3)" "The notice", lifecycle). A reference to a message of
+ * ANOTHER thread is no quote, here as in every read (`quotedMessagesOf`, the post's check): a row the application never writes,
+ * planted by SQL, tells nobody. Runs INSIDE the caller's transaction.
  */
 internal suspend fun authorQuotedBy(messageId: UInt): UInt? {
     val quoted = Messages.alias("quoted")
-    return Messages.join(quoted, JoinType.INNER, Messages.quotedMessageId, quoted[Messages.id])
+    return Messages
+        .join(quoted, JoinType.INNER, Messages.quotedMessageId, quoted[Messages.id]) { Messages.threadId eq quoted[Messages.threadId] }
         .select(quoted[Messages.authorId])
         .where { Messages.id eq messageId }
         .toList().singleOrNull()?.get(quoted[Messages.authorId])?.value

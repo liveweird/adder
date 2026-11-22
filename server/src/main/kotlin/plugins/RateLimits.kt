@@ -180,7 +180,7 @@ object RateLimits {
 
     /**
      * `PUT /api/v1/users/{id}/notification-preferences` (`notifications/NotificationPreferenceRoutes.kt`) rides its OWN per-signed-in-user
-     * bucket: 30/min in every mode. A person saves their switches a few times an hour; the write replaces up to 22 rows under a
+     * bucket: 30/min in every mode. A person saves their switches a few times an hour; the write replaces up to 24 rows under a
      * `FOR NO KEY UPDATE` lock on the user row and is audited, so it neither shares [READ_STATE] (which a click-heavy reader spends) nor
      * needs more than a script's rate. The bucket sits BEFORE the guards, so a refused write spends a token too.
      */

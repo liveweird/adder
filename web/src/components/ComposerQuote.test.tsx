@@ -23,6 +23,12 @@ describe("ComposerQuote", () => {
     expect(onRemove).toHaveBeenCalledOnce();
   });
 
+  test("a quote that is gone shows the author and the words, never text", () => {
+    renderWithProviders(<ComposerQuote quote={{ ...quote, body: "", mentions: [], unavailable: true }} onRemove={vi.fn()} />);
+    expect(screen.getByText("Quoting Ann Author")).toBeInTheDocument();
+    expect(screen.getByText("The message you are quoting is no longer available. Remove the quote to send your reply.")).toBeInTheDocument();
+  });
+
   test("never renders HTML from the quoted text", () => {
     renderWithProviders(<ComposerQuote quote={{ ...quote, body: "<img src=x onerror=alert(1)>" }} onRemove={vi.fn()} />);
     expect(document.querySelector("img")).toBeNull();

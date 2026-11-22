@@ -170,7 +170,7 @@ internal class NotificationPreferenceService(private val database: R2dbcDatabase
             val previous = effectivePreferences(userId)
             Preferences.deleteWhere { Preferences.userId eq userId }
             // A few multi-row statements (`insertRows`' binary split of its statement texts), never one statement per pair; at most
-            // 22 rows.
+            // 24 rows.
             Preferences.insertRows(rows.entries.toList()) { (pair, value) ->
                 this[Preferences.userId] = userId
                 this[Preferences.notificationType] = pair.type.name

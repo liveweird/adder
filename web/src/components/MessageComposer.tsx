@@ -7,11 +7,13 @@ import { postMessage } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import type { ThreadResponse } from "../api/threads";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
+import { useLoadedMessage } from "../hooks/useLoadedMessage";
 import { useThreadDrafts, type QuoteDraft } from "../hooks/useThreadDrafts";
 import { messageComposeBlock } from "../utils/messageAccess";
-import { messageExcerpt } from "../utils/messageExcerpt";
 import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { PROBLEM_TYPES, isProblem } from "../utils/problems";
+import { blankQuote, quoteDraftExcerpt, reconcileQuote } from "../utils/quoteDraft";
 import { isAccessRefusal } from "../utils/roomAccess";
 import { roomMembersPath } from "../utils/roomLinks";
 import { MAX_MESSAGE_BODY_LENGTH, messageBodyError, normalizeBody } from "../utils/threadForm";
@@ -67,7 +69,8 @@ const QUOTE_FOCUS_DELAY_MS = 40;
  * after which the focus is in the box) and told to assistive technology by a polite status line that is mounted from the first render and holds the
  * words and the excerpt (so every new pick changes it; the visible line's text is `aria-hidden`, so it is read once, not twice). Send
  * carries its id; a post clears the text and the quote together; a failure keeps both, and the typed `quote-unavailable` 400 says the message is gone
- * and the quote must be removed (`messageErrorMessage`). The box's own description is Mantine's (it replaces any `aria-describedby` given to it),
+ * and the quote must be removed (`messageErrorMessage`) and blanks the line's excerpt (1.3 A7, `utils/quoteDraft.ts`: so does the loaded conversation showing the message deleted;
+ * showing it edited refreshes the excerpt). The box's own description is Mantine's (it replaces any `aria-describedby` given to it),
  * so the status line, not a description, carries the quote to a screen reader.
  */
 function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerProps) {
@@ -80,6 +83,11 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
   // What this thread's post in flight carries, if any — from THIS composer or an earlier one for the same thread.
   const pending = useSyncExternalStore(subscribePending, () => inFlight.get(key));
   const posting = pending !== undefined;
+  // What the conversation already loaded says about the picked message (no request of its own): deleted blanks the quote, edited refreshes it. Not while a
+  // post travels: the quote it carries is compared by identity when it finishes.
+  const loaded = useLoadedMessage(room.id, thread.number, quote?.id ?? null);
+  const reconciled = quote !== null && !posting ? reconcileQuote(quote, loaded) : quote;
+  if (reconciled !== quote) setQuote(reconciled);
   const [error, setError] = useState<string | null>(null);
   const form = useRef<HTMLFormElement>(null);
   const focusBox = useCallback(() => form.current?.querySelector("textarea")?.focus(), []);
@@ -139,6 +147,8 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
       await refreshAfterMessageWrite(queryClient, room.id);
     } catch (err) {
       setError(messageErrorMessage(err, t));
+      // The server says the message is gone: the line keeps the author and loses the text (a pick made since, another object, stays as it is).
+      if (isProblem(err, PROBLEM_TYPES.quoteUnavailable)) setQuote((current) => (current === sent.quote && current !== null ? blankQuote(current) : current));
       if (isAccessRefusal(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
     } finally {
       setPending(key, null);
@@ -157,7 +167,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
     >
       <Stack gap="xs">
         {/* Mounted from the first render, so the words that appear in it when a quote is set are announced (the `@everyone` note is the precedent). */}
-        <VisuallyHidden role="status">{quote ? t("threads.quote.announce", { author: quote.authorName, excerpt: messageExcerpt(quote) }) : ""}</VisuallyHidden>
+        <VisuallyHidden role="status">{quote ? t("threads.quote.announce", { author: quote.authorName, excerpt: quoteDraftExcerpt(quote, t) }) : ""}</VisuallyHidden>
         {quote && (
           <ComposerQuote
             quote={quote}

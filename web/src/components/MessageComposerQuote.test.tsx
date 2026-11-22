@@ -2,13 +2,15 @@
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import MessageComposer, { type QuoteRequest } from "./MessageComposer";
 import ThreadDraftsProvider from "./ThreadDraftsProvider";
 import type { QuoteDraft } from "../hooks/useThreadDrafts";
 import { jsonResponse } from "../test/http";
-import { makeMessage, makeRoom, makeThread } from "../test/messageFixtures";
+import { makeMessage, makeRoom, makeThread, messagePage } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
+import { roomKeys } from "../utils/roomKeys";
 
 describe("MessageComposer: quoting a message", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -27,6 +29,7 @@ describe("MessageComposer: quoting a message", () => {
 
   const picked: QuoteDraft = { id: 31, authorId: 4, authorName: "Ann Author", body: "Is the **disk** full on db-3?", mentions: [], groupMentions: [] };
   const other: QuoteDraft = { id: 32, authorId: 5, authorName: "Bob Starter", body: "No, the log is.", mentions: [], groupMentions: [] };
+  const GONE = "The message you are quoting is no longer available. Remove the quote to send your reply.";
   const bodyOf = (call: [string, RequestInit]) => JSON.parse(call[1].body as string) as Record<string, unknown>;
 
   /** The pane's side of "Quote": buttons that make a numbered request for the open thread, plus the thread, pane and closed switches of `Harness`. */
@@ -110,13 +113,17 @@ describe("MessageComposer: quoting a message", () => {
     await user.click(screen.getByRole("button", { name: "quote Ann" }));
     await user.type(box(), "Agreed");
     await user.click(screen.getByRole("button", { name: "Send" }));
-    expect(await screen.findByText("The message you are quoting is no longer available. Remove the quote to send your reply.")).toBeInTheDocument();
+    // The error and the line (which says the same words in place of the excerpt) both carry them.
+    expect(await screen.findAllByText(GONE)).toHaveLength(2);
     expect(screen.queryByText("The message is not valid. Check its length and that it has no control characters.")).not.toBeInTheDocument();
     expect(box()).toHaveValue("Agreed");
-    expect(screen.getByText("Is the disk full on db-3?")).toBeInTheDocument();
+    // The line keeps the author and loses the text of the message that is gone (1.3 A7), visibly and in the status line.
+    expect(screen.getByText("Quoting Ann Author")).toBeInTheDocument();
+    expect(screen.queryByText("Is the disk full on db-3?")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("status").some((node) => node.textContent === `Quoting Ann Author: ${GONE}`)).toBe(true);
     await user.click(screen.getByRole("button", { name: "Remove the quote" }));
     // The words that told the reader to remove it go with it; the text stays for the next try.
-    expect(screen.queryByText("The message you are quoting is no longer available. Remove the quote to send your reply.")).not.toBeInTheDocument();
+    expect(screen.queryByText(GONE)).not.toBeInTheDocument();
     expect(box()).toHaveValue("Agreed");
     await user.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(posts()).toHaveLength(2));
@@ -231,5 +238,86 @@ describe("MessageComposer: quoting a message", () => {
     await waitFor(() => expect(box()).toHaveValue(""));
     expect(screen.getByText("Is the disk full on db-3?")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Remove the quote" })).toBeInTheDocument();
+  });
+
+  describe("what the loaded conversation says about the picked message (1.3 A7)", () => {
+    /** The pane's `MessageList` query as it holds the thread's messages: the composer reads it and never fetches it. */
+    const listKey = roomKeys.messages(makeRoom().id, 42);
+    const seed = (client: QueryClient, ...items: ReturnType<typeof makeMessage>[]) => client.setQueryData(listKey, { pages: [messagePage(items)], pageParams: [undefined] });
+    const annsMessage = (overrides: Parameters<typeof makeMessage>[0] = {}) => makeMessage({ id: 31, authorId: 4, authorName: "Ann Author", body: "Is the **disk** full on db-3?", ...overrides });
+
+    test("a message the loaded list shows as deleted blanks the line and the status line: the author stays, the text goes, and it stays gone in another thread and back", async () => {
+      const user = userEvent.setup();
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      seed(client, annsMessage());
+      renderWithProviders(<QuoteHarness />, { queryClient: client });
+      await user.click(screen.getByRole("button", { name: "quote Ann" }));
+      expect(screen.getByText("Is the disk full on db-3?")).toBeInTheDocument();
+      // The live hint re-read the list: the moderator's delete is a tombstone.
+      act(() => void seed(client, annsMessage({ deleted: true, body: null, deletedByModerator: true })));
+      expect(await screen.findByText(GONE)).toBeInTheDocument();
+      expect(screen.getByText("Quoting Ann Author")).toBeInTheDocument();
+      expect(screen.queryByText("Is the disk full on db-3?")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("status").some((node) => node.textContent === `Quoting Ann Author: ${GONE}`)).toBe(true);
+      // Kept blank (not just hidden) across the thread switch: the list of the other thread has no such message.
+      await user.click(screen.getByRole("button", { name: "switch thread" }));
+      await user.click(screen.getByRole("button", { name: "switch thread" }));
+      expect(screen.getByText(GONE)).toBeInTheDocument();
+      expect(screen.queryByText("Is the disk full on db-3?")).not.toBeInTheDocument();
+      // The reader is still told by Send, and removing the quote leaves nothing behind.
+      await user.click(screen.getByRole("button", { name: "Remove the quote" }));
+      expect(screen.queryByText("Quoting Ann Author")).not.toBeInTheDocument();
+    });
+
+    test("a quote picked while the list already shows the message as deleted is blank at once, and after a reload of the pane", async () => {
+      const user = userEvent.setup();
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      renderWithProviders(<QuoteHarness />, { queryClient: client });
+      await user.click(screen.getByRole("button", { name: "quote Ann" }));
+      await user.click(screen.getByRole("button", { name: "toggle pane" }));
+      // While the pane is away the list is read again and shows the delete; the box that mounts next starts from the kept (stale) draft.
+      seed(client, annsMessage({ deleted: true, body: null }));
+      await user.click(screen.getByRole("button", { name: "toggle pane" }));
+      expect(screen.getByText(GONE)).toBeInTheDocument();
+      expect(screen.queryByText("Is the disk full on db-3?")).not.toBeInTheDocument();
+    });
+
+    test("a message the loaded list shows as edited refreshes the excerpt (and the status line) from the loaded message", async () => {
+      const user = userEvent.setup();
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      seed(client, annsMessage());
+      renderWithProviders(<QuoteHarness />, { queryClient: client });
+      await user.click(screen.getByRole("button", { name: "quote Ann" }));
+      expect(screen.getByText("Is the disk full on db-3?")).toBeInTheDocument();
+      act(() => void seed(client, annsMessage({ body: "Is the **disk** full on db-4?", editedAt: 1767261600000 })));
+      expect(await screen.findByText("Is the disk full on db-4?")).toBeInTheDocument();
+      expect(screen.queryByText("Is the disk full on db-3?")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("status").some((node) => node.textContent === "Quoting Ann Author: Is the disk full on db-4?")).toBe(true);
+      // The post carries the id as before; the refresh made no request of its own.
+      expect(mockFetch).not.toHaveBeenCalled();
+      await user.type(box(), "Agreed");
+      await user.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(posts()).toHaveLength(1));
+      expect(bodyOf(posts()[0])).toEqual({ body: "Agreed", quotedMessageId: 31 });
+    });
+
+    test("a message the list shows as it was picked, or does not hold, leaves the line alone, and a post in flight is not disturbed by a delete the list shows meanwhile", async () => {
+      let answer!: (response: Response) => void;
+      mockFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)));
+      const user = userEvent.setup();
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      seed(client, makeMessage({ id: 5, body: "unrelated" }));
+      renderWithProviders(<QuoteHarness />, { queryClient: client });
+      await user.click(screen.getByRole("button", { name: "quote Ann" }));
+      expect(screen.getByText("Is the disk full on db-3?")).toBeInTheDocument();
+      await user.type(box(), "first");
+      await user.click(screen.getByRole("button", { name: "Send" }));
+      await waitFor(() => expect(posts()).toHaveLength(1));
+      act(() => void seed(client, annsMessage({ deleted: true, body: null })));
+      answer(jsonResponse(201, makeMessage({ id: 77 })));
+      // The post that carried the quote succeeded: text and quote go together, whatever the list showed meanwhile.
+      await waitFor(() => expect(box()).toHaveValue(""));
+      await waitFor(() => expect(screen.queryByText("Quoting Ann Author")).not.toBeInTheDocument());
+    });
   });
 });

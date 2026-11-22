@@ -92,6 +92,13 @@ class MessageQuoteNoticesTest {
         assertEquals(HttpStatusCode.NoContent, user.client.putJson("$rooms/$room/threads/1/watch", WatchRequest(watching)).status)
     }
 
+    private fun sql(statement: String, vararg args: Any?) = PostgresTestSupport.connect().use { c ->
+        c.prepareStatement(statement).use { st ->
+            args.forEachIndexed { index, arg -> st.setObject(index + 1, arg) }
+            st.executeUpdate()
+        }
+    }
+
     private fun removeMember(room: UInt, userId: UInt) = PostgresTestSupport.connect().use { c ->
         c.prepareStatement("DELETE FROM room_members WHERE room_id = ? AND user_id = ?").use { st ->
             st.setInt(1, room.toInt())
@@ -380,4 +387,24 @@ class MessageQuoteNoticesTest {
 
             assertNull(noticeAbout(carl.id, posted.id))
         }
+
+    @Test
+    fun `an edit of a message whose planted reference points at another thread's message tells nobody about a quote`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("mqn-plant")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Thread two")
+        val bobsElsewhere = TestThreads.post(cast.room, 2, cast.bob.id, "Bob says in thread two")
+        // A plain mention: bob holds a MENTIONED notice and the message quotes nothing.
+        val posted = cast.ann.client.post(cast.room, "answer <@${cast.bob.id}>")
+        assertEquals(NotificationType.MENTIONED, noticeAbout(cast.bob.id, posted.id)?.second)
+        // A row the application never writes: the reference points at bob's message in the OTHER thread.
+        sql("UPDATE messages SET quoted_message_id = ? WHERE id = ?", bobsElsewhere.toLong(), posted.id.toLong())
+
+        // Dropping the mention would relabel bob's notice to the quote in place if the edit read that reference as a quote (as a real
+        // one does, above); it is no quote, so the notice goes like any dropped mention's.
+        cast.ann.client.edit(cast.room, posted.id, "answer")
+
+        assertNull(noticeAbout(cast.bob.id, posted.id))
+        assertEquals(0L, kindRows(cast.room, NotificationType.MESSAGE_QUOTED))
+    }
 }

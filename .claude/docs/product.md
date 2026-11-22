@@ -333,7 +333,7 @@ Taken without asking, in the 1.3.0 plan (the user answered its three questions o
 - **1.3 A4. A deleted quoted message reads "The quoted message was deleted." in every quote of it;** the quote stays a link to the tombstone.
 - **1.3 A5. Quoting your own message is allowed.**
 - **1.3 A6. One level:** no quote inside a quote.
-- **1.3 A7. A quote chosen and then deleted before sending is refused on Send with its own words;** the composer line does not watch the message and shows what it read when it was picked.
+- **1.3 A7. A quote chosen and then deleted before sending is refused on Send with its own words, and its text does not outlive the delete in the composer.** The composer line makes no request of its own, but it follows what the SPA already knows: when the conversation's loaded messages show the picked message deleted, or the server answers the post `quote-unavailable`, the draft's excerpt is BLANKED (the author stays, the line and the status line say the message is no longer available: a moderator's delete of a leaked credential is effective here too, 0.3 D2); when the loaded messages show it edited, the excerpt is refreshed from the loaded message. A message the list does not hold changes nothing. A delete made while the reader is in another thread reaches the line when that thread is opened again and its list re-reads (one round trip; accepted, the reader had already seen the text).
 - **1.3 A8. An unknown id, a message of another thread or room and a deleted message are one answer** (a typed `400`).
 - **1.3 A9. A quote is not a mention:** "Mentions me" does not list a thread for a quote.
 - **1.3 A10. (1.3 D2) The notice counts as addressed,** sits under Mentions on the preferences page and survives a refused wide event.
