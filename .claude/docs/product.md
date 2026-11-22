@@ -350,7 +350,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.2.0** (room view, tags, unread; release commit 2026-11-22 on `feat/1.2.0-room-view`, not yet tagged); 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21); 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.2.0** (room view, tags, unread; tagged `v1.2.0` at 6018f17, 2026-11-22); 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21); 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
