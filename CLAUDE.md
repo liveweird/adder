@@ -15,7 +15,7 @@ or an ADMIN reopens it. Room content is filterable, sortable and searchable; the
 The domain sketch: `.claude/docs/chat-model.md`; the live protocol: `.claude/docs/live.md`. Open items: `BACKLOG.md`.
 
 Brand: olive / venom chartreuse (the `adder` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`). The logo "Strike" shows
-an adder's head angled forward, with a slit pupil and a zigzag marking (`web/public/logo-*.svg`).
+a front-facing adder with slit pupils, fangs and a forked tongue (`web/public/logo-*.svg`).
 
 ## Donors
 

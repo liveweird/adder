@@ -385,10 +385,10 @@ skips a level going down. A page whose real title needs loaded data passes a sta
 
 ### The logo
 
-- **"Strike"** shows an adder's head angled forward with a slit pupil and a zigzag marking, set on a disc in a 48×48 viewBox.
-  `components/BrandLogo.tsx` loads `public/logo-{light,dark}.svg`. The light file pairs an olive disc with a white snake
-  (`#586715` / `#ffffff`). The dark file pairs a chartreuse disc with a deep-olive snake (`#b2cc3c` / `#263005`).
-  `index.html` uses `public/favicon.svg` in both colour schemes. It shows a front-facing adder on a chartreuse disc.
+- **"Strike"** shows a front-facing adder with slit pupils, fangs and a forked tongue, set on a disc in a 48×48 viewBox.
+  `components/BrandLogo.tsx` loads `public/logo-{light,dark}.svg`. Both files use the same geometry. The light file pairs
+  a pale-olive face with an olive disc (`#586715`). The dark file pairs a deep-olive face with a chartreuse disc (`#b2cc3c`).
+  `index.html` uses a simplified chartreuse rendering of the same head from `public/favicon.svg` in both colour schemes.
   Check the favicon against both light and dark backgrounds at 16 px. Change the geometry in a vector editor,
   not by hand-editing path data. Restyle rule: keep aria-labels, roles, and real semantic elements stable — e2e and unit tests locate by role/name.
 
