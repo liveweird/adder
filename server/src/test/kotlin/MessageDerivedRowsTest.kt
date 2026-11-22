@@ -69,7 +69,13 @@ class MessageDerivedRowsTest {
 
     private fun threadRequest(body: String) = ThreadCreateRequest("Derived", body, mapOf("severity" to JsonPrimitive("s1")))
 
-    /** The tables that reference `messages`, with the referencing column of each, as the catalog says (the table itself excluded). */
+    /**
+     * The tables that reference `messages`, with the referencing column of each, as the catalog says (the table itself excluded).
+     * `c.conrelid <> c.confrelid` leaves out `messages.quoted_message_id` (V35, 1.3.0), the self-reference of a quote: it is NOT a derived
+     * row a delete must clear. A message delete is a soft delete (an UPDATE), and the reference to a deleted message is kept ON PURPOSE:
+     * every quote of it then reads as a deleted quote, without text (`chat-model.md` "Quotes (1.3)"). The leak a delete must prevent is
+     * the quoted TEXT, which no row stores: the reads take it from the message itself, scrubbed to `''`.
+     */
     private fun referencingTables(): Map<String, List<String>> = PostgresTestSupport.connect().use { connection ->
         val sql = """
             SELECT (SELECT relname FROM pg_class WHERE oid = c.conrelid), a.attname

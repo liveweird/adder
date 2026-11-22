@@ -1530,9 +1530,16 @@ export interface paths {
         /**
          * Post a message to a thread
          * @description A MEMBER of the room (an `ADMIN` who is not a member is `403` and joins through the Members page first; a non-member is the
-         *     uniform `404`). Checked in this order: visibility (`404`), membership (`403`), the body (`400`), then under the room lock the
-         *     guard again (a caller removed while the write waited is refused), the thread (`404`), an archived room (`409` of type
-         *     `urn:adder:problem:room-archived`) and a closed thread (`409` of type `urn:adder:problem:thread-closed`: a steward reopens it first).
+         *     uniform `404`). Checked in this order: visibility (`404`), membership (`403`), the body (`400`: the message rules, and a
+         *     `quotedMessageId` outside 1 to 2147483647), then under the room lock the guard again (a caller removed while the write waited is
+         *     refused), the thread (`404`), an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
+         *     `urn:adder:problem:thread-closed`: a steward reopens it first) and the quote.
+         *
+         *     `quotedMessageId` makes the message QUOTE one earlier message of the SAME thread (a live message, the caller's own and the thread's
+         *     opening message included). An unknown id, a message of another thread or room and a deleted message are ONE answer, a `400` of type
+         *     `urn:adder:problem:quote-unavailable` with a fixed detail (never a `404`: on this POST that means the thread or the room is gone);
+         *     nothing is written. The quote is set when the message is posted and never changes: the edit (`editThreadMessage`) cannot name one.
+         *     The `201` carries it as `quote` (read like every message does: the quoted message as it reads NOW).
          *
          *     `body` is Markdown of 1 to 8,000 UTF-16 units after line endings are normalised, leading blank lines and trailing whitespace
          *     are dropped and the first line's indentation stays (`\n` and `\t` allowed, every other control character and the hidden
@@ -1580,7 +1587,8 @@ export interface paths {
          *     message and the author rule again on the fresh rows, an archived room (`409` of type `urn:adder:problem:room-archived`) and a
          *     closed thread (`409` of type `urn:adder:problem:thread-closed`).
          *
-         *     The body rules are those of the post. Sending the body the message already has (after normalising) is `204` with no write and
+         *     The body rules are those of the post. The message's quote (`quote`) is set when it is posted and cannot be added, changed or
+         *     removed by an edit: the request has no `quotedMessageId`, so naming one is a `400`; the quote stays through the edit. Sending the body the message already has (after normalising) is `204` with no write and
          *     no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
          *     order are untouched. Only the people the edit NEWLY addresses are notified (addressed by the new body, by name or through a team, the
          *     watchers or everyone, and not by the old one, the old body's groups read as of the edit; a group token the edit KEPT addresses
@@ -2824,6 +2832,7 @@ export interface components {
              *     - `urn:adder:problem:live-socket-limit` (429, `Retry-After`): the caller already holds their maximum of live sockets.
              *     - `urn:adder:problem:live-unavailable` (503, `Retry-After`): the live channel is stopping, full or without its listener.
              *     - `urn:adder:problem:template-gone` (400): the workflow template a room is created from is unknown or deleted.
+             *     - `urn:adder:problem:quote-unavailable` (400): the message a post quotes is unknown, of another thread or room, or deleted.
              * @default about:blank
              */
             type: string;
@@ -3137,6 +3146,15 @@ export interface components {
             /** @description Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays. */
             body: string;
         };
+        MessagePostRequest: {
+            /** @description Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays. */
+            body: string;
+            /**
+             * Format: int32
+             * @description The message of the SAME thread this one quotes; optional, and `null` quotes nothing. Unknown, of another thread or room, or deleted is a `400` of type `urn:adder:problem:quote-unavailable`. Answered as `quote.messageId` on the message, not as a mirror here. An edit cannot name it.
+             */
+            quotedMessageId?: number | null;
+        };
         MessageResponse: {
             /**
              * Format: int32
@@ -3172,6 +3190,35 @@ export interface components {
             groupMentions: components["schemas"]["GroupMention"][];
             /** @description The emoji on the message, in the order each first appeared; empty when there are none and on a tombstone. At most 20 distinct. */
             reactions: components["schemas"]["ReactionSummary"][];
+            /** @description The message of the same thread this one quotes, as it reads NOW; `null` when it quotes nothing and on a tombstone. Set when the message is posted and never changed by an edit. */
+            quote: components["schemas"]["MessageQuote"] | null;
+        };
+        /** @description A read-only summary of the quoted message, always as it reads now (nothing of its text is stored with the quoting message). One level: what the quoted message itself quotes is never shown. */
+        MessageQuote: {
+            /**
+             * Format: int32
+             * @description The quoted message; a message of the same thread.
+             */
+            messageId: number;
+            /** Format: int32 */
+            authorId: number;
+            /** @description The quoted author's CURRENT display name (a removed account keeps its last one). */
+            authorName: string;
+            /** @description The quoted message is a tombstone now; then `body` is `null`, `truncated` is `false` and both lists are empty. */
+            deleted: boolean;
+            /** @description The quoted message's CURRENT Markdown, at most 1,000 code points (cut back to the last whitespace inside the final 100, or exactly at 1,000 when there is none or the next code point is whitespace); `null` when deleted. The client makes the excerpt. */
+            body: string | null;
+            /** @description The body was cut. */
+            truncated: boolean;
+            /**
+             * Format: int64
+             * @description Epoch millis of the quoted message's last edit, so a client can mark a quote whose text changed after it was quoted; `null` while as posted and when deleted.
+             */
+            editedAt: number | null;
+            /** @description The quoted message's own mentions, so a client shows names; empty unless a `<@` token survived the cut and on a deleted one. */
+            mentions: components["schemas"]["MentionedUser"][];
+            /** @description The quoted message's own group mentions; empty unless a `<@` token survived the cut and on a deleted one. */
+            groupMentions: components["schemas"]["GroupMention"][];
         };
         MentionedUser: {
             /**
@@ -5927,7 +5974,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MessageRequest"];
+                "application/json": components["schemas"]["MessagePostRequest"];
             };
         };
         responses: {

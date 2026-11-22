@@ -182,24 +182,36 @@ class RollbackRunbookTest {
      * same instance refuses, so the test fails the day somebody turns the default off.
      */
     @Test
-    fun `a Flyway that ships only the 1_1_0 migrations validates and boots against the 1_2 schema`() {
+    fun `a Flyway that ships only the 1_1_0 migrations validates and boots against the 1_2 schema`() =
+        assertShippedSetBootsAgainstNewerSchema(LAST_1_1_0_MIGRATION, "1.1.0")
+
+    /**
+     * The same claim one release up (`persistence.md` "Message quotes (V35)", "Rollback below 1.3.0"): a binary that ships only the 1.2.0
+     * migrations (V1 to V34) boots against the V35 schema, so the nullable `messages.quoted_message_id` and its partial index are inert
+     * to it.
+     */
+    @Test
+    fun `a Flyway that ships only the 1_2_0 migrations validates and boots against the V35 schema`() =
+        assertShippedSetBootsAgainstNewerSchema(LAST_1_2_0_MIGRATION, "1.2.0")
+
+    private fun assertShippedSetBootsAgainstNewerSchema(lastShipped: Int, release: String) {
         PostgresTestSupport.ensureMigrated()
-        val shipped11 = Files.createTempDirectory("flyway-1.1.0-")
+        val shipped = Files.createTempDirectory("flyway-$release-")
         try {
             val source = File(System.getProperty("repo.root") ?: "..", "server/src/main/resources/db/migration")
-            val v11 = source.listFiles { f -> f.name.endsWith(".sql") }.orEmpty()
-                .filter { Regex("V(\\d+)__.*").matchEntire(it.name)!!.groupValues[1].toInt() <= LAST_1_1_0_MIGRATION }
-            assertEquals((1..LAST_1_1_0_MIGRATION).toList(), v11.map { it.name.substringAfter('V').substringBefore("__").toInt() }.sorted())
-            v11.forEach { it.copyTo(File(shipped11.toFile(), it.name)) }
+            val files = source.listFiles { f -> f.name.endsWith(".sql") }.orEmpty()
+                .filter { Regex("V(\\d+)__.*").matchEntire(it.name)!!.groupValues[1].toInt() <= lastShipped }
+            assertEquals((1..lastShipped).toList(), files.map { it.name.substringAfter('V').substringBefore("__").toInt() }.sorted())
+            files.forEach { it.copyTo(File(shipped.toFile(), it.name)) }
             fun flyway(vararg ignore: String) = org.flywaydb.core.Flyway.configure()
                 .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
-                .locations("filesystem:${shipped11.toAbsolutePath()}")
+                .locations("filesystem:${shipped.toAbsolutePath()}")
                 .apply { if (ignore.isNotEmpty()) ignoreMigrationPatterns(*ignore) }
                 .load()
 
             val old = flyway()
             val newest = old.info().applied().maxOf { it.version.version.toInt() }
-            assertTrue(newest > LAST_1_1_0_MIGRATION, "the shared schema is ahead of the 1.1.0 set (V$newest)")
+            assertTrue(newest > lastShipped, "the shared schema is ahead of the $release set (V$newest)")
             old.validate()
             assertEquals(0, old.migrate().migrationsExecuted, "the old jar's boot migrates nothing")
             assertTrue(
@@ -207,12 +219,15 @@ class RollbackRunbookTest {
                 "with future migrations NOT ignored the same set is refused: the default is what the runbook relies on",
             )
         } finally {
-            shipped11.toFile().deleteRecursively()
+            shipped.toFile().deleteRecursively()
         }
     }
 
     private companion object {
         /** The newest migration 1.1.0 shipped (V25 to V30 are its own; V31 to V34 are 1.2.0's). */
         const val LAST_1_1_0_MIGRATION = 30
+
+        /** The newest migration 1.2.0 shipped (V31 to V34 are its own; V35 is 1.3.0's). */
+        const val LAST_1_2_0_MIGRATION = 34
     }
 }

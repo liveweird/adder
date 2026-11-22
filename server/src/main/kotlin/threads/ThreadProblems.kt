@@ -2,6 +2,7 @@ package ch.nokillswit.threads
 
 import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.TooManyRequestsException
+import ch.nokillswit.authz.TypedBadRequestException
 import ch.nokillswit.infra.ProblemTypes
 
 /**
@@ -12,6 +13,16 @@ const val THREAD_CLOSED_PROBLEM_TYPE = ProblemTypes.THREAD_CLOSED
 
 /** A closed thread takes no activity until its owner, the room owner or an ADMIN reopens it (`chat-model.md` "Closed and archived"). */
 fun threadClosed(): ConflictException = ConflictException("The thread is closed", problemType = THREAD_CLOSED_PROBLEM_TYPE)
+
+const val QUOTE_UNAVAILABLE_PROBLEM_TYPE = ProblemTypes.QUOTE_UNAVAILABLE
+
+/**
+ * The message a post quotes cannot be quoted: unknown, of another thread or room, or deleted - ONE answer for all of them, with a fixed
+ * detail that echoes no id (`chat-model.md` "Quotes (1.3)"). A `400`, never a `404`: on the message POST a `404` means the thread or
+ * the room is gone (the `template-gone` precedent), and the SPA reads it that way.
+ */
+fun quoteUnavailable(): TypedBadRequestException =
+    TypedBadRequestException("The quoted message is not available", problemType = QUOTE_UNAVAILABLE_PROBLEM_TYPE)
 
 const val REACTION_LIMIT_PROBLEM_TYPE = ProblemTypes.REACTION_LIMIT
 

@@ -143,6 +143,57 @@ class ChatLogHygieneTest {
     }
 
     /**
+     * A quoted excerpt is a body (1.3): quoting, listing, reading singly, pinning, a refused quote (unknown, deleted) and a quoted
+     * message deleted afterwards must leave neither the quoted text nor the quoting text in any log line of any logger. The audit line
+     * of a quoting post names the quoted message's ID, never its text.
+     */
+    @Test
+    fun `no log line carries a quoted excerpt - quoted, listed, read singly, refused or deleted`() = testApplication {
+        val marker = "QUOTEHYG-${UUID.randomUUID()}"
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            usePostgresTestcontainer()
+            val owner = seedActor("qhyg-own").also { mintedUsers += it.id }
+            val member = seedActor("qhyg-mem").also { mintedUsers += it.id }
+            val template = TestThreads.seedTemplate().also { mintedTemplates += it }
+            val room = TestRooms.seed(owner.id, template, "QHyg ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
+            TestRooms.addMember(room, member.id)
+            TestThreads.seed(room, member.id)
+            val path = "$rooms/$room/threads/1/messages"
+
+            val quoted = member.client.raw(HttpMethod.Post, path, """{"body":"Q $marker-quoted <@${owner.id}>"}""").body<MessageResponse>()
+            val posted = member.client.raw(HttpMethod.Post, path, """{"body":"A $marker-quoting","quotedMessageId":${quoted.id}}""")
+            assertEquals(HttpStatusCode.Created, posted.status)
+            val quoting = posted.body<MessageResponse>()
+            assertEquals("Q $marker-quoted <@${owner.id}>", quoting.quote?.body, "the quote carries the excerpt on the wire, not in a log")
+            assertEquals(HttpStatusCode.OK, member.client.get(path).status)
+            assertEquals(HttpStatusCode.OK, member.client.get("$rooms/$room/messages/${quoting.id}").status)
+            assertEquals(
+                HttpStatusCode.NoContent,
+                member.client.raw(HttpMethod.Put, "$rooms/$room/messages/${quoting.id}/pin", """{"pinned":true}""").status,
+            )
+            assertEquals(HttpStatusCode.OK, member.client.get("$rooms/$room/pins").status)
+            // Refused quotes: an id nobody has, an id outside the range; then the quoted message is deleted and quoted once more.
+            val refusals = listOf(
+                member.client.raw(HttpMethod.Post, path, """{"body":"R $marker-refused","quotedMessageId":${quoted.id + 1_000_000u}}"""),
+                member.client.raw(HttpMethod.Post, path, """{"body":"R $marker-zero","quotedMessageId":0}"""),
+            )
+            assertEquals(listOf(400, 400), refusals.map { it.status.value })
+            assertEquals(HttpStatusCode.NoContent, owner.client.delete("$rooms/$room/messages/${quoted.id}").status)
+            val afterDelete = member.client.raw(HttpMethod.Post, path, """{"body":"R $marker-gone","quotedMessageId":${quoted.id}}""")
+            assertEquals(HttpStatusCode.BadRequest, afterDelete.status)
+            assertEquals(HttpStatusCode.OK, member.client.get(path).status)
+
+            val audited = capture.events.filter { it.message == "message.posted" }
+            assertTrue(audited.any { it.hasKeyValue("quotedMessageId", quoted.id.toLong()) }, "the audit line names the quoted id")
+            val leaked = capture.events.filter { marker in it.rendered() }
+            assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a quoted or quoting body")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    /**
      * A hashtag is user content like a body: the tag index, the thread list's `tag` filter and the room's tag list (its `tag` substring)
      * must leave the tag in no log line of any logger, whether the request is answered or refused (a malformed filter is a `400` whose
      * detail may echo the value, a response and never a log).

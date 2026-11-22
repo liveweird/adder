@@ -35,7 +35,7 @@ caller runs `requireLabel` over status, field AND option labels. (3) The PUT is 
 **Wire names (frozen at 1.0.0; C-API-5).** A reference to a person is `<role>Id` (`ownerId`, `authorId`, `managerId`, `actorId`, `mentionedId`,
 `pinnedById`/`createdById` for the past-participle roles), its display text `<role>Name`; plain `userId` (and the plural `userIds`, users to add) only where the row IS the user (a
 roster row, `LoginResponse`, a path segment, the `<@id>` mention). A boolean is a bare adjective or participle, never `is`/`has`/`was`
-(`closed`, `archived`, `seen`, `unread`, `deleted`, `actorDeleted`). A request or filter key and the response property it mirrors share one name.
+(`closed`, `archived`, `seen`, `unread`, `deleted`, `actorDeleted`). A request or filter key and the response property it mirrors share one name. **One exception, by API-STRUCT-003 (1.3):** the message POST's `quotedMessageId` is answered as `quote.messageId` (a read-only summary of the related message, `MessageQuote`), not as a top-level mirror: the write refers to the related resource by id and the read shows it as it reads now.
 
 **Deliberate exceptions to the template** (each with its reason; a new one is added here in the commit that introduces it):
 - `auth/` (login, MFA, refresh, logout, password reset; `plugins/Health.kt`'s probes): STRING-path routes (`post("/api/v1/login")`), not `@Resource` typed ones, ported from Flow as they are. They are the public and credential endpoints: each rides its own per-IP rate-limit bucket mounted around it in `routing {}` (`RateLimits.kt`) and answers uniformly whatever the state of the account (`security.md`, `authorization.md` "The public surface"); they are never edited as a template.

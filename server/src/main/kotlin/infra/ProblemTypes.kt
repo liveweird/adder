@@ -56,9 +56,13 @@ object ProblemTypes {
     /** The workflow template a room is created from is unknown or deleted (400). */
     const val TEMPLATE_GONE = "urn:adder:problem:template-gone"
 
+    /** The message a post quotes is unknown, of another thread or room, or deleted (400). */
+    const val QUOTE_UNAVAILABLE = "urn:adder:problem:quote-unavailable"
+
     /** Every registered URI; the spec's list and the main sources are diffed against it. */
     val ALL: Set<String> = setOf(
         REVISION_CONFLICT, LAST_OWNER, ROOM_ARCHIVED, THREAD_CLOSED, STATUS_IN_USE, FIELD_TYPE_IMMUTABLE, ROOM_BUSY, PIN_LIMIT,
         REACTION_LIMIT, SEARCH_TIMEOUT, SEARCH_BUSY, READ_TIMEOUT, READ_BUSY, LIVE_UNAVAILABLE, LIVE_SOCKET_LIMIT, TEMPLATE_GONE,
+        QUOTE_UNAVAILABLE,
     )
 }

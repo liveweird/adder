@@ -2,6 +2,7 @@ package ch.nokillswit.threads
 
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.sanitizeMultiLine
+import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
 
 /**
@@ -32,6 +33,28 @@ data class MessageResponse(
     val groupMentions: List<GroupMention>,
     /** At most [MAX_DISTINCT_REACTIONS], in the order each emoji first appeared; empty on a tombstone (`chat-model.md`). */
     val reactions: List<ReactionSummary>,
+    /** The message of the same thread this one quotes, as it reads NOW; null when it quotes nothing and on a tombstone ("Quotes (1.3)"). */
+    val quote: MessageQuote?,
+)
+
+/**
+ * The quoted message as it reads now (1.3; API-STRUCT-003's read-only summary of a related resource, the write refers to it by id).
+ * [deleted]: it is a tombstone now, and then [body] is null, [truncated] false and both lists empty. [body] is its CURRENT Markdown, at
+ * most [MAX_QUOTED_BODY] code points ([truncated]: it was cut); [editedAt] is when it was last edited (null while as posted and when
+ * deleted), so a client can mark a quote whose text changed after it was quoted; [mentions] and [groupMentions] are the quoted
+ * message's own, so the excerpt can show names (empty when no `<@` token survived the cut).
+ */
+@Serializable
+data class MessageQuote(
+    val messageId: UInt,
+    val authorId: UInt,
+    val authorName: String,
+    val deleted: Boolean,
+    val body: String?,
+    val truncated: Boolean,
+    val editedAt: Long?,
+    val mentions: List<MentionedUser>,
+    val groupMentions: List<GroupMention>,
 )
 
 /** A person a message mentions: the id as written in the token and their CURRENT display name (a mention of someone who left keeps it). */
@@ -54,9 +77,20 @@ typealias MessagePageResponse = PageResponse<MessageResponse>
 /** One page of a thread's messages plus the total AFTER the `id[lt]` filter (the list-endpoint envelope, keyset inside it). */
 data class MessageListResult(val items: List<MessageResponse>, val total: Long)
 
-/** `POST .../threads/{number}/messages` and `PUT /rooms/{id}/messages/{messageId}`: the Markdown [body]. */
+/** `PUT /rooms/{id}/messages/{messageId}` (the edit): the Markdown [body]. The edit cannot name a quote: an unknown member is a `400`. */
 @Serializable
 data class MessageRequest(val body: String)
+
+/**
+ * `POST .../threads/{number}/messages`: the Markdown [body] and, optionally, the message of the SAME thread it quotes
+ * ([quotedMessageId], 1 to 2147483647; `chat-model.md` "Quotes (1.3)"). A separate body from the edit's [MessageRequest] keeps a quote
+ * out of every edit with no code.
+ */
+@Serializable
+data class MessagePostRequest(val body: String, val quotedMessageId: UInt? = null) {
+    /** The body half, for the shared message rules and the sanitiser. */
+    fun message(): MessageRequest = MessageRequest(body)
+}
 
 /**
  * What a post wrote, for the route's `Location` header and audit line: the new message and its thread's row id. [notices] is what
@@ -75,3 +109,10 @@ fun sanitizedMessage(request: MessageRequest): MessageRequest = request.copy(bod
 
 /** The message rules shared by the post and the edit; run by the route AND the service. */
 fun validateMessage(request: MessageRequest) = requireMessageBody(request.body)
+
+/** A quoted id outside 1 to 2147483647 (message ids are int32 sequences) is a plain `400`, the read marker's shape; route AND service. */
+fun validateQuotedMessageId(quotedMessageId: UInt?) {
+    if (quotedMessageId != null && (quotedMessageId == 0u || quotedMessageId > Int.MAX_VALUE.toUInt())) {
+        throw BadRequestException("quotedMessageId must be a message id")
+    }
+}

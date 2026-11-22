@@ -65,6 +65,7 @@ export function makeMessage(overrides: Partial<MessageResponse> = {}): MessageRe
     mentions: [],
     groupMentions: [],
     reactions: [],
+    quote: null,
     ...overrides,
   };
 }

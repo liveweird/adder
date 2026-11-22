@@ -977,6 +977,68 @@ class ThreadSchemaTest {
         return "5, ${people[1]}, $thread, 1000000000"
     }
 
+    @Test
+    fun `a quote is a self-reference that takes NULL, survives a soft delete and nulls itself on a hard delete`() =
+        withThread("quote") { c, user, thread ->
+            val insert = "INSERT INTO messages (thread_id, author_id, body, created_at, quoted_message_id) VALUES (?, ?, ?, 1, ?) " +
+                "RETURNING id"
+            val quoted = c.scalar(insert, thread, user, "The quoted words", null)
+            val quoting = c.scalar(insert, thread, user, "A reply", quoted)
+            val untouched = c.scalar(insert, thread, user, "Another reply", null)
+            val quotes = "SELECT count(*) FROM messages WHERE id = ? AND quoted_message_id IS NOT NULL"
+            assertEquals(0, c.scalar(quotes, untouched), "NULL is allowed")
+            assertState(FK_VIOLATION, "a quote names a message that exists") {
+                c.scalar(insert, thread, user, "Dangling", quoted + 1_000_000_000)
+            }
+            assertEquals(
+                "CREATE INDEX idx_messages_quoted ON public.messages USING btree (quoted_message_id) WHERE (quoted_message_id IS NOT NULL)",
+                c.text("SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_messages_quoted'"),
+                "the index is partial: only quoting messages are in it",
+            )
+
+            // The application soft-deletes (an UPDATE): the reference stays, so the quote reads as a deleted quote.
+            val tombstone = "UPDATE messages SET body = '', marked_as_deleted = TRUE, deleted_by = ? WHERE id = ?"
+            assertEquals(1, c.exec(tombstone, user, quoted))
+            assertEquals(quoted, c.scalar("SELECT quoted_message_id FROM messages WHERE id = ?", quoting), "a soft delete keeps it")
+
+            // A HARD delete (a test purge, a cascade) nulls the reference and keeps the quoting row.
+            assertEquals(1, c.exec("DELETE FROM messages WHERE id = ?", quoted))
+            assertEquals(1, c.scalar("SELECT count(*) FROM messages WHERE id = ?", quoting), "the quoting message outlives the quoted row")
+            assertEquals(0, c.scalar(quotes, quoting))
+        }
+
+    @Test
+    fun `a thread delete cascading through quoting and quoted messages together is not blocked`() =
+        withThread("quote-cascade") { c, user, thread ->
+            val insert = "INSERT INTO messages (thread_id, author_id, body, created_at, quoted_message_id) VALUES (?, ?, 'x', 1, ?) " +
+                "RETURNING id"
+            val first = c.scalar(insert, thread, user, null)
+            val second = c.scalar(insert, thread, user, first)
+            c.scalar(insert, thread, user, second)
+            c.scalar(insert, thread, user, first)
+            assertEquals(1, c.exec("DELETE FROM threads WHERE id = ?", thread), "the cascade deletes quoted and quoting rows at once")
+            assertEquals(0, c.scalar("SELECT count(*) FROM messages WHERE thread_id = ?", thread))
+        }
+
+    @Test
+    fun `the quote foreign key's probe reads the partial idx_messages_quoted, also as a generic plan`() {
+        // What ON DELETE SET NULL runs for every hard-deleted message (the action's UPDATE) and what a reference check would read: the
+        // quoting rows of one message. Without the partial index it is a scan of `messages` per deleted row (a purge of a room of
+        // thousands). The plan tests restrict the planner as the others do (a test table is tiny); measured un-restricted on 200,000
+        // messages the same plan is chosen by itself (`persistence.md` "Message quotes (V35)").
+        val probes = listOf(
+            "UPDATE ONLY messages SET quoted_message_id = NULL WHERE ? OPERATOR(pg_catalog.=) quoted_message_id",
+            "SELECT 1 FROM ONLY messages x WHERE quoted_message_id OPERATOR(pg_catalog.=) ? FOR KEY SHARE OF x",
+        )
+        for (sql in probes) {
+            for (mode in listOf("auto", "force_generic_plan")) {
+                val plan = explain(sql, "int4", "1", mode)
+                assertTrue("Index Scan using idx_messages_quoted" in plan, "$mode: the probe reads the partial index:\n$plan")
+                assertTrue("Seq Scan on messages" !in plan, "$mode: never a scan of the whole table:\n$plan")
+            }
+        }
+    }
+
     private fun explain(
         sql: String,
         types: String,

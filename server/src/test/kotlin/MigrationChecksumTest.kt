@@ -55,6 +55,7 @@ class MigrationChecksumTest {
         "V32__create_tags.sql" to 1247201663,
         "V33__create_thread_tags.sql" to 975866380,
         "V34__index_notifications_unseen_by_room.sql" to 48846012,
+        "V35__add_message_quotes.sql" to 2028848017,
     )
 
     @Test

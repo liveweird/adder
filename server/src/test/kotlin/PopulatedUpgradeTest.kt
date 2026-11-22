@@ -98,8 +98,8 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32", "33", "34")
-        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V34 ran on the populated database: $after")
+        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35")
+        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V35 ran on the populated database: $after")
         val tagIndexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'message_tags'") { it.getString(1) }
             .toSet()
         val both = "idx_message_tags_thread" in tagIndexes && "idx_message_tags_room_tag" in tagIndexes
@@ -114,6 +114,28 @@ class PopulatedUpgradeTest {
             "SELECT pg_get_indexdef(indexrelid) FROM pg_index WHERE indexrelid = 'idx_notifications_unseen_room'::regclass",
         ) { it.getString(1) }.single()
         assertTrue("(recipient_id, room_id, id)" in partial && "seen_at IS NULL" in partial, "V34 is partial on the unseen rows: $partial")
+        assertMessageQuotesAdded(database)
+    }
+
+    /**
+     * V35 adds `messages.quoted_message_id`, nullable with no default: not one message of the release quotes anything, the soft-deleted
+     * ones included, so every old message reads `quote: null` (the digests of the caller prove its own columns are unchanged). Its
+     * foreign key is the self-reference with `ON DELETE SET NULL` and the partial index is the key's own probe.
+     */
+    private fun assertMessageQuotesAdded(database: String) {
+        assertEquals(
+            0L,
+            query(database, "SELECT count(*) FROM messages WHERE quoted_message_id IS NOT NULL") { it.getLong(1) }.single(),
+            "V35's column is empty on every migrated message, tombstones too",
+        )
+        val key = query(
+            database,
+            "SELECT confrelid::regclass::text, confdeltype FROM pg_constraint WHERE conname = 'fk_messages_quoted' AND contype = 'f'",
+        ) { it.getString(1) to it.getString(2) }
+        // 'n' = ON DELETE SET NULL: the only way a hard delete (a purge) cannot be blocked by a quote.
+        assertEquals(listOf("messages" to "n"), key, "the self-reference nulls itself on a hard delete")
+        val index = query(database, "SELECT pg_get_indexdef('idx_messages_quoted'::regclass)") { it.getString(1) }.single()
+        assertTrue("(quoted_message_id)" in index && "quoted_message_id IS NOT NULL" in index, "V35's index is partial: $index")
     }
 
     /**
@@ -376,7 +398,9 @@ class PopulatedUpgradeTest {
         assertEquals(setOf("👍🏽", "🇵🇱"), edited.reactions.map { it.emoji }.toSet())
         assertNotNull(edited.editedAt)
 
+        assertTrue(messages.items.all { it.quote == null }, "no message of the release quotes anything")
         val pins = olivia.getBody<PageResponse<RoomPinResponse>>("/api/v1/rooms/1/pins")
+        assertTrue(pins.items.all { it.message?.quote == null }, "a pinned message of the release quotes nothing either")
         assertEquals(listOf(PinKind.MESSAGE, PinKind.THREAD), pins.items.map { it.kind }, "newest pin first")
         assertEquals(2L, pins.total)
 

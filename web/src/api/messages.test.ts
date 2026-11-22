@@ -59,7 +59,7 @@ describe("messages API wrappers", () => {
   test("the wire types are the generated schema's, so a spec change fails the compile", () => {
     // `expectTypeOf` is checked by `tsc -b` (the build and the web gate), not at run time.
     expectTypeOf<MessageResponse>().toEqualTypeOf<components["schemas"]["MessageResponse"]>();
-    expectTypeOf<MessageBody>().toEqualTypeOf<components["schemas"]["MessageRequest"]>();
+    expectTypeOf<MessageBody>().toEqualTypeOf<components["schemas"]["MessagePostRequest"]>();
     expectTypeOf<MessageEditBody>().toEqualTypeOf<components["schemas"]["MessageRequest"]>();
     expectTypeOf(listMessages).returns.resolves.toEqualTypeOf<components["schemas"]["MessagePage"]>();
   });

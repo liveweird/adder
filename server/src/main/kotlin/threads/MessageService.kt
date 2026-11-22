@@ -80,6 +80,14 @@ class MessageService internal constructor(
 
         /** The hashtag grammar version the message's tags were indexed under (V15; 0 = not yet). Set with every write of its tags. */
         val tagsVersion = short("tags_version").default(0)
+
+        /**
+         * The message of the SAME thread this one quotes (V35, 1.3.0): set when it is posted and never changed. Nothing of the quoted
+         * text is stored. The soft delete is an UPDATE, so the reference survives a delete of the quoted message ON PURPOSE (a quote of
+         * it reads as deleted); the foreign key's `ON DELETE SET NULL` fires on a hard delete only. A write checks the thread under the
+         * room lock and a read scopes by thread: there is no composite key (`chat-model.md` "Quotes (1.3)").
+         */
+        val quotedMessageId = reference("quoted_message_id", this).nullable()
     }
 
     /**
@@ -87,8 +95,10 @@ class MessageService internal constructor(
      * new body (a post and a thread's opening message both come here), so its hashtags are indexed here, in the same transaction.
      * [hashtags] is [parseHashtags] of [body], parsed by the caller BEFORE it took the room lock (a parse is work, and the lock is held).
      * [threadNumber] is the thread's per-room number, for the followers; [opening] says the message opens a new thread (the audience of
-     * a thread's first message is the whole room, a reply's is its watchers). The followers do NOT run here: the caller runs them with
-     * [followPosted] once it has written the counters and the write's own live hint, so a follower's hint comes after it.
+     * a thread's first message is the whole room, a reply's is its watchers). [quotedMessageId] is the message of the same thread the
+     * new one quotes, already CHECKED by the caller under the lock ([checkedQuote]); only a post passes one. The followers do NOT run
+     * here: the caller runs them with [followPosted] once it has written the counters and the write's own live hint, so a follower's
+     * hint comes after it.
      */
     internal suspend fun insertInTransaction(
         roomId: UInt,
@@ -99,6 +109,7 @@ class MessageService internal constructor(
         hashtags: List<String>,
         at: Long,
         opening: Boolean = false,
+        quotedMessageId: UInt? = null,
     ): InsertedMessage {
         // `insertReturning(id)`, not `insert`: a plain insert answers `RETURNING *`, which would send the generated `search` vector (about
         // as large as the body, V16) back on every post. The generated column is never in this table object, so only the id returns.
@@ -108,6 +119,7 @@ class MessageService internal constructor(
             it[Messages.body] = body
             it[createdAt] = at
             it[tagsVersion] = TAGS_VERSION
+            if (quotedMessageId != null) it[Messages.quotedMessageId] = quotedMessageId
         }.single()[Messages.id].value
         tags.insertInTransaction(id, threadId, roomId, hashtags)
         return InsertedMessage(id, MessageRef(roomId, threadId, threadNumber, id, opening), authorId, body, at)
@@ -174,18 +186,31 @@ class MessageService internal constructor(
     /**
      * Posts to thread [number] in ONE thread write ([withThreadWrite], the MEMBER guard on the re-read caller): an archived room is `409
      * room-archived`, a closed thread `409 thread-closed`, then the message, `message_count + 1` and the activity bump of the thread
-     * and the room all carry ONE instant. The body is sanitised and validated here too (both idempotent after the route).
+     * and the room all carry ONE instant. The body is sanitised and validated here too (both idempotent after the route), and so is
+     * the id of the message it [quotedMessageId] quotes: that message must be LIVE and of this thread, checked in ONE statement under
+     * the lock after the archived and closed `409`s (an unknown, foreign or deleted one is the typed `400` `quote-unavailable`,
+     * nothing written).
      */
-    suspend fun post(roomId: UInt, number: Int, caller: CallerPrincipal, raw: MessageRequest): PostedMessage {
+    suspend fun post(
+        roomId: UInt,
+        number: Int,
+        caller: CallerPrincipal,
+        raw: MessageRequest,
+        quotedMessageId: UInt? = null,
+    ): PostedMessage {
         val request = sanitizedMessage(raw)
         validateMessage(request)
+        validateQuotedMessageId(quotedMessageId)
         val hashtags = parseHashtags(request.body) // before the room lock
         return database.withThreadWrite(roomId, number, caller, memberGuard) { write ->
             write.requireRoomActive()
             write.requireThreadOpen()
+            val quoted = quotedMessageId?.let { checkedQuote(write.thread.id, it) }
             val authorId = write.caller.userId
             val stamp = nowMillis()
-            val inserted = insertInTransaction(roomId, write.thread.id, number, authorId, request.body, hashtags, stamp)
+            val inserted = insertInTransaction(
+                roomId, write.thread.id, number, authorId, request.body, hashtags, stamp, quotedMessageId = quotedMessageId,
+            )
             val id = inserted.id
             val threads = ThreadService.Threads
             threads.update({ threads.id eq write.thread.id }) {
@@ -195,12 +220,14 @@ class MessageService internal constructor(
             rooms.touchActivity(roomId, stamp, authorId)
             notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
             val notices = followPosted(inserted)
-            val name = userNames(listOf(authorId)).getValue(authorId)
-            val tokens = request.body.contains("<@")
-            val mentioned = if (tokens) mentions.mentionsOf(listOf(id))[id].orEmpty() else emptyList()
-            val grouped = if (tokens) mentions.groups.groupsOf(listOf(id))[id].orEmpty() else emptyList()
+            val names = userNames(listOfNotNull(authorId, quoted?.authorId))
+            val tokenIds = listOfNotNull(id.takeIf { request.body.contains("<@") }, quoted?.id?.takeIf { quoted.hasTokens })
+            val mentioned = mentions.mentionsOf(tokenIds)
+            val grouped = mentions.groups.groupsOf(tokenIds)
+            val quote = quoted?.toQuote(names.getValue(quoted.authorId), mentioned[quoted.id].orEmpty(), grouped[quoted.id].orEmpty())
             val response = MessageResponse(
-                id, number, authorId, name, request.body, false, false, null, stamp, mentioned, grouped, emptyList(),
+                id, number, authorId, names.getValue(authorId), request.body, false, false, null, stamp,
+                mentioned[id].orEmpty(), grouped[id].orEmpty(), emptyList(), quote,
             )
             PostedMessage(write.thread.id, response, notices)
         }

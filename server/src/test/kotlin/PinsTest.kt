@@ -195,6 +195,29 @@ class PinsTest {
     }
 
     @Test
+    fun `a pinned quoting message carries its quote in the pins list, as the conversation reads it`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("pin-quote")
+        val quoted = TestThreads.post(cast.room, 1, cast.owner.id, "What the owner said")
+        val quoting = TestThreads.messages.post(
+            cast.room, 1, callerOf(cast.member), MessageRequest("An answer to it"), quotedMessageId = quoted,
+        ).message.id
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.pinMessage(cast.room, quoting).status)
+
+        val pinned = cast.owner.client.pinList(cast.room).items.single().message
+        assertNotNull(pinned)
+        assertEquals(quoted, pinned.quote?.messageId)
+        assertEquals("What the owner said", pinned.quote?.body)
+        assertEquals("Olivia", pinned.quote?.authorName)
+        val read = cast.owner.client.get("$rooms/${cast.room}/messages/$quoting").body<MessageResponse>()
+        assertEquals(read, pinned, "the same message the single read answers, its quote included")
+        // The quoted message is deleted: the pin's quote reads as a deleted one, with no text.
+        assertEquals(HttpStatusCode.NoContent, cast.owner.client.delete("$rooms/${cast.room}/messages/$quoted").status)
+        val afterDelete = cast.owner.client.pinList(cast.room).items.single().message!!.quote!!
+        assertEquals(listOf(true, null, false), listOf(afterDelete.deleted, afterDelete.body, afterDelete.truncated))
+    }
+
+    @Test
     fun `pinning what is pinned and unpinning what is not are 204 with no hint and no audit line`() = testApplication {
         usePostgresTestcontainer()
         val cast = cast("pin-noop")

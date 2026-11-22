@@ -104,10 +104,12 @@ private fun Route.messagePost(roomService: RoomService, messageService: MessageS
             val caller = call.caller()
             val roomId = route.parent.parent.parent.id
             requireRoomMember(caller, roomService.visibleStanding(caller, roomId))
-            val request = sanitizedMessage(call.receive())
+            val body = call.receive<MessagePostRequest>()
+            val request = sanitizedMessage(body.message())
             validateMessage(request)
+            validateQuotedMessageId(body.quotedMessageId)
             val number = route.parent.number.toInt()
-            val posted = messageService.post(roomId, number, caller, request)
+            val posted = messageService.post(roomId, number, caller, request, body.quotedMessageId)
             audit(
                 "message.posted",
                 "byUserId" to caller.userId.toLong(),
@@ -115,6 +117,7 @@ private fun Route.messagePost(roomService: RoomService, messageService: MessageS
                 "threadId" to posted.threadId.toLong(),
                 "number" to number,
                 "messageId" to posted.message.id.toLong(),
+                "quotedMessageId" to body.quotedMessageId?.toLong(),
             )
             auditNoticesCreated(caller.userId, roomId, posted.threadId, posted.message.id, posted.notices)
             val location = RoomMessagesRoute.Id(RoomMessagesRoute(RoomsRoute.Id(id = roomId)), posted.message.id)

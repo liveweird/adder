@@ -13,6 +13,7 @@ import ch.nokillswit.rooms.RoomStatusDef
 import ch.nokillswit.rooms.RoomUpdateRequest
 import ch.nokillswit.rooms.RoomWorkflowRequest
 import ch.nokillswit.rooms.RoomWorkflowResponse
+import ch.nokillswit.threads.MessagePostRequest
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.PinRequest
@@ -390,6 +391,30 @@ class NotifyHintsTest {
                 "the wire order is the write's own hint, then what it caused",
             )
             assertEquals(LiveKind.MESSAGE_POSTED, hints[2].kind)
+        }
+    }
+
+    @Test
+    fun `a quoting post emits its one message posted hint and a refused quote emits nothing`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("hint-qown")
+        val author = actor("hint-qaut")
+        val room = room(owner, template())
+        TestRooms.addMember(room, author.id)
+        TestThreads.seed(room, author.id)
+        val quoted = TestThreads.post(room, 1, owner.id, "The quoted words")
+        val path = "$rooms/$room/threads/1/messages"
+        NotifyCapture().use { capture ->
+            val posted = arrayOfNulls<UInt>(1)
+            val hints = capture.during {
+                // No notice rides a quote yet (1.3 S5): one `message.posted`, like any post.
+                val ok = author.client.postJson(path, MessagePostRequest("An answer", quoted))
+                ok.expect(HttpStatusCode.Created)
+                posted[0] = ok.body<MessageResponse>().id
+                author.client.postJson(path, MessagePostRequest("To nothing", quoted + 1_000_000u)).expect(HttpStatusCode.BadRequest)
+                author.client.postJson(path, MessagePostRequest("To zero", 0u)).expect(HttpStatusCode.BadRequest)
+            }
+            assertEquals(listOf(hint(LiveKind.MESSAGE_POSTED, room, thread = 1, message = posted[0])), hints, "a refusal hints nothing")
         }
     }
 

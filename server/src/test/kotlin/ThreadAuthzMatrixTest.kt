@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.plugins.ProblemDetail
+import ch.nokillswit.threads.MessagePostRequest
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.PinRequest
 import ch.nokillswit.threads.ReadMarkerRequest
@@ -148,6 +149,14 @@ class ThreadAuthzMatrixTest {
         Operation("GET message", notFound, ok, ok, ok, ok) { client, base, cast -> client.get("$base/messages/${cast.other}") },
         Operation("POST message", notFound, created, created, created, forbidden) { client, base, _ ->
             client.postJson("$base/threads/1/messages", MessageRequest("Matrix reply"))
+        },
+        // A quote (1.3): the guards are the POST's (an outsider 404, an ADMIN outside the room 403 whatever the id); a member quotes a
+        // message of this thread (`other`), and a message of another room is the typed 400 of the body, never a 404 or a 403.
+        Operation("POST message quoting the thread's own message", notFound, created, created, created, forbidden) { client, base, cast ->
+            client.postJson("$base/threads/1/messages", MessagePostRequest("Matrix quote", cast.other))
+        },
+        Operation("POST message quoting another room's", notFound, badRequest, badRequest, badRequest, forbidden) { client, base, cast ->
+            client.postJson("$base/threads/1/messages", MessagePostRequest("Matrix quote", cast.foreign))
         },
         // Nobody edits someone else's words, a room owner and an ADMIN included; they may delete (D2).
         Operation("PUT someone else's message", notFound, forbidden, forbidden, forbidden, forbidden) { client, base, cast ->
