@@ -1,6 +1,6 @@
 import { ApiError } from "../api/http";
 
-/** The RFC 7807 problem `type` URIs the server answers 409, `pin-limit`, `reaction-limit`, and the typed 429s (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`) and the 400 `template-gone`, with (`openapi/documentation.yaml`, `chat-model.md`). */
+/** The RFC 7807 problem `type` URIs the server answers 409, `pin-limit`, `reaction-limit`, and the typed 429s (`room-busy`, `search-timeout`, `search-busy`, `read-timeout`, `read-busy`) and the 400s `template-gone` and `quote-unavailable`, with (`openapi/documentation.yaml`, `chat-model.md`). */
 export const PROBLEM_TYPES = {
   revisionConflict: "urn:adder:problem:revision-conflict",
   lastOwner: "urn:adder:problem:last-owner",
@@ -23,6 +23,8 @@ export const PROBLEM_TYPES = {
   readBusy: "urn:adder:problem:read-busy",
   /** The workflow template a room is created from is unknown or deleted (a 400). */
   templateGone: "urn:adder:problem:template-gone",
+  /** The message a post quotes is unknown, of another thread or room, or deleted (a 400; 1.3). */
+  quoteUnavailable: "urn:adder:problem:quote-unavailable",
 } as const;
 
 export type ProblemType = (typeof PROBLEM_TYPES)[keyof typeof PROBLEM_TYPES];

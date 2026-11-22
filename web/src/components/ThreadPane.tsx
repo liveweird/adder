@@ -11,6 +11,7 @@ import {
   IconMessageOff,
 } from "@tabler/icons-react";
 import { ApiError } from "../api/http";
+import type { MessageResponse } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import { getThread } from "../api/threads";
 import { useLiveSearchParams } from "../hooks/useLiveSearchParams";
@@ -27,7 +28,7 @@ import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
 import HeaderIconButton from "./HeaderIconButton";
 import LoadingBlock from "./LoadingBlock";
-import MessageComposer from "./MessageComposer";
+import MessageComposer, { type QuoteRequest } from "./MessageComposer";
 import MessageList from "./MessageList";
 import PersonLink from "./PersonLink";
 import PinMark from "./PinMark";
@@ -59,6 +60,9 @@ const HEADER_TAGS = 3;
  * link) and `focus=1` is the focus view, which `RoomHome` reads to hide the thread list; the header's "Focus on this thread" toggle
  * (`aria-pressed`) writes it by `replace`, keeping the list's keys. The URL is the state, so a reload keeps it; nothing remembers it. A thread
  * that cannot be shown (missing, unreadable, failed) says so with its own "Show the thread list" button while the view is on, so it is never a dead end.
+ *
+ * Quotes (1.3): "Quote" on a message (`quoteMessage`) is a numbered request the pane hands to the reply box, which keeps the draft per thread and takes
+ * the focus; a quote block's link is the 0.5 jump, and `requestJump` (the pin strip's too) repeats it when the URL already names the message.
  */
 export default function ThreadPane({ room, numberParam }: { room: RoomResponse; numberParam: string | undefined }) {
   const { t } = useTranslation();
@@ -80,6 +84,17 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   const [jumpSeq, setJumpSeq] = useState(0);
   const requestJump = useCallback((messageId: number) => (messageId === anchorId ? setJumpSeq((seq) => seq + 1) : undefined), [anchorId]);
   const focusPane = useCallback(() => paneRef.current?.focus(), []);
+  // "Quote" on a message (1.3): the pane hands the picked message to the reply box (which keeps the draft per thread, like the text) and numbers the
+  // request, so picking the same message twice, or after removing the quote, is a new request that moves the focus to the box again.
+  const [quoteRequest, setQuoteRequest] = useState<QuoteRequest | null>(null);
+  const quoteMessage = useCallback(
+    (message: MessageResponse) => {
+      if (number === null) return;
+      const { id, authorId, authorName, body, mentions, groupMentions } = message;
+      setQuoteRequest((prev) => ({ threadNumber: number, quote: { id, authorId, authorName, body, mentions, groupMentions }, seq: (prev?.seq ?? 0) + 1 }));
+    },
+    [number],
+  );
   // The caller's own just-posted message (and its thread, so a request never outlives a navigation): the list scrolls to the bottom once it shows it.
   const [scrollRequest, setScrollRequest] = useState<{ threadNumber: number; messageId: number } | null>(null);
   // A pin or watch failure, kept with the thread it belongs to and drawn in a full-width row of the header (outside the icon group).
@@ -209,8 +224,15 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           anchorId={anchorId}
           jumpSeq={jumpSeq}
           threadSettled={!isFetching}
+          onQuote={quoteMessage}
+          onShowQuoted={requestJump}
         />
-        <MessageComposer room={room} thread={thread} onPosted={(messageId) => setScrollRequest({ threadNumber: thread.number, messageId })} />
+        <MessageComposer
+          room={room}
+          thread={thread}
+          onPosted={(messageId) => setScrollRequest({ threadNumber: thread.number, messageId })}
+          quoteRequest={quoteRequest}
+        />
       </Stack>
     </Box>
   );

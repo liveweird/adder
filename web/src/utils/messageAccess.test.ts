@@ -17,6 +17,8 @@ describe("messageComposeBlock", () => {
   });
 });
 
+type Role = "OWNER" | "MEMBER" | null;
+
 describe("messageActions", () => {
   const live = { role: "MEMBER", archived: false } as const;
   const open = { closed: false };
@@ -24,34 +26,34 @@ describe("messageActions", () => {
   const someoneElses = { authorId: 8, deleted: false };
 
   test("the author, while a member, edits and deletes their own message", () => {
-    expect(messageActions({ room: live, thread: open, message: own, userId: 7, admin: false })).toEqual({ edit: true, remove: "delete", pin: true, react: true });
+    expect(messageActions({ room: live, thread: open, message: own, userId: 7, admin: false })).toEqual({ edit: true, remove: "delete", pin: true, react: true, quote: true });
     // An OWNER's own message is still theirs to edit: the author path wins over moderation.
-    expect(messageActions({ room: { role: "OWNER", archived: false }, thread: open, message: own, userId: 7, admin: false })).toEqual({ edit: true, remove: "delete", pin: true, react: true });
+    expect(messageActions({ room: { role: "OWNER", archived: false }, thread: open, message: own, userId: 7, admin: false })).toEqual({ edit: true, remove: "delete", pin: true, react: true, quote: true });
   });
 
   test("a plain member has nothing to do to someone else's message", () => {
-    expect(messageActions({ room: live, thread: open, message: someoneElses, userId: 7, admin: false })).toEqual({ edit: false, remove: null, pin: true, react: true });
+    expect(messageActions({ room: live, thread: open, message: someoneElses, userId: 7, admin: false })).toEqual({ edit: false, remove: null, pin: true, react: true, quote: true });
   });
 
   test("a room OWNER or an ADMIN removes, never edits, someone else's message", () => {
-    expect(messageActions({ room: { role: "OWNER", archived: false }, thread: open, message: someoneElses, userId: 7, admin: false })).toEqual({ edit: false, remove: "moderate", pin: true, react: true });
-    expect(messageActions({ room: { role: null, archived: false }, thread: open, message: someoneElses, userId: 7, admin: true })).toEqual({ edit: false, remove: "moderate", pin: false, react: false });
+    expect(messageActions({ room: { role: "OWNER", archived: false }, thread: open, message: someoneElses, userId: 7, admin: false })).toEqual({ edit: false, remove: "moderate", pin: true, react: true, quote: true });
+    expect(messageActions({ room: { role: null, archived: false }, thread: open, message: someoneElses, userId: 7, admin: true })).toEqual({ edit: false, remove: "moderate", pin: false, react: false, quote: false });
   });
 
   test("an author who left the room (and is no ADMIN) has no actions on their own message", () => {
-    expect(messageActions({ room: { role: null, archived: false }, thread: open, message: own, userId: 7, admin: false })).toEqual({ edit: false, remove: null, pin: false, react: false });
+    expect(messageActions({ room: { role: null, archived: false }, thread: open, message: own, userId: 7, admin: false })).toEqual({ edit: false, remove: null, pin: false, react: false, quote: false });
   });
 
   test("a tombstone, a closed thread and an archived room offer no edit or delete, whoever asks", () => {
     const none = { edit: false, remove: null };
-    expect(messageActions({ room: live, thread: open, message: { authorId: 7, deleted: true }, userId: 7, admin: true })).toEqual({ ...none, pin: false, react: false });
-    expect(messageActions({ room: { role: "OWNER", archived: true }, thread: open, message: own, userId: 7, admin: true })).toEqual({ ...none, pin: false, react: false });
+    expect(messageActions({ room: live, thread: open, message: { authorId: 7, deleted: true }, userId: 7, admin: true })).toEqual({ ...none, pin: false, react: false, quote: false });
+    expect(messageActions({ room: { role: "OWNER", archived: true }, thread: open, message: own, userId: 7, admin: true })).toEqual({ ...none, pin: false, react: false, quote: false });
     // A closed thread refuses the message's own writes but not a pin: a pin is the room's.
-    expect(messageActions({ room: live, thread: { closed: true }, message: own, userId: 7, admin: true })).toEqual({ ...none, pin: true, react: false });
+    expect(messageActions({ room: live, thread: { closed: true }, message: own, userId: 7, admin: true })).toEqual({ ...none, pin: true, react: false, quote: false });
   });
 
   test("any member pins a live message; an ADMIN outside the room, a tombstone and an archived room cannot", () => {
-    const pin = (room: { role: "OWNER" | "MEMBER" | null; archived: boolean }, message: { authorId: number; deleted: boolean }, admin = false) =>
+    const pin = (room: { role: Role; archived: boolean }, message: { authorId: number; deleted: boolean }, admin = false) =>
       messageActions({ room, thread: open, message, userId: 7, admin }).pin;
     expect(pin(live, someoneElses)).toBe(true);
     expect(pin({ role: "OWNER", archived: false }, someoneElses)).toBe(true);
@@ -61,7 +63,7 @@ describe("messageActions", () => {
   });
 
   test("any member of a live room reacts to a live message, in an open thread; a closed thread, an archived room, a tombstone and a non-member cannot", () => {
-    const react = (room: { role: "OWNER" | "MEMBER" | null; archived: boolean }, message: { authorId: number; deleted: boolean }, thread = open, admin = false) =>
+    const react = (room: { role: Role; archived: boolean }, message: { authorId: number; deleted: boolean }, thread = open, admin = false) =>
       messageActions({ room, thread, message, userId: 7, admin }).react;
     expect(react(live, someoneElses)).toBe(true);
     expect(react(live, own)).toBe(true);
@@ -70,5 +72,18 @@ describe("messageActions", () => {
     expect(react({ role: "MEMBER", archived: true }, someoneElses)).toBe(false);
     expect(react(live, { authorId: 8, deleted: true })).toBe(false);
     expect(react({ role: null, archived: false }, someoneElses, open, true)).toBe(false);
+  });
+
+  test("a quote (1.3) is offered exactly where a reaction is: a member of a live room, an open thread, a live message", () => {
+    const quote = (room: { role: Role; archived: boolean }, message: { authorId: number; deleted: boolean }, thread = open, admin = false) =>
+      messageActions({ room, thread, message, userId: 7, admin }).quote;
+    expect(quote(live, someoneElses)).toBe(true);
+    // One's own message too (1.3 A5).
+    expect(quote(live, own)).toBe(true);
+    expect(quote({ role: "OWNER", archived: false }, someoneElses)).toBe(true);
+    expect(quote(live, someoneElses, { closed: true })).toBe(false);
+    expect(quote({ role: "MEMBER", archived: true }, someoneElses)).toBe(false);
+    expect(quote(live, { authorId: 8, deleted: true })).toBe(false);
+    expect(quote({ role: null, archived: false }, someoneElses, open, true)).toBe(false);
   });
 });

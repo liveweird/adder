@@ -1,4 +1,4 @@
-import type { MessageResponse } from "../api/messages";
+import type { MessageQuoteSummary, MessageResponse } from "../api/messages";
 import { mentionSegments } from "./mentions";
 
 /** The most a collapsed line or an expanded card quotes of a pinned message, in graphemes; CSS cuts the rest to one or two lines. */
@@ -44,6 +44,16 @@ export function messageExcerpt(message: Pick<MessageResponse, "body" | "mentions
   cached[slot] = excerpt;
   excerpts.set(message, cached);
   return excerpt;
+}
+
+/**
+ * A quote's excerpt (1.3): [messageExcerpt] of the quoted message's current text, plus "…" when the server cut the body (`truncated`: at most
+ * 1,000 characters travel) and the excerpt does not already end in one. Plain text: never Markdown, never HTML. A deleted quote has no body
+ * and no excerpt (the block says so in words instead).
+ */
+export function quoteExcerpt(quote: Pick<MessageQuoteSummary, "body" | "mentions" | "groupMentions" | "truncated">): string {
+  const excerpt = messageExcerpt(quote);
+  return quote.truncated && !excerpt.endsWith("…") ? `${excerpt}…` : excerpt;
 }
 
 function computeExcerpt(message: Pick<MessageResponse, "body" | "mentions" | "groupMentions">, firstLineOnly: boolean): string {

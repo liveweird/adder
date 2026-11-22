@@ -164,6 +164,17 @@
     "notMember": "Wiadomości mogą publikować tylko członkowie/członkinie pokoju. Najpierw dołącz do pokoju.",
     "membersLink": "Otwórz stronę Członkowie/członkinie"
   },
+  "quote": {
+    "action": "Cytuj",
+    "chip": "Cytujesz: {{author}}",
+    "actionAria": "Cytuj wiadomość: {{author}}, {{when}}",
+    "announce": "Cytujesz: {{author}}. {{excerpt}}",
+    "lead": "Cytowana wiadomość od",
+    "remove": "Usuń cytat",
+    "edited": "(edytowana)",
+    "deleted": "Cytowana wiadomość została usunięta.",
+    "unavailable": "Cytowana wiadomość nie jest już dostępna. Usuń cytat, żeby wysłać odpowiedź."
+  },
   "mention": {
     "listLabel": "Osoby, zespoły i grupy do wspomnienia",
     "none": "Nic w tym pokoju nie pasuje",

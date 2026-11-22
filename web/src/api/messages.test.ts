@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from "vitest";
-import { deleteMessage, editMessage, listMessages, postMessage, type MessageBody, type MessageEditBody, type MessageResponse } from "./messages";
+import { deleteMessage, editMessage, listMessages, postMessage, type MessageBody, type MessageEditBody, type MessageQuoteSummary, type MessageResponse } from "./messages";
 import type { components } from "./schema";
 
 describe("messages API wrappers", () => {
@@ -36,6 +36,15 @@ describe("messages API wrappers", () => {
     expect(JSON.parse(init.body as string)).toEqual({ body: "hello" });
   });
 
+  test("postMessage sends the quoted message's id only when there is one (1.3)", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(json(201, { id: 9 })));
+    await postMessage(5, 42, "agreed", 31);
+    expect(JSON.parse(lastCall()[1].body as string)).toEqual({ body: "agreed", quotedMessageId: 31 });
+    await postMessage(5, 42, "plain", undefined);
+    expect(JSON.parse(lastCall()[1].body as string)).toEqual({ body: "plain" });
+    expect(lastCall()[1].body as string).not.toContain("quotedMessageId");
+  });
+
   test("editMessage PUTs the body to the single message", async () => {
     mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
     await expect(editMessage(5, 9, "edited")).resolves.toBeUndefined();
@@ -60,6 +69,7 @@ describe("messages API wrappers", () => {
     // `expectTypeOf` is checked by `tsc -b` (the build and the web gate), not at run time.
     expectTypeOf<MessageResponse>().toEqualTypeOf<components["schemas"]["MessageResponse"]>();
     expectTypeOf<MessageBody>().toEqualTypeOf<components["schemas"]["MessagePostRequest"]>();
+    expectTypeOf<MessageQuoteSummary>().toEqualTypeOf<components["schemas"]["MessageQuote"]>();
     expectTypeOf<MessageEditBody>().toEqualTypeOf<components["schemas"]["MessageRequest"]>();
     expectTypeOf(listMessages).returns.resolves.toEqualTypeOf<components["schemas"]["MessagePage"]>();
   });

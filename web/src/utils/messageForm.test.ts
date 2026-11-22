@@ -25,6 +25,11 @@ describe("messageErrorMessage", () => {
     expect(messageErrorMessage(problem(400), t)).toBe("threads.message.error.invalid");
   });
 
+  test("the typed quote-unavailable 400 says to remove the quote; any other 400 is the invalid-message words", () => {
+    expect(messageErrorMessage(problem(400, PROBLEM_TYPES.quoteUnavailable), t)).toBe("threads.quote.unavailable");
+    expect(messageErrorMessage(problem(400, "urn:adder:problem:other"), t)).toBe("threads.message.error.invalid");
+  });
+
   test("a room-busy 429 has its own words, not the posting-too-quickly bucket copy", () => {
     expect(messageErrorMessage(problem(429, PROBLEM_TYPES.roomBusy), t)).toBe("common.error.roomBusy");
   });

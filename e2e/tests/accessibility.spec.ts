@@ -141,8 +141,9 @@ async function seedThread(api: APIRequestContext, roomId: number): Promise<{ thr
 }
 
 /**
- * The teammate joins the room and writes into the thread: Markdown, a mention of the admin, a code block and reactions on one message. The
- * teammate's id and API session are recorded in `mate` the moment they exist, so a failure further on still tears them down.
+ * The teammate joins the room and writes into the thread: Markdown, a mention of the admin, a code block and reactions on one message; the admin's
+ * reply quotes the first message. The teammate's id and API session are recorded in `mate` the moment they exist, so a failure further on still
+ * tears them down.
  */
 async function seedConversation(api: APIRequestContext, adminId: number, roomId: number, threadNumber: number, mate: Teammate): Promise<void> {
   const mateName = uniqueText("e2e-axe-mate");
@@ -156,15 +157,16 @@ async function seedConversation(api: APIRequestContext, adminId: number, roomId:
   ({ api: mate.api } = await apiAsUser(mateEmail, matePassword));
   const mateApi = mate.api;
   const messagesPath = `/api/v1/rooms/${roomId}/threads/${threadNumber}/messages`;
-  const post = async (client: APIRequestContext, body: string): Promise<number> => {
-    const posted = await client.post(messagesPath, { data: { body } });
+  const post = async (client: APIRequestContext, body: string, quotedMessageId?: number): Promise<number> => {
+    const posted = await client.post(messagesPath, { data: quotedMessageId === undefined ? { body } : { body, quotedMessageId } });
     expect(posted.status(), await posted.text()).toBe(201);
     return (await posted.json() as { id: number }).id;
   };
   const lagging = await post(mateApi, "The **replica** is lagging: see [the dashboard](https://example.test/dash) and `pg_stat_replication`.");
   await post(mateApi, `<@${adminId}> could you take the failover?\n\n- first drain the writer\n- then promote #axe-sweep\n\n\`\`\`\nSELECT pg_promote();\n\`\`\``);
   // `#<number>` of this very thread: a thread reference is a link in the conversation (1.2.0), so the sweep scans it.
-  await post(api, `On it, promoting now. See also #${threadNumber}.`);
+  // The admin's reply quotes the teammate's first message (1.3.0): the quote block sits in the conversation the sweep scans, in both schemes.
+  await post(api, `On it, promoting now. See also #${threadNumber}.`, lagging);
   for (const [client, emoji] of [[mateApi, "👍"], [api, "👍"], [mateApi, "🎉"]] as const) {
     const reacted = await client.put(`/api/v1/rooms/${roomId}/messages/${lagging}/reaction`, { data: { emoji, reacted: true } });
     expect(reacted.status(), await reacted.text()).toBe(204);

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { Box, Divider, Group, Menu, Stack, Text } from "@mantine/core";
+import { ActionIcon, Box, Divider, Group, Menu, Stack, Text, Tooltip } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { IconPencil, IconPinFilled, IconTrash } from "@tabler/icons-react";
+import { IconPencil, IconPinFilled, IconQuote, IconTrash } from "@tabler/icons-react";
 import { deleteMessage, type MessageResponse } from "../api/messages";
 import { useThreadRefHref } from "../hooks/useThreadRefHref";
 import { formatDateTime } from "../utils/formatDate";
@@ -17,6 +17,7 @@ import FormErrorAlert from "./FormErrorAlert";
 import MarkdownView from "./MarkdownView";
 import MessageEditForm from "./MessageEditForm";
 import MessagePinMenuItem from "./MessagePinMenuItem";
+import MessageQuote from "./MessageQuote";
 import MessageReactions from "./MessageReactions";
 import PersonLink from "./PersonLink";
 import RowActionsMenu from "./RowActionsMenu";
@@ -36,6 +37,12 @@ import UnreadCue from "./UnreadCue";
  * with a filled pin and a gray bar down its edge: words and shapes, never colour alone (1.2 D5). `data-message-id` lets the list find the message it jumps to.
  * The author and the pinner are links to their profiles (1.2 D6): the author's with a QUIET underline (a column of them down the conversation),
  * the pinner's in the dimmed line like any name in a sentence.
+ *
+ * Quotes (1.3): a message that quotes another shows it above its text (`MessageQuote`: one link that jumps to the quoted message, whose `onShowQuoted`
+ * lets the pane run the jump again when the URL already names it) and stays above the editor too. `actions.quote` offers "Quote" twice: the FIRST item of the
+ * kebab menu and an always-visible icon button beside it (1.3 D3; named "Quote the message by {author} on {time}" like the kebab, with a "Quote" tooltip); both hand the message to `onQuote`
+ * (the pane puts it in the composer), and neither shows without it, nor while the message is being edited. `quote` may be missing from an older
+ * server's answer: it reads as no quote.
  */
 export default function MessageItem({
   roomId,
@@ -45,6 +52,8 @@ export default function MessageItem({
   anchored = false,
   firstNew = false,
   pinnedBy,
+  onQuote,
+  onShowQuoted,
 }: {
   roomId: number;
   message: MessageResponse;
@@ -56,6 +65,10 @@ export default function MessageItem({
   firstNew?: boolean;
   /** Who pinned this message, when the room's pins list it (1.2 D5): a "Pinned by" line with the pin icon and a gray bar (`data-pinned`) mark it. */
   pinnedBy?: { id: number; name: string };
+  /** The reader chose "Quote" on this message (1.3): the pane puts it in the reply box. Without it the message offers no quote. */
+  onQuote?: (message: MessageResponse) => void;
+  /** The reader followed this message's quote block (1.3): the quoted message's id, for the pane's repeat jump. */
+  onShowQuoted?: (messageId: number) => void;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -72,6 +85,7 @@ export default function MessageItem({
   // A tombstone never wears the mark.
   const pinner = message.deleted ? undefined : pinnedBy;
   const pinned = pinner !== undefined;
+  const quoting = actions.quote === true && onQuote !== undefined ? () => onQuote(message) : undefined;
   // The edit action went (the thread closed, the room was archived): the editor goes with it and must not come back by itself on a reopen.
   if (editing && !actions.edit) setEditing(false);
   useEffect(() => {
@@ -138,35 +152,50 @@ export default function MessageItem({
               </Text>
             )}
           </Group>
-          {(actions.edit || actions.remove !== null || actions.pin) && !editing && (
-            <RowActionsMenu label={t("common.table.operationsAria", { name: t("threads.message.name", { author: message.authorName, when }) })} loading={removing}>
-              {actions.edit && (
-                <Menu.Item
-                  leftSection={<IconPencil size={14} />}
-                  onClick={() => {
-                    setError(null);
-                    setEditing(true);
-                  }}
-                >
-                  {t("common.action.edit")}
-                </Menu.Item>
+          {(quoting || actions.edit || actions.remove !== null || actions.pin) && !editing && (
+            <Group gap={2} wrap="nowrap" style={{ flex: "none" }}>
+              {quoting && (
+                <Tooltip label={t("threads.quote.action")}>
+                  <ActionIcon size="sm" aria-label={t("threads.quote.actionAria", { author: message.authorName, when })} onClick={quoting}>
+                    <IconQuote size={16} />
+                  </ActionIcon>
+                </Tooltip>
               )}
-              {actions.pin && <MessagePinMenuItem roomId={roomId} messageId={message.id} onError={setError} />}
-              {actions.remove !== null && (
-                <Menu.Item
-                  color="red"
-                  leftSection={<IconTrash size={14} />}
-                  onClick={() => {
-                    setError(null);
-                    setConfirming(true);
-                  }}
-                >
-                  {t(moderate ? "threads.message.remove" : "common.action.delete")}
-                </Menu.Item>
-              )}
-            </RowActionsMenu>
+              <RowActionsMenu label={t("common.table.operationsAria", { name: t("threads.message.name", { author: message.authorName, when }) })} loading={removing}>
+                {quoting && (
+                  <Menu.Item leftSection={<IconQuote size={14} />} onClick={quoting}>
+                    {t("threads.quote.action")}
+                  </Menu.Item>
+                )}
+                {actions.edit && (
+                  <Menu.Item
+                    leftSection={<IconPencil size={14} />}
+                    onClick={() => {
+                      setError(null);
+                      setEditing(true);
+                    }}
+                  >
+                    {t("common.action.edit")}
+                  </Menu.Item>
+                )}
+                {actions.pin && <MessagePinMenuItem roomId={roomId} messageId={message.id} onError={setError} />}
+                {actions.remove !== null && (
+                  <Menu.Item
+                    color="red"
+                    leftSection={<IconTrash size={14} />}
+                    onClick={() => {
+                      setError(null);
+                      setConfirming(true);
+                    }}
+                  >
+                    {t(moderate ? "threads.message.remove" : "common.action.delete")}
+                  </Menu.Item>
+                )}
+              </RowActionsMenu>
+            </Group>
           )}
         </Group>
+        {message.quote && !message.deleted && <MessageQuote roomId={roomId} threadNumber={message.threadNumber} quote={message.quote} onShow={onShowQuoted} />}
         {message.deleted ? (
           <Text size="sm" c="dimmed" fs="italic">
             {t(message.deletedByModerator ? "threads.message.deletedModerated" : "threads.message.deletedOwn")}

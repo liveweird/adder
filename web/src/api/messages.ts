@@ -9,6 +9,8 @@ import type { paths } from "./schema";
 export type MessagePage = paths["/api/v1/rooms/{id}/threads/{number}/messages"]["get"]["responses"]["200"]["content"]["application/json"];
 /** One message. A deleted one is a tombstone: `body` is null, `deleted` is true, `editedAt` is null and `deletedByModerator` says whose hand removed it. */
 export type MessageResponse = MessagePage["items"][number];
+/** The quoted message as a message answers it (1.3): live, as it reads NOW; `deleted` has no text. Not the draft a composer holds (`useThreadDrafts`' `QuoteDraft`). */
+export type MessageQuoteSummary = NonNullable<MessageResponse["quote"]>;
 export type MessageBody = paths["/api/v1/rooms/{id}/threads/{number}/messages"]["post"]["requestBody"]["content"]["application/json"];
 export type MessageEditBody = paths["/api/v1/rooms/{id}/messages/{messageId}"]["put"]["requestBody"]["content"]["application/json"];
 
@@ -21,9 +23,13 @@ export async function listMessages(roomId: number, threadNumber: number, q: { id
   return jsonRequest<MessagePage>(`/api/v1/rooms/${roomId}/threads/${threadNumber}/messages?${params}`);
 }
 
-/** Members only; 429 on the per-user `chat-post` bucket. The body is already normalised (`normalizeBody`). */
-export async function postMessage(roomId: number, threadNumber: number, body: string): Promise<MessageResponse> {
-  const payload: MessageBody = { body };
+/**
+ * Members only; 429 on the per-user `chat-post` bucket. The body is already normalised (`normalizeBody`). `quotedMessageId` makes the message
+ * quote one earlier message of the same thread (1.3); it is sent only when there is one, and a quote that cannot be made is a typed 400
+ * (`PROBLEM_TYPES.quoteUnavailable`).
+ */
+export async function postMessage(roomId: number, threadNumber: number, body: string, quotedMessageId?: number): Promise<MessageResponse> {
+  const payload: MessageBody = quotedMessageId === undefined ? { body } : { body, quotedMessageId };
   return jsonRequest<MessageResponse>(`/api/v1/rooms/${roomId}/threads/${threadNumber}/messages`, { method: "POST", body: JSON.stringify(payload) });
 }
 

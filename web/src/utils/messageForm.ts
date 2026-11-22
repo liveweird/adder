@@ -12,6 +12,8 @@ import { roomKeys } from "./roomKeys";
  * and the controls follow the truth.
  */
 export function messageErrorMessage(err: unknown, t: TFunction): string {
+  // The post's typed 400 (1.3): the message being quoted is gone, so the fix is to remove the quote, not to check the text.
+  if (isProblem(err, PROBLEM_TYPES.quoteUnavailable)) return t("threads.quote.unavailable");
   return saveErrorMessage(err, t, {
     forbidden: "threads.message.error.forbidden",
     notFound: "threads.message.error.gone",

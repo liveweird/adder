@@ -1,0 +1,32 @@
+/*
+ * A quote (1.3): the block above a reply's text that shows the message it quotes, and the line above the reply box that shows the message about
+ * to be quoted. Both wear the same gray bar down the left edge beside the quote icon and the words ("Quoting …", the author's name): a shape and
+ * words, never colour alone. Gray is the neutral state (the olive brand is the interactive accent, blue the unread cue). The bar is a real border
+ * (it survives forced colours); gray-6 is 3.3:1 on white and 3.1:1 on the canvas and the pinned tint, gray-5 6.5:1 or more on the dark
+ * surfaces (`theme.test.ts` pins both, as for the pin bar).
+ */
+.rule {
+  border-left: 3px solid light-dark(var(--mantine-color-gray-6), var(--mantine-color-gray-5));
+  padding-inline-start: var(--mantine-spacing-xs);
+  min-width: 0;
+}
+
+/* The block in a message is ONE link: it takes the text's ink, and the author's name underlines on hover and focus (the cue besides the bar and the icon). */
+.link {
+  display: block;
+  padding-block: 2px;
+  padding-inline-end: var(--mantine-spacing-xs);
+  border-start-end-radius: var(--mantine-radius-sm);
+  border-end-end-radius: var(--mantine-radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.link:hover,
+.link:focus-visible {
+  background-color: light-dark(var(--mantine-color-gray-0), var(--adder-surface-tint));
+}
+
+.link:hover .author,
+.link:focus-visible .author {
+  text-decoration: underline;
+}

@@ -19,6 +19,7 @@ describe("problems", () => {
       readTimeout: "urn:adder:problem:read-timeout",
       readBusy: "urn:adder:problem:read-busy",
       templateGone: "urn:adder:problem:template-gone",
+      quoteUnavailable: "urn:adder:problem:quote-unavailable",
     });
   });
 

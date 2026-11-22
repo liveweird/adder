@@ -1,12 +1,13 @@
 // Threads and messages: a member starts a thread from the room view and another member replies to it; an author edits and deletes their own
-// message and a room owner removes another member's; a member moves a thread between open statuses but cannot close it, its owner closes it
+// message and a room owner removes another member's; a member quotes a message in a reply (1.3.0), the quote leads back to it and follows an edit
+// and a delete of the quoted message; a member moves a thread between open statuses but cannot close it, its owner closes it
 // and the closed thread refuses replies until it is reopened; the owner passes the thread on, the new owner edits its details and the history
 // lists every change. Owns: its throwaway `e2e-thr-*` rooms and users, removed through the API in an
 // `afterEach` (rooms first, then the users). The seeded Default and Incident templates are shared and read-only: rooms only copy them. Every room is created
 // by a throwaway user, so the seed administrator is never a member of one; the per-user `room-name` (30 a minute), `room-members` (60) and
 // `chat-post` (120) buckets are far from reached. Threads are never deleted: a room's removal hides its threads with it.
 import type { Page } from "@playwright/test";
-import { conversation, createRoomViaUi, deleteViaApi, expect, login, rail, signOut, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsUser, conversation, createRoomViaUi, deleteViaApi, expect, login, rail, signOut, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-threads-admin");
@@ -187,13 +188,14 @@ test("an author edits and deletes their own message and a room owner removes ano
   await startThreadViaUi(page, roomId, title, "Opening note from the owner.");
   await signOut(page);
 
-  // The teammate posts three messages; their own have the full menu, the owner's opener only Pin (any member pins, 0.6.0) - never Edit, Delete or Remove.
+  // The teammate posts three messages; their own have the full menu, the owner's opener only Quote (1.3.0) and Pin (any member quotes and pins, 0.6.0) - never Edit, Delete or Remove.
   await login(page, mate.email, mate.password);
   await openThread(page, roomId, title);
   for (const text of ["first draft", "oops wrong thread", "token is hunter2"]) await reply(page, text);
   await kebab(messageNamed(page, "Opening note")).click();
+  await expect(page.getByRole("menuitem", { name: "Quote", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Pin", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitem")).toHaveCount(1);
+  await expect(page.getByRole("menuitem")).toHaveCount(2);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menuitem")).toHaveCount(0);
   await expect(kebab(messageNamed(page, "first draft"))).toBeVisible();
@@ -262,6 +264,101 @@ test("an author edits and deletes their own message and a room owner removes ano
   await expect(messageNamed(page, "Removed by a room owner or an administrator.")).toContainText(mate.name);
   await expect(messageNamed(page, "This message was deleted.")).toContainText(mate.name);
   await expect(messageNamed(page, "final draft").getByText(EDITED_MARKER)).toBeVisible();
+});
+
+test("a member quotes a message in a reply, the quote leads back to it, and a deleted message reads as deleted in the quote", async ({ page }) => {
+  await admin.login(page);
+  const owner = await throwawayUser(page, "E2E Thread Owner", cleanup);
+  const mate = await throwawayUser(page, "E2E Thread Mate", cleanup);
+  await signOut(page);
+
+  await login(page, owner.email, owner.password);
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr"), "Default", cleanup);
+  await addMemberViaUi(page, roomId, mate);
+  const title = uniqueText("Replica lag");
+  await startThreadViaUi(page, roomId, title, "Is the **replica** caught up with the primary?");
+  await signOut(page);
+
+  // The teammate posts two replies, then quotes the owner's opening message with the icon beside its menu: the line above the box names the author
+  // and shows a plain excerpt, and the box takes the focus.
+  await login(page, mate.email, mate.password);
+  await openThread(page, roomId, title);
+  for (const text of ["Checking the lag now.", "Lag is under a second."]) await reply(page, text);
+  const box = page.getByRole("textbox", { name: "Reply", exact: true });
+  const opener = conversation(page).getByRole("listitem").first();
+  await expect(opener).toContainText("Is the replica caught up with the primary?");
+  // The icon button is named with its message, like the menu; its tooltip says "Quote".
+  await opener.getByRole("button", { name: `Quote the message by ${owner.name}` }).click();
+  const chip = page.locator("p", { hasText: `Quoting ${owner.name}` });
+  await expect(chip).toBeVisible();
+  await expect(chip.locator("xpath=..")).toContainText("Is the replica caught up with the primary?");
+  await expect(box).toBeFocused();
+
+  // Send carries the quoted message's id; the line and the text go together, and the reply wears the quote above its text.
+  await box.fill("Yes, caught up.");
+  const [posted] = await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "POST" && MESSAGES_API.test(r.url()) && r.status() === 201),
+    box.press("Control+Enter"),
+  ]);
+  const quote = ((await posted.json()) as { quote: { messageId: number } | null }).quote;
+  expect(quote, "the 201 carries the quote").not.toBeNull();
+  const openerId = quote!.messageId;
+  expect(posted.request().postDataJSON()).toEqual({ body: "Yes, caught up.", quotedMessageId: openerId });
+  await expect(box).toHaveValue("");
+  await expect(chip).toHaveCount(0);
+  const answer = messageNamed(page, "Yes, caught up.");
+  await expect(answer).toHaveCount(1);
+  const block = answer.getByRole("link", { name: `Quoted message by ${owner.name}` });
+  await expect(block).toContainText(owner.name);
+  await expect(block).toContainText("Is the replica caught up with the primary?");
+  // Plain text: the quoted message's bold run is not bold in the quote.
+  await expect(block.locator("strong")).toHaveCount(0);
+  await page.reload();
+  await expect(block).toContainText("Is the replica caught up with the primary?");
+
+  // The menu's first item is Quote too; the line's button removes it and leaves the focus in the box.
+  await kebab(messageNamed(page, "Lag is under a second.")).click();
+  await expect(page.getByRole("menuitem").first()).toHaveText("Quote");
+  await page.getByRole("menuitem", { name: "Quote", exact: true }).click();
+  await expect(page.locator("p", { hasText: `Quoting ${mate.name}` })).toBeVisible();
+  await expect(box).toBeFocused();
+  await page.getByRole("button", { name: "Remove the quote", exact: true }).click();
+  await expect(page.locator("p", { hasText: "Quoting " })).toHaveCount(0);
+  await expect(box).toBeFocused();
+
+  // A click on the quote leads back to the quoted message: in the address, focused, highlighted and announced.
+  await block.click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/1\\?.*message=${openerId}`));
+  await expect(opener).toBeFocused();
+  await expect(opener).toHaveAttribute("data-anchor", "true");
+  await expect(page.getByText(`Found the message by ${owner.name}.`)).toBeAttached();
+
+  // The quote shows the quoted message as it reads NOW: an edit by its author is marked in words and shows the new text; a delete says so and
+  // shows no text, and the quote stays a link to the tombstone.
+  const { api: ownerApi } = await apiAsUser(owner.email, owner.password);
+  try {
+    const edit = await ownerApi.put(`/api/v1/rooms/${roomId}/messages/${openerId}`, { data: { body: "Replica lag is zero." } });
+    expect(edit.status(), await edit.text()).toBe(204);
+    await openThread(page, roomId, title);
+    const edited = messageNamed(page, "Yes, caught up.").getByRole("link", { name: `Quoted message by ${owner.name} (edited)` });
+    await expect(edited).toContainText("(edited)");
+    await expect(edited).toContainText("Replica lag is zero.");
+    await expect(edited).not.toContainText("caught up with the primary");
+
+    const removed = await ownerApi.delete(`/api/v1/rooms/${roomId}/messages/${openerId}`);
+    expect(removed.status(), await removed.text()).toBe(204);
+    await openThread(page, roomId, title);
+    const deleted = messageNamed(page, "Yes, caught up.").getByRole("link", { name: `Quoted message by ${owner.name} The quoted message was deleted.` });
+    await expect(deleted).toContainText("The quoted message was deleted.");
+    await expect(deleted).not.toContainText("Replica lag is zero.");
+    await expect(messageNamed(page, "Yes, caught up.")).toContainText("Yes, caught up.");
+    await expect(conversation(page).getByText("Replica lag is zero.")).toHaveCount(0);
+    await deleted.click();
+    await expect(opener).toBeFocused();
+    await expect(opener).toContainText("This message was deleted.");
+  } finally {
+    await ownerApi.dispose();
+  }
 });
 
 test("a member moves a thread between open statuses but cannot close it, its owner closes it, and the closed thread refuses replies until the room owner reopens it", async ({ page }) => {

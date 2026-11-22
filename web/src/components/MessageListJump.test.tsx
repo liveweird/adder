@@ -2,11 +2,14 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { act, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { QueryClient } from "@tanstack/react-query";
 import MessageList from "./MessageList";
 import { jsonResponse } from "../test/http";
 import { makeMessage, makeRoom, makeThread, messagePage } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
+import { parseMessageAnchor } from "../utils/threadListParams";
 
 const NEWEST_FIRST = [
   makeMessage({ id: 30, authorId: 7, authorName: "Cy Author", body: "third, mine" }),
@@ -268,5 +271,72 @@ describe("MessageList: a jump to a message (anchorId)", () => {
     expect(olderUrls()).toHaveLength(1);
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Load older messages" })).toBeInTheDocument();
+  });
+
+  describe("a quote's block (1.3)", () => {
+    const quoting = makeMessage({
+      id: 30,
+      authorId: 8,
+      authorName: "Di Other",
+      body: "Agreed.",
+      quote: { messageId: 20, authorId: 7, authorName: "Cy Author", deleted: false, body: "second", truncated: false, editedAt: null, mentions: [], groupMentions: [] },
+    });
+    const quotedAndQuoting = [quoting, makeMessage({ id: 20, authorId: 7, authorName: "Cy Author", body: "second" })];
+
+    /** The pane's side of the link: the URL's `message` is the anchor, and `onShowQuoted` repeats the jump when the URL already names it. */
+    function Pane() {
+      const anchor = parseMessageAnchor(new URLSearchParams(useLocation().search));
+      const [jumpSeq, setJumpSeq] = useState(0);
+      return (
+        <MessageList
+          room={makeRoom()}
+          thread={makeThread()}
+          scrollToId={null}
+          onScrolled={vi.fn()}
+          anchorId={anchor}
+          jumpSeq={jumpSeq}
+          onShowQuoted={(id) => (id === anchor ? setJumpSeq((seq) => seq + 1) : undefined)}
+        />
+      );
+    }
+
+    test("following it centres, focuses and highlights the quoted message, as a search hit's link does", async () => {
+      serve(() => jsonResponse(200, messagePage(quotedAndQuoting)));
+      renderWithProviders(<Pane />, { route: "/rooms/12/threads/42" });
+      const region = await screen.findByRole("region", { name: "Messages" });
+      const link = await screen.findByRole("link", { name: /^Quoted message by Cy Author/ });
+      // The list opened at the bottom, as a list with no jump does; the stubbed layout does not move the boxes with the scroller.
+      region.scrollTop = 0;
+      await userEvent.setup().click(link);
+      await waitFor(() => expect(item(20)).toHaveFocus());
+      expect(region.scrollTop).toBe(centreOffsetOf(20));
+      expect(item(20)).toHaveAttribute("data-anchor", "true");
+      expect(item(30)).not.toHaveAttribute("data-anchor");
+      expect(screen.getByRole("status")).toHaveTextContent("Found the message by Cy Author.");
+    });
+
+    test("following it again while the URL already names the message jumps again", async () => {
+      serve(() => jsonResponse(200, messagePage(quotedAndQuoting)));
+      renderWithProviders(<Pane />, { route: "/rooms/12/threads/42?message=20" });
+      const region = await screen.findByRole("region", { name: "Messages" });
+      await waitFor(() => expect(item(20)).toHaveFocus());
+      // The reader moved away from it.
+      region.scrollTop = 0;
+      item(30).focus();
+      await userEvent.setup().click(screen.getByRole("link", { name: /^Quoted message by Cy Author/ }));
+      await waitFor(() => expect(item(20)).toHaveFocus());
+      expect(region.scrollTop).toBe(centreOffsetOf(20));
+    });
+
+    test("a quote of a message that is not loaded loads older pages until it is listed", async () => {
+      serve((url) => {
+        if (url.includes("id[lt]=")) return jsonResponse(200, messagePage([makeMessage({ id: 20, authorId: 7, authorName: "Cy Author", body: "second" })], 2));
+        return jsonResponse(200, messagePage([quoting], 2));
+      });
+      renderWithProviders(<Pane />, { route: "/rooms/12/threads/42" });
+      await userEvent.setup().click(await screen.findByRole("link", { name: /^Quoted message by Cy Author/ }));
+      await waitFor(() => expect(item(20)).toHaveFocus());
+      expect(olderUrls()).toHaveLength(1);
+    });
   });
 });

@@ -7,9 +7,9 @@ import type { RoomResponse, RoomWorkflow } from "../api/rooms";
 import { useThreadRefHref } from "../hooks/useThreadRefHref";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { messageExcerpt } from "../utils/messageExcerpt";
-import { focusThreadPaneState, listRouteSearch, tagFilterPath, threadMessagePath, threadPath, withListParams } from "../utils/roomLinks";
+import { focusThreadPaneState, listRouteSearch, messageJumpPath, tagFilterPath, threadPath, withListParams } from "../utils/roomLinks";
 import { fillSlots, slot } from "../utils/slots";
-import { parseFocus, writeFocus } from "../utils/threadListParams";
+import { parseFocus } from "../utils/threadListParams";
 import MarkdownView from "./MarkdownView";
 import PersonLink from "./PersonLink";
 import classes from "./PinCard.module.css";
@@ -51,10 +51,6 @@ export default function PinCard({
   const when = message ? formatDateTime(message.createdAt, zone) : "";
   // The strip sits in the pane: a jump from the focus view stays in it (the drawer's link goes to the plain thread, `focus` is not a list key).
   const stayFocused = compact && parseFocus(new URLSearchParams(currentSearch));
-  const jumpTo = (messageId: number) => {
-    const [path, query = ""] = threadMessagePath(room.id, pin.threadNumber, messageId, search).split("?");
-    return `${path}?${stayFocused ? writeFocus(new URLSearchParams(query), true) : query}`;
-  };
   const author = message ? <PersonLink id={message.authorId} name={message.authorName} inherit /> : null;
   const targetName = message ? t("threads.message.name", { author: message.authorName, when }) : threadName;
   return (
@@ -101,7 +97,7 @@ export default function PinCard({
         {message && (
           <Button
             component={RouterLink}
-            to={jumpTo(message.id)}
+            to={messageJumpPath(room.id, pin.threadNumber, message.id, search, stayFocused)}
             onClick={onNavigate}
             variant="default"
             size="compact-xs"

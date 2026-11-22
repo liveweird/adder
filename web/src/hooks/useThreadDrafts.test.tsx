@@ -43,6 +43,33 @@ describe("the reply drafts", () => {
   });
 });
 
+describe("the quote drafts (1.3)", () => {
+  const picked = { id: 9, authorId: 4, authorName: "Ann Author", body: "Is the disk full?", mentions: [], groupMentions: [] };
+
+  test("are kept per thread, per room, until they are cleared with null", () => {
+    const store = createThreadDraftStore();
+    expect(store.getQuote(1, 7)).toBeNull();
+    store.setQuote(1, 7, picked);
+    store.setQuote(1, 8, { ...picked, id: 10 });
+    expect(store.getQuote(1, 7)).toBe(picked);
+    expect(store.getQuote(1, 8)?.id).toBe(10);
+    expect(store.getQuote(2, 7)).toBeNull();
+    store.setQuote(1, 7, null);
+    expect(store.getQuote(1, 7)).toBeNull();
+    expect(store.getQuote(1, 8)?.id).toBe(10);
+  });
+
+  test("live apart from the reply text and the new-thread draft", () => {
+    const store = createThreadDraftStore();
+    store.setQuote(1, 7, picked);
+    expect(store.getReply(1, 7)).toBe("");
+    expect(store.get(1)).toBeNull();
+    store.setReply(1, 7, "text");
+    store.setReply(1, 7, "");
+    expect(store.getQuote(1, 7)).toBe(picked);
+  });
+});
+
 describe("useThreadDrafts", () => {
   test("without a provider each component owns one private, stable store", () => {
     const first = renderHook(() => useThreadDrafts());

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { messageExcerpt } from "./messageExcerpt";
+import { messageExcerpt, quoteExcerpt } from "./messageExcerpt";
 
 const plain = { mentions: [], groupMentions: [] };
 
@@ -101,5 +101,23 @@ describe("messageExcerpt", () => {
     expect(messageExcerpt(message, true)).toBe("First line");
     expect(messageExcerpt(message)).toBe("First line Second line");
     expect(messageExcerpt({ ...message })).toBe("Changed");
+  });
+});
+
+describe("quoteExcerpt (1.3)", () => {
+  test("is the message excerpt of the quoted text, with the names its own lists give", () => {
+    const quote = { body: "**Disk** is full, ask <@7>", truncated: false, mentions: [{ userId: 7, name: "Ann Owner" }], groupMentions: [] };
+    expect(quoteExcerpt(quote)).toBe("Disk is full, ask @Ann Owner");
+  });
+
+  test("ends in an ellipsis when the server cut the body, unless the text already ends in one", () => {
+    expect(quoteExcerpt({ ...plain, body: "A long body cut at the word", truncated: true })).toBe("A long body cut at the word…");
+    expect(quoteExcerpt({ ...plain, body: "Already trails off…", truncated: true })).toBe("Already trails off…");
+    expect(quoteExcerpt({ ...plain, body: "Whole body", truncated: false })).toBe("Whole body");
+  });
+
+  test("reads markup as text, never as HTML, and a deleted quote (no body) as nothing", () => {
+    expect(quoteExcerpt({ ...plain, body: "<img src=x onerror=alert(1)> [link](https://example.com)", truncated: false })).toBe("<img src=x onerror=alert(1)> link");
+    expect(quoteExcerpt({ ...plain, body: null, truncated: false })).toBe("");
   });
 });

@@ -160,6 +160,17 @@
     "notMember": "Only members of the room can post. Join the room first.",
     "membersLink": "Open the Members page"
   },
+  "quote": {
+    "action": "Quote",
+    "chip": "Quoting {{author}}",
+    "actionAria": "Quote the message by {{author}} on {{when}}",
+    "announce": "Quoting {{author}}: {{excerpt}}",
+    "lead": "Quoted message by",
+    "remove": "Remove the quote",
+    "edited": "(edited)",
+    "deleted": "The quoted message was deleted.",
+    "unavailable": "The message you are quoting is no longer available. Remove the quote to send your reply."
+  },
   "mention": {
     "listLabel": "People, teams and groups to mention",
     "none": "Nothing in this room matches",

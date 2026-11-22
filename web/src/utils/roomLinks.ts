@@ -1,5 +1,5 @@
 import { matchPath } from "react-router-dom";
-import { listSearch, writeThreadListParams } from "./threadListParams";
+import { listSearch, writeFocus, writeThreadListParams } from "./threadListParams";
 
 /** The ONE place the room route family is spelled out — never hand-assemble a room URL. */
 export const roomsPath = "/rooms";
@@ -66,6 +66,16 @@ export function threadMessagePath(roomId: number, number: number, messageId: num
   const query = new URLSearchParams({ message: String(messageId) });
   if (search !== undefined) for (const [key, value] of listSearch(new URLSearchParams(search))) query.append(key, value);
   return `${threadPath(roomId, number)}?${query}`;
+}
+
+/**
+ * The link of a jump made from INSIDE the open thread (the pin strip's "Show in thread", a quote's block): [threadMessagePath] with the list's
+ * keys of `search` kept (the caller passes `listRouteSearch(pathname, search)`), and `focus=1` as well when the reader is in the focus view
+ * (`stayFocused`: the jump must not leave it). The drawer's link goes to the plain thread: `focus` is not a list key.
+ */
+export function messageJumpPath(roomId: number, number: number, messageId: number, search: string, stayFocused: boolean): string {
+  const [path, query = ""] = threadMessagePath(roomId, number, messageId, search).split("?");
+  return `${path}?${stayFocused ? writeFocus(new URLSearchParams(query), true) : query}`;
 }
 
 /** The per-room number of a `:number` route parameter, or null when it is not a plain positive int32 (`new`, `0`, `1e3`): no such thread exists. */

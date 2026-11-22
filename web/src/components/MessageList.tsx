@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, Button, Center, Loader, Stack, VisuallyHidden } from "@mantine/core";
 import { IconArrowDown, IconArrowUp } from "@tabler/icons-react";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { listMessages } from "../api/messages";
+import { listMessages, type MessageResponse } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import type { ThreadResponse } from "../api/threads";
 import { useAdmin } from "../auth";
@@ -60,6 +60,10 @@ function centreInScroller(scroller: HTMLElement, item: HTMLElement) {
  * takes the reader there through the same jump as `anchorId`, without touching the URL. Messages from others that arrive under a reader who
  * is not at the end are counted in a button below the list that goes to the end (and a polite status line says so); reaching the end clears it.
  * A MEMBER at the end of the list, in a visible tab, moves their read marker to the newest message (`useThreadReadMarker`).
+ *
+ * Quotes (1.3): a message that quotes another carries its quote in the page (the server reads it live, so an edit or a delete of the quoted
+ * message re-reads this very query), `onQuote` hands a chosen message to the reply box and `onShowQuoted` tells the pane a quote's link was followed:
+ * the link is the 0.5 jump (`?message=`, the anchor machinery above), so nothing here is new but the repeat through `jumpSeq`.
  */
 export default function MessageList({
   room,
@@ -69,6 +73,8 @@ export default function MessageList({
   anchorId: urlAnchorId = null,
   jumpSeq = 0,
   threadSettled = true,
+  onQuote,
+  onShowQuoted,
 }: {
   room: RoomResponse;
   thread: ThreadResponse;
@@ -79,6 +85,10 @@ export default function MessageList({
   jumpSeq?: number;
   /** Whether the thread read that holds `firstUnreadMessageId` has settled (no fetch in flight): the unread boundary is taken from the first settled read. */
   threadSettled?: boolean;
+  /** The reader chose "Quote" on a message (1.3): the pane puts it in the reply box. Without it no message offers a quote. */
+  onQuote?: (message: MessageResponse) => void;
+  /** The reader followed a quote block (1.3): the quoted message's id; the pane runs the jump again when the URL already names it (the same `jumpSeq`). */
+  onShowQuoted?: (messageId: number) => void;
 }) {
   const { t } = useTranslation();
   const admin = useAdmin();
@@ -338,6 +348,8 @@ export default function MessageList({
               anchored={message.id === spotlight}
               firstNew={message.id === firstUnread}
               pinnedBy={pinnedByMessage.get(message.id)}
+              onQuote={onQuote}
+              onShowQuoted={onShowQuoted}
             />
           ))}
         </ul>

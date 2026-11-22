@@ -32,8 +32,8 @@
 1. The admin creates an owner and a teammate and signs out; the owner creates a room, adds the teammate and starts a thread
    (an opening note), then signs out.
 2. The teammate signs in, opens the thread and posts three replies ("first draft", "oops wrong thread", "token is hunter2").
-   - *Expected*: each post answers 201; the owner's opening note has a row menu for the teammate that offers only **Pin** (any member pins; never
-     Edit, Delete or Remove), and their own replies have the full menu.
+   - *Expected*: each post answers 201; the owner's opening note has a row menu for the teammate that offers only **Quote** and **Pin** (any member
+     quotes and pins; never Edit, Delete or Remove), and their own replies have the full menu.
 3. They open the menu of "first draft", choose **Edit**, replace the text with "final draft" and click **Save**.
    - *Expected*: the edit answers 204, the editor goes, the message reads "final draft" with an "edited" marker and the old text is gone.
 4. They open the menu of "oops wrong thread", choose **Delete** and confirm in the "Delete this message?" dialog.
@@ -49,6 +49,32 @@
 8. The teammate signs in again and opens the thread.
    - *Expected*: both tombstones, each in its own words and under the teammate's name, and the "final draft" message still carries its
      "edited" marker.
+
+## Scenario: a member quotes a message in a reply, the quote leads back to it, and a deleted message reads as deleted in the quote
+
+1. The admin creates an owner and a teammate and signs out; the owner creates a room, adds the teammate and starts a thread whose opening
+   message has a `**replica**` Markdown run, then signs out.
+2. The teammate signs in, opens the thread and posts two replies ("Checking the lag now.", "Lag is under a second."), then presses the
+   **Quote** icon button that sits beside the opening message's menu (one click, no menu opened; its name is "Quote the message by <the owner> on <time>" and its tooltip says "Quote").
+   - *Expected*: a line above the Reply box says "Quoting <the owner>" and shows a plain excerpt of the opening message; the Reply box has the
+     focus.
+3. They type "Yes, caught up." and press **Ctrl+Enter**.
+   - *Expected*: the post answers 201 and its body is `{body, quotedMessageId}` with the opening message's id (the 201 carries it as
+     `quote.messageId`); the box and the line are both gone; the reply shows a link above its text whose name is its content
+     ("Quoted message by <the owner> <excerpt>": a visually hidden lead-in, then the visible words), holding the owner's name and the opening message's text as plain text (no bold run), and it is still there after a reload.
+4. They open the menu of "Lag is under a second.", look at its first item, choose it, and then press **Remove the quote**.
+   - *Expected*: the first item is **Quote**; choosing it shows "Quoting <the teammate>" and the Reply box has the focus (the menu does not
+     take it back); the remove button takes the line away and the box keeps the focus.
+5. They click the quote of their reply.
+   - *Expected*: the address names the opening message (`message=<id>`), which is focused and highlighted (`data-anchor`), and the status
+     line says "Found the message by <the owner>.".
+6. The owner (through the API) edits the opening message; the teammate opens the thread again.
+   - *Expected*: the edit answers 204; the quote's link is named "Quoted message by <the owner> (edited) …" and reads "(edited)" beside the owner's name, with the new text and
+     none of the old.
+7. The owner (through the API) deletes the opening message; the teammate opens the thread again.
+   - *Expected*: the delete answers 204; the quote's link is named "Quoted message by <the owner> The quoted message was deleted." and reads so, with no text of
+     the message anywhere in the conversation; the reply keeps its own text; following the quote focuses the opening message, now a tombstone
+     ("This message was deleted.").
 
 ## Scenario: a member moves a thread between open statuses but cannot close it, its owner closes it, and the closed thread refuses replies until the room owner reopens it
 
