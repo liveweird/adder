@@ -1,9 +1,13 @@
 package ch.nokillswit
 
+import ch.nokillswit.notifications.MARK_IDS_SEEN_SQL
+import ch.nokillswit.notifications.ROOM_SEEN_CHUNK_IDS_SQL
+import ch.nokillswit.notifications.ROOM_UNSEEN_CEILING_SQL
 import ch.nokillswit.notifications.MARK_THREAD_SEEN_SQL
 import ch.nokillswit.threads.HASHTAGS_OF_SQL
 import ch.nokillswit.threads.THREAD_UNREAD_SQL
 import ch.nokillswit.threads.UNREAD_COUNTS_SQL
+import ch.nokillswit.threads.UNREAD_PREDICATE_SQL
 import ch.nokillswit.threads.WATCHING_AMONG_SQL
 import java.sql.Connection
 import java.sql.SQLException
@@ -597,6 +601,109 @@ class ThreadSchemaTest {
                 assertTrue("Seq Scan on messages" !in plan, "$mode: never a scan of the whole table:\n$plan")
             }
         }
+    }
+
+    @Test
+    fun `the unread filter's predicate probes idx_messages_thread backwards and thread_reads by its key, also as a generic plan`() {
+        // The list's `unread=true` predicate (ThreadUnread.kt) on the room's threads: for each thread past the floor, ONE backward walk of
+        // idx_messages_thread that the EXISTS stops at its first hit, and the caller's marker by the primary key (user_id, thread_id).
+        // Sequential scans, bitmaps and sorts are off for the same reason as the counts' test (a test table is tiny).
+        val sql = "SELECT id FROM threads WHERE room_id = ? AND $UNREAD_PREDICATE_SQL"
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val plan = explain(sql, "int4, int8, int8, int8", "1, 0, 1, 0", mode)
+            assertTrue("idx_messages_thread" in plan, "$mode: the filter reads messages through their thread index:\n$plan")
+            assertTrue("Index Scan Backward" in plan, "$mode: newest first, so the first hit ends the walk:\n$plan")
+            assertTrue("thread_reads_pkey" in plan, "$mode: the caller's marker is a primary-key probe:\n$plan")
+            assertTrue("Seq Scan on messages" !in plan, "$mode: never a scan of messages:\n$plan")
+            assertTrue("Seq Scan on thread_reads" !in plan, "$mode: never a scan of thread_reads:\n$plan")
+        }
+    }
+
+    @Test
+    fun `the room-read ceiling and chunk read idx_notifications_unseen_room, never the person's other rooms, also as a generic plan`() {
+        // "Mark all as read"'s two statements (`ROOM_UNSEEN_CEILING_SQL`, `ROOM_SEEN_CHUNK_IDS_SQL`) and its stamp (`MARK_IDS_SEEN_SQL`):
+        // the person's unseen notices are spread over 30 rooms and the target room is one of them, so a plan that walked the person's
+        // unseen rows (V19's `idx_notifications_unseen_thread`) would read 30 rooms' worth; V34's `(recipient_id, room_id, id)` reads
+        // this room's alone, in id order, so the ceiling is one probe and the chunk stops at its limit.
+        val statements = listOf(
+            Triple(ROOM_UNSEEN_CEILING_SQL, "int8, int4", ""),
+            Triple(ROOM_SEEN_CHUNK_IDS_SQL, "int8, int4, int4, int4, int8, int4", "0, 2000000000, 5, 1000"),
+        )
+        for ((sql, types, extra) in statements) {
+            for (mode in listOf("auto", "force_generic_plan")) {
+                val plan = explain(sql, types, "", mode, seed = { c -> seedRoomsSpread(c, extra) })
+                assertTrue("idx_notifications_unseen_room" in plan, "$mode: the person-and-room index:\n$plan")
+                assertTrue("idx_notifications_unseen_thread" !in plan, "$mode: not the thread-keyed sibling:\n$plan")
+                assertTrue("idx_notifications_created" !in plan, "$mode: not the retention index:\n$plan")
+                assertTrue("Seq Scan on notifications" !in plan, "$mode: never a scan of the whole table:\n$plan")
+                assertTrue("Sort" !in plan, "$mode: id order comes off the index, no sort:\n$plan")
+                if (extra.isNotEmpty()) {
+                    assertTrue("id > " in plan, "$mode: the keyset bound is an index condition:\n$plan")
+                    assertTrue("LockRows" in plan, "$mode: the rows are locked as they are selected:\n$plan")
+                }
+            }
+        }
+        // The stamp (a chunk of 1,000 ids) probes the primary key, on the same spread: never the new index with the ids as its LAST key.
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val stamp = explain(
+                MARK_IDS_SEEN_SQL,
+                "int8, int8, int4[]",
+                "",
+                mode,
+                seed = { c ->
+                    val (person, room) = seedRoomsSpread(c, "").split(", ")
+                    val ids = c.prepareStatement(
+                        "SELECT id FROM notifications WHERE recipient_id = ? AND room_id = ? AND seen_at IS NULL ORDER BY id LIMIT 1000",
+                    ).use { st ->
+                        st.setLong(1, person.toLong())
+                        st.setInt(2, room.toInt())
+                        st.executeQuery().use { rs -> generateSequence { if (rs.next()) rs.getInt(1) else null }.toList() }
+                    }
+                    "5, $person, '${ids.joinToString(",", "{", "}")}'"
+                },
+            )
+            assertTrue("notifications_pkey" in stamp, "$mode: the stamp is a primary-key probe of the chunk's ids:\n$stamp")
+            assertTrue("Seq Scan on notifications" !in stamp, "$mode: never a scan of the whole table:\n$stamp")
+        }
+    }
+
+    /**
+     * One person with 200 unseen notices in each of 30 rooms and 200 seen ones in each (a notice is a row of the membership's own room).
+     * Returns the arguments of the room-read statements for the FIRST room: the person, the room and, after them, [rest].
+     */
+    private fun seedRoomsSpread(c: Connection, rest: String): String {
+        val marker = UUID.randomUUID().toString().take(8)
+        val person = c.scalar(
+            "INSERT INTO users (\"name\", email, password_hash) VALUES ('Spread', ?, 'x') RETURNING id",
+            "spread-$marker@test",
+        )
+        val rooms = (1..30).map { n ->
+            val room = c.scalar(
+                "INSERT INTO rooms (\"name\", last_activity_at, created_at, updated_at) VALUES (?, 1, 1, 1) RETURNING id",
+                "Spread $n $marker",
+            )
+            c.exec(
+                "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position) " +
+                    "VALUES (?, 'open', 'Open', 'BLUE', 'OPEN', TRUE, 0)",
+                room,
+            )
+            c.exec("INSERT INTO room_members (room_id, user_id, \"role\", added_at) VALUES (?, ?, 'MEMBER', 7)", room, person)
+            c.exec(
+                "INSERT INTO threads (room_id, \"number\", title, status_key, owner_id, created_by, last_activity_at, created_at, " +
+                    "updated_at) VALUES (?, 1, 'T', 'open', ?, ?, 1, 1, 1)",
+                room, person, person,
+            )
+            room
+        }
+        c.exec(
+            "INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, created_at, seen_at) " +
+                "SELECT ?, t.room_id, 'THREAD_ASSIGNED', ?, t.id, 1, CASE WHEN k <= 200 THEN 2 END " +
+                "FROM threads t CROSS JOIN generate_series(1, 400) AS k WHERE t.room_id = ANY (?)",
+            person, person, c.createArrayOf("integer", rooms.map { it.toInt() }.toTypedArray()),
+        )
+        c.exec("ANALYZE notifications")
+        val tail = if (rest.isEmpty()) "" else ", $rest"
+        return "$person, ${rooms.first()}$tail"
     }
 
     @Test

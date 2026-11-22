@@ -2,6 +2,7 @@
 // hand-over notifies the new owner; the rail's and the thread list's unread marks and the conversation's "New" line; a reaction from the emoji
 // picker (no content-security-policy violation) seen live by another member, who toggles theirs; the pinned panel and a pin's removal seen live; a pin's
 // mark in the conversation, on the thread's header and list row, and the open thread's pin strip (1.2.0);
+// the thread list's "Unread" filter and "Mark all as read" (1.2.0);
 // a member removed from a room loses its notifications; the Notification preferences page keeps a saved switch; a kind switched off in the app stops arriving;
 // a team mention (1.1.0) reaches the team's members who are in the room and no one else; everyone is told once, with the most specific reason. Two browser contexts wherever live matters, with no reload in the watching one.
 // Owns: its throwaway `e2e-soc-*` rooms and users, removed through the API in an `afterEach` (contexts first, then rooms, then the users). Every room
@@ -30,6 +31,7 @@ const THREAD_PIN_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/pin$/;
 const MESSAGE_PIN_API = /\/api\/v1\/rooms\/\d+\/messages\/\d+\/pin$/;
 const PREFERENCES_API = /\/api\/v1\/users\/\d+\/notification-preferences$/;
 const ROOM_SEEN_API =/\/api\/v1\/rooms\/\d+\/seen$/;
+const READ_ALL_API = /\/api\/v1\/rooms\/\d+\/read-all$/;
 const WATCH_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/watch$/;
 const READ_MARKER_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/read-marker$/;
 
@@ -323,6 +325,92 @@ test("a message posted elsewhere marks the room and the thread as new, and readi
   await reader.page.goto("/");
   await expect(roomLink).toBeVisible();
   await expect(roomLink).not.toHaveAccessibleDescription(/New activity/);
+});
+
+test("the unread filter lists only threads with new messages", async ({ page, browser }) => {
+  // The teammate joins AFTER the first thread: what was written before joining is never unread, so only the second thread is.
+  const room = await scene(page, { addMate: false });
+  const older = uniqueText("Before joining");
+  const fresh = uniqueText("Fresh news");
+  await startThread(room, older, "Written before the teammate joined.");
+  await addMember(room);
+  const freshNumber = await startThread(room, fresh, "Opening message.");
+  await postMessage(room, freshNumber, "A second message.");
+  const reader = await signedIn(browser, room.mate);
+  await reader.page.goto(`/rooms/${room.roomId}`);
+  await expect(threadLink(reader.page, older)).toBeVisible();
+  await expect(threadLink(reader.page, fresh)).toHaveAccessibleDescription(/2 unread messages/);
+  await expect(threadLink(reader.page, older)).not.toHaveAccessibleDescription(/unread/);
+
+  // "Unread" narrows the list to the thread with something new; the address keeps it, and so does a reload.
+  const toggle = reader.page.getByRole("button", { name: /^Filters/ });
+  await toggle.click();
+  const filter = reader.page.getByRole("button", { name: "Unread", exact: true });
+  await expect(filter).toHaveAttribute("aria-pressed", "false");
+  await filter.click();
+  await expect(filter).toHaveAttribute("aria-pressed", "true");
+  await expect(reader.page).toHaveURL(/[?&]unread=me(&|$)/);
+  await expect(threadLink(reader.page, fresh)).toBeVisible();
+  await expect(threadLink(reader.page, older)).toHaveCount(0);
+  await expect(toggle).toContainText("1");
+  await reader.page.reload();
+  await expect(reader.page).toHaveURL(/[?&]unread=me(&|$)/);
+  await expect(threadLink(reader.page, fresh)).toBeVisible();
+  await expect(threadLink(reader.page, older)).toHaveCount(0);
+
+  // The API agrees (the filter is exactly "unreadCount above 0"), and turning the filter off brings the other thread back.
+  const { api: mateApi } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(mateApi);
+  const unread = await mateApi.get(`/api/v1/rooms/${room.roomId}/threads?unread=true`);
+  expect(unread.status(), await unread.text()).toBe(200);
+  expect(((await unread.json()) as { items: { number: number }[] }).items.map((item) => item.number)).toEqual([freshNumber]);
+  // The panel's open state is remembered, so after the reload it is still open.
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await reader.page.getByRole("button", { name: "Unread", exact: true }).click();
+  await expect(threadLink(reader.page, older)).toBeVisible();
+  await expect(reader.page).not.toHaveURL(/unread=/);
+});
+
+test("mark all as read clears a room", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Mark all");
+  await startThread(room, title, "Written before the teammate joined.");
+  await addMember(room);
+  await postMessage(room, 1, `<@${room.mate.id}> please have a look.`);
+  await postMessage(room, 1, "And a second thing.");
+  const reader = await signedIn(browser, room.mate);
+  await openLive(reader, `/rooms/${room.roomId}?unread=me`, room.roomId);
+  await expect(threadLink(reader.page, title)).toHaveAccessibleDescription(/2 unread messages/);
+  await expect(bell(reader.page)).not.toHaveAccessibleName(unseenBell(0));
+
+  // It asks first: Cancel changes nothing.
+  const action = reader.page.getByRole("button", { name: "Mark all as read", exact: true });
+  await action.click();
+  const dialog = reader.page.getByRole("dialog", { name: "Mark all as read?", exact: true });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(threadLink(reader.page, title)).toHaveAccessibleDescription(/2 unread messages/);
+
+  // Confirming clears the thread's count, the room's notices (the bell) and the open Unread filter, without a reload.
+  await action.click();
+  const [marked] = await Promise.all([
+    reader.page.waitForResponse((r) => r.request().method() === "POST" && READ_ALL_API.test(r.url()) && r.status() === 204),
+    dialog.getByRole("button", { name: "Mark all as read", exact: true }).click(),
+  ]);
+  expect(marked.ok()).toBe(true);
+  await expect(dialog).toHaveCount(0);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+  await expect(reader.page.getByText("No threads match these filters.")).toBeVisible();
+  await expectNoReload(reader);
+  const { api: mateApi } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(mateApi);
+  const none = await mateApi.get(`/api/v1/rooms/${room.roomId}/threads?unread=true`);
+  expect(((await none.json()) as { total: number }).total).toBe(0);
+
+  // Only what comes AFTER is unread again: a new message from the owner brings the thread back into the filter.
+  await postMessage(room, 1, "Something new after the mark.");
+  await expect(threadLink(reader.page, title)).toHaveAccessibleDescription(/1 unread message/);
 });
 
 test("a reaction from the picker appears for another member without a reload, and a second press removes it", async ({ page, browser }) => {

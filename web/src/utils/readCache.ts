@@ -20,6 +20,25 @@ export function markRoomSeenInCaches(queryClient: QueryClient, roomId: number): 
   queryClient.setQueriesData<unknown>({ queryKey: roomKeys.list }, (page: unknown) => mapRows(page, clear));
 }
 
+/**
+ * After "Mark all as read" landed (`POST /rooms/{id}/read-all`): every cached list row and detail of the room reads as read at once (no
+ * refetch: the server has just raised the caller's floor), the room is no longer new, and the lists, the rail and the bell are re-read, since
+ * what they show now depends on the floor (the "Unread" filter's page is empty, the room's notices are seen). The conversation's own
+ * pages are left alone: a re-read of the open thread would not change a word of it, and its "New" separator is taken once.
+ */
+export function markRoomReadInCaches(queryClient: QueryClient, roomId: number): void {
+  queryClient.setQueriesData<unknown>({ queryKey: roomKeys.threadList(roomId) }, (page: unknown) =>
+    mapRows(page, (row) => (typeof row.unreadCount === "number" ? { ...row, unreadCount: 0 } : row)),
+  );
+  queryClient.setQueriesData<unknown>({ queryKey: roomKeys.threadDetails(roomId) }, (thread: unknown) =>
+    typeof thread === "object" && thread !== null && "unreadCount" in thread ? { ...thread, unreadCount: 0, firstUnreadMessageId: null } : thread,
+  );
+  markRoomSeenInCaches(queryClient, roomId);
+  void queryClient.invalidateQueries({ queryKey: roomKeys.threadList(roomId) });
+  void queryClient.invalidateQueries({ queryKey: roomKeys.rail });
+  void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
+}
+
 /** The newest message id the conversation's cache holds (its pages read newest first), or undefined while nothing is cached. */
 function cachedNewestMessageId(queryClient: QueryClient, roomId: number, threadNumber: number): number | undefined {
   return queryClient.getQueryData<InfiniteData<MessagePage>>(roomKeys.messages(roomId, threadNumber))?.pages[0]?.items[0]?.id;

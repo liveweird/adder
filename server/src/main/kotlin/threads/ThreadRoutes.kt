@@ -98,6 +98,7 @@ private fun Route.threadReads(roomService: RoomService, threadService: ThreadSer
                 params.optionalBoolean("closed"),
                 params.optionalBoolean("watching"),
                 params.optionalBoolean("mentionsMe"),
+                params.optionalBoolean("unread"),
             )
             val result = threadService.list(caller.userId, roomId, filter, paging)
             call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))

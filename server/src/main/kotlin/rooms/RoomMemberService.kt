@@ -112,6 +112,21 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
         members.update({ (members.roomId eq roomId) and (members.userId eq userId) }) { it[seenAt] = seenAt.greatestOf(at) } > 0
 
     /**
+     * "Mark all as read" (1.2): [userId] has read everything of room [roomId] written up to [at]. Raises ONLY their own `read_from` (the
+     * floor of unread counting, V19: every thread of the room, closed ones and ones nobody has opened included, reads 0 unread from
+     * there; a message written later is unread again) and `seen_at` (the room's dot goes out), both forward only (`GREATEST`), and
+     * answers whether they have a membership row (false = not, or no longer, a member: the route's `404`). One statement, so it is the
+     * same cost for a room of three threads and of three thousand, and no `thread_reads` row moves. INSIDE the caller's transaction, NO
+     * room lock (the update locks the person's own row to the commit, like [markSeenInTransaction]), and the caller keeps that
+     * transaction SHORT: the notices are settled afterwards in their own transactions (`ThreadReadService.markRoomRead`). No hint.
+     */
+    suspend fun markAllReadInTransaction(roomId: UInt, userId: UInt, at: Long): Boolean =
+        members.update({ (members.roomId eq roomId) and (members.userId eq userId) }) {
+            it[seenAt] = seenAt.greatestOf(at)
+            it[readFrom] = readFrom.greatestOf(at)
+        } > 0
+
+    /**
      * Holds [userId]'s membership row of room [roomId] for the rest of the caller's transaction (`FOR KEY SHARE`) and answers whether it
      * exists (false = they are not, or no longer, a member: the route's `404`). A removal deletes the row under the room lock and waits
      * for the share lock, so a write that follows (a watch, whose composite foreign key names this row) can never fail the key under it;

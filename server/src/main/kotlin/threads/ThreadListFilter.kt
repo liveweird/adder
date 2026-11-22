@@ -69,6 +69,11 @@ data class ThreadListFilter(
      * A name the registry never held matches nothing. Not the hashtags of [tags].
      */
     val threadTags: List<String> = emptyList(),
+    /**
+     * `true`: only the threads with something UNREAD for the CALLER (`unreadCount > 0`, [threadUnreadFor]); `false`: only those with
+     * nothing unread; null: all. A caller with no read state (an ADMIN outside the room) has nothing unread: `true` is an empty page.
+     */
+    val unread: Boolean? = null,
 )
 
 /** The filters of the thread list; a malformed key, id or pair, or too many values, is a `400` ([BadRequestException]). */
@@ -76,10 +81,12 @@ fun Parameters.threadListFilter(
     closed: Boolean?,
     watching: Boolean? = null,
     mentionsMe: Boolean? = null,
+    unread: Boolean? = null,
 ): ThreadListFilter = ThreadListFilter(
     closed = closed,
     watching = watching,
     mentionsMe = mentionsMe,
+    unread = unread,
     statuses = repeatedStrings("status", MAX_FILTER_VALUES).onEach { requireKey(it, "Status key '${it.shown()}'") },
     ownerIds = userIdFilter("ownerId"),
     fields = repeatedStrings("field", MAX_FILTER_VALUES).map(::fieldCriterion),
@@ -129,7 +136,8 @@ internal val ThreadListFilter.needsWorkflow: Boolean get() = fields.isNotEmpty()
 /**
  * The ONE predicate of the count and the rows, for the list of [callerUserId] (the `watching` and `mentionsMe` filters are theirs;
  * [callerIsMember] and [callerTeamIds], the mentionable teams they are on now, are what `mentionsMe` needs and are read by the service
- * only when it is asked). [workflow] is the room's snapshot and is required when [ThreadListFilter.fields] is not
+ * only when it is asked; [unreadSince] is the caller's floor of unread counting, `unread`'s, null for a caller with no read state).
+ * [workflow] is the room's snapshot and is required when [ThreadListFilter.fields] is not
  * empty; a field key that is unknown, retired or of a type that has no filter (TEXT, URL, DATE, NUMBER) is a `400`.
  */
 internal fun ThreadListFilter.predicate(
@@ -139,6 +147,7 @@ internal fun ThreadListFilter.predicate(
     callerIsMember: Boolean = false,
     callerTeamIds: List<UInt> = emptyList(),
     threadTagIds: List<UInt> = emptyList(),
+    unreadSince: Long? = null,
 ): Op<Boolean> {
     val threads = ThreadService.Threads
     var predicate: Op<Boolean> = threads.roomId eq roomId
@@ -151,6 +160,11 @@ internal fun ThreadListFilter.predicate(
     watching?.let {
         val watched = threadWatchedBy(roomId, callerUserId, threads.id)
         predicate = predicate and (if (it) watched else not(watched))
+    }
+    unread?.let {
+        // No floor = no read state (an ADMIN outside the room): nothing is unread, so `true` matches nothing and `false` everything.
+        val unreadThreads = unreadSince?.let { floor -> threadUnreadFor(callerUserId, floor) } ?: Op.FALSE
+        predicate = predicate and (if (it) unreadThreads else not(unreadThreads))
     }
     mentionsMe?.let {
         val addressed = threadMentionsMe(roomId, callerUserId, threads.id, callerIsMember, callerTeamIds)

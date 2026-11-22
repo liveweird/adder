@@ -25,6 +25,7 @@
     "mine": "Mine",
     "mentionsMe": "Mentions me",
     "watching": "Watching",
+    "unread": "Unread",
     "clear": "Clear filters",
     "tags": "Tags",
     "noTags": "No tags found"
@@ -103,7 +104,17 @@
     "statusChanged": "Status changed",
     "ownerChanged": "Owner changed",
     "detailsSaved": "Details saved",
-    "tagsSaved": "Tags saved"
+    "tagsSaved": "Tags saved",
+    "markedRead": "Room marked as read"
+  },
+  "markAllRead": {
+    "action": "Mark all as read",
+    "title": "Mark all as read?",
+    "body": "Every thread in {{name}} will be marked as read for you, closed ones included, and so will your notifications from this room. Nobody else is affected.",
+    "confirm": "Mark all as read",
+    "failed": "Could not mark the room as read",
+    "forbidden": "Only members of the room can mark it as read.",
+    "notFound": "This room is no longer available to you."
   },
   "messages": {
     "aria": "Messages",

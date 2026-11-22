@@ -98,14 +98,22 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32", "33")
-        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V33 ran on the populated database: $after")
+        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32", "33", "34")
+        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V34 ran on the populated database: $after")
         val tagIndexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'message_tags'") { it.getString(1) }
             .toSet()
         val both = "idx_message_tags_thread" in tagIndexes && "idx_message_tags_room_tag" in tagIndexes
         assertTrue(both, "V31's index sits beside V15's: $tagIndexes")
         assertTagRegistrySeeded(database)
         assertThreadTagsTableEmpty(database)
+        val noticeIndexSql = "SELECT indexname FROM pg_indexes WHERE tablename = 'notifications'"
+        val noticeIndexes = query(database, noticeIndexSql) { it.getString(1) }.toSet()
+        assertTrue("idx_notifications_unseen_room" in noticeIndexes, "V34's index sits among the notices' own: $noticeIndexes")
+        val partial = query(
+            database,
+            "SELECT pg_get_indexdef(indexrelid) FROM pg_index WHERE indexrelid = 'idx_notifications_unseen_room'::regclass",
+        ) { it.getString(1) }.single()
+        assertTrue("(recipient_id, room_id, id)" in partial && "seen_at IS NULL" in partial, "V34 is partial on the unseen rows: $partial")
     }
 
     /**

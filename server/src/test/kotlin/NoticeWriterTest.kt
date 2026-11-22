@@ -11,6 +11,7 @@ import ch.nokillswit.threads.Notice
 import ch.nokillswit.threads.NoticeOutcome
 import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.threads.NoticeRevision
+import ch.nokillswit.threads.SeenChunk
 import ch.nokillswit.users.UserRole
 import java.util.UUID
 import kotlin.test.AfterTest
@@ -534,5 +535,56 @@ class NoticeWriterTest {
         val upgraded = fullRows(s, person).single()
         assertTrue(upgraded.id > held.id)
         assertEquals(listOf("MENTIONED"), rows(s, person).map { it.first })
+    }
+
+    private fun unseenIds(room: UInt, userId: UInt): List<Int> = PostgresTestSupport.connect().use { c ->
+        val sql = "SELECT id FROM notifications WHERE recipient_id = ? AND room_id = ? AND seen_at IS NULL ORDER BY id"
+        c.prepareStatement(sql).use { st ->
+            st.setLong(1, userId.toLong())
+            st.setInt(2, room.toInt())
+            st.executeQuery().use { rs -> generateSequence { if (rs.next()) rs.getInt(1) else null }.toList() }
+        }
+    }
+
+    @Test
+    fun `the room-read settle settles one person's unseen notices of one room in chunks, and nothing else`() = runBlocking {
+        val a = scene(2)
+        val b = scene(0)
+        val (reader, bystander) = a.people
+        TestRooms.addMember(b.room, reader)
+        val writer = TestThreads.noticeWriter
+        inWrite {
+            writer.forThread(a.room, a.threadId, a.number, a.actor, a.people.map { Notice(it, NoticeReason.THREAD_ASSIGNED) })
+            writer.forThread(a.room, a.threadId, a.number, a.actor, listOf(Notice(reader, NoticeReason.THREAD_CLOSED)))
+            writer.forThread(a.room, a.threadId, a.number, a.actor, listOf(Notice(reader, NoticeReason.THREAD_REOPENED)))
+            writer.forThread(b.room, b.threadId, b.number, b.actor, listOf(Notice(reader, NoticeReason.THREAD_ASSIGNED)))
+        }
+        val mine = unseenIds(a.room, reader)
+        assertEquals(3, mine.size)
+        assertEquals(mine.last().toUInt(), inWrite { writer.roomUnseenCeiling(a.room, reader) }, "the newest unseen id of THIS room")
+        assertEquals(unseenIds(b.room, reader).single().toUInt(), inWrite { writer.roomUnseenCeiling(b.room, reader) }, "another room's")
+        assertEquals(null, inWrite { writer.roomUnseenCeiling(b.room, bystander) }, "nobody's unseen notice: no ceiling")
+        val now = System.currentTimeMillis()
+        val ceiling = mine.last().toUInt()
+
+        val early = inWrite { writer.roomSeenChunk(a.room, reader, 0, 0u, ceiling, 10) }
+        assertEquals(SeenChunk(0, 0), early, "a notice made after the instant is not settled")
+        val first = mine.first().toUInt()
+        assertEquals(
+            SeenChunk(1, 1, first),
+            inWrite { writer.roomSeenChunk(a.room, reader, now, 0u, first, 10) },
+            "nothing past the ceiling: only the first notice",
+        )
+        // Keyset: a chunk starts past the id it is given, so the second notice is next whatever is still unseen before it.
+        val second = mine[1].toUInt()
+        assertEquals(SeenChunk(1, 1, second), inWrite { writer.roomSeenChunk(a.room, reader, now, first, ceiling, 1) }, "a chunk of one")
+        assertEquals(mine.drop(2), unseenIds(a.room, reader))
+        val pastLast = inWrite { writer.roomSeenChunk(a.room, reader, now, ceiling, ceiling, 5) }
+        assertEquals(SeenChunk(0, 0), pastLast, "past the last id: nothing")
+        assertEquals(SeenChunk(1, 1, ceiling), inWrite { writer.roomSeenChunk(a.room, reader, now, second, ceiling, 5) })
+        assertEquals(SeenChunk(0, 0), inWrite { writer.roomSeenChunk(a.room, reader, now, 0u, ceiling, 5) }, "idempotent")
+        assertEquals(emptyList(), unseenIds(a.room, reader), "every unseen notice of the room, whatever its kind")
+        assertEquals(1, unseenIds(b.room, reader).size, "another room's notices stay")
+        assertEquals(1, unseenIds(a.room, bystander).size, "another person's notices stay")
     }
 }

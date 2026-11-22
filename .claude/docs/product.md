@@ -302,7 +302,7 @@ Taken without asking, in the 1.2.0 plan (the user accepted the list on 2026-11-2
 - **1.2 A7. Registry writes emit no live hint** (the team precedent); an open tab sees a retirement on its next read.
 - **1.2 A8. `hashtags` on the wire:** the distinct folded keys of the thread's live messages, alphabetical, at most 20 per thread.
 - **1.2 A9. `#42` as a link is the SPA's alone:** nothing is indexed, a missing number is not checked, titles and snippets are not linked.
-- **1.2 A10. "Mark all as read" also marks the room's notices seen,** asks first (a confirmation) and is unaudited view state. A message committed in the same instant may be swallowed (the `seen_at` limit already documented).
+- **1.2 A10. "Mark all as read" also marks the room's notices seen,** asks first (a confirmation), emits no live hint and is audited once (`room.read_all`: ids and a count; it settles an unbounded number of notices, in chunks, one call per person at a time). A message or notice committed in the same instant may be swallowed or settled (the `seen_at` limit already documented; a coalesced thread-level notice keeps its old time).
 - **1.2 A11. A row read while the unread filter is on stays listed** until the list's next re-read.
 - **1.2 A12. The unread filter is not on the searches.**
 - **1.2 A13. The room description moves behind "About this room"** and the thread actions become icon buttons with unchanged accessible names.

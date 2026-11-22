@@ -90,3 +90,14 @@ fun readBusy(): TooManyRequestsException = TooManyRequestsException(
     problemType = READ_BUSY_PROBLEM_TYPE,
     retryAfterSeconds = READ_BUSY_RETRY_AFTER_SECONDS,
 )
+
+/**
+ * The caller's previous "Mark all as read" has not finished (one in flight per person, `ThreadReadService.markRoomRead`): the same
+ * `read-busy` type and `Retry-After` as [readBusy], with its own words. Sent before any write or notice transaction (the visibility
+ * read has run), so a refused call holds no pooled connection.
+ */
+fun readAllBusy(): TooManyRequestsException = TooManyRequestsException(
+    "Your previous mark-all-as-read is still running - retry in a moment",
+    problemType = READ_BUSY_PROBLEM_TYPE,
+    retryAfterSeconds = READ_BUSY_RETRY_AFTER_SECONDS,
+)

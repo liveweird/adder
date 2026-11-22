@@ -18,6 +18,7 @@ import classes from "./ThreadList.module.css";
 import EmptyState from "./EmptyState";
 import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
+import MarkAllReadButton from "./MarkAllReadButton";
 import PaginationBar from "./PaginationBar";
 import PinMark from "./PinMark";
 import TagPills from "./TagPills";
@@ -63,7 +64,9 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
 
   // The request: owner=me resolved to the session's id, a stale field entry dropped; null while field filters wait for the workflow.
   const me = getUserId();
-  const filters = toApiQuery(params, workflow.data, me);
+  // "Unread" is a member's own read state: for an ADMIN outside the room (no `role`) a stale `unread=me` in the URL asks for nothing.
+  const member = room.role !== null;
+  const filters = toApiQuery(member ? params : { ...params, unread: false }, workflow.data, me);
   // Once the workflow is known, field entries it cannot judge (a retired field, a value of the wrong shape) leave the URL and the remembered
   // query too, by replace and on the same page: the request already ignores them, so the badge, Clear and the 20-entry cap must not count them.
   const prunedFields = useMemo(() => (workflow.data ? pruneFieldEntries(params.field, workflow.data) : null), [params.field, workflow.data]);
@@ -112,7 +115,8 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
         onChange={(value) => value && update({ order: value as Order })}
         allowDeselect={false}
       />
-      <ThreadFilters roomId={room.id} me={me} workflow={workflow.data} params={params} update={update} clear={clear} activeCount={filterCount} />
+      <ThreadFilters roomId={room.id} me={me} member={member} workflow={workflow.data} params={params} update={update} clear={clear} activeCount={filterCount} />
+      <MarkAllReadButton room={room} />
       {isError && <ErrorAlert error={error} title={t("threads.loadFailed")} />}
       {/* Field filters cannot be judged before the workflow is read: a failed read says so instead of spinning for ever. */}
       {waiting && workflow.isError && <ErrorAlert error={workflow.error} title={t("threads.loadFailed")} />}

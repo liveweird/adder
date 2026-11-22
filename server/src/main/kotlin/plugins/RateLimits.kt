@@ -158,7 +158,8 @@ object RateLimits {
     const val CHAT_READ = "chat-read"
     /**
      * The writes that only move the caller's OWN view of what they have read share ONE bucket per signed-in user: the two notification
-     * "seen" POSTs, the thread read marker and the room "seen" write (`threads/ThreadReadRoutes.kt`, `rooms/RoomMemberRoutes.kt`);
+     * "seen" POSTs, the thread read marker, the room "seen" write and "Mark all as read" (`POST /rooms/{id}/read-all`, 1.2, which is
+     * also one in flight per person and audited: `threads/ThreadReadRoutes.kt`, `rooms/RoomMemberRoutes.kt`);
      * the watch PUT and the notification-preferences PUT have their own, [THREAD_WATCH] and [NOTIFICATION_PREFS]. 240/min in
      * every mode (the [CHAT_WRITE] figure): the
      * SPA marks a notice seen on a click and acknowledges what its reader scrolled to a few times a minute, so 4 a second is a script.

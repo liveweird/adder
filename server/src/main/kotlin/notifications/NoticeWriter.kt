@@ -11,6 +11,7 @@ import ch.nokillswit.threads.Notice
 import ch.nokillswit.threads.NoticeOutcome
 import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.threads.NoticeRevision
+import ch.nokillswit.threads.SeenChunk
 import ch.nokillswit.threads.ThreadNotices
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
@@ -151,6 +152,33 @@ internal class NoticeWriter(
             MARK_THREAD_SEEN_SQL,
             listOf(long to at, long to userId.toLong(), int to threadId.toInt(), int to upToMessageId.toInt()),
         )
+    }
+
+    override suspend fun roomUnseenCeiling(roomId: UInt, userId: UInt): UInt? {
+        val rows = TransactionManager.current().exec(
+            ROOM_UNSEEN_CEILING_SQL,
+            listOf(LongColumnType() to userId.toLong(), IntegerColumnType() to roomId.toInt()),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Int::class.javaObjectType)?.toUInt() }
+        return rows?.toList().orEmpty().singleOrNull()
+    }
+
+    override suspend fun roomSeenChunk(roomId: UInt, userId: UInt, at: Long, after: UInt, ceiling: UInt, limit: Int): SeenChunk {
+        val int = IntegerColumnType()
+        val long = LongColumnType()
+        val transaction = TransactionManager.current()
+        val ids = transaction.exec(
+            ROOM_SEEN_CHUNK_IDS_SQL,
+            listOf(long to userId.toLong(), int to roomId.toInt(), int to after.toInt(), int to ceiling.toInt(), long to at, int to limit),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Int::class.javaObjectType)!! }?.toList().orEmpty().filterNotNull()
+        if (ids.isEmpty()) return SeenChunk(0, 0, null)
+        val moved = transaction.exec(
+            MARK_IDS_SEEN_SQL,
+            listOf(long to at, long to userId.toLong(), ArrayColumnType<Int, List<Int>>(int) to ids),
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Int::class.javaObjectType)!! }?.toList().orEmpty()
+        return SeenChunk(ids.size, moved.size, ids.last().toUInt())
     }
 
     /**

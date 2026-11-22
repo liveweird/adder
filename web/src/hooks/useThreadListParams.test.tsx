@@ -23,9 +23,9 @@ describe("useThreadListParams", () => {
   afterEach(() => localStorage.clear());
 
   test("reads the list's state from the URL; a bare one is the plain list", () => {
-    expect(renderParams("/rooms/12").result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
-    expect(renderParams("/rooms/12?scope=closed&order=number&page=3&scope=all").result.current.list.params).toEqual({ scope: "closed", order: "number", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 3 });
-    expect(renderParams("/rooms/12?scope=junk&page=0").result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(renderParams("/rooms/12").result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(renderParams("/rooms/12?scope=closed&order=number&page=3&scope=all").result.current.list.params).toEqual({ scope: "closed", order: "number", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 3 });
+    expect(renderParams("/rooms/12?scope=junk&page=0").result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
   });
 
   test("a write uses replace: it adds no history entry, so Back leaves the list", () => {
@@ -76,20 +76,20 @@ describe("useThreadListParams", () => {
   test("the remembered query is restored once on a bare URL, by replace, and the state reads it at once", () => {
     localStorage.setItem(KEY, JSON.stringify("scope=closed&order=number"));
     const { result } = renderParams("/rooms/12/threads/7", { focusPane: true });
-    expect(result.current.list.params).toEqual({ scope: "closed", order: "number", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(result.current.list.params).toEqual({ scope: "closed", order: "number", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
     expect(result.current.location.search).toBe("?scope=closed&order=number");
     expect(result.current.location.state).toEqual({ focusPane: true });
     // Choosing the plain list afterwards is a choice: the bare URL is NOT restored again.
     act(() => result.current.list.update({ scope: "open", order: "activity" }));
     expect(result.current.location.search).toBe("");
-    expect(result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
   });
 
   test("a URL that spells a list key is never overwritten by the remembered query", () => {
     localStorage.setItem(KEY, JSON.stringify("scope=closed"));
     const { result } = renderParams("/rooms/12?order=newest");
     expect(result.current.location.search).toBe("?order=newest");
-    expect(result.current.list.params).toEqual({ scope: "open", order: "newest", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(result.current.list.params).toEqual({ scope: "open", order: "newest", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
   });
 
   test("another room's remembered query is not this room's; a corrupt one is ignored", () => {
@@ -106,7 +106,7 @@ describe("useThreadListParams", () => {
     act(() => result.current.list.clear());
     expect(result.current.location.search).toBe("?message=9&scope=closed&order=number");
     expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toBe("scope=closed&order=number");
-    expect(result.current.list.params).toEqual({ scope: "closed", order: "number", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(result.current.list.params).toEqual({ scope: "closed", order: "number", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
   });
 
   test("Clear on a list with nothing but filters leaves the plain list and forgets the remembered query", () => {
@@ -115,7 +115,7 @@ describe("useThreadListParams", () => {
     act(() => result.current.list.clear());
     expect(result.current.location.search).toBe("?message=9");
     expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toBe("");
-    expect(result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
   });
 
   test("the multi-value filters round-trip through the URL and the remembered query, and Clear drops them but not the scope or the order", () => {
@@ -196,10 +196,10 @@ describe("useThreadListParams", () => {
     expect(result.current.location.search).toBe("?scope=closed");
     act(() => result.current.navigate("/rooms/13"));
     expect(result.current.location.search).toBe("?order=newest");
-    expect(result.current.list.params).toEqual({ scope: "open", order: "newest", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(result.current.list.params).toEqual({ scope: "open", order: "newest", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
     act(() => result.current.navigate("/rooms/14"));
     expect(result.current.location.search).toBe("");
-    expect(result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(result.current.list.params).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
     // Nothing of room 12's or 13's was touched along the way.
     expect(JSON.parse(localStorage.getItem(KEY) ?? "null")).toBe("scope=closed");
     expect(JSON.parse(localStorage.getItem("adder.viewSettings.roomThreads.13.query") ?? "null")).toBe("order=newest");
@@ -223,6 +223,6 @@ describe("useThreadListParams", () => {
     localStorage.setItem(KEY, JSON.stringify("scope=closed&page=7"));
     const { result } = renderParams("/rooms/12");
     expect(result.current.location.search).toBe("?scope=closed");
-    expect(result.current.list.params).toEqual({ scope: "closed", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(result.current.list.params).toEqual({ scope: "closed", order: "activity", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
   });
 });

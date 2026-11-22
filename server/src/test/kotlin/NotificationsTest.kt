@@ -202,7 +202,7 @@ class NotificationsTest {
     }
 
     @Test
-    fun `seen-all goes on when a row of a full chunk was seen by somebody else between the select and the update`() = testApplication {
+    fun `seen-all locks a chunk's rows as it selects them, so nobody can see or delete them before its update`() = testApplication {
         usePostgresTestcontainer()
         val cast = cast("nt-race")
         PostgresTestSupport.connect().use { c ->
@@ -217,20 +217,25 @@ class NotificationsTest {
                 assertEquals(5, st.executeUpdate())
             }
         }
-        var raced = false
+        val refused = mutableListOf<String?>()
         val moved = TestThreads.notices.markAllSeen(cast.bob.id, System.currentTimeMillis(), chunk = 2) { selected ->
-            if (!raced) {
-                raced = true
-                PostgresTestSupport.connect().use { c ->
+            // Somebody else tries to see the first row of the chunk in the gap: its row is locked, so the attempt cannot even start.
+            PostgresTestSupport.connect().use { c ->
+                c.createStatement().use { it.execute("SET lock_timeout = '150ms'") }
+                try {
                     c.prepareStatement("UPDATE notifications SET seen_at = 1 WHERE id = ?").use { st ->
                         st.setInt(1, selected.first().toInt())
-                        assertEquals(1, st.executeUpdate())
+                        st.executeUpdate()
                     }
+                    refused.add(null)
+                } catch (e: java.sql.SQLException) {
+                    refused.add(e.sqlState)
                 }
             }
         }
-        assertEquals(4, moved, "the one somebody else saw is not ours to count, the other four are")
-        assertEquals(0L, cast.bob.client.notices("?seen=false").total, "a short update does not end the loop with rows left")
+        assertEquals(List<String?>(3) { "55P03" }, refused.toList(), "three chunks, each locked against a second writer")
+        assertEquals(5, moved, "nothing was lost to a gap")
+        assertEquals(0L, cast.bob.client.notices("?seen=false").total)
     }
 
     @Test

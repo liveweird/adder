@@ -110,13 +110,15 @@ class ThreadService(
             val sortsByStatus = paging.sort.any { it.name == STATUS_SORT }
             budget.arm(this)
             val workflow = if (filter.needsWorkflow || sortsByStatus) workflows.snapshot(roomId) else null
-            // The caller's membership and teams are read only for the `mentionsMe` filter (a group mention addresses members alone).
-            val addressable = filter.mentionsMe != null && members.unreadSince(roomId, callerUserId) != null
+            // The caller's floor of unread counting, read ONCE: null for someone who is no member (an ADMIN outside the room has no
+            // read state). The `unread` filter, the `mentionsMe` filter (a group mention addresses members alone) and the counts share it.
+            val floor = members.unreadSince(roomId, callerUserId)
+            val addressable = filter.mentionsMe != null && floor != null
             val callerTeams = if (addressable) teams.teamIdsOf(callerUserId) else emptyList()
             // The `threadTag` names are resolved to registry ids (retired ones too) in this transaction; an unknown name has no id.
             budget.arm(this)
             val threadTagIds = threadTags.idsOf(filter.threadTags)
-            val predicate = filter.predicate(roomId, callerUserId, workflow, addressable, callerTeams, threadTagIds)
+            val predicate = filter.predicate(roomId, callerUserId, workflow, addressable, callerTeams, threadTagIds, floor)
             val columns: Map<String, Expression<*>> = workflow?.takeIf { sortsByStatus }
                 ?.let { SORTABLE_COLUMNS + (STATUS_SORT to statusOrder(it)) } ?: SORTABLE_COLUMNS
             budget.arm(this)
@@ -127,8 +129,7 @@ class ThreadService(
             val names = userNames(rows.map { it[Threads.ownerId].value })
             budget.arm(this)
             // A caller who is no member (an ADMIN outside the room) has no read state: every count is 0.
-            val unread = members.unreadSince(roomId, callerUserId)
-                ?.let { unreadCountsOf(callerUserId, it, rows.map { row -> row[Threads.id].value }) }.orEmpty()
+            val unread = floor?.let { unreadCountsOf(callerUserId, it, rows.map { row -> row[Threads.id].value }) }.orEmpty()
             budget.arm(this)
             val watching = watches.watchingAmong(roomId, callerUserId, rows.map { row -> row[Threads.id].value })
             budget.arm(this)

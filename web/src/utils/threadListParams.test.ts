@@ -29,7 +29,7 @@ const q = (query: string) => new URLSearchParams(query);
 describe("threadListParams", () => {
   test("a bare URL reads as the plain list", () => {
     expect(parseThreadListParams(q(""))).toEqual(DEFAULT_THREAD_LIST_PARAMS);
-    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 });
+    expect(DEFAULT_THREAD_LIST_PARAMS).toEqual({ scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 });
   });
 
   test("the round trip: what a write spells, a read gives back", () => {
@@ -44,6 +44,18 @@ describe("threadListParams", () => {
     const filtered = { status: ["triage", "on-hold"], owner: "me", mention: true, watching: true, tag: ["Wdro\u017cenie", "hawai'i", "1/2price", "a 1/2"], field: ["severity:s1", "severity:s2", "lead:42"] };
     expect(parseThreadListParams(writeThreadListParams(q(""), filtered))).toEqual({ ...DEFAULT_THREAD_LIST_PARAMS, ...filtered });
     expect(parseThreadListParams(writeThreadListParams(q(""), { owner: "42" })).owner).toBe("42");
+  });
+
+  test("unread reads only `me`, writes `unread=me` after `watching` and is remembered", () => {
+    expect(parseThreadListParams(q("unread=me")).unread).toBe(true);
+    for (const junk of ["unread=", "unread=1", "unread=true", "unread=ME", "unread=42", "unread=you&unread=me"]) {
+      expect(parseThreadListParams(q(junk)).unread).toBe(false);
+    }
+    expect(writeThreadListParams(q(""), { unread: true }).toString()).toBe("unread=me");
+    expect(writeThreadListParams(q("unread=me&page=3"), { unread: false }).toString()).toBe("");
+    expect(writeThreadListParams(q("watching=me&tag=db"), { unread: true }).toString()).toBe("watching=me&unread=me&tag=db");
+    expect(rememberedQuery(q("unread=me&page=2"))).toBe("unread=me");
+    expect(hasListKeys(q("unread=me"))).toBe(true);
   });
 
   test("watching reads only `me`: any other value, and a repeat of it, is the default", () => {
@@ -161,6 +173,12 @@ describe("threadListParams", () => {
       expect(toApiQuery(params({}), undefined, 7)?.watching).toBeUndefined();
     });
 
+    test("unread=me asks for the caller's own unread threads, with or without a session id (the server knows the caller)", () => {
+      expect(toApiQuery(params({ unread: true }), undefined, 7)?.unread).toBe(true);
+      expect(toApiQuery(params({ unread: true }), undefined, null)?.unread).toBe(true);
+      expect(toApiQuery(params({}), undefined, 7)?.unread).toBeUndefined();
+    });
+
     test("statuses, the all scope and the workflow order are sent as they are", () => {
       expect(toApiQuery(params({ status: ["triage"], scope: "all", order: "status" }), undefined, 1)).toMatchObject({ status: ["triage"], closed: undefined, sort: "status" });
     });
@@ -217,6 +235,8 @@ describe("threadListParams", () => {
       expect(activeFilterCount({ status: ["a"], ownerId: [7], tag: ["a"], field: ["k:1"] })).toBe(4);
       expect(activeFilterCount({ mentionsMe: true })).toBe(1);
       expect(activeFilterCount({ watching: true })).toBe(1);
+      expect(activeFilterCount({ unread: true })).toBe(1);
+      expect(activeFilterCount({ unread: true, watching: true, mentionsMe: true })).toBe(3);
       expect(activeFilterCount({ status: ["a"], watching: true, mentionsMe: true })).toBe(3);
       expect(activeFilterCount({ status: ["a"], ownerId: [7], mentionsMe: true, tag: ["a"], field: ["k:1"] })).toBe(5);
       expect(activeFilterCount({ status: ["a", "b"], ownerId: [7], field: ["k:1", "k:2", "j:3"] })).toBe(4);

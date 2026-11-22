@@ -1,0 +1,13 @@
+-- "Mark all as read" (1.2.0), the index behind its notice settle: `POST /rooms/{id}/read-all` marks the caller's unseen notices of ONE room
+-- seen in chunks of 1,000, each chunk found by `WHERE recipient_id = ? AND room_id = ? AND seen_at IS NULL AND id <= ? ORDER BY id LIMIT 1000`,
+-- and its starting point is the newest such id (`max(id)` over the same keys). V19's `idx_notifications_unseen_thread (recipient_id,
+-- thread_id) WHERE seen_at IS NULL` leads with the person and then the thread, so it would walk ALL of the person's unseen notices of every
+-- other room to find this room's; `(recipient_id, room_id, id)` hands over exactly the room's unseen rows, already in id order, so a chunk
+-- reads its own 1,000 entries and the ceiling is one index probe, whatever the person has piled up elsewhere.
+--
+-- A plain partial index on a derived table: nothing is rewritten, no row of any other table is touched, and it is inert to a 1.1.0 binary,
+-- which never names it (it keeps maintaining it, the writes being the same inserts and updates: an insert enters it, the "seen" stamp
+-- leaves it, as for V19's sibling). The delete class of `notifications` is unchanged (HARD, V18). `CREATE INDEX` holds a SHARE lock on
+-- `notifications` for the build (the writes of a notice wait; reads do not): the table is bounded by the 90-day retention and the index is
+-- partial (unseen rows only), so the build is a fraction of a second at the sizes of `persistence.md` "Notices (V18)".
+CREATE INDEX idx_notifications_unseen_room ON notifications (recipient_id, room_id, id) WHERE seen_at IS NULL;

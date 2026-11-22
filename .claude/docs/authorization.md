@@ -247,6 +247,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     | `GET /rooms/{id}/pins` (0.6.0, a reader; unbucketed: at most 50 rows) | 404 | 200 | 200 | 200 | 200 |
     | `PUT .../threads/{number}/read-marker` (V19; the caller's OWN marker, `read-state` bucket, no room lock; an ADMIN outside the room has no read state: 403 before the body, the thread and the message) | 404 | 204 | 204 | 204 | 403 |
     | the same for an unknown thread, an unknown message, or a message of another thread or room (`404`) | 404 | 404 | 404 | 404 | 403 |
+    | `POST /rooms/{id}/read-all` (1.2, "Mark all as read"; the caller's OWN floor and notices, `read-state` bucket plus one call per person at a time (`429` `read-busy`), no room lock, no body, audited `room.read_all`, an archived room included; an ADMIN outside the room has no read state: 403 before anything is read or written) | 404 | 204 | 204 | 204 | 403 |
+    | `GET /rooms/{id}/threads?unread=true` (1.2; a reader's read like the plain list; an ADMIN outside the room has nothing unread: an empty page, `unread=false` lists everything) | 404 | 200 | 200 | 200 | 200 |
     | `PUT .../threads/{number}/watch` (V26; the caller's OWN watch, any MEMBER, a closed thread and an archived room included; its own `thread-watch` bucket, no room lock; an ADMIN outside the room cannot watch: 403 before the body and the thread) | 404 | 204 | 204 | 204 | 403 |
     | the same for an unknown thread (`404`) | 404 | 404 | 404 | 404 | 403 |
     | `PUT .../threads/{number}/pin`, `PUT /rooms/{id}/messages/{messageId}/pin` (any MEMBER pins and unpins, a closed thread included; `chat-write` bucket) | 404 | 204 | 204 | 204 | 403 |

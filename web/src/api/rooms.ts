@@ -90,6 +90,14 @@ export async function markRoomSeen(id: number): Promise<void> {
   await voidRequest(`/api/v1/rooms/${id}/seen`, { method: "POST" });
 }
 
+/**
+ * "Mark all as read" (204, idempotent, no live hint): every thread of the room reads as read for the caller up to now and their unseen notices
+ * of the room are seen. Members only (an ADMIN outside the room is a 403, a non-member a 404). View state: nothing is audited.
+ */
+export async function markRoomRead(id: number): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${id}/read-all`, { method: "POST" });
+}
+
 /** ADMIN only (a soft delete: the room's name is freed, there is no restore). */
 export async function deleteRoom(id: number): Promise<void> {
   await voidRequest(`/api/v1/rooms/${id}`, { method: "DELETE" });

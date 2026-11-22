@@ -4,6 +4,7 @@ import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.rooms.RoomServiceKey
+import ch.nokillswit.rooms.RoomsRoute
 import ch.nokillswit.rooms.visibleStanding
 import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
@@ -12,6 +13,7 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
+import io.ktor.server.resources.post
 import io.ktor.server.resources.put
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
@@ -21,6 +23,11 @@ import kotlinx.serialization.Serializable
 @Serializable
 @Resource("read-marker")
 class ThreadReadMarkerRoute(val parent: ThreadsRoute.Number)
+
+/** `/api/v1/rooms/{id}/read-all`: "Mark all as read" of the CALLER in one room (a child of [RoomsRoute.Id]). */
+@Serializable
+@Resource("read-all")
+class RoomReadAllRoute(val parent: RoomsRoute.Id)
 
 fun Application.configureThreadReadRoutes() {
     val roomService = attributes[RoomServiceKey]
@@ -41,6 +48,17 @@ fun Application.configureThreadReadRoutes() {
                     val request = call.receive<ReadMarkerRequest>()
                     requireReadMarkerMessageId(request.messageId)
                     readService.markRead(roomId, route.parent.number.toInt(), caller.userId, request.messageId)
+                    call.respond(HttpStatusCode.NoContent)
+                }
+                // "Mark all as read" (1.2): the same order up to the member guard (there is no body), then the caller's own floor and
+                // notices (`ThreadReadService.markRoomRead`: one in flight per person, else the typed 429 `read-busy`). 204 whether
+                // anything was unread or not; an archived room is marked too. NO live hint, but ONE audit line `room.read_all` (written by
+                // the service, `complete` true or false), because unlike the marker it settles an unbounded number of notices.
+                post<RoomReadAllRoute> { route ->
+                    val caller = call.caller()
+                    val roomId = route.parent.id
+                    requireRoomMember(caller, roomService.visibleStanding(caller, roomId))
+                    readService.markRoomRead(roomId, caller.userId)
                     call.respond(HttpStatusCode.NoContent)
                 }
             }

@@ -38,10 +38,12 @@ type ThreadListQuery = {
   threadTag?: string[];
   /** `true` = only the threads the CALLER watches (the SPA's "Watching" filter); omitted = all. */
   watching?: boolean;
+  /** `true` = only the threads with something unread for the CALLER (the SPA's "Unread" filter: `unreadCount` above 0); omitted = all. */
+  unread?: boolean;
 };
 
 export async function listThreads(roomId: number, q: ThreadListQuery): Promise<ThreadPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), mentionedId: q.mentionedId?.map(String), mentionsMe: q.mentionsMe, field: q.field, tag: q.tag, threadTag: q.threadTag, watching: q.watching });
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort, closed: q.closed, status: q.status, ownerId: q.ownerId?.map(String), mentionedId: q.mentionedId?.map(String), mentionsMe: q.mentionsMe, field: q.field, tag: q.tag, threadTag: q.threadTag, watching: q.watching, unread: q.unread });
   return jsonRequest<ThreadPage>(`/api/v1/rooms/${roomId}/threads?${params}`);
 }
 

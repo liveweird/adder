@@ -39,6 +39,8 @@ export interface ThreadListParams {
   mention: boolean;
   /** "Watching" (`watching=me`): only `me` is read; the server resolves it to the caller, so a shared link means "my watched threads" for whoever opens it. */
   watching: boolean;
+  /** "Unread" (`unread=me`): only `me` is read; the request carries `unread=true`, which the server resolves to the caller (a thread with something unread for them), so a shared link means "my unread threads" for whoever opens it. */
+  unread: boolean;
   /** Any-of these hashtags (empty = no filter), as typed or as the room's tag list spells them; the server folds case and accents. */
   tag: string[];
   /** Any-of these CURATED tags (the registry's names, URL key `threadTag`; empty = no filter); a retired tag still finds the threads that kept it. */
@@ -49,10 +51,10 @@ export interface ThreadListParams {
   page: number;
 }
 
-export const DEFAULT_THREAD_LIST_PARAMS: ThreadListParams = { scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, tag: [], threadTag: [], field: [], page: 1 };
+export const DEFAULT_THREAD_LIST_PARAMS: ThreadListParams = { scope: "open", order: "activity", status: [], owner: null, mention: false, watching: false, unread: false, tag: [], threadTag: [], field: [], page: 1 };
 
 /** Every query key the list owns, in the order a URL spells them. */
-const LIST_KEYS = ["scope", "order", "status", "owner", "mention", "watching", "tag", "threadTag", "field", "page"] as const;
+const LIST_KEYS = ["scope", "order", "status", "owner", "mention", "watching", "unread", "tag", "threadTag", "field", "page"] as const;
 
 /** A positive integer of at most nine digits; anything else (`0`, `-1`, `2x`, `1e3`, a huge number) is junk. */
 const PAGE = /^[1-9]\d{0,8}$/;
@@ -99,6 +101,7 @@ export function parseThreadListParams(search: URLSearchParams): ThreadListParams
     owner: owner !== null && (owner === "me" || isUserId(owner)) ? owner : DEFAULT_THREAD_LIST_PARAMS.owner,
     mention: search.get("mention") === "me",
     watching: search.get("watching") === "me",
+    unread: search.get("unread") === "me",
     tag: repeated(search, "tag", isTag, MAX_TAG_VALUES),
     threadTag: threadTagValues(search),
     field: repeated(search, "field", isFieldEntry),
@@ -150,6 +153,7 @@ function serialize(params: ThreadListParams): URLSearchParams {
   if (params.owner !== DEFAULT_THREAD_LIST_PARAMS.owner) out.set("owner", String(params.owner));
   if (params.mention) out.set("mention", "me");
   if (params.watching) out.set("watching", "me");
+  if (params.unread) out.set("unread", "me");
   for (const tag of params.tag) out.append("tag", tag);
   for (const tag of params.threadTag) out.append("threadTag", tag);
   for (const entry of params.field) out.append("field", entry);
@@ -219,6 +223,8 @@ export interface ThreadListFilters {
   mentionsMe?: boolean;
   /** The caller's own watched threads (`watching=true`); the server knows who the caller is. */
   watching?: boolean;
+  /** The threads with something unread for the CALLER (`unread=true`); the server knows who the caller is. */
+  unread?: boolean;
   tag?: string[];
   /** The curated tags (`threadTag`), any-of. */
   threadTag?: string[];
@@ -263,14 +269,15 @@ export function toApiQuery(params: ThreadListParams, workflow: RoomWorkflow | un
     ownerId: owners.length > 0 ? owners : undefined,
     mentionsMe: params.mention && me !== null ? true : undefined,
     watching: params.watching ? true : undefined,
+    unread: params.unread ? true : undefined,
     tag: params.tag.length > 0 ? params.tag.slice(0, MAX_TAG_VALUES) : undefined,
     threadTag: params.threadTag.length > 0 ? params.threadTag.slice(0, MAX_THREAD_TAG_VALUES) : undefined,
     field: field.length > 0 ? field : undefined,
   };
 }
 
-/** How many filters the panel holds: the statuses, the owner, "mentions me", "watching", the hashtags (one dimension), the curated tags (one dimension), and each field key with a value (the scope and the order live outside the panel). */
-export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionsMe" | "watching" | "tag" | "threadTag" | "field">): number {
+/** How many filters the panel holds: the statuses, the owner, "mentions me", "watching", "unread", the hashtags (one dimension), the curated tags (one dimension), and each field key with a value (the scope and the order live outside the panel). */
+export function activeFilterCount(filters: Pick<ThreadListFilters, "status" | "ownerId" | "mentionsMe" | "watching" | "unread" | "tag" | "threadTag" | "field">): number {
   const fieldKeys = new Set((filters.field ?? []).map(fieldKeyOf));
-  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionsMe ? 1 : 0) + (filters.watching ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.threadTag ? 1 : 0) + fieldKeys.size;
+  return (filters.status ? 1 : 0) + (filters.ownerId ? 1 : 0) + (filters.mentionsMe ? 1 : 0) + (filters.watching ? 1 : 0) + (filters.unread ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.threadTag ? 1 : 0) + fieldKeys.size;
 }

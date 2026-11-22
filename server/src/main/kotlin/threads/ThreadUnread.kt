@@ -3,6 +3,9 @@ package ch.nokillswit.threads
 import org.jetbrains.exposed.v1.core.ArrayColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.QueryBuilder
+import org.jetbrains.exposed.v1.core.longParam
 import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 import kotlinx.coroutines.flow.toList
@@ -56,6 +59,49 @@ VALUES (CAST(? AS int8), CAST(? AS int4), CAST(? AS int4), CAST(? AS int4), CAST
 ON CONFLICT (user_id, thread_id) DO UPDATE
     SET last_read_message_id = EXCLUDED.last_read_message_id, read_at = EXCLUDED.read_at
     WHERE thread_reads.last_read_message_id < EXCLUDED.last_read_message_id"""
+
+/** The number of `?` in [UNREAD_PREDICATE_SQL]: the floor, the member, the floor again. */
+internal const val UNREAD_PREDICATE_ARGUMENTS = 3
+
+/**
+ * The thread list's `unread=true` predicate, on the list's own `threads` row: the SAME definition as [UNREAD_COUNTS_SQL], so a row it
+ * keeps is exactly a row whose `unreadCount` is above 0. The thread's own `last_activity_at` must be past the floor, and one of the
+ * newest [MAX_UNREAD_COUNT] messages after the caller's marker (no marker row = 0) must be newer than the floor: read backwards through
+ * `idx_messages_thread`, a probe that stops at the first hit, at most [MAX_UNREAD_COUNT] index entries a thread. Three `?` in order: the
+ * floor, the member, the floor again. Constant text (an [Op] splices the arguments in), the same plan custom and generic.
+ */
+internal const val UNREAD_PREDICATE_SQL = """(threads.last_activity_at > CAST(? AS int8) AND EXISTS (
+  SELECT 1 FROM (SELECT m.created_at FROM messages m
+                 WHERE m.thread_id = threads.id
+                   AND m.id > COALESCE((SELECT r.last_read_message_id FROM thread_reads r
+                                        WHERE r.user_id = CAST(? AS int8) AND r.thread_id = threads.id), 0)
+                 ORDER BY m.id DESC LIMIT $MAX_UNREAD_COUNT) recent
+  WHERE recent.created_at > CAST(? AS int8)))"""
+
+/**
+ * `unread=true` for the caller [userId] whose floor of unread counting is [floor] (`RoomMemberService.unreadSince`): a predicate on the
+ * outer `threads` row ([UNREAD_PREDICATE_SQL]); `not(...)` of it is `unread=false`. Never NULL (an `EXISTS` and a comparison of two
+ * non-null columns), so the complement is exact.
+ */
+internal fun threadUnreadFor(userId: UInt, floor: Long): Op<Boolean> = UnreadThreads(userId, floor)
+
+private class UnreadThreads(private val userId: UInt, private val floor: Long) : Op<Boolean>() {
+    init {
+        // The arguments are spliced in by position: a fourth `?` in the text without a fourth argument must fail loudly, not misbind.
+        val marks = UNREAD_PREDICATE_SQL.count { it == '?' }
+        check(marks == UNREAD_PREDICATE_ARGUMENTS) { "UNREAD_PREDICATE_SQL takes $UNREAD_PREDICATE_ARGUMENTS arguments, not $marks" }
+    }
+
+    override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+        val arguments = listOf(floor, userId.toLong(), floor)
+        queryBuilder {
+            UNREAD_PREDICATE_SQL.split('?').forEachIndexed { index, text ->
+                if (index > 0) append(longParam(arguments[index - 1]))
+                append(text)
+            }
+        }
+    }
+}
 
 /** What a member has not read of one thread: [count] (0 to [MAX_UNREAD_COUNT]) and the first of those messages, null for none. */
 internal data class ThreadUnread(val count: Int, val firstMessageId: UInt?)

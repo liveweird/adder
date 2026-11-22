@@ -831,6 +831,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark every thread of a room as read for the caller
+         * @description "Mark all as read". A MEMBER of the room (a non-member is the uniform `404`; an `ADMIN` who is not a member is `403`: they have no
+         *     read state). Checked in this order: authentication (`401`), the per-USER `read-state` bucket of 240 per minute (`429` beyond it;
+         *     spent before any guard), visibility (`404`), the member rule (`403`), then the caller's own membership (`404` when they were
+         *     removed meanwhile).
+         *
+         *     Raises ONLY the caller's own floor of unread counting (`read_from`) and their `seen_at` to the instant of the request, forward only,
+         *     so every thread of the room (closed ones and ones they never opened too) answers `unreadCount` 0 and `firstUnreadMessageId` null,
+         *     the room stops being `unread` in the rooms list, and then the caller's unseen notices of THIS room that were made up to that
+         *     instant become seen (the rail's `@` count for the room, the bell), in chunks of 1,000, each its own short transaction. Every kind and channel is settled, a notice that was only to be emailed too (which cancels its pending digest, as the read marker does). A message
+         *     or notice made after the instant stays unread or unseen, and so is a thread started afterwards; a message committed in the very
+         *     instant of the request may be swallowed. The caller's per-thread read markers and everybody else's read state are untouched.
+         *     Idempotent: the same answer when nothing was unread. An archived room is marked all the same. No room lock is taken and no
+         *     live event is emitted (the caller's other tabs catch up on focus); ONE audit line (`room.read_all`: ids, the number of
+         *     notices settled and whether the work `complete`d) is written after the work. At most ONE call per person runs at a time: a second while the first is running
+         *     is `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`. If the work fails after the floor was raised (an error
+         *     answer), the floor stays raised and calling again settles the rest of the notices. No request body.
+         */
+        post: operations["markRoomRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rooms/{id}/archive": {
         parameters: {
             query?: never;
@@ -1141,6 +1178,11 @@ export interface paths {
          *       on NOW (`<@team:id>`), or names everyone (`<@everyone>`), or names the watchers (`<@watchers>`) while they watch the thread NOW.
          *       A caller who is not a member of the room (an `ADMIN`) is addressed by name only, never through a group. `mentionedId` is
          *       unchanged and stays direct only. It reads the mention indexes only, so it finds nothing for a message written before they existed.
+         *     - `unread` (strict `true` or `false`; a repeated key is a `400`) keeps the threads with something UNREAD for the CALLER (exactly the
+         *       rows whose `unreadCount` is above 0: a message among the newest 100 after their read marker written since they joined or
+         *       last marked the room read), or, with `false`, the ones with nothing unread; omitted = both. It combines with every other filter
+         *       (all-of), closed threads included, and `total` counts the same predicate. A caller who is not a member of the room (an `ADMIN`)
+         *       has no read state: `true` is an empty page and `false` keeps everything.
          *     - A well-formed status key, owner id, mentioned user id, field value or tag that matches nothing is an empty page, never an error. Checked in this
          *       order: visibility (`404`), then the parameters (`400`): a non-member's bad filter is still a `404`. A filter never widens
          *       what the caller may read.
@@ -3711,6 +3753,8 @@ export interface components {
         ThreadOwnerFilter: number[];
         /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view; a `threadTag` does too). */
         ThreadWatchingFilter: boolean;
+        /** @description `true` = only the threads with something unread for the CALLER (`unreadCount` above 0), `false` = only the ones with nothing unread; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member has no read state (`true` is an empty page). Not on the searches. */
+        ThreadUnreadFilter: boolean;
         /** @description `true` = only the threads with a live message that addresses the CALLER (names them, a team they are on now, everyone, or the watchers while they watch the thread now), `false` = only the ones without; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id. `mentionedId` (direct mentions of any given people) is unchanged. */
         ThreadMentionsMeFilter: boolean;
         /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
@@ -5033,6 +5077,32 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    markRoomRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Marked (the same answer when nothing was unread) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     archiveRoom: {
         parameters: {
             query?: never;
@@ -5413,6 +5483,8 @@ export interface operations {
                 mentionsMe?: components["parameters"]["ThreadMentionsMeFilter"];
                 /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view; a `threadTag` does too). */
                 watching?: components["parameters"]["ThreadWatchingFilter"];
+                /** @description `true` = only the threads with something unread for the CALLER (`unreadCount` above 0), `false` = only the ones with nothing unread; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member has no read state (`true` is an empty page). Not on the searches. */
+                unread?: components["parameters"]["ThreadUnreadFilter"];
             };
             header?: never;
             path: {

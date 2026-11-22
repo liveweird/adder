@@ -1,10 +1,13 @@
 package ch.nokillswit.threads
 
+import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.NotFoundException
+import ch.nokillswit.infra.catchingFailures
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.rooms.RoomMemberService
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.and
@@ -60,6 +63,77 @@ class ThreadReadService internal constructor(
             notices.threadRead(threadId, userId, messageId, at)
         }
     }
+
+    /**
+     * "Mark all as read" (1.2): [userId] has read everything of room [roomId] written up to now. Answers how many notices it settled.
+     * No room lock anywhere, and NO transaction that holds the member row while it settles notices:
+     * 1. ONE short transaction: the caller's own membership row (`read_from` and `seen_at` raised to the request's instant, forward
+     *    only; no row means they were removed meanwhile: `404`), then the newest id among their unseen notices of the room (the ceiling,
+     *    one index probe). From here on every thread of the room, closed and unopened ones included, reads as read, and a message or
+     *    thread written later is unread again; no `thread_reads` marker moves.
+     * 2. Their unseen notices of the room up to the ceiling and made no later than the instant are marked seen in KEYSET chunks of
+     *    [chunk] rows (each starts past the previous chunk's last id), each its own short transaction ([ThreadNotices.roomSeenChunk]),
+     *    so nothing waits behind a long statement and a person with a huge pile holds one connection for one chunk at a time. A notice
+     *    made after the instant stays unseen.
+     *
+     * One per person at a time: a second call while one runs is the typed `429` `read-busy` with `Retry-After` (the caller's other
+     * requests are unaffected), so a script cannot queue calls that each hold a pooled connection. Idempotent. A failure after step 1
+     * leaves a retryable state: the floor is raised, the notices not all settled, the slot is freed and the client saw an error;
+     * calling again settles the rest (the ceiling is re-read, so only what is still unseen is worked on). ONE `room.read_all` audit
+     * line closes every call that got past step 1: `complete=true` with the count, or `complete=false` with the count so far.
+     */
+    suspend fun markRoomRead(roomId: UInt, userId: UInt, chunk: Int = ROOM_SEEN_CHUNK): Int {
+        if (!inFlight.add(userId)) {
+            audit("read.busy", "byUserId" to userId.toLong(), "roomId" to roomId.toLong(), "resource" to "read-all", "limit" to "user")
+            throw readAllBusy()
+        }
+        try {
+            val (at, ceiling) = suspendTransaction(database) {
+                val at = nowMillis()
+                if (!members.markAllReadInTransaction(roomId, userId, at)) throw NotFoundException("Room not found")
+                at to notices.roomUnseenCeiling(roomId, userId)
+            }
+            var settled = 0
+            fun line(complete: Boolean) = audit(
+                "room.read_all",
+                "byUserId" to userId.toLong(),
+                "roomId" to roomId.toLong(),
+                "settled" to settled,
+                "complete" to complete,
+            )
+            catchingFailures(
+                {
+                    var after = 0u
+                    do {
+                        // The loop runs while the chunk SELECTED was full (not while it UPDATED a full one): a row that is not moved
+                        // (seen or deleted by someone else) makes the update short, and stopping there would leave the rest unseen.
+                        val done = if (ceiling == null) {
+                            SeenChunk(0, 0)
+                        } else {
+                            suspendTransaction(database) { notices.roomSeenChunk(roomId, userId, at, after, ceiling, chunk) }
+                        }
+                        settled += done.moved
+                        after = done.lastId ?: after
+                    } while (done.selected == chunk)
+                },
+                { failure ->
+                    line(complete = false)
+                    throw failure
+                },
+            )
+            line(complete = true)
+            return settled
+        } finally {
+            inFlight.remove(userId)
+        }
+    }
+
+    /**
+     * The people with a [markRoomRead] running (the entry is removed when it ends, so the set never grows past the people in flight).
+     * In-process, so "one per person" holds per replica: it relies on the one-replica rule (`live.md`, `ci.md`); a second replica would
+     * allow one call per person each, still bounded by the `read-state` bucket and the pool.
+     */
+    private val inFlight: MutableSet<UInt> = ConcurrentHashMap.newKeySet()
 }
 
 /**

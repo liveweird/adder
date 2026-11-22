@@ -178,7 +178,10 @@ internal class NotificationService(
         callerUserId: UInt,
         at: Long,
         chunk: Int = SEEN_BATCH,
-        /** A TEST seam: runs between a chunk's select and its update (the gap a concurrent "seen" or delete falls into). */
+        /**
+         * A TEST seam: runs between a chunk's select and its update. The select LOCKS its rows (`FOR NO KEY UPDATE`, in id order, so it
+         * meets another transaction that locks the person's rows in the same order), so nobody else can see or delete them in that gap.
+         */
         afterSelect: suspend (List<UInt>) -> Unit = {},
     ): Int {
         val n = Notifications
@@ -193,7 +196,7 @@ internal class NotificationService(
             val (selected, moved) = suspendTransaction(database) {
                 val ids = n.select(n.id)
                     .where { (n.recipientId eq callerUserId) and n.seenAt.isNull() and n.inApp and (n.id lessEq ceiling) }
-                    .orderBy(n.id).limit(chunk).map { it[n.id].value }.toList()
+                    .orderBy(n.id).limit(chunk).forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate).map { it[n.id].value }.toList()
                 afterSelect(ids)
                 ids.size to if (ids.isEmpty()) 0 else n.update({ (n.id inList ids) and n.seenAt.isNull() }) { it[seenAt] = at }
             }

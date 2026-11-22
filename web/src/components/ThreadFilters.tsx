@@ -16,13 +16,14 @@ import RoomHashtagSelect from "./RoomHashtagSelect";
 
 /**
  * The thread list's filter panel (inside the shared `FilterPanel`, stacked: the room view's left rail is narrow): the statuses (with the
- * workflow's thread counts), the room's hashtags (`RoomHashtagSelect`, searched on the server), the curated tags (the registry, grouped by category, 1.2 D3), the owner ("Mine" is `owner=me`, "Mentions me" is `mention=me`, sent as `mentionsMe=true` (a mention of the caller by name, through their team, of everyone, or of the watchers they are in), "Watching" is `watching=me`, the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
+ * workflow's thread counts), the room's hashtags (`RoomHashtagSelect`, searched on the server), the curated tags (the registry, grouped by category, 1.2 D3), the owner ("Mine" is `owner=me`, "Mentions me" is `mention=me`, sent as `mentionsMe=true` (a mention of the caller by name, through their team, of everyone, or of the watchers they are in), "Watching" is `watching=me`, "Unread" is `unread=me` (sent as `unread=true`, a member's own read state: not offered to an ADMIN outside the room), the picker any member) and one control per ACTIVE SELECT, MULTI_SELECT or
  * USER field of the room's workflow. Every control writes the URL through `update`; the panel only draws what the URL says.
  * "Clear filters" is the hook's `clear`: the panel's filters and the page only, the scope and the order stay.
  */
 export default function ThreadFilters({
   roomId,
   me,
+  member,
   workflow,
   params,
   update,
@@ -32,6 +33,8 @@ export default function ThreadFilters({
   roomId: number;
   /** The session's user id; without one "Mine" has nothing to send and is disabled. */
   me: number | null;
+  /** The caller is a member of the room: an ADMIN outside it has no read state, so "Unread" is not offered (the server would answer an empty page). */
+  member: boolean;
   workflow: RoomWorkflow | undefined;
   params: ThreadListParams;
   update: (patch: Partial<ThreadListParams>) => void;
@@ -103,6 +106,11 @@ export default function ThreadFilters({
             <Button size="compact-xs" variant={params.watching ? "light" : "default"} aria-pressed={params.watching} onClick={() => update({ watching: !params.watching })}>
               {t("threads.filters.watching")}
             </Button>
+            {member && (
+              <Button size="compact-xs" variant={params.unread ? "light" : "default"} aria-pressed={params.unread} onClick={() => update({ unread: !params.unread })}>
+                {t("threads.filters.unread")}
+              </Button>
+            )}
           </Group>
           <MemberFilterSelect
             roomId={roomId}

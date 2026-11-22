@@ -61,6 +61,14 @@ describe("threads API wrappers", () => {
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&mentionedId=7&mentionedId=9");
   });
 
+  test("listThreads sends unread=true and leaves it out when unset", async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 50, total: 0 })));
+    await listThreads(5, { page: 1, pageSize: 50, unread: true });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50&unread=true");
+    await listThreads(5, { page: 1, pageSize: 50 });
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50");
+  });
+
   test("listThreads sends watching=true and leaves it out when unset", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(json(200, { items: [], page: 1, pageSize: 50, total: 0 })));
     await listThreads(5, { page: 1, pageSize: 50, watching: true });

@@ -128,7 +128,7 @@ subscribed or not (it may not be subscribed yet).
   `revoked`; `room.deleted` does the same for every subscriber and target.
 - **Emitted only on a real change.** A no-op write (the same status, role, owner or details; archiving twice; an unchanged edit; adding an existing
   member) emits nothing. A refused or rolled-back write emits nothing. The opening message is part of `thread.created`. `moveThreads` (covered by
-  `room.workflow_updated`) and `touchActivity` emit nothing. Team, user and auth writes emit no hint, and neither does a watch (`PUT .../threads/{number}/watch`, 1.1.0: the caller's own state, like the read marker; no `LiveKind`).
+  `room.workflow_updated`) and `touchActivity` emit nothing. Team, user and auth writes emit no hint, and neither does a watch (`PUT .../threads/{number}/watch`, 1.1.0: the caller's own state, like the read marker; no `LiveKind`), nor "Mark all as read" (`POST /rooms/{id}/read-all`, 1.2: the caller's own floor and notices; the tab that sent it re-reads its own caches and another tab catches up on focus; telling a person's other tabs is S10's `BroadcastChannel`, not yet there).
 - **[changed] No single hook.** The 2026-11-17 text said "every write issues `pg_notify`". There is no common write path (`RoomService.create` is not under
   `withRoomWrite`, and several writes return early on a no-op), so each of the 19 change branches (`notifyLive` call sites) calls `notifyLive` itself, right before returning,
   inside the same transaction.

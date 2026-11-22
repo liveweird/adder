@@ -18,6 +18,7 @@ import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
@@ -97,6 +98,8 @@ class ThreadAuthzMatrixTest {
     private val operations = listOf(
         Operation("GET threads", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/threads") },
         Operation("GET thread", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/threads/1") },
+        // The unread filter is a reader's read too: an ADMIN outside the room has no read state, which is an empty page, not a refusal.
+        Operation("GET threads unread", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/threads?unread=true") },
         // The room search is a reader's read (0.5.0): a non-member's 404 outranks a bad `q` (the bucket sits before it, once per cell).
         Operation("GET search", notFound, ok, ok, ok, ok) { client, base, _ -> client.get("$base/search?q=matrix") },
         Operation("GET search with a bad q", notFound, badRequest, badRequest, badRequest, badRequest) { client, base, _ ->
@@ -205,6 +208,11 @@ class ThreadAuthzMatrixTest {
         },
         Operation("PUT read marker of an unknown thread", notFound, notFound, notFound, notFound, forbidden) { client, base, cast ->
             client.putJson("$base/threads/99/read-marker", ReadMarkerRequest(cast.other))
+        },
+        // "Mark all as read" (1.2) is the same member's-own state: no thread, no message, no body, so a member of any role is 204 and an
+        // ADMIN outside the room is 403 (before anything else: the room's archived state is no business of view state).
+        Operation("POST read-all", notFound, noContent, noContent, noContent, forbidden) { client, base, _ ->
+            client.post("$base/read-all")
         },
         // Watching is a member's own state: any member of the room (no steward rule), an ADMIN outside it is 403 before any lookup; a
         // closed thread can be watched.

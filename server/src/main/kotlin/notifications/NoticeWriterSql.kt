@@ -67,3 +67,38 @@ internal const val MARK_THREAD_SEEN_SQL = """
 UPDATE notifications SET seen_at = CAST(? AS int8)
 WHERE recipient_id = CAST(? AS int8) AND thread_id = CAST(? AS int4) AND seen_at IS NULL
   AND (message_id IS NULL OR message_id <= CAST(? AS int4))"""
+
+/**
+ * "Mark all as read" (1.2), step one: the newest id among one person's UNSEEN notices of one room, one probe of
+ * `idx_notifications_unseen_room` (V34: `(recipient_id, room_id, id) WHERE seen_at IS NULL`). Arguments: the person, the room.
+ */
+internal const val ROOM_UNSEEN_CEILING_SQL = """
+SELECT max(id) FROM notifications
+WHERE recipient_id = CAST(? AS int8) AND room_id = CAST(? AS int4) AND seen_at IS NULL"""
+
+/**
+ * Step two, the ids of one chunk: the person's unseen notices of the room, oldest id first, up to the ceiling and made no later than
+ * the request. Read off `idx_notifications_unseen_room`, so it touches this room's rows only, whatever the person holds elsewhere.
+ * `created_at + 0` is deliberate: a bare `created_at <= ?` lets a generic plan pick `idx_notifications_created` and walk the whole table
+ * (a plan test caught it); the arithmetic keeps the index of the keys out of the choice. KEYSET: `id > after` starts each chunk past the
+ * previous chunk's last id, so chunk k never re-reads the entries the earlier chunks stamped (they leave the partial index only when their
+ * transaction's changes are vacuumed away). `FOR NO KEY UPDATE` takes the chunk's row locks HERE, in id order, so two transactions that
+ * both lock rows of one person (a chunk, a "seen all", a member removal's cascade) always meet in the same order. Arguments: the person,
+ * the room, the previous chunk's last id (0 for the first), the ceiling, the instant, the limit. The limit is a bound parameter, the text
+ * is constant.
+ */
+internal const val ROOM_SEEN_CHUNK_IDS_SQL = """
+SELECT id FROM notifications
+WHERE recipient_id = CAST(? AS int8) AND room_id = CAST(? AS int4) AND seen_at IS NULL
+  AND id > CAST(? AS int4) AND id <= CAST(? AS int4) AND created_at + 0 <= CAST(? AS int8)
+ORDER BY id LIMIT CAST(? AS int4)
+FOR NO KEY UPDATE"""
+
+/**
+ * Step two, the stamp: the chunk's ids that are still unseen become seen; answers the ids it moved. The person is named again
+ * (the ids came from their own rows, so it cannot widen anything: it is the binding made visible at the write). Arguments: the instant,
+ * the person, the ids.
+ */
+internal const val MARK_IDS_SEEN_SQL = """
+UPDATE notifications SET seen_at = CAST(? AS int8)
+WHERE recipient_id = CAST(? AS int8) AND id = ANY(CAST(? AS int4[])) AND seen_at IS NULL RETURNING id"""

@@ -73,6 +73,32 @@ what the scenario is about.
 5. The reader loads Home again.
    - *Expected*: the room's link has no "New activity" description (the server holds it, not the page).
 
+## Scenario: the unread filter lists only threads with new messages
+
+1. The administrator mints an author and a reader; the author makes a room through the API and starts a thread ("before joining"), THEN adds the reader, then starts a second
+   thread and posts a message in it (the reader joined after the first, so only the second holds anything unread).
+2. The reader opens the room's **Threads** view.
+   - *Expected*: the second thread's row is described as "2 unread messages"; the first is described with nothing about unread.
+3. The reader opens **Filters** and presses **Unread**.
+   - *Expected*: the button is pressed, the address carries `unread=me`, only the second thread is listed, and the Filters badge says 1.
+4. The reader reloads the page.
+   - *Expected*: the address, the pressed button and the narrowed list survive; the API's `threads?unread=true` lists exactly the second thread.
+5. The reader presses **Unread** again.
+   - *Expected*: both threads are listed and the address no longer carries `unread`.
+
+## Scenario: mark all as read clears a room
+
+1. The administrator mints an author and a reader; the author makes a room through the API, starts a thread, THEN adds the reader, and posts two messages, the first of which mentions the reader.
+2. The reader opens the room's **Threads** view with the Unread filter on (`?unread=me`); the socket subscribes.
+   - *Expected*: the thread is described as "2 unread messages" and the bell is not named "Notifications (0 unseen)".
+3. The reader presses **Mark all as read**, then **Cancel** in the dialog "Mark all as read?".
+   - *Expected*: the dialog closes and the thread still says "2 unread messages".
+4. The reader presses **Mark all as read** and confirms.
+   - *Expected*: the request answers 204; the dialog closes; the bell is named "Notifications (0 unseen)"; the filtered list says "No threads match these filters."; the document was not
+     reloaded; the API's `threads?unread=true` totals 0.
+5. The author posts one more message through the API.
+   - *Expected*: with no reload the thread is back in the filtered list, described as "1 unread message" (only what comes after the mark is unread).
+
 ## Scenario: a reaction from the picker appears for another member without a reload, and a second press removes it
 
 1. The same setup with a started thread; both open it. Both browsers record every `securitypolicyviolation` the document reports.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { addRoomMembers, archiveRoom, createRoom, deleteRoom, getRoom, getRoomWorkflow, listRoomMembers, listRooms, markRoomSeen, removeRoomMember, setRoomMemberRole, unarchiveRoom, updateRoom } from "./rooms";
+import { addRoomMembers, archiveRoom, createRoom, deleteRoom, getRoom, getRoomWorkflow, listRoomMembers, listRooms, markRoomRead, markRoomSeen, removeRoomMember, setRoomMemberRole, unarchiveRoom, updateRoom } from "./rooms";
 
 describe("rooms API wrappers", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -85,5 +85,11 @@ describe("rooms API wrappers", () => {
     mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
     await markRoomSeen(5);
     expect([lastCall()[0], lastCall()[1].method, lastCall()[1].body]).toEqual(["/api/v1/rooms/5/seen", "POST", undefined]);
+  });
+
+  test("markRoomRead POSTs read-all with no body (204)", async () => {
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    await markRoomRead(5);
+    expect([lastCall()[0], lastCall()[1].method, lastCall()[1].body]).toEqual(["/api/v1/rooms/5/read-all", "POST", undefined]);
   });
 });

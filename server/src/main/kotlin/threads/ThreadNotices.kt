@@ -125,4 +125,29 @@ internal interface ThreadNotices {
      * WITHOUT the room lock, and touches only that person's rows.
      */
     suspend fun threadRead(threadId: UInt, userId: UInt, upToMessageId: UInt, at: Long)
+
+    /**
+     * "Mark all as read" (1.2), step one: the newest id among [userId]'s UNSEEN notices of room [roomId], or null when they hold none
+     * (one probe of `idx_notifications_unseen_room`). The settle never goes past it. Runs in the caller's short transaction.
+     */
+    suspend fun roomUnseenCeiling(roomId: UInt, userId: UInt): UInt?
+
+    /**
+     * Step two, one CHUNK: settles at most [limit] of [userId]'s unseen notices of room [roomId] with an id above [after] and at most
+     * [ceiling] and whose `created_at` is at most [at] (nothing made after the request is settled by it), oldest id first, stamping them
+     * [at]; every kind and channel, a mail-only notice too (it cancels its pending digest, as the read marker does). The rows are locked
+     * in id order while they are selected. Runs in its own short transaction, WITHOUT the room lock and without the member row; touches
+     * only that person's rows. Answers how many were selected (a full chunk means more may follow: the caller loops, from
+     * [SeenChunk.lastId]) and how many were actually updated.
+     */
+    suspend fun roomSeenChunk(roomId: UInt, userId: UInt, at: Long, after: UInt, ceiling: UInt, limit: Int): SeenChunk
 }
+
+/**
+ * What one chunk of "Mark all as read" did: [selected] rows were found, [moved] of them were marked seen, and [lastId] is the last id
+ * selected (null for an empty chunk), where the next chunk starts.
+ */
+internal data class SeenChunk(val selected: Int, val moved: Int, val lastId: UInt? = null)
+
+/** The most unseen notices one chunk of "Mark all as read" settles (the shape of the "seen all" POST's chunk). */
+internal const val ROOM_SEEN_CHUNK = 1000

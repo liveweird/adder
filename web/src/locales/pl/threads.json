@@ -25,6 +25,7 @@
     "mine": "Moje",
     "mentionsMe": "Wzmianki o mnie",
     "watching": "Obserwowane",
+    "unread": "Nieprzeczytane",
     "clear": "Wyczyść filtry",
     "tags": "Tagi",
     "noTags": "Nie znaleziono tagów"
@@ -107,7 +108,17 @@
     "statusChanged": "Zmieniono status",
     "ownerChanged": "Zmieniono właściciela/kę",
     "detailsSaved": "Zapisano szczegóły",
-    "tagsSaved": "Zapisano tagi"
+    "tagsSaved": "Zapisano tagi",
+    "markedRead": "Pokój oznaczony jako przeczytany"
+  },
+  "markAllRead": {
+    "action": "Oznacz wszystko jako przeczytane",
+    "title": "Oznaczyć wszystko jako przeczytane?",
+    "body": "Wszystkie wątki w pokoju {{name}} zostaną dla Ciebie oznaczone jako przeczytane, także zamknięte, podobnie jak Twoje powiadomienia z tego pokoju. Nikogo innego to nie dotyczy.",
+    "confirm": "Oznacz wszystko jako przeczytane",
+    "failed": "Nie udało się oznaczyć pokoju jako przeczytanego",
+    "forbidden": "Tylko członkowie i członkinie pokoju mogą go oznaczyć jako przeczytany.",
+    "notFound": "Ten pokój nie jest już dla Ciebie dostępny."
   },
   "messages": {
     "aria": "Wiadomości",
