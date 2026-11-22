@@ -134,12 +134,10 @@ describe("hashtags in the room view", () => {
     expect(headingOutline().some(([, name]) => name === "Hashtags")).toBe(false);
   });
 
-  test("the side panel's Hashtags section sits between Details and History as an h4", async () => {
+  test("the side panel's Hashtags section sits between Details and History as an h4", () => {
     serve([]);
     renderWithProviders(<ThreadSidePanel room={makeRoom()} thread={makeThread({ number: 42, hashtags: ["outage", "db-3"] })} />);
-    await screen.findByRole("combobox", { name: "Thread status" });
     expect(headingOutline()).toEqual([
-      [4, "Status"],
       [4, "Owner"],
       [4, "Details"],
       [4, "Tags"],

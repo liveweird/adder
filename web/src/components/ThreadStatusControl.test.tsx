@@ -19,14 +19,20 @@ describe("ThreadStatusControl", () => {
     );
   }
   function renderControl(opts: { steward: boolean; thread?: Partial<ReturnType<typeof makeThread>>; room?: Partial<ReturnType<typeof makeRoom>>; queryClient?: QueryClient }) {
+    localStorage.setItem("adder.auth.userId", opts.steward ? "5" : "6");
     return renderWithProviders(
-      <ThreadStatusControl room={makeRoom(opts.room)} thread={makeThread({ number: 42, ...opts.thread })} statuses={STATUSES} steward={opts.steward} />,
+      <ThreadStatusControl room={makeRoom(opts.room)} thread={makeThread({ number: 42, ...opts.thread })} statuses={STATUSES} />,
       { queryClient: opts.queryClient },
     );
   }
-  const openList = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(screen.getByRole("combobox", { name: "Thread status" }));
-    return screen.findByRole("listbox");
+  const current = () => screen.getByRole("status", { name: "Thread status" });
+  const action = (name: string) => screen.getByRole("button", { name });
+  const openMenu = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(action("Change status"));
+    return screen.findByRole("menu", { name: "Change status" });
+  };
+  const pick = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+    await user.click(within(await openMenu(user)).getByRole("menuitem", { name }));
   };
 
   beforeEach(() => {
@@ -39,28 +45,24 @@ describe("ThreadStatusControl", () => {
     localStorage.clear();
   });
 
-  test("shows the current status, and lists the workflow's statuses grouped Open and Closed", async () => {
+  test("shows the current status separately and labels each available move by its effect", async () => {
     const user = userEvent.setup();
     respond(204);
     renderControl({ steward: true });
-    expect(screen.getByRole("combobox", { name: "Thread status" })).toHaveValue("Triage");
-    const list = await openList(user);
-    expect(within(list).getByText("Open")).toBeInTheDocument();
-    expect(within(list).getByText("Closed")).toBeInTheDocument();
-    expect(within(list).getAllByRole("option").map((option) => option.textContent)).toEqual(["Triage", "In progress", "Done", "Won't do"]);
+    expect(current()).toHaveTextContent("Triage");
+    const menu = await openMenu(user);
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Move to In progress", "Close as Done", "Close as Won't do",
+    ]);
   });
 
-  test("a plain member moves between OPEN statuses at once; the CLOSED ones are disabled with the reason", async () => {
+  test("a plain member gets one direct OPEN move and no close actions", async () => {
     const user = userEvent.setup();
     respond(204);
     renderControl({ steward: false });
-    expect(screen.getByText(/is for the thread owner, a room owner or an administrator/)).toBeInTheDocument();
-    const list = await openList(user);
-    const done = within(list).getByRole("option", { name: /Done/ });
-    expect(done).toHaveAttribute("data-combobox-disabled", "true");
-    expect(done).toHaveTextContent("Needs the thread owner, a room owner or an administrator");
-    expect(within(list).getByRole("option", { name: /In progress/ })).not.toHaveAttribute("data-combobox-disabled");
-    await user.click(within(list).getByRole("option", { name: /In progress/ }));
+    expect(screen.queryByRole("button", { name: "Change status" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Close as/ })).not.toBeInTheDocument();
+    await user.click(action("Move to In progress"));
     await waitFor(() => expect(puts()).toEqual([["/api/v1/rooms/12/threads/42/status", { status: "working" }]]));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -71,7 +73,7 @@ describe("ThreadStatusControl", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     respond(204);
     renderControl({ steward: false, queryClient });
-    await user.click(within(await openList(user)).getByRole("option", { name: /In progress/ }));
+    await user.click(action("Move to In progress"));
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "workflow", 12] }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "rail"] });
@@ -82,40 +84,81 @@ describe("ThreadStatusControl", () => {
     const user = userEvent.setup();
     respond(204);
     renderControl({ steward: true });
-    await user.click(within(await openList(user)).getByRole("option", { name: /Done/ }));
+    await pick(user, "Close as Done");
     const dialog = await screen.findByRole("dialog", { name: "Close this thread?" });
     expect(dialog).toHaveTextContent("Moving #42 to Done closes it");
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(puts()).toEqual([]);
-    await user.click(within(await openList(user)).getByRole("option", { name: /Done/ }));
+    await pick(user, "Close as Done");
     await user.click(within(await screen.findByRole("dialog", { name: "Close this thread?" })).getByRole("button", { name: "Close thread" }));
     await waitFor(() => expect(puts()).toEqual([["/api/v1/rooms/12/threads/42/status", { status: "done" }]]));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  test("reopening, and a CLOSED to CLOSED move, go straight through for a steward (no confirm)", async () => {
+  test.each([
+    ["Reopen as Triage", "triage"],
+    ["Move to Won't do", "wontdo"],
+  ])("a steward can choose %s immediately on a closed thread", async (name, status) => {
     const user = userEvent.setup();
     respond(204);
     renderControl({ steward: true, thread: { status: "done", closed: true } });
-    await user.click(within(await openList(user)).getByRole("option", { name: /Won't do/ }));
-    await waitFor(() => expect(puts()).toEqual([["/api/v1/rooms/12/threads/42/status", { status: "wontdo" }]]));
+    await pick(user, name);
+    await waitFor(() => expect(puts()).toEqual([["/api/v1/rooms/12/threads/42/status", { status }]]));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  test("on a closed thread a plain member can pick no other status", async () => {
-    const user = userEvent.setup();
+  test("a closed thread shows a plain member the current status and no actions", () => {
     respond(204);
     renderControl({ steward: false, thread: { status: "done", closed: true } });
-    const list = await openList(user);
-    for (const name of [/Triage/, /In progress/, /Won't do/]) expect(within(list).getByRole("option", { name })).toHaveAttribute("data-combobox-disabled", "true");
+    expect(current()).toHaveTextContent("Done");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  test("an archived room disables the select and says why", () => {
+  test("an archived room shows the current status and no actions", () => {
     respond(204);
     renderControl({ steward: true, room: { archived: true } });
-    expect(screen.getByRole("combobox", { name: "Thread status" })).toBeDisabled();
-    expect(screen.getByText("This room is archived, so the status can no longer change.")).toBeInTheDocument();
+    expect(current()).toHaveTextContent("Triage");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  test("a pending status write keeps focus and ignores another activation", async () => {
+    const user = userEvent.setup();
+    let complete!: (response: Response) => void;
+    mockFetch.mockReturnValue(new Promise<Response>((resolve) => { complete = resolve; }));
+    renderControl({ steward: false });
+    const button = action("Move to In progress");
+    await user.click(button);
+    expect(button).toHaveFocus();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await user.keyboard("{Enter}");
+    expect(puts()).toHaveLength(1);
+    complete(new Response(null, { status: 204 }));
+    await waitFor(() => expect(button).not.toHaveAttribute("aria-busy"));
+    expect(button).toHaveFocus();
+  });
+
+  test("a close confirmation is dismissed if a live update changes the source status", async () => {
+    const user = userEvent.setup();
+    respond(204);
+    const { rerender } = renderControl({ steward: true });
+    await pick(user, "Close as Done");
+    expect(await screen.findByRole("dialog", { name: "Close this thread?" })).toBeInTheDocument();
+    rerender(<ThreadStatusControl room={makeRoom()} thread={makeThread({ status: "working" })} statuses={STATUSES} />);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(puts()).toEqual([]);
+  });
+
+  test("shows the status key while the workflow is loading, then explains when there are no other open statuses", () => {
+    const thread = makeThread();
+    const room = makeRoom();
+    const { rerender } = renderWithProviders(<ThreadStatusControl room={room} thread={thread} statuses={undefined} />);
+    expect(current()).toHaveTextContent("triage");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    rerender(<ThreadStatusControl room={room} thread={thread} statuses={STATUSES.filter((status) => status.key !== "working")} />);
+    expect(current()).toHaveTextContent("Triage");
+    expect(screen.getByText("No other status is available to you.")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   test("a refused move (403) says who may, stays under the control and re-reads the room", async () => {
@@ -124,7 +167,7 @@ describe("ThreadStatusControl", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     respond(403, { title: "Forbidden", status: 403 });
     renderControl({ steward: true, thread: { status: "done", closed: true }, queryClient });
-    await user.click(within(await openList(user)).getByRole("option", { name: /Triage/ }));
+    await pick(user, "Reopen as Triage");
     expect(await screen.findByRole("alert")).toHaveTextContent("Only the thread owner, a room owner or an administrator can close or reopen a thread");
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms"] }));
   });
@@ -135,14 +178,14 @@ describe("ThreadStatusControl", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     respond(400, { title: "Bad", status: 400 });
     const { unmount } = renderControl({ steward: false, queryClient });
-    await user.click(within(await openList(user)).getByRole("option", { name: /In progress/ }));
+    await user.click(action("Move to In progress"));
     expect(await screen.findByRole("alert")).toHaveTextContent("That status is no longer available in this room. Pick another one.");
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms"] }));
     unmount();
     invalidate.mockClear();
     mockFetch.mockRejectedValue(new TypeError("offline"));
     renderControl({ steward: false, queryClient });
-    await user.click(within(await openList(user)).getByRole("option", { name: /In progress/ }));
+    await user.click(action("Move to In progress"));
     expect(await screen.findByRole("alert")).toHaveTextContent("Action failed. Check your connection and try again.");
     expect(invalidate).not.toHaveBeenCalled();
   });
@@ -150,6 +193,6 @@ describe("ThreadStatusControl", () => {
   test("a status the workflow no longer lists still shows as the current choice", () => {
     respond(204);
     renderControl({ steward: true, thread: { status: "retired", closed: false } });
-    expect(screen.getByRole("combobox", { name: "Thread status" })).toHaveValue("retired");
+    expect(current()).toHaveTextContent("retired");
   });
 });

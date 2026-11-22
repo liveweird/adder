@@ -35,7 +35,7 @@ import ThreadHashtags from "./ThreadHashtags";
 import ThreadPinButton from "./ThreadPinButton";
 import ThreadPinStrip from "./ThreadPinStrip";
 import ThreadSidePanel from "./ThreadSidePanel";
-import ThreadStatusPill from "./ThreadStatusPill";
+import ThreadStatusControl from "./ThreadStatusControl";
 import ThreadWatchButton from "./ThreadWatchButton";
 import classes from "./ThreadPane.module.css";
 import { roomKeys } from "../utils/roomKeys";
@@ -49,7 +49,7 @@ const HEADER_TAGS = 3;
 /**
  * The room view's conversation pane for `/rooms/:id/threads/:number`: the thread's header — `#42 Title` as the pane's heading, its
  * status, owner and message count — then the conversation and reply box (or a note saying why replies are unavailable). The header keeps
- * the thread actions, curated tags and hashtag links in reach. The side panel holds workflow controls, timestamps and history. Details
+ * workflow actions, thread actions, curated tags and hashtag links in reach. The side panel holds ownership, fields, timestamps and history. Details
  * opens it beside the conversation on wide screens and above it on narrow screens. A number that names no thread reads as "does not exist". The section is
  * programmatically focusable and takes focus once its thread has loaded after a navigation that asked for it (a list row, a started
  * thread — `wantsThreadPaneFocus`), the `RoomWorkflowForm` precedent: the clicked row is left behind in the list. A `replace` (a filter
@@ -180,7 +180,6 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             />
           </Group>
           <Group className={classes.meta} gap="0.25rem 0.625rem">
-            <ThreadStatusPill statuses={workflow.data?.statuses} statusKey={thread.status} size="sm" />
             {pinnedThreads.has(thread.number) && <PinMark size="sm" />}
             <Text size="xs" c="dimmed">
               {fillSlots(t("threads.pane.owner", { name: slot("name") }), { name: <PersonLink id={thread.ownerId} name={thread.ownerName} inherit /> })}
@@ -190,6 +189,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             </Text>
           </Group>
         </div>
+        <ThreadStatusControl key={`${room.id}/${thread.number}`} room={room} thread={thread} statuses={workflow.data?.statuses} />
         {actionError?.number === thread.number && <FormErrorAlert>{actionError.message}</FormErrorAlert>}
         {(thread.tags.length > 0 || thread.hashtags.length > 0) && (
           <div className={classes.labels}>

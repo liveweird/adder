@@ -251,7 +251,7 @@ test.describe("detail pages and overlays", () => {
   const openSidePanel = async (page: Page) => {
     const toggle = page.getByRole("button", { name: "Details", exact: true });
     if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
-    await expect(page.getByRole("combobox", { name: "Thread status", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 4, name: "Owner", exact: true })).toBeVisible();
   };
 
   const DETAIL_PAGES: {
@@ -275,7 +275,7 @@ test.describe("detail pages and overlays", () => {
       settled: (p) => p.getByRole("navigation", { name: "Threads", exact: true }).getByRole("link", { name: new RegExp(threadTitle) }),
       alsoSettled: (p) => p.getByRole("region", { name: new RegExp(`^#${threadNumber} `) }),
     },
-    // The side panel: Status, Owner (the fixture room's admin owns the room and the thread, so the member picker is drawn), Details and History.
+    // The side panel: Owner (the fixture room's admin owns the room and the thread, so the member picker is drawn), Details, Tags and History.
     {
       name: "the thread's side panel", asOwner: true,
       path: () => `/rooms/${roomId}/threads/${threadNumber}`,
@@ -284,6 +284,8 @@ test.describe("detail pages and overlays", () => {
         await openSidePanel(p);
         await expect(p.getByRole("heading", { level: 4, name: "History", exact: true })).toBeVisible();
         await expect(p.getByText("Started the thread in Open")).toBeVisible();
+        await p.getByRole("button", { name: "Change status", exact: true }).click();
+        await expect(p.getByRole("menu", { name: "Change status", exact: true })).toHaveCSS("opacity", "1");
       },
     },
     // The read-only panel: an ARCHIVED room's thread refuses every write, so nothing in the panel takes focus; the panel itself is the focusable, labelled region.

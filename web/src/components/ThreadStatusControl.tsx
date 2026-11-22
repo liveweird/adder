@@ -1,134 +1,146 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Select, Stack, Text } from "@mantine/core";
+import { Button, Loader, Menu, Stack, Text } from "@mantine/core";
+import { IconArrowRight, IconArrowsExchange, IconChevronDown, IconLock, IconLockOpen } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { getUserId } from "../api/session";
 import type { RoomResponse, RoomWorkflow } from "../api/rooms";
 import { setThreadStatus, type ThreadResponse } from "../api/threads";
+import { useAdmin } from "../auth";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { roomKeys } from "../utils/roomKeys";
 import { isStaleWrite, threadStatusErrorMessage } from "../utils/threadActions";
-import { statusMoveBlock } from "../utils/threadAccess";
+import { isThreadSteward, statusMoveBlock } from "../utils/threadAccess";
 import { showSuccessToast } from "../utils/toast";
 import ConfirmActionModal from "./ConfirmActionModal";
 import FormErrorAlert from "./FormErrorAlert";
-import { roomKeys } from "../utils/roomKeys";
+import ThreadStatusPill from "./ThreadStatusPill";
+import classes from "./ThreadStatusControl.module.css";
 
 type WorkflowStatus = RoomWorkflow["statuses"][number];
-/** What the control needs of a status (the current one may be a bare key the workflow no longer lists). */
-type Choice = Pick<WorkflowStatus, "key" | "label" | "category">;
 
-/**
- * The thread's status as a Select grouped Open and Closed (the room's workflow, in its own order). D1: a move between two OPEN statuses is
- * open to every reader; closing, reopening and a move between CLOSED statuses are for a steward (`isThreadSteward`), so for anyone else those
- * options are disabled WITH their hint ("Needs the thread owner, a room owner or an administrator") rather than hidden. An archived room
- * disables them all. Closing an open thread asks first (it stops everyone until a steward reopens it). The status PUT is not revisioned; a
- * 400 (the status was retired meanwhile), 403, 404 or 409 re-reads the room, so the options follow the truth. The select shows the
- * server's status and follows a refetch; a failure shows under it.
- */
 export default function ThreadStatusControl({
   room,
   thread,
   statuses,
-  steward,
 }: {
   room: RoomResponse;
   thread: ThreadResponse;
-  statuses: readonly WorkflowStatus[];
-  steward: boolean;
+  statuses: readonly WorkflowStatus[] | undefined;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const admin = useAdmin();
+  const steward = isThreadSteward({ room, thread, userId: getUserId(), admin });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [closing, setClosing] = useState<Choice | null>(null);
+  const [closing, setClosing] = useState<{ target: WorkflowStatus; from: string } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
-  // A key the workflow no longer lists (a read older than the thread's last move) still shows as the current choice, under its own category.
-  const known = statuses.some((status) => status.key === thread.status);
-  const all: readonly Choice[] = known
-    ? statuses
-    : [...statuses, { key: thread.status, label: thread.status, category: thread.closed ? "CLOSED" : "OPEN" }];
-  const hints: Record<string, string> = {};
-  const item = (status: Choice) => {
-    const block = statusMoveBlock(room, thread, steward, status);
-    if (block !== null) hints[status.key] = t(block === "archived" ? "threads.status.hintArchived" : "threads.status.hintSteward");
-    return { value: status.key, label: status.label, disabled: block !== null };
-  };
-  const data = [
-    { group: t("threads.status.open"), items: all.filter((status) => status.category === "OPEN").map(item) },
-    { group: t("threads.status.closed"), items: all.filter((status) => status.category === "CLOSED").map(item) },
-  ].filter((group) => group.items.length > 0);
+  const available = (statuses ?? []).filter((status) => status.key !== thread.status && statusMoveBlock(room, thread, steward, status) === null);
+  const [first] = available;
+  const hasMenu = available.length > 1;
+  const readOnlyNote = room.archived ? t("threads.status.archivedNote")
+    : thread.closed && !steward ? t("threads.status.closedNote")
+    : statuses && !first ? t("threads.status.noMoves") : null;
+
+  if (menuOpen && !hasMenu) setMenuOpen(false);
+
+  // If a live update invalidates the pending close, require a fresh choice.
+  if (closing && !saving && (thread.closed || thread.status !== closing.from
+    || !available.some((status) => status.key === closing.target.key && status.category === "CLOSED" && status.label === closing.target.label))) {
+    setClosing(null);
+  }
+
+  function actionFor(target: WorkflowStatus) {
+    if (thread.closed && target.category === "OPEN") return { label: t("threads.status.reopenAs", { status: target.label }), icon: IconLockOpen };
+    if (!thread.closed && target.category === "CLOSED") return { label: t("threads.status.closeAs", { status: target.label }), icon: IconLock };
+    return { label: t("threads.status.moveTo", { status: target.label }), icon: IconArrowRight };
+  }
 
   async function move(key: string) {
+    if (saving) return;
     setError(null);
     setSaving(true);
     try {
       await setThreadStatus(room.id, thread.number, key);
+      showSuccessToast(t("threads.toast.statusChanged"));
+      await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail, roomKeys.workflow(room.id));
     } catch (err) {
       setError(threadStatusErrorMessage(err, t));
-      // The standing or the workflow moved under the page: show the truth (the room, the thread, the statuses and their counts).
       if (isStaleWrite(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
-      setSaving(false);
+    } finally {
       setClosing(null);
-      return;
+      setSaving(false);
     }
-    showSuccessToast(t("threads.toast.statusChanged"));
-    // The thread, the list, the history and the rail follow, and so do the workflow's `threadCount`s; a move changes no room header.
-    await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail, roomKeys.workflow(room.id));
-    setSaving(false);
-    setClosing(null);
   }
 
-  function choose(key: string | null) {
-    const target = all.find((status) => status.key === key);
-    if (!target || target.key === thread.status) return;
-    // Closing an OPEN thread stops everyone: ask first. A CLOSED to CLOSED move and a reopen go straight through.
-    if (!thread.closed && target.category === "CLOSED") setClosing(target);
+  function choose(target: WorkflowStatus) {
+    // The menu item may unmount before the confirmation can remember where to return focus.
+    buttonRef.current?.focus({ preventScroll: true });
+    if (!thread.closed && target.category === "CLOSED") setClosing({ target, from: thread.status });
     else void move(target.key);
   }
 
+  const direct = first && !hasMenu ? actionFor(first) : null;
+  const ActionIcon = direct?.icon ?? IconArrowsExchange;
+  const button = first && (
+    <Button
+      ref={buttonRef}
+      type="button"
+      size="compact-sm"
+      classNames={{ root: classes.action, label: classes.actionLabel }}
+      aria-busy={saving || undefined}
+      aria-disabled={saving || undefined}
+      leftSection={saving ? <Loader size={16} color="white" aria-hidden /> : <ActionIcon size={16} aria-hidden />}
+      rightSection={hasMenu ? <IconChevronDown size={14} aria-hidden /> : undefined}
+      onClick={direct ? () => !saving && choose(first) : undefined}
+    >
+      {direct?.label ?? t("threads.status.change")}
+    </Button>
+  );
+
   return (
     <Stack gap="xs">
-      <Select
-        aria-label={t("threads.status.label")}
-        data={data}
-        value={thread.status}
-        onChange={choose}
-        allowDeselect={false}
-        // Read-only while a move is in flight (disabling would drop the focus the person is working at).
-        readOnly={saving}
-        disabled={room.archived}
-        renderOption={({ option }) => (
-          <Stack gap={0}>
-            <Text size="sm">{option.label}</Text>
-            {hints[option.value] && (
-              <Text size="xs" c="dimmed">
-                {hints[option.value]}
-              </Text>
-            )}
-          </Stack>
-        )}
-      />
-      {room.archived ? (
-        <Text size="xs" c="dimmed">
-          {t("threads.status.archivedNote")}
-        </Text>
-      ) : (
-        !steward && (
-          <Text size="xs" c="dimmed">
-            {t("threads.status.stewardNote")}
-          </Text>
-        )
-      )}
+      <div className={classes.bar}>
+        <div className={classes.current} role="status" aria-label={t("threads.status.label")}>
+          <ThreadStatusPill statuses={statuses} statusKey={thread.status} wrap />
+        </div>
+        {hasMenu ? (
+          <Menu opened={menuOpen && !saving} onChange={(opened) => setMenuOpen(opened && !saving)} withInitialFocusPlaceholder={false}>
+            <Menu.Target>{button}</Menu.Target>
+            <Menu.Dropdown className={classes.menu}>
+              {available.map((target) => {
+                const { label, icon: Icon } = actionFor(target);
+                return (
+                  <Menu.Item
+                    key={target.key}
+                    className={classes.menuItem}
+                    data-autofocus={target === first || undefined}
+                    leftSection={<Icon size={16} aria-hidden />}
+                    onClick={() => choose(target)}
+                  >
+                    {label}
+                  </Menu.Item>
+                );
+              })}
+            </Menu.Dropdown>
+          </Menu>
+        ) : button}
+        {readOnlyNote && <Text size="xs" c="dimmed">{readOnlyNote}</Text>}
+      </div>
       {error && <FormErrorAlert>{error}</FormErrorAlert>}
       <ConfirmActionModal
         opened={closing !== null}
         onClose={() => setClosing(null)}
         title={t("threads.status.closeTitle")}
-        message={t("threads.status.closeMessage", { number: thread.number, status: closing?.label ?? "" })}
+        message={t("threads.status.closeMessage", { number: thread.number, status: closing?.target.label ?? "" })}
         cancelLabel={t("common.action.cancel")}
         confirmLabel={t("threads.status.closeConfirm")}
         confirmColor="adder"
         loading={saving}
-        onConfirm={() => closing && void move(closing.key)}
+        onConfirm={() => closing && void move(closing.target.key)}
       />
     </Stack>
   );

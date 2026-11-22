@@ -19,12 +19,14 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
   {
     version: "1.4.1",
     date: "2026-11-22",
-    en: `**Adder 1.4.1 — refreshed logo**
+    en: `**Adder 1.4.1 — thread status and refreshed logo**
 
+- Change a thread’s status directly from its header. You see only the moves available to you, and the app asks for confirmation before closing the thread.
 - The sign-in screens and app header now show a front-facing Strike adder in light and dark themes.
 - Browser tabs use a simplified version of the same mark at small sizes.`,
-    pl: `**Adder 1.4.1 — odświeżone logo**
+    pl: `**Adder 1.4.1 — status wątku i odświeżone logo**
 
+- Zmieniaj status wątku bezpośrednio w jego nagłówku. Zobaczysz tylko dostępne dla Ciebie akcje, a przed zamknięciem wątku aplikacja poprosi o potwierdzenie.
 - Na ekranach logowania i w nagłówku aplikacji zobaczysz znak Strike ze żmiją widzianą od przodu w jasnym i ciemnym motywie.
 - Na kartach przeglądarki zobaczysz uproszczoną wersję tego samego znaku w małym rozmiarze.`,
   },

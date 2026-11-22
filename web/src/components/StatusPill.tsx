@@ -19,6 +19,7 @@ export default function StatusPill({
   dot = false,
   size = "md",
   ariaLabel,
+  wrap = false,
 }: {
   /** A bare hue name ("teal", "gray") — never a shade-suffixed colour: the tint comes from the hue, the ink from the theme. */
   color: MantineColor;
@@ -27,13 +28,15 @@ export default function StatusPill({
   dot?: boolean;
   size?: "sm" | "md";
   ariaLabel?: string;
+  wrap?: boolean;
 }) {
   return (
     <Badge
       color={color}
       size={size}
       leftSection={dot ? <span className={classes.dot} aria-hidden="true" /> : undefined}
-      style={{ minWidth: "max-content", ...hueDotVar(color) }}
+      classNames={wrap ? { root: classes.wrap, label: classes.wrapLabel } : undefined}
+      style={{ minWidth: wrap ? 0 : "max-content", ...hueDotVar(color) }}
       aria-label={ariaLabel}
     >
       {children}

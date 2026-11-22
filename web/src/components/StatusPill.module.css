@@ -8,6 +8,18 @@
   background-color: var(--pill-dot);
 }
 
+.wrap {
+  height: auto;
+  min-block-size: var(--badge-height);
+  max-inline-size: 100%;
+  padding-block: 0.125rem;
+}
+
+.wrapLabel {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* Forced colors (v4.21.0): the dot is the hue — colour-only information with an adjacent text
    label — so it must not be repainted to Canvas (which would erase it). Keep it, in a system
    colour that contrasts with the pill's forced Canvas surface. The pill's own outline comes from

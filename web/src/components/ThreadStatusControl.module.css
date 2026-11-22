@@ -1,0 +1,45 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  min-inline-size: 0;
+}
+
+.current {
+  display: flex;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.action {
+  block-size: auto;
+  min-block-size: 1.875rem;
+  max-inline-size: 100%;
+  padding-block: 0.25rem;
+}
+
+.actionLabel,
+.menuItem {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
+.menu {
+  max-inline-size: min(21rem, calc(100vw - 1rem));
+  max-block-size: min(22rem, 55dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.menuItem {
+  min-block-size: 2.25rem;
+}
+
+@media (pointer: coarse) {
+  .action,
+  .menuItem {
+    min-block-size: 2.75rem;
+  }
+}

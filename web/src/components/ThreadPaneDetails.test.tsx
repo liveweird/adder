@@ -10,7 +10,10 @@ import { renderWithProviders } from "../test/render";
 // The side panel takes space only when opened, and the header's icon actions (1.2 D4; the rest of the pane is in ThreadPane.test.tsx).
 const WORKFLOW = {
   revision: 1,
-  statuses: [{ key: "triage", label: "Triage", colour: "BLUE", category: "OPEN", initial: true, threadCount: 1 }],
+  statuses: [
+    { key: "triage", label: "Triage", colour: "BLUE", category: "OPEN", initial: true, threadCount: 1 },
+    { key: "working", label: "In progress", colour: "GRAPE", category: "OPEN", initial: false, threadCount: 0 },
+  ],
   fields: [],
 };
 const STORAGE_KEY = "adder.viewSettings.threadPane.detailsOpen";
@@ -48,7 +51,9 @@ describe("ThreadPane: the side panel opens on demand", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(panel).toHaveAttribute("data-open", "false");
     expect(container.querySelector("[data-side]")).toHaveAttribute("data-side", "closed");
-    expect(within(panel).getByRole("heading", { level: 4, name: "Status" })).toBeInTheDocument();
+    const statusAction = await screen.findByRole("button", { name: "Move to In progress" });
+    expect(panel).not.toContainElement(statusAction);
+    expect(within(panel).getByRole("heading", { level: 4, name: "Owner" })).toBeInTheDocument();
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(panel).toHaveAttribute("data-open", "true");
@@ -111,12 +116,11 @@ describe("ThreadPane: the side panel opens on demand", () => {
     expect(panel.id).toBe(toggle.getAttribute("aria-controls"));
   });
 
-  test("the outline is unchanged: the pane's h3, then the panel's five h4 sections (collapsed ones are hidden by CSS only)", async () => {
+  test("the pane's h3 precedes the panel's four h4 sections (collapsed ones are hidden by CSS only)", async () => {
     renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
     await screen.findByRole("region", { name: "#42 Disk full on db-3" });
     expect(headingOutline()).toEqual([
       [3, "#42 Disk full on db-3"],
-      [4, "Status"],
       [4, "Owner"],
       [4, "Details"],
       [4, "Tags"],

@@ -102,7 +102,6 @@ describe("ThreadPane", () => {
     await waitFor(() => expect(region).toHaveTextContent("Triage"));
     expect(headingOutline()).toEqual([
       [3, "#42 Disk full on db-3"],
-      [4, "Status"],
       [4, "Owner"],
       [4, "Details"],
       [4, "Tags"],
@@ -196,8 +195,8 @@ describe("ThreadPane", () => {
       expect.stringContaining("second"),
     ]);
     expect(screen.getByRole("textbox", { name: "Reply" })).toBeInTheDocument();
-    // The messages add no heading: the outline is the pane's h3 and the side panel's five h4s.
-    expect(headingOutline().map(([level]) => level)).toEqual([3, 4, 4, 4, 4, 4]);
+    // The messages add no heading: the outline is the pane's h3 and the side panel's four h4s.
+    expect(headingOutline().map(([level]) => level)).toEqual([3, 4, 4, 4, 4]);
   });
 
   test("a closed thread keeps the conversation and swaps the box for the note", async () => {
@@ -414,7 +413,7 @@ describe("ThreadPane", () => {
     });
   });
 
-  test("closing the thread from the side panel re-reads it: the header's status follows and the composer becomes the closed note", async () => {
+  test("closing the thread from its header updates the status and replaces the reply box with the closed note", async () => {
     const user = userEvent.setup();
     let status = "triage";
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
@@ -430,12 +429,12 @@ describe("ThreadPane", () => {
     });
     renderWithProviders(<ThreadPane room={{ ...ROOM, role: "OWNER" }} numberParam="42" />);
     const region = await screen.findByRole("region", { name: "#42 Disk full on db-3" });
-    await user.click(await screen.findByRole("combobox", { name: "Thread status" }));
-    await user.click(await screen.findByRole("option", { name: /Done/ }));
+    expect(within(region).getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "false");
+    await user.click(await within(region).findByRole("button", { name: "Change status" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Close as Done" }));
     await user.click(within(await screen.findByRole("dialog", { name: "Close this thread?" })).getByRole("button", { name: "Close thread" }));
     await waitFor(() => expect(screen.getByRole("note")).toHaveTextContent("This thread is closed"));
-    expect(within(region).getAllByText("Done").length).toBeGreaterThan(0);
-    expect(screen.getByRole("combobox", { name: "Thread status" })).toHaveValue("Done");
+    expect(within(region).getByRole("status", { name: "Thread status" })).toHaveTextContent("Done");
     expect(screen.queryByRole("textbox", { name: "Reply" })).not.toBeInTheDocument();
   });
 });
