@@ -1,6 +1,6 @@
 import { useComputedColorScheme } from "@mantine/core";
 
-/** The theme-aware Adder logo ("Strike", a rattlesnake) (light/dark SVG variants from public/). */
+/** The theme-aware Adder logo ("Strike"), using the SVG variants in public/. */
 export default function BrandLogo({ size = 28 }: { size?: number }) {
   const computed = useComputedColorScheme("light", { getInitialValueInEffect: true });
   const src = computed === "dark" ? "/logo-dark.svg" : "/logo-light.svg";

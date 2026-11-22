@@ -11,11 +11,11 @@ at first, passable like a Jira assignee); a thread in a CLOSED-category status i
 or an ADMIN reopens it. Room content is filterable, sortable and searchable; the usual chat affordances apply (pins, @mentions, reactions, emoji,
 #hashtags). Updates reach open browsers live over a WebSocket.
 
-**Roadmap:** **1.4.0 (current: clearer workspace)** on **1.3.0 (quotes)** on **1.2.0 (room view, tags, unread)** on **1.1.0 (watching, group mentions, notice kinds)** on **1.0.0 (the checkup)** on 0.1.0 to 0.6.0. The version chain, scope, decisions and assumptions: `.claude/docs/product.md`.
+**Roadmap:** **1.4.1 (current: refreshed Strike logo)** on **1.4.0 (clearer workspace)** on **1.3.0 (quotes)** on **1.2.0 (room view, tags, unread)** on **1.1.0 (watching, group mentions, notice kinds)** on **1.0.0 (the checkup)** on 0.1.0 to 0.6.0. The version chain, scope, decisions and assumptions: `.claude/docs/product.md`.
 The domain sketch: `.claude/docs/chat-model.md`; the live protocol: `.claude/docs/live.md`. Open items: `BACKLOG.md`.
 
-Brand: olive / venom chartreuse (the `adder` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`); the logo "Strike" is a
-rattlesnake seen from above — triangular pit-viper head, slit-pupil eyes, forked tongue, diamond-backed body curling into a rattle (`web/public/logo-*.svg`).
+Brand: olive / venom chartreuse (the `adder` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`). The logo "Strike" shows
+an adder's head angled forward, with a slit pupil and a zigzag marking (`web/public/logo-*.svg`).
 
 ## Donors
 

@@ -2,8 +2,8 @@ import { ActionIcon, Anchor, AppShell, Autocomplete, Badge, Chip, Code, createTh
 import classes from "./theme.module.css";
 import { foldedOptionsFilter } from "./utils/text";
 
-// "Adder" brand palette = OLIVE — a yellow-green drawn from the rattlesnake of the Strike logo
-// (light → dark, indices 0–9). Contrast pins (theme.test.ts): white on 8 (#586715) clears AA
+// The Adder brand palette is olive (light → dark, indices 0–9). The Strike logo uses the same palette.
+// Contrast pins (theme.test.ts): white on 8 (#586715) clears AA
 // for filled-button text, white on 9 likewise, and 4 (#b2cc3c) clears AA on every dark surface.
 // The primary shades are 8 (light) and 9 (dark): olive is a light hue, so the shades that carry
 // white text sit deep in the scale — same primaryShade/autoContrast mechanism, just the pair that

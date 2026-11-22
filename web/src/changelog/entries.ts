@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.4.1",
+    date: "2026-11-22",
+    en: `**Adder 1.4.1 — refreshed logo**
+
+- The sign-in screens and app header now show the new Strike adder in light and dark themes.
+- Browser tabs use a simplified adder icon designed to read clearly at small sizes.`,
+    pl: `**Adder 1.4.1 — odświeżone logo**
+
+- Na ekranach logowania i w nagłówku aplikacji zobaczysz nowy znak Strike ze żmiją w jasnym i ciemnym motywie.
+- Uproszczona ikona żmii pozostaje czytelna w małym rozmiarze na karcie przeglądarki.`,
+  },
+  {
     version: "1.4.0",
     date: "2026-11-22",
     en: `**Adder 1.4.0: a clearer workspace.**

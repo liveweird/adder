@@ -385,9 +385,11 @@ skips a level going down. A page whose real title needs loaded data passes a sta
 
 ### The logo
 
-- The logo SVGs (`public/logo-{light,dark}.svg` + `favicon.svg`; rendered by `components/BrandLogo.tsx`) are the brand mark **"Strike"**: a rattlesnake seen from above on a 48×48
-  olive disc — a broad triangular pit-viper head with slanted slit-pupil eyes and heat pits, a forked tongue flicking forward, and a diamond-backed body curling round to a
-  three-segment rattle (the `<desc>` in each file says so). The light file is the olive disc with a white snake (`#586715` / `#ffffff`), the dark file the chartreuse disc with a deep-olive snake (`#b2cc3c` / `#263005`), and `favicon.svg` is a copy of the light one; check them in both colour schemes. Change the geometry in a vector editor,
+- **"Strike"** shows an adder's head angled forward with a slit pupil and a zigzag marking, set on a disc in a 48×48 viewBox.
+  `components/BrandLogo.tsx` loads `public/logo-{light,dark}.svg`. The light file pairs an olive disc with a white snake
+  (`#586715` / `#ffffff`). The dark file pairs a chartreuse disc with a deep-olive snake (`#b2cc3c` / `#263005`).
+  `index.html` uses `public/favicon.svg` in both colour schemes. It shows a front-facing adder on a chartreuse disc.
+  Check the favicon against both light and dark backgrounds at 16 px. Change the geometry in a vector editor,
   not by hand-editing path data. Restyle rule: keep aria-labels, roles, and real semantic elements stable — e2e and unit tests locate by role/name.
 
 ### Changelog rendering & UI wiring
