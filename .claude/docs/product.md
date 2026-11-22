@@ -23,7 +23,7 @@ working a complex, multi-threaded incident who must avoid chaos.
 
 The name is the snake: quick, quiet, decisive. **Brand:** olive / venom chartreuse (`adder` tuple, light primary `#586715`, dark `#465213`,
 dark-scheme accent ink `#b2cc3c`) — the centre of the largest free gap in the sibling hue wheel (Toadie amber 26°, Lettuce green 142°, Astrolabe
-cyan 189°, Flow blue 209°, Covenant violet 264°, Astrid red 350°). The logo "Strike" shows a lunging adder's head on a disc. Success is
+cyan 189°, Flow blue 209°, Covenant violet 264°, Astrid red 350°). The logo "Strike" shows a front-facing adder on a disc. Success is
 **teal** (never green, so it cannot read as the accent); red = blocking, orange = warning, gray = neutral, blue = in progress, grape = waiting.
 
 ## Decisions (the user's, 2026-11-17)
@@ -433,7 +433,7 @@ Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplet
 
 ### v1.4.1 — refreshed Strike logo (2026-11-22)
 
-The app header and sign-in screens show the updated adder mark in both themes. Browser tabs use a dedicated SVG favicon with a simplified silhouette for small sizes.
+The app header and sign-in screens show a front-facing adder in both themes. Browser tabs use a simplified version of the same mark at small sizes.
 
 ### v1.4.0 — clearer workspace (2026-11-22)
 

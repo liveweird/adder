@@ -21,12 +21,12 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     date: "2026-11-22",
     en: `**Adder 1.4.1 — refreshed logo**
 
-- The sign-in screens and app header now show the new Strike adder in light and dark themes.
-- Browser tabs use a simplified adder icon designed to read clearly at small sizes.`,
+- The sign-in screens and app header now show a front-facing Strike adder in light and dark themes.
+- Browser tabs use a simplified version of the same mark at small sizes.`,
     pl: `**Adder 1.4.1 — odświeżone logo**
 
-- Na ekranach logowania i w nagłówku aplikacji zobaczysz nowy znak Strike ze żmiją w jasnym i ciemnym motywie.
-- Uproszczona ikona żmii pozostaje czytelna w małym rozmiarze na karcie przeglądarki.`,
+- Na ekranach logowania i w nagłówku aplikacji zobaczysz znak Strike ze żmiją widzianą od przodu w jasnym i ciemnym motywie.
+- Na kartach przeglądarki zobaczysz uproszczoną wersję tego samego znaku w małym rozmiarze.`,
   },
   {
     version: "1.4.0",
