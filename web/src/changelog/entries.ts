@@ -17,6 +17,26 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.3.0",
+    date: "2026-11-22",
+    en: `**Adder 1.3.0: quote a message.**
+
+- Reply to a particular message by quoting it: press the quote button beside a message, or choose "Quote" in its menu. A "Quoting …" line appears above the Reply box; remove it with its × if you change your mind.
+- Your reply shows the quoted message above your text, with its author. Click the quote to jump to the original message in the thread.
+- A quote always shows the message as it reads now: it says "(edited)" when the original was changed afterwards, and "The quoted message was deleted." when it was removed, without its text.
+- The author of the quoted message gets a notification ("quoted your message"), unless you quote yourself. Switch it off or on under Notification preferences, Mentions ("Someone quotes my message").
+- You can quote any earlier message of the same thread, including the opening message and your own.
+- For administrators: if you ever roll back below 1.3.0, ask people to reload their open Adder tabs.`,
+    pl: `**Adder 1.3.0: cytowanie wiadomości.**
+
+- Odpowiedz na konkretną wiadomość, cytując ją: naciśnij przycisk cytatu obok wiadomości albo wybierz „Cytuj” w jej menu. Nad polem „Odpowiedź” pojawi się wiersz „Cytujesz: …”; jeśli zmienisz zdanie, usuń go przyciskiem ×.
+- Twoja odpowiedź pokazuje cytowaną wiadomość nad Twoim tekstem, razem z jej autorem/ką. Kliknij cytat, aby przejść do oryginalnej wiadomości w wątku.
+- Cytat zawsze pokazuje wiadomość w jej obecnej postaci: mówi „(edytowana)”, gdy oryginał został później zmieniony, i „Cytowana wiadomość została usunięta.”, gdy go usunięto, bez jego treści.
+- Autor/ka cytowanej wiadomości dostaje powiadomienie („cytuje Twoją wiadomość”), chyba że cytujesz siebie. Włączysz je lub wyłączysz w Ustawieniach powiadomień, w grupie Wzmianki („Ktoś cytuje moją wiadomość”).
+- Możesz zacytować każdą wcześniejszą wiadomość tego samego wątku, także wiadomość otwierającą i własną.
+- Dla administratorów/rek: jeśli kiedyś przywrócisz wersję starszą niż 1.3.0, poproś o ponowne załadowanie otwartych kart Addera.`,
+  },
+  {
     version: "1.2.0",
     date: "2026-11-22",
     en: `**Adder 1.2.0: a roomier room view, tags and unread.**

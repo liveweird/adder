@@ -382,7 +382,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.2.0** (room view, tags, unread; tagged `v1.2.0` at 6018f17, 2026-11-22); **1.3.0 (quotes) is in progress** on `feat/1.3.0-reply-to`, unreleased; 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21); 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.3.0** (quotes; released 2026-11-22, not yet tagged); 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22); 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21); 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -395,7 +395,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.0.0 Checkup** (shipped) | The family's technical checkup (docs, DRY/SRP, tests, UI consistency, security, guardrails, infra) |
 | **1.1.0 Watching, group mentions, notice kinds** (shipped) | Members watch threads (`PUT .../watch`, a creator and a new owner watch automatically, a "threads I watch" filter on the list and both searches); `<@team:id>`, `<@watchers>` and `<@everyone>` mentions with team handles; eleven notice kinds (every event notifies each person at most once, with the most specific reason; new-thread notices go to every member, activity to watchers); an in-app and an email switch per kind, email off by default for all (1.1 D7); a wide-event budget; V25 to V30. `chat-model.md` "Watching, group mentions and notice kinds (1.1)" |
 | **1.2.0 Room view** (shipped) | A collapsed-by-default side panel and a compact room header (1.2 D4); pins marked in place with a strip in the open thread (1.2 D5); names as links with a profile page any member can open (`/people/:id`, 1.2 D6, 1.2 D7); a thread's hashtags on rows and header and `#42` as a link; an ADMIN tag registry (Kind and Area seeded) and curated tags on threads with a `threadTag` filter on the list and both searches (1.2 D1 to 1.2 D3); an "unread" list filter and "Mark all as read"; the unseen count in the tab title with a quiet hidden tab (1.2 D8, 1.2 D9); V31 to V34. `chat-model.md` "Room view, tags and unread (1.2)" |
-| **1.3.0 Quotes** (in progress) | A message quotes one earlier message of its own thread, a live reference that shows the quoted message as it reads now and says so when it was deleted (`quotedMessageId` on the POST, `quote` on every message; the "Quote" menu item and an always-visible quote icon, a line above the box, a block above the text that jumps back; 1.3 D1, D3); the quoted author is told by a twelfth notice kind, `MESSAGE_QUOTED` (1.3 D2); V35. `chat-model.md` "Quotes (1.3)" |
+| **1.3.0 Quotes** | A message quotes one earlier message of its own thread, a live reference that shows the quoted message as it reads now and says so when it was deleted (`quotedMessageId` on the POST, `quote` on every message; the "Quote" menu item and an always-visible quote icon, a line above the box, a block above the text that jumps back; 1.3 D1, D3); the quoted author is told by a twelfth notice kind, `MESSAGE_QUOTED` (1.3 D2); V35. `chat-model.md` "Quotes (1.3)" |
 
 ## Donors
 
