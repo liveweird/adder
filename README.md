@@ -5,9 +5,17 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.1.0 — watching, group mentions and notice kinds, on 1.0.0 the checkup, 0.6.0 social, 0.5.0 find, 0.4.0 live updates, 0.3.0 threads and messages, 0.2.0 rooms and the 0.1.0 foundation)
+## What's here today (1.2.0 — the room view, tags and unread, on 1.1.0 watching, group mentions and notice kinds, 1.0.0 the checkup, 0.6.0 social, 0.5.0 find, 0.4.0 live updates, 0.3.0 threads and messages, 0.2.0 rooms and the 0.1.0 foundation)
 
-Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 1.1.0 lets people follow what matters and address groups:
+Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 1.2.0 gives the conversation more room and makes a busy room easier to sort:
+
+- **Room view** — the thread's side panel opens on demand ("Details", remembered per person and browser) and the room headers are compact, so the conversation and the composer get the space. Pinned messages are marked where they stand and an open thread keeps its pins in a strip under its header.
+- **Names as links** — a person's profile page (`/people/:id`: their teams and the rooms you share; an ADMIN sees every room; never the role or settings; `GET /api/v1/users/directory/{id}`), and people, rooms and teams are links wherever they are named. `GET /api/v1/rooms` and `GET /api/v1/teams` take `memberId`.
+- **Hashtags on threads** — a thread's hashtags show on its row and header, and `#42` in a message links to thread 42 of the room.
+- **Tags** — an ADMIN-curated registry (`/api/v1/tag-categories`, the **Kind** and **Area** categories are seeded) and curated tags on threads (`PUT /api/v1/rooms/{id}/threads/{number}/tags`: any member while the thread is open, its stewards once it is closed); the thread list and both searches filter by `threadTag`, a tag alone is a valid search.
+- **Unread** — an "Unread" filter on the thread list and "Mark all as read" for a room (`POST /api/v1/rooms/{id}/read-all`, with a confirmation; it settles the room's notices too). The browser tab's title counts the bell's unseen notices; a hidden tab goes quiet after 5 minutes and disconnects after 8 hours, and tabs of one browser tell each other when notices were seen.
+
+1.1.0 let people follow what matters and address groups:
 
 - **Watching** — watch a thread (you watch the ones you start and the ones handed to you); a "Watching" filter on the thread list and a "Threads I watch" search, in one room and across rooms, show only those threads. Watchers are told of replies, status changes (close and reopen included) and owner changes (`PUT /api/v1/rooms/{id}/threads/{number}/watch`).
 - **Notification kinds** — eleven kinds (a new thread in a room, a reply, a status change, a hand-over, the four mentions, ...); each person is told at most once per event, with the most specific reason. "Notification preferences" is a grid of an in-app and an email switch per kind: in-app is on by default and **email is off by default for every kind**, so an upgrade from 1.0.0 stops the digest until each person switches it on. Account email (the MFA code, the password-reset link) is not a notification and always goes.
@@ -68,7 +76,7 @@ The 0.1.0 foundation:
 
 ## Roadmap
 
-0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (shipped) · 0.5.0 find: filters, sort, search, hashtags (shipped) · 0.6.0 social: mentions, notifications, reactions, pins, unread (shipped) · 1.0.0 the checkup (shipped) · 1.1.0 watching, group mentions, notice kinds (shipped).
+0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (shipped) · 0.5.0 find: filters, sort, search, hashtags (shipped) · 0.6.0 social: mentions, notifications, reactions, pins, unread (shipped) · 1.0.0 the checkup (shipped) · 1.1.0 watching, group mentions, notice kinds (shipped) · 1.2.0 room view, tags, unread (shipped).
 The scope of each version and the decisions behind it: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`; open items: `BACKLOG.md`. `CLAUDE.md`'s "Product" and
 "Donors" sections say which sibling project each capability ports from.
 

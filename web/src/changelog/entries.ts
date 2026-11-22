@@ -17,6 +17,34 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.2.0",
+    date: "2026-11-22",
+    en: `**Adder 1.2.0: a roomier room view, tags and unread.**
+
+- The side panel with a thread's details now opens on demand: press "Details" to show it. It stays the way you left it, for every room and thread, and the room headers are more compact, so the conversation and the message box get the space.
+- Pinned things are marked where they stand: a pinned message says who pinned it, and a pinned thread carries a "Pinned" badge. An open thread shows its pinned messages in a strip under its header, where you can jump to one or unpin it.
+- Click a name to open a person's profile page: their teams and the rooms you share with them (administrators see all of the person's rooms). Roles and settings are never shown to others.
+- People, rooms and teams are links wherever they are named: a message's author, a mention, a thread's owner, the history, notifications, search results, and the member and team tables. An account that was removed opens a "not available" page.
+- A thread's hashtags now show on its row in the list and in its header, and \`#42\` in a message is a link to thread 42 of the same room.
+- Tags: administrators curate the list of tags under Administration, Tags (the categories Kind and Area come ready to use). Room members add tags to a thread in its details; on a closed thread only its owner, a room owner or an administrator can. A tag an administrator has retired shows struck through until the next time the tags are saved.
+- Search by tag: filter the thread list, the search in a room and the search across rooms by one or more tags. A tag alone is enough, no words needed.
+- "Unread" on the thread list shows only the threads with something new for you. "Mark all as read" in a room clears all of its threads, and your notifications from it, for you only, after you confirm.
+- The browser tab's title shows how many unseen notifications you have, for example "(3) Incident 42 · Adder", the same number as the bell.
+- A tab you are not looking at goes quiet: after 5 minutes it stops following rooms but still counts your notifications, and after 8 hours it disconnects and drops the number. Notifications you read in one tab are cleared in your other tabs of the same browser.`,
+    pl: `**Adder 1.2.0: przestronniejszy widok pokoju, tagi i nieprzeczytane.**
+
+- Panel boczny ze szczegółami wątku otwiera się teraz na życzenie: naciśnij „Szczegóły”, aby go pokazać. Zostaje tak, jak go zostawiasz, dla wszystkich pokoi i wątków, a nagłówki pokoi są bardziej zwarte, więc rozmowa i pole wiadomości dostają więcej miejsca.
+- Przypięte elementy są oznaczone tam, gdzie się znajdują: przypięta wiadomość mówi, kto ją przypiął, a przypięty wątek ma plakietkę „Przypięty”. Otwarty wątek pokazuje swoje przypięte wiadomości w pasku pod nagłówkiem, skąd możesz do którejś przejść albo ją odpiąć.
+- Kliknij imię i nazwisko, aby otworzyć stronę osoby: jej zespoły i pokoje, które macie wspólne (administratorzy/rki widzą wszystkie pokoje tej osoby). Role i ustawienia nigdy nie są pokazywane innym.
+- Osoby, pokoje i zespoły są linkami wszędzie, gdzie padają ich nazwy: autor wiadomości, wzmianka, właściciel/ka wątku, historia, powiadomienia, wyniki wyszukiwania oraz tabele członków i zespołów. Usunięte konto otwiera stronę „niedostępne”.
+- Hasztagi wątku widać teraz w jego wierszu na liście i w nagłówku, a \`#42\` w wiadomości jest linkiem do wątku 42 w tym samym pokoju.
+- Tagi: administratorzy/rki prowadzą listę tagów w sekcji Administracja, Tagi (kategorie Kind i Area są gotowe do użycia). Członkowie i członkinie pokoju dodają tagi do wątku w jego szczegółach; w zamkniętym wątku mogą to zrobić tylko jego właściciel/ka, właściciel/ka pokoju lub administrator/ka. Tag wycofany przez administratora/rkę jest przekreślony do następnego zapisu tagów.
+- Wyszukiwanie po tagu: filtruj listę wątków, wyszukiwanie w pokoju i wyszukiwanie we wszystkich pokojach według jednego lub kilku tagów. Sam tag wystarczy, nie trzeba wpisywać słów.
+- „Nieprzeczytane” na liście wątków pokazuje tylko wątki, w których jest coś nowego dla Ciebie. „Oznacz wszystko jako przeczytane” w pokoju oznacza wszystkie jego wątki i Twoje powiadomienia z tego pokoju, tylko dla Ciebie, po potwierdzeniu.
+- Tytuł karty przeglądarki pokazuje, ile masz nieprzeczytanych powiadomień, na przykład „(3) Incident 42 · Adder”: to ta sama liczba, co przy dzwonku.
+- Karta, na którą nie patrzysz, przycicha: po 5 minutach przestaje śledzić pokoje, ale nadal liczy powiadomienia, a po 8 godzinach rozłącza się i usuwa liczbę z tytułu. Powiadomienia przeczytane na jednej karcie znikają też na pozostałych kartach tej samej przeglądarki.`,
+  },
+  {
     version: "1.1.0",
     date: "2026-11-21",
     en: `**Adder 1.1.0: watching, group mentions and notification choices.**
