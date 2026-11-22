@@ -16,7 +16,6 @@ import ThreadDetails from "./ThreadDetails";
 import ThreadHashtags from "./ThreadHashtags";
 import ThreadHistory from "./ThreadHistory";
 import ThreadOwnerSelect from "./ThreadOwnerSelect";
-import ThreadStatusControl from "./ThreadStatusControl";
 import ThreadTagsPanel from "./ThreadTagsPanel";
 
 /** One panel section: its h4 (the pane's title is the h3; web-internals.md "The room view") and its body. */
@@ -33,10 +32,8 @@ function Section({ title, anchor, children }: { title: string; anchor?: string; 
 }
 
 /**
- * The thread's side panel: Status, Owner, Details, Tags (the curated labels, with their editor, 1.2 D1), Hashtags (only when the thread has any: filter links, 1.2 A8) and History, each an h4 under the pane's h3. Status and Owner are acted on by whoever D1
- * allows (`isThreadSteward`, UX only), Details is the room's fields with an editor, History the server's event log. The sections that need the
- * room's workflow (the status options, the fields) wait for it under the shared `["rooms", "workflow", roomId]` read; the pane above already
- * says when that read failed. The panel is what folds into the "Details" toggle in a narrow main area (`ThreadPane.module.css`).
+ * The thread's side panel holds ownership, custom fields, tags, hashtags and history. Its fields share the header's workflow
+ * query. The panel folds into the "Details" toggle in a narrow main area (`ThreadPane.module.css`).
  */
 export default function ThreadSidePanel({ room, thread }: { room: RoomResponse; thread: ThreadResponse }) {
   const { t } = useTranslation();
@@ -54,9 +51,6 @@ export default function ThreadSidePanel({ room, thread }: { room: RoomResponse; 
 
   return (
     <Stack gap="md">
-      <Section title={t("threads.side.status")}>
-        {workflow.data ? <ThreadStatusControl room={room} thread={thread} statuses={workflow.data.statuses} steward={steward} /> : waiting}
-      </Section>
       <Section title={t("threads.side.owner")}>
         <ThreadOwnerSelect room={room} thread={thread} steward={steward} />
       </Section>

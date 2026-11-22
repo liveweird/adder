@@ -390,7 +390,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.4.1** (refreshed Strike logo), on 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.4.1** (thread status actions and refreshed Strike logo), on 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -405,7 +405,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.2.0 Room view** (shipped) | A collapsed-by-default side panel and a compact room header (1.2 D4); pins marked in place with a strip in the open thread (1.2 D5); names as links with a profile page any member can open (`/people/:id`, 1.2 D6, 1.2 D7); a thread's hashtags on rows and header and `#42` as a link; an ADMIN tag registry (Kind and Area seeded) and curated tags on threads with a `threadTag` filter on the list and both searches (1.2 D1 to 1.2 D3); an "unread" list filter and "Mark all as read"; the unseen count in the tab title with a quiet hidden tab (1.2 D8, 1.2 D9); V31 to V34. `chat-model.md` "Room view, tags and unread (1.2)" |
 | **1.3.0 Quotes** | A message quotes one earlier message of its own thread, a live reference that shows the quoted message as it reads now and says so when it was deleted (`quotedMessageId` on the POST, `quote` on every message; the "Quote" menu item and an always-visible quote icon, a line above the box, a block above the text that jumps back; 1.3 D1, D3); the quoted author is told by a twelfth notice kind, `MESSAGE_QUOTED` (1.3 D2); V35. `chat-model.md` "Quotes (1.3)" |
 | **1.4.0 Clearer workspace** | A focused chat layout with independently scrolling thread and message regions, compact headers, clearer messages and composer, and structured Details; Home with active joined rooms and unread cues; a responsive room directory; a cleaner application header, mobile navigation and command palette (1.4 D1 to D3). No API, migration or domain-rule change. |
-| **1.4.1 Refreshed Strike logo** | Updated adder mark for light and dark themes and a dedicated browser favicon. |
+| **1.4.1 Thread status actions and refreshed Strike logo** | Valid workflow moves in the conversation header. Updated adder mark for light and dark themes and a dedicated browser favicon. |
 
 ## Donors
 
@@ -431,7 +431,9 @@ Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplet
 
 ## Release history
 
-### v1.4.1 — refreshed Strike logo (2026-11-22)
+### v1.4.1 — thread status actions and refreshed Strike logo (2026-11-22)
+
+The conversation header shows the current status and only the workflow moves available to the viewer. A single move gets a button and several moves appear in an action menu. Closing still asks for confirmation.
 
 The app header and sign-in screens show a front-facing adder in both themes. Browser tabs use a simplified version of the same mark at small sizes.
 

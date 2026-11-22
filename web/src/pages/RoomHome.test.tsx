@@ -120,7 +120,6 @@ describe("RoomHome page", () => {
     expect(headingOutline()).toEqual([
       [2, "Night Shift"],
       [3, "#7 Disk full on db-3"],
-      [4, "Status"],
       [4, "Owner"],
       [4, "Details"],
       [4, "Tags"],

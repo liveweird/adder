@@ -56,7 +56,7 @@ interface Scene {
 }
 
 const messageNamed = (page: Page, text: string) => conversation(page).getByRole("listitem").filter({ hasText: text });
-const statusSelect = (page: Page) => page.getByRole("combobox", { name: "Thread status", exact: true });
+const currentStatus = (page: Page) => page.getByRole("status", { name: "Thread status", exact: true });
 
 /** The admin (signed in on `page`) mints the owner and the teammate; the owner then makes a room and adds the teammate, all through the API. */
 async function scene(page: Page): Promise<Scene> {
@@ -136,18 +136,6 @@ async function reply(page: Page, text: string): Promise<void> {
   await expect(box).toHaveValue("");
 }
 
-/**
- * Opens the thread's side panel (collapsed until the header's "Details" button opens it, and remembered per browser). The pane is awaited FIRST:
- * the button renders with it.
- */
-async function openDetails(page: Page): Promise<void> {
-  await expect(page.getByRole("region", { name: /^#\d+ / })).toBeVisible();
-  const toggle = page.getByRole("button", { name: "Details", exact: true });
-  if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
-}
-
 test("a message posted in one browser appears in the other without a reload", async ({ page, browser }) => {
   const room = await scene(page);
   const title = await seedThread(room);
@@ -211,22 +199,22 @@ test("a status change made by one member shows in another member's open thread",
   const watcher = await signedIn(browser, room.mate);
   await openLive(mover, thread, room.roomId);
   await openLive(watcher, thread, room.roomId);
-  await openDetails(mover.page);
-  await openDetails(watcher.page);
   const row = threadList(watcher.page).getByRole("link", { name: new RegExp(title) });
   await expect(row).toContainText("Open");
-  await expect(statusSelect(watcher.page)).toHaveValue("Open");
+  await expect(currentStatus(watcher.page)).toContainText("Open");
 
-  // The mover picks another open status in the side panel.
-  await statusSelect(mover.page).click();
+  // The mover picks another open status from the thread header's viable actions.
+  await mover.page.getByRole("button", { name: "Change status", exact: true }).click();
   await Promise.all([
     mover.page.waitForResponse((r) => r.request().method() === "PUT" && STATUS_API.test(r.url()) && r.status() === 204),
-    mover.page.getByRole("option", { name: "In progress", exact: true }).click(),
+    mover.page.getByRole("menuitem", { name: "Move to In progress", exact: true }).click(),
   ]);
 
-  // The watcher's list row and status select follow.
+  // The watcher's list row, current badge and available actions follow.
   await expect(row).toContainText("In progress");
-  await expect(statusSelect(watcher.page)).toHaveValue("In progress");
+  await expect(currentStatus(watcher.page)).toContainText("In progress");
+  await watcher.page.getByRole("button", { name: "Change status", exact: true }).click();
+  await expect(watcher.page.getByRole("menu", { name: "Change status", exact: true }).getByRole("menuitem")).toHaveText(["Move to Open", "Move to Waiting"]);
   await expectNoReload(watcher);
 });
 

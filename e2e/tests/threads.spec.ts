@@ -87,26 +87,26 @@ async function openThread(page: Page, roomId: number, title: string, { closed = 
 /**
  * Opens the thread's side panel: collapsed at every width until the header's "Details" button opens it (1.2 D4), and the choice is remembered in
  * the browser, so a panel an earlier step left open is already open. The pane is awaited FIRST (the button renders with it), and the panel is
- * awaited settled at the end: its Status section is the first thing drawn once it shows.
+ * awaited settled at the end: its Owner section is the first thing drawn once it shows.
  */
 async function openDetails(page: Page): Promise<void> {
   await expect(page.getByRole("region", { name: /^#\d+ / })).toBeVisible();
   const toggle = page.getByRole("button", { name: "Details", exact: true });
   if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 4, name: "Owner", exact: true })).toBeVisible();
 }
 
-/** The side panel's status select; a plain `getByRole("combobox")` would also match the owner picker. */
-const statusSelect = (page: Page) => page.getByRole("combobox", { name: "Thread status", exact: true });
+/** The header's current workflow state. */
+const currentStatus = (page: Page) => page.getByRole("status", { name: "Thread status", exact: true });
 const ownerPicker = (page: Page) => page.getByRole("combobox", { name: "Owner", exact: true });
 
-/** Pick an enabled status from the select; the move is a PUT that answers 204. */
-async function moveTo(page: Page, label: string): Promise<void> {
-  await statusSelect(page).click();
+/** Pick a viable workflow action from the thread header. */
+async function changeStatus(page: Page, action: string): Promise<void> {
+  await page.getByRole("button", { name: "Change status", exact: true }).click();
   await Promise.all([
     page.waitForResponse((r) => r.request().method() === "PUT" && STATUS_API.test(r.url()) && r.status() === 204),
-    page.getByRole("option", { name: label, exact: true }).click(),
+    page.getByRole("menuitem", { name: action, exact: true }).click(),
   ]);
 }
 
@@ -374,30 +374,32 @@ test("a member moves a thread between open statuses but cannot close it, its own
   await startThreadViaUi(page, roomId, title, "p99 doubled after the deploy.");
   await signOut(page);
 
-  // The teammate (a plain member, not the thread's owner) moves it between two OPEN statuses; the CLOSED ones are disabled, with the reason.
+  // The teammate sees only the other open statuses in the header menu.
   await login(page, mate.email, mate.password);
   await openThread(page, roomId, title);
+  await expect(currentStatus(page)).toHaveText("Open");
+  const statusAction = page.getByRole("button", { name: "Change status", exact: true });
+  const menu = page.getByRole("menu", { name: "Change status", exact: true });
+  await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await statusAction.press("Enter");
+  const move = menu.getByRole("menuitem", { name: "Move to In progress", exact: true });
+  await expect(move).toBeFocused();
+  await expect(menu.getByRole("menuitem")).toHaveText(["Move to In progress", "Move to Waiting"]);
+  await Promise.all([
+    page.waitForResponse((r) => r.request().method() === "PUT" && STATUS_API.test(r.url()) && r.status() === 204),
+    move.press("Enter"),
+  ]);
+  await expect(currentStatus(page)).toHaveText("In progress");
+  await expect(statusAction).toBeFocused();
   await openDetails(page);
-  const region = page.getByRole("region", { name: `#1 ${title}` });
-  await expect(statusSelect(page)).toHaveValue("Open");
   await expect(ownerPicker(page)).toHaveCount(0);
-  await moveTo(page, "In progress");
-  await expect(statusSelect(page)).toHaveValue("In progress");
-  await expect(region).toContainText("In progress");
-  await statusSelect(page).click();
-  const done = page.getByRole("option", { name: /^Done/ });
-  await expect(done).toHaveAttribute("data-combobox-disabled", "true");
-  await expect(done).toContainText("Needs the thread owner, a room owner or an administrator");
-  await expect(page.getByRole("option", { name: /^Won't do/ })).toHaveAttribute("data-combobox-disabled", "true");
-  await page.keyboard.press("Escape");
   await signOut(page);
 
-  // The owner closes it: the select asks first, and the closed thread swaps the reply box for the note.
+  // The owner closes it from the header's viable-actions menu; closing still asks first.
   await login(page, owner.email, owner.password);
   await openThread(page, roomId, title);
-  await openDetails(page);
-  await statusSelect(page).click();
-  await page.getByRole("option", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Change status", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Close as Done", exact: true }).click();
   const confirm = page.getByRole("dialog", { name: "Close this thread?" });
   await expect(confirm).toContainText("Moving #1 to Done closes it");
   await Promise.all([
@@ -405,27 +407,25 @@ test("a member moves a thread between open statuses but cannot close it, its own
     confirm.getByRole("button", { name: "Close thread", exact: true }).click(),
   ]);
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(statusSelect(page)).toHaveValue("Done");
+  await expect(currentStatus(page)).toContainText("Done");
   await expect(page.getByText(/^This thread is closed, so it takes no new messages/)).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Reply", exact: true })).toHaveCount(0);
   await signOut(page);
 
-  // The teammate finds it closed: no reply box, and no status but the current one can be picked.
+  // The teammate finds it closed: no reply box and no status action is offered.
   await login(page, mate.email, mate.password);
   await openThread(page, roomId, title, { closed: true });
   await expect(page.getByText(/^This thread is closed, so it takes no new messages/)).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Reply", exact: true })).toHaveCount(0);
-  await openDetails(page);
-  await statusSelect(page).click();
-  await expect(page.getByRole("option", { name: /^Open/ })).toHaveAttribute("data-combobox-disabled", "true");
-  await page.keyboard.press("Escape");
+  await expect(currentStatus(page)).toContainText("Done");
+  await expect(page.getByRole("button", { name: "Change status", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^(Move to|Close as|Reopen as) / })).toHaveCount(0);
   await signOut(page);
 
   // The room owner reopens it (no confirm), and the teammate can reply again.
   await login(page, owner.email, owner.password);
   await openThread(page, roomId, title, { closed: true });
-  await openDetails(page);
-  await moveTo(page, "Open");
+  await changeStatus(page, "Reopen as Open");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Reply", exact: true })).toBeVisible();
   await signOut(page);
@@ -468,7 +468,7 @@ test("the owner passes the thread on, the new owner edits its details, and the h
   await openThread(page, roomId, title);
   await openDetails(page);
   await expect(ownerPicker(page)).toHaveValue(mate.name);
-  await moveTo(page, "Investigating");
+  await changeStatus(page, "Move to Investigating");
   await page.getByRole("button", { name: "Edit details", exact: true }).click();
   const newTitle = `${title} (updated)`;
   await page.getByRole("textbox", { name: /^Title/ }).fill(newTitle);
@@ -530,21 +530,21 @@ test("the details panel opens on demand and stays open for the next thread", asy
   await openThread(page, roomId, first);
   const details = page.getByRole("button", { name: "Details", exact: true });
   await expect(details).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeHidden();
-  await expect(statusSelect(page)).toBeHidden();
+  await expect(page.getByRole("heading", { level: 4, name: "Owner", exact: true })).toBeHidden();
+  await expect(currentStatus(page)).toContainText("Open");
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
 
-  // Opening it shows Status, Owner, Details and History beside (or above) the conversation.
+  // Opening it shows Owner, Details, Tags and History beside (or above) the conversation.
   await details.click();
   await expect(details).toHaveAttribute("aria-expanded", "true");
-  for (const name of ["Status", "Owner", "Details", "History"]) await expect(page.getByRole("heading", { level: 4, name, exact: true })).toBeVisible();
+  for (const name of ["Owner", "Details", "Tags", "History"]) await expect(page.getByRole("heading", { level: 4, name, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport();
 
   // The choice is the person's, not the thread's: the next thread opens with the panel open, and so does a reload.
   await threadList(page).getByRole("link", { name: new RegExp(second) }).click();
   await expect(page.getByRole("heading", { level: 3, name: `#2 ${second}` })).toBeVisible();
   await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 4, name: "Owner", exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { level: 3, name: `#2 ${second}` })).toBeVisible();
   await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
@@ -555,7 +555,7 @@ test("the details panel opens on demand and stays open for the next thread", asy
   await startThreadViaUi(page, roomId, longTitle, "A thread with a long title.");
   await expect(page.getByRole("heading", { level: 3, name: `#3 ${longTitle}` })).toBeVisible();
   await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 4, name: "Owner", exact: true })).toBeVisible();
   // Seven hashtags, one of them fifty characters long, put a third row under the header (1.2.0). It is ONE line however narrow the header is
   // (four links that shrink to an ellipsis, then "+3"), so it cannot push Send off the screen either.
   await reply(page, ["#alpha", "#beta", "#gamma", "#delta", "#epsilon", "#zeta", `#${"x".repeat(50)}`].join(" "));
@@ -624,7 +624,7 @@ test("the details panel opens on demand and stays open for the next thread", asy
   await page.reload();
   await expect(page.getByRole("heading", { level: 3, name: `#2 ${second}` })).toBeVisible();
   await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeHidden();
+  await expect(page.getByRole("heading", { level: 4, name: "Owner", exact: true })).toBeHidden();
 
   // Narrow layouts are not bounded: the page scrolls, the conversation keeps a real height (at least 16rem) and the composer sticks to the bottom
   // edge, so Send is in view both at the top of the page and after scrolling to its bottom. A phone first (375x740, panel closed): the long
@@ -642,6 +642,8 @@ test("the details panel opens on demand and stays open for the next thread", asy
   const heading = page.getByRole("heading", { level: 3, name: `#3 ${longTitle}` });
   await expect(heading).toBeVisible();
   expect((await heading.boundingBox())!.width, "the title's box on a phone").toBeGreaterThanOrEqual(200);
+  await expect(currentStatus(page)).toBeInViewport();
+  await expect(page.getByRole("button", { name: "Change status", exact: true })).toBeInViewport();
   await sendInView("on a phone");
 
   // The panel stacked above the conversation (1024x720, the navigation open: the main area is too narrow for the third column).
@@ -650,6 +652,6 @@ test("the details panel opens on demand and stays open for the next thread", asy
   await expect(heading).toBeVisible();
   await page.getByRole("button", { name: "Details", exact: true }).click();
   await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("heading", { level: 4, name: "Status", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 4, name: "Owner", exact: true })).toBeVisible();
   await sendInView("with the panel stacked open");
 });

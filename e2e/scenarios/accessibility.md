@@ -32,8 +32,8 @@ generated from a list, so a single scenario section stands in for each list.
 The list covers the Home page, the Search page (its empty form), the Rooms list and its create form, the Teams list, the Users list and its create form, the workflow-template list and its create form, the ADMIN feature-flags screen,
 Change password, Notification preferences and the Changelog — see `tests/accessibility.spec.ts`'s `AUTHED_PAGES` list for the current set. The fixture room's own
 pages are scanned by the detail-page block, each as its own test (`the room home page (the thread list)`, `the room's thread view`,
-`the thread's side panel`, `the thread's details editor`, `the thread's tags editor`, `the new-thread form`, the members, workflow and settings pages): the thread list and the three-pane thread view are scanned only
-once both the list and the pane have loaded; the side panel is scanned open (through the header's **Details** button, collapsed until pressed at every width: status select, owner picker, details, history), again with the details editor open, again with the tags editor open (the grouped picker, 1.2.0), and once more as the READ-ONLY panel of a thread in an archived room (its status, owner and details are plain text or disabled, so the panel is a scrollable region with nothing focusable inside: it must itself be the focusable, labelled "Thread details" region).
+`the thread's side panel` with its status-action menu open, `the thread's details editor`, `the thread's tags editor`, `the new-thread form`, the members, workflow and settings pages): the thread list and the three-pane thread view are scanned only
+once both the list and the pane have loaded; the side panel is scanned open (through the header's **Details** button, collapsed until pressed at every width: owner picker, details, tags, history), the header's viable status-action menu is scanned open, the panel is scanned again with the details editor open and with the tags editor open (the grouped picker, 1.2.0), and once more as the READ-ONLY panel of a thread in an archived room (its owner and details are plain text or disabled, so the panel is a scrollable region with nothing focusable inside: it must itself be the focusable, labelled "Thread details" region).
 The 0.6.0 overlays are scanned scoped to their dialog, once the dialog has settled at full opacity: the header's notification drawer (opened from the bell; the
 teammate's message mentions the admin, so it lists that notice) and the fixture room's pinned panel (opened from **Pinned (n)**, listing the pinned thread and the pinned message).
 
@@ -107,7 +107,7 @@ teammate's message mentions the admin, so it lists that notice) and the fixture 
 
 The states (the detail-page block's list, `DETAIL_PAGES`, plus the overlays and the anonymous pages after it):
 
-- the fixture team's page; the room's pages: home (the thread list), the thread view, the side panel, the details editor, the new-thread form, members, workflow, settings, and the archived twin's read-only workflow page;
+- the fixture team's page; the room's pages: home (the thread list), the thread view, the side panel with the status-action menu open, the details editor, the new-thread form, members, workflow, settings, and the archived twin's read-only workflow page;
 - **the thread list's open filter panel** (the **Filters** toggle expanded: statuses, hashtags, owner, "Mine", "Mentions me");
 - **the conversation with messages, reactions and pins**: the teammate's Markdown message (bold, link, inline code) carrying a 👍 from both the teammate and the admin (a pressed chip, "2 reactions") and a 🎉, the teammate's message that mentions the admin (a list, a code block, a hashtag), the admin's reply (which names its own thread as `#<number>`, a link, and quotes the teammate's Markdown message: the quote block, one link with the teammate's name and a plain excerpt, is scanned in both schemes; 1.3.0), the thread's hashtag as dimmed text on its list row, as a link in the header's third row and in the side panel's **Hashtags** section, and the thread and its opening message pinned;
 - **the conversation with the pin strip expanded** (1.2.0): the same thread with the strip under its header opened (**Pinned: …**), listing the pinned opening message with **Show in thread** and **Unpin**, above the pinned message's "Pinned by" line and bar;
@@ -129,7 +129,7 @@ The states (the detail-page block's list, `DETAIL_PAGES`, plus the overlays and 
   reachable through the ordinary flow.
 - **The opened mobile nav drawer** — only the closed shell (header + page) is scanned at the phone
   width; the drawer's slide-in transition makes contrast measurement racy.
-- **Hover, focus and open-menu states** — a message's kebab menu, the emoji picker and a Select's open
-  list are not scanned; only the states listed above are (the mention picker is the one popover).
+- **Hover, focus and most open-menu states** — a message's kebab menu, the emoji picker and a Select's open
+  list are not scanned; only the states listed above are (the thread status menu and mention picker are the listed popovers).
 - **Colour tokens themselves** — the ratios are pinned in `web/src/theme.test.ts`; axe here
   verifies the rendered pages honour them.

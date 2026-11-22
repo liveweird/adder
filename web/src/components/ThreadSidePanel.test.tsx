@@ -28,19 +28,16 @@ describe("ThreadSidePanel", () => {
     localStorage.clear();
   });
 
-  test("Status, Owner, Details, Tags and History: five h4 sections, each with its body", async () => {
+  test("Owner, Details, Tags and History have their own h4 sections", async () => {
     serve();
     renderWithProviders(<ThreadSidePanel room={makeRoom()} thread={makeThread({ number: 42 })} />);
-    expect(await screen.findByRole("combobox", { name: "Thread status" })).toHaveValue("Triage");
+    expect(await screen.findByRole("button", { name: "Edit details" })).toBeInTheDocument();
     expect(headingOutline()).toEqual([
-      [4, "Status"],
       [4, "Owner"],
       [4, "Details"],
       [4, "Tags"],
       [4, "History"],
     ]);
-    expect(screen.getByRole("group", { name: "Status" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit details" })).toBeInTheDocument();
     expect(await screen.findByText("Started the thread in Triage")).toBeInTheDocument();
   });
 
@@ -52,7 +49,7 @@ describe("ThreadSidePanel", () => {
     unmount();
     localStorage.setItem("adder.auth.userId", "6");
     renderWithProviders(<ThreadSidePanel room={makeRoom({ role: "MEMBER" })} thread={makeThread({ number: 42, ownerId: 5 })} />);
-    await screen.findByRole("combobox", { name: "Thread status" });
+    await screen.findByRole("button", { name: "Edit details" });
     expect(screen.queryByRole("combobox", { name: "Owner" })).not.toBeInTheDocument();
   });
 
@@ -63,15 +60,14 @@ describe("ThreadSidePanel", () => {
     expect(await screen.findByRole("combobox", { name: "Owner" })).toBeInTheDocument();
   });
 
-  test("while the room's workflow loads the status and details wait, and a failed read says they are unavailable", async () => {
+  test("while the room's workflow loads the details wait, and a failed read says they are unavailable", async () => {
     mockFetch.mockImplementation(() => new Promise(() => undefined));
     const { unmount } = renderWithProviders(<ThreadSidePanel room={makeRoom()} thread={makeThread({ number: 42 })} />);
-    expect(screen.getAllByRole("status", { name: "Loading…" }).length).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByRole("combobox", { name: "Thread status" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("status", { name: "Loading…" }).length).toBeGreaterThanOrEqual(1);
     unmount();
     serve(jsonResponse(500, { title: "Boom", status: 500 }));
     renderWithProviders(<ThreadSidePanel room={makeRoom()} thread={makeThread({ number: 42 })} />);
-    await waitFor(() => expect(screen.getAllByText("Not available until the room's statuses have loaded.")).toHaveLength(2));
+    await waitFor(() => expect(screen.getByText("Not available until the room's statuses have loaded.")).toBeInTheDocument());
     expect(screen.getByRole("heading", { level: 4, name: "History" })).toBeInTheDocument();
   });
 });

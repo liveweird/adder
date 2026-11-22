@@ -38,12 +38,12 @@ change can only arrive by being pushed, and marks the document, so "without a re
 
 ## Scenario: a status change made by one member shows in another member's open thread
 
-1. The same setup with an API-seeded thread; both members open it and open the side panel.
-   - *Expected*: the teammate's list row and **Thread status** select both say "Open".
-2. The owner opens the status select and picks **In progress**.
+1. The same setup with an API-seeded thread; both members open it.
+   - *Expected*: the teammate's list row and current-status badge both say "Open".
+2. The owner opens **Change status** in the thread header and picks **Move to In progress**.
    - *Expected*: the move answers 204.
 3. The teammate does nothing.
-   - *Expected*: their list row now says "In progress", their status select reads "In progress", and their document was not reloaded.
+   - *Expected*: their list row and current-status badge now say "In progress", the header menu offers **Move to Open** and **Move to Waiting**, and their document was not reloaded.
 
 ## Scenario: a member removed from a room loses it from the rail and the open room
 

@@ -80,22 +80,18 @@
 
 1. The admin creates an owner and a teammate and signs out; the owner creates a room from the Default template, adds the teammate and
    starts a thread, then signs out.
-2. The teammate (a plain member, not the thread's owner) opens the thread and the side panel (the header's **Details** button
-   opens it) and picks **In progress** in the status select.
-   - *Expected*: the select reads "Open" first; there is no Owner picker for them; the move answers 204 and the select and the pane's
-     header read "In progress".
-3. They open the status select again.
-   - *Expected*: **Done** and **Won't do** are disabled, and Done carries the hint "Needs the thread owner, a room owner or an
-     administrator".
-4. The teammate signs out; the owner signs in, opens the thread and its side panel, picks **Done** and confirms **Close thread** in the
+2. The teammate signs in, opens the thread, and uses the keyboard to open **Change status** and choose **Move to In progress**.
+   - *Expected*: with Details still collapsed, the menu offers only **Move to In progress** and **Move to Waiting**. Focus starts on the
+     first action and returns to **Change status** after the 204. The current status reads "In progress". The teammate opens Details and sees no Owner picker.
+3. The teammate signs out; the owner signs in, opens the thread, opens **Change status**, chooses **Close as Done**, and confirms **Close thread** in the
    "Close this thread?" dialog.
-   - *Expected*: the dialog names `#1` and Done; the move answers 204; the select reads "Done", the reply box is replaced by the note
+   - *Expected*: the menu exposes the viable workflow targets; the dialog names `#1` and Done; the move answers 204; the current status reads "Done", the reply box is replaced by the note
      "This thread is closed, so it takes no new messages…".
-5. The owner signs out; the teammate signs in and opens the thread, then its status select.
-   - *Expected*: the closed note, no reply box, and **Open** is disabled (reopening is for a steward).
-6. The teammate signs out; the owner signs in, opens the thread and picks **Open**.
+4. The owner signs out; the teammate signs in and opens the thread.
+   - *Expected*: the closed note and current **Done** status show, there is no reply box, and no status action is present (reopening is for a steward).
+5. The teammate signs out; the owner signs in, opens the thread and chooses **Reopen as Open** from **Change status**.
    - *Expected*: no confirm dialog; the move answers 204 and the reply box is back.
-7. The teammate signs in again and posts "Back in business.".
+6. The teammate signs in again and posts "Back in business.".
    - *Expected*: the post answers 201 and the message is in the conversation.
 
 ## Scenario: the owner passes the thread on, the new owner edits its details, and the history lists every change
@@ -122,11 +118,11 @@
 
 1. The admin creates an owner and signs out; the owner creates a room from the Default template and starts two threads.
 2. The owner opens the first thread.
-   - *Expected*: the header's **Details** button reads `aria-expanded="false"`; the side panel's sections (the Status heading, the
-     status select) are not on the page; the composer's **Send** button is on screen without scrolling (the suite's 1280x720
+   - *Expected*: the header's **Details** button reads `aria-expanded="false"`; the side panel's **Owner** section is not on the page,
+     while the current status remains in the header; the composer's **Send** button is on screen without scrolling (the suite's 1280x720
      viewport: the compact headers give the conversation the height).
 3. They press **Details**.
-   - *Expected*: the button reads `aria-expanded="true"` and the panel's four sections, Status, Owner, Details and History, show.
+   - *Expected*: the button reads `aria-expanded="true"` and the panel's four sections, Owner, Details, Tags and History, show.
 4. They open the second thread from the list (no reload), then reload the page.
    - *Expected*: the second thread opens with the panel already open, and so does the page after the reload: the choice is one
      switch per person per browser, not the thread's.
@@ -144,8 +140,9 @@
    - *Expected*: the panel is closed (`aria-expanded="false"`, its sections not on the page): closing is remembered the same way.
 7. Below the three-column width the page is not bounded: it scrolls, the conversation keeps a real height and the composer sticks to the
    bottom edge. On a phone (375x740, panel closed) they open the long-titled thread.
-   - *Expected*: the heading's box is at least 200px wide (two lines, never a few characters squeezed beside the icons); **Send** is on
-     screen at the top of the page and after scrolling the page to its bottom; the conversation is at least 16rem (256px) tall.
+   - *Expected*: the heading's box is at least 200px wide (two lines, never a few characters squeezed beside the icons); the current status
+     and **Change status** remain in the viewport; **Send** is on screen at the top of the page and after scrolling the page to its bottom;
+     the conversation is at least 16rem (256px) tall.
 8. At 1024x720 with the navigation open (the main area is too narrow for the third column, so the panel stacks above the conversation)
    they open the panel.
    - *Expected*: the panel shows (capped, scrolling inside) and the same three things hold: **Send** in view at the top and at the bottom of

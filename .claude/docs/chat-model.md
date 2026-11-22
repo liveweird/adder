@@ -529,6 +529,7 @@ Binding for 1.2.0. The code lands in steps (plan steps S1 to S12; where a rule n
 
 ### The room view (web only)
 
+- **Thread status** is a conversation-header action. The current status stays visible, and the action offers only other active statuses that the viewer can move to under D1. A move that closes the thread still asks for confirmation. Details holds ownership, fields, tags, hashtags and history.
 - **The side panel** (a thread's details) is collapsed at every width and a "Details" button opens it (1.2 D4); open and wide it is the third column, open and narrow it sits above the conversation. Open or closed is one switch per person per browser (`adder.viewSettings.threadPane.detailsOpen`), the same for every room and thread. The DOM order, the `aria-expanded`/`aria-controls` wiring and the heading outline do not change. **[changed]** from 0.3 (`web-internals.md` "The thread side panel"): the wide layout no longer always shows it.
 - **The room header** carries the room title, member count, tabs, pins and About. On narrow Threads views the tabs have their own
   row and the pins control is compact. **The thread header** shows the title, status, owner, message count and actions, with tags
