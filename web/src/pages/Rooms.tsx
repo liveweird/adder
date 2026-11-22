@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink } from "react-router-dom";
-import { Anchor, Badge, Button, Group, SegmentedControl, Stack, Switch, Table, Text } from "@mantine/core";
+import { Anchor, Avatar, Badge, Box, Button, Group, SegmentedControl, Stack, Switch, Table, Text } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { IconDoor, IconPlus } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
@@ -13,9 +13,12 @@ import SortHeader from "../components/SortHeader";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
 import { isBoolean, isOneOf, useStoredState } from "../hooks/useStoredState";
 import { browserTimeZone, formatDate } from "../utils/formatDate";
+import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { MAX_ROOM_NAME_LENGTH } from "../utils/roomForm";
 import { newRoomPath, roomPath } from "../utils/roomLinks";
 import { roomKeys } from "../utils/roomKeys";
+import { initialsOf } from "../utils/text";
+import classes from "./Rooms.module.css";
 
 const SORT_FIELDS = ["name", "lastActivityAt", "createdAt"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -59,17 +62,16 @@ export default function Rooms() {
   });
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" maw={CONTENT_MAX_WIDTH} className={classes.page}>
       <PageHeader
         title={t("rooms.title")}
-        description={t("rooms.intro")}
         actions={
-          <Button component={RouterLink} to={newRoomPath} leftSection={<IconPlus size={16} />}>
+          <Button component={RouterLink} to={newRoomPath} leftSection={<IconPlus size={16} />} className={classes.newRoom}>
             {t("rooms.newRoom")}
           </Button>
         }
         toolbar={
-          <Group gap="lg">
+          <Group gap="lg" className={classes.scopeBar}>
             {admin && (
               <SegmentedControl
                 aria-label={t("rooms.scope.aria")}
@@ -86,74 +88,103 @@ export default function Rooms() {
         }
       />
 
-      <FilterPanel activeFilterCount={nameFilterActive ? 1 : 0} storageKey={SETTINGS_KEY}>
-        <ClearableTextInput
-          label={t("common.field.name")}
-          value={nameFilter}
-          onChange={setNameFilter}
-          clearLabel={t("common.filter.clearName")}
-          maxLength={MAX_ROOM_NAME_LENGTH}
-        />
-      </FilterPanel>
+      <Box className={classes.directory}>
+        <Stack gap="md">
+          <FilterPanel activeFilterCount={nameFilterActive ? 1 : 0} storageKey={SETTINGS_KEY}>
+            <ClearableTextInput
+              label={t("common.field.name")}
+              value={nameFilter}
+              onChange={setNameFilter}
+              clearLabel={t("common.filter.clearName")}
+              maxLength={MAX_ROOM_NAME_LENGTH}
+            />
+          </FilterPanel>
 
-      <RegistryListTable
-        label={t("rooms.title")}
-        errorTitle={t("rooms.loadFailed")}
-        error={error}
-        isError={isError}
-        isLoading={isLoading}
-        hasData={Boolean(data)}
-        rowCount={data?.items.length ?? 0}
-        columnCount={5}
-        emptyIcon={IconDoor}
-        emptyLabel={t("rooms.empty")}
-        header={
-          <Table.Tr>
-            <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-            <Table.Th>{t("rooms.column.role")}</Table.Th>
-            <Table.Th>{t("rooms.column.members")}</Table.Th>
-            <SortHeader field="lastActivityAt" label={t("rooms.column.lastActivity")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-            <SortHeader field="createdAt" label={t("rooms.column.created")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-          </Table.Tr>
-        }
-        rows={data?.items.map((room) => (
-          <Table.Tr key={room.id}>
-            <Table.Td>
-              <Group gap="xs" wrap="nowrap">
-                {/* The name is the way into the room — a real link (the detail-link rule). */}
-                <Anchor component={RouterLink} to={roomPath(room.id)} fw={500} size="sm" aria-label={t("rooms.openAria", { name: room.name })}>
-                  {room.name}
-                </Anchor>
-                {room.archived && <Badge color="gray">{t("rooms.archivedBadge")}</Badge>}
-              </Group>
-              {room.description && (
-                <Text size="xs" c="dimmed" lineClamp={1}>
-                  {room.description}
-                </Text>
-              )}
-            </Table.Td>
-            <Table.Td>
-              <Text size="sm" c={room.role ? undefined : "dimmed"}>
-                {room.role ? t(`rooms.role.${room.role}`) : "—"}
-              </Text>
-            </Table.Td>
-            <Table.Td>
-              <Text size="sm">{room.memberCount}</Text>
-            </Table.Td>
-            <Table.Td>
-              <Text size="sm">{formatDate(room.lastActivityAt, "—", browserTimeZone())}</Text>
-            </Table.Td>
-            <Table.Td>
-              <Text size="sm">{formatDate(room.createdAt, "—", browserTimeZone())}</Text>
-            </Table.Td>
-          </Table.Tr>
-        ))}
-        total={data?.total ?? 0}
-        page={page}
-        pageSize={pageSize}
-        onPageChange={setPage}
-        onPageSizeChange={setPageSize}
-      />
+          <Box className={classes.tableRegion}>
+            <RegistryListTable
+              label={t("rooms.title")}
+              errorTitle={t("rooms.loadFailed")}
+              error={error}
+              isError={isError}
+              isLoading={isLoading}
+              hasData={Boolean(data)}
+              rowCount={data?.items.length ?? 0}
+              columnCount={4}
+              emptyIcon={IconDoor}
+              emptyLabel={t("rooms.empty")}
+              header={
+                <Table.Tr role="row">
+                  <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+                  <Table.Th className={classes.membersHeader}>{t("rooms.column.members")}</Table.Th>
+                  <SortHeader field="lastActivityAt" label={t("rooms.column.lastActivity")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+                  <SortHeader field="createdAt" label={t("rooms.column.created")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+                </Table.Tr>
+              }
+              rows={data?.items.map((room) => (
+                <Table.Tr key={room.id} role="row" className={classes.roomRow}>
+                  <Table.Td role="cell" className={classes.identityCell}>
+                    <Group gap="sm" wrap="nowrap" align="flex-start">
+                      <Avatar size={36} radius="md" variant="light" color="gray" className={classes.avatar} aria-hidden="true">
+                        {initialsOf(room.name)}
+                      </Avatar>
+                      <Box className={classes.identity}>
+                        <Group gap={6} wrap="wrap" className={classes.nameLine}>
+                          {/* The name is the way into the room — a real link (the detail-link rule). */}
+                          <Anchor
+                            component={RouterLink}
+                            to={roomPath(room.id)}
+                            fw={600}
+                            size="sm"
+                            aria-label={t("rooms.openAria", { name: room.name })}
+                            className={classes.roomLink}
+                          >
+                            {room.name}
+                          </Anchor>
+                          {room.role && <Badge size="xs">{t(`rooms.role.${room.role}`)}</Badge>}
+                          {room.archived && <Badge size="xs">{t("rooms.archivedBadge")}</Badge>}
+                        </Group>
+                        {room.description && (
+                          <Text size="xs" c="dimmed" lineClamp={1} className={classes.description}>
+                            {room.description}
+                          </Text>
+                        )}
+                        {!room.role && (
+                          <Text size="xs" c="dimmed" className={classes.noRole}>
+                            {t("rooms.column.role")}: <Text component="span" inherit>—</Text>
+                          </Text>
+                        )}
+                      </Box>
+                    </Group>
+                  </Table.Td>
+                  <Table.Td role="cell" className={classes.metaCell}>
+                    <Text component="span" size="xs" c="dimmed" className={classes.mobileLabel}>
+                      {t("rooms.column.members")}
+                    </Text>
+                    <Text size="sm" className={classes.numeric}>{room.memberCount}</Text>
+                  </Table.Td>
+                  <Table.Td role="cell" className={classes.metaCell}>
+                    <Text component="span" size="xs" c="dimmed" className={classes.mobileLabel}>
+                      {t("rooms.column.lastActivity")}
+                    </Text>
+                    <Text size="sm" className={classes.date}>{formatDate(room.lastActivityAt, "—", browserTimeZone())}</Text>
+                  </Table.Td>
+                  <Table.Td role="cell" className={classes.metaCell}>
+                    <Text component="span" size="xs" c="dimmed" className={classes.mobileLabel}>
+                      {t("rooms.column.created")}
+                    </Text>
+                    <Text size="sm" className={classes.date}>{formatDate(room.createdAt, "—", browserTimeZone())}</Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+              total={data?.total ?? 0}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
+          </Box>
+        </Stack>
+      </Box>
     </Stack>
   );
 }

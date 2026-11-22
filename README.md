@@ -5,9 +5,21 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.2.0 — the room view, tags and unread, on 1.1.0 watching, group mentions and notice kinds, 1.0.0 the checkup, 0.6.0 social, 0.5.0 find, 0.4.0 live updates, 0.3.0 threads and messages, 0.2.0 rooms and the 0.1.0 foundation)
+## What's here today (1.4.0 — a clearer workspace, on 1.3.0 quotes, 1.2.0 the room view, tags and unread, 1.1.0 watching, group mentions and notice kinds, 1.0.0 the checkup, 0.6.0 social, 0.5.0 find, 0.4.0 live updates, 0.3.0 threads and messages, 0.2.0 rooms and the 0.1.0 foundation)
 
-Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 1.2.0 gives the conversation more room and makes a busy room easier to sort:
+Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 1.4.0 makes the workspace clearer and more efficient on every screen size:
+
+- **Focused chat** — on larger screens the thread list and conversation use the available height and scroll independently. On phones an open thread gets a focused view with a clear return to the list.
+- **Conversation clarity** — compact room and thread headers, clearer message hierarchy, comfortable line lengths, quieter actions and a reply composer pinned below the message timeline keep attention on the discussion. Workflow controls, metadata, tags, timestamps and history stay organised in Details.
+- **Useful Home** — up to six recently active joined rooms, with unread cues, provide a direct route back to current work.
+- **Responsive room directory** — All rooms is a scannable table on larger screens and cards on narrow screens, with sorting and filters in both layouts.
+- **Navigation** — a cleaner application header and command palette, plus an accessible mobile drawer with managed focus and Escape or backdrop closing.
+
+1.3.0 added direct message quotes:
+
+- **Quotes** — quote any earlier message in the same thread from its one-click action or menu. The reply shows the current message text and author, links back to the original, handles edited or deleted originals and notifies the quoted author unless you quote yourself.
+
+1.2.0 gives the conversation more room and makes a busy room easier to sort:
 
 - **Room view** — the thread's side panel opens on demand ("Details", remembered per person and browser) and the room headers are compact, so the conversation and the composer get the space. Pinned messages are marked where they stand and an open thread keeps its pins in a strip under its header.
 - **Names as links** — a person's profile page (`/people/:id`: their teams and the rooms you share; an ADMIN sees every room; never the role or settings; `GET /api/v1/users/directory/{id}`), and people, rooms and teams are links wherever they are named. `GET /api/v1/rooms` and `GET /api/v1/teams` take `memberId`.
@@ -76,7 +88,7 @@ The 0.1.0 foundation:
 
 ## Roadmap
 
-0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (shipped) · 0.5.0 find: filters, sort, search, hashtags (shipped) · 0.6.0 social: mentions, notifications, reactions, pins, unread (shipped) · 1.0.0 the checkup (shipped) · 1.1.0 watching, group mentions, notice kinds (shipped) · 1.2.0 room view, tags, unread (shipped).
+0.2.0 rooms and workflows (shipped) · 0.3.0 threads and messages (shipped) · 0.4.0 live updates (shipped) · 0.5.0 find: filters, sort, search, hashtags (shipped) · 0.6.0 social: mentions, notifications, reactions, pins, unread (shipped) · 1.0.0 the checkup (shipped) · 1.1.0 watching, group mentions, notice kinds (shipped) · 1.2.0 room view, tags, unread (shipped) · 1.3.0 quotes · 1.4.0 clearer workspace.
 The scope of each version and the decisions behind it: `.claude/docs/product.md`; the domain sketch: `.claude/docs/chat-model.md`; open items: `BACKLOG.md`. `CLAUDE.md`'s "Product" and
 "Donors" sections say which sibling project each capability ports from.
 

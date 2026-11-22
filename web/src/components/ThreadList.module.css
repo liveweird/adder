@@ -1,4 +1,13 @@
-/* A thread row: a whole-row link in the rail, hairline-separated; the open thread carries the same accent bar as the active nav item. */
+.toolbar {
+  padding: 0.75rem;
+  border-block-end: 1px solid var(--mantine-color-default-border);
+}
+
+.order {
+  flex: 1 1 7rem;
+  min-inline-size: 0;
+}
+
 .list {
   list-style: none;
   margin: 0;
@@ -7,27 +16,57 @@
 
 .row {
   display: block;
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
-  border-bottom: 1px solid var(--mantine-color-default-border);
-  border-left: 3px solid transparent;
+  padding: 0.625rem 0.75rem;
+  border-block-end: 1px solid var(--mantine-color-default-border);
+  border-inline-start: 3px solid transparent;
   color: inherit;
   text-decoration: none;
-  /* A title with no break opportunity (a hostname, a path) wraps instead of widening the rail. */
   overflow-wrap: anywhere;
 }
 
-/* The dark hover surface is the quiet tint (dark-6), not Mantine's default-hover (dark-5): the row's dimmed ink is only 4.44:1 on the latter
-   (themeVariables.ts), under AA. */
 .row:hover {
-  background: light-dark(var(--mantine-color-default-hover), var(--adder-surface-tint));
+  background: light-dark(var(--mantine-color-white), var(--adder-surface-tint));
 }
 
 .row[aria-current="page"] {
-  background: light-dark(var(--mantine-color-default-hover), var(--adder-surface-tint));
-  border-left-color: var(--mantine-primary-color-filled);
+  background: light-dark(var(--mantine-color-white), var(--adder-surface-tint));
+  border-inline-start-color: var(--adder-accent-ink);
 }
 
-/* The previous filter's rows while the new one loads. */
+.row:focus-visible {
+  outline: 2px solid var(--adder-accent-ink);
+  outline-offset: -2px;
+}
+
+.title {
+  min-inline-size: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: clip;
+}
+
+.number {
+  font-variant-numeric: tabular-nums;
+}
+
+.pager {
+  padding: 0.75rem;
+}
+
 .stale {
   opacity: 0.5;
+}
+
+@media (pointer: coarse) {
+  .toolbar :is(button, a, label),
+  .order input {
+    min-block-size: 2.75rem;
+  }
+
+  .toolbar label {
+    display: grid;
+    place-items: center;
+  }
 }

@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Badge, Tooltip, VisuallyHidden } from "@mantine/core";
 import { useTranslation } from "react-i18next";
+import { IconWifiOff } from "@tabler/icons-react";
 import { LIVE_DOWN_GRACE_MS, type LiveStatus as Status } from "../utils/liveClient";
+import classes from "../theme.module.css";
 
 /**
  * The live channel's indicator in the shell header. The `role="status"` region is ALWAYS mounted (a live region announces only what changes
@@ -26,8 +28,9 @@ export default function LiveStatus({ status }: { status: Status }) {
     <div role="status" style={kind ? undefined : { position: "absolute" }}>
       {kind && (
         <Tooltip label={t(`appShell.live.${kind}Hint`)} withinPortal>
-          <Badge color="orange" variant="light" tabIndex={0}>
-            {t(`appShell.live.${kind}`)}
+          <Badge color="orange" variant="light" tabIndex={0} className={classes.liveBadge}>
+            <IconWifiOff size={14} aria-hidden className={classes.liveIcon} />
+            <span className={classes.liveCopy}>{t(`appShell.live.${kind}`)}</span>
           </Badge>
         </Tooltip>
       )}

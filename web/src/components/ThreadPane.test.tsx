@@ -84,18 +84,21 @@ describe("ThreadPane", () => {
     localStorage.clear();
   });
 
-  test("the header: #number and title as the pane's heading, the status, owner, count and both times in the browser's zone", async () => {
+  test("the header shows the thread summary and Details shows both times in the browser's zone", async () => {
+    const user = userEvent.setup();
     serve(jsonResponse(200, THREAD));
     renderWithProviders(<ThreadPane room={ROOM} numberParam="42" />);
     const region = await screen.findByRole("region", { name: "#42 Disk full on db-3" });
     expect(region).toHaveTextContent("Owner: Ann Owner");
-    // The owner and the starter are links to their profiles, in the sentence (1.2 D6).
     expect(within(screen.getByText(/^Owner:/)).getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
-    expect(within(screen.getByText(/^Started by/)).getByRole("link", { name: "Bob Starter" })).toHaveAttribute("href", "/people/6");
     expect(region).toHaveTextContent("3 messages");
+    await user.click(within(region).getByRole("button", { name: "Details" }));
+    const details = within(region).getByRole("group", { name: "Details" });
+    const started = within(details).getByText(/^Started by/);
+    expect(within(started).getByRole("link", { name: "Bob Starter" })).toHaveAttribute("href", "/people/6");
     const zone = browserTimeZone();
-    expect(region).toHaveTextContent(`Started by Bob Starter on ${formatDateTime(STARTED, zone)}`);
-    expect(region).toHaveTextContent(`Last activity ${formatDateTime(MOVED, zone)}`);
+    expect(details).toHaveTextContent(`Started by Bob Starter on ${formatDateTime(STARTED, zone)}`);
+    expect(details).toHaveTextContent(`Last activity ${formatDateTime(MOVED, zone)}`);
     await waitFor(() => expect(region).toHaveTextContent("Triage"));
     expect(headingOutline()).toEqual([
       [3, "#42 Disk full on db-3"],

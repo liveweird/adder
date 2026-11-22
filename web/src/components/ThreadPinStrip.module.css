@@ -3,10 +3,8 @@
  * line) when expanded. A neutral gray bar, border and tint (pinned is a neutral state: the olive accent is for interactive things and blue for
  * the unread cue); the pin icon and the word "Pinned" carry the meaning.
  *
- * The list is capped and scrolls inside. Narrow (the page scrolls and the composer sticks) the cap is `min(12rem, 25dvh)`. Wide, the thread pane
- * is a viewport-bounded column whose conversation is the one part that gives way, so the pane lowers the cap and the conversation's minimum while
- * the list is open (`ThreadPane.module.css` sets `--strip-list-max` and `--scroller-min` on `.pane[data-strip="open"]`): the conversation shrinks,
- * the composer's Send never moves.
+ * The list scrolls within its cap. The viewport-bounded thread pane lowers the cap with `--strip-list-max` so the timeline can share
+ * the available height with expanded pins.
  */
 .strip {
   min-width: 0;
@@ -18,10 +16,17 @@
 
 .toggle {
   display: block;
+  min-block-size: 1.5rem;
   width: 100%;
   padding: 2px var(--mantine-spacing-xs);
   border-radius: var(--mantine-radius-md);
   text-align: left;
+}
+
+@media (pointer: coarse) {
+  .toggle {
+    min-block-size: 2.75rem;
+  }
 }
 
 .toggle:focus-visible {

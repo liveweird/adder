@@ -1,32 +1,35 @@
-/*
- * The conversation's scroller, a focusable, labelled region so the keyboard can scroll it (axe: scrollable-region-focusable). The list inside
- * carries no bullets; a hairline separates the messages.
- * - Narrow (a main area under 62rem: a phone, a window with the navigation open) the page is not bounded and scrolls: the scroller is
- *   between 16rem and 60dvh tall, a real conversation whatever the header above it takes, and the composer sticks under it.
- * - Wide (from 62rem) it is the one part of the thread pane that gives way: in the pane's bounded column (`ThreadPane.module.css`) it takes
- *   whatever the header and the composer leave (`flex: 1`), never less than 16rem.
- */
+/* A labelled scroller keeps the timeline navigable independently of the rest of the workspace. */
 .scroller {
-  /* `--scroller-min` is the thread pane's to lower, wide only, while its pin strip takes a line of the column (`ThreadPane.module.css`). */
-  min-height: var(--scroller-min, 16rem);
-  max-height: max(16rem, 60dvh);
+  position: relative;
+  min-block-size: 16rem;
+  max-block-size: var(--chat-timeline-max, max(16rem, 60dvh));
+  flex: var(--chat-timeline-flex, 0 1 auto);
   overflow-y: auto;
   overscroll-behavior: contain;
-  border: 1px solid var(--mantine-color-default-border);
-  border-radius: var(--mantine-radius-md);
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  scrollbar-gutter: stable;
+  padding: 0.25rem var(--chat-gutter, var(--mantine-spacing-sm));
 }
 
 @container (min-width: 62rem) {
   .scroller {
     flex: 1 1 auto;
-    max-height: none;
+    min-block-size: 8rem;
+    max-block-size: none;
   }
+}
+
+.notice,
+.jump {
+  margin-inline: var(--chat-gutter, var(--mantine-spacing-sm));
+}
+
+.jump {
+  margin-block: 0.25rem;
 }
 
 .scroller:focus-visible {
   outline: 2px solid var(--adder-accent-ink);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .list {
@@ -36,7 +39,7 @@
 }
 
 .list > li + li {
-  border-top: 1px solid var(--mantine-color-default-border);
+  border-block-start: 1px solid var(--mantine-color-default-border);
 }
 
 /*
@@ -70,6 +73,7 @@
   .scroller {
     overflow: visible;
     flex: none;
-    min-height: 0;
+    min-block-size: 0;
+    max-block-size: none;
   }
 }

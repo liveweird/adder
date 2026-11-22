@@ -1,7 +1,16 @@
 {
   "title": "Adder",
+  "allRooms": "Wszystkie pokoje",
+  "recent": {
+    "title": "Aktywne pokoje",
+    "description": "Pokoje, do których należysz. Najpierw ostatnio aktywne.",
+    "lastActivity": "Aktywność: {{when}}",
+    "unread": "Nowe",
+    "unreadAccessible": ", nowa aktywność",
+    "loadFailed": "Nie udało się wczytać Twoich pokoi"
+  },
   "empty": {
-    "label": "Witaj w Adderze",
-    "hint": "Otwórz pokój z panelu bocznego albo utwórz nowy. Możesz też zarządzać użytkownikami/czkami, zespołami, szablonami przepływów pracy i flagami funkcji oraz wypróbować przełączniki języka i motywu."
+    "label": "Nie ma jeszcze aktywnych pokoi",
+    "hint": "Otwórz Wszystkie pokoje, aby znaleźć lub utworzyć pokój."
   }
 }

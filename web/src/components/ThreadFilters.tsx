@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Button, Group, Stack, Text } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import type { RoomWorkflow } from "../api/rooms";
@@ -29,6 +30,8 @@ export default function ThreadFilters({
   update,
   clear,
   activeCount,
+  orderControl,
+  readAction,
 }: {
   roomId: number;
   /** The session's user id; without one "Mine" has nothing to send and is disabled. */
@@ -40,6 +43,8 @@ export default function ThreadFilters({
   update: (patch: Partial<ThreadListParams>) => void;
   clear: () => void;
   activeCount: number;
+  orderControl: ReactNode;
+  readAction: ReactNode;
 }) {
   const { t } = useTranslation();
   // The registry (one cached read, shared with the tag editor): the Tags control offers its live tags grouped by category; a tag already in
@@ -51,7 +56,7 @@ export default function ThreadFilters({
   const mine = mineInUrl && me !== null;
   const mentioned = params.mention && me !== null;
   return (
-    <FilterPanel activeFilterCount={activeCount} storageKey="roomThreads">
+    <FilterPanel activeFilterCount={activeCount} storageKey="roomThreads" aside={orderControl} trailing={member ? readAction : undefined}>
       <Stack gap="xs" w="100%">
         <FilterMultiSelect
           label={t("threads.filters.status")}

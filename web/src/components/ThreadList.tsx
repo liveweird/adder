@@ -92,31 +92,45 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
   const emptyHint = filterCount > 0 ? undefined : scope === "closed" ? t("threads.empty.hintClosed") : canStart ? t("threads.empty.hint") : undefined;
 
   return (
-    <Stack gap="sm">
-      <Group justify="space-between" gap="xs" wrap="wrap">
-        <SegmentedControl
-          size="xs"
-          aria-label={t("threads.scope.aria")}
-          value={scope}
-          onChange={(value) => update({ scope: value as Scope })}
-          data={SCOPES.map((value) => ({ value, label: t(`threads.scope.${value}`) }))}
+    <Stack gap={0}>
+      <Stack gap="xs" className={classes.toolbar}>
+        <Group justify="space-between" gap={6} wrap="wrap">
+          <SegmentedControl
+            size="xs"
+            aria-label={t("threads.scope.aria")}
+            value={scope}
+            onChange={(value) => update({ scope: value as Scope })}
+            data={SCOPES.map((value) => ({ value, label: t(`threads.scope.${value}`) }))}
+          />
+          {canStart && (
+            <Button component={RouterLink} to={withListParams(newThreadPath(room.id), search)} size="xs" leftSection={<IconPlus size={15} />}>
+              {t("threads.newThread")}
+            </Button>
+          )}
+        </Group>
+        <ThreadFilters
+          roomId={room.id}
+          me={me}
+          member={member}
+          workflow={workflow.data}
+          params={params}
+          update={update}
+          clear={clear}
+          activeCount={filterCount}
+          orderControl={
+            <Select
+              className={classes.order}
+              size="xs"
+              aria-label={t("threads.order.aria")}
+              data={ORDERS.map((value) => ({ value, label: t(`threads.order.${value}`) }))}
+              value={order}
+              onChange={(value) => value && update({ order: value as Order })}
+              allowDeselect={false}
+            />
+          }
+          readAction={<MarkAllReadButton room={room} />}
         />
-        {canStart && (
-          <Button component={RouterLink} to={withListParams(newThreadPath(room.id), search)} size="compact-sm" leftSection={<IconPlus size={14} />}>
-            {t("threads.newThread")}
-          </Button>
-        )}
-      </Group>
-      <Select
-        size="xs"
-        aria-label={t("threads.order.aria")}
-        data={ORDERS.map((value) => ({ value, label: t(`threads.order.${value}`) }))}
-        value={order}
-        onChange={(value) => value && update({ order: value as Order })}
-        allowDeselect={false}
-      />
-      <ThreadFilters roomId={room.id} me={me} member={member} workflow={workflow.data} params={params} update={update} clear={clear} activeCount={filterCount} />
-      <MarkAllReadButton room={room} />
+      </Stack>
       {isError && <ErrorAlert error={error} title={t("threads.loadFailed")} />}
       {/* Field filters cannot be judged before the workflow is read: a failed read says so instead of spinning for ever. */}
       {waiting && workflow.isError && <ErrorAlert error={workflow.error} title={t("threads.loadFailed")} />}
@@ -153,8 +167,8 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                   >
                     <Stack gap={4}>
                       <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
-                        <Text size="sm" fw={unread ? 700 : 500} lh={1.3} miw={0}>
-                          <Text span c="dimmed" inherit>{`#${thread.number}`}</Text> {thread.title}
+                        <Text size="sm" fw={unread ? 700 : 500} lh={1.4} className={classes.title}>
+                          <Text span c="dimmed" size="xs" fw={500} className={classes.number}>{`#${thread.number}`}</Text> {thread.title}
                           {watching && (
                             <>
                               {" "}
@@ -169,7 +183,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                           </Group>
                         )}
                       </Group>
-                      <Group gap="xs">
+                      <Group gap="0.125rem 0.5rem">
                         <ThreadStatusPill statuses={workflow.data?.statuses} statusKey={thread.status} size="sm" />
                         {pinned && <PinMark size="sm" hidden />}
                         <Text size="xs" c="dimmed">
@@ -199,7 +213,11 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
           </ul>
         </nav>
       )}
-      {data && data.total > THREAD_PAGE_SIZE && <PaginationBar total={data.total} page={page} pageSize={THREAD_PAGE_SIZE} onPageChange={(next) => update({ page: next })} />}
+      {data && data.total > THREAD_PAGE_SIZE && (
+        <div className={classes.pager}>
+          <PaginationBar total={data.total} page={page} pageSize={THREAD_PAGE_SIZE} onPageChange={(next) => update({ page: next })} />
+        </div>
+      )}
     </Stack>
   );
 }

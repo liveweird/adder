@@ -91,23 +91,31 @@ describe("App shell", () => {
       expect(screen.queryByText("Overview")).not.toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
       expect(screen.getByRole("link", { name: "Teams" })).toHaveAttribute("href", "/teams");
-      expect(screen.getByRole("link", { name: "All rooms" })).toHaveAttribute("href", "/rooms");
+      expect(within(screen.getByRole("navigation", { name: "Navigation" })).getByRole("link", { name: "All rooms" })).toHaveAttribute("href", "/rooms");
       expect(localStorage.getItem("adder.viewSettings.appShell.navCollapsed")).toBe("true");
     });
 
-    test("the mobile burger has an accessible name and reports whether the drawer is open", async () => {
-      // Mantine hides the burger from `sm` up through a media query happy-dom evaluates against
-      // the window width, so the test runs at a phone width (restored afterwards).
+    test("mobile navigation dismisses on Escape and focuses the destination when Search clears the query", async () => {
       const desktopWidth = window.innerWidth;
       window.innerWidth = 390;
       try {
         const user = userEvent.setup();
-        renderApp("/");
-        await screen.findByRole("group", { name: "Overview" });
+        renderApp("/search?q=incident");
         const burger = screen.getByRole("button", { name: "Toggle navigation" });
         expect(burger).toHaveAttribute("aria-expanded", "false");
         await user.click(burger);
+        const drawer = await screen.findByRole("dialog", { name: "Navigation" });
         expect(burger).toHaveAttribute("aria-expanded", "true");
+        expect(within(drawer).getByRole("link", { name: "All rooms" })).toHaveAttribute("href", "/rooms");
+        await user.keyboard("{Escape}");
+        expect(drawer).not.toBeInTheDocument();
+        expect(burger).toHaveAttribute("aria-expanded", "false");
+
+        await user.click(burger);
+        const reopened = await screen.findByRole("dialog", { name: "Navigation" });
+        await user.click(within(reopened).getByRole("link", { name: "Search" }));
+        await waitFor(() => expect(screen.getByRole("main")).toHaveFocus());
+        expect(reopened).not.toBeInTheDocument();
       } finally {
         window.innerWidth = desktopWidth;
       }
@@ -282,7 +290,7 @@ describe("App shell", () => {
         vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(500, { title: "Boom", status: 500 }))));
         renderApp("/");
         expect(await screen.findByText("Could not load your rooms")).toBeInTheDocument();
-        expect(screen.getByRole("link", { name: "All rooms" })).toBeInTheDocument();
+        expect(within(screen.getByRole("navigation", { name: "Navigation" })).getByRole("link", { name: "All rooms" })).toBeInTheDocument();
       });
 
       test("a failed load in the icon rail is a labelled icon", async () => {

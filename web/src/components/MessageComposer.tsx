@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Alert, Anchor, Button, Group, Stack, VisuallyHidden } from "@mantine/core";
+import { Alert, Anchor, Button, Group, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
+import { IconSend } from "@tabler/icons-react";
 import { postMessage } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import type { ThreadResponse } from "../api/threads";
@@ -75,6 +76,7 @@ const QUOTE_FOCUS_DELAY_MS = 40;
  */
 function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerProps) {
   const { t } = useTranslation();
+  const hintId = useId();
   const queryClient = useQueryClient();
   const drafts = useThreadDrafts();
   const [text, setText] = useState(() => drafts.getReply(room.id, thread.number));
@@ -165,7 +167,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
         void send();
       }}
     >
-      <Stack gap="xs">
+      <Stack gap={4} className={classes.surface}>
         {/* Mounted from the first render, so the words that appear in it when a quote is set are announced (the `@everyone` note is the precedent). */}
         <VisuallyHidden role="status">{quote ? t("threads.quote.announce", { author: quote.authorName, excerpt: quoteDraftExcerpt(quote, t) }) : ""}</VisuallyHidden>
         {quote && (
@@ -182,12 +184,13 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
         <MentionTextarea
           roomId={room.id}
           label={t("threads.composer.label")}
-          description={t("threads.composer.hint")}
+          attributes={{ input: { "aria-describedby": `${hintId} ${hintId}-count` } }}
+          classNames={{ input: classes.input }}
+          counter="none"
           autosize
-          minRows={2}
-          maxRows={10}
+          minRows={1}
+          maxRows={8}
           maxLength={MAX_MESSAGE_BODY_LENGTH}
-          inputWrapperOrder={["label", "input", "description", "error"]}
           value={text}
           onChange={setText}
           // Read-only, not disabled: a disabled box would drop the caret the reader is writing the next line at.
@@ -200,8 +203,16 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
           }}
         />
         {error && <FormErrorAlert>{error}</FormErrorAlert>}
-        <Group justify="flex-end">
-          <Button type="submit" loading={posting}>
+        <Group justify="space-between" align="center" gap="sm" wrap="nowrap" className={classes.footer}>
+          <div className={classes.footerNote}>
+            <Text id={hintId} size="xs" c="dimmed" component="span" className={classes.hint}>
+              {t("threads.composer.hint")}
+            </Text>
+            <Text id={`${hintId}-count`} size="xs" c="dimmed" component="span" className={classes.count}>
+              {t("common.charCount", { current: text.length, max: MAX_MESSAGE_BODY_LENGTH })}
+            </Text>
+          </div>
+          <Button type="submit" size="sm" loading={posting} leftSection={<IconSend size={15} aria-hidden="true" />} className={classes.send}>
             {t("threads.composer.send")}
           </Button>
         </Group>
@@ -224,7 +235,7 @@ export default function MessageComposer({ room, thread, onPosted, quoteRequest =
     return <ComposerForm key={`${room.id}/${thread.number}`} room={room} thread={thread} onPosted={onPosted} quoteRequest={own} />;
   }
   return (
-    <Alert color="gray" variant="light" role="note">
+    <Alert className={classes.blocked} color="gray" variant="light" role="note">
       <Stack gap={4} align="flex-start">
         <span>{t(`threads.composer.${block}`)}</span>
         {block === "notMember" && (

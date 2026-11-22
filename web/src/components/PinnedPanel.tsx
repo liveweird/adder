@@ -25,7 +25,7 @@ import PinCard from "./PinCard";
  * `useCloseOnPageChange`), never leaving it covering the profile it led to. The thread link keeps the list's URL keys only from the Threads tab
  * (`listRouteSearch`): the Search tab's `scope` and `page` are not the list's.
  */
-export default function PinnedPanel({ room }: { room: RoomResponse }) {
+export default function PinnedPanel({ room, className }: { room: RoomResponse; className?: string }) {
   const { t } = useTranslation();
   const [opened, setOpened] = useState(false);
   const [returnFocus, setReturnFocus] = useState(true);
@@ -38,7 +38,7 @@ export default function PinnedPanel({ room }: { room: RoomResponse }) {
   const label = pins.data ? t("rooms.pins.button", { count: pins.data.items.length }) : t("rooms.pins.buttonNoCount");
   return (
     <>
-      <Button variant="default" size="xs" leftSection={<IconPin size={14} />} aria-haspopup="dialog" onClick={() => {
+      <Button className={className} variant="default" size="xs" leftSection={<IconPin size={16} />} aria-label={label} title={label} aria-haspopup="dialog" onClick={() => {
           setReturnFocus(true);
           noteOpened();
           setOpened(true);

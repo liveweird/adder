@@ -28,7 +28,9 @@
    - *Expected*: the room is a link in the **Rooms** section, `aria-current="page"` while open (and still after the
      **Settings** tab is opened), and **All rooms** is not marked current.
 6. They open **All rooms** again and filter by the room's name.
-   - *Expected*: the room's row reads Owner in its role cell and 1 in its members cell.
+   - *Expected*: the room's row shows an Owner badge beside its name and 1 in its members cell.
+7. They narrow the viewport to phone width.
+   - *Expected*: the result still shows its Owner badge, and the card labels its member count "Members".
 
 ## Scenario: the owner adds a person and a whole team, hands over ownership and leaves
 
@@ -69,7 +71,7 @@
 4. The administrator signs in, opens the Rooms page and filters by the name.
    - *Expected*: the default **Mine** scope is empty ("No rooms yet", the admin is not a member).
 5. They switch to **All**.
-   - *Expected*: the room's row appears with "—" as the role (the admin has none); opening it shows the room with its name
+   - *Expected*: the room's row appears with "Your role: —" below its name (the admin has no role); opening it shows the room with its name
      as the h2, no "not a member" message, and the room still absent from the admin's own rail.
 
 ## Scenario: an owner archives and unarchives a room and an administrator deletes it

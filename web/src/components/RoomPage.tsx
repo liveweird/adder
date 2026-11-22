@@ -16,10 +16,9 @@ import classes from "./RoomPage.module.css";
 import { roomKeys } from "../utils/roomKeys";
 
 /**
- * The frame every page of one room shares: the load triage (a missing room and one the caller may not read are the same 404),
- * the compact header — ONE wrapping row (`PageHeader compact`): a back icon, the name, the member count and an Archived badge, the tabs, and the "Pinned (n)" button that opens the pinned panel beside the "About this room" popover (the description, only when there is one) — so the conversation gets the height. `fill` (an open thread on the Threads tab) bounds the page to the viewport below the shell header in a wide main area (`RoomPage.module.css`; below 62rem the page scrolls), so the page's own parts share what the room header leaves instead of a measured constant. `children` renders the open page's body once
- * the room has loaded. The room reads under `["rooms", "detail", id]`, so any `["rooms"]` refresh updates it. A member who has the room open
- * marks it seen (`useRoomSeen`); an ADMIN who is not a member has no read state and sends nothing.
+ * Loads the room, renders its navigation and actions, and supplies the room to the active page. The Threads view uses compact
+ * navigation and passes `fill` for an open conversation so the workspace can share the viewport with the room header.
+ * The room detail query is shared. Viewing an accessible room marks it seen for members only.
  */
 export default function RoomPage({ idParam, tab, fill = false, children }: { idParam: string | undefined; tab: RoomTabKey; fill?: boolean; children: (room: RoomResponse) => ReactNode }) {
   const { t } = useTranslation();
@@ -46,27 +45,29 @@ export default function RoomPage({ idParam, tab, fill = false, children }: { idP
   return (
     <Box className={classes.frame}>
       <Stack gap="sm" className={fill ? classes.fill : undefined}>
-        <PageHeader
-          compact
-          title={room.name}
-          documentTitle={tab === "home" ? room.name : `${t(`rooms.tabs.${tab}`)} · ${room.name}`}
-          description={
-            <Group gap="xs" wrap="nowrap">
-              <Text span size="sm">
-                {t("rooms.memberCount", { count: room.memberCount })}
-              </Text>
-              {room.archived && <Badge color="gray">{t("rooms.archivedBadge")}</Badge>}
-            </Group>
-          }
-          backTo={{ to: roomsPath, label: t("rooms.backToRooms") }}
-          toolbar={<RoomTabs id={room.id} active={tab} />}
-          actions={
-            <>
-              <PinnedPanel room={room} />
-              <RoomAbout description={room.description} />
-            </>
-          }
-        />
+        <Box className={tab === "home" ? classes.header : undefined}>
+          <PageHeader
+            compact
+            title={room.name}
+            documentTitle={tab === "home" ? room.name : `${t(`rooms.tabs.${tab}`)} · ${room.name}`}
+            description={
+              <Group gap="xs" wrap="nowrap">
+                <Text span size="sm" className={tab === "home" ? classes.memberCount : undefined}>
+                  {t("rooms.memberCount", { count: room.memberCount })}
+                </Text>
+                {room.archived && <Badge color="gray">{t("rooms.archivedBadge")}</Badge>}
+              </Group>
+            }
+            backTo={{ to: roomsPath, label: t("rooms.backToRooms") }}
+            toolbar={<RoomTabs id={room.id} active={tab} />}
+            actions={
+              <>
+                <PinnedPanel room={room} className={tab === "home" ? classes.pinButton : undefined} />
+                <RoomAbout description={room.description} />
+              </>
+            }
+          />
+        </Box>
         {children(room)}
       </Stack>
     </Box>

@@ -26,7 +26,7 @@ import classes from "../theme.module.css";
  * once in the shell header. No `highlightQuery`: it splits a label into `<mark>` + text
  * fragments, and tests/e2e locate results by their full name.
  */
-export default function CommandPalette() {
+export default function CommandPalette({ shortcutEnabled = true }: { shortcutEnabled?: boolean }) {
   const { t } = useTranslation();
   const admin = useAdmin();
   const navigate = useNavigate();
@@ -141,7 +141,7 @@ export default function CommandPalette() {
       </ActionIcon>
       <Spotlight
         store={paletteStore}
-        shortcut="mod + K"
+        shortcut={shortcutEnabled ? "mod + K" : null}
         query={query}
         onQueryChange={setQuery}
         actions={[pages, ...(roomItems.length > 0 ? [roomGroup] : []), ...(queryProblem(term) === null ? [searchGroup] : []), ...(admin ? [actions] : [])]}

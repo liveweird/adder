@@ -1,10 +1,21 @@
-# App shell chrome: the icon rail and the theme switch
+# App shell chrome: mobile navigation, the icon rail and the theme switch
 
 - **Spec**: [tests/shell.spec.ts](../tests/shell.spec.ts)
 - **Actors**: the seed administrator (`admin@adder.local`)
-- **Owns** (exclusive server-side state): nothing — both settings are DEVICE-level
-  localStorage, never synced server-side (unlike the per-user language in
-  [i18n.md](i18n.md))
+- **Owns** (exclusive server-side state): nothing — this is read-only; the desktop rail and
+  theme preferences are DEVICE-level localStorage, never synced server-side (unlike the
+  per-user language in [i18n.md](i18n.md))
+
+## Scenario: the mobile navigation drawer is labelled, restores focus on Escape and focuses the destination after navigation
+
+1. At phone width, the admin opens **Toggle navigation**.
+   - *Expected*: a dialog named **Navigation** opens and contains the labelled navigation
+     landmark.
+2. They press Escape.
+   - *Expected*: the drawer closes and focus returns to **Toggle navigation**.
+3. They reopen it and activate **All rooms**.
+   - *Expected*: the app navigates to `/rooms`, closes the drawer and focuses the main content
+     region so keyboard navigation continues at the destination.
 
 ## Scenario: the icon rail collapses and expands the navbar, remembered across reload
 

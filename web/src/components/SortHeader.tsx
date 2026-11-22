@@ -27,7 +27,7 @@ export default function SortHeader<F extends string>({
   const isActive = activeField === field;
   const Icon = !isActive ? IconArrowsSort : activeDir === "asc" ? IconArrowUp : IconArrowDown;
   return (
-    <Table.Th aria-sort={!isActive ? "none" : activeDir === "asc" ? "ascending" : "descending"} w={width}>
+    <Table.Th role="columnheader" aria-sort={!isActive ? "none" : activeDir === "asc" ? "ascending" : "descending"} w={width}>
       <UnstyledButton
         onClick={() => onToggle(field)}
         style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 600 }}

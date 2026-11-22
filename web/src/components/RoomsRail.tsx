@@ -43,7 +43,7 @@ export default function RoomsRail({
   /** The nav's active path (the shell resolves it across the leaves and these rooms). */
   activeTo: string | null;
   /** A link click closes the mobile drawer. */
-  onNavigate: () => void;
+  onNavigate?: (to: string) => void;
   /** The caller's unseen notices per room id (`utils/unread.ts` `unseenByRoom`). */
   mentions?: ReadonlyMap<number, number>;
 }) {
@@ -80,7 +80,7 @@ export default function RoomsRail({
               }
               className={classes.railLink}
               c={dimmed ? "dimmed" : undefined}
-              onClick={onNavigate}
+              onClick={onNavigate ? () => onNavigate(to) : undefined}
             />
           </Tooltip>
           {noteText}
@@ -96,6 +96,8 @@ export default function RoomsRail({
           aria-current={current ? "page" : undefined}
           aria-describedby={noteId}
           label={room.name}
+          title={room.name}
+          className={classes.roomRailLink}
           leftSection={<IconHash size={16} stroke={1.5} />}
           rightSection={
             note === "" ? undefined : (
@@ -108,7 +110,7 @@ export default function RoomsRail({
             )
           }
           c={dimmed ? "dimmed" : undefined}
-          onClick={onNavigate}
+          onClick={onNavigate ? () => onNavigate(to) : undefined}
         />
         {noteText}
       </Box>
@@ -152,7 +154,7 @@ export default function RoomsRail({
         </Box>
       )}
       {more && !collapsed && (
-        <Anchor component={RouterLink} to={roomsPath} size="xs" px={12} py={4} display="block" onClick={onNavigate}>
+        <Anchor component={RouterLink} to={roomsPath} size="xs" px={12} py={4} display="block" onClick={onNavigate ? () => onNavigate(roomsPath) : undefined}>
           {t("rooms.rail.more")}
         </Anchor>
       )}

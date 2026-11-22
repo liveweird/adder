@@ -8,14 +8,15 @@ import { APP_VERSION } from "../changelog/version";
 // avoids timezone re-interpretation. APP_VERSION is the newest changelog entry.
 // With `to` set, the stamp renders as a router link (the navbar instance points
 // at /changelog); without it, plain text (the login screen, where /changelog is
-// behind auth). `compact` (the icon-rail navbar, 64px wide) shows just the version
+// behind auth). `compact` (the icon rail) shows just the version
 // number and moves the full `v… · sha · time` line into the `title` tooltip, so the
 // build detail stays one hover away.
 export default function VersionStamp({
   to,
   compact,
+  onNavigate,
   ...props
-}: TextProps & { to?: string; compact?: boolean }) {
+}: TextProps & { to?: string; compact?: boolean; onNavigate?: (to: string) => void }) {
   const { t } = useTranslation();
   const time = __APP_COMMIT_TIME__.slice(0, 16).replace("T", " ");
   const full = `v${APP_VERSION} · ${__APP_COMMIT__}${time ? ` · ${time}` : ""}`;
@@ -30,6 +31,7 @@ export default function VersionStamp({
         size="xs"
         c="dimmed"
         title={title}
+        onClick={onNavigate ? () => onNavigate(to) : undefined}
         {...props}
       >
         {stamp}

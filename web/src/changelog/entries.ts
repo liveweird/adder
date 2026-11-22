@@ -17,6 +17,30 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.4.0",
+    date: "2026-11-22",
+    en: `**Adder 1.4.0: a clearer workspace.**
+
+- Chat now uses the available screen more effectively. On larger screens the thread list and conversation scroll independently, while phones give an open thread a focused view with a clear “Back to threads” action.
+- Compact room and thread headers keep the title, status, owner and essential actions close without crowding the conversation.
+- Messages have a clearer author-and-time hierarchy, comfortable line lengths, quieter actions and more legible quote and pin treatments.
+- The reply composer stays pinned below the message timeline, remains compact and reachable, keeps Send prominent and preserves its character count and help for assistive technology.
+- Thread details hold workflow controls, metadata, tags, timestamps and history in a structured panel that does not compete with the discussion.
+- Home now shows up to six recently active rooms you have joined, with unread cues that make it easier to return to current work.
+- All rooms is a scannable table on larger screens and responsive cards on narrow screens, with sorting and filters available in both layouts.
+- The application header, mobile navigation and command palette are cleaner and more consistent. The phone drawer supports keyboard focus, Escape and backdrop closing.`,
+    pl: `**Adder 1.4.0: czytelniejsza przestrzeń pracy.**
+
+- Czat lepiej wykorzystuje dostępną przestrzeń. Na większych ekranach lista wątków i rozmowa przewijają się niezależnie, a na telefonie otwarty wątek dostaje skupiony widok z wyraźną akcją „Wróć do wątków”.
+- Zwarte nagłówki pokoju i wątku trzymają tytuł, status, właściciela/kę i najważniejsze akcje blisko, bez przytłaczania rozmowy.
+- Wiadomości mają czytelniejszą hierarchię autora/ki i czasu, wygodną szerokość tekstu, spokojniejsze akcje oraz bardziej czytelne cytaty i przypięcia.
+- Pole odpowiedzi pozostaje przypięte pod listą wiadomości, zwarte i łatwo dostępne, wyróżnia przycisk wysyłania oraz zachowuje licznik znaków i pomoc dla technologii asystujących.
+- Szczegóły wątku mieszczą ustawienia przepływu pracy, metadane, tagi, znaczniki czasu i historię w uporządkowanym panelu, który nie konkuruje z rozmową.
+- Strona główna pokazuje do sześciu ostatnio aktywnych pokoi, do których należysz, wraz z oznaczeniami nieprzeczytanych treści.
+- „Wszystkie pokoje” to czytelna tabela na większych ekranach i responsywne karty na wąskich, z sortowaniem i filtrami dostępnymi w obu układach.
+- Nagłówek aplikacji, nawigacja mobilna i paleta poleceń są prostsze i bardziej spójne. Panel na telefonie obsługuje fokus klawiatury oraz zamykanie klawiszem Escape i kliknięciem tła.`,
+  },
+  {
     version: "1.3.0",
     date: "2026-11-22",
     en: `**Adder 1.3.0: quote a message.**

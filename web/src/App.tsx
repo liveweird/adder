@@ -1,6 +1,6 @@
-import { lazy, Suspense, useMemo } from "react";
-import { ActionIcon, AppShell, Box, Burger, Divider, Group, NavLink, ScrollArea, Text, Tooltip } from "@mantine/core";
-import { useDisclosure } from "@mantine/hooks";
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
+import { ActionIcon, AppShell, Burger, Drawer, Group, Text, Tooltip, useMantineTheme } from "@mantine/core";
+import { useDisclosure, useMediaQuery } from "@mantine/hooks";
 import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from "@tabler/icons-react";
 import { Link as RouterLink, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -10,16 +10,16 @@ import CommandPalette from "./components/CommandPalette";
 import LiveStatus from "./components/LiveStatus";
 import LoadingBlock from "./components/LoadingBlock";
 import NotificationsButton from "./components/NotificationsButton";
-import RoomsRail from "./components/RoomsRail";
 import ThreadDraftsProvider from "./components/ThreadDraftsProvider";
 import TelemetryPanelCrash from "./components/TelemetryPanelCrash";
 import UserMenu from "./components/UserMenu";
-import VersionStamp from "./components/VersionStamp";
+import WorkspaceNav from "./components/WorkspaceNav";
 import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
 import { KnownNamesContext, useSessionKnownNames } from "./utils/knownNames";
-import { activeNavPath, ROOMS_SECTION, visibleSections, type NavLeaf } from "./utils/navigation";
+import { activeNavPath, homePath, visibleSections } from "./utils/navigation";
 import { roomPath } from "./utils/roomLinks";
 import { unseenByRoom } from "./utils/unread";
+import { useCloseOnPageChange } from "./hooks/useCloseOnPageChange";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
 import { useLiveUpdates } from "./hooks/useLiveUpdates";
 import { useRailRooms } from "./hooks/useRailRooms";
@@ -72,14 +72,33 @@ function Shell() {
   const admin = useAdmin();
   // The names this session has seen, above the routes and inside the session boundary (a new sign-in, here or in another tab, starts with none).
   const knownNames = useSessionKnownNames();
-  const [opened, { toggle, close }] = useDisclosure();
-  const { pathname } = useLocation();
+  const { breakpoints } = useMantineTheme();
+  const desktop = useMediaQuery(`(min-width: ${breakpoints.sm})`, undefined, { getInitialValueInEffect: false });
+  const [opened, { open, close }] = useDisclosure();
+  const navDrawerOpen = opened && !desktop;
+  const [returnNavFocus, setReturnNavFocus] = useState(true);
+  const { pathname, search, hash } = useLocation();
+  const navId = useId();
+  const drawerId = useId();
+  const noteNavOpened = useCloseOnPageChange(navDrawerOpen, () => {
+    setReturnNavFocus(false);
+    close();
+  }, "url");
+  useEffect(() => {
+    if (desktop && opened) close();
+  }, [desktop, opened, close]);
+
+  const openNavigation = () => {
+    setReturnNavFocus(true);
+    noteNavOpened();
+    open();
+  };
   // Every page prints in the light scheme (the print-aware provider in main.tsx reads what this reports).
   usePrintLifecycle();
   // Desktop navbar collapse — device-level, persisted like the other view settings; the
   // mobile overlay keeps its own `opened` disclosure above and always shows full labels.
   const [navCollapsed, setNavCollapsed] = useStoredState("appShell.navCollapsed", false, isBoolean);
-  const rail = navCollapsed && !opened;
+  const rail = navCollapsed;
   // The telemetry panel: the stored flag is device-level, but a stored `true` shows nothing to a non-admin.
   const panelStored = useTelemetryPanelOpen();
   const showPanel = admin && panelStored;
@@ -108,46 +127,12 @@ function Shell() {
   }));
   const activeTo = activeNavPath(pathname, [...sections.flatMap((section) => section.items), ...roomLeaves]);
 
-  const renderLeaf = (leaf: NavLeaf) => {
-    const active = leaf.to === activeTo;
-    const Icon = leaf.icon;
-    const label = t(leaf.label);
-    if (rail) {
-      // Icon-only: the accessible NAME stays the label (aria-label), so every locator that
-      // finds the link by name works in both modes.
-      return (
-        <Tooltip key={leaf.to} label={label} position="right" withinPortal>
-          <NavLink
-            component={RouterLink}
-            to={leaf.to}
-            active={active}
-            aria-current={active ? "page" : undefined}
-            aria-label={label}
-            leftSection={<Icon size={20} stroke={1.5} />}
-            className={classes.railLink}
-            onClick={close}
-          />
-        </Tooltip>
-      );
-    }
-    return (
-      <NavLink
-        key={leaf.to}
-        component={RouterLink}
-        to={leaf.to}
-        active={active}
-        aria-current={active ? "page" : undefined}
-        label={label}
-        leftSection={<Icon size={18} stroke={1.5} />}
-        onClick={close}
-      />
-    );
-  };
+  const navigation = { sections, activeTo, railRooms, mentions, showArchived, onShowArchivedChange: setShowArchived };
 
   return (
     <AppShell
       header={{ height: 48 }}
-      navbar={{ width: { base: 240, sm: rail ? 64 : 240 }, breakpoint: "sm", collapsed: { mobile: !opened } }}
+      navbar={{ width: { base: 240, sm: rail ? 64 : 240 }, breakpoint: "sm", collapsed: { mobile: true } }}
       // 420 px beside the page from `lg` up (the content gives way: at 1200 px the 240 px navbar and the panel still leave ~540 px);
       // below it the panel covers the page edge to edge, since a pushed 420 px next to the navbar would leave a sliver.
       aside={{ width: 420, breakpoint: "lg", collapsed: { desktop: !showPanel, mobile: !showPanel } }}
@@ -157,79 +142,63 @@ function Shell() {
         <a href="#main-content" className="skip-link">
           {t("appShell.skipToContent")}
         </a>
-        <Group h={48} px="md" justify="space-between" wrap="nowrap">
-          <Group gap="sm" wrap="nowrap">
+        <div className={classes.appbar} data-rail={rail || undefined}>
+          <Group className={classes.brandGroup} gap={6} wrap="nowrap">
             <Burger
-              opened={opened}
-              onClick={toggle}
+              opened={navDrawerOpen}
+              onClick={openNavigation}
               hiddenFrom="sm"
               size="sm"
               aria-label={t("appShell.toggleMobileNav")}
-              aria-expanded={opened}
+              aria-expanded={navDrawerOpen}
+              aria-controls={navDrawerOpen ? drawerId : undefined}
+              aria-haspopup="dialog"
             />
-            {/* Sits beside the Burger, where the nav it toggles lives. */}
-            <Tooltip label={t("appShell.toggleNav")} position="right" withinPortal>
+            <Tooltip label={t("appShell.toggleNav")} position="bottom-start" withinPortal>
               <ActionIcon
-                variant="subtle"
                 visibleFrom="sm"
+                size="lg"
                 onClick={() => setNavCollapsed(!navCollapsed)}
                 aria-label={t("appShell.toggleNav")}
+                aria-expanded={!navCollapsed}
+                aria-controls={navId}
                 data-expanded={!navCollapsed || undefined}
               >
-                {navCollapsed ? (
-                  <IconLayoutSidebarLeftExpand size={18} />
-                ) : (
-                  <IconLayoutSidebarLeftCollapse size={18} />
-                )}
+                {navCollapsed ? <IconLayoutSidebarLeftExpand size={18} /> : <IconLayoutSidebarLeftCollapse size={18} />}
               </ActionIcon>
             </Tooltip>
-            <BrandLogo />
-            <Text fw={600} size="md" className={classes.brandText}>
-              {t("appShell.brand")}
-            </Text>
+            <RouterLink className={classes.brandLink} to={homePath}>
+              <BrandLogo />
+              <Text span fw={650} size="md" className={classes.brandText}>{t("appShell.brand")}</Text>
+            </RouterLink>
           </Group>
-          <Group gap="sm" wrap="nowrap">
+          <div className={classes.headerSearch}>
+            <CommandPalette shortcutEnabled={!navDrawerOpen} />
+          </div>
+          <Group className={classes.headerActions} gap={6} wrap="nowrap">
             <LiveStatus status={liveStatus} />
             <NotificationsButton />
-            <CommandPalette />
             <UserMenu />
           </Group>
-        </Group>
+        </div>
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs">
-        {/* The link list scrolls when it outgrows the viewport; the version stamp stays pinned. */}
-        <AppShell.Section grow component={ScrollArea} type="hover" scrollbarSize={6} offsetScrollbars>
-          {sections.map((section, index) => (
-            // A labelled, always-open block — never a toggle, so every leaf stays in the DOM
-            // for tests and deep links.
-            <Box key={section.label} role="group" aria-label={t(section.label)}>
-              {rail ? (
-                index > 0 && <Divider my={4} mx={8} />
-              ) : (
-                <Text component="div" className={classes.navSectionLabel}>
-                  {t(section.label)}
-                </Text>
-              )}
-              {section.items.map(renderLeaf)}
-              {section.label === ROOMS_SECTION && (
-                <RoomsRail
-                  rooms={railRooms}
-                  showArchived={showArchived}
-                  onShowArchivedChange={setShowArchived}
-                  collapsed={rail}
-                  activeTo={activeTo}
-                  onNavigate={close}
-                  mentions={mentions}
-                />
-              )}
-            </Box>
-          ))}
-        </AppShell.Section>
-        <AppShell.Section pt="xs" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
-          <VersionStamp to="/changelog" ta="center" pt={4} compact={rail} />
-        </AppShell.Section>
+      <AppShell.Navbar id={navId} component="div" visibleFrom="sm" p={8}>
+        <WorkspaceNav {...navigation} rail={rail} />
       </AppShell.Navbar>
+
+      <Drawer
+        attributes={{ content: { id: drawerId } }}
+        opened={navDrawerOpen}
+        onClose={close}
+        size="min(20rem, 88vw)"
+        title={t("appShell.navigation")}
+        returnFocus={returnNavFocus && !desktop}
+        closeButtonProps={{ "aria-label": t("common.action.close") }}
+        classNames={{ content: classes.navDrawer, body: classes.navDrawerBody, title: classes.navDrawerTitle }}
+      >
+        <WorkspaceNav {...navigation} onNavigate={(to) => { if (to === `${pathname}${search}${hash}`) close(); }} />
+      </Drawer>
 
       <AppShell.Main id="main-content" tabIndex={-1}>
         {/* A page crash stays inside the main area — header/nav keep working, and navigating

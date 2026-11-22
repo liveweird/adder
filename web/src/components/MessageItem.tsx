@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Box, Divider, Group, Menu, Stack, Text, Tooltip } from "@mantine/core";
+import { ActionIcon, Avatar, Box, Divider, Group, Menu, Stack, Text, Tooltip } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconPinFilled, IconQuote, IconTrash } from "@tabler/icons-react";
 import { deleteMessage, type MessageResponse } from "../api/messages";
@@ -12,6 +12,7 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
 import { tagFilterPath } from "../utils/roomLinks";
 import { fillSlots, slot } from "../utils/slots";
+import { initialsOf } from "../utils/text";
 import ConfirmActionModal from "./ConfirmActionModal";
 import FormErrorAlert from "./FormErrorAlert";
 import MarkdownView from "./MarkdownView";
@@ -22,6 +23,7 @@ import MessageReactions from "./MessageReactions";
 import PersonLink from "./PersonLink";
 import RowActionsMenu from "./RowActionsMenu";
 import UnreadCue from "./UnreadCue";
+import classes from "./MessageItem.module.css";
 
 /**
  * One message of the conversation: its author (a bold run, never a heading), when it was posted (the browser's zone), an "edited" marker,
@@ -120,7 +122,7 @@ export default function MessageItem({
   }
 
   return (
-    <Box component="li" ref={item} tabIndex={-1} py="xs" data-message-id={message.id} data-anchor={anchored || undefined} data-pinned={pinned || undefined}>
+    <Box component="li" ref={item} tabIndex={-1} className={classes.item} data-message-id={message.id} data-anchor={anchored || undefined} data-pinned={pinned || undefined}>
       {firstNew && (
         <Divider
           mb="xs"
@@ -131,94 +133,101 @@ export default function MessageItem({
           label={<UnreadCue>{t("threads.unread.separator")}</UnreadCue>}
         />
       )}
-      <Stack gap={4}>
-        {pinner && (
-          <Group gap={4} wrap="nowrap" align="center">
-            <IconPinFilled size={12} aria-hidden="true" style={{ flex: "none" }} />
-            <Text size="xs" fw={600} c="dimmed">
-              {fillSlots(t("threads.pin.by", { name: slot("name") }), { name: <PersonLink id={pinner.id} name={pinner.name} inherit /> })}
-            </Text>
-          </Group>
-        )}
-        <Group justify="space-between" align="center" wrap="nowrap" gap="xs">
-          <Group gap="xs" wrap="wrap" miw={0}>
-            <PersonLink id={message.authorId} name={message.authorName} quiet fw={700} size="sm" style={{ overflowWrap: "anywhere" }} />
-            <Text size="xs" c="dimmed" component="span">
-              {when}
-            </Text>
-            {message.editedAt !== null && !message.deleted && (
-              <Text size="xs" c="dimmed" component="span">
-                {t("threads.message.edited", { when: formatDateTime(message.editedAt, zone) })}
+      <div className={classes.layout}>
+        <Avatar size={32} radius="xl" color="gray" variant="light" aria-hidden className={classes.avatar}>
+          {initialsOf(message.authorName)}
+        </Avatar>
+        <Stack gap={3} className={classes.content}>
+          {pinner && (
+            <Group gap={4} wrap="nowrap" align="center" className={classes.pinLine}>
+              <IconPinFilled size={12} aria-hidden="true" style={{ flex: "none" }} />
+              <Text size="xs" fw={600} c="dimmed">
+                {fillSlots(t("threads.pin.by", { name: slot("name") }), { name: <PersonLink id={pinner.id} name={pinner.name} inherit /> })}
               </Text>
-            )}
-          </Group>
-          {(quoting || actions.edit || actions.remove !== null || actions.pin) && !editing && (
-            <Group gap={2} wrap="nowrap" style={{ flex: "none" }}>
-              {quoting && (
-                <Tooltip label={t("threads.quote.action")}>
-                  <ActionIcon size="sm" aria-label={t("threads.quote.actionAria", { author: message.authorName, when })} onClick={quoting}>
-                    <IconQuote size={16} />
-                  </ActionIcon>
-                </Tooltip>
-              )}
-              <RowActionsMenu label={t("common.table.operationsAria", { name: t("threads.message.name", { author: message.authorName, when }) })} loading={removing}>
-                {quoting && (
-                  <Menu.Item leftSection={<IconQuote size={14} />} onClick={quoting}>
-                    {t("threads.quote.action")}
-                  </Menu.Item>
-                )}
-                {actions.edit && (
-                  <Menu.Item
-                    leftSection={<IconPencil size={14} />}
-                    onClick={() => {
-                      setError(null);
-                      setEditing(true);
-                    }}
-                  >
-                    {t("common.action.edit")}
-                  </Menu.Item>
-                )}
-                {actions.pin && <MessagePinMenuItem roomId={roomId} messageId={message.id} onError={setError} />}
-                {actions.remove !== null && (
-                  <Menu.Item
-                    color="red"
-                    leftSection={<IconTrash size={14} />}
-                    onClick={() => {
-                      setError(null);
-                      setConfirming(true);
-                    }}
-                  >
-                    {t(moderate ? "threads.message.remove" : "common.action.delete")}
-                  </Menu.Item>
-                )}
-              </RowActionsMenu>
             </Group>
           )}
-        </Group>
-        {message.quote && !message.deleted && <MessageQuote roomId={roomId} threadNumber={message.threadNumber} quote={message.quote} onShow={onShowQuoted} />}
-        {message.deleted ? (
-          <Text size="sm" c="dimmed" fs="italic">
-            {t(message.deletedByModerator ? "threads.message.deletedModerated" : "threads.message.deletedOwn")}
-          </Text>
-        ) : editing && actions.edit ? (
-          <MessageEditForm
-            roomId={roomId}
-            message={message}
-            onDone={() => {
-              refocusAfterEdit.current = true;
-              setError(null);
-              setEditing(false);
-            }}
-            onError={setError}
-          />
-        ) : (
-          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(roomId, message.threadNumber, tag)} threadHref={threadHref} mentions={message.mentions} groupMentions={message.groupMentions}>
-            {message.body}
-          </MarkdownView>
-        )}
-        {!editing && <MessageReactions roomId={roomId} message={message} canReact={actions.react === true} onError={setError} />}
-        {error && <FormErrorAlert>{error}</FormErrorAlert>}
-      </Stack>
+          <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs" className={classes.header}>
+            <Group gap={6} wrap="wrap" miw={0} className={classes.meta}>
+              <PersonLink id={message.authorId} name={message.authorName} quiet fw={700} size="sm" style={{ overflowWrap: "anywhere" }} />
+              <Text size="xs" c="dimmed" component="span">
+                {when}
+              </Text>
+              {message.editedAt !== null && !message.deleted && (
+                <Text size="xs" c="dimmed" component="span">
+                  {t("threads.message.edited", { when: formatDateTime(message.editedAt, zone) })}
+                </Text>
+              )}
+            </Group>
+            {(quoting || actions.edit || actions.remove !== null || actions.pin) && !editing && (
+              <Group gap={2} wrap="nowrap" className={classes.actions}>
+                {quoting && (
+                  <Tooltip label={t("threads.quote.action")}>
+                    <ActionIcon size="sm" aria-label={t("threads.quote.actionAria", { author: message.authorName, when })} onClick={quoting}>
+                      <IconQuote size={16} />
+                    </ActionIcon>
+                  </Tooltip>
+                )}
+                <RowActionsMenu label={t("common.table.operationsAria", { name: t("threads.message.name", { author: message.authorName, when }) })} loading={removing}>
+                  {quoting && (
+                    <Menu.Item leftSection={<IconQuote size={14} />} onClick={quoting}>
+                      {t("threads.quote.action")}
+                    </Menu.Item>
+                  )}
+                  {actions.edit && (
+                    <Menu.Item
+                      leftSection={<IconPencil size={14} />}
+                      onClick={() => {
+                        setError(null);
+                        setEditing(true);
+                      }}
+                    >
+                      {t("common.action.edit")}
+                    </Menu.Item>
+                  )}
+                  {actions.pin && <MessagePinMenuItem roomId={roomId} messageId={message.id} onError={setError} />}
+                  {actions.remove !== null && (
+                    <Menu.Item
+                      color="red"
+                      leftSection={<IconTrash size={14} />}
+                      onClick={() => {
+                        setError(null);
+                        setConfirming(true);
+                      }}
+                    >
+                      {t(moderate ? "threads.message.remove" : "common.action.delete")}
+                    </Menu.Item>
+                  )}
+                </RowActionsMenu>
+              </Group>
+            )}
+          </Group>
+          {message.quote && !message.deleted && <MessageQuote roomId={roomId} threadNumber={message.threadNumber} quote={message.quote} onShow={onShowQuoted} />}
+          <Box className={classes.body}>
+            {message.deleted ? (
+              <Text size="sm" c="dimmed" fs="italic">
+                {t(message.deletedByModerator ? "threads.message.deletedModerated" : "threads.message.deletedOwn")}
+              </Text>
+            ) : editing && actions.edit ? (
+              <MessageEditForm
+                roomId={roomId}
+                message={message}
+                onDone={() => {
+                  refocusAfterEdit.current = true;
+                  setError(null);
+                  setEditing(false);
+                }}
+                onError={setError}
+              />
+            ) : (
+              <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(roomId, message.threadNumber, tag)} threadHref={threadHref} mentions={message.mentions} groupMentions={message.groupMentions}>
+                {message.body}
+              </MarkdownView>
+            )}
+          </Box>
+          {!editing && <MessageReactions roomId={roomId} message={message} canReact={actions.react === true} onError={setError} />}
+          {error && <FormErrorAlert>{error}</FormErrorAlert>}
+        </Stack>
+      </div>
       <ConfirmActionModal
         opened={confirming}
         onClose={() => setConfirming(false)}
