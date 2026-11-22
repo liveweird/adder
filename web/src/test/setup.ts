@@ -103,3 +103,7 @@ afterEach(() => {
 // happy-dom ships an IntersectionObserver that never reports anything (no layout), which would leave `NearViewport` charts
 // unmounted forever. Without one the component mounts its children at once; a test that wants to drive it stubs its own.
 Object.defineProperty(globalThis, "IntersectionObserver", { value: undefined, configurable: true, writable: true });
+
+// Cross-tab channels do not exist unless a test asks for one: happy-dom's `BroadcastChannel` would link every test's shell (and its pending messages) to the
+// others in a worker. A test that wants one stubs it (`vi.stubGlobal("BroadcastChannel", ChannelStub)`, `test/broadcast.ts`), as it stubs `WebSocket`.
+Object.defineProperty(globalThis, "BroadcastChannel", { value: undefined, configurable: true, writable: true });

@@ -1,10 +1,7 @@
 import { useEffect, useState } from "react";
 import { Badge, Tooltip, VisuallyHidden } from "@mantine/core";
 import { useTranslation } from "react-i18next";
-import type { LiveStatus as Status } from "../utils/liveClient";
-
-/** A reconnect shorter than this is not worth a badge: a token expiry or a server restart reads as nothing. */
-const DOWN_BADGE_DELAY_MS = 5_000;
+import { LIVE_DOWN_GRACE_MS, type LiveStatus as Status } from "../utils/liveClient";
 
 /**
  * The live channel's indicator in the shell header. The `role="status"` region is ALWAYS mounted (a live region announces only what changes
@@ -16,7 +13,7 @@ export default function LiveStatus({ status }: { status: Status }) {
   const [downLongEnough, setDownLongEnough] = useState(false);
   useEffect(() => {
     if (status !== "down") return;
-    const timer = setTimeout(() => setDownLongEnough(true), DOWN_BADGE_DELAY_MS);
+    const timer = setTimeout(() => setDownLongEnough(true), LIVE_DOWN_GRACE_MS);
     return () => {
       clearTimeout(timer);
       setDownLongEnough(false);

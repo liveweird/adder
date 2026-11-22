@@ -110,6 +110,8 @@ const MAX_WAIT_MS = 1_000;
  * random 0 to this long first, so a whole room of tabs, all reconnecting after a server restart, does not refetch in the same instant.
  */
 const SPREAD_MS = 2_000;
+/** A QUIET tab (hidden for 5 minutes, 1.2 D9) re-reads the bell's count at most this often, whatever the hints say. */
+const QUIET_MIN_GAP_MS = 60_000;
 
 /**
  * The rail, the rooms list, a room's thread list and the caller's notices (the badge and the drawer): `["rooms","rail"]`, `["rooms","list"]`,
@@ -150,6 +152,11 @@ interface Pending {
 }
 
 export interface LiveInvalidator {
+  /**
+   * A quiet tab keeps ONLY the bell's keys (`["notifications"]`), spaced a minute apart: nothing else is on screen and the socket carries
+   * personal frames only. Leaving quiet is followed by a `resync` from the client, the backfill of everything skipped meanwhile.
+   */
+  setQuiet(quiet: boolean): void;
   handle(frame: LiveServerFrame): void;
   /** Re-reads [keys] through the same coalescing and spacing as a hint's keys (an aggregate at most every three seconds). */
   request(keys: readonly QueryKey[]): void;
@@ -180,6 +187,8 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
   const lastFlushedAt = new Map<string, number>();
   let timer: unknown = null;
   let timerDueAt = 0;
+  let quiet = false;
+  const isBellKey = (key: QueryKey) => key[0] === notificationsKey[0];
 
   function arm(): void {
     if (pending.size === 0) return;
@@ -217,7 +226,8 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
     if (spaced || spread) {
       // A fixed place (the spread, or the settle) kept to the gap since the last re-read; a later hint can only bring it forward.
       const wait = spread ? clock.random() * SPREAD_MS : SETTLE_MS;
-      const dueAt = Math.max(now + wait, spaced ? (lastFlushedAt.get(id) ?? -Infinity) + SPACED_MIN_GAP_MS : -Infinity);
+      const gap = quiet ? QUIET_MIN_GAP_MS : SPACED_MIN_GAP_MS;
+      const dueAt = Math.max(now + wait, spaced ? (lastFlushedAt.get(id) ?? -Infinity) + gap : -Infinity);
       if (!existing || dueAt < existing.dueAt) pending.set(id, { key, spaced, firstAt: existing?.firstAt ?? now, dueAt });
     } else if (existing?.spaced) {
       // A hint that is no reaction (a post) for a conversation waiting out the gap: it settles on its own clock, and only ever brings the re-read forward.
@@ -231,6 +241,9 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
   }
 
   const invalidator: LiveInvalidator = {
+    setQuiet(next) {
+      quiet = next;
+    },
     handle(frame) {
       // A notice about the thread the reader is looking at (open, visible, at the end) is acknowledged by the pane through the read marker; the
       // bell is not re-read, so the badge never rises and falls again (`utils/lookingAt.ts`).
@@ -249,11 +262,11 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
         frame.type === "subscribed" ||
         (frame.type === "event" && frame.kind === "notification.created");
       const slow = isSlowFrame(frame);
-      for (const key of keysForFrame(frame)) queue(key, spread, slow);
+      for (const key of keysForFrame(frame)) if (!quiet || isBellKey(key)) queue(key, spread, slow);
       arm();
     },
     request(keys) {
-      for (const key of keys) queue(key, false, false);
+      for (const key of keys) if (!quiet || isBellKey(key)) queue(key, false, false);
       arm();
     },
     dispose() {

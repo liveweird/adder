@@ -9,6 +9,7 @@ import { getToken } from "../api/session";
 import { useCloseOnPageChange } from "../hooks/useCloseOnPageChange";
 import { useUnseenNotifications } from "../hooks/useUnseenNotifications";
 import { useNotificationRetryAfter } from "../hooks/useNotificationRetryAfter";
+import { announceSeen } from "../utils/seenSync";
 import { badgeText, notificationKeys, type NoticeView } from "../utils/notificationKeys";
 import { browserTimeZone } from "../utils/formatDate";
 import { noticeLinkOf } from "../utils/noticeLinks";
@@ -64,8 +65,15 @@ export default function NotificationsButton() {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: notificationsKey });
   // Settled, not only succeeded: a 404 (the notice is gone) or a 500 (unknown) re-reads, so the rows show what the server holds.
-  const markSeen = useMutation({ mutationFn: (id: number) => markNotificationSeen(id), onSettled: refresh });
-  const markAll = useMutation({ mutationFn: () => markAllNotificationsSeen(), onSuccess: refresh });
+  // The person's other tabs hear of a write that landed (1.2 D9), so a hidden tab's title count follows.
+  const markSeen = useMutation({ mutationFn: (id: number) => markNotificationSeen(id), onSuccess: announceSeen, onSettled: refresh });
+  const markAll = useMutation({
+    mutationFn: () => markAllNotificationsSeen(),
+    onSuccess: () => {
+      announceSeen();
+      return refresh();
+    },
+  });
 
   function open(n: NotificationItem, event: MouseEvent<HTMLAnchorElement>) {
     // Acting on it is "seen"; the navigation does not wait for the write, and a failed write re-reads what the server holds.

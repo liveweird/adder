@@ -4,6 +4,7 @@ import type { NotificationPage } from "../api/notifications";
 import { requestRefresh } from "./liveKeys";
 import { notificationKeys } from "./notificationKeys";
 import { roomKeys } from "./roomKeys";
+import { announceSeen } from "./seenSync";
 
 type Row = Record<string, unknown>;
 
@@ -37,6 +38,8 @@ export function markRoomReadInCaches(queryClient: QueryClient, roomId: number): 
   void queryClient.invalidateQueries({ queryKey: roomKeys.threadList(roomId) });
   void queryClient.invalidateQueries({ queryKey: roomKeys.rail });
   void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
+  // The room's notices are seen now: the person's other tabs re-read their bell (1.2 D9).
+  announceSeen();
 }
 
 /** The newest message id the conversation's cache holds (its pages read newest first), or undefined while nothing is cached. */
@@ -71,5 +74,8 @@ export function markThreadReadInCaches(queryClient: QueryClient, roomId: number,
   const cached = [notificationKeys.unseen, notificationKeys.addressed].map((key) => queryClient.getQueryData<NotificationPage>(key));
   // Through the live invalidator's spaced queue (when the tab has one): the list is bucketed per user, and a marker drives this as often as
   // every two seconds while hints drive the same re-read, so the two coalesce into one flush per spacing window.
-  if (cached.some(holdsNotice)) requestRefresh(queryClient, notificationKeys.all);
+  if (cached.some(holdsNotice)) {
+    requestRefresh(queryClient, notificationKeys.all);
+    announceSeen();
+  }
 }

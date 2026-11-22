@@ -23,7 +23,9 @@ import { unseenByRoom } from "./utils/unread";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
 import { useLiveUpdates } from "./hooks/useLiveUpdates";
 import { useRailRooms } from "./hooks/useRailRooms";
-import { useAddressedNotifications } from "./hooks/useUnseenNotifications";
+import { useSeenSync } from "./hooks/useSeenSync";
+import { useTabTitleCount } from "./hooks/useTabTitleCount";
+import { useAddressedNotifications, useUnseenNotifications } from "./hooks/useUnseenNotifications";
 import { isBoolean, useStoredState } from "./hooks/useStoredState";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "./hooks/useTelemetryPanel";
 import classes from "./theme.module.css";
@@ -96,6 +98,10 @@ function Shell() {
   const mentions = useMemo(() => unseenByRoom(addressed.items), [addressed.items]);
   // The tab's one live socket: it follows the ACTIVE rail rooms and the open room (the archived rail and "All rooms" refresh on focus).
   const liveStatus = useLiveUpdates((railRooms.active.data?.items ?? []).map((room) => room.id));
+  // The tab title counts the bell's number (1.2 D8) while the socket can keep it current, and the person's other tabs tell this one when notices were seen (D9).
+  const unseen = useUnseenNotifications();
+  useTabTitleCount(unseen.total, liveStatus);
+  useSeenSync(liveStatus === "idle");
   // The rooms join the leaves in ONE longest-prefix resolution, so /rooms/12/members lights room 12, not "All rooms".
   const roomLeaves = [...(railRooms.active.data?.items ?? []), ...(showArchived ? (railRooms.archived.data?.items ?? []) : [])].map((room) => ({
     to: roomPath(room.id),

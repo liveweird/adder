@@ -35,7 +35,7 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
 - **Live updates** over a WebSocket (`GET /api/v1/live`; `.claude/docs/live.md`) — the browser trades its bearer for a single-use ticket (`POST /api/v1/live/tickets`) and sends it in the socket's first frame. Every
   chat write emits one PostgreSQL `NOTIFY` hint (ids only) inside its transaction; one `LISTEN` connection per process fans the hints out to the sockets subscribed to a room, and the page refetches what changed. Threads,
   messages, status, owner and detail changes, members and the room workflow update without a reload; the header says **Reconnecting…** while the connection is down, or **Live updates off** when a user's tab cap is hit
-  (16 sockets per user, a hidden tab closes after five minutes), and a removed member's room leaves the rail at once. A logout, deletion, password or role change closes the user's sockets within 60 s. Memory-only and
+  (16 sockets per user; a tab hidden for five minutes goes quiet, keeping its socket for personal notices, and closes after eight hours), and a removed member's room leaves the rail at once. A logout, deletion, password or role change closes the user's sockets within 60 s. Memory-only and
   per-process: one replica for now (`BACKLOG.md`). The ADMIN telemetry panel shows the open sockets, the listener and the NOTIFY queue usage.
 - **Behind a reverse proxy** the WebSocket upgrade must pass: `proxy_http_version 1.1`, `Upgrade $http_upgrade`, `Connection $connection_upgrade`, read/send timeouts of 60 s or more (the server pings every 25 s), and the
   original host (`Host $host`, or `X-Forwarded-Host` with `HTTP_BEHIND_PROXY=true`), otherwise the Origin check answers 403 (`.claude/docs/live.md` "Deploy and proxies", `.claude/docs/ci.md`). Behind a TLS-terminating
@@ -242,7 +242,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `JWT_AUDIENCE` | `adder-api` | The `aud` claim the verifier requires. |
 | `JWT_REALM` | `adder-api` | The `WWW-Authenticate` realm. |
 | `JWT_ACCESS_EXPIRES_IN_SECONDS` | `900` | Access-token lifetime (the API bearer). |
-| `JWT_REFRESH_EXPIRES_IN_SECONDS` | `3600` | Refresh-token lifetime — the idle-session window. |
+| `JWT_REFRESH_EXPIRES_IN_SECONDS` | `3600` | Refresh-token lifetime. A session nothing refreshes ends after it, but a signed-in tab keeps refreshing (a visible one for ever; a hidden one for up to 8 h, then this lifetime: `.claude/docs/security.md` "Token storage"). |
 | `ADMIN_INITIAL_PASSWORD` | *(blank)* | Rotates the V3 seed admin's `changeme` at startup while it still carries the seed hash; production rejects known placeholders and passwords outside the ordinary account limits. |
 | `HTTP_BEHIND_PROXY` | `false` | Honour `X-Forwarded-*` from a TLS-terminating proxy (rate-limit keys, HTTPS redirect). |
 | `HTTP_PROXY_HOPS` | `1` | Trusted proxies in front of the app when `HTTP_BEHIND_PROXY=true`; `X-Forwarded-For` is trusted from the END of the list (1 = the last proxy's value). |

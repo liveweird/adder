@@ -37,8 +37,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   answered with another pair (at most twice per token, and a logout that reaches the route ends the grace of that user's rotations) and audited
   `refresh.replay_grace`, a replay after it is the uniform `401` with
   `refresh.rejected reason=replayed` (`revoked` stays for logout-revoked tokens; the grace/records are in memory,
-  per instance, and a restart falls back to strict - `security.md` "Token storage"). There is no family-wide revocation; the superseded access token lives until its own expiry; an idle session (no refresh
-  within the refresh TTL) ends, as does one hit by a password change/reset or account delete (`security.md` "Token storage"
+  per instance, and a restart falls back to strict - `security.md` "Token storage"). There is no family-wide revocation; the superseded access token lives until its own expiry; a session that nothing refreshes (no refresh
+  within the refresh TTL) ends (a visible tab always refreshes, a hidden one for up to 8 h: `security.md` "Token storage"), as does one hit by a password change/reset or account delete (`security.md` "Token storage"
   states the consequence). Every rejection is audited (`refresh.rejected` with `reason`). Frontend:
   `web/src/api/http.ts` `authedFetch` silently refreshes (single-flighted within the current
   session, and serialised across tabs by a Web Lock where the browser has one) and retries once on a `401`; a refresh rejected because another tab already

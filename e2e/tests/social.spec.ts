@@ -3,6 +3,7 @@
 // picker (no content-security-policy violation) seen live by another member, who toggles theirs; the pinned panel and a pin's removal seen live; a pin's
 // mark in the conversation, on the thread's header and list row, and the open thread's pin strip (1.2.0);
 // the thread list's "Unread" filter and "Mark all as read" (1.2.0);
+// the tab title counts the bell's number and a second tab of the same browser follows a "seen"; a hidden tab goes quiet, keeps counting, and closes after eight hours (1.2.0);
 // a member removed from a room loses its notifications; the Notification preferences page keeps a saved switch; a kind switched off in the app stops arriving;
 // a team mention (1.1.0) reaches the team's members who are in the room and no one else; everyone is told once, with the most specific reason. Two browser contexts wherever live matters, with no reload in the watching one.
 // Owns: its throwaway `e2e-soc-*` rooms and users, removed through the API in an `afterEach` (contexts first, then rooms, then the users). Every room
@@ -116,7 +117,7 @@ async function postMessage(room: Scene, number: number, body: string): Promise<n
 }
 
 /** A fresh browser context signed in as `who`, recording the frames of every live socket its page opens. */
-async function signedIn(browser: Browser, who: Person, before?: (context: BrowserContext) => Promise<void>): Promise<Seat> {
+async function signedIn(browser: Browser, who: Person, before?: (context: BrowserContext) => Promise<void>, landOn = "/"): Promise<Seat> {
   const context = await browser.newContext({ baseURL: BASE_URL });
   contexts.push(context);
   await before?.(context);
@@ -131,7 +132,7 @@ async function signedIn(browser: Browser, who: Person, before?: (context: Browse
       }
     });
   });
-  await login(page, who.email, who.password);
+  await login(page, who.email, who.password, landOn);
   return seat;
 }
 
@@ -887,4 +888,115 @@ test("everyone is told once, with the most specific reason", async ({ page, brow
   await bell(reader.page).click();
   await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned everyone in #1 ${title}`) })).toBeVisible();
   await expect(bell(author.page)).toHaveAccessibleName(unseenBell(0));
+});
+
+/** The person's own page, a second TAB of the same browser context (one `localStorage`, one `BroadcastChannel` scope), signed in already. */
+async function secondTab(seat: Seat): Promise<Page> {
+  const tab = await seat.context.newPage();
+  await tab.goto("/");
+  await expect(bell(tab)).toBeVisible();
+  return tab;
+}
+
+/** The unseen count a title leads with: "(2) Room · Adder" (the bell's number, `utils/titleCount.ts`); a title with no number has no parenthesis. */
+const titled = (count: number) => new RegExp(`^\\(${count}\\) `);
+const untitled = /^[^(]/;
+
+test("the tab title counts unseen notifications and a second tab follows", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Title thread");
+  await startThread(room, title);
+  await addMember(room);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  const other = await secondTab(reader);
+  await expect(reader.page).toHaveTitle(untitled);
+  await expect(other).toHaveTitle(untitled);
+
+  // A mention reaches the bell of both tabs and each tab's title leads with the same number as its bell.
+  await postMessage(room, 1, `<@${room.mate.id}> look at this.`);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expect(reader.page).toHaveTitle(titled(1));
+  await expect(bell(other)).toHaveAccessibleName(unseenBell(1));
+  await expect(other).toHaveTitle(titled(1));
+  await expect(other).toHaveTitle(/Adder$/);
+
+  // Marking the notice seen in the second tab tells the first one (the write emits no live hint): its bell and title drop to none, with no reload.
+  await bell(other).click();
+  await other.getByRole("dialog", { name: "Notifications", exact: true }).getByRole("button", { name: "Mark all as seen" }).click();
+  await expect(bell(other)).toHaveAccessibleName(unseenBell(0));
+  await expect(other).toHaveTitle(untitled);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+  await expect(reader.page).toHaveTitle(untitled);
+  await expectNoReload(reader);
+});
+
+test("a hidden tab goes quiet and keeps counting, and closes after eight hours", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Quiet thread");
+  await startThread(room, title);
+  await addMember(room);
+  // The page's clock is Playwright's (installed before anything loads): the 5-minute and the 8-hour timers fire on `fastForward`, not on a wait.
+  // The tab is "hidden" the way a browser reports it: `document.visibilityState` and a `visibilitychange` (a headless page is never really hidden).
+  const sent: Frame[] = [];
+  // Whether the page's socket is open (the one page load of this test opens exactly one).
+  let socketOpen = false;
+  let newest: unknown = null;
+  const reader = await signedIn(
+    browser,
+    room.mate,
+    async (context) => {
+      await context.clock.install();
+      context.on("page", (opened) =>
+        opened.on("websocket", (socket) => {
+          socketOpen = true;
+          newest = socket;
+          socket.on("framesent", ({ payload }) => sent.push(JSON.parse(String(payload)) as Frame));
+          socket.on("close", () => {
+            if (newest === socket) socketOpen = false;
+          });
+        }),
+      );
+    },
+    // The room's page is the ONE page load of this browser (a sign-in that lands elsewhere first would leave a second socket to tell apart from this one).
+    `/rooms/${room.roomId}`,
+  );
+  await expect.poll(() => reader.frames.some((frame) => frame.type === "subscribed" && frame.roomIds?.includes(room.roomId)), { message: "the socket subscribed to the room" }).toBe(true);
+  const setHidden = (hidden: boolean) =>
+    reader.page.evaluate((state) => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden ? "hidden" : "visible");
+
+  // Five minutes hidden: the tab drops its room but keeps its socket; the indicator says nothing (a deliberate quiet is not a reconnect).
+  await setHidden(true);
+  await reader.page.clock.fastForward("05:00");
+  await expect.poll(() => sent.some((frame) => frame.type === "unsubscribe" && frame.roomIds?.includes(room.roomId)), { message: "the tab left its room" }).toBe(true);
+  expect(socketOpen, "the socket stayed open").toBe(true);
+  await expect(reader.page.getByRole("banner").getByRole("status")).toBeEmpty();
+
+  // Quiet, it still hears a notice meant for the person: the bell and the title count it with no room subscription. A quiet tab re-reads the bell at most
+  // once a minute, and the jump above may have flushed the page load's own re-read just now: let that minute pass (fake time) before the notice arrives.
+  await reader.page.clock.fastForward("02:00");
+  await postMessage(room, 1, `<@${room.mate.id}> are you there?`);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expect(reader.page).toHaveTitle(titled(1));
+
+  // Shown again it subscribes back and re-reads (the backfill).
+  sent.length = 0;
+  await setHidden(false);
+  await expect.poll(() => sent.some((frame) => frame.type === "subscribe" && frame.roomIds?.includes(room.roomId)), { message: "the tab subscribed back" }).toBe(true);
+  await expect(reader.page).toHaveTitle(titled(1));
+
+  // Eight hours hidden: the socket closes (the session may idle out) and the title never shows a number it cannot keep current.
+  await setHidden(true);
+  await reader.page.clock.fastForward("08:00:00");
+  await expect.poll(() => socketOpen, { message: "the socket was closed" }).toBe(false);
+  await expect(reader.page).toHaveTitle(untitled);
+
+  // Shown, it reconnects and counts again.
+  await setHidden(false);
+  await expect(reader.page).toHaveTitle(titled(1));
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expect.poll(() => socketOpen, { message: "a socket is open again" }).toBe(true);
 });

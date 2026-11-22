@@ -1,8 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { markRoomReadInCaches, markRoomSeenInCaches, markThreadReadInCaches } from "./readCache";
 import { notificationKeys } from "./notificationKeys";
 import { roomKeys } from "./roomKeys";
+import { ChannelStub } from "../test/broadcast";
+import { openSeenSync } from "./seenSync";
 
 const page = (items: unknown[]) => ({ items, page: 1, pageSize: 50, total: items.length });
 
@@ -110,5 +112,37 @@ describe("markThreadReadInCaches", () => {
     queryClient.setQueryData([...roomKeys.threadList(12), 1], page([{ number: 4, unreadCount: 2 }]));
     markThreadReadInCaches(queryClient, 12, 4, 30);
     expect(queryClient.getQueryData([...roomKeys.threadList(12), 1])).toMatchObject({ items: [{ number: 4, unreadCount: 0 }] });
+  });
+});
+
+// The person's other tabs hear of a write that settled notices (1.2 D9); a marker that settled none is not worth a re-read over there.
+describe("announcing seen notices to the other tabs", () => {
+  afterEach(() => ChannelStub.reset());
+
+  function withAnnouncer(run: (posted: () => unknown[]) => void) {
+    const close = openSeenSync(7, () => undefined, (name) => new ChannelStub(name));
+    try {
+      run(() => ChannelStub.open[0].posted);
+    } finally {
+      close();
+    }
+  }
+
+  test("Mark all as read announces", () => {
+    withAnnouncer((posted) => {
+      markRoomReadInCaches(new QueryClient(), 12);
+      expect(posted()).toEqual([{ v: 1, userId: 7 }]);
+    });
+  });
+
+  test("a read marker announces only when the bell's rows held a notice of the thread", () => {
+    withAnnouncer((posted) => {
+      const queryClient = new QueryClient();
+      queryClient.setQueryData(notificationKeys.unseen, page([{ id: 1, roomId: 12, threadNumber: 9 }]));
+      markThreadReadInCaches(queryClient, 12, 4, 30);
+      expect(posted()).toEqual([]);
+      markThreadReadInCaches(queryClient, 12, 9, 30);
+      expect(posted()).toEqual([{ v: 1, userId: 7 }]);
+    });
   });
 });

@@ -36,11 +36,12 @@ export interface LiveSocket {
 }
 
 /**
- * `connecting` the first attempt (nothing to show); `live` after `ready`; `down` while reconnecting (the badge shows after 5 s of it); `paused`
- * when the per-user socket cap refuses this tab (retried every minute); `idle` after 5 minutes hidden (the socket is closed on purpose and
+ * `connecting` the first attempt (nothing to show); `live` after `ready`; `quiet` after 5 minutes hidden (1.2 D9: the socket stays open for
+ * personal frames only, with no room subscribed; shows nothing); `down` while reconnecting (the badge shows after 5 s of it); `paused`
+ * when the per-user socket cap refuses this tab (retried every minute); `idle` after 8 hours hidden (the socket is closed on purpose and
  * reopens when the tab is shown); `stopped` after `stop()`.
  */
-export type LiveStatus = "connecting" | "live" | "down" | "paused" | "idle" | "stopped";
+export type LiveStatus = "connecting" | "live" | "quiet" | "down" | "paused" | "idle" | "stopped";
 
 export interface LiveDependencies {
   url: string;
@@ -49,7 +50,15 @@ export interface LiveDependencies {
   mintTicket: () => Promise<{ ticket: string }>;
   onFrame: (frame: LiveServerFrame) => void;
   onStatus: (status: LiveStatus) => void;
+  /**
+   * The TAB's quiet flag (hidden for 5 minutes, not the socket's status: the socket may be down or reconnecting while the tab is still quiet). It is
+   * called BEFORE the status and the wake-up `resync` that follow, so a consumer that filters while quiet is already unfiltered for the backfill.
+   */
+  onQuiet?: (quiet: boolean) => void;
 }
+
+/** A socket that is down this long shows its badge (`LiveStatus`) and its number leaves the tab title (`useTabTitleCount`): one grace for both, so a token expiry or a restart reads as nothing. */
+export const LIVE_DOWN_GRACE_MS = 5_000;
 
 /** Backoff steps (each times a random 0.5 to 1); the step resets once a socket has stayed live for `STABLE_AFTER_MS`. */
 const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
@@ -57,8 +66,12 @@ const STABLE_AFTER_MS = 60_000;
 const PAUSED_RETRY_MS = 60_000;
 /** A 4001/4003 twice within this window is a loop, not an expiry: fall back to backoff. */
 const REMINT_LOOP_MS = 10_000;
-const HIDDEN_CLOSE_MS = 5 * 60_000;
+/** Hidden this long: the tab goes QUIET (1.2 D9), then closes after `HIDDEN_CLOSE_MS` hidden (both counted from the moment it was hidden). */
+const HIDDEN_QUIET_MS = 5 * 60_000;
+const HIDDEN_CLOSE_MS = 8 * 3_600_000;
 const PING_EVERY_MS = 25_000;
+/** A quiet tab's timers are throttled by the browser, so it pings once a minute and judges the silence at the NEXT tick (no pong timer). */
+const QUIET_PING_EVERY_MS = 60_000;
 const PONG_WITHIN_MS = 10_000;
 /** From the socket's creation to `ready`: a handshake a proxy swallows would otherwise hang for minutes. */
 const READY_WITHIN_MS = 10_000;
@@ -83,7 +96,7 @@ const CLOSE_SOCKET_CAP = 4429;
 /** Ours: the pong never came. */
 const CLOSE_PONG_TIMEOUT = 4000;
 
-type TimerName = "reconnect" | "ready" | "ping" | "pong" | "stable" | "hidden" | "subscriptions";
+type TimerName = "reconnect" | "ready" | "ping" | "pong" | "stable" | "quiet" | "suspend" | "subscriptions";
 
 export class LiveClient {
   private readonly deps: LiveDependencies;
@@ -92,8 +105,14 @@ export class LiveClient {
   private over = false;
   private visible = true;
   private online = true;
-  /** Hidden long enough that the socket was closed on purpose. */
+  /** Hidden for 8 hours: the socket was closed on purpose. */
   private suspended = false;
+  /** Hidden for 5 minutes (and not yet 8 hours): the socket, when open, carries personal frames only. */
+  private quiet = false;
+  /** A quiet tab's ping went out and nothing has arrived since. */
+  private silentSincePing = false;
+  /** When the tab was hidden, by the injected clock: the 8 hours are WALL time (a sleeping laptop's timers do not count it), checked wherever the tab would use the session. */
+  private hiddenAt: number | null = null;
   private generation = 0;
   private socket: LiveSocket | null = null;
   private attempt = 0;
@@ -124,7 +143,8 @@ export class LiveClient {
   stop(): void {
     if (this.over) return;
     this.over = true;
-    this.clearTimer("hidden");
+    this.clearTimer("quiet");
+    this.clearTimer("suspend");
     this.teardown();
     this.setStatus("stopped");
   }
@@ -146,16 +166,23 @@ export class LiveClient {
     if (this.over || visible === this.visible) return;
     this.visible = visible;
     if (!visible) {
-      this.setTimer("hidden", HIDDEN_CLOSE_MS, () => this.suspend());
+      this.hiddenAt = this.deps.clock.now();
+      this.setTimer("quiet", HIDDEN_QUIET_MS, () => this.goQuiet());
+      this.setTimer("suspend", HIDDEN_CLOSE_MS, () => this.suspend());
       return;
     }
-    this.clearTimer("hidden");
+    this.hiddenAt = null;
+    this.clearTimer("quiet");
+    this.clearTimer("suspend");
     if (this.suspended) {
       this.suspended = false;
+      this.setQuiet(false);
       this.attempt = 0;
       // Shown while offline: there is nothing to try yet, and the badge should say so (coming back online connects).
       this.setStatus(this.online ? "connecting" : "down");
       this.connectSoon();
+    } else if (this.quiet) {
+      this.wake();
     } else if (this.status === "down" && this.timers.has("reconnect")) {
       // Waiting out a backoff: the tab is back, so retry shortly (an attempt already in flight is left alone).
       this.connectSoon();
@@ -185,6 +212,11 @@ export class LiveClient {
 
   private connect(): void {
     if (!this.started || this.over || !this.online || this.suspended) return;
+    // Hidden for 8 hours of wall time: a re-mint (a 4001 every 15 minutes) or a backoff retry must not keep the session alive any longer.
+    if (this.hiddenTooLong()) {
+      this.suspend();
+      return;
+    }
     this.clearTimer("reconnect");
     this.dropSocket();
     const generation = this.generation;
@@ -240,11 +272,12 @@ export class LiveClient {
     if (frame === null) return;
     // Any frame proves the server is there; only `ready` is expected before the socket is live.
     this.clearTimer("pong");
+    this.silentSincePing = false;
     if (frame.type === "ready") {
-      if (this.status !== "live") this.becomeLive(frame);
+      if (!this.connected) this.becomeLive(frame);
       return;
     }
-    if (this.status !== "live" || frame.type === "pong") return;
+    if (!this.connected || frame.type === "pong") return;
     if (frame.type === "subscribed") {
       for (const id of [...frame.refused, ...frame.capped]) {
         this.requested.delete(id);
@@ -261,7 +294,9 @@ export class LiveClient {
     this.clearTimer("ready");
     this.maxSubscriptions = frame.maxSubscriptions;
     this.requested.clear();
-    this.setStatus("live");
+    this.silentSincePing = false;
+    // A tab that went quiet while it was reconnecting comes up quiet: no rooms, personal frames only.
+    this.setStatus(this.quiet ? "quiet" : "live");
     this.setTimer("stable", STABLE_AFTER_MS, () => {
       this.attempt = 0;
     });
@@ -272,10 +307,22 @@ export class LiveClient {
   }
 
   private schedulePing(generation: number): void {
-    this.setTimer("ping", PING_EVERY_MS, () => {
+    this.setTimer("ping", this.quiet ? QUIET_PING_EVERY_MS : PING_EVERY_MS, () => {
       if (generation !== this.generation) return;
-      // A hidden tab's timers are throttled and nobody is looking: ping only while visible.
-      if (this.visible) {
+      if (this.quiet) {
+        if (this.hiddenTooLong()) {
+          this.suspend();
+          return;
+        }
+        // No frame at all since the last ping is a failure NOW (the normal reconnect path); a throttled tab cannot be trusted with a 10 s timer.
+        if (this.silentSincePing) {
+          this.fail(generation, CLOSE_PONG_TIMEOUT);
+          return;
+        }
+        this.silentSincePing = true;
+        this.send({ type: "ping" });
+      } else if (this.visible) {
+        // A hidden tab's timers are throttled and nobody is looking: ping only while visible (or quiet, above).
         this.send({ type: "ping" });
         this.setTimer("pong", PONG_WITHIN_MS, () => this.fail(generation, CLOSE_PONG_TIMEOUT));
       }
@@ -345,9 +392,51 @@ export class LiveClient {
     this.setTimer("reconnect", PAUSED_RETRY_MS, () => this.connect());
   }
 
-  /** Hidden for five minutes: close on purpose and stay quiet until the tab is shown again. */
+  /** Hidden for five minutes (1.2 D9): leave every room and keep the socket for personal frames, pinging once a minute. */
+  private goQuiet(): void {
+    if (this.over || this.visible || this.quiet) return;
+    this.setQuiet(true);
+    this.silentSincePing = false;
+    if (!this.connected) return; // `becomeLive` brings it up quiet
+    this.setStatus("quiet");
+    this.syncSubscriptions();
+    this.clearTimer("pong");
+    this.schedulePing(this.generation);
+  }
+
+  /** Shown again while quiet: subscribe the wanted rooms back and re-read what the hidden minutes may have changed (the `resync` backfill). */
+  private wake(): void {
+    this.setQuiet(false);
+    this.silentSincePing = false;
+    this.clearTimer("pong");
+    if (!this.connected) {
+      // Reconnecting meanwhile: the next `ready` is the backfill; retry shortly if a backoff is running.
+      if (this.status === "down" && this.timers.has("reconnect")) this.connectSoon();
+      return;
+    }
+    this.setStatus("live");
+    this.schedulePing(this.generation);
+    this.syncSubscriptions();
+    this.deps.onFrame({ type: "resync" });
+  }
+
+  private setQuiet(quiet: boolean): void {
+    if (this.quiet === quiet) return;
+    this.quiet = quiet;
+    this.deps.onQuiet?.(quiet);
+  }
+
+  /** Hidden for 8 hours or more by the clock, whatever the timers say. */
+  private hiddenTooLong(): boolean {
+    return !this.visible && this.hiddenAt !== null && this.deps.clock.now() - this.hiddenAt >= HIDDEN_CLOSE_MS;
+  }
+
+  /** Hidden for eight hours: close on purpose and stay closed until the tab is shown again. */
   private suspend(): void {
+    if (this.suspended || this.over) return;
     this.suspended = true;
+    this.clearTimer("quiet");
+    this.clearTimer("suspend");
     this.teardown();
     this.setStatus("idle");
   }
@@ -367,7 +456,7 @@ export class LiveClient {
     else socket.close(code);
   }
 
-  /** Closes the socket and cancels every pending retry; the hidden-tab timer is the one thing that outlives it. */
+  /** Closes the socket and cancels every pending retry; the hidden-tab timers are the one thing that outlives it. */
   private teardown(): void {
     this.clearTimer("reconnect");
     this.dropSocket();
@@ -379,15 +468,16 @@ export class LiveClient {
 
   /** Coalesces a burst of changes (a rail that loads, quick navigation) into one diff. */
   private scheduleSync(): void {
-    if (this.status !== "live" || this.timers.has("subscriptions")) return;
+    if (!this.connected || this.timers.has("subscriptions")) return;
     this.setTimer("subscriptions", SUBSCRIPTION_COALESCE_MS, () => this.syncSubscriptions());
   }
 
   /** Brings the server's subscriptions to the wanted set: frees first, then asks, in frames of at most the announced cap. */
   private syncSubscriptions(): void {
     this.clearTimer("subscriptions");
-    if (this.status !== "live" || this.socket === null) return;
-    const wanted = new Set(this.desired.filter((id) => !this.refused.has(id)).slice(0, this.maxSubscriptions));
+    if (!this.connected || this.socket === null) return;
+    // A quiet tab wants no room at all: the ordinary diff then unsubscribes everything it held.
+    const wanted = new Set(this.quiet ? [] : this.desired.filter((id) => !this.refused.has(id)).slice(0, this.maxSubscriptions));
     const drop = [...this.requested].filter((id) => !wanted.has(id));
     const add = [...wanted].filter((id) => !this.requested.has(id));
     for (let i = 0; i < drop.length; i += this.maxSubscriptions) {
@@ -398,6 +488,11 @@ export class LiveClient {
     }
     for (const id of drop) this.requested.delete(id);
     for (const id of add) this.requested.add(id);
+  }
+
+  /** The socket is open and authenticated (`live`, or `quiet` after 5 minutes hidden). */
+  private get connected(): boolean {
+    return this.status === "live" || this.status === "quiet";
   }
 
   private setStatus(status: LiveStatus): void {
@@ -426,7 +521,7 @@ export class LiveClient {
 
 /**
  * Feeds the browser's tab visibility and connectivity to the client: it reconnects at once when the tab is shown or the network is back,
- * closes after five minutes hidden and goes down while offline. Bind AFTER `start()`; the returned function unbinds.
+ * goes quiet after five minutes hidden, closes after eight hours and goes down while offline. Bind AFTER `start()`; the returned function unbinds.
  */
 export function bindBrowserSignals(
   client: Pick<LiveClient, "setVisible" | "setOnline">,

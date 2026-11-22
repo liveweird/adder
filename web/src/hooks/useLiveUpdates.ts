@@ -53,6 +53,8 @@ export function useLiveUpdates(railRoomIds: readonly number[], overrides: LiveOv
       mintTicket,
       onFrame: invalidator.handle,
       onStatus: setStatus,
+      // The tab's quiet flag, not the socket's status: it is told BEFORE the status and the wake-up `resync`, so that backfill is not filtered.
+      onQuiet: invalidator.setQuiet,
     });
     clientRef.current = client;
     client.setRooms(wantedRef.current);

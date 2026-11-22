@@ -8,6 +8,7 @@ import type { LiveServerFrame } from "./liveProtocol";
 const TICKET = "t".repeat(43);
 const SECOND = 1000;
 const MINUTE = 60 * SECOND;
+const HOUR = 60 * MINUTE;
 
 /** The mint and the socket factory resolve on microtasks: let them run (the fake clock never needs real time). */
 async function settle() {
@@ -44,6 +45,14 @@ async function goLive(t: ReturnType<typeof setup>, maxSubscriptions = 128) {
 function advanceAnswering(t: ReturnType<typeof setup>, ms: number) {
   for (let left = ms; left > 0; left -= 10 * SECOND) {
     t.clock.advanceBy(Math.min(10 * SECOND, left));
+    newest().receive({ type: "pong" });
+  }
+}
+
+/** Time passes on a QUIET socket whose server answers every minute ping (a silent one is a failure at the next tick). */
+function advanceQuiet(t: ReturnType<typeof setup>, ms: number) {
+  for (let left = ms; left > 0; left -= MINUTE) {
+    t.clock.advanceBy(Math.min(MINUTE, left));
     newest().receive({ type: "pong" });
   }
 }
@@ -531,12 +540,12 @@ describe("staying alive", () => {
 });
 
 describe("the tab and the network", () => {
-  test("hidden for five minutes closes the socket on purpose and goes idle; shown again it connects afresh", async () => {
+  test("hidden for eight hours closes the socket on purpose and goes idle; shown again it connects afresh", async () => {
     const t = setup();
     await goLive(t);
     const socket = newest();
     t.client.setVisible(false);
-    t.clock.advanceBy(5 * MINUTE - 1);
+    advanceQuiet(t, 8 * HOUR - 1);
     expect(socket.close).not.toHaveBeenCalled();
     t.clock.advanceBy(1);
     expect(socket.close).toHaveBeenCalledWith(1000);
@@ -553,7 +562,7 @@ describe("the tab and the network", () => {
     expect(t.client.getStatus()).toBe("live");
   });
 
-  test("shown again before five minutes, nothing was closed", async () => {
+  test("shown again before five minutes, nothing changed", async () => {
     const t = setup();
     await goLive(t);
     t.client.setVisible(false);
@@ -609,7 +618,7 @@ describe("the tab and the network", () => {
     const t = setup();
     await goLive(t);
     t.client.setVisible(false);
-    t.clock.advanceBy(5 * MINUTE);
+    advanceQuiet(t, 8 * HOUR);
     t.client.setOnline(false);
     expect(t.client.getStatus()).toBe("idle");
     t.client.setVisible(true);
@@ -637,7 +646,7 @@ describe("the tab and the network", () => {
     const t = setup();
     await goLive(t);
     t.client.setVisible(false);
-    t.clock.advanceBy(5 * MINUTE);
+    advanceQuiet(t, 8 * HOUR);
     t.client.setOnline(false);
     t.client.setOnline(true);
     expect(t.client.getStatus()).toBe("idle");

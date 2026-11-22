@@ -583,8 +583,8 @@ A room's members, threads and a thread's history are the paged sub-collections (
 
 ### The tab title and the hidden tab (1.2 D8, 1.2 D9)
 
-- **The title** is `(n) Page · Adder` with `n` the bell's number of every unseen in-app notice (`(999+)` at the bell's cap). No number when signed out or while the live status is `down`, `paused` or `idle`, and none after the 8-hour close (1.2 A17).
-- **[changed] The hidden tab** (0.4 D3, 0.4 A4; `live.md`): after 5 minutes hidden the client goes QUIET instead of closing; after 8 hours hidden it closes as before. Tabs of one browser tell each other "notices seen" over a `BroadcastChannel`. No server change.
+- **The title** is `(n) Page · Adder` with `n` the bell's number of every unseen in-app notice (`(999+)` at the bell's cap). No number when signed out, `connecting`, `paused` or `idle` (the 8-hour close), and none once the socket has been `down` for 5 s (the "Reconnecting…" badge's grace, so a re-mint or a restart does not blink the title) (1.2 A17).
+- **[changed] The hidden tab** (0.4 D3, 0.4 A4; `live.md`): after 5 minutes hidden the client goes QUIET instead of closing; after 8 hours hidden it closes as before. Tabs of one browser tell each other "notices seen" over a `BroadcastChannel` (`utils/seenSync.ts`, `live.md`). No server change.
 
 ### Bounds, wire and rollback
 

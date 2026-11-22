@@ -5,7 +5,11 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { jsonResponse } from "./test/http";
+import { ChannelStub } from "./test/broadcast";
 import { lastSocket, makeLive, SocketStub } from "./test/socket";
+import { resetTabVisibility, setTabVisible } from "./test/visibility";
+import { setTitleCount } from "./utils/titleCount";
+import { clearSession, persistSession } from "./api/session";
 
 // The live channel through the real <App/>: the shell opens ONE socket after minting a ticket, subscribes to the open room and the rail,
 // and a hint re-reads what the page shows. The socket is a stub and the timers are real (the invalidator's 300 ms settle).
@@ -70,6 +74,11 @@ describe("the shell's live socket", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     SocketStub.reset();
+    ChannelStub.reset();
+    resetTabVisibility();
+    // Module state outlives the test (`isolate: false`): the shell's unmount clears the count, this makes sure of it, and the title with it.
+    setTitleCount(0);
+    document.title = "";
     localStorage.clear();
   });
 
@@ -151,5 +160,143 @@ describe("the shell's live socket", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("the tab title and the person's other tabs (1.2 D8, D9)", () => {
+    test("the title counts the bell's number once the socket is live, follows the bell and keeps it through a short drop", async () => {
+      unseenTotal = 3;
+      renderApp("/");
+      await vi.waitFor(() => expect(SocketStub.instances).toHaveLength(1));
+      await screen.findByRole("button", { name: "Notifications (3 unseen)" });
+      // Connecting: the number could be stale, so none is shown.
+      expect(document.title).not.toMatch(/^\(/);
+      act(() => makeLive(lastSocket()));
+      await waitFor(() => expect(document.title).toMatch(/^\(3\) /));
+      expect(document.title).toMatch(/Adder$/);
+      unseenTotal = 2;
+      act(() => lastSocket().receive({ type: "event", kind: "notification.created", roomId: 12, threadNumber: 1 }));
+      await waitFor(() => expect(document.title).toMatch(/^\(2\) /));
+      // A socket that drops keeps the number for the 5 s grace (a re-mint must not blink the title); `useTabTitleCount.test.tsx` pins its end.
+      act(() => lastSocket().closeWith(1006));
+      expect(document.title).toMatch(/^\(2\) /);
+    });
+
+    test("a hidden tab keeps its number while quiet and its socket, and shown again it is live", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        unseenTotal = 3;
+        renderApp("/");
+        await act(async () => {
+          for (let i = 0; i < 20; i++) await Promise.resolve();
+        });
+        act(() => makeLive(lastSocket()));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(100);
+        });
+        expect(document.title).toMatch(/^\(3\) /);
+        setTabVisible(false);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5 * 60_000);
+        });
+        const socket = lastSocket();
+        expect(socket.close).not.toHaveBeenCalled();
+        expect(SocketStub.instances).toHaveLength(1);
+        // The deliberate quiet is no reconnecting: the region stays empty and the title keeps its number.
+        expect(within(screen.getByRole("banner")).getByRole("status")).toBeEmptyDOMElement();
+        expect(document.title).toMatch(/^\(3\) /);
+        // The rail's room was dropped from the socket (no room subscription while quiet), the socket itself stays.
+        expect(socket.frames().filter((frame) => frame.type === "unsubscribe")).toEqual([{ type: "unsubscribe", roomIds: [12] }]);
+        setTabVisible(true);
+        expect(socket.close).not.toHaveBeenCalled();
+        expect(socket.frames().filter((frame) => frame.type === "subscribe")).toEqual([
+          { type: "subscribe", roomIds: [12] },
+          { type: "subscribe", roomIds: [12] },
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    test("no number is left in the title after sign-out, and a switch of user shows none until the new user's socket is live", async () => {
+      unseenTotal = 3;
+      renderApp("/");
+      await vi.waitFor(() => expect(SocketStub.instances).toHaveLength(1));
+      await screen.findByRole("button", { name: "Notifications (3 unseen)" });
+      act(() => makeLive(lastSocket()));
+      await waitFor(() => expect(document.title).toMatch(/^\(3\) /));
+      // Another person signs in here: the old socket is stopped, the new one is not live yet, and the old person's number is not shown.
+      act(() => persistSession({ token: "t2", expiresAt: 1, refreshToken: "r2", refreshExpiresAt: 2, roles: [], userId: 2, disabledFeatures: [], language: "en" }));
+      await waitFor(() => expect(SocketStub.instances).toHaveLength(2));
+      expect(document.title).not.toMatch(/^\(/);
+      act(() => makeLive(lastSocket()));
+      await waitFor(() => expect(document.title).toMatch(/^\(3\) /));
+      act(() => clearSession());
+      await waitFor(() => expect(document.title).not.toMatch(/^\(/));
+    });
+
+    test("a tab hidden for 8 hours (idle) issues no request for another tab's message, and shown again it reconnects", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        localStorage.setItem("adder.auth.userId", "7");
+        vi.stubGlobal("BroadcastChannel", ChannelStub);
+        unseenTotal = 3;
+        renderApp("/");
+        await act(async () => {
+          for (let i = 0; i < 20; i++) await Promise.resolve();
+        });
+        act(() => makeLive(lastSocket()));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(100);
+        });
+        expect(document.title).toMatch(/^\(3\) /);
+        setTabVisible(false);
+        // Five minutes to quiet, then every minute answered (a silent socket would fail at the next tick) up to the 8-hour close.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5 * 60_000);
+        });
+        for (let minute = 0; minute < 8 * 60 - 5 + 1; minute++) {
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(60_000);
+          });
+          act(() => lastSocket().receive({ type: "pong" }));
+        }
+        expect(lastSocket().close).toHaveBeenCalledWith(1000);
+        expect(document.title).not.toMatch(/^\(/);
+        const before = calls.length;
+        act(() => new ChannelStub("adder.seen.7").postMessage({ v: 1, userId: 7 }));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(70_000);
+        });
+        expect(calls.length, "no request for a message an idle tab cannot use").toBe(before);
+        setTabVisible(true);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_500);
+        });
+        expect(SocketStub.instances.length).toBeGreaterThan(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    test("another tab's 'notices seen' re-reads the bell and the title follows; another user's message is ignored", async () => {
+      localStorage.setItem("adder.auth.userId", "7");
+      vi.stubGlobal("BroadcastChannel", ChannelStub);
+      unseenTotal = 3;
+      renderApp("/");
+      await vi.waitFor(() => expect(SocketStub.instances).toHaveLength(1));
+      await screen.findByRole("button", { name: "Notifications (3 unseen)" });
+      act(() => makeLive(lastSocket()));
+      await waitFor(() => expect(document.title).toMatch(/^\(3\) /));
+      expect(ChannelStub.names).toEqual(["adder.seen.7"]);
+      unseenTotal = 0;
+      act(() => ChannelStub.open[0].deliver({ v: 1, userId: 8 }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(document.title).toMatch(/^\(3\) /);
+      // The other tab: a second channel of the same name.
+      const otherTab = new ChannelStub("adder.seen.7");
+      act(() => otherTab.postMessage({ v: 1, userId: 7 }));
+      await screen.findByRole("button", { name: "Notifications (0 unseen)" });
+      await waitFor(() => expect(document.title).not.toMatch(/^\(/));
+    });
   });
 });

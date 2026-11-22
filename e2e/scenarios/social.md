@@ -250,3 +250,33 @@ what the scenario is about.
 5. The reader goes back to the room's **Threads** view (a reader looking at the thread would have the notice acknowledged by the pane); the author posts a second message
    through the API that names only everyone.
    - *Expected*: the bell is named "Notifications (1 unseen)"; the reader's drawer holds "`<author>` mentioned everyone in #1 `<title>`"; the author's own bell stays "Notifications (0 unseen)".
+
+## Scenario: the tab title counts unseen notifications and a second tab follows
+
+1. The administrator mints an author and a reader; the author makes a room through the API, starts a thread, THEN adds the reader. The reader opens the room's **Threads** view (one browser
+   context; the socket subscribes) and opens a SECOND tab of the same browser on the home page.
+   - *Expected*: neither tab's title starts with a number.
+2. The author posts a message through the API that mentions the reader.
+   - *Expected*: with no reload both tabs' bells are named "Notifications (1 unseen)" and both titles start "(1) " and end "Adder" (the bell's number, `utils/titleCount.ts`).
+3. In the second tab the reader opens the bell and presses **Mark all as seen**.
+   - *Expected*: the second tab's bell is named "Notifications (0 unseen)" and its title loses the number; the FIRST tab, which was sent no live hint (the write emits none) and was not
+     touched, follows through the browser's `BroadcastChannel`: its bell is named "Notifications (0 unseen)", its title has no number, and its document was not reloaded.
+
+## Scenario: a hidden tab goes quiet and keeps counting, and closes after eight hours
+
+1. The administrator mints an author and a reader; the author makes a room through the API, starts a thread, THEN adds the reader. The reader's page runs on Playwright's installed clock
+   (`context.clock.install()` before anything loads: the page's timers fire when the test fast-forwards, not when it waits) and records every frame the page's socket sends and
+   whether its newest socket is open; the reader signs in straight onto the room's **Threads** view (that is the browser's ONE page load, so one socket) and the socket subscribes. The tab is made "hidden" the way a browser reports it: the test overrides
+   `document.visibilityState` and fires `visibilitychange` (a headless page is never really hidden).
+2. The clock is fast-forwarded five minutes while the tab is hidden.
+   - *Expected*: the page sent an `unsubscribe` for the room; its socket was not closed; the header's status region is empty (a deliberate quiet is not "Reconnecting…").
+3. The clock is fast-forwarded two more minutes (a quiet tab re-reads the bell at most once a minute, and the jump may have flushed the page load's own re-read), then the author posts a
+   message through the API that mentions the reader.
+   - *Expected*: the reader's bell is named "Notifications (1 unseen)" and the title starts "(1) " (a quiet tab still hears a notice meant for the person).
+4. The tab is shown again.
+   - *Expected*: the page sent a `subscribe` for the room again; the title still starts "(1) ".
+5. The tab is hidden again and the clock is fast-forwarded eight hours.
+   - *Expected*: the page's socket was closed (the page's newest socket is closed) and the title has no number (it never shows one it cannot keep current).
+6. The tab is shown again.
+   - *Expected*: the socket reconnects (a socket is open again): the title starts "(1) " again and the bell is named "Notifications (1 unseen)".
+

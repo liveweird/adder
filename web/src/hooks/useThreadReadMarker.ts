@@ -5,6 +5,7 @@ import { requestRefresh } from "../utils/liveKeys";
 import { startLooking } from "../utils/lookingAt";
 import { notificationKeys } from "../utils/notificationKeys";
 import { markThreadReadInCaches } from "../utils/readCache";
+import { announceSeen } from "../utils/seenSync";
 import { usePageVisible } from "./usePageVisible";
 
 /** A thread's read marker is sent at most this often (the server's read-state bucket is 240 a minute for every kind of read state). */
@@ -118,6 +119,9 @@ export function useThreadReadMarker({
       // A marker that was an acknowledgement and did not land leaves the swallowed notice unseen: the bell re-reads (whichever thread is open).
       const owed = now.target !== null && sent.messageId >= now.target;
       if (!landed && (forced || owed)) refreshBell(queryClient);
+      // A notice the pane acknowledged never reached this tab's bell cache (the live channel left it out), so `markThreadReadInCaches` could not
+      // tell: the person's other tabs hear of it here (1.2 D9), or they would keep counting it.
+      if (landed && (forced || owed)) announceSeen();
       if (owed) now.target = null;
       // The reader may have moved on to another thread meanwhile: its state is not this one's.
       if (current.current !== now) return;

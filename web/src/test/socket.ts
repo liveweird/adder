@@ -107,6 +107,15 @@ export class FakeClock implements LiveClock {
     return [...this.tasks.values()].map((task) => task.due - this.time).sort((a, b) => a - b);
   }
 
+  /**
+   * A sleeping laptop: the wall clock (`now()`) jumps forward but the timers do not count the sleep, so each pending one is still its full delay away
+   * (nothing fires, nothing is skipped).
+   */
+  skipWallTime(delayMs: number): void {
+    this.time += delayMs;
+    for (const task of this.tasks.values()) task.due += delayMs;
+  }
+
   /** Moves time forward, firing every timer that falls due on the way (a callback may schedule more; those fire too if they fall inside the span). */
   advanceBy(delayMs: number): void {
     const target = this.time + delayMs;
