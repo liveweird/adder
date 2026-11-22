@@ -14,7 +14,7 @@ else fails any build that runs the `test` task; default 1; CI and `scripts/gates
 Each fork is its own JVM with its OWN container and fixture singletons, so every "shared suite" rule in this doc holds
 per fork, never across forks: a test must never assume another class ran before it on the same JVM, or that a class
 ran at all in this one. Class order is not a contract (with `-Pforks>=2` the classes are weight-balanced from
-`server/test-weights.tsv`; refresh it with `node scripts/timings/local-times.mjs test-weights` after a full run — last measured 2026-11-21).
+`server/test-weights.tsv`; refresh it with `node scripts/timings/local-times.mjs test-weights` after a full run — last measured 2026-11-22).
 `PostgresTestSupport` migrates the container itself on start, so a fixture or raw-JDBC helper never needs its own
 "has Flyway run yet?" guard. Test classes are selected by file name (`**/*Test.class`, `TestClassNamingTest`).
 **A hung fork is thread-dumped and killed, not waited for** (`-PtestStallMinutes`, 1..60, default 5; dumps in
@@ -42,7 +42,7 @@ ran at all in this one. Class order is not a contract (with `-Pforks>=2` the cla
 
 **Coverage gates.** Backend Kover enforces line- and branch-coverage floors in `server/build.gradle.kts` (the
 `minBound` floors, wired into `check` via `koverVerify`; `@kotlinx.serialization.Serializable` classes are excluded
-from the measurement). The floors (lines 99, branches 88) were re-baselined after the trim (97/81), raised for 0.4.0-0.6.0 and 1.0.0 (actuals 99.19/88.28; 99.15/88.20 at 1.1.0, floors unchanged) and sit just below current actuals — **re-measure and raise** them as coverage improves
+from the measurement). The floors (lines 99, branches 88) were re-baselined after the trim (97/81), raised for 0.4.0-0.6.0 and 1.0.0 (actuals 99.19/88.28; 99.15/88.20 at 1.1.0, 99.14/88.29 at 1.2.0, floors unchanged) and sit just below current actuals — **re-measure and raise** them as coverage improves
 (`./gradlew :server:koverXmlReport`), never lower them for new code; a tight-loop Kover disable is never committed. Frontend vitest enforces thresholds in `web/vite.config.ts` (`test.coverage.thresholds`,
 same convention); run `cd web && npm run test:coverage`.
 

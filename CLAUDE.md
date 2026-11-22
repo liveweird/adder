@@ -91,7 +91,7 @@ application is wired declaratively in `server/src/main/resources/application.yam
 `ktor.application.modules` — each entry is a fully-qualified extension function on `Application`
 (e.g. `ch.nokillswit.plugins.HttpKt.configureHttp`). **Module order is load-bearing**: base plugins
 (Http → SecurityHeaders → Monitoring → Serialization → Security → RateLimits → ErrorHandling → OpenTelemetry → AutoHeadResponse → Resources → Sockets) →
-infra (Mail → Crypto → Flyway → Database → Bootstrap → Health) → Telemetry (the sampler) → feature route modules (`configureLoginThrottle`, users, teams, workflow templates, tag categories, rooms ×3, threads, messages, thread tags (`configureThreadTagRoutes`), reactions, read markers, watches, pins, notifications ×3, search, `configureMessageTagReindex`, live, auth, password reset, telemetry reads) → `RoutingKt.configureRouting` strictly last (the SPA catch-all). `configureDatabase` publishes the services into
+infra (Mail → Crypto → Flyway → Database → Bootstrap → Health) → Telemetry (the sampler) → feature route modules (`configureLoginThrottle`, users, teams, workflow templates, tag categories, rooms ×3, threads, messages, reactions, read markers, watches, thread tags (`configureThreadTagRoutes`), pins, notifications ×3, search, `configureMessageTagReindex`, live, auth, password reset, telemetry reads) → `RoutingKt.configureRouting` strictly last (the SPA catch-all). `configureDatabase` publishes the services into
 `Application.attributes` via `AttributeKey`s. To add a cross-cutting concern, create a `configureXxx()` extension under `plugins/` and register it
 in `application.yaml`; do not call it from `main.kt`. There is no DI framework — services travel via `attributes`.
 

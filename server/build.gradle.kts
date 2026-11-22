@@ -137,7 +137,7 @@ kover {
                 // From here on re-measure with `:server:koverXmlReport` and RAISE, never lower.
                 minBound(99)
                 // Branch-coverage floor — same baseline: 81 at 81.67% on 2026-11-17, raised for 0.4.0 (85 at 86.09%
-                // on 2026-11-19; Flow's 85) and again for 0.5.0 (86 at 86.69% on 2026-11-20) and 0.6.0 (87 at 87.27%, same day), then the 1.0.0 follow-ups (88 at 88.28% on the merged tree, same day). NOTE: `check` runs only koverVerify — run
+                // on 2026-11-19; Flow's 85) and again for 0.5.0 (86 at 86.69% on 2026-11-20) and 0.6.0 (87 at 87.27%, same day), then the 1.0.0 follow-ups (88 at 88.28% on the merged tree, same day); 1.2.0 measured 99.14 / 88.29, floors unchanged (integers). NOTE: `check` runs only koverVerify — run
                 // `:server:koverXmlReport` for fresh actuals.
                 minBound(88, coverageUnits = kotlinx.kover.gradle.plugin.dsl.CoverageUnit.BRANCH)
             }
