@@ -16,6 +16,8 @@ import kotlinx.serialization.Serializable
  * Full-text search over message bodies and thread titles (V16, 0.5): the result is a page of THREADS, each with its newest matching
  * messages. `chat-model.md` "Search (V16)" holds the rules. Since 1.1 the `watching` filter narrows a search to the threads the caller
  * watches (or, `false`, does not) and, with `watching=true` alone, lists them with no query at all (`chat-model.md` "Watching (V26)").
+ * Since 1.2 the `threadTag` filter (the CURATED tags, the thread list's own parameter and grammar) narrows a search the same way and, like
+ * `watching=true`, a tag alone is a valid search: the no-query path serves both (`chat-model.md` "Room view, tags and unread (1.2)").
  */
 
 /** `q` is 2 to this many CODE POINTS after trimming (an emoji is one, though two UTF-16 units). */
@@ -48,8 +50,9 @@ data class MessageSearchHit(
 /**
  * One matching thread. [status] is the status KEY (the SPA draws the pill where it holds the workflow). [messages] holds the
  * [SEARCH_MESSAGES_PER_THREAD] newest matching live messages, newest first, and [matchCount] counts them all; a title-only hit has no
- * messages and a count of 0, as has every hit of a search with no `q` (the watched-threads view, whose [titleSnippet] is the title as one
- * non-hit segment). [titleSnippet] is the whole title, its hits marked.
+ * messages and a count of 0, as has every hit of a search with no `q` (the watched-threads and tag views, whose [titleSnippet] is the
+ * title as one non-hit segment). [titleSnippet] is the whole title, its hits marked. [tags] are the thread's CURATED tags (1.2: code point
+ * order, a retired one marked), whatever the search matched on.
  */
 @Serializable
 data class ThreadSearchHit(
@@ -67,6 +70,7 @@ data class ThreadSearchHit(
     val lastActivityAt: Long,
     val matchCount: Long,
     val messages: List<MessageSearchHit>,
+    val tags: List<ThreadTag>,
 )
 
 typealias ThreadSearchPageResponse = PageResponse<ThreadSearchHit>
@@ -92,26 +96,36 @@ fun validateSearchQuery(raw: String?): String {
 }
 
 /**
- * The parameters of a search request, validated: the query ([q] is null ONLY with [watching] `true`, the "Threads I watch" view), the
- * strict `closed` and `watching` booleans (null = both / no filter) and the page.
+ * The parameters of a search request, validated: the query ([q] is null ONLY with [watching] `true` (the "Threads I watch" view) or a
+ * [threadTags] name (the tag view)), the strict `closed` and `watching` booleans (null = both / no filter), the CURATED tag names
+ * ([threadTags]: normalised, grammar-checked, at most [MAX_FILTER_VALUES] distinct, any-of; empty = no filter) and the page.
  */
-class SearchParams(val q: String?, val closed: Boolean?, val watching: Boolean?, val paging: PageRequest)
+class SearchParams(
+    val q: String?,
+    val closed: Boolean?,
+    val watching: Boolean?,
+    val paging: PageRequest,
+    val threadTags: List<String> = emptyList(),
+)
 
 /**
- * Reads and validates `q`, `closed`, `watching`, `page`, `pageSize` (at most [MAX_SEARCH_PAGE_SIZE]) and `sort` of a search; every
- * violation is a `400` and none of them names the term. A repeated key is a `400` (`singleValue`). `q` is REQUIRED unless `watching` is
- * `true` (a blank `q` counts as none there, as everywhere); with `watching=true` a given `q` is validated as ever.
+ * Reads and validates `q`, `closed`, `watching`, `threadTag`, `page`, `pageSize` (at most [MAX_SEARCH_PAGE_SIZE]) and `sort` of a search;
+ * every violation is a `400` and none of them names the term. A repeated scalar key is a `400` (`singleValue`); `threadTag` is the thread
+ * list's repeated key, parsed by the same function. `q` is REQUIRED unless `watching` is `true` or a `threadTag` is given (a blank `q`
+ * counts as none there, as everywhere); with either, a given `q` is validated as ever.
  */
 fun ApplicationCall.parseSearchParams(): SearchParams {
     val paging = parsePaging(sortable = SEARCH_SORT_FIELDS, defaultSort = SEARCH_DEFAULT_SORT)
     if (paging.pageSize > MAX_SEARCH_PAGE_SIZE) throw BadRequestException("pageSize must be between 1 and $MAX_SEARCH_PAGE_SIZE")
     val params = request.queryParameters
     val watching = params.optionalBoolean("watching")
+    val threadTags = params.threadTagFilter()
     val raw = params.optionalString("q")
     return SearchParams(
-        q = if (watching == true && raw == null) null else validateSearchQuery(raw),
+        q = if ((watching == true || threadTags.isNotEmpty()) && raw == null) null else validateSearchQuery(raw),
         closed = params.optionalBoolean("closed"),
         watching = watching,
         paging = paging,
+        threadTags = threadTags,
     )
 }

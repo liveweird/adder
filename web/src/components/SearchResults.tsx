@@ -9,6 +9,7 @@ import PersonLink from "./PersonLink";
 import RoomLink from "./RoomLink";
 import Snippet from "./Snippet";
 import StatusPill from "./StatusPill";
+import TagPills from "./TagPills";
 import ThreadStatusPill from "./ThreadStatusPill";
 
 /** The plain words of a snippet: the accessible name of a link whose visible text `<mark>` splits. */
@@ -31,7 +32,7 @@ function MessageRow({ hit, message, zone }: { hit: ThreadSearchHit; message: Mes
  * One search hit: the thread (a heading whose link goes to the thread) with where it stands, then up to three of its newest matching
  * messages, each a link that names the message to jump to. Where the room's workflow is at hand (the room's own search) the status is its pill;
  * a search across rooms carries no workflow, so it shows Open or Closed, the room and an Archived badge for an archived room. The room and the owner are
- * links (1.2 D6: `RoomLink`, `PersonLink`), siblings of the thread's heading link; a matching message's row is ONE link to the message, so its author
+ * links (1.2 D6: `RoomLink`, `PersonLink`), siblings of the thread's heading link; the tags are plain pills; a matching message's row is ONE link to the message, so its author
  * (in the dimmed line of that link) stays text rather than nest a link in a link.
  */
 function Hit({ hit, statuses, showRoom, zone }: { hit: ThreadSearchHit; statuses: RoomWorkflow["statuses"] | undefined; showRoom: boolean; zone: string }) {
@@ -66,6 +67,12 @@ function Hit({ hit, statuses, showRoom, zone }: { hit: ThreadSearchHit; statuses
             <PersonLink id={hit.ownerId} name={hit.ownerName} inherit /> · {t("threads.row.messages", { count: hit.messageCount })} · {formatDateTime(hit.lastActivityAt, zone)}
           </Text>
         </Group>
+        {/* The thread's curated tags (1.2 D3), whatever the search matched on: plain pills (a retired one struck through and said in words). */}
+        {hit.tags.length > 0 && (
+          <div role="group" aria-label={t("threads.tags.aria")}>
+            <TagPills tags={hit.tags} />
+          </div>
+        )}
         {hit.matchCount > 0 && (
           <>
             <Text size="sm" fw={500}>

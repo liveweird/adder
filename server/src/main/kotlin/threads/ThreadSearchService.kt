@@ -59,6 +59,7 @@ private val HIT_COLUMNS: List<Column<*>> = with(ThreadService.Threads) {
 class ThreadSearchService(
     private val database: R2dbcDatabase,
     private val rooms: RoomService,
+    private val threadTags: ThreadTagService,
     private val timeoutSeconds: Int,
     maxConcurrent: Int,
     private val clock: () -> Long = System::nanoTime,
@@ -67,7 +68,8 @@ class ThreadSearchService(
 
     /**
      * The search of one room (the route admitted the caller): 404 when the room vanished since, an empty page for no lexeme. [q] is
-     * null only for the watched-threads view ([watching] `true`, `parseSearchParams`); [watching] is the caller's own filter.
+     * null only for the watched-threads view ([watching] `true`) or the tag view ([tagNames] given, `parseSearchParams`); [watching] is
+     * the caller's own filter and [tagNames] the normalised CURATED tag names (any-of, retired tags included).
      */
     suspend fun searchRoom(
         roomId: UInt,
@@ -76,11 +78,12 @@ class ThreadSearchService(
         closed: Boolean?,
         paging: PageRequest,
         watching: Boolean? = null,
+        tagNames: List<String> = emptyList(),
     ): ThreadSearchResult =
         budgeted(callerUserId, roomId) { budget ->
             budget.arm(this)
             val room = rooms.summary(roomId) ?: throw NotFoundException("Room not found")
-            searchIn(listOf(room), callerUserId, q, closed, watching, paging, budget)
+            searchIn(listOf(room), callerUserId, q, closed, watching, tagNames, paging, budget)
         }
 
     /**
@@ -89,7 +92,9 @@ class ThreadSearchService(
      * rooms gets an empty page without a search. The room list is read first, inside the same budgeted transaction, so no statement of
      * the search can name a room the caller is not in; a room the caller leaves after this read is gone from the next request. This
      * read is also what keeps "Threads I watch" (`q` null, [watching] `true`) honest: the view starts from the caller's rooms, never
-     * from `thread_watches`, whose rows outlive a deleted room.
+     * from `thread_watches`, whose rows outlive a deleted room. The same goes for the tag view ([tagNames] given, [q] null): `thread_tags`
+     * has no room column, so the tag predicate only ever narrows the threads of the caller's own rooms (the first predicate of
+     * [searchIn]), never the other way round.
      */
     suspend fun searchMemberRooms(
         callerUserId: UInt,
@@ -97,6 +102,7 @@ class ThreadSearchService(
         closed: Boolean?,
         paging: PageRequest,
         watching: Boolean? = null,
+        tagNames: List<String> = emptyList(),
     ): ThreadSearchResult =
         budgeted(callerUserId, null) { budget ->
             budget.arm(this)
@@ -104,7 +110,7 @@ class ThreadSearchService(
             if (memberRooms.isEmpty()) {
                 ThreadSearchResult(emptyList(), 0)
             } else {
-                searchIn(memberRooms, callerUserId, q, closed, watching, paging, budget)
+                searchIn(memberRooms, callerUserId, q, closed, watching, tagNames, paging, budget)
             }
         }
 
@@ -138,10 +144,15 @@ class ThreadSearchService(
     /**
      * The statements of a search over [inRooms]: the query text, the count and the page of threads (one predicate: the title matches,
      * or a LIVE message of the thread does), then the message snippets and the title headlines, for the page's thread ids only. With
-     * [q] null (the watched-threads view: `watching=true` alone) there is no text to match: the query-text and the two snippet
-     * statements are never sent, the predicate is the rooms and the filters, a hit carries no messages and its title as one non-hit
-     * segment, and the page follows the same `sort` (default newest activity first). [watching] narrows to the threads [callerUserId]
-     * watches (`true`) or does not (`false`), through the S3 watch predicate correlated on each thread's own room.
+     * [q] null (the watched-threads and tag views: `watching=true` or a tag alone) there is no text to match: the query-text and the two
+     * snippet statements are never sent, the predicate is the rooms and the filters, a hit carries no messages and its title as one
+     * non-hit segment, and the page follows the same `sort` (default newest activity first). [watching] narrows to the threads
+     * [callerUserId] watches (`true`) or does not (`false`), through the S3 watch predicate correlated on each thread's own room.
+     * [tagNames] narrows to the threads that carry ANY of those curated tags (retired ones included): the names are resolved to registry
+     * ids in this transaction, a name nobody ever held has no id, and when NONE has one the answer is an empty page with no further
+     * statement. The tag predicate is `EXISTS` on `thread_tags` correlated on the thread, ANDed AFTER the rooms, so a thread of a room
+     * the caller is not in can never surface through it (`persistence.md` "Thread tags (V33)"). Every hit carries its `tags`, read in
+     * ONE statement for the page's thread ids.
      */
     private suspend fun R2dbcTransaction.searchIn(
         inRooms: List<RoomSummary>,
@@ -149,15 +160,23 @@ class ThreadSearchService(
         q: String?,
         closed: Boolean?,
         watching: Boolean?,
+        tagNames: List<String>,
         paging: PageRequest,
         budget: SearchBudget,
     ): ThreadSearchResult {
+        val tagIds = if (tagNames.isEmpty()) {
+            emptyList()
+        } else {
+            budget.arm(this)
+            threadTags.idsOf(tagNames).ifEmpty { return ThreadSearchResult(emptyList(), 0) }
+        }
         budget.arm(this)
         val queryText = if (q == null) null else ftsQueryText(q) ?: return ThreadSearchResult(emptyList(), 0)
         val threads = ThreadService.Threads
         var predicate: Op<Boolean> = threads.roomId.equalsAnyInt(inRooms.map { it.id.toInt() })
         queryText?.let { predicate = predicate and matchesTitleOrMessage(it) }
         closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
+        if (tagIds.isNotEmpty()) predicate = predicate and threadCarriesAnyThreadTag(threads.id, tagIds)
         watching?.let {
             val watched = threadWatchedByInRoomOf(callerUserId, threads.roomId, threads.id)
             predicate = predicate and (if (it) watched else not(watched))
@@ -177,6 +196,8 @@ class ThreadSearchService(
             budget.arm(this)
             titles = titleSnippets(ids, queryText)
         }
+        budget.arm(this)
+        val tagsOf = threadTags.forThreads(ids)
         budget.arm(this)
         val names = userNames(rows.map { it[threads.ownerId].value } + matches.values.flatMap { m -> m.messages.map { it.authorId } })
         val byRoom = inRooms.associateBy { it.id }
@@ -201,6 +222,7 @@ class ThreadSearchService(
                 messages = own?.messages.orEmpty().map {
                     MessageSearchHit(it.id, it.authorId, names.getValue(it.authorId), it.createdAt, it.snippet)
                 },
+                tags = tagsOf[id].orEmpty(),
             )
         }
         return ThreadSearchResult(items, total)

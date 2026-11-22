@@ -3,7 +3,7 @@
 // Every key is a prefix: a reader appends its own parameters (a page number, a sort), a hint names the prefix.
 
 /**
- * The search results: `["search", q, scope, page, watching]` for the search across the caller's rooms, `["search", "room", R, q, scope, page, watching]` for one room's.
+ * The search results: `["search", q, scope, page, watching, threadTag]` for the search across the caller's rooms, `["search", "room", R, q, scope, page, watching, threadTag]` for one room's.
  * Both sit OUTSIDE `["rooms"]`, because search results are not live (every re-read spends a token of the reader's `search` bucket and one of the
  * server's few search slots): only the frames that take the room away name them (`revoked`, and `room.deleted` for the room's own), and the session
  * boundary clears them. A hint that names a room's thread tree, or `["rooms"]`, never matches them.

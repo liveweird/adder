@@ -1,4 +1,4 @@
-# Find: filters, hashtags, search and the focus view
+# Find: filters, hashtags, search (by words and by tag) and the focus view
 
 - **Spec**: [tests/find.spec.ts](../tests/find.spec.ts)
 - **Actors**: its own throwaway administrator (`e2e-find-admin-*`, `specAdmins`, who only mints the throwaway users); throwaway regular users per scenario (a room's owner
@@ -9,7 +9,8 @@
   Incident templates are shared and read-only: rooms only copy them. Every room is created by a throwaway user, so the seed administrator is never a
   member of one. Threads and messages are never deleted through the API: a room's removal hides them with it. The per-user `search` bucket (60 a
   minute) is only ever spent by the throwaway user who searches, and a scenario runs a handful of searches. Search words are unique per run, so no
-  other data can match them.
+  other data can match them. The tag scenario also owns one registry category with one unique tag (a tag name is unique for ever, retired ones included,
+  so it carries a per-run suffix), made through its administrator's API and deleted in the `afterEach` under its current revision.
 
 The data of each scenario is seeded through the API (threads, replies, status moves, memberships); the browser then does what the scenario is about.
 
@@ -102,6 +103,20 @@ The data of each scenario is seeded through the API (threads, replies, status mo
 4. The second administrator signs in, opens **Search** (`/search`), types the word and presses **Search**.
    - *Expected*: "1 thread found", the thread of room A with its room's name; nothing of room B or room C: for an administrator too, membership is the
      scope of the search.
+
+## Scenario: a tag alone finds its threads across rooms
+
+1. The administrator mints a reader and a stranger, and (through the API) a registry category holding one unique tag. The reader makes rooms A and B
+   and the stranger makes room C; each of the three rooms holds a thread carrying the tag, and room A holds a second thread with no tag. Room A's
+   tagged thread says a unique word. The stranger's own search by the tag finds one thread (the control: the tag is findable where the stranger is a member).
+2. The reader opens **Search** (`/search`), opens the **Tags** control (the registry grouped by category) and picks the tag, typing nothing in the box.
+   - *Expected*: the request carries `threadTag` and no `q`; the address holds `threadTag=<tag>`; "2 threads found"; the hits are the tagged threads
+     of rooms A and B, each naming its room and showing the tag as a pill under "Tags", with no matching-message snippet; nothing of room C (name or
+     title) and not room A's untagged thread is on the page.
+3. The reader types the unique word and presses **Search**.
+   - *Expected*: the address holds `q=<word>` and `threadTag=<tag>`; "1 thread found", room A's tagged thread.
+4. The reader reloads the page.
+   - *Expected*: the box still holds the word and "1 thread found" is shown again.
 
 ## Scenario: the focus view hides the thread list and survives a reload
 

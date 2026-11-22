@@ -13,7 +13,7 @@ export type SnippetSegment = ThreadSearchHit["titleSnippet"][number];
 export interface SearchQuery {
   /**
    * Trimmed, 2 to 100 characters with a letter or a digit (`utils/searchParams.ts` `queryProblem`): the server answers 400 otherwise, never echoing it.
-   * Omitted ONLY with `watching: true` (the "Threads I watch" list, which has no query: its hits carry no messages and no marked words).
+   * Omitted ONLY with `watching: true` (the "Threads I watch" list) or a `threadTag` (the tag view): neither has a query, so its hits carry no messages and no marked words.
    */
   q?: string;
   page: number;
@@ -22,6 +22,8 @@ export interface SearchQuery {
   closed?: boolean;
   /** `true` = only the threads the caller watches (and `q` becomes optional), `false` = only the others; omitted = both. */
   watching?: boolean;
+  /** Any-of these CURATED tag names (the registry's, `GET /tag-categories`; at most 20; retired ones still match); makes `q` optional. */
+  threadTag?: readonly string[];
 }
 
 /** One page of the threads of ONE room that match (a non-member and an unknown room get the same 404). Newest activity first. */

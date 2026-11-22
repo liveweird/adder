@@ -181,8 +181,9 @@ class ChatLogHygieneTest {
 
     /**
      * A curated tag name the caller types is not a secret but is not ours to log either: a name the grammar refuses, a well-formed name the
-     * registry does not hold, and a refused `threadTag` filter value leave their text in no log line of any logger (the 400's detail
-     * reaches the caller only). The registry's own names reach the audit line on a real change (1.2 A5) and are not planted here.
+     * registry does not hold, and a refused `threadTag` filter value (the list's and both searches') leave their text in no log line of any
+     * logger (the 400's detail reaches the caller only). The registry's own names reach the audit line on a real change (1.2 A5) and
+     * are not planted here.
      */
     @Test
     fun `no log line carries a tag name the caller typed - grammar-refused, unknown, or a refused threadTag`() = testApplication {
@@ -201,6 +202,11 @@ class ChatLogHygieneTest {
             val threads = "$rooms/${cast.room}/threads"
             assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$threads?threadTag=$typed,bad").status)
             assertEquals(HttpStatusCode.OK, cast.member.client.get("$threads?threadTag=$typed").status)
+            // The two searches take the same filter (1.2 S8): a tag alone is a search, answered or refused, in no log line.
+            assertEquals(HttpStatusCode.OK, cast.member.client.get("$rooms/${cast.room}/search?threadTag=$typed").status)
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("$rooms/${cast.room}/search?threadTag=$typed,bad").status)
+            assertEquals(HttpStatusCode.OK, cast.member.client.get("/api/v1/search?threadTag=$typed").status)
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.get("/api/v1/search?threadTag=$typed,bad").status)
             val leaked = capture.events.filter { typed in it.rendered() || typed.uppercase() in it.rendered() }
             assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries a typed tag name")
         } finally {

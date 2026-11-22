@@ -51,6 +51,7 @@ function serve(answer: SearchAnswer): { searches: string[]; mock: ReturnType<typ
     const url = String(input);
     if (url === "/api/v1/rooms/12") return Promise.resolve(jsonResponse(200, ROOM));
     if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+    if (url === "/api/v1/tag-categories") return Promise.resolve(jsonResponse(200, { items: [{ id: 1, name: "Kind", description: null, revision: 1, tags: ["question"] }] }));
     if (url.startsWith("/api/v1/rooms/12/search?")) {
       searches.push(url);
       return Promise.resolve(answer(url));
@@ -78,12 +79,11 @@ describe("RoomSearch page", () => {
     renderSearch();
     const box = await screen.findByRole("searchbox", { name: "Search this room" });
     expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("aria-current", "page");
-    // The hint is the box's description: no stemming, prefixes from three characters, all terms in one message or the title, case and accents.
-    const hint = screen.getByText(/no stemming/);
+    // The hint is the box's description, one short line: prefixes from three characters, case and accents ignored.
+    const hint = screen.getByText(/match the start of a word/);
     expect(box).toHaveAccessibleDescription(hint.textContent ?? "");
-    expect(hint).toHaveTextContent(/3 or more characters/);
-    expect(hint).toHaveTextContent(/one message or within the title/);
-    expect(hint).toHaveTextContent(/Case and accents are ignored/);
+    expect(hint).toHaveTextContent(/^3 or more characters/);
+    expect(hint).toHaveTextContent(/case and accents are ignored/);
     expect(screen.getByRole("radio", { name: "All" })).toBeChecked();
     expect(searches).toEqual([]);
   });
@@ -131,6 +131,18 @@ describe("RoomSearch page", () => {
     renderSearch("/rooms/12/search?watching=1&scope=open");
     expect(await screen.findByText("You are not watching any threads.")).toBeInTheDocument();
     expect(searches).toEqual(["/api/v1/rooms/12/search?page=1&pageSize=20&closed=false&watching=true"]);
+  });
+
+  test("a tag alone searches the room with no term, a pick writes threadTag, and the hits show their tags", async () => {
+    const { searches } = serve(() => jsonResponse(200, searchPage([threadHit(42, { matchCount: 0, messages: [], tags: [{ name: "question", retired: false }] })])));
+    const user = userEvent.setup();
+    renderSearch();
+    await user.click(await screen.findByRole("combobox", { name: "Tags" }));
+    await user.click(await screen.findByRole("option", { name: "question" }));
+    expect(await screen.findByRole("link", { name: "#42 Database outage" })).toBeInTheDocument();
+    expect(searches).toEqual(["/api/v1/rooms/12/search?page=1&pageSize=20&threadTag=question"]);
+    expect(screen.getByTestId("search")).toHaveTextContent("?threadTag=question");
+    expect(within(screen.getByRole("article")).getByRole("group", { name: "Tags" })).toHaveTextContent("question");
   });
 
   test("the scope control searches Open, Closed or All, and goes back to page 1", async () => {

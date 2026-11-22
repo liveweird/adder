@@ -41,8 +41,8 @@ describe("queryProblem: the server's rules, so a bad term never travels", () => 
 
 describe("the search URL", () => {
   test("parses the term (trimmed), the scope (default all) and the page (default 1); junk is the default", () => {
-    expect(parseSearchParams(new URLSearchParams("q=%20outage%20&scope=closed&page=3"))).toEqual({ q: "outage", scope: "closed", watching: false, page: 3 });
-    expect(parseSearchParams(new URLSearchParams(""))).toEqual({ q: "", scope: "all", watching: false, page: 1 });
+    expect(parseSearchParams(new URLSearchParams("q=%20outage%20&scope=closed&page=3"))).toEqual({ q: "outage", scope: "closed", watching: false, threadTag: [], page: 3 });
+    expect(parseSearchParams(new URLSearchParams(""))).toEqual({ q: "", scope: "all", watching: false, threadTag: [], page: 1 });
     for (const page of ["0", "-1", "2x", "1e3", "9999999999", ""]) expect(parseSearchParams(new URLSearchParams({ page })).page, page).toBe(1);
     expect(parseSearchParams(new URLSearchParams("scope=nonsense")).scope).toBe("all");
   });
@@ -66,13 +66,32 @@ describe("the search URL", () => {
     expect(writeSearchParams(base, { page: 5 }).toString()).toBe("message=9&q=old&scope=open&watching=1&page=5");
   });
 
-  test("a state is searchable with a term the server accepts, or with no term while watching; a given bad term never is", () => {
-    expect(isSearchable({ q: "outage", watching: false })).toBe(true);
-    expect(isSearchable({ q: "outage", watching: true })).toBe(true);
-    expect(isSearchable({ q: "", watching: false })).toBe(false);
-    expect(isSearchable({ q: "", watching: true })).toBe(true);
-    expect(isSearchable({ q: "a", watching: true })).toBe(false);
-    expect(isSearchable({ q: "!!!", watching: false })).toBe(false);
+  test("a state is searchable with a term the server accepts, or with no term while watching or tagged; a given bad term never is", () => {
+    expect(isSearchable({ q: "outage", watching: false, threadTag: [] })).toBe(true);
+    expect(isSearchable({ q: "outage", watching: true, threadTag: [] })).toBe(true);
+    expect(isSearchable({ q: "", watching: false, threadTag: [] })).toBe(false);
+    expect(isSearchable({ q: "", watching: true, threadTag: [] })).toBe(true);
+    expect(isSearchable({ q: "", watching: false, threadTag: ["security"] })).toBe(true);
+    expect(isSearchable({ q: "outage", watching: false, threadTag: ["security"] })).toBe(true);
+    expect(isSearchable({ q: "a", watching: true, threadTag: [] })).toBe(false);
+    expect(isSearchable({ q: "a", watching: false, threadTag: ["security"] })).toBe(false);
+    expect(isSearchable({ q: "!!!", watching: false, threadTag: [] })).toBe(false);
+  });
+
+  test("the threadTag key repeats, is lower-cased, distinct and bounded like the thread list's; junk values are dropped", () => {
+    expect(parseSearchParams(new URLSearchParams("threadTag=Security&threadTag=question&threadTag=SECURITY")).threadTag).toEqual(["security", "question"]);
+    expect(parseSearchParams(new URLSearchParams("threadTag=-bad&threadTag=&threadTag=ok&threadTag=" + "x".repeat(41))).threadTag).toEqual(["ok"]);
+    const many = Array.from({ length: 25 }, (_, index) => `threadTag=tag-${index}`).join("&");
+    expect(parseSearchParams(new URLSearchParams(many)).threadTag).toHaveLength(20);
+  });
+
+  test("a write keeps the tags, replaces them as a set, omits them when none, and a change goes back to page 1", () => {
+    const base = new URLSearchParams("q=old&threadTag=security&threadTag=question&page=4&message=9");
+    expect(writeSearchParams(base, { q: "new" }).toString()).toBe("message=9&q=new&threadTag=security&threadTag=question");
+    expect(writeSearchParams(base, { threadTag: ["decision"] }).toString()).toBe("message=9&q=old&threadTag=decision");
+    expect(writeSearchParams(base, { threadTag: [] }).toString()).toBe("message=9&q=old");
+    expect(writeSearchParams(base, { page: 5 }).toString()).toBe("message=9&q=old&threadTag=security&threadTag=question&page=5");
+    expect(writeSearchParams(new URLSearchParams(), { watching: true, threadTag: ["security"] }).toString()).toBe("watching=1&threadTag=security");
   });
 
   test("the palette's watched-threads link is the search page with the toggle on and no term", () => {

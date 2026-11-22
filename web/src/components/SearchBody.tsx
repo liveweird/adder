@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { Stack, Text } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -17,6 +18,13 @@ import SearchResults from "./SearchResults";
 
 /** Search results are not live (a busy room would spend the reader's rate limit on refetches): a read stays fresh this long. */
 const SEARCH_STALE_MS = 30_000;
+
+/** What an empty answer says: the term alone, the watched list, the tag view, or the pair of them (each says which filter found nothing). */
+function emptyMessage(t: TFunction, { q, watching, tagged }: { q: string; watching: boolean; tagged: boolean }): string {
+  if (!watching && !tagged) return t("search.empty", { q });
+  const base = watching ? (tagged ? "search.watchingTagged" : "search.watching") : "search.tags";
+  return q === "" ? t(`${base}.empty`) : t(`${base}.emptyQ`, { q });
+}
 
 /**
  * The body both search pages share: the form, then the results of the term the URL holds. `baseKey` is the query-key prefix of the page's
@@ -39,15 +47,22 @@ export default function SearchBody({
   onGone?: () => void;
 }) {
   const { t } = useTranslation();
-  const { state, submit, setScope, setWatching, setPage, resetPage } = useSearchUrl();
-  const { q, scope, watching, page } = state;
+  const { state, submit, setScope, setWatching, setThreadTag, setPage, resetPage } = useSearchUrl();
+  const { q, scope, watching, threadTag, page } = state;
   // A term the URL holds but the server would refuse (hand-edited, too short) is never sent; the form says why. With the "Threads I watch"
-  // toggle on, no term at all is a search too: the list of the threads the caller watches.
+  // toggle on or a tag picked, no term at all is a search too: the threads the caller watches, or the ones that carry a chosen tag.
   const searchable = isSearchable(state);
   const { data, isLoading, isError, error, isPlaceholderData, refetch } = useQuery({
-    queryKey: [...baseKey, q, scope, page, watching],
+    queryKey: [...baseKey, q, scope, page, watching, threadTag],
     queryFn: () =>
-      fetchPage({ q: q === "" ? undefined : q, page, pageSize: SEARCH_PAGE_SIZE, closed: scopeToClosed(scope), watching: watching || undefined }),
+      fetchPage({
+        q: q === "" ? undefined : q,
+        page,
+        pageSize: SEARCH_PAGE_SIZE,
+        closed: scopeToClosed(scope),
+        watching: watching || undefined,
+        threadTag: threadTag.length > 0 ? threadTag : undefined,
+      }),
     enabled: searchable,
     staleTime: SEARCH_STALE_MS,
     placeholderData: keepPreviousData,
@@ -63,7 +78,7 @@ export default function SearchBody({
   }, [emptied, resetPage]);
 
   const answered = searchable && data !== undefined;
-  const emptyLabel = !watching ? t("search.empty", { q }) : q === "" ? t("search.watching.empty") : t("search.watching.emptyQ", { q });
+  const emptyLabel = emptyMessage(t, { q, watching, tagged: threadTag.length > 0 });
   return (
     <Stack gap="md">
       {/* Submitting the term that is already searched reads it again (the way to retry a failed search, or to refresh a stale one); a new term is a new URL. */}
@@ -72,9 +87,11 @@ export default function SearchBody({
         q={q}
         scope={scope}
         watching={watching}
+        threadTag={threadTag}
         onSubmit={(next) => (next === q ? void refetch() : submit(next))}
         onScope={setScope}
         onWatching={setWatching}
+        onThreadTag={setThreadTag}
       />
       {searchable && isError && <FormErrorAlert>{searchErrorMessage(error, t)}</FormErrorAlert>}
       {searchable && isLoading && <LoadingBlock />}

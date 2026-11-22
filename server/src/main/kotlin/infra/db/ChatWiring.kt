@@ -139,6 +139,7 @@ internal fun Application.publishChatServices(
         ThreadSearchService(
             database,
             roomService,
+            threadTagService,
             requireConfigInt(environment.config, "search.timeoutSeconds", min = 1, max = 30),
             searchMaxConcurrent,
         ),

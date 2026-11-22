@@ -109,9 +109,9 @@ private fun Parameters.tagFilter(): List<String> {
 /**
  * The `threadTag` values: each normalised ([normalizedTagName]) and checked against the registry's grammar (`400` for a name no tag could
  * have, as `requireTagFilter` does for a hashtag), at most [MAX_FILTER_VALUES] distinct. The bound counts the raw values (a request carries
- * at most that many distinct ones), then names that fold together collapse (`A` and `a`).
+ * at most that many distinct ones), then names that fold together collapse (`A` and `a`). The thread list and both searches share it.
  */
-private fun Parameters.threadTagFilter(): List<String> = repeatedStrings("threadTag", MAX_FILTER_VALUES)
+internal fun Parameters.threadTagFilter(): List<String> = repeatedStrings("threadTag", MAX_FILTER_VALUES)
     .map { normalizedTagName(it).also(::requireValidTagName) }.distinct()
 
 private fun fieldCriterion(raw: String): FieldCriterion {

@@ -25,7 +25,7 @@ export const ORDER_SORT: Record<Order, string> = { activity: "-lastActivityAt", 
 const MAX_FILTER_VALUES = 20;
 /** The most `tag` values one request may carry: the server accepts 50 raw values but folds them to at most 10 distinct. */
 export const MAX_TAG_VALUES = 10;
-/** The most `threadTag` (curated tag) values one request carries: the server's 20 distinct. */
+/** The most `threadTag` (curated tag) values one request carries: the server's 20 distinct (the thread list and both searches). */
 const MAX_THREAD_TAG_VALUES = 20;
 
 export interface ThreadListParams {
@@ -100,11 +100,18 @@ export function parseThreadListParams(search: URLSearchParams): ThreadListParams
     mention: search.get("mention") === "me",
     watching: search.get("watching") === "me",
     tag: repeated(search, "tag", isTag, MAX_TAG_VALUES),
-    // The registry's names are lower case and the server normalises a typed one; the URL keeps the lower-cased spelling so a pasted `Data` is the same filter.
-    threadTag: [...new Set(repeated(search, "threadTag", isThreadTag, MAX_THREAD_TAG_VALUES).map((name) => name.toLowerCase()))],
+    threadTag: threadTagValues(search),
     field: repeated(search, "field", isFieldEntry),
     page: page !== null && PAGE.test(page) ? Number(page) : DEFAULT_THREAD_LIST_PARAMS.page,
   };
+}
+
+/**
+ * The `threadTag` values a URL spells (the thread list's and the search pages' key): the valid ones, lower-cased (the registry's names are lower case and the
+ * server normalises a typed one, so a pasted `Data` is the same filter), distinct, in URL order, at most [MAX_THREAD_TAG_VALUES].
+ */
+export function threadTagValues(search: URLSearchParams): string[] {
+  return [...new Set(repeated(search, "threadTag", isThreadTag, MAX_THREAD_TAG_VALUES).map((name) => name.toLowerCase()))];
 }
 
 /** Whether the URL spells any list key at all, valid or not (a bare URL is what the remembered query is restored onto). */

@@ -42,13 +42,22 @@ function renderSearch(route = "/search") {
   );
 }
 
-/** A fetch that answers every search as `answer` says and records the URLs asked. */
+/** The tag registry the form's Tags control reads (the same one the thread list's filter offers). */
+const CATEGORIES = {
+  items: [
+    { id: 1, name: "Kind", description: null, revision: 1, tags: ["decision", "question"] },
+    { id: 2, name: "Area", description: null, revision: 1, tags: ["security"] },
+  ],
+};
+
+/** A fetch that answers every search as `answer` says and records the URLs asked (the registry read is answered and not recorded). */
 function serve(answer: (url: string) => Response): string[] {
   const searches: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === "/api/v1/tag-categories") return Promise.resolve(jsonResponse(200, CATEGORIES));
       searches.push(url);
       return Promise.resolve(answer(url));
     }),
@@ -73,7 +82,7 @@ describe("Search page (all your rooms)", () => {
     renderSearch();
     expect(screen.getByRole("heading", { level: 2, name: "Search" })).toBeInTheDocument();
     expect(screen.getByRole("searchbox", { name: "Search all your rooms" })).toBeInTheDocument();
-    expect(screen.getByText(/no stemming/)).toBeInTheDocument();
+    expect(screen.getByText(/match the start of a word/)).toBeInTheDocument();
     expect(searches).toEqual([]);
   });
 
@@ -118,7 +127,7 @@ describe("Search page (all your rooms)", () => {
     const [article] = screen.getAllByRole("article");
     expect(within(article).queryByText(/matching message/)).not.toBeInTheDocument();
     expect(article.querySelector("mark")).toBeNull();
-    expect(screen.getByText(/leave the box empty/i)).toBeInTheDocument();
+    expect(screen.getByText(/Only the threads you watch: type to narrow them/)).toBeInTheDocument();
   });
 
   test("the palette link /search?watching=1 opens the list at once, and the switch turns it off again", async () => {
@@ -149,6 +158,64 @@ describe("Search page (all your rooms)", () => {
     await user.keyboard("{Enter}");
     await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent("?watching=1"));
     expect(screen.queryByText("Type at least two characters, with a letter or a digit.")).not.toBeInTheDocument();
+  });
+
+  test("the Tags control lists the registry grouped by category; a pick searches by tag alone, writes threadTag, and keeps the box empty without an error", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([threadHit(4, { matchCount: 0, messages: [], tags: [{ name: "security", retired: false }] })])));
+    const user = userEvent.setup();
+    renderSearch();
+    expect(searches).toEqual([]);
+    const tags = screen.getByRole("combobox", { name: "Tags" });
+    expect(tags).toHaveAttribute("placeholder", "All");
+    await user.click(tags);
+    const kind = await screen.findByRole("group", { name: "Kind" });
+    expect(within(kind).getAllByRole("option").map((option) => option.textContent)).toEqual(["decision", "question"]);
+    await user.click(within(screen.getByRole("group", { name: "Area" })).getByRole("option", { name: "security" }));
+    expect(await screen.findByRole("link", { name: "#4 Database outage" })).toBeInTheDocument();
+    expect(searches).toEqual(["/api/v1/search?page=1&pageSize=20&threadTag=security"]);
+    expect(screen.getByTestId("search")).toHaveTextContent("?threadTag=security");
+    expect(screen.getByRole("status")).toHaveTextContent("1 thread found");
+    const [article] = screen.getAllByRole("article");
+    expect(within(article).getByRole("group", { name: "Tags" })).toHaveTextContent("security");
+    expect(within(article).queryByText(/matching message/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Threads with any of these tags: type to narrow them/)).toBeInTheDocument();
+    expect(screen.queryByText("Type at least two characters, with a letter or a digit.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    expect(screen.queryByText("Type at least two characters, with a letter or a digit.")).not.toBeInTheDocument();
+  });
+
+  test("a shared link with tags opens the search at once, several tags are repeated keys, and a term narrows them", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([threadHit(5)])));
+    const user = userEvent.setup();
+    renderSearch("/search?threadTag=Security&threadTag=question");
+    await screen.findByRole("link", { name: "#5 Database outage" });
+    expect(searches).toEqual(["/api/v1/search?page=1&pageSize=20&threadTag=security&threadTag=question"]);
+    await user.type(screen.getByRole("searchbox", { name: "Search all your rooms" }), "outage{Enter}");
+    await waitFor(() => expect(searches.at(-1)).toBe("/api/v1/search?q=outage&page=1&pageSize=20&threadTag=security&threadTag=question"));
+    expect(screen.getByTestId("search")).toHaveTextContent("?q=outage&threadTag=security&threadTag=question");
+    await user.clear(screen.getByRole("searchbox", { name: "Search all your rooms" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search all your rooms" }), "a{Enter}");
+    expect(await screen.findByText("Type at least two characters, with a letter or a digit.")).toBeInTheDocument();
+  });
+
+  test("a tag the registry no longer lists keeps its pill and still searches; removing it from the control drops the key", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([])));
+    const user = userEvent.setup();
+    renderSearch("/search?threadTag=retired-one");
+    expect(await screen.findByText("No thread carries these tags.")).toBeInTheDocument();
+    expect(searches).toEqual(["/api/v1/search?page=1&pageSize=20&threadTag=retired-one"]);
+    await user.click(screen.getByRole("button", { name: "Remove retired-one" }));
+    await waitFor(() => expect(screen.getByTestId("search")).toHaveTextContent(/^$/));
+    expect(screen.queryByText("No thread carries these tags.")).not.toBeInTheDocument();
+  });
+
+  test("tags with the watching switch, and a term, each name their own empty state", async () => {
+    serve(() => jsonResponse(200, searchPage([])));
+    const first = renderSearch("/search?watching=1&threadTag=security");
+    expect(await screen.findByText("None of the threads you watch carries these tags.")).toBeInTheDocument();
+    first.unmount();
+    renderSearch("/search?q=outage&threadTag=security");
+    expect(await screen.findByText("None of the threads with these tags matches “outage”.")).toBeInTheDocument();
   });
 
   test("nothing watched says so, and with a term it names the term", async () => {

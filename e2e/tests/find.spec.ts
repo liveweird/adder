@@ -1,7 +1,7 @@
 // Find: the thread list's filters (status, owner, a SELECT field, hashtags; the badge, Clear, the URL that survives a reload), hashtags in messages
 // (a link that filters the list, gone when the tag is edited away), a thread's hashtags on its row and in its header, `#42` as a link, the room's own search (a Polish word typed without its accents, the highlighted
 // snippet, the jump to the message, the client's refusal of a short term), the search across rooms (only the reader's rooms, an administrator's too;
-// reached through the command palette) and the focus view. Owns: its throwaway `e2e-find-*` rooms and users (one of them an administrator,
+// reached through the command palette), a tag picked on its own (no term) across rooms (1.2.0 S8) and the focus view. Owns: its throwaway `e2e-find-*` rooms and users (one of them an administrator,
 // minted through the seed administrator's API), removed through the API in an `afterEach` (rooms first, then the users). Every room is created by a
 // throwaway user and only copies the seeded Default or Incident template. Threads and messages are never deleted: a room's removal hides them.
 // Every user runs a handful of searches, far below the per-user `search` bucket (60 a minute) that no other spec's account shares.
@@ -14,9 +14,24 @@ const admin = specAdmins("e2e-find-admin");
 
 const cleanup: string[] = [];
 const apis: APIRequestContext[] = [];
+/** Tag categories this file's tests made (the registry is shared): deleted under their CURRENT revision, as the seed administrator. */
+const categoryIds: number[] = [];
 test.afterEach(async () => {
   for (const api of apis.splice(0)) await api.dispose();
   await deleteViaApi(cleanup.splice(0));
+  const ids = categoryIds.splice(0);
+  if (ids.length > 0) {
+    const { api } = await apiAsAdmin();
+    try {
+      const items = ((await (await api.get("/api/v1/tag-categories")).json()) as { items: { id: number; revision: number }[] }).items;
+      for (const id of ids) {
+        const category = items.find((item) => item.id === id);
+        if (category) expect((await api.delete(`/api/v1/tag-categories/${id}`, { headers: { "X-Expected-Revision": String(category.revision) } })).status()).toBe(204);
+      }
+    } finally {
+      await api.dispose();
+    }
+  }
 });
 
 const MESSAGES_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/messages$/;
@@ -428,6 +443,79 @@ test("a search across rooms never shows a room the reader is not a member of", a
   await expect(adminHits).toContainText(titles.a);
   await expect(adminHits).toContainText(roomA);
   for (const hidden of [titles.b, roomB, titles.c, roomC]) await expect(page.getByText(hidden)).toHaveCount(0);
+});
+
+test("a tag alone finds its threads across rooms", async ({ page }) => {
+  const [reader, stranger] = await people(page, "E2E Find Tagger", "E2E Find Outsider");
+  const readerApi = await actingAs(reader);
+  const strangerApi = await actingAs(stranger);
+  const { api: adminApi } = await apiAsUser(admin.first.email, admin.first.password);
+  apis.push(adminApi);
+  // A tag name is unique for ever (a retired one still holds it), so each run carries its own; the category goes in afterEach.
+  const tag = uniqueText("e2e-find-tag");
+  const category = await adminApi.post("/api/v1/tag-categories", { data: { name: uniqueText("E2E Find Category"), description: null, tags: [tag] } });
+  expect(category.status(), await category.text()).toBe(201);
+  categoryIds.push(((await category.json()) as { id: number }).id);
+
+  const rooms = { a: uniqueText("e2e-find-a"), b: uniqueText("e2e-find-b"), c: uniqueText("e2e-find-c") };
+  const idA = await createRoom(readerApi, rooms.a, "Default");
+  const idB = await createRoom(readerApi, rooms.b, "Default");
+  const idC = await createRoom(strangerApi, rooms.c, "Default");
+  const word = rareWord("heron");
+  const titles = { a: uniqueText("Atrium"), b: uniqueText("Boiler"), c: uniqueText("Cistern"), plain: uniqueText("Plain") };
+  const numberA = await startThread(readerApi, idA, titles.a, `The ${word} stands here.`);
+  const numberB = await startThread(readerApi, idB, titles.b, "Another thread, no special word.");
+  const numberC = await startThread(strangerApi, idC, titles.c, "Somebody else's room.");
+  await startThread(readerApi, idA, titles.plain, "Carries no tag at all.");
+  /** Tag a thread with `tag` as its member (a fresh thread is at revision 1). */
+  async function tagThread(api: APIRequestContext, roomId: number, number: number): Promise<void> {
+    const saved = await api.put(`/api/v1/rooms/${roomId}/threads/${number}/tags`, { data: { tags: [tag] }, headers: { "X-Expected-Revision": "1" } });
+    expect(saved.status(), await saved.text()).toBe(204);
+  }
+  await tagThread(readerApi, idA, numberA);
+  await tagThread(readerApi, idB, numberB);
+  await tagThread(strangerApi, idC, numberC);
+
+  // The control: the stranger's own search by the tag finds their one thread, so the reader's missing hit below is the scope's doing.
+  const control = await strangerApi.get(`/api/v1/search?threadTag=${tag}`);
+  expect(control.status(), await control.text()).toBe(200);
+  expect(((await control.json()) as { total: number }).total).toBe(1);
+
+  // The reader picks the tag in the search page's grouped Tags control and presses nothing else: no term, and still a search.
+  await page.goto("/search");
+  const box = page.getByRole("searchbox", { name: "Search all your rooms", exact: true });
+  await expect(box).toHaveValue("");
+  await page.getByRole("combobox", { name: "Tags", exact: true }).click();
+  const [searched] = await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/api/v1/search?") && r.url().includes("threadTag=") && r.status() === 200),
+    page.getByRole("option", { name: tag, exact: true }).click(),
+  ]);
+  expect(searched.url()).not.toContain("q=");
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(new RegExp(`[?&]threadTag=${tag}(&|$)`));
+  await expect(page.getByText("2 threads found")).toBeVisible();
+  const hits = page.getByRole("list", { name: "Search results", exact: true }).getByRole("article");
+  await expect(hits).toHaveCount(2);
+  await expect(hits.filter({ hasText: titles.a })).toContainText(rooms.a);
+  await expect(hits.filter({ hasText: titles.b })).toContainText(rooms.b);
+  // Each hit shows its tag as a pill and no snippet (there is no term to mark); nothing of the stranger's room or the untagged thread shows.
+  await expect(hits.filter({ hasText: titles.a }).getByRole("group", { name: "Tags", exact: true })).toContainText(tag);
+  await expect(hits.filter({ hasText: titles.a }).getByText(/matching message/)).toHaveCount(0);
+  for (const hidden of [titles.c, titles.plain, rooms.c]) await expect(page.getByText(hidden)).toHaveCount(0);
+
+  // A term beside the tag narrows it; the address keeps both over a reload.
+  await box.fill(word);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/api/v1/search?") && r.url().includes(`q=${word}`) && r.status() === 200),
+    page.getByRole("button", { name: "Search", exact: true }).click(),
+  ]);
+  await expect(page).toHaveURL(new RegExp(`q=${word}&threadTag=${tag}$`));
+  await expect(page.getByText("1 thread found")).toBeVisible();
+  await expect(hits).toHaveCount(1);
+  await expect(hits).toContainText(titles.a);
+  await page.reload();
+  await expect(box).toHaveValue(word);
+  await expect(page.getByText("1 thread found")).toBeVisible();
 });
 
 test("the focus view hides the thread list and survives a reload", async ({ page }) => {

@@ -9,13 +9,23 @@
   "all": {
     "label": "Search all your rooms"
   },
-  "hint": "Words are matched as typed, with no stemming. A term of 3 or more characters matches the start of a word (“awari” finds “awaria”); a shorter one must match exactly. Every term must appear within one message or within the title. Case and accents are ignored.",
+  "hint": "3 or more characters match the start of a word; case and accents are ignored.",
   "empty": "Nothing matches “{{q}}”.",
   "watching": {
     "label": "Threads I watch",
-    "hintOn": "Only the threads you watch: leave the box empty to list them all, or type a term to narrow them. A term of 3 or more characters matches the start of a word; a shorter one must match exactly. Every term must appear within one message or within the title. Case and accents are ignored.",
+    "hintOn": "Only the threads you watch: type to narrow them.",
     "empty": "You are not watching any threads.",
     "emptyQ": "None of the threads you watch matches “{{q}}”."
+  },
+  "watchingTagged": {
+    "empty": "None of the threads you watch carries these tags.",
+    "emptyQ": "None of the threads you watch with these tags matches “{{q}}”."
+  },
+  "tags": {
+    "label": "Tags",
+    "hintOn": "Threads with any of these tags: type to narrow them.",
+    "empty": "No thread carries these tags.",
+    "emptyQ": "None of the threads with these tags matches “{{q}}”."
   },
   "error": {
     "tooShort": "Type at least two characters, with a letter or a digit.",

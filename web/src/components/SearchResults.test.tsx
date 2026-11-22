@@ -52,6 +52,24 @@ describe("SearchResults", () => {
     expect(row?.querySelector("a")).toBeNull();
   });
 
+  test("a hit's curated tags are plain pills in a labelled group (a retired one struck through and said in words); none, no group", () => {
+    renderWithProviders(
+      <SearchResults
+        label="Search results"
+        hits={[threadHit(42, { tags: [{ name: "question", retired: false }, { name: "old-area", retired: true }] }), threadHit(43)]}
+        statuses={STATUSES}
+        showRoom={false}
+      />,
+    );
+    const [first, second] = screen.getAllByRole("article");
+    const group = within(first).getByRole("group", { name: "Tags" });
+    expect(within(group).getByText("question")).toBeInTheDocument();
+    expect(group).toHaveTextContent(/old-area/);
+    expect(group).toHaveTextContent(/retired/i);
+    expect(within(group).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(second).queryByRole("group", { name: "Tags" })).not.toBeInTheDocument();
+  });
+
   test("inside a room the room name is not drawn, so it is not a link either", () => {
     renderWithProviders(<SearchResults label="Search results" hits={[threadHit(42)]} statuses={STATUSES} showRoom={false} />);
     expect(screen.queryByRole("link", { name: "Night Shift" })).not.toBeInTheDocument();

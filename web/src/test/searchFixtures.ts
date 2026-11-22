@@ -36,6 +36,7 @@ export function threadHit(number: number, overrides: Partial<ThreadSearchHit> = 
     lastActivityAt: 1_795_000_000_000,
     matchCount: 1,
     messages: [messageHit(number * 100)],
+    tags: [],
     ...overrides,
   };
 }

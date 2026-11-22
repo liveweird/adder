@@ -6,7 +6,10 @@ import ch.nokillswit.infra.paging.SortField
 import ch.nokillswit.threads.BudgetSpent
 import ch.nokillswit.threads.SEARCH_TIMEOUT_PROBLEM_TYPE
 import ch.nokillswit.threads.SearchBudget
+import ch.nokillswit.threads.ThreadEventService
 import ch.nokillswit.threads.ThreadSearchService
+import ch.nokillswit.threads.ThreadTagService
+import ch.nokillswit.users.UserRole
 import io.ktor.server.testing.testApplication
 import java.util.UUID
 import kotlin.test.AfterTest
@@ -30,6 +33,7 @@ class SearchBudgetTest {
     @AfterTest
     fun cleanUp() = runBlocking {
         TestRooms.purge(mintedRooms)
+        TestTags.purge()
         mintedUsers.forEach { TestUsers.softDelete(it) }
         mintedTemplates.forEach { TestTemplates.delete(it) }
     }
@@ -80,7 +84,8 @@ class SearchBudgetTest {
         // and spent at the third, before the page is read.
         var ticks = 0L
         var skewed = true
-        val service = ThreadSearchService(sharedDatabaseForTests(), TestRooms.service, 5, 1) {
+        val tagService = ThreadTagService(sharedDatabaseForTests(), ThreadEventService(sharedDatabaseForTests()))
+        val service = ThreadSearchService(sharedDatabaseForTests(), TestRooms.service, tagService, 5, 1) {
             if (skewed) ticks++ * 2_000_000_000L else System.nanoTime()
         }
         withAuditCapture { capture ->
@@ -96,5 +101,44 @@ class SearchBudgetTest {
         skewed = false
         assertEquals(1, service.searchRoom(room, owner.id, term, null, paging).total)
         assertEquals(1, service.searchRoom(room, owner.id, term, null, paging).total, "every search gives its permit back")
+    }
+
+    /**
+     * A search with a `q` AND a `threadTag` arms the budget before the name-to-id read and AGAIN before the query-text statement (the
+     * clock is read once per arm): on a clock that runs two seconds per read, the budget of 5 s is spent at the third arm, which is the one
+     * before the query text, so that statement is never sent. With the second arm missing the query text would go out on the first
+     * arm's stale timeout and the request would be cut one statement later.
+     */
+    @Test
+    fun `a q beside a threadTag arms the budget again before the query text is sent`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = seedActor("sb-tag-own").also { mintedUsers += it.id }
+        val admin = seedActor("sb-tag-adm", UserRole.ADMIN).also { mintedUsers += it.id }
+        val tag = admin.client.createCategory().tags.single()
+        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
+        val name = "BudgetTag ${UUID.randomUUID().toString().substring(0, 8)}"
+        val room = TestRooms.seed(owner.id, template, name).also { mintedRooms += it }
+        val term = "budgettag" + UUID.randomUUID().toString().replace("-", "").take(10)
+        TestThreads.seed(room, owner.id, title = "Budget", body = "The $term waits")
+        val paging = PageRequest(page = 1, pageSize = 20, sort = listOf(SortField("lastActivityAt", descending = true)))
+        var ticks = 0L
+        val tagService = ThreadTagService(sharedDatabaseForTests(), ThreadEventService(sharedDatabaseForTests()))
+        val service = ThreadSearchService(sharedDatabaseForTests(), TestRooms.service, tagService, 5, 1) { ticks++ * 2_000_000_000L }
+        val driver = org.slf4j.LoggerFactory.getLogger("io.r2dbc.postgresql.QUERY") as ch.qos.logback.classic.Logger
+        val saved = driver.level
+        val capture = LogCapture(driver.name)
+        try {
+            driver.level = ch.qos.logback.classic.Level.DEBUG
+            val failure = assertFailsWith<TooManyRequestsException> {
+                service.searchRoom(room, owner.id, term, null, paging, tagNames = listOf(tag))
+            }
+            assertEquals(SEARCH_TIMEOUT_PROBLEM_TYPE, failure.problemType)
+            val sent = capture.events.map { it.formattedMessage.lowercase() }
+            assertTrue(sent.any { "from tags" in it }, "the name-to-id read ran: $sent")
+            assertTrue(sent.none { "to_tsvector" in it || "string_agg" in it }, "the query text was never sent: $sent")
+        } finally {
+            driver.level = saved
+            capture.detach()
+        }
     }
 }

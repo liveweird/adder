@@ -45,8 +45,9 @@ fun Application.configureThreadSearchRoutes() {
 /**
  * `GET /rooms/{id}/search` (reader): the guard order is 401 from `authenticate`; the per-USER `search` bucket (before every guard, so a
  * refused search spends a token too and a probe of foreign room ids is throttled); visibility (404 for a missing room and a non-member
- * alike, audited `room.access_denied`); the parameters (400); then the query. A non-member's bad `q` is still a 404. `q` is optional
- * only with `watching=true` (the caller's watched threads of the room, no query). A search is a read: no audit line of its own, and the
+ * alike, audited `room.access_denied`); the parameters (400); then the query. A non-member's bad `q` or `threadTag` is still a 404. `q`
+ * is optional only with `watching=true` (the caller's watched threads of the room, no query) or a `threadTag` (the room's threads that
+ * carry any of those curated tags, no query). A search is a read: no audit line of its own, and the
  * term is never logged or put into an audit line or a problem detail.
  */
 private fun Route.roomSearch(roomService: RoomService, searchService: ThreadSearchService) {
@@ -56,7 +57,9 @@ private fun Route.roomSearch(roomService: RoomService, searchService: ThreadSear
             val roomId = route.parent.id
             roomService.visibleStanding(caller, roomId)
             val params = call.parseSearchParams()
-            val result = searchService.searchRoom(roomId, caller.userId, params.q, params.closed, params.paging, params.watching)
+            val result = searchService.searchRoom(
+                roomId, caller.userId, params.q, params.closed, params.paging, params.watching, params.threadTags,
+            )
             call.respond(HttpStatusCode.OK, params.paging.toPage(result.items, result.total))
         }
     }
@@ -67,7 +70,8 @@ private fun Route.roomSearch(roomService: RoomService, searchService: ThreadSear
  * bucket as the room search (one budget for both, before anything else); the parameters (400); then the query over the rooms the
  * caller is an ACTIVE member of, an ADMIN's too (`authorization.md`: membership is the scope, the role widens nothing here). There is no
  * room in the request, so nothing about any room can be refused, probed or disclosed: a caller with no rooms gets an empty page.
- * `watching=true` with no `q` is the cross-room "Threads I watch" view, which starts from the caller's rooms. A search is a read: no
+ * `watching=true` with no `q` is the cross-room "Threads I watch" view, which starts from the caller's rooms; so does a `threadTag` with no
+ * `q` (the cross-room tag view: the caller's rooms first, because `thread_tags` has no room column). A search is a read: no
  * audit line of its own, and the term is never logged or put into an audit line or a problem detail.
  */
 private fun Route.globalSearch(searchService: ThreadSearchService) {
@@ -75,7 +79,9 @@ private fun Route.globalSearch(searchService: ThreadSearchService) {
         get<SearchRoute> {
             val caller = call.caller()
             val params = call.parseSearchParams()
-            val result = searchService.searchMemberRooms(caller.userId, params.q, params.closed, params.paging, params.watching)
+            val result = searchService.searchMemberRooms(
+                caller.userId, params.q, params.closed, params.paging, params.watching, params.threadTags,
+            )
             call.respond(HttpStatusCode.OK, params.paging.toPage(result.items, result.total))
         }
     }
