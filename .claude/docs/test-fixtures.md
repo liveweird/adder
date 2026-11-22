@@ -70,7 +70,7 @@ set equals the plain tree's. The order comes from `balancedCandidateOrder`: clas
 (ties by name), dealt greedily to the least loaded fork that still has a free slot (each fork's slot count is capped
 at its round-robin share, so the interleaving reproduces the plan), then position `p` takes fork `p % forks`'s next
 class. The weights are `server/test-weights.tsv` (`<FQN><TAB><seconds>`, suite time minus the fixture-cost markers,
-written by `local-times.mjs test-weights` from a full run; the committed file was re-measured from a full run on 2026-11-21 — refresh it at every milestone check
+written by `local-times.mjs test-weights` from a full run; the committed file was re-measured from a full run on 2026-11-22 (1.3.0) — refresh it at every milestone check
 and when the CI summary's fork-balance block warns). Degradation: a missing or unparseable file warns once and keeps the alphabetical order; a class not in the file weighs the average; a deleted class's row is
 ignored. `--tests` filters work unchanged. The file is not a task input (only the class trees are). A red local rerun is reordered by Gradle's `RunPreviousFailedFirst` (failed
 classes go first), so the balance is off for that rerun. `slow-tests --forks N --weights server/test-weights.tsv` prints the fork-balance block (span vs sum / N, drift of measured
