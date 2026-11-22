@@ -5,9 +5,11 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.4.1 — thread status and refreshed logo)
+## What's here today (1.5.0 — clearer room tabs)
 
-Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 1.4.1 puts available status actions in the thread header and updates the Strike logo for both themes and browser tabs. 1.4.0 makes the workspace clearer and more efficient on every screen size:
+Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 1.5.0 gives room Search, Members, Workflow and Settings a shared navigation layout. Search groups its filters, Members puts the roster first, Workflow keeps save actions in reach, and Settings separates room details, availability and deletion. The tabs wrap on narrow screens.
+
+1.4.1 puts available status actions in the thread header and updates the Strike logo for both themes and browser tabs. 1.4.0 makes the workspace clearer and more efficient on every screen size:
 
 - **Focused chat** — on larger screens the thread list and conversation use the available height and scroll independently. On phones an open thread gets a focused view with a clear return to the list.
 - **Conversation clarity** — compact room and thread headers, clearer message hierarchy, comfortable line lengths, quieter actions and a reply composer pinned below the message timeline keep attention on the discussion. Workflow controls, metadata, tags, timestamps and history stay organised in Details.

@@ -33,6 +33,25 @@
   color: var(--mantine-color-text);
 }
 
+.subpage {
+  max-inline-size: 70rem;
+}
+
+.subpageHeader {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.subpageHeader nav {
+  border-block-end: 1px solid var(--mantine-color-default-border);
+}
+
+.subpageHeader nav a {
+  min-block-size: 2.5rem;
+  font-weight: 600;
+  padding-inline: 0.75rem;
+}
+
 @container (max-width: 57rem) {
   .header nav {
     order: 1;
@@ -83,6 +102,18 @@
     white-space: nowrap;
     overflow: clip;
     text-overflow: ellipsis;
+  }
+}
+
+@container (max-width: 35rem) {
+  .subpageHeader nav {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  .subpageHeader nav a {
+    flex: 0 1 auto;
+    padding-inline: 0.5rem;
   }
 }
 

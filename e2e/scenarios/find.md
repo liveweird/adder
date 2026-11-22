@@ -80,7 +80,7 @@ The data of each scenario is seeded through the API (threads, replies, status mo
 1. The administrator mints an owner and a teammate; the owner makes a Default room through the API and adds the teammate. A thread is seeded whose
    second message (the teammate's) holds "Żółwie tempo wdrożenia to największy problem." among three later messages.
 2. The owner opens the room and follows the **Search** link of the room's pages.
-   - *Expected*: the address is `/rooms/<id>/search` and the box "Search this room" is empty.
+   - *Expected*: the address is `/rooms/<id>/search` and the **Keywords** field is empty.
 3. The owner types a single character and presses **Search**.
    - *Expected*: an alert says "Type at least two characters, with a letter or a digit." and no search request was sent.
 4. The owner types `zolw` and presses **Search**.

@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Button, Paper, Stack, Text } from "@mantine/core";
+import { Alert, Button, Paper, Stack } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import type { RoomResponse } from "../api/rooms";
 import { updateRoomWorkflow } from "../api/rooms";
@@ -20,6 +20,7 @@ import RevisionConflictAlert from "./RevisionConflictAlert";
 import RoomWorkflowView from "./RoomWorkflowView";
 import WorkflowEditor from "./WorkflowEditor";
 import { roomKeys } from "../utils/roomKeys";
+import classes from "./RoomWorkflowForm.module.css";
 
 /**
  * The room's workflow: the editor over a draft, its notes and its save. The draft is seeded ONCE from `seed` (read at `revision`,
@@ -56,7 +57,6 @@ export default function RoomWorkflowForm({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const hintId = useId();
   const [draft, setDraft] = useState(seed);
   const [showErrors, setShowErrors] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -141,7 +141,7 @@ export default function RoomWorkflowForm({
         }}
         noValidate
       >
-        <Stack gap="lg">
+        <Stack gap="md">
           {room.archived && (
             <Alert color="gray" variant="light" role="note">
               {t("rooms.workflow.archivedNote")}
@@ -155,26 +155,26 @@ export default function RoomWorkflowForm({
           <Paper
             ref={groupRef}
             tabIndex={-1}
-            className="mantine-focus-auto"
+            className={`mantine-focus-auto ${classes.workspace}`}
             withBorder
-            p="xl"
             role="group"
             aria-label={t("rooms.workflow.groupAria")}
-            aria-describedby={hintId}
           >
-            <Stack gap="lg">
-              <Text size="sm" c="dimmed" id={hintId}>
-                {t("rooms.workflow.hint")}
-              </Text>
-              {editable ? (
-                // A disabled fieldset turns every control inside it off at once: the save in flight and the freeze share it.
-                <fieldset disabled={locked} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
-                  <WorkflowEditor draft={draft} onChange={setDraft} labelColumns={1} errors={showErrors ? errors : undefined} conflictKeys={conflictKeys} />
-                </fieldset>
-              ) : (
-                <RoomWorkflowView draft={seed} />
-              )}
-            </Stack>
+            {editable ? (
+              // A disabled fieldset turns every control inside it off at once: the save in flight and the freeze share it.
+              <fieldset disabled={locked} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
+                <WorkflowEditor
+                  draft={draft}
+                  onChange={setDraft}
+                  labelColumns={1}
+                  headingOrder={4}
+                  errors={showErrors ? errors : undefined}
+                  conflictKeys={conflictKeys}
+                />
+              </fieldset>
+            ) : (
+              <RoomWorkflowView draft={seed} />
+            )}
           </Paper>
           {conflict && <RevisionConflictAlert onReload={() => void reload()} reloading={reloading} />}
           {staleAfterSave && (
@@ -188,14 +188,16 @@ export default function RoomWorkflowForm({
             </Alert>
           )}
           {editable ? (
-            <RegistryEditorActions
-              error={invalid ? t("rooms.workflow.invalid") : error}
-              submitting={submitting}
-              isEdit
-              onClose={guard.requestCancel}
-              gap="sm"
-              submitDisabled={!dirty || staleAfterSave}
-            />
+            <div className={classes.actions}>
+              <RegistryEditorActions
+                error={invalid ? t("rooms.workflow.invalid") : error}
+                submitting={submitting}
+                isEdit
+                onClose={guard.requestCancel}
+                gap="sm"
+                submitDisabled={!dirty || staleAfterSave}
+              />
+            </div>
           ) : (
             // A refusal that turned the editor read-only (demoted or archived behind the page) still says why.
             error && <FormErrorAlert>{error}</FormErrorAlert>

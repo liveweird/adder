@@ -342,7 +342,7 @@ test("a room search finds a Polish word typed without accents and opens the mess
   await page.goto(`/rooms/${roomId}`);
   await page.getByRole("navigation", { name: "Room pages", exact: true }).getByRole("link", { name: "Search", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/search$`));
-  const box = page.getByRole("searchbox", { name: "Search this room", exact: true });
+  const box = page.getByRole("searchbox", { name: "Keywords", exact: true });
   await expect(box).toBeVisible();
 
   // One character is refused by the client, in words, without a request.

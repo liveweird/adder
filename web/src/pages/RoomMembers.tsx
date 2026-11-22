@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
-import { Badge, Button, Group, Menu, Select, Stack, Table, Text, Title } from "@mantine/core";
+import { Badge, Button, Group, Menu, Select, Stack, Table, Text } from "@mantine/core";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { IconLogout, IconShieldCheck, IconUserMinus, IconUsers } from "@tabler/icons-react";
+import { IconLogout, IconShieldCheck, IconUserMinus, IconUserPlus, IconUsers } from "@tabler/icons-react";
 import type { TFunction } from "i18next";
 import { useAdmin } from "../auth";
 import { ApiError } from "../api/http";
@@ -16,6 +16,7 @@ import FormErrorAlert from "../components/FormErrorAlert";
 import RegistryListTable from "../components/RegistryListTable";
 import RoomMembersAdd from "../components/RoomMembersAdd";
 import RoomPage from "../components/RoomPage";
+import RoomTabHeader from "../components/RoomTabHeader";
 import RowActionsMenu from "../components/RowActionsMenu";
 import SortHeader from "../components/SortHeader";
 import PersonLink from "../components/PersonLink";
@@ -30,6 +31,7 @@ import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import { MAX_USER_NAME_LENGTH } from "../utils/userForm";
 import { roomKeys } from "../utils/roomKeys";
+import classes from "./RoomMembers.module.css";
 
 const SORT_FIELDS = ["name", "role", "addedAt"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -133,32 +135,38 @@ function MembersBody({ room }: { room: RoomResponse }) {
     },
   });
 
-  const columnCount = 5;
+  const columnCount = 4;
   return (
-    <>
-      {canManage && <RoomMembersAdd room={room} memberValues={memberValues} onAddFailure={setAddFailure} />}
-      {addFailure && <FormErrorAlert title={t("rooms.members.addFailed")}>{addFailure}</FormErrorAlert>}
-      <Stack gap="sm">
-        <Group justify="space-between" align="center">
-          <Title order={3} size="h4">
-            {t("rooms.members.title")}
-          </Title>
-          {/* Everyone in the room can leave it (an ADMIN who is not a member has nothing to leave); the server refuses the last owner. */}
-          {room.role !== null && me !== null && (
-            <Button
-              variant="default"
-              leftSection={<IconLogout size={16} />}
-              onClick={() => {
-                changeRole.reset();
-                remove.reset();
-                setRemoving({ userId: me, name: "" });
-                setConfirming(true);
-              }}
-            >
-              {t("rooms.members.leave")}
-            </Button>
-          )}
-        </Group>
+    <Stack gap="xl" className={classes.page}>
+      <RoomTabHeader
+        title={t("rooms.members.title")}
+        description={t("rooms.members.description")}
+        actions={
+          <>
+            {/* Everyone in the room can leave it. The server refuses the last owner. */}
+            {room.role !== null && me !== null && (
+              <Button
+                variant="default"
+                leftSection={<IconLogout size={16} />}
+                onClick={() => {
+                  changeRole.reset();
+                  remove.reset();
+                  setRemoving({ userId: me, name: "" });
+                  setConfirming(true);
+                }}
+              >
+                {t("rooms.members.leave")}
+              </Button>
+            )}
+            {canManage && (
+              <Button component="a" href="#room-members-add" leftSection={<IconUserPlus size={16} aria-hidden />}>
+                {t("rooms.members.addTitle")}
+              </Button>
+            )}
+          </>
+        }
+      />
+      <Stack gap="md" component="section" aria-label={t("rooms.members.title")}>
         <FilterPanel activeFilterCount={(nameFilterActive ? 1 : 0) + (role ? 1 : 0)} storageKey={settingsKey}>
           <ClearableTextInput
             label={t("common.field.name")}
@@ -184,90 +192,109 @@ function MembersBody({ room }: { room: RoomResponse }) {
             {memberErrorMessage(remove.error, t, leaving)}
           </FormErrorAlert>
         )}
-        <RegistryListTable
-          label={t("rooms.members.title")}
-          errorTitle={t("rooms.members.loadFailed")}
-          error={error}
-          isError={isError}
-          isLoading={isLoading}
-          hasData={Boolean(data)}
-          rowCount={data?.items.length ?? 0}
-          columnCount={columnCount}
-          emptyIcon={IconUsers}
-          emptyLabel={t("rooms.members.empty")}
-          header={
-            <Table.Tr>
-              <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-              <Table.Th>{t("common.field.email")}</Table.Th>
-              <SortHeader field="role" label={t("common.field.role")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-              <SortHeader field="addedAt" label={t("rooms.members.column.added")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-              <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
-            </Table.Tr>
-          }
-          rows={data?.items.map((member) => {
-            const self = member.userId === me;
-            const promote = member.role === "MEMBER";
-            return (
-              <Table.Tr key={member.userId}>
-                <Table.Td>
-                  <Group gap="xs" wrap="nowrap">
-                    <PersonLink id={member.userId} name={member.name} size="sm" fw={500} />
-                    {self && <Badge>{t("rooms.members.you")}</Badge>}
-                  </Group>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm">{member.email}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm">{t(`rooms.role.${member.role}`)}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm">{formatDate(member.addedAt, "—", browserTimeZone())}</Text>
-                </Table.Td>
-                <Table.Td style={{ width: 1 }} ta="right">
-                  {/* A manager changes or removes the others (the server guards both); leaving is the section's own button. */}
-                  {canManage && !self && (
-                    <RowActionsMenu
-                      label={t("common.table.operationsAria", { name: member.name })}
-                      loading={changeRole.isPending && changeRole.variables?.member.userId === member.userId}
-                      disabled={changeRole.isPending}
-                    >
-                      <Menu.Item
-                        leftSection={<IconShieldCheck size={14} />}
-                        onClick={() => {
-                          remove.reset();
-                          changeRole.mutate({ member, to: promote ? "OWNER" : "MEMBER" });
-                        }}
-                      >
-                        {t(promote ? "rooms.members.makeOwner" : "rooms.members.makeMember")}
-                      </Menu.Item>
-                      <Menu.Divider />
-                      <Menu.Item
-                        color="red"
-                        leftSection={<IconUserMinus size={14} />}
-                        onClick={() => {
-                          changeRole.reset();
-                          remove.reset();
-                          setRemoving({ userId: member.userId, name: member.name });
-                          setConfirming(true);
-                        }}
-                      >
-                        {t("rooms.members.remove")}
-                      </Menu.Item>
-                    </RowActionsMenu>
-                  )}
-                </Table.Td>
+        <div className={classes.tableRegion}>
+          <RegistryListTable
+            label={t("rooms.members.title")}
+            errorTitle={t("rooms.members.loadFailed")}
+            error={error}
+            isError={isError}
+            isLoading={isLoading}
+            hasData={Boolean(data)}
+            rowCount={data?.items.length ?? 0}
+            columnCount={columnCount}
+            emptyIcon={IconUsers}
+            emptyLabel={t("rooms.members.empty")}
+            header={
+              <Table.Tr role="row">
+                <SortHeader field="name" label={t("common.field.name")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+                <SortHeader field="role" label={t("common.field.role")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+                <SortHeader field="addedAt" label={t("rooms.members.column.added")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
+                <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
               </Table.Tr>
-            );
-          })}
-          total={data?.total ?? 0}
-          page={page}
-          pageSize={pageSize}
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
-        />
+            }
+            rows={data?.items.map((member) => {
+              const self = member.userId === me;
+              const promote = member.role === "MEMBER";
+              return (
+                <Table.Tr key={member.userId} role="row" className={classes.memberRow}>
+                  <Table.Td role="cell" className={classes.identityCell}>
+                    <Stack gap={2} className={classes.identity}>
+                      <Group gap="xs" wrap="nowrap">
+                        <PersonLink id={member.userId} name={member.name} size="sm" fw={600} />
+                        {self && (
+                          <Badge size="xs" variant="light">
+                            {t("rooms.members.you")}
+                          </Badge>
+                        )}
+                      </Group>
+                      <Text size="xs" c="dimmed" className={classes.email}>
+                        {member.email}
+                      </Text>
+                    </Stack>
+                  </Table.Td>
+                  <Table.Td role="cell" className={classes.metaCell}>
+                    <Text span size="xs" c="dimmed" className={classes.mobileLabel}>
+                      {t("common.field.role")}
+                    </Text>
+                    <Badge color="gray" variant={member.role === "OWNER" ? "outline" : "light"} radius="sm">
+                      {t(`rooms.role.${member.role}`)}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td role="cell" className={classes.metaCell}>
+                    <Text span size="xs" c="dimmed" className={classes.mobileLabel}>
+                      {t("rooms.members.column.added")}
+                    </Text>
+                    <Text size="sm" className={classes.date}>
+                      {formatDate(member.addedAt, "—", browserTimeZone())}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td role="cell" className={classes.actionsCell} ta="right">
+                    {/* A manager changes or removes the others (the server guards both); leaving is the section's own button. */}
+                    {canManage && !self && (
+                      <RowActionsMenu
+                        label={t("common.table.operationsAria", { name: member.name })}
+                        loading={changeRole.isPending && changeRole.variables?.member.userId === member.userId}
+                        disabled={changeRole.isPending}
+                      >
+                        <Menu.Item
+                          leftSection={<IconShieldCheck size={14} />}
+                          onClick={() => {
+                            remove.reset();
+                            changeRole.mutate({ member, to: promote ? "OWNER" : "MEMBER" });
+                          }}
+                        >
+                          {t(promote ? "rooms.members.makeOwner" : "rooms.members.makeMember")}
+                        </Menu.Item>
+                        <Menu.Divider />
+                        <Menu.Item
+                          color="red"
+                          leftSection={<IconUserMinus size={14} />}
+                          onClick={() => {
+                            changeRole.reset();
+                            remove.reset();
+                            setRemoving({ userId: member.userId, name: member.name });
+                            setConfirming(true);
+                          }}
+                        >
+                          {t("rooms.members.remove")}
+                        </Menu.Item>
+                      </RowActionsMenu>
+                    )}
+                  </Table.Td>
+                </Table.Tr>
+              );
+            })}
+            total={data?.total ?? 0}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
+        </div>
       </Stack>
 
+      {canManage && <RoomMembersAdd room={room} memberValues={memberValues} onAddFailure={setAddFailure} />}
+      {addFailure && <FormErrorAlert title={t("rooms.members.addFailed")}>{addFailure}</FormErrorAlert>}
       <ConfirmActionModal
         opened={confirming}
         onClose={() => setConfirming(false)}
@@ -284,7 +311,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
         onConfirm={() => removing && remove.mutate(removing)}
         loading={remove.isPending}
       />
-    </>
+    </Stack>
   );
 }
 

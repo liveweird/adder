@@ -1,0 +1,8 @@
+.inputs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
+  align-items: start;
+  flex: 1 1 20rem;
+  gap: var(--mantine-spacing-sm);
+  min-inline-size: 0;
+}

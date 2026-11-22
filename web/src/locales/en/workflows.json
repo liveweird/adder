@@ -3,6 +3,9 @@
   "labelIn": "Label ({{language}})",
   "key": "Key",
   "keyLocked": "The key of a saved item cannot change.",
+  "room": {
+    "title": "Workflow"
+  },
   "statuses": {
     "title": "Statuses",
     "hint": "The states a thread moves through. Exactly one is the initial status, and at least one closes the thread.",

@@ -38,6 +38,7 @@ export default function SearchBody({
   statuses,
   showRoom,
   onGone,
+  initialLabel,
 }: {
   label: string;
   baseKey: readonly unknown[];
@@ -45,6 +46,7 @@ export default function SearchBody({
   statuses?: RoomWorkflow["statuses"];
   showRoom: boolean;
   onGone?: () => void;
+  initialLabel?: string;
 }) {
   const { t } = useTranslation();
   const { state, submit, setScope, setWatching, setThreadTag, setPage, resetPage } = useSearchUrl();
@@ -93,6 +95,7 @@ export default function SearchBody({
         onWatching={setWatching}
         onThreadTag={setThreadTag}
       />
+      {!searchable && initialLabel && <EmptyState icon={IconSearch} label={initialLabel} />}
       {searchable && isError && <FormErrorAlert>{searchErrorMessage(error, t)}</FormErrorAlert>}
       {searchable && isLoading && <LoadingBlock />}
       {/* A live region that is always there while a search is shown, so the count is announced when it changes. */}

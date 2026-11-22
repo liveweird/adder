@@ -1,0 +1,88 @@
+.surface {
+  container-type: inline-size;
+  padding: clamp(0.875rem, 2cqi, 1.25rem);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+.queryRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--mantine-spacing-sm);
+}
+
+.query {
+  min-inline-size: 0;
+}
+
+/* Keep the primary action beside the input rather than its persistent help text. */
+.submit {
+  margin-block-start: 1.625rem;
+  min-inline-size: 6.75rem;
+}
+
+.filters {
+  min-inline-size: 0;
+  margin: 0;
+  padding: var(--mantine-spacing-sm) 0 0;
+  border: 0;
+  border-block-start: 1px solid var(--mantine-color-default-border);
+}
+
+.legend {
+  padding-inline-end: var(--mantine-spacing-xs);
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+.filterGrid {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.9fr) minmax(15rem, 1.25fr) auto;
+  align-items: end;
+  gap: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+}
+
+.scope {
+  min-inline-size: 0;
+}
+
+.watching {
+  min-block-size: 2.25rem;
+  display: flex;
+  align-items: center;
+  padding-block-end: 0.125rem;
+}
+
+@container (max-width: 47rem) {
+  .filterGrid {
+    grid-template-columns: minmax(12rem, 0.8fr) minmax(14rem, 1.2fr);
+  }
+
+  .watching {
+    grid-column: 1 / -1;
+  }
+}
+
+@container (max-width: 30rem) {
+  .queryRow,
+  .filterGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .submit {
+    width: 100%;
+    margin-block-start: 0;
+  }
+
+  .watching {
+    grid-column: auto;
+  }
+}
+
+@media (pointer: coarse) {
+  .submit,
+  .watching {
+    min-block-size: 2.75rem;
+  }
+}

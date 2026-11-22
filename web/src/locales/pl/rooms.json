@@ -71,7 +71,9 @@
     "templateRequired": "Wybierz szablon przepływu pracy"
   },
   "settings": {
-    "detailsTitle": "Szczegóły",
+    "title": "Ustawienia pokoju",
+    "description": "Zmień dane pokoju lub zarządzaj jego dostępnością.",
+    "detailsTitle": "Dane pokoju",
     "archivedNote": "Ten pokój jest zarchiwizowany, więc jego szczegóły są tylko do odczytu. Przywróć go, aby je edytować.",
     "readOnlyNote": "Te ustawienia mogą zmieniać tylko właściciele/ki pokoju i administratorzy/rki.",
     "saveForbidden": "Szczegóły pokoju mogą zmieniać tylko jego właściciele/ki i administratorzy/rki",
@@ -79,7 +81,9 @@
     "saveArchived": "Ten pokój został w międzyczasie zarchiwizowany, więc nie można go już edytować.",
     "saveInvalid": "Jedno lub więcej pól jest nieprawidłowe",
     "saveGone": "Ten pokój już nie istnieje albo nie masz do niego dostępu — odśwież stronę",
-    "lifecycleTitle": "Archiwizacja i usuwanie",
+    "availabilityTitle": "Dostępność pokoju",
+    "active": "Aktywny",
+    "deleteSectionTitle": "Strefa ryzyka",
     "archiveHint": "Zarchiwizowany pokój jest tylko do odczytu. Jego członkowie/członkinie i historia zostają, a pokój możesz przywrócić w dowolnej chwili.",
     "archiveAction": "Archiwizuj pokój",
     "archiveTitle": "Zarchiwizować ten pokój?",
@@ -99,7 +103,7 @@
     }
   },
   "workflow": {
-    "hint": "To własna kopia przepływu pracy pokoju: statusy i dodatkowe pola każdego wątku. Zapisanie zmienia ją dla wszystkich w pokoju.",
+    "hint": "Statusy i pola dodatkowe wątków w tym pokoju.",
     "groupAria": "Przepływ pracy pokoju",
     "loadFailed": "Nie udało się wczytać przepływu pracy",
     "archivedNote": "Ten pokój jest zarchiwizowany, więc jego przepływ pracy jest tylko do odczytu. Przywróć pokój, aby go edytować.",
@@ -131,6 +135,7 @@
   },
   "members": {
     "title": "Członkowie/członkinie",
+    "description": "Sprawdź, kto ma dostęp do pokoju i jaką ma rolę.",
     "addTitle": "Dodaj osoby",
     "addPersonLabel": "Dodaj osobę",
     "addPerson": "Dodaj osobę",

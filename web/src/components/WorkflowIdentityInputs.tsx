@@ -1,4 +1,4 @@
-import { Group, TextInput } from "@mantine/core";
+import { TextInput } from "@mantine/core";
 import { useTranslation } from "react-i18next";
 import { SUPPORTED_LANGUAGES } from "../i18n";
 import { MAX_KEY_LENGTH } from "../utils/slug";
@@ -10,6 +10,7 @@ import {
   type DraftRow,
   type RowErrors,
 } from "../utils/workflowForm";
+import classes from "./WorkflowIdentityInputs.module.css";
 
 /**
  * The label input(s) and the key input every workflow row starts with (a status, a field, an option). One label column for a
@@ -30,7 +31,7 @@ export default function WorkflowIdentityInputs<T extends DraftRow>({
   const { t } = useTranslation();
   const languages = labelColumns === 1 ? [PRIMARY_LANGUAGE] : SUPPORTED_LANGUAGES;
   return (
-    <Group align="flex-start" gap="sm" wrap="wrap" style={{ flex: "1 1 20rem" }}>
+    <div className={classes.inputs}>
       {languages.map((language) => (
         <TextInput
           key={language}
@@ -38,7 +39,6 @@ export default function WorkflowIdentityInputs<T extends DraftRow>({
           value={row.labels[language]}
           onChange={(event) => onChange(withLabel(row, language, event.currentTarget.value))}
           error={validationText(t, errors?.labels?.[language])}
-          style={{ flex: "1 1 12rem" }}
         />
       ))}
       <TextInput
@@ -49,8 +49,8 @@ export default function WorkflowIdentityInputs<T extends DraftRow>({
         readOnly={row.persisted}
         description={row.persisted ? t("workflows.keyLocked") : undefined}
         error={validationText(t, errors?.key)}
-        style={{ flex: "1 1 10rem" }}
+        inputWrapperOrder={["label", "input", "description", "error"]}
       />
-    </Group>
+    </div>
   );
 }

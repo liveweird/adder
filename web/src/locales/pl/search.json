@@ -1,10 +1,17 @@
 {
   "submit": "Szukaj",
   "scope": {
+    "label": "Stan wątku",
     "aria": "Które wątki przeszukać"
   },
+  "filters": {
+    "label": "Filtry"
+  },
   "room": {
-    "label": "Szukaj w tym pokoju"
+    "title": "Wyszukiwanie",
+    "description": "Znajdź wątki i wiadomości w tym pokoju.",
+    "label": "Słowa kluczowe",
+    "start": "Wpisz słowa kluczowe lub użyj filtrów, aby znaleźć wątek."
   },
   "all": {
     "label": "Szukaj we wszystkich swoich pokojach"

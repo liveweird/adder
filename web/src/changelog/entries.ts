@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.5.0",
+    date: "2026-11-23",
+    en: `**Adder 1.5.0 — clearer room tabs**
+
+- Search puts Keywords and Search together, groups the filters, and makes matching threads and messages easier to scan.
+- Members starts with the roster and puts Add people within reach of room managers. Member cards fit narrow screens.
+- Workflow distinguishes statuses from custom fields, aligns the editor controls, and keeps Save and Cancel in reach as you scroll.
+- Settings gives room details, archive and unarchive, and deletion separate sections. The tab navigation marks the current page and wraps when it needs more space.`,
+    pl: `**Adder 1.5.0 — czytelniejsze karty pokoju**
+
+- W wyszukiwarce znajdziesz przycisk Szukaj obok słów kluczowych, pogrupowane filtry i czytelniejszą listę pasujących wątków oraz wiadomości.
+- Na karcie członków/członkiń najpierw zobaczysz listę osób. Jeśli zarządzasz pokojem, masz pod ręką przycisk Dodaj osoby. Na wąskim ekranie lista zmienia się w karty.
+- W edytorze przepływu pracy statusy i dodatkowe pola mają osobne sekcje, a przyciski Zapisz i Anuluj pozostają pod ręką podczas przewijania.
+- W ustawieniach dane, archiwizacja i usuwanie pokoju mają osobne sekcje. Nawigacja wskazuje bieżącą kartę i w razie potrzeby przenosi pozostałe do kolejnego wiersza.`,
+  },
+  {
     version: "1.4.1",
     date: "2026-11-22",
     en: `**Adder 1.4.1 — thread status and refreshed logo**

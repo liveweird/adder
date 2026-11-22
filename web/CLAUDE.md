@@ -88,6 +88,8 @@ shell is the precedent) — plus, since 0.2.0, the ADMIN workflow-template pages
   `backTo?`, right-aligned `actions?` — the ONE place a page's primary "New …" button lives — and
   a `toolbar?` row; `compact` — a room's header only — puts all of it in ONE wrapping row with an icon-only back link that keeps its `aria-label`, the title still the h2 at h4 size). `PageHeader` also titles the browser tab ("{title} · Adder", `hooks/useDocumentTitle.ts`; `documentTitle?` when the tab needs more than
   the heading, as a room's tabs do; `AuthCard` does the same for the signed-out pages), so a new page gets its title by having a header.
+  The Search, Members, Workflow and Settings room tabs use `RoomTabHeader` for their h3 and any primary
+  actions under the shared room navigation. Sections within those tabs use h4.
   No `Container` and no page-wrapping `Paper`; widths come from
   `utils/layout.ts`: full-bleed lists, `Box maw={CONTENT_MAX_WIDTH}` for registry tables and the
   changelog, `Paper withBorder p="xl" maw={FORM_MAX_WIDTH}` (left-aligned) for the simple field

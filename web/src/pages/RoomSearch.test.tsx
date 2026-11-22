@@ -77,8 +77,12 @@ describe("RoomSearch page", () => {
   test("without a term there is the box, the rules of matching under it, and no request", async () => {
     const { searches } = serve(() => jsonResponse(200, searchPage([])));
     renderSearch();
-    const box = await screen.findByRole("searchbox", { name: "Search this room" });
+    const box = await screen.findByRole("searchbox", { name: "Keywords" });
     expect(screen.getByRole("link", { name: "Search" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { level: 3, name: "Search" })).toBeInTheDocument();
+    expect(screen.getByText("Find threads and messages in this room.")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Filters" })).toBeInTheDocument();
+    expect(screen.getByText("Enter keywords or use the filters to find a thread.")).toBeInTheDocument();
     // The hint is the box's description, one short line: prefixes from three characters, case and accents ignored.
     const hint = screen.getByText(/match the start of a word/);
     expect(box).toHaveAccessibleDescription(hint.textContent ?? "");
@@ -92,7 +96,7 @@ describe("RoomSearch page", () => {
     const { searches } = serve(() => jsonResponse(200, searchPage([threadHit(42, { status: "done", closed: true })])));
     const user = userEvent.setup();
     renderSearch();
-    await user.type(await screen.findByRole("searchbox", { name: "Search this room" }), "  outage  {Enter}");
+    await user.type(await screen.findByRole("searchbox", { name: "Keywords" }), "  outage  {Enter}");
     expect(await screen.findByRole("link", { name: "#42 Database outage" })).toHaveAttribute("href", "/rooms/12/threads/42");
     expect(searches).toEqual(["/api/v1/rooms/12/search?q=outage&page=1&pageSize=20"]);
     expect(screen.getByTestId("search")).toHaveTextContent("?q=outage");
@@ -102,7 +106,8 @@ describe("RoomSearch page", () => {
     expect(within(article).getByRole("link", { name: /the outage started/ })).toHaveAttribute("href", "/rooms/12/threads/42?message=4200");
     expect(headingOutline()).toEqual([
       [2, "Night Shift"],
-      [3, "#42 Database outage"],
+      [3, "Search"],
+      [4, "#42 Database outage"],
     ]);
   });
 
@@ -111,7 +116,7 @@ describe("RoomSearch page", () => {
     renderSearch("/rooms/12/search?q=disk%20full&scope=closed&page=2");
     expect(await screen.findByRole("link", { name: "#1 Database outage" })).toBeInTheDocument();
     expect(searches).toEqual(["/api/v1/rooms/12/search?q=disk+full&page=2&pageSize=20&closed=true"]);
-    expect(screen.getByRole("searchbox", { name: "Search this room" })).toHaveValue("disk full");
+    expect(screen.getByRole("searchbox", { name: "Keywords" })).toHaveValue("disk full");
     expect(screen.getByRole("radio", { name: "Closed" })).toBeChecked();
   });
 
@@ -162,7 +167,7 @@ describe("RoomSearch page", () => {
     const { searches } = serve(() => jsonResponse(200, searchPage([])));
     const user = userEvent.setup();
     renderSearch();
-    const box = await screen.findByRole("searchbox", { name: "Search this room" });
+    const box = await screen.findByRole("searchbox", { name: "Keywords" });
     await user.type(box, "a{Enter}");
     expect(await screen.findByText("Type at least two characters, with a letter or a digit.")).toBeInTheDocument();
     expect(box).toBeInvalid();

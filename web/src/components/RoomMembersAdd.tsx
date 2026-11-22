@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Box, Button, Group, Stack, Title } from "@mantine/core";
+import { Box, Button, Group, Stack, ThemeIcon, Title } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconUserPlus, IconUsersGroup } from "@tabler/icons-react";
 import { addRoomMembers, type RoomResponse } from "../api/rooms";
@@ -14,6 +14,7 @@ import FormErrorAlert from "./FormErrorAlert";
 import type { PickedOption } from "./SearchPicker";
 import TeamSelect from "./TeamSelect";
 import UserDirectorySelect from "./UserDirectorySelect";
+import classes from "./RoomMembersAdd.module.css";
 
 const ADD_ERRORS = {
   forbidden: "rooms.members.addForbidden",
@@ -110,13 +111,27 @@ export default function RoomMembersAdd({
   }
 
   return (
-    <Stack gap="sm">
-      <Title order={3} size="h4">
-        {t("rooms.members.addTitle")}
-      </Title>
-      <Group align="flex-end" gap="xl" wrap="wrap">
-        <Group align="flex-end" gap="sm" wrap="wrap">
-          <Box w="100%" maw={340}>
+    <Stack gap="md" component="section" aria-labelledby="room-members-add" className={classes.section}>
+      <Group gap="sm" wrap="nowrap">
+        <ThemeIcon variant="light" color="adder" radius="md" size="lg" aria-hidden="true">
+          <IconUserPlus size={18} />
+        </ThemeIcon>
+        <Title id="room-members-add" order={4} size="h4" tabIndex={-1} className={classes.heading}>
+          {t("rooms.members.addTitle")}
+        </Title>
+      </Group>
+      <div className={classes.options}>
+        <Box
+          component="form"
+          className={classes.option}
+          aria-label={t("rooms.members.addPersonLabel")}
+          onSubmit={(event) => {
+            event.preventDefault();
+            clearFeedback();
+            if (person) addPerson.mutate(Number(person.value));
+          }}
+        >
+          <Stack gap="sm">
             <UserDirectorySelect
               label={t("rooms.members.addPersonLabel")}
               picked={person}
@@ -126,21 +141,22 @@ export default function RoomMembersAdd({
                 setPerson(next);
               }}
             />
-          </Box>
-          <Button
-            leftSection={<IconUserPlus size={16} />}
-            disabled={!person}
-            loading={addPerson.isPending}
-            onClick={() => {
-              clearFeedback();
-              if (person) addPerson.mutate(Number(person.value));
-            }}
-          >
-            {t("rooms.members.addPerson")}
-          </Button>
-        </Group>
-        <Group align="flex-end" gap="sm" wrap="wrap">
-          <Box w="100%" maw={340}>
+            <Button type="submit" leftSection={<IconUserPlus size={16} />} disabled={!person} loading={addPerson.isPending} className={classes.submit}>
+              {t("rooms.members.addPerson")}
+            </Button>
+          </Stack>
+        </Box>
+        <Box
+          component="form"
+          className={classes.option}
+          aria-label={t("rooms.members.addTeamLabel")}
+          onSubmit={(event) => {
+            event.preventDefault();
+            clearFeedback();
+            if (team) inspectTeam.mutate(Number(team.value));
+          }}
+        >
+          <Stack gap="sm">
             <TeamSelect
               label={t("rooms.members.addTeamLabel")}
               description={t("rooms.members.addTeamHint")}
@@ -150,20 +166,12 @@ export default function RoomMembersAdd({
                 setTeam(next);
               }}
             />
-          </Box>
-          <Button
-            leftSection={<IconUsersGroup size={16} />}
-            disabled={!team}
-            loading={inspectTeam.isPending}
-            onClick={() => {
-              clearFeedback();
-              if (team) inspectTeam.mutate(Number(team.value));
-            }}
-          >
-            {t("rooms.members.addTeam")}
-          </Button>
-        </Group>
-      </Group>
+            <Button type="submit" leftSection={<IconUsersGroup size={16} />} disabled={!team} loading={inspectTeam.isPending} className={classes.submit}>
+              {t("rooms.members.addTeam")}
+            </Button>
+          </Stack>
+        </Box>
+      </div>
       {inspectTeam.isError && <FormErrorAlert title={t("rooms.members.teamLoadFailed")}>{saveErrorMessage(inspectTeam.error, t, TEAM_READ_ERRORS)}</FormErrorAlert>}
       {emptyTeam && <FormErrorAlert title={t("rooms.members.addFailed")}>{t("rooms.members.teamEmpty")}</FormErrorAlert>}
 

@@ -390,7 +390,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.4.1** (thread status actions and refreshed Strike logo), on 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.5.0** (clearer room tabs), on 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -406,6 +406,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.3.0 Quotes** | A message quotes one earlier message of its own thread, a live reference that shows the quoted message as it reads now and says so when it was deleted (`quotedMessageId` on the POST, `quote` on every message; the "Quote" menu item and an always-visible quote icon, a line above the box, a block above the text that jumps back; 1.3 D1, D3); the quoted author is told by a twelfth notice kind, `MESSAGE_QUOTED` (1.3 D2); V35. `chat-model.md` "Quotes (1.3)" |
 | **1.4.0 Clearer workspace** | A focused chat layout with independently scrolling thread and message regions, compact headers, clearer messages and composer, and structured Details; Home with active joined rooms and unread cues; a responsive room directory; a cleaner application header, mobile navigation and command palette (1.4 D1 to D3). No API, migration or domain-rule change. |
 | **1.4.1 Thread status actions and refreshed Strike logo** | Valid workflow moves in the conversation header. Updated adder mark for light and dark themes and a dedicated browser favicon. |
+| **1.5.0 Clearer room tabs** | Shared room navigation on Search, Members, Workflow and Settings, with grouped search filters, a roster-first member view, a responsive workflow editor and distinct settings sections. |
 
 ## Donors
 
@@ -430,6 +431,14 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v1.5.0 — clearer room tabs (2026-11-23)
+
+The Search, Members, Workflow and Settings tabs share navigation that marks the current page and wraps on narrow screens.
+Search groups thread state, tags and watched threads below Keywords. Members starts with the roster and links directly to the add forms.
+Workflow separates statuses and fields and keeps save actions in reach. Settings separates room details, availability and deletion.
+The shared controls carry the same styling into global Search and workflow templates. The UI uses the existing API and permissions.
+No data migration is required.
 
 ### v1.4.1 — thread status actions and refreshed Strike logo (2026-11-22)
 

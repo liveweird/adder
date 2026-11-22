@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
-import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { Alert, Badge, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconArchive, IconArchiveOff, IconTrash } from "@tabler/icons-react";
@@ -15,9 +15,9 @@ import RegistryEditorActions from "../components/RegistryEditorActions";
 import RegistryMetadataFields from "../components/RegistryMetadataFields";
 import RevisionConflictAlert from "../components/RevisionConflictAlert";
 import RoomPage from "../components/RoomPage";
+import RoomTabHeader from "../components/RoomTabHeader";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
-import { FORM_MAX_WIDTH } from "../utils/layout";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
 import { canManageRoom } from "../utils/roomAccess";
@@ -36,6 +36,7 @@ import {
 import { roomsPath } from "../utils/roomLinks";
 import { showSuccessToast } from "../utils/toast";
 import { roomKeys } from "../utils/roomKeys";
+import classes from "./RoomSettings.module.css";
 
 /**
  * The details form of one room. Seeded from the room it is mounted with and keyed by the room alone, so a change of the room's data
@@ -51,6 +52,7 @@ function DetailsForm({ room, canManage, error, onError }: { room: RoomResponse; 
   const form = useForm<RoomDetails>({ initialValues: seed, validate: roomDetailsValidation(t) });
   const [submitting, setSubmitting] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const detailsTitle = useId();
   // Archived or not the caller's to change: the details are shown, not editable. (A save in flight makes the fields read-only too, below.)
   const readOnly = room.archived || !canManage;
   const dirty = isRoomDetailsDirty(form.values, seed);
@@ -94,10 +96,10 @@ function DetailsForm({ room, canManage, error, onError }: { room: RoomResponse; 
   }
 
   return (
-    <form ref={formRef} onSubmit={form.onSubmit(save)} noValidate>
-      <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
-        <Stack>
-          <Title order={3} size="h4">
+    <form ref={formRef} onSubmit={form.onSubmit(save)} className={classes.details} aria-labelledby={detailsTitle} noValidate>
+      <Paper withBorder className={classes.panel}>
+        <Stack gap="md">
+          <Title order={4} id={detailsTitle}>
             {t("rooms.settings.detailsTitle")}
           </Title>
           {room.archived && (
@@ -128,10 +130,21 @@ function DetailsForm({ room, canManage, error, onError }: { room: RoomResponse; 
               }}
             />
           )}
-          {!readOnly && <RegistryEditorActions error={error} submitting={submitting} isEdit onClose={() => {
-              form.reset();
-              onError(null);
-            }} gap="sm" submitDisabled={!dirty} />}
+          {!readOnly && (
+            <div className={classes.formActions}>
+              <RegistryEditorActions
+                error={error}
+                submitting={submitting}
+                isEdit
+                onClose={() => {
+                  form.reset();
+                  onError(null);
+                }}
+                gap="sm"
+                submitDisabled={!dirty}
+              />
+            </div>
+          )}
           {/* A refusal that turns the form read-only (the room was archived behind the page) has no action row to show it in, so it shows here. */}
           {readOnly && error && <FormErrorAlert>{error}</FormErrorAlert>}
         </Stack>
@@ -146,6 +159,8 @@ function Lifecycle({ room, admin }: { room: RoomResponse; admin: boolean }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState(false);
+  const availabilityTitle = useId();
+  const deleteTitle = useId();
 
   const toggle = useMutation({
     mutationFn: () => (room.archived ? unarchiveRoom(room.id) : archiveRoom(room.id)),
@@ -172,21 +187,17 @@ function Lifecycle({ room, admin }: { room: RoomResponse; admin: boolean }) {
 
   const archivedKey = room.archived ? "unarchive" : "archive";
   return (
-    <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
-      <Stack>
-        <Title order={3} size="h4">
-          {t("rooms.settings.lifecycleTitle")}
-        </Title>
-        {toggle.isError && (
-          <FormErrorAlert>
-            {roomLifecycleErrorMessage(toggle.error, t)}
-          </FormErrorAlert>
-        )}
-        <Group justify="space-between" wrap="nowrap" align="flex-start">
-          <Text size="sm">{t(`rooms.settings.${archivedKey}Hint`)}</Text>
+    <Stack gap="md">
+      <Paper component="section" aria-labelledby={availabilityTitle} withBorder className={classes.panel}>
+        <Stack gap="sm" align="flex-start">
+          <Group justify="space-between" gap="xs" w="100%">
+            <Title order={4} id={availabilityTitle}>{t("rooms.settings.availabilityTitle")}</Title>
+            <Badge>{t(room.archived ? "rooms.archivedBadge" : "rooms.settings.active")}</Badge>
+          </Group>
+          <Text size="sm" c="dimmed">{t(`rooms.settings.${archivedKey}Hint`)}</Text>
           <Button
             variant="default"
-            leftSection={room.archived ? <IconArchiveOff size={16} /> : <IconArchive size={16} />}
+            leftSection={room.archived ? <IconArchiveOff size={16} aria-hidden /> : <IconArchive size={16} aria-hidden />}
             onClick={() => {
               toggle.reset();
               setConfirming(true);
@@ -194,16 +205,20 @@ function Lifecycle({ room, admin }: { room: RoomResponse; admin: boolean }) {
           >
             {t(`rooms.settings.${archivedKey}Action`)}
           </Button>
-        </Group>
-        {admin && (
-          <Group justify="space-between" wrap="nowrap" align="flex-start">
-            <Text size="sm">{t("rooms.settings.deleteHint")}</Text>
-            <Button color="red" variant="light" leftSection={<IconTrash size={16} />} onClick={() => remove.requestDelete(room)}>
+          {toggle.isError && <FormErrorAlert>{roomLifecycleErrorMessage(toggle.error, t)}</FormErrorAlert>}
+        </Stack>
+      </Paper>
+      {admin && (
+        <Paper component="section" aria-labelledby={deleteTitle} withBorder className={classes.panel}>
+          <Stack gap="sm" align="flex-start">
+            <Title order={4} id={deleteTitle}>{t("rooms.settings.deleteSectionTitle")}</Title>
+            <Text size="sm" c="dimmed">{t("rooms.settings.deleteHint")}</Text>
+            <Button color="red" variant="light" leftSection={<IconTrash size={16} aria-hidden />} onClick={() => remove.requestDelete(room)}>
               {t("rooms.settings.deleteAction")}
             </Button>
-          </Group>
-        )}
-      </Stack>
+          </Stack>
+        </Paper>
+      )}
       <ConfirmActionModal
         opened={confirming}
         onClose={() => setConfirming(false)}
@@ -222,26 +237,24 @@ function Lifecycle({ room, admin }: { room: RoomResponse; admin: boolean }) {
         errorMessage={(error) => roomDeleteErrorMessage(error, t)}
         body={(target) => t("rooms.settings.deleteBody", { name: target.name })}
       />
-    </Paper>
+    </Stack>
   );
 }
 
 /** The page body of one loaded room. It owns the save error, which must outlive the action row that shows it (see `DetailsForm`). */
 function SettingsBody({ room }: { room: RoomResponse }) {
+  const { t } = useTranslation();
   const admin = useAdmin();
   const [error, setError] = useState<string | null>(null);
   const canManage = canManageRoom(room, admin);
   return (
-    <>
-      <DetailsForm
-        key={room.id}
-        room={room}
-        canManage={canManage}
-        error={error}
-        onError={setError}
-      />
-      {canManage && <Lifecycle room={room} admin={admin} />}
-    </>
+    <Stack gap="md">
+      <RoomTabHeader title={t("rooms.settings.title")} description={canManage ? t("rooms.settings.description") : undefined} />
+      <div className={classes.layout} data-manage={canManage || undefined}>
+        <DetailsForm room={room} canManage={canManage} error={error} onError={setError} />
+        {canManage && <Lifecycle room={room} admin={admin} />}
+      </div>
+    </Stack>
   );
 }
 
@@ -252,5 +265,5 @@ function SettingsBody({ room }: { room: RoomResponse }) {
  */
 export default function RoomSettings() {
   const { id } = useParams();
-  return <RoomPage idParam={id} tab="settings">{(room) => <SettingsBody room={room} />}</RoomPage>;
+  return <RoomPage idParam={id} tab="settings">{(room) => <SettingsBody key={room.id} room={room} />}</RoomPage>;
 }

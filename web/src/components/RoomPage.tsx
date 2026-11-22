@@ -42,31 +42,35 @@ export default function RoomPage({ idParam, tab, fill = false, children }: { idP
     );
   }
 
+  const threads = tab === "home";
+  const navigation = <RoomTabs id={room.id} active={tab} />;
+
   return (
     <Box className={classes.frame}>
-      <Stack gap="sm" className={fill ? classes.fill : undefined}>
-        <Box className={tab === "home" ? classes.header : undefined}>
+      <Stack gap={threads ? "sm" : "lg"} className={fill ? classes.fill : threads ? undefined : classes.subpage}>
+        <Box className={threads ? classes.header : `${classes.header} ${classes.subpageHeader}`}>
           <PageHeader
             compact
             title={room.name}
-            documentTitle={tab === "home" ? room.name : `${t(`rooms.tabs.${tab}`)} · ${room.name}`}
+            documentTitle={threads ? room.name : `${t(`rooms.tabs.${tab}`)} · ${room.name}`}
             description={
               <Group gap="xs" wrap="nowrap">
-                <Text span size="sm" className={tab === "home" ? classes.memberCount : undefined}>
+                <Text span size="sm" className={classes.memberCount}>
                   {t("rooms.memberCount", { count: room.memberCount })}
                 </Text>
                 {room.archived && <Badge color="gray">{t("rooms.archivedBadge")}</Badge>}
               </Group>
             }
             backTo={{ to: roomsPath, label: t("rooms.backToRooms") }}
-            toolbar={<RoomTabs id={room.id} active={tab} />}
+            toolbar={threads ? navigation : undefined}
             actions={
               <>
-                <PinnedPanel room={room} className={tab === "home" ? classes.pinButton : undefined} />
+                <PinnedPanel room={room} className={classes.pinButton} />
                 <RoomAbout description={room.description} />
               </>
             }
           />
+          {!threads && navigation}
         </Box>
         {children(room)}
       </Stack>
