@@ -150,6 +150,22 @@ describe("MessageList", () => {
     expect(region.scrollTop).toBe(900);
   });
 
+  test("a pane layout change keeps a reader at the end without moving someone reading earlier messages", async () => {
+    const heights = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(500);
+    serve(() => jsonResponse(200, messagePage(NEWEST_FIRST)));
+    const { rerender } = renderList({ layoutKey: "closed" });
+    const region = await screen.findByRole("region", { name: "Messages" });
+    const props = { room: makeRoom(), thread: makeThread(), scrollToId: null, onScrolled: vi.fn() };
+    heights.mockReturnValue(800);
+    rerender(<MessageList {...props} layoutKey="open" />);
+    expect(region.scrollTop).toBe(800);
+
+    region.scrollTop = 100;
+    fireEvent.scroll(region);
+    rerender(<MessageList {...props} layoutKey="closed" />);
+    expect(region.scrollTop).toBe(100);
+  });
+
   test("scrolls to the bottom once the caller's own message is listed, then clears the request", async () => {
     const heights = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(500);
     const onScrolled = vi.fn();

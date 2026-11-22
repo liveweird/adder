@@ -28,7 +28,7 @@ export default function HeaderIconButton({
   return (
     <Tooltip label={label}>
       <ActionIcon
-        variant={lit ? "light" : "default"}
+        variant={lit ? "light" : "subtle"}
         aria-label={label}
         aria-pressed={pressed}
         aria-expanded={expanded}

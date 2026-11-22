@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconChecks } from "@tabler/icons-react";
 import { markRoomRead, type RoomResponse } from "../api/rooms";
@@ -11,6 +10,7 @@ import { roomKeys } from "../utils/roomKeys";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import ConfirmActionModal from "./ConfirmActionModal";
+import HeaderIconButton from "./HeaderIconButton";
 
 /**
  * "Mark all as read" above the thread list (1.2 A10): for a MEMBER of the room (an ADMIN outside it has no read state, the server answers
@@ -55,18 +55,14 @@ export default function MarkAllReadButton({ room }: { room: Pick<RoomResponse, "
 
   return (
     <>
-      <Button
-        size="compact-xs"
-        variant="subtle"
-        leftSection={<IconChecks size={14} aria-hidden="true" />}
+      <HeaderIconButton
+        label={t("threads.markAllRead.action")}
+        icon={<IconChecks size={16} aria-hidden="true" />}
         onClick={() => {
           mutation.reset();
           setConfirming(true);
         }}
-        style={{ alignSelf: "flex-start" }}
-      >
-        {t("threads.markAllRead.action")}
-      </Button>
+      />
       <ConfirmActionModal
         opened={confirming}
         onClose={() => setConfirming(false)}

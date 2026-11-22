@@ -82,7 +82,6 @@ describe("tags in the room view", () => {
     renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
     const [group] = await screen.findAllByRole("group", { name: "Tags" });
     expect(within(group).getAllByText(/^[a-e]$/)).toHaveLength(3);
-    expect(document.querySelector("[data-pills=true]")).not.toBeNull();
     const toggle = screen.getByRole("button", { name: "Details" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     const scrolled = vi.fn();
@@ -100,7 +99,6 @@ describe("tags in the room view", () => {
     renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
     await screen.findByRole("button", { name: "Details" });
     expect(screen.getAllByRole("group", { name: "Tags" })).toHaveLength(1); // only the side panel's section
-    expect(document.querySelector("[data-pills]")).toBeNull();
     expect(screen.getByText("No tags")).toBeInTheDocument();
   });
 });

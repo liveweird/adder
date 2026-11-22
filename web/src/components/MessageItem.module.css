@@ -1,0 +1,80 @@
+.item {
+  padding: 0.625rem 0.25rem;
+  scroll-margin-block: var(--mantine-spacing-md);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: 0.625rem;
+  align-items: start;
+}
+
+.avatar {
+  margin-top: 0.125rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.content,
+.header,
+.meta,
+.body {
+  min-width: 0;
+}
+
+.pinLine {
+  min-height: 1rem;
+}
+
+.meta {
+  min-height: 1.75rem;
+  align-items: center;
+}
+
+.actions {
+  flex: none;
+  opacity: 0.72;
+  transition: opacity 120ms ease;
+}
+
+.item:hover .actions,
+.item:focus-within .actions {
+  opacity: 1;
+}
+
+.body {
+  max-width: 76ch;
+  line-height: 1.55;
+}
+
+@media (max-width: 32rem) {
+  .item {
+    padding-inline: 0;
+  }
+
+  .layout {
+    grid-template-columns: 1.75rem minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  .avatar {
+    width: 1.75rem;
+    height: 1.75rem;
+    min-width: 1.75rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .actions button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actions {
+    transition: none;
+  }
+}

@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import RoomsRail from "./RoomsRail";
 import type { RoomListItem } from "../api/rooms";
 import type { useRailRooms } from "../hooks/useRailRooms";
@@ -22,9 +23,22 @@ function railOf(items: RoomListItem[]): Rooms {
   return { active: { data: { items, page: 1, pageSize: 100, total: items.length }, error: null, isLoading: false }, archived: empty } as unknown as Rooms;
 }
 
-function renderRail(items: RoomListItem[], { collapsed = false, activeTo = null, mentions }: { collapsed?: boolean; activeTo?: string | null; mentions?: ReadonlyMap<number, number> } = {}) {
+function renderRail(
+  items: RoomListItem[],
+  {
+    collapsed = false,
+    activeTo = null,
+    mentions,
+    onNavigate = vi.fn(),
+  }: {
+    collapsed?: boolean;
+    activeTo?: string | null;
+    mentions?: ReadonlyMap<number, number>;
+    onNavigate?: (to: string) => void;
+  } = {},
+) {
   return renderWithProviders(
-    <RoomsRail rooms={railOf(items)} showArchived={false} onShowArchivedChange={vi.fn()} collapsed={collapsed} activeTo={activeTo} onNavigate={vi.fn()} mentions={mentions} />,
+    <RoomsRail rooms={railOf(items)} showArchived={false} onShowArchivedChange={vi.fn()} collapsed={collapsed} activeTo={activeTo} onNavigate={onNavigate} mentions={mentions} />,
   );
 }
 
@@ -84,5 +98,29 @@ describe("RoomsRail unread marks", () => {
     expect(screen.getByRole("link", { name: "Night Shift" })).toHaveAccessibleDescription("1 unseen notification");
     // One unread-cue dot, on the room that has something to say.
     expect(container.querySelectorAll("[data-unread-cue=dot]")).toHaveLength(1);
+  });
+
+  test.each([
+    { collapsed: false, layout: "expanded" },
+    { collapsed: true, layout: "collapsed" },
+  ])("activating a room from the $layout rail reports its destination so the mobile drawer can close", async ({ collapsed }) => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    renderRail([room({ id: 17, name: "Night Shift" })], { collapsed, onNavigate });
+
+    await user.click(screen.getByRole("link", { name: "Night Shift" }));
+
+    expect(onNavigate).toHaveBeenCalledWith("/rooms/17");
+  });
+
+  test("activating the overflow link reports the rooms directory destination", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const rooms = Array.from({ length: 101 }, (_, index) => room({ id: index + 1, name: `Room ${index + 1}` }));
+    renderRail(rooms, { onNavigate });
+
+    await user.click(screen.getByRole("link", { name: "More rooms…" }));
+
+    expect(onNavigate).toHaveBeenCalledWith("/rooms");
   });
 });

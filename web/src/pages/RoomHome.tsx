@@ -40,12 +40,12 @@ export default function RoomHome({ isNew = false }: { isNew?: boolean }) {
       {(room) => (
         <div className={classes.root}>
           <div className={classes.layout} data-pane={inPane ? "thread" : "list"} data-focus={focusView || undefined} data-bound={bound || undefined}>
-            <div className={classes.list}>
+            <div className={classes.list} role={bound ? "region" : undefined} aria-label={bound ? t("threads.listAria") : undefined} tabIndex={bound ? 0 : undefined}>
               <ThreadList room={room} activeNumber={parseThreadNumber(numberParam)} />
             </div>
             <div className={classes.pane}>
               {inPane && (
-                <Group className={classes.back} mb="sm">
+                <Group className={classes.back}>
                   <Anchor component={RouterLink} to={withListParams(roomPath(room.id), search)} size="sm">
                     <Group gap={4} wrap="nowrap" component="span">
                       <IconArrowLeft size={14} />

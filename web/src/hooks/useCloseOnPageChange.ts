@@ -12,16 +12,17 @@ const THREAD_ROUTE = /^\/rooms\/\d+\/threads\/\d+$/;
  * main region (`#main-content`, the skip link's target) for any other page, so it never falls to `<body>` and a keyboard user starts at the top
  * of the new page. A drawer's own links that already close it (a thread, a message) never reach here: the page has not changed when they do.
  *
- * Returns `noteOpened`: call it when the drawer opens, so the page it was opened on is the one compared. Adjusted during render, like the drawers'
+ * Returns `noteOpened`: call it when the drawer opens. URL matching also catches changes to the search or fragment. Adjusted during render, like the drawers'
  * other derived state; the focus is an effect, run once the drawer has closed and released its focus trap.
  */
-export function useCloseOnPageChange(opened: boolean, onLeave: () => void): () => void {
-  const { pathname } = useLocation();
+export function useCloseOnPageChange(opened: boolean, onLeave: () => void, match: "pathname" | "url" = "pathname"): () => void {
+  const { pathname, search, hash } = useLocation();
+  const current = match === "url" ? `${pathname}${search}${hash}` : pathname;
   const [openedAt, setOpenedAt] = useState<string | null>(null);
   // Each page change that closed the drawer is one numbered request; the effect answers each once, when the drawer has closed.
   const [left, setLeft] = useState({ count: 0, toMain: false });
   const answered = useRef(0);
-  if (opened && openedAt !== null && pathname !== openedAt) {
+  if (opened && openedAt !== null && current !== openedAt) {
     onLeave();
     setLeft({ count: left.count + 1, toMain: !THREAD_ROUTE.test(pathname) });
   }
@@ -30,5 +31,5 @@ export function useCloseOnPageChange(opened: boolean, onLeave: () => void): () =
     answered.current = left.count;
     if (left.toMain) document.getElementById("main-content")?.focus();
   }, [left, opened]);
-  return () => setOpenedAt(pathname);
+  return () => setOpenedAt(current);
 }

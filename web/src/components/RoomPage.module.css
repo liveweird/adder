@@ -1,25 +1,124 @@
-/*
- * An open thread bounds the room page to the viewport — in a WIDE main area only (from 62rem, the same width at which the thread's side panel
- * becomes a third column): the room's header takes what it needs (one row, or two when it wraps) and the room view below it takes the rest
- * (`RoomHome.module.css` `data-bound`), so no header above the conversation can push the composer off the screen. The bound is the viewport
- * less the shell header and the main area's vertical padding (AppShell `padding="md"`, top and bottom), and never under 28rem. Below 62rem
- * (a phone, a window with the navigation open) the page is NOT bounded: it scrolls, the conversation keeps its own height and the composer
- * sticks to the bottom edge (`MessageComposer.module.css`). A page of any other tab is not bounded. `.frame` is the container the width is
- * read from: the main area's content width, the same one `RoomHome.module.css` `.root` measures.
- */
 .frame {
   container-type: inline-size;
 }
 
-@container (min-width: 62rem) {
-  .fill {
-    height: max(28rem, calc(100dvh - var(--app-shell-header-height, 48px) - 2 * var(--mantine-spacing-md)));
+/* Keep room navigation above the workspace and give it its own row when space is tight. */
+.header > div {
+  gap: 0.5rem;
+}
+
+.header nav {
+  gap: 0.25rem;
+}
+
+.header nav a {
+  min-block-size: 2rem;
+  padding-inline: 0.625rem;
+  border-radius: 0;
+  border-block-end: 2px solid transparent;
+  background: transparent;
+  color: var(--mantine-color-dimmed);
+}
+
+.header nav a:hover {
+  color: var(--mantine-color-text);
+}
+
+.header nav a:focus-visible {
+  outline-offset: -2px;
+}
+
+.header nav a[aria-current="page"] {
+  border-block-end-color: var(--adder-accent-ink);
+  color: var(--mantine-color-text);
+}
+
+@container (max-width: 57rem) {
+  .header nav {
+    order: 1;
+    flex-basis: 100%;
+    border-block-end: 1px solid var(--mantine-color-default-border);
   }
 }
 
-/* On paper the page is as tall as its content. */
+@container (max-width: 35rem) {
+  .memberCount {
+    display: none;
+  }
+
+  .header :where(h2) {
+    flex: 1 1 7rem;
+  }
+
+  .pinButton {
+    padding-inline: 0.5rem;
+  }
+
+  .pinButton :global(.mantine-Button-label) {
+    display: none;
+  }
+
+  .pinButton :global(.mantine-Button-section) {
+    margin: 0;
+  }
+
+  .header nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .header nav a {
+    font-size: var(--mantine-font-size-xs);
+    padding-inline: 0.5rem;
+    flex: 1 0 auto;
+  }
+
+  /* A phone opens a thread as its own view. Room navigation is on the list reached by Back to threads. */
+  .fill .header nav,
+  .fill .header > div > a {
+    display: none;
+  }
+
+  .fill .header h2 {
+    white-space: nowrap;
+    overflow: clip;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (pointer: coarse) {
+  .header nav a {
+    min-block-size: 2.75rem;
+  }
+
+  .header > div > a,
+  .header button {
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+}
+
+.fill {
+  --room-height: max(28rem, calc(100dvh - var(--app-shell-header-height, 48px) - 2 * var(--mantine-spacing-md)));
+}
+
+/* On a wide screen, give the conversation and the thread list the space below the room header. */
+@container (min-width: 62rem) {
+  .fill {
+    block-size: var(--room-height);
+  }
+}
+
+@media screen and (min-height: 40rem) {
+  @container (max-width: 61.99rem) {
+    .fill:has([data-side="closed"]) {
+      block-size: var(--room-height);
+    }
+  }
+}
+
 @media print {
   .fill {
-    height: auto !important;
+    block-size: auto !important;
   }
 }

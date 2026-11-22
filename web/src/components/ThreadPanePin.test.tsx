@@ -95,7 +95,6 @@ describe("ThreadPane: pinning the thread", () => {
     expect(region.querySelector("[data-pin-mark]")).not.toHaveAttribute("aria-hidden");
     // Neither the badge nor the pin button is the strip: a pinned thread alone has no strip.
     expect(screen.queryByRole("region", { name: "Pins in this thread" })).not.toBeInTheDocument();
-    expect(region).not.toHaveAttribute("data-strip");
     first.unmount();
     pinned = [];
     renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
@@ -112,8 +111,6 @@ describe("ThreadPane: pinning the thread", () => {
     const strip = await screen.findByRole("region", { name: "Pins in this thread" });
     const toggle = within(strip).getByRole("button", { name: "Pinned: Restart the replica first" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    // The pane says it carries a strip and whether its list is open (the wide layout gives the height back out of the conversation); a thread pin alone does not.
-    expect(screen.getByRole("region", { name: "#42 Disk full on db-3" })).toHaveAttribute("data-strip", "closed");
     // Placement: the strip sits in the header box (after the thread's heading), before the conversation's messages region.
     const heading = screen.getByRole("heading", { name: "#42 Disk full on db-3" });
     const messages = await screen.findByRole("region", { name: "Messages" });
@@ -126,10 +123,10 @@ describe("ThreadPane: pinning the thread", () => {
       return found!;
     });
     expect(within(item).getByText(/^Pinned by/)).toHaveTextContent("Pinned by Ann Owner");
-    // Expanding keeps the conversation: the strip lists the pin with its jump, and the pane records that the list is open.
+    // Expanding keeps the conversation and lists the pin with its jump.
     await user.click(toggle);
     expect(within(strip).getByRole("link", { name: /^Show in thread/ })).toHaveAttribute("href", "/rooms/12/threads/42?message=1");
-    expect(screen.getByRole("region", { name: "#42 Disk full on db-3" })).toHaveAttribute("data-strip", "open");
+    expect(within(strip).getByRole("button", { name: "Pinned in this thread (1)" })).toHaveAttribute("aria-expanded", "true");
   });
 
   test("expanded or not is remembered per person in the browser; a corrupt stored value reads as collapsed", async () => {

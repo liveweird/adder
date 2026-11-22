@@ -7,8 +7,11 @@ import { getUserId } from "../api/session";
 import type { RoomResponse } from "../api/rooms";
 import type { ThreadResponse } from "../api/threads";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
+import { browserTimeZone, formatDateTime } from "../utils/formatDate";
+import { fillSlots, slot } from "../utils/slots";
 import { isThreadSteward } from "../utils/threadAccess";
 import LoadingBlock from "./LoadingBlock";
+import PersonLink from "./PersonLink";
 import ThreadDetails from "./ThreadDetails";
 import ThreadHashtags from "./ThreadHashtags";
 import ThreadHistory from "./ThreadHistory";
@@ -40,6 +43,7 @@ export default function ThreadSidePanel({ room, thread }: { room: RoomResponse; 
   const admin = useAdmin();
   const workflow = useRoomWorkflow(room.id);
   const steward = isThreadSteward({ room, thread, userId: getUserId(), admin });
+  const zone = browserTimeZone();
   const waiting = workflow.data ? null : workflow.isError ? (
     <Text size="sm" c="dimmed">
       {t("threads.side.unavailable")}
@@ -49,7 +53,7 @@ export default function ThreadSidePanel({ room, thread }: { room: RoomResponse; 
   );
 
   return (
-    <Stack gap="lg">
+    <Stack gap="md">
       <Section title={t("threads.side.status")}>
         {workflow.data ? <ThreadStatusControl room={room} thread={thread} statuses={workflow.data.statuses} steward={steward} /> : waiting}
       </Section>
@@ -58,6 +62,16 @@ export default function ThreadSidePanel({ room, thread }: { room: RoomResponse; 
       </Section>
       <Section title={t("threads.side.details")}>
         {workflow.data ? <ThreadDetails room={room} thread={thread} workflow={workflow.data} /> : waiting}
+        <Stack gap={2}>
+          <Text size="xs" c="dimmed">
+            {fillSlots(t("threads.pane.started", { name: slot("name"), when: formatDateTime(thread.createdAt, zone) }), {
+              name: <PersonLink id={thread.createdById} name={thread.createdByName} inherit />,
+            })}
+          </Text>
+          <Text size="xs" c="dimmed">
+            {t("threads.pane.lastActivity", { when: formatDateTime(thread.lastActivityAt, zone) })}
+          </Text>
+        </Stack>
       </Section>
       <Section title={t("threads.side.tags")} anchor="tags">
         <ThreadTagsPanel room={room} thread={thread} steward={steward} />

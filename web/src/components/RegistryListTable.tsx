@@ -48,9 +48,9 @@ export default function RegistryListTable({
   return (
     <>
       {isError && <ErrorAlert error={error} title={errorTitle} />}
-      <Table aria-label={label}>
-        <Table.Thead>{header}</Table.Thead>
-        <Table.Tbody>
+      <Table role="table" aria-label={label}>
+        <Table.Thead role="rowgroup">{header}</Table.Thead>
+        <Table.Tbody role="rowgroup">
           {isLoading && !hasData ? (
             <TableLoadingRow colSpan={columnCount} />
           ) : rowCount > 0 ? (

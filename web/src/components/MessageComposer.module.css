@@ -1,17 +1,76 @@
-/*
- * The reply box. Narrow (a main area under 62rem), where the page scrolls instead of being bounded to the viewport (`RoomPage.module.css`), the
- * composer sticks to the bottom edge of the screen over the page background with a hairline and a soft shadow above it, so Reply and Send
- * are always reachable while the conversation scrolls under it. No fixed height (the box autosizes, and a phone's on-screen keyboard
- * changes the viewport: `dvh` and sticky follow it). Wide, the pane is a bounded column and the composer is simply its last row.
- */
+/* The composer follows the timeline and stays reachable when a narrow thread page scrolls. */
+.composer {
+  padding: 0.5rem var(--chat-gutter, var(--mantine-spacing-sm)) 0.75rem;
+}
+
 @container (max-width: 61.99rem) {
   .composer {
     position: sticky;
     bottom: 0;
     z-index: 2;
-    padding-block: var(--mantine-spacing-xs);
-    background-color: var(--adder-canvas);
+    background-color: var(--chat-surface, var(--adder-canvas));
     border-top: 1px solid var(--mantine-color-default-border);
     box-shadow: 0 -6px 8px -6px var(--mantine-color-default-border);
+  }
+}
+
+.surface {
+  padding: 0.625rem;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background-color: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+.surface:focus-within {
+  border-color: var(--adder-accent-ink);
+}
+
+.input {
+  background: transparent;
+  border-color: transparent;
+  padding-inline-start: 0;
+}
+
+.input:focus {
+  border-color: transparent;
+}
+
+.blocked {
+  margin: 0.5rem var(--chat-gutter, var(--mantine-spacing-sm)) 0.75rem;
+}
+
+.footer {
+  min-height: 2rem;
+}
+
+.footerNote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem 0.75rem;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+.send {
+  flex: none;
+  min-width: 5.5rem;
+}
+
+@media (max-width: 32rem) {
+  .surface {
+    padding: 0.5rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .hint {
+    display: none;
+  }
+
+  .surface button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
   }
 }

@@ -71,6 +71,7 @@ export default function MessageList({
   scrollToId,
   onScrolled,
   anchorId: urlAnchorId = null,
+  layoutKey,
   jumpSeq = 0,
   threadSettled = true,
   onQuote,
@@ -81,6 +82,8 @@ export default function MessageList({
   scrollToId: number | null;
   onScrolled: () => void;
   anchorId?: number | null;
+  /** Changes when a thread control resizes the conversation. */
+  layoutKey?: string;
   /** Bumped by the pane when the reader asks to be taken to a message again (the pin strip's "Show in thread"): the jump runs once per (anchor, request). */
   jumpSeq?: number;
   /** Whether the thread read that holds `firstUnreadMessageId` has settled (no fetch in flight): the unread boundary is taken from the first settled read. */
@@ -151,12 +154,11 @@ export default function MessageList({
       el.scrollTop = el.scrollHeight;
     }
   }, [messages.length, trackBottom, setBottom]);
-  // The newest message was replaced or edited (it may be taller now) under a reader at the bottom: keep them there. Only a change of the
-  // newest message fires this, so loading older messages (which anchors the reader) never does.
+  // Keep the end in view when the newest message or the pane's layout changes.
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && opened.current && anchor.current === null && atBottom.current) el.scrollTop = el.scrollHeight;
-  }, [newestId, newestEditedAt]);
+  }, [newestId, newestEditedAt, layoutKey]);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (!el || scrollToId === null || newestId === undefined || newestId < scrollToId) return;
@@ -223,6 +225,17 @@ export default function MessageList({
     setFirstOnScreen(rect.bottom >= box.top && rect.top <= box.bottom);
   }, [firstUnread]);
   useLayoutEffect(measureFirstUnread, [measureFirstUnread, messages.length]);
+  useEffect(() => {
+    const el = scroller.current;
+    if (isLoading || !el) return;
+    // Opening Details or resizing the workspace changes the visible height without adding messages.
+    const observer = new ResizeObserver(() => {
+      if (opened.current && atBottom.current && anchor.current === null) el.scrollTop = el.scrollHeight;
+      measureFirstUnread();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isLoading, measureFirstUnread]);
   const arrivals = useArrivals(messages, atEnd, userId);
   // Only a settled conversation is read: the newest id of a stale cached copy (an earlier visit's) was never seen, and a re-read is about to replace it.
   useThreadReadMarker({ roomId: room.id, threadNumber: thread.number, newestId, atEnd, enabled: room.role !== null && threadSettled && !isFetching });
@@ -292,12 +305,12 @@ export default function MessageList({
     <>
       {announcement}
       {anchorNote !== null && (
-        <Alert color="gray" variant="light" role="note">
+        <Alert className={classes.notice} color="gray" variant="light" role="note">
           {t(anchorNote === "gone" ? "threads.anchor.gone" : "threads.anchor.tooFar")}
         </Alert>
       )}
       {firstUnread !== null && !firstOnScreen && (
-        <Button variant="light" size="compact-sm" style={{ alignSelf: "flex-start" }} leftSection={<IconArrowUp size={14} />} onClick={jumpToFirstUnread}>
+        <Button className={classes.jump} variant="light" size="compact-sm" style={{ alignSelf: "flex-start" }} leftSection={<IconArrowUp size={14} />} onClick={jumpToFirstUnread}>
           {t("threads.unread.jump")}
         </Button>
       )}
@@ -355,7 +368,7 @@ export default function MessageList({
         </ul>
       </div>
       {arrivals > 0 && (
-        <Button variant="light" size="compact-sm" style={{ alignSelf: "flex-start" }} leftSection={<IconArrowDown size={14} />} onClick={jumpToEnd}>
+        <Button className={classes.jump} variant="light" size="compact-sm" style={{ alignSelf: "flex-start" }} leftSection={<IconArrowDown size={14} />} onClick={jumpToEnd}>
           {t("threads.arrivals.button", { count: arrivals })}
         </Button>
       )}

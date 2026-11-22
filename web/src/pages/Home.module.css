@@ -1,0 +1,129 @@
+.root {
+  inline-size: 100%;
+  max-inline-size: 60rem;
+  container-type: inline-size;
+}
+
+.panel {
+  overflow: hidden;
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+  border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
+  border-radius: var(--mantine-radius-lg);
+}
+
+.panelHeader {
+  padding: var(--mantine-spacing-lg);
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+}
+
+.state {
+  padding: var(--mantine-spacing-md);
+}
+
+.roomList {
+  display: flex;
+  flex-direction: column;
+}
+
+.roomLink {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--mantine-spacing-lg);
+  align-items: center;
+  min-height: 68px;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.roomLink:last-child {
+  border-bottom: 0;
+}
+
+.roomLink:hover {
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+}
+
+.roomLink:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--adder-accent-ink);
+  outline-offset: -2px;
+}
+
+.roomIdentity,
+.roomCopy {
+  min-width: 0;
+}
+
+.roomIcon {
+  flex: 0 0 auto;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+}
+
+.roomCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.roomName,
+.roomDescription {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.activity {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--mantine-spacing-sm);
+  white-space: nowrap;
+}
+
+.rowArrow {
+  flex: 0 0 auto;
+  color: var(--mantine-color-dimmed);
+  transition: transform 120ms ease, color 120ms ease;
+}
+
+.roomLink:hover .rowArrow {
+  color: var(--adder-accent-ink);
+  transform: translateX(2px);
+}
+
+@container (max-width: 38rem) {
+  .panelHeader {
+    padding: var(--mantine-spacing-md);
+  }
+
+  .roomLink {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--mantine-spacing-xs);
+    padding: var(--mantine-spacing-md);
+  }
+
+  .activity {
+    justify-content: flex-start;
+    padding-inline-start: 3rem;
+    white-space: normal;
+  }
+
+  .activityTime {
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roomLink,
+  .rowArrow {
+    transition: none;
+  }
+
+  .roomLink:hover .rowArrow {
+    transform: none;
+  }
+}

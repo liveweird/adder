@@ -121,12 +121,14 @@ describe("MessageComposer", () => {
     await waitFor(() => expect(posts()).toHaveLength(2));
   });
 
-  test("shows a character count", async () => {
+  test("shows a character count and describes the reply field with it", async () => {
     const user = userEvent.setup();
     renderComposer();
     expect(screen.getByText("0 / 8000")).toBeInTheDocument();
+    expect(box()).toHaveAccessibleDescription(/Markdown is supported.*0 \/ 8000/);
     await user.type(box(), "abc");
     expect(screen.getByText("3 / 8000")).toBeInTheDocument();
+    expect(box()).toHaveAccessibleDescription(/3 \/ 8000/);
   });
 
   test("an empty reply and one with a control character are refused before any request", async () => {

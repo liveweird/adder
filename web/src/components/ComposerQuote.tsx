@@ -14,7 +14,7 @@ import classes from "./MessageQuote.module.css";
 export default function ComposerQuote({ quote, onRemove }: { quote: QuoteDraft; onRemove: () => void }) {
   const { t } = useTranslation();
   return (
-    <Group gap="xs" wrap="nowrap" align="flex-start" className={classes.rule}>
+    <Group gap="xs" wrap="nowrap" align="flex-start" className={`${classes.rule} ${classes.composerRule}`}>
       <IconQuote size={14} aria-hidden="true" style={{ flex: "none", marginTop: 2 }} />
       {/* Hidden from assistive technology: the composer's status line says the same words once, when the quote is set. */}
       <Stack gap={0} miw={0} style={{ flex: 1 }} aria-hidden="true">

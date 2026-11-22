@@ -1,7 +1,16 @@
 {
   "title": "Adder",
+  "allRooms": "All rooms",
+  "recent": {
+    "title": "Active rooms",
+    "description": "Rooms you belong to, most recently active first.",
+    "lastActivity": "Active {{when}}",
+    "unread": "New",
+    "unreadAccessible": ", new activity",
+    "loadFailed": "Could not load your rooms"
+  },
   "empty": {
-    "label": "Welcome to Adder",
-    "hint": "Open a room from the sidebar or create a new one. You can also manage users, teams, workflow templates and feature flags, and try the language and theme switches."
+    "label": "No active rooms yet",
+    "hint": "Open All rooms to find or create a room."
   }
 }

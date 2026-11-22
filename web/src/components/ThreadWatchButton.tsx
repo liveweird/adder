@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Group, Text } from "@mantine/core";
+import { Group, Text, VisuallyHidden } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconEye, IconEyeFilled } from "@tabler/icons-react";
 import type { RoomResponse } from "../api/rooms";
@@ -21,6 +21,7 @@ export default function ThreadWatchButton({ room, thread, onError }: { room: Roo
   const [busy, setBusy] = useState(false);
   if (!canWatch(room)) return null;
   const { watching } = thread;
+  const countLabel = t("threads.watch.count", { count: thread.watcherCount });
 
   async function toggle() {
     onError(null);
@@ -45,8 +46,9 @@ export default function ThreadWatchButton({ room, thread, onError }: { room: Roo
         icon={watching ? <IconEyeFilled size={16} /> : <IconEye size={16} />}
         onClick={() => void toggle()}
       />
-      <Text size="xs" c="dimmed">
-        {t("threads.watch.count", { count: thread.watcherCount })}
+      <Text size="xs" c="dimmed" title={countLabel}>
+        <VisuallyHidden>{countLabel}</VisuallyHidden>
+        <span aria-hidden="true">{thread.watcherCount}</span>
       </Text>
     </Group>
   );

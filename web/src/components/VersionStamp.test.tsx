@@ -1,5 +1,6 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import VersionStamp from "./VersionStamp";
 import { APP_VERSION } from "../changelog/version";
 import { renderWithProviders } from "../test/render";
@@ -25,5 +26,15 @@ describe("VersionStamp", () => {
     renderWithProviders(<VersionStamp to="/changelog" />);
     const stamp = screen.getByTitle("Build version");
     expect(stamp).toHaveAttribute("href", "/changelog");
+  });
+
+  test("reports changelog navigation so the mobile drawer can close", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    renderWithProviders(<VersionStamp to="/changelog" onNavigate={onNavigate} />);
+
+    await user.click(screen.getByRole("link", { name: /^v/ }));
+
+    expect(onNavigate).toHaveBeenCalledWith("/changelog");
   });
 });

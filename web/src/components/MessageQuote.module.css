@@ -11,10 +11,18 @@
   min-width: 0;
 }
 
+.composerRule {
+  padding-block: 0.375rem;
+  padding-inline-end: 0.25rem;
+  border-radius: 0 var(--mantine-radius-sm) var(--mantine-radius-sm) 0;
+  background-color: light-dark(var(--mantine-color-gray-0), var(--adder-surface-tint));
+}
+
 /* The block in a message is ONE link: it takes the text's ink, and the author's name underlines on hover and focus (the cue besides the bar and the icon). */
 .link {
   display: block;
-  padding-block: 2px;
+  max-width: 76ch;
+  padding-block: 0.25rem;
   padding-inline-end: var(--mantine-spacing-xs);
   border-start-end-radius: var(--mantine-radius-sm);
   border-end-end-radius: var(--mantine-radius-sm);

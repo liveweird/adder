@@ -1,139 +1,164 @@
-/*
- * The thread pane's own grid: the header, the side panel and the conversation, in that DOM order — the panel's h4 sections have to follow the
- * pane's h3 in the outline, so the panel lives INSIDE the pane's region and is only PLACED to the right of the conversation when there is room.
- *
- * The panel takes space only when it is opened (1.2 D4): `data-open="false"` is `display: none` at EVERY width (out of the tab order and the
- * accessibility tree), and the header's "Details" button (`aria-expanded`, `aria-controls`) is the way in at every width. The pane carries
- * `data-side="open"|"closed"` for the same switch, so the wide grid below is built only while the panel is open.
- *
- * It answers to the width of the MAIN AREA (the container query on `RoomHome.module.css` `.root`), like the room view's own columns:
- * - open and from 62rem: the third column, in a grid (wide: a grid of the header and the conversation, closed or open; narrow: a flex column). The list takes at most 22rem, so the conversation keeps about 19rem at the threshold and 20rem in a 1280px window (a 63rem container) beside the 18rem panel. The threshold is what lets the composer stay on screen at 1280x720 with the panel open: stacked above the conversation the panel would eat its height.
- * - open and below it (two columns, or master-detail): one column, the panel under the header and above the conversation, capped at 40dvh and scrolling inside.
- * - closed: one column, the conversation takes the whole pane.
- * Wide, the pane is also a height budget: see the grid rows below. Used alone (a test, no container) it is the narrow layout.
- */
 .pane {
-  /* Narrow: a plain column — the header, the panel (when open), then the conversation's own parts. `.conversation` is `display: contents`
-     here, so the messages and the composer are children of THIS column: the sticky composer's containing block is the whole pane, not just
-     the conversation below a tall panel, and it can stay at the bottom edge of the screen however far down the conversation starts. */
+  --chat-gutter: clamp(0.75rem, 2cqi, 1.5rem);
   display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xs);
   flex: 1 1 auto;
-  min-height: 0;
+  flex-direction: column;
+  min-block-size: 0;
 }
 
-.pane .conversation {
+.pane:focus-visible {
+  outline: 2px solid var(--adder-accent-ink);
+  outline-offset: -2px;
+}
+
+.conversation {
+  /* Keep the mobile composer's sticky containing block as tall as the entire pane. */
   display: contents;
 }
 
-/*
- * The header's first row: the title, the status pill and the icon group. The title is the part that gives way — up to two lines, then an
- * ellipsis (the whole text stays in the DOM and in the heading's name) — and keeps 8rem of its own before the pill and the icons wrap to
- * the row below; and in a narrow pane (the header's own width, below 30rem: a phone, or a stacked pane with the panel open) the title takes
- * the whole first row and the pill and icons share the next, so it never shrinks to a few characters.
- */
 .head {
-  container-type: inline-size;
+  container: thread-heading / inline-size;
+  padding: 0.625rem var(--chat-gutter);
+  border-block-end: 1px solid var(--mantine-color-default-border);
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "title actions"
+    "meta meta";
+  align-items: center;
+  gap: 0.25rem 0.5rem;
 }
 
 .title {
-  flex: 1 1 8rem;
-  min-width: 0;
+  grid-area: title;
+  min-inline-size: 0;
+  font-size: clamp(1.125rem, 3cqi, 1.375rem);
+  line-height: 1.25;
   overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
-  overflow: hidden;
+  overflow: clip;
 }
 
-@container (max-width: 30rem) {
-  .title {
-    flex-basis: 100%;
+.number {
+  color: var(--mantine-color-dimmed);
+  font-size: 0.78em;
+  font-weight: 500;
+}
+
+.actions {
+  grid-area: actions;
+  justify-self: end;
+}
+
+.focusAction {
+  display: inline-flex;
+}
+
+.meta {
+  grid-area: meta;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+@container thread-heading (max-width: 30rem) {
+  .summary {
+    grid-template-areas:
+      "title title"
+      "meta actions";
   }
 }
 
-/* The curated tags' row (`TagPills` with a limit): ONE line, 1.75rem with its gap, exactly like the hashtag row below it (`--pills-take`). */
-.tagRow {
-  min-width: 0;
+@container thread-heading (max-width: 14rem) {
+  .summary {
+    grid-template-areas:
+      "title title"
+      "meta meta"
+      "actions actions";
+  }
 }
 
+@container room-workspace (max-width: 45.99rem) {
+  .focusAction {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .actions button {
+    min-inline-size: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+}
+
+.labels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+
+.hashtagRow {
+  flex: 1 1 17rem;
+}
+
+.tagRow,
+.hashtagRow,
 .head,
 .conversation,
 .side {
-  min-width: 0;
+  position: relative;
+  min-inline-size: 0;
+}
+
+@container room-workspace (max-width: 20rem) {
+  .labels {
+    display: none;
+  }
 }
 
 .side {
-  padding: var(--mantine-spacing-sm);
-  border: 1px solid var(--mantine-color-default-border);
-  border-radius: var(--mantine-radius-md);
-  /* The panel scrolls on its own; it is a focusable, labelled region (`tabIndex` 0 in `ThreadPane.tsx`), so the keyboard reaches the
-     scroller even when no control inside it can be focused (a read-only viewer). Stacked above the conversation it is capped (40dvh). */
+  padding: var(--mantine-spacing-md);
+  background: var(--chat-sidebar);
+  border-block-end: 1px solid var(--mantine-color-default-border);
   overflow-y: auto;
-  max-height: 40dvh;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  max-block-size: 35dvh;
 }
 
-.pane .side[data-open="false"] {
+.side:focus-visible {
+  outline: 2px solid var(--adder-accent-ink);
+  outline-offset: -2px;
+}
+
+.side[data-open="false"] {
   display: none;
 }
 
 @container (min-width: 62rem) {
-  /* Wide: a grid whose rows are the header (`auto`) and the conversation (`minmax(0, 1fr)`), the pane being bounded to the viewport
-     (`RoomHome.module.css` `data-bound`): a header that wraps shrinks the conversation, never pushes the composer down. */
   .pane {
+    --strip-list-max: min(10rem, 14dvh);
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
   }
 
-  .pane .conversation {
+  .conversation {
     display: flex;
-  }
-
-  /* The pin strip (`data-strip`) takes height from the header's box, and the conversation, the one part of the column that gives way, gives it
-     back by lowering its own minimum (`--scroller-min`, read by `MessageList.module.css`), so a pinned thread fits wherever an unpinned one does and
-     Send never moves. Collapsed the strip is one line (about 27px with its gap): the minimum is 16rem less 1.75rem. Expanded its list is capped at
-     `--strip-list-max` (read by `ThreadPinStrip.module.css`) and the conversation may shrink to 6rem: at 1280x720 with the side panel open and
-     a long title the conversation is about 240px with the strip collapsed, and the list takes what the conversation can spare. Wide only; narrow
-     keeps the full 16rem and the narrow cap. */
-  /* The hashtag row (`data-tags`) and the curated tags' row (`data-pills`) are each ONE line by construction (`ThreadHashtags.module.css`,
-     `TagPills.module.css`) and take about 1.75rem with their gap apiece (`--tags-take` is their sum), and the strip's collapsed line comes off the same minimum. */
-  .pane {
-    --hashtags-take: 0rem;
-    --pills-take: 0rem;
-    --tags-take: calc(var(--hashtags-take) + var(--pills-take));
-  }
-
-  .pane[data-tags="true"] {
-    --hashtags-take: 1.75rem;
-  }
-
-  .pane[data-pills="true"] {
-    --pills-take: 1.75rem;
-  }
-
-  .pane[data-tags="true"],
-  .pane[data-pills="true"] {
-    --scroller-min: calc(16rem - var(--tags-take));
-  }
-
-  .pane[data-strip="closed"] {
-    --scroller-min: calc(14.25rem - var(--tags-take, 0rem));
-  }
-
-  .pane[data-strip="open"] {
-    --scroller-min: 6rem;
-    --strip-list-max: calc(min(12rem, 14dvh) - var(--tags-take, 0rem));
+    min-block-size: 0;
   }
 
   .pane[data-side="open"] {
-    grid-template-columns: minmax(0, 1fr) 18rem;
+    grid-template-columns: minmax(0, 1fr) 17.5rem;
     grid-template-areas:
       "head side"
       "conversation side";
-    column-gap: var(--mantine-spacing-lg);
   }
 
   .pane[data-side="open"] .head {
@@ -144,10 +169,36 @@
     grid-area: conversation;
   }
 
-  /* Beside the conversation the panel spans both rows and is exactly as tall as the pane: it scrolls inside, never past it. */
   .pane[data-side="open"] .side {
     grid-area: side;
-    max-height: none;
-    min-height: 0;
+    border-block-end: 0;
+    border-inline-start: 1px solid var(--mantine-color-default-border);
+    border-start-end-radius: var(--mantine-radius-lg);
+    border-end-end-radius: var(--mantine-radius-lg);
+    max-block-size: none;
+    min-block-size: 0;
+  }
+}
+
+@media screen and (min-height: 40rem) {
+  @container (max-width: 61.99rem) {
+    .pane[data-side="closed"] .conversation {
+      display: flex;
+      flex: 1 1 auto;
+      min-block-size: 0;
+      --chat-timeline-max: none;
+      --chat-timeline-flex: 1 1 0;
+    }
+  }
+}
+
+@media print {
+  .pane {
+    grid-template-rows: auto auto;
+  }
+
+  .side {
+    max-block-size: none;
+    overflow: visible;
   }
 }

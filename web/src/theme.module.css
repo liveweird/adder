@@ -31,33 +31,114 @@
   border-bottom: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
 }
 
-/* The shell: white (dark: dark-7) header + navbar surfaces over a faintly tinted main canvas,
-   separated by hairlines — surfaces (Papers, tables) lift off the canvas instead of blending. */
+/* The shell separates the header, sidebar and workspace with quiet surfaces and hairlines. */
 .appMain {
   background-color: var(--adder-canvas);
 }
 
 .appHeader {
   background-color: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
-  border-bottom: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+  border-block-end: 1px solid var(--mantine-color-default-border);
+}
+
+.appbar {
+  display: grid;
+  grid-template-columns: calc(var(--app-shell-navbar-width, 15rem) - 1rem) minmax(0, 1fr) auto;
+  align-items: center;
+  min-block-size: 100%;
+  column-gap: 0.75rem;
+  padding-inline: 0.875rem;
+}
+
+.appbar[data-rail] {
+  grid-template-columns: 8.5rem minmax(0, 1fr) auto;
+}
+
+.brandGroup {
+  min-inline-size: 0;
+}
+
+.brandLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-inline: 0.375rem;
+  min-block-size: 2.25rem;
+  border-radius: var(--mantine-radius-md);
+  color: var(--mantine-color-text);
+  text-decoration: none;
+}
+
+.brandLink:hover {
+  background: var(--adder-surface-tint);
+}
+
+.brandLink:focus-visible {
+  outline: 2px solid var(--adder-accent-ink);
+  outline-offset: -2px;
 }
 
 .brandText {
   letter-spacing: -0.01em;
 }
 
-.appNavbar {
-  background-color: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
-  border-right: 1px solid light-dark(var(--mantine-color-gray-2), var(--mantine-color-dark-4));
+.headerSearch {
+  display: flex;
+  min-inline-size: 0;
+}
+
+.headerActions {
+  position: relative;
+  justify-content: flex-end;
+}
+
+.appNavbar,
+.navDrawer {
+  background: light-dark(var(--adder-surface-tint), var(--mantine-color-dark-7));
+}
+
+.navDrawer {
+  display: flex;
+  flex-direction: column;
+}
+
+.navDrawerBody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-block-size: 0;
+  padding: 0.5rem;
+}
+
+.navDrawerTitle {
+  font-size: var(--mantine-font-size-md);
+  font-weight: 650;
+}
+
+.navScroll {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  padding-inline: 0.125rem;
+}
+
+.navSection + .navSection {
+  margin-block-start: 0.375rem;
+}
+
+.navFooter {
+  margin-block-start: 0.5rem;
+  border-block-start: 1px solid var(--mantine-color-default-border);
+  padding: 0.5rem 0.375rem 0.125rem;
 }
 
 /* Navbar items: compact, rounded, with the icon following the text colour. The active
    state is the sidebar's ONLY olive — a light tint plus a 3px accent bar on the left edge,
    the "you are here" marker — so the brand reads as a precise pointer, not a wash. */
 .navLink {
-  border-radius: var(--mantine-radius-sm);
+  border-radius: var(--mantine-radius-md);
   margin-bottom: 1px;
-  padding-block: 6px;
+  min-block-size: 2.125rem;
+  padding: 0.375rem 0.625rem;
   font-size: var(--mantine-font-size-sm);
 }
 
@@ -75,11 +156,9 @@
 /* The sidebar's section labels (Overview / Administration): a static caption,
    never a toggle — every leaf stays in the DOM. */
 .navSectionLabel {
-  padding: 14px 12px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  padding: 0.625rem 0.625rem 0.25rem;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 650;
   color: var(--mantine-color-dimmed);
 }
 
@@ -96,6 +175,16 @@
 
 .railLink :global(.mantine-NavLink-body) {
   display: none;
+}
+
+.roomRailLink :global(.mantine-NavLink-body) {
+  min-inline-size: 0;
+}
+
+.roomRailLink :global(.mantine-NavLink-label) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Links are text, not accent: dark by default, the brand colour only as the hover
@@ -122,8 +211,9 @@
   display: inline-flex;
   align-items: center;
   gap: var(--mantine-spacing-xs);
-  height: 32px;
-  min-width: 260px;
+  min-block-size: 2.125rem;
+  inline-size: min(100%, 27rem);
+  min-inline-size: 0;
   padding: 0 var(--mantine-spacing-sm);
   border: 1px solid light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4));
   border-radius: var(--mantine-radius-md);
@@ -139,6 +229,63 @@
 .paletteTrigger > span:first-of-type {
   flex: 1;
   text-align: start;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paletteTrigger svg {
+  flex: none;
+}
+
+.liveIcon {
+  display: none;
+}
+
+@media (max-width: 47.99em) {
+  .appbar,
+  .appbar[data-rail] {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    column-gap: 0.25rem;
+    padding-inline: 0.625rem;
+  }
+
+  .brandLink {
+    padding-inline: 0.25rem;
+  }
+
+  .headerActions {
+    column-gap: 0.25rem;
+  }
+
+  .liveBadge {
+    padding-inline: 0.25rem;
+  }
+
+  .liveIcon {
+    display: block;
+  }
+
+  .liveCopy {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+    white-space: nowrap;
+  }
+}
+
+@media (pointer: coarse) {
+  .appbar :is(button, a),
+  .navDrawer :is(.navLink, :global(.mantine-Drawer-close)) {
+    min-block-size: 2.75rem;
+  }
+
+  .appbar button {
+    min-inline-size: 2.75rem;
+  }
 }
 
 /* The scroller is a keyboard stop (it scrolls a table wider or taller than the screen): a visible focus ring. */
