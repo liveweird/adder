@@ -1861,6 +1861,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/home": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the caller's personal Home dashboard
+         * @description Returns up to five items per section. All sections are scoped to rooms the signed-in caller currently belongs to, including
+         *     for administrators. Recent quotes are replies from other people to the caller's messages, newest first. The quote list is
+         *     independent of notification preferences and includes read items. Owned threads are open threads in active rooms, newest
+         *     activity first. Watched threads put unread threads first, then sort by latest activity. Owned rooms with pending join requests
+         *     appear first. Within each group, active rooms precede archived ones and the most recently active rooms come first.
+         *     The per-user chat-read bucket and bounded thread-list read limiter apply.
+         */
+        get: operations["getHome"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -2719,6 +2744,70 @@ export interface components {
             pageSize: number;
             /** Format: int64 */
             total: number;
+        };
+        HomeResponse: {
+            quotes: components["schemas"]["HomeQuote"][];
+            ownedThreads: components["schemas"]["HomeThread"][];
+            watchedThreads: components["schemas"]["HomeThread"][];
+            ownedRooms: components["schemas"]["HomeRoom"][];
+        };
+        HomeQuote: {
+            /** Format: int32 */
+            roomId: number;
+            roomName: string;
+            roomArchived: boolean;
+            /** Format: int32 */
+            threadNumber: number;
+            threadTitle: string;
+            /** Format: int32 */
+            messageId: number;
+            authorName: string;
+            /** @description Clipped Markdown for the client to turn into a plain-text excerpt. */
+            body: string;
+            truncated: boolean;
+            mentions: components["schemas"]["MentionedUser"][];
+            groupMentions: components["schemas"]["GroupMention"][];
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+            unread: boolean;
+        };
+        HomeThread: {
+            /** Format: int32 */
+            roomId: number;
+            roomName: string;
+            roomArchived: boolean;
+            /** Format: int32 */
+            number: number;
+            title: string;
+            /** @description The status key. */
+            status: string;
+            statusLabel: string;
+            statusColour: components["schemas"]["StatusColour"];
+            closed: boolean;
+            unreadCount: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastActivityAt: number;
+        };
+        HomeRoom: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            accessType: components["schemas"]["RoomAccessType"];
+            archived: boolean;
+            unread: boolean;
+            /** Format: int64 */
+            pendingJoinRequests: number;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            lastActivityAt: number;
         };
         /**
          * @description Public is discoverable and open to self-join. Restricted visible is discoverable and requires an owner to grant access. Restricted hidden is members-only and invitation-only.
@@ -6545,6 +6634,29 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getHome: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's dashboard */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomeResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };

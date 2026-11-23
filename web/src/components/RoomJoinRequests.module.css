@@ -1,0 +1,3 @@
+.heading {
+  scroll-margin-block-start: calc(var(--app-shell-header-height, 48px) + 1rem);
+}

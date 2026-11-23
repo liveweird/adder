@@ -98,8 +98,11 @@ icon rail keeps its stored preference. The mobile drawer follows the shell break
 to the menu button on dismissal or to the destination on navigation. The brand links to Home and the command palette stays in
 the header.
 
-Home uses the active rooms rail query and shows up to six of the caller's rooms in activity order. All rooms uses the directory's
-existing filters, pagination and server sort. Its table groups membership and archive state with the room name. On narrower main
+Home uses one `GET /api/v1/home` query. Recent quoting replies and open owned threads lead the dashboard, followed by watched threads
+and owned rooms. At narrower widths the sections stack in this same order. Quote rows use the normal message jump and shared plain-text
+excerpt renderer. Pending join requests link directly to Members. Home refreshes with relevant live events and when the tab regains focus.
+
+All rooms uses the directory's existing filters, pagination and server sort. Its table groups membership and archive state with the room name. On narrower main
 areas the rows become cards, and the same sort buttons stay visible above them. Both views use the reader's time zone.
 
 ### The room view (the Threads tab)

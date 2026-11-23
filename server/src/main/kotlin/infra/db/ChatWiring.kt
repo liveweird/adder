@@ -1,5 +1,7 @@
 package ch.nokillswit.infra.db
 
+import ch.nokillswit.home.HomeService
+import ch.nokillswit.home.HomeServiceKey
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.notifications.MAX_BROADCASTS_PER_ACTOR
@@ -62,7 +64,7 @@ internal fun Application.publishChatServices(
     // The thread aggregate (V14): a thread write runs under the room lock and reads the room through the rooms/ services only.
     val threadEventService = ThreadEventService(database)
     // The hashtag index (V15) is written inside the message writes, so the message service holds it; a boot reindex reads it back.
-    // The filtered thread list and the tag list share one limiter (the thread detail and the notice list have their own, below): ONE
+    // The filtered thread list, the tag list and Home share one limiter (the thread detail and notice list have their own, below): ONE
     // `threads.readTimeoutSeconds` deadline per read and at most
     // `threads.readMaxConcurrent` reads at once in the process (both boot-validated).
     val readLimiter = ReadLimiter(
@@ -113,6 +115,8 @@ internal fun Application.publishChatServices(
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
     val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService, teamService)
+    // Home is a read-only top-layer projection over rooms and threads. It shares the bounded, chat-read-bucketed list limiter.
+    attributes.put(HomeServiceKey, HomeService(database, messageMentionService, readLimiter))
     // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.
     val reactionService = MessageReactionService(database)
     attributes.put(MessageReactionServiceKey, reactionService)

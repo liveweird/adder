@@ -39,17 +39,20 @@ class PackageBoundaryTest {
      */
     private val infraCompositionRoot: Map<String, Set<String>> = mapOf(
         "infra/db/Database.kt" to setOf("auth", "rooms", "tags", "teams", "users", "workflows"),
-        "infra/db/ChatWiring.kt" to setOf("notifications", "rooms", "teams", "threads"),
+        "infra/db/ChatWiring.kt" to setOf("home", "notifications", "rooms", "teams", "threads"),
         "infra/db/Bootstrap.kt" to setOf("auth", "users"),
     )
 
     /** The files that construct the notification service (the only non-notifications files that may name it). */
     private val notificationsWiring = setOf("infra/db/Database.kt", "infra/db/ChatWiring.kt")
 
+    /** Home is a top-layer projection; only the composition root constructs it. */
+    private val homeWiring = setOf("infra/db/ChatWiring.kt")
+
     private val chatPackages = listOf("workflows", "rooms", "threads", "live", "notifications")
 
     private val featurePackages = listOf(
-        "teams", "tags", "users", "auth", "authz", "telemetry", "workflows", "rooms", "threads", "live", "notifications",
+        "teams", "tags", "users", "auth", "authz", "telemetry", "workflows", "rooms", "threads", "live", "notifications", "home",
     )
 
     private fun packageOf(text: String): String? =
@@ -114,6 +117,20 @@ class PackageBoundaryTest {
                 emptyList()
             } else {
                 forbiddenReferences(text, listOf("notifications")).map { "${file.name} $it" }
+            }
+        }
+        assertEquals(emptyList(), violations)
+    }
+
+    @Test
+    fun `no package outside home references home but the composition root`() {
+        assertTrue(mainSources.any { packageOf(it.readText()) == "ch.nokillswit.home" }, "no source declares ch.nokillswit.home")
+        val violations = mainSources.flatMap { file ->
+            val text = file.readText()
+            if (packageOf(text) == "ch.nokillswit.home" || file.relativePath() in homeWiring) {
+                emptyList()
+            } else {
+                forbiddenReferences(text, listOf("home")).map { "${file.name} $it" }
             }
         }
         assertEquals(emptyList(), violations)

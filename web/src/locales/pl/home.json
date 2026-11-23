@@ -1,16 +1,33 @@
 {
-  "title": "Adder",
+  "title": "Strona główna",
   "allRooms": "Wszystkie pokoje",
-  "recent": {
-    "title": "Aktywne pokoje",
-    "description": "Pokoje, do których należysz. Najpierw ostatnio aktywne.",
-    "lastActivity": "Aktywność: {{when}}",
-    "unread": "Nowe",
-    "unreadAccessible": ", nowa aktywność",
-    "loadFailed": "Nie udało się wczytać Twoich pokoi"
+  "loadFailed": "Nie udało się wczytać strony głównej",
+  "new": "Nowe",
+  "unreadAccessible": "Nowa aktywność",
+  "unread": "Nieprzeczytane: {{count}}",
+  "threadNumber": "#{{number}}",
+  "activeAt": "Aktywność: {{when}}",
+  "quotes": {
+    "title": "Odpowiedzi cytujące Ciebie",
+    "context": "{{author}} w pokoju {{room}}",
+    "at": "Odpowiedź: {{when}}",
+    "empty": "Nikt ostatnio Cię nie cytował."
   },
-  "empty": {
-    "label": "Nie ma jeszcze aktywnych pokoi",
-    "hint": "Otwórz Wszystkie pokoje, aby znaleźć lub utworzyć pokój."
+  "ownedThreads": {
+    "title": "Otwarte wątki, które prowadzisz",
+    "empty": "Nie odpowiadasz za żadne otwarte wątki w aktywnych pokojach."
+  },
+  "watchedThreads": {
+    "title": "Obserwowane wątki",
+    "all": "Zobacz wszystkie",
+    "empty": "Nie obserwujesz żadnych wątków."
+  },
+  "rooms": {
+    "title": "Pokoje, które prowadzisz",
+    "requests_one": "{{count}} prośba o dołączenie",
+    "requests_few": "{{count}} prośby o dołączenie",
+    "requests_many": "{{count}} próśb o dołączenie",
+    "requests_other": "{{count}} prośby o dołączenie",
+    "empty": "Nie jesteś właścicielem żadnego pokoju."
   }
 }

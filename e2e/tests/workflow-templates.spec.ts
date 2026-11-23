@@ -102,7 +102,7 @@ test("a regular user picks a template when creating a room but has no template p
   for (const path of ["/workflow-templates", "/workflow-templates/new", "/workflow-templates/1/edit"]) {
     await page.goto(path);
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole("heading", { level: 2, name: "Adder" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "Home" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Workflow templates" })).toHaveCount(0);
   }
   expect(requests).toEqual([]);

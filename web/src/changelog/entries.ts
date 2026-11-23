@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.7.0",
+    date: "2026-11-23",
+    en: `**Adder 1.7.0 — personal Home**
+
+- Jump from Home to the latest replies quoting your messages. Unread replies are marked and recent quotes stay visible after you read them.
+- Pick up open threads you own and see what changed in threads you watch. Watched threads with unread replies appear first.
+- See the rooms you own and open pending join requests from Home.`,
+    pl: `**Adder 1.7.0 — osobista strona główna**
+
+- Ze strony głównej przejdź bezpośrednio do najnowszych odpowiedzi cytujących Twoje wiadomości. Nieprzeczytane odpowiedzi są oznaczone, a ostatnie cytaty pozostają widoczne po przeczytaniu.
+- Wróć do otwartych wątków, którymi zarządzasz, i sprawdź zmiany w obserwowanych wątkach. Wątki z nieprzeczytanymi odpowiedziami pojawiają się najpierw.
+- Zobacz pokoje, którymi zarządzasz, i otwórz oczekujące prośby o dołączenie bezpośrednio ze strony głównej.`,
+  },
+  {
     version: "1.6.0",
     date: "2026-11-23",
     en: `**Adder 1.6.0 — room access**

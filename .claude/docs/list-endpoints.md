@@ -44,8 +44,9 @@ theme's `foldedOptionsFilter` (`web/src/utils/text.ts`).
 **Repeated keys (`IN`).** A scalar key repeated is a `400` (`singleValue`); a parameter documents `IN` semantics through the `repeatedValues` family (`repeatedLongs`/`repeatedStrings` in `infra/paging/QueryParams.kt`), declared in the spec as `type: array` with `style: form`, `explode: true` and `minItems`/`maxItems`, with duplicates collapsed (`distinct()`) before the bound applies. The ledger (which endpoint takes which key, and the bounds) is in `chat-model.md` "List endpoint ledger"; a new consumer adds a line there.
 
 **No shape-exception exists.** Every list keeps the paged envelope, the tag registry's included (it answers 100 per page at most, so the SPA
-reads it whole in `pageSize=100` pages: `chat-model.md` "List endpoint ledger"); a purpose-built document (e.g. a thread board) answers
-outside it only with a documented cap and a line here in the commit that introduces it.
+reads it whole in `pageSize=100` pages: `chat-model.md` "List endpoint ledger"); a purpose-built document answers
+outside it only with a documented cap. `GET /home` is a single dashboard document with up to five entries in each of four sections.
+Its section order and caps are in the OpenAPI contract.
 
 **Sub-collections and facets:** a record's own sub-collection is paged like any list, however small. Facet counts (`GET .../facets`) are not implemented — port Covenant's
 pattern with the first filterable list that needs them.

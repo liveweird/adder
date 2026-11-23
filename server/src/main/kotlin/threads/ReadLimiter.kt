@@ -37,8 +37,9 @@ const val NOTIFICATION_READS_PER_USER = 2
 const val THREAD_READS_PER_USER = 2
 
 /**
- * The most bounded reads ONE user may have in flight at once (the thread and tag lists; the notice list and the thread detail have their
- * own, [NOTIFICATION_READS_PER_USER] and [THREAD_READS_PER_USER]). A live hint makes every open tab refetch the room's thread list and,
+ * The most bounded reads ONE user may have in flight at once (the thread and tag lists and Home; the notice list and the thread detail
+ * have their own, [NOTIFICATION_READS_PER_USER] and [THREAD_READS_PER_USER]). A live hint makes every open tab refetch the room's thread
+ * list and,
  * with the filter panel open, the tag list, after the same 300 ms settle (`web/src/utils/liveKeys.ts`): two reads per tab, all in the
  * same instant. 8 is four such tabs together, above any real use; a script that holds more than that is what the cap stops.
  */
@@ -63,10 +64,10 @@ class ThreadReadLimiters(
 )
 
 /**
- * The bounds of the reads that scan a room's rows (the filtered thread list and the tag list), of the thread detail and of the
+ * The bounds of the reads that scan chat rows (the filtered thread list, the tag list and Home), of the thread detail and of the
  * notice list, the way the search is bounded (`ThreadSearchService`): ONE deadline per read and a cap on how many run at once, so a
  * flood of slow reads can never hold the pool. THREE instances exist (`ChatWiring.kt`), each its own pool of permits and per-user
- * slots: the lists (`threads` and `tags`, `chat-read`-bucketed), the thread detail (`thread`, unbucketed) and the notice list
+ * slots: the lists (`threads`, `tags` and `home`, `chat-read`-bucketed), the thread detail (`thread`, unbucketed) and the notice list
  * (`notifications`), so a flood of one kind can never crowd out another.
  *
  * - **Deadline.** [run] executes its block in one read transaction under ONE [SearchBudget] of [timeoutSeconds] (the search's budget,
@@ -102,8 +103,9 @@ class ReadLimiter(
     internal fun usersInFlight(): Int = inFlight.size
 
     /**
-     * [resource] names the read (`threads`, `tags`, `thread` (the one thread's detail) or `notifications`) in the audit lines; [roomId]
-     * is null for a read that belongs to no room (the caller's own notification list), and then the lines carry no room id.
+     * [resource] names the read (`threads`, `tags`, `home`, `thread` (one thread's detail) or `notifications`) in the audit lines;
+     * [roomId] is null for a read that belongs to no room (Home and the caller's own notification list), and then the lines carry no
+     * room id.
      */
     internal suspend fun <T> run(
         database: R2dbcDatabase,
@@ -165,7 +167,7 @@ class ReadLimiter(
      * and minute, with the count folded since the last line (`suppressed`): one wide event makes hundreds of tabs read at the same
      * instant and the overflow is refused together, and a script can hold a user's slots and be refused at the pace of the 1 s wait (or
      * run to the 5 s deadline again and again), so a line per refusal would be a flood of identical lines. The bucketed lists
-     * (`threads`, `tags`) are still one line per refusal, with `suppressed` 0.
+     * (`threads`, `tags`, `home`) are still one line per refusal, with `suppressed` 0.
      */
     private fun auditSuppressed(event: String, callerUserId: UInt, resource: String): Long? =
         if (resource !in COALESCED_RESOURCES) 0L else auditThrottle.admit("$event:$resource:$callerUserId")

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { markRoomReadInCaches, markRoomSeenInCaches, markThreadReadInCaches } from "./readCache";
 import { notificationKeys } from "./notificationKeys";
-import { roomKeys } from "./roomKeys";
+import { homeKey, roomKeys } from "./roomKeys";
 import { ChannelStub } from "../test/broadcast";
 import { openSeenSync } from "./seenSync";
 
@@ -30,6 +30,12 @@ describe("markRoomReadInCaches", () => {
     queryClient.setQueryData(roomKeys.threadDetail(12, 4), { number: 4, unreadCount: 3, firstUnreadMessageId: 70 });
     queryClient.setQueryData(roomKeys.threadDetail(13, 4), { number: 4, unreadCount: 3, firstUnreadMessageId: 70 });
     queryClient.setQueryData([...roomKeys.rail, "active"], page([{ id: 12, unread: true }, { id: 13, unread: true }]));
+    queryClient.setQueryData(homeKey, {
+      quotes: [{ roomId: 12, unread: true }, { roomId: 13, unread: true }],
+      ownedThreads: [{ roomId: 12, unreadCount: 3 }, { roomId: 13, unreadCount: 2 }],
+      watchedThreads: [{ roomId: 12, unreadCount: 100 }, { roomId: 13, unreadCount: 1 }],
+      ownedRooms: [{ id: 12, unread: true }, { id: 13, unread: true }],
+    });
     queryClient.setQueryData(notificationKeys.unseen, page([]));
     markRoomReadInCaches(queryClient, 12);
     expect(queryClient.getQueryData([...roomKeys.threadList(12), 1])).toMatchObject({ items: [{ number: 4, unreadCount: 0 }, { number: 5, unreadCount: 0 }] });
@@ -38,6 +44,13 @@ describe("markRoomReadInCaches", () => {
     expect(queryClient.getQueryData(roomKeys.threadDetail(12, 4))).toEqual({ number: 4, unreadCount: 0, firstUnreadMessageId: null });
     expect(queryClient.getQueryData(roomKeys.threadDetail(13, 4))).toMatchObject({ unreadCount: 3 });
     expect(queryClient.getQueryData([...roomKeys.rail, "active"])).toMatchObject({ items: [{ id: 12, unread: false }, { id: 13, unread: true }] });
+    expect(queryClient.getQueryData(homeKey)).toMatchObject({
+      quotes: [{ unread: false }, { unread: true }],
+      ownedThreads: [{ unreadCount: 0 }, { unreadCount: 2 }],
+      watchedThreads: [{ unreadCount: 0 }, { unreadCount: 1 }],
+      ownedRooms: [{ unread: false }, { unread: true }],
+    });
+    expect(queryClient.getQueryState(homeKey)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState([...roomKeys.threadList(12), 1])?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState([...roomKeys.threadList(13), 1])?.isInvalidated).toBe(false);
     expect(queryClient.getQueryState([...roomKeys.rail, "active"])?.isInvalidated).toBe(true);
@@ -52,6 +65,26 @@ describe("markRoomReadInCaches", () => {
 });
 
 describe("markThreadReadInCaches", () => {
+  test("updates Home immediately and marks it stale so the bounded ranking is restored", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(homeKey, {
+      quotes: [{ roomId: 12, threadNumber: 4, messageId: 29, unread: true }, { roomId: 12, threadNumber: 4, messageId: 31, unread: true }],
+      ownedThreads: [{ roomId: 12, number: 4, unreadCount: 3 }, { roomId: 12, number: 5, unreadCount: 2 }],
+      watchedThreads: [{ roomId: 12, number: 4, unreadCount: 3 }],
+      ownedRooms: [{ id: 12, unread: true }],
+    });
+
+    markThreadReadInCaches(queryClient, 12, 4, 30);
+
+    expect(queryClient.getQueryData(homeKey)).toMatchObject({
+      quotes: [{ unread: false }, { unread: true }],
+      ownedThreads: [{ unreadCount: 0 }, { unreadCount: 2 }],
+      watchedThreads: [{ unreadCount: 0 }],
+      ownedRooms: [{ unread: false }],
+    });
+    expect(queryClient.getQueryState(homeKey)?.isInvalidated).toBe(true);
+  });
+
   test("reads the thread as read in its list row and its detail, without touching other threads or the tag pages", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData([...roomKeys.threadList(12), 1], page([{ number: 4, unreadCount: 3 }, { number: 5, unreadCount: 2 }]));

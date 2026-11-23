@@ -5,7 +5,11 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.6.0 — room access)
+## What's here today (1.7.0 — personal Home)
+
+Home shows the latest replies quoting your messages, open threads you own, watched threads with unread replies first, and rooms you own. Each section shows up to five items. Quote links open the reply in context, and pending join requests link to the room's Members tab.
+
+### Room access (1.6.0)
 
 Choose a room's access when you create it. Any signed-in user can find and join a **Public** room. Anyone can find a **Restricted, visible** room and request to join. A **Restricted, hidden** room is visible only to members. Existing rooms become restricted hidden.
 
@@ -17,7 +21,6 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
 
 - **Focused chat** — on larger screens the thread list and conversation use the available height and scroll independently. On phones an open thread gets a focused view with a clear return to the list.
 - **Conversation clarity** — compact room and thread headers, clearer message hierarchy, comfortable line lengths, quieter actions and a reply composer pinned below the message timeline keep attention on the discussion. Workflow controls, metadata, tags, timestamps and history stay organised in Details.
-- **Useful Home** — up to six recently active joined rooms, with unread cues, provide a direct route back to current work.
 - **Responsive room directory** — All rooms is a scannable table on larger screens and cards on narrow screens, with sorting and filters in both layouts.
 - **Navigation** — a cleaner application header and command palette, plus an accessible mobile drawer with managed focus and Escape or backdrop closing.
 

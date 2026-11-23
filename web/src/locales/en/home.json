@@ -1,16 +1,31 @@
 {
-  "title": "Adder",
+  "title": "Home",
   "allRooms": "All rooms",
-  "recent": {
-    "title": "Active rooms",
-    "description": "Rooms you belong to, most recently active first.",
-    "lastActivity": "Active {{when}}",
-    "unread": "New",
-    "unreadAccessible": ", new activity",
-    "loadFailed": "Could not load your rooms"
+  "loadFailed": "Could not load your home",
+  "new": "New",
+  "unreadAccessible": "New activity",
+  "unread": "{{count}} unread",
+  "threadNumber": "#{{number}}",
+  "activeAt": "Active {{when}}",
+  "quotes": {
+    "title": "Replies quoting you",
+    "context": "{{author}} in {{room}}",
+    "at": "Replied {{when}}",
+    "empty": "No one has quoted you recently."
   },
-  "empty": {
-    "label": "No active rooms yet",
-    "hint": "Open All rooms to find or create a room."
+  "ownedThreads": {
+    "title": "Open threads you own",
+    "empty": "You have no open threads in active rooms."
+  },
+  "watchedThreads": {
+    "title": "Watched threads",
+    "all": "View all",
+    "empty": "You are not watching any threads."
+  },
+  "rooms": {
+    "title": "Rooms you own",
+    "requests_one": "{{count}} join request",
+    "requests_other": "{{count}} join requests",
+    "empty": "You do not own any rooms."
   }
 }

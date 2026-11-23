@@ -35,7 +35,7 @@
 1. The admin creates a throwaway regular user and signs out; the user signs in.
    - *Expected*: the sidebar's Administration section shows Teams and no **Workflow templates** link.
 2. The user opens `/workflow-templates`, `/workflow-templates/new` and `/workflow-templates/1/edit` by URL.
-   - *Expected*: each lands on Home (`/`, h2 "Adder") and the link is still absent.
+   - *Expected*: each lands on Home (`/`, h2 "Home") and the link is still absent.
    - *Expected*: no request to `/api/v1/workflow-templates` was made by the browser (the pages' queries stay
      disabled for a regular user).
 3. They open **All rooms** in the sidebar's Rooms section, click **New room** and open the **Workflow template** picker.

@@ -50,7 +50,7 @@ describe("App shell", () => {
 
     test("renders the brand and the home page at /", async () => {
       renderApp("/");
-      expect(await screen.findByRole("heading", { level: 2, name: "Adder" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { level: 2, name: "Home" })).toBeInTheDocument();
       expect(screen.getAllByText("Adder").length).toBeGreaterThan(0);
     });
 
@@ -124,7 +124,7 @@ describe("App shell", () => {
     test("a fresh render starts collapsed once the choice was persisted", async () => {
       localStorage.setItem("adder.viewSettings.appShell.navCollapsed", "true");
       renderApp("/");
-      await screen.findByRole("heading", { level: 2, name: "Adder" });
+      await screen.findByRole("heading", { level: 2, name: "Home" });
       expect(screen.queryByText("Overview")).not.toBeInTheDocument();
       const toggle = screen.getByRole("button", { name: "Show or hide the navigation" });
       expect(toggle).not.toHaveAttribute("data-expanded");
@@ -401,7 +401,7 @@ describe("App shell", () => {
     test("shows no dot when the current version was already seen", async () => {
       localStorage.setItem("adder.changelog", JSON.stringify({ seenVersion: APP_VERSION }));
       renderApp("/");
-      await screen.findByRole("heading", { level: 2, name: "Adder" });
+      await screen.findByRole("heading", { level: 2, name: "Home" });
       expect(screen.queryByTitle("What's new")).not.toBeInTheDocument();
     });
 

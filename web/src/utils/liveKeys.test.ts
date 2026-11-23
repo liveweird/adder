@@ -5,7 +5,7 @@ import { createLiveInvalidator, keysForFrame } from "./liveKeys";
 import { LIVE_EVENT_KINDS, type LiveServerFrame } from "./liveProtocol";
 import { notificationKeys } from "./notificationKeys";
 import { markThreadReadInCaches } from "./readCache";
-import { notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
+import { homeKey, notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
 
 const event = (kind: string, roomId: number, threadNumber?: number, messageId?: number): LiveServerFrame => ({
   type: "event",
@@ -17,6 +17,7 @@ const event = (kind: string, roomId: number, threadNumber?: number, messageId?: 
 
 const RAIL: QueryKey = ["rooms", "rail"];
 const LIST: QueryKey = ["rooms", "list"];
+const HOME: QueryKey = homeKey;
 const gone = (r: number): QueryKey[] => [
   ["rooms", "detail", r],
   ["rooms", "access", r],
@@ -27,15 +28,16 @@ const gone = (r: number): QueryKey[] => [
   ["rooms", "pins", r],
   RAIL,
   LIST,
+  HOME,
 ];
 
 describe("keysForFrame: the key map", () => {
   test("thread.created re-reads the room's thread list, its workflow counts (both reads) and the rail", () => {
-    expect(keysForFrame(event("thread.created", 5, 7))).toEqual([["rooms", "threads", 5, "list"], ["rooms", "workflow", 5], ["rooms", "workflow-edit", 5], RAIL]);
+    expect(keysForFrame(event("thread.created", 5, 7))).toEqual([["rooms", "threads", 5, "list"], ["rooms", "workflow", 5], ["rooms", "workflow-edit", 5], RAIL, HOME]);
   });
 
   test("thread.updated and thread.owner_changed re-read the thread, its history, the room's thread list and the rail", () => {
-    const keys = [["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "events", 7], ["rooms", "threads", 5, "list"], RAIL];
+    const keys = [["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "events", 7], ["rooms", "threads", 5, "list"], RAIL, HOME];
     expect(keysForFrame(event("thread.updated", 5, 7))).toEqual(keys);
     expect(keysForFrame(event("thread.owner_changed", 5, 7))).toEqual(keys);
   });
@@ -48,11 +50,12 @@ describe("keysForFrame: the key map", () => {
       RAIL,
       ["rooms", "workflow", 5],
       ["rooms", "workflow-edit", 5],
+      HOME,
     ]);
   });
 
   test("message.posted re-reads the conversation, the thread (its message count), the thread list and the rail", () => {
-    expect(keysForFrame(event("message.posted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], RAIL]);
+    expect(keysForFrame(event("message.posted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], RAIL, HOME]);
   });
 
   test("message.edited re-reads the conversation, the thread (an edit can add or drop a hashtag its header shows), the thread list (the same on its rows) and the room's pins (a redacted body must not linger in the panel)", () => {
@@ -61,11 +64,12 @@ describe("keysForFrame: the key map", () => {
       ["rooms", "threads", 5, "detail", 7],
       ["rooms", "threads", 5, "list"],
       ["rooms", "pins", 5],
+      HOME,
     ]);
   });
 
   test("message.deleted re-reads the conversation, the thread, the thread list, the room's pins and the notices (not the rail)", () => {
-    expect(keysForFrame(event("message.deleted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5], ["notifications"]]);
+    expect(keysForFrame(event("message.deleted", 5, 7, 99))).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5], ["notifications"], HOME]);
   });
 
   test("message.reaction_changed re-reads the conversation, and nothing else: a reaction moves no count, order or rail", () => {
@@ -77,11 +81,11 @@ describe("keysForFrame: the key map", () => {
   });
 
   test("room.created re-reads the rail and the rooms list", () => {
-    expect(keysForFrame(event("room.created", 5))).toEqual([RAIL, LIST]);
+    expect(keysForFrame(event("room.created", 5))).toEqual([RAIL, LIST, HOME]);
   });
 
   test("room.updated, room.archived and room.unarchived re-read the room, the rail and the rooms list", () => {
-    const keys = [["rooms", "detail", 5], RAIL, LIST];
+    const keys = [["rooms", "detail", 5], RAIL, LIST, HOME];
     for (const kind of ["room.updated", "room.archived", "room.unarchived"]) expect(keysForFrame(event(kind, 5))).toEqual(keys);
   });
 
@@ -92,11 +96,12 @@ describe("keysForFrame: the key map", () => {
       ["rooms", "threads", 5, "list"],
       ["rooms", "threads", 5, "detail"],
       ["rooms", "threads", 5, "events"],
+      HOME,
     ]);
   });
 
   test("membership changes re-read the roster and room surfaces, and an add also settles access previews and request queues", () => {
-    const keys = [["rooms", "members", 5], ["rooms", "detail", 5], RAIL, LIST];
+    const keys = [["rooms", "members", 5], ["rooms", "detail", 5], RAIL, LIST, HOME];
     expect(keysForFrame(event("room.member_added", 5))).toEqual([
       ["rooms", "members", 5],
       ["rooms", "join-requests", 5],
@@ -104,6 +109,7 @@ describe("keysForFrame: the key map", () => {
       ["rooms", "access", 5],
       RAIL,
       LIST,
+      HOME,
     ]);
     for (const kind of ["room.member_role_changed", "room.member_removed"]) expect(keysForFrame(event(kind, 5))).toEqual(keys);
   });
@@ -138,11 +144,11 @@ describe("keysForFrame: the key map", () => {
   });
 
   test("a thread or message kind without its thread number falls back to the room's thread tree and the rail", () => {
-    expect(keysForFrame(event("message.posted", 5))).toEqual([["rooms", "threads", 5], RAIL]);
+    expect(keysForFrame(event("message.posted", 5))).toEqual([["rooms", "threads", 5], RAIL, HOME]);
   });
 
   test("message.deleted without its thread number still re-reads the notices: the ones about the message went with it", () => {
-    expect(keysForFrame(event("message.deleted", 5))).toEqual([["rooms", "threads", 5], RAIL, ["notifications"]]);
+    expect(keysForFrame(event("message.deleted", 5))).toEqual([["rooms", "threads", 5], RAIL, ["notifications"], HOME]);
   });
 
   test("a subscribed ack re-reads, per acked room, what the page read before the subscription existed", () => {
@@ -157,19 +163,20 @@ describe("keysForFrame: the key map", () => {
       ["rooms", "members", 6],
       ["rooms", "workflow", 6],
       ["rooms", "workflow-edit", 6],
+      HOME,
     ]);
     expect(keysForFrame({ type: "subscribed", roomIds: [], refused: [9], capped: [] })).toEqual([]);
   });
 
   test("ready re-reads the rail, the rooms list and the notices, resync all of ['rooms'] and the notices, pong nothing", () => {
-    expect(keysForFrame({ type: "ready", protocol: 1, maxSubscriptions: 128 })).toEqual([RAIL, LIST, ["notifications"]]);
-    expect(keysForFrame({ type: "resync" })).toEqual([["rooms"], ["notifications"]]);
+    expect(keysForFrame({ type: "ready", protocol: 1, maxSubscriptions: 128 })).toEqual([RAIL, LIST, ["notifications"], HOME]);
+    expect(keysForFrame({ type: "resync" })).toEqual([["rooms"], ["notifications"], HOME]);
     expect(keysForFrame({ type: "pong" })).toEqual([]);
   });
 
   test("a notice is personal: it re-reads the notifications and nothing of the room", () => {
-    expect(keysForFrame(event("notification.created", 5, 7, 99))).toEqual([["notifications"]]);
-    expect(keysForFrame(event("notification.created", 5))).toEqual([["notifications"]]);
+    expect(keysForFrame(event("notification.created", 5, 7, 99))).toEqual([["notifications"], HOME]);
+    expect(keysForFrame(event("notification.created", 5))).toEqual([["notifications"], HOME]);
   });
 
   test("every kind the protocol lists has a row (none falls through to the unknown-kind answer)", () => {
@@ -207,6 +214,7 @@ describe("the keys and the readers cannot drift apart", () => {
     [...roomKeys.search(5), "term", "all", 1],
     [...searchAllKey, "term", "all", 1],
     [...notificationsKey, "unseen"], // the bell reads under this prefix
+    homeKey,
   ];
 
   test("the room's tag options sit under the thread-list prefix, so every hint that refreshes the list refreshes them", () => {
@@ -275,11 +283,12 @@ describe("createLiveInvalidator", () => {
     const fetching = vi.spyOn(queryClient, "isFetching").mockReturnValue(0);
     const invalidator = createLiveInvalidator(queryClient, clock);
     const flushed = () => invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+    const flushedWithoutHome = () => flushed().filter((key) => JSON.stringify(key) !== JSON.stringify(HOME));
     // `message.edited` also re-reads the room's thread list (an aggregate, spaced on its own): a positive assertion about the conversation key filters it.
     const flushedMessages = () => flushed().filter((key) => (key as unknown[])[3] === "messages");
     /** Holds the room's thread list busy (a re-read of it waits, never cancels), so a test can watch the conversation key's timing alone, strictly. */
     const holdListBusy = () => fetching.mockImplementation((filters) => (keyOf(filters)[3] === "list" ? 1 : 0));
-    return { queryClient, clock, invalidate, fetching, invalidator, flushed, flushedMessages, holdListBusy };
+    return { queryClient, clock, invalidate, fetching, invalidator, flushed, flushedWithoutHome, flushedMessages, holdListBusy };
   }
 
   test("a re-read of an open search is flushed like any focused key, and the rail's next re-read is not delayed by it", () => {
@@ -332,7 +341,7 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(200);
     t.invalidator.handle(event("message.edited", 5, 7, 1));
     t.clock.advanceBy(299);
-    expect(t.flushed()).toEqual([]);
+    expect(t.flushedWithoutHome()).toEqual([]);
     t.clock.advanceBy(1);
     expect(t.flushedMessages()).toEqual([["rooms", "threads", 5, "messages", 7]]);
   });
@@ -342,8 +351,8 @@ describe("createLiveInvalidator", () => {
     t.invalidator.handle(event("message.posted", 5, 7, 1));
     t.invalidator.handle(event("message.posted", 5, 7, 2));
     t.clock.advanceBy(300);
-    expect(t.flushed()).toHaveLength(4);
-    expect(new Set(t.flushed().map((key) => JSON.stringify(key))).size).toBe(4);
+    expect(t.flushed()).toHaveLength(5);
+    expect(new Set(t.flushed().map((key) => JSON.stringify(key))).size).toBe(5);
   });
 
   test("a focused key never waits more than a second from its first hint, however steadily they keep coming", () => {
@@ -355,7 +364,7 @@ describe("createLiveInvalidator", () => {
       t.invalidator.handle(event("message.edited", 5, 7, 1));
     }
     t.clock.advanceBy(249);
-    expect(t.flushed()).toEqual([]);
+    expect(t.flushedWithoutHome()).toEqual([]);
     t.clock.advanceBy(1);
     expect(t.flushedMessages()).toEqual([["rooms", "threads", 5, "messages", 7]]);
   });
@@ -364,13 +373,13 @@ describe("createLiveInvalidator", () => {
     const t = setup();
     t.invalidator.handle(event("room.created", 5));
     t.clock.advanceBy(300);
-    expect(t.flushed()).toEqual([RAIL, LIST]);
+    expect(t.flushed()).toEqual([RAIL, LIST, HOME]);
     t.invalidator.handle(event("room.created", 5));
     t.invalidator.handle(event("room.created", 5));
     t.clock.advanceBy(2999);
-    expect(t.flushed()).toHaveLength(2);
+    expect(t.flushed()).toHaveLength(3);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toEqual([RAIL, LIST, RAIL, LIST]);
+    expect(t.flushed()).toEqual([RAIL, LIST, HOME, RAIL, LIST, HOME]);
     t.invalidator.handle(event("message.posted", 5, 7, 3));
     t.clock.advanceBy(300);
     expect(t.flushed().filter((key) => (key as unknown[])[3] === "list")).toHaveLength(1);
@@ -389,7 +398,7 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(999);
     expect(t.flushed()).toEqual([]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toHaveLength(8);
+    expect(t.flushed()).toHaveLength(9);
   });
 
   test("a hint that arrives while a spread flush waits brings it forward to the settle", () => {
@@ -447,9 +456,9 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(0);
     t.invalidator.handle(event("room.created", 5));
     t.clock.advanceBy(2999);
-    expect(t.flushed()).toEqual([["rooms"], ["notifications"]]);
+    expect(t.flushed()).toEqual([["rooms"], ["notifications"], HOME]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toEqual([["rooms"], ["notifications"], RAIL, LIST]);
+    expect(t.flushed()).toEqual([["rooms"], ["notifications"], HOME, RAIL, LIST, HOME]);
   });
 
   test("a focused key is never spaced by the 3 s gap (only the aggregates are)", () => {
@@ -542,7 +551,7 @@ describe("createLiveInvalidator", () => {
   });
 
   test("a reaction hint without a thread number falls back to the room's thread tree and the rail, like any thread-scoped hint", () => {
-    expect(keysForFrame(event("message.reaction_changed", 5))).toEqual([["rooms", "threads", 5], RAIL]);
+    expect(keysForFrame(event("message.reaction_changed", 5))).toEqual([["rooms", "threads", 5], RAIL, HOME]);
   });
 
   test("a resync waits a random 0 to 2 s and then re-reads everything under ['rooms']", () => {
@@ -552,7 +561,7 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(999);
     expect(t.flushed()).toEqual([]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toEqual([["rooms"], ["notifications"]]);
+    expect(t.flushed()).toEqual([["rooms"], ["notifications"], HOME]);
   });
 
   test("a key being fetched is NOT cancelled or re-read: it is tried again until it is idle", () => {
@@ -563,10 +572,10 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(300);
     t.clock.advanceBy(300);
     t.clock.advanceBy(300);
-    expect(t.flushed()).toEqual([]);
+    expect(t.flushed()).toEqual([HOME]);
     t.fetching.mockReturnValue(0);
     t.clock.advanceBy(300);
-    expect(t.flushed()).toEqual([["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
+    expect(t.flushed()).toEqual([HOME, ["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
     // Nothing was ever asked to cancel.
     expect(t.queryClient.isFetching()).toBe(0);
   });
@@ -576,10 +585,10 @@ describe("createLiveInvalidator", () => {
     t.fetching.mockImplementation((filters) => (keyOf(filters)[4] === 7 && keyOf(filters)[3] === "detail" ? 1 : 0));
     t.invalidator.handle(event("message.posted", 5, 7, 1));
     t.clock.advanceBy(300);
-    expect(t.flushed()).toHaveLength(3);
+    expect(t.flushed()).toHaveLength(4);
     t.fetching.mockReturnValue(0);
     t.clock.advanceBy(300);
-    expect(t.flushed()).toHaveLength(4);
+    expect(t.flushed()).toHaveLength(5);
   });
 
   test("dispose drops everything pending and its timer", () => {

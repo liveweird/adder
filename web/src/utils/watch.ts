@@ -3,7 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { RoomResponse } from "../api/rooms";
 import { isAccessRefusal } from "./roomAccess";
 import { refreshQueriesAfterMutation } from "./queryRefresh";
-import { roomKeys, searchAllKey } from "./roomKeys";
+import { homeKey, roomKeys, searchAllKey } from "./roomKeys";
 import { saveErrorMessage } from "./saveError";
 
 /**
@@ -26,7 +26,7 @@ export function watchErrorMessage(err: unknown, t: TFunction): string {
 }
 
 /** The search keys a watch change makes stale (the watched lists; a `watching=false` search too): the whole `["search"]` prefix. */
-export const WATCH_SEARCH_KEYS = [searchAllKey] as const;
+export const WATCH_SEARCH_KEYS = [searchAllKey, homeKey] as const;
 
 /**
  * After the caller's own watch write: the thread's detail (its `watching` and `watcherCount`) and the room's thread lists (the row marks and
