@@ -1,8 +1,9 @@
 import { useId } from "react";
 import { Anchor, Avatar, Box, Divider, Group, NavLink, Switch, Text, ThemeIcon, Tooltip, VisuallyHidden } from "@mantine/core";
-import { IconAlertCircle, IconAt, IconHash } from "@tabler/icons-react";
+import { IconAlertCircle, IconArchive, IconAt, IconFolder, IconHash } from "@tabler/icons-react";
 import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import type { RoomOrganization } from "../api/roomOrganization";
 import type { RoomListItem } from "../api/rooms";
 import { RAIL_PAGE_SIZE, type useRailRooms } from "../hooks/useRailRooms";
 import { roomPath, roomsPath } from "../utils/roomLinks";
@@ -15,11 +16,26 @@ import UnreadCue, { UnreadAnchor } from "./UnreadCue";
 
 const NO_MENTIONS: ReadonlyMap<number, number> = new Map();
 
+function personalSections(organization: RoomOrganization, items: RoomListItem[]) {
+  const placements = new Map(organization.rooms.map((room, index) => [room.roomId, { groupId: room.groupId, index }]));
+  const buckets = new Map<string | null, RoomListItem[]>(organization.groups.map((group) => [group.id, []]));
+  const ungrouped: RoomListItem[] = [];
+  for (const room of items) {
+    const groupId = placements.get(room.id)?.groupId ?? null;
+    (buckets.get(groupId) ?? ungrouped).push(room);
+  }
+  // The rail's active and archived pages arrive separately. Merge their order before rendering each group.
+  const rank = (id: number) => placements.get(id)?.index ?? Number.MAX_SAFE_INTEGER;
+  const inOrder = (rooms: RoomListItem[]) => rooms.sort((a, b) => rank(a.id) - rank(b.id) || b.lastActivityAt - a.lastActivityAt || a.id - b.id);
+  return [
+    ...organization.groups.map((group) => ({ ...group, items: inOrder(buckets.get(group.id) ?? []) })),
+    { id: null, name: null, items: inOrder(ungrouped) },
+  ].filter((section) => section.items.length > 0);
+}
+
 /**
- * The caller's rooms under the sidebar's "All rooms" leaf: one link per room (its name; `aria-current` while open), the archived
- * ones dimmed under a divider once the "Show archived" toggle is on, a compact empty/error state and a "more rooms" link when a
- * list outgrows the rail. In the icon rail each room is an initials avatar whose accessible name is the room's name, inside a
- * right-hand tooltip (the nav leaves' rule). The shell owns the queries and the active-room resolution; this only draws them.
+ * The caller's rooms in personal order, with group labels whenever there are saved groups. The archived toggle reveals dimmed
+ * links in their saved positions. The icon rail uses an initials avatar with the room name and the same accessible description.
  *
  * Unread (0.6.0): a room the server says is new (`unread`) and that is not the open one carries a dot, and a room with unseen notices
  * (`mentions`: the count per room from the bell's query) an `@` count. Neither changes the link's NAME, which stays the room's name (tests, the
@@ -28,6 +44,7 @@ const NO_MENTIONS: ReadonlyMap<number, number> = new Map();
  */
 export default function RoomsRail({
   rooms,
+  organization,
   showArchived,
   onShowArchivedChange,
   collapsed,
@@ -36,6 +53,7 @@ export default function RoomsRail({
   mentions = NO_MENTIONS,
 }: {
   rooms: ReturnType<typeof useRailRooms>;
+  organization?: RoomOrganization;
   showArchived: boolean;
   onShowArchivedChange: (next: boolean) => void;
   /** The desktop icon rail (labels hidden). */
@@ -52,12 +70,14 @@ export default function RoomsRail({
   const { active, archived } = rooms;
 
   // Archived rooms are dimmed through the theme's dimmed ink (AA-tested), never through opacity, which would break the contrast.
-  const renderRoom = (room: RoomListItem, dimmed = false) => {
+  const renderRoom = (room: RoomListItem) => {
     const to = roomPath(room.id);
     const current = to === activeTo;
     const isNew = room.unread && !current;
     const notices = mentions.get(room.id) ?? 0;
-    const note = [isNew && t("rooms.rail.unread"), notices > 0 && t("rooms.rail.notices", { count: notices })].filter(Boolean).join(". ");
+    const hasActivity = isNew || notices > 0;
+    const note = [room.archived && t("rooms.archivedBadge"), isNew && t("rooms.rail.unread"), notices > 0 && t("rooms.rail.notices", { count: notices })]
+      .filter(Boolean).join(". ");
     const noteId = note === "" ? undefined : `${noteBase}-${room.id}`;
     const noteText = noteId !== undefined && <VisuallyHidden id={noteId}>{note}</VisuallyHidden>;
     if (collapsed) {
@@ -72,14 +92,14 @@ export default function RoomsRail({
               aria-label={room.name}
               aria-describedby={noteId}
               leftSection={
-                <UnreadAnchor show={note !== ""} ring={false}>
+                <UnreadAnchor show={hasActivity} ring={false}>
                   <Avatar size={24} radius="xl" variant="light" color="gray">
                     {initialsOf(room.name)}
                   </Avatar>
                 </UnreadAnchor>
               }
               className={classes.railLink}
-              c={dimmed ? "dimmed" : undefined}
+              c={room.archived ? "dimmed" : undefined}
               onClick={onNavigate ? () => onNavigate(to) : undefined}
             />
           </Tooltip>
@@ -98,18 +118,18 @@ export default function RoomsRail({
           label={room.name}
           title={room.name}
           className={classes.roomRailLink}
-          leftSection={<IconHash size={16} stroke={1.5} />}
+          leftSection={room.archived ? <IconArchive size={16} stroke={1.5} aria-hidden="true" /> : <IconHash size={16} stroke={1.5} aria-hidden="true" />}
           rightSection={
-            note === "" ? undefined : (
+            hasActivity ? (
               <Group gap={6} wrap="nowrap" aria-hidden="true">
                 {isNew && <UnreadCue />}
                 {notices > 0 && (
                   <UnreadCue size="xs" icon={<IconAt size={10} />}>{unreadBadge(notices)}</UnreadCue>
                 )}
               </Group>
-            )
+            ) : undefined
           }
-          c={dimmed ? "dimmed" : undefined}
+          c={room.archived ? "dimmed" : undefined}
           onClick={onNavigate ? () => onNavigate(to) : undefined}
         />
         {noteText}
@@ -121,6 +141,11 @@ export default function RoomsRail({
   const activeItems = active.data?.items ?? [];
   const archivedItems = showArchived ? (archived.data?.items ?? []) : [];
   const more = (active.data?.total ?? 0) > RAIL_PAGE_SIZE || (showArchived && (archived.data?.total ?? 0) > RAIL_PAGE_SIZE);
+  const hasLayout = organization && Array.isArray(organization.groups) && Array.isArray(organization.rooms);
+  const hasGroups = hasLayout && organization.groups.length > 0;
+  const sections = hasLayout && (hasGroups || organization.rooms.length > 0)
+    ? personalSections(organization, [...activeItems, ...archivedItems])
+    : null;
 
   return (
     <Box>
@@ -141,18 +166,36 @@ export default function RoomsRail({
           {t("common.loading")}
         </Text>
       )}
-      {!error && !collapsed && active.data && activeItems.length === 0 && (
+      {!error && !collapsed && active.data && activeItems.length === 0 && archivedItems.length === 0 && (
         <Text size="xs" c="dimmed" px={12} py={4}>
           {t("rooms.rail.empty")}
         </Text>
       )}
-      {activeItems.map((room) => renderRoom(room))}
-      {archivedItems.length > 0 && (
-        <Box role="group" aria-label={t("rooms.rail.archivedGroup")}>
-          <Divider my={4} mx={8} />
-          {archivedItems.map((room) => renderRoom(room, true))}
-        </Box>
-      )}
+      {sections === null ? (
+        <>
+          {activeItems.map(renderRoom)}
+          {archivedItems.length > 0 && (
+            <Box role="group" aria-label={t("rooms.rail.archivedGroup")}>
+              <Divider my={4} mx={8} />
+              {archivedItems.map(renderRoom)}
+            </Box>
+          )}
+        </>
+      ) : sections.map((section) => {
+        const label = section.name ?? t("rooms.organization.ungrouped");
+        const showHeading = !collapsed && hasGroups;
+        return (
+          <Box key={section.id ?? "ungrouped"} role="group" aria-label={label}>
+            {showHeading && (
+              <Group gap={6} px={12} pt={8} pb={2} wrap="nowrap">
+                <IconFolder size={14} aria-hidden="true" />
+                <Text size="xs" fw={650} c="dimmed" truncate title={label}>{label}</Text>
+              </Group>
+            )}
+            {section.items.map(renderRoom)}
+          </Box>
+        );
+      })}
       {more && !collapsed && (
         <Anchor component={RouterLink} to={roomsPath} size="xs" px={12} py={4} display="block" onClick={onNavigate ? () => onNavigate(roomsPath) : undefined}>
           {t("rooms.rail.more")}

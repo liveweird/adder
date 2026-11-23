@@ -109,6 +109,6 @@ class AnonymousAccessTest {
          * being counted, both fail here. When an operation is added or removed, set it to the new count (the failure message prints it; or
          * count `operationId:` lines less the `security: []` ones).
          */
-        const val SECURED_OPERATIONS = 78
+        const val SECURED_OPERATIONS = 80
     }
 }

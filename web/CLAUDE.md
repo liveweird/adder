@@ -17,6 +17,8 @@ shell is the precedent) — plus, since 0.2.0, the ADMIN workflow-template pages
 - **Room access (1.6.0)** appears at creation and in the directory. Visitors to discoverable rooms can join or request access from
   the room preview. Restricted visible room owners review requests in Members, alongside the existing roster controls. See
   `.claude/docs/web-internals.md` "Room discovery and enrollment".
+- **Personal room groups (1.8.0)** are edited at `/rooms/organize` and saved to the caller's account. The sidebar and editor use the
+  same organization query and server-side personal room order. See `.claude/docs/web-internals.md` "The workspace shell and room discovery".
 - Regenerate API types: `cd web && npm run gen:api`. Reads
   `server/src/main/resources/openapi/documentation.yaml` directly (no server needed) and writes
   `web/src/api/schema.ts`. Run this after editing the OpenAPI spec; commit the regenerated

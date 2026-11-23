@@ -13,7 +13,6 @@ import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.paging.PageRequest
-import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.plugins.RateLimitAuditThrottle
 import ch.nokillswit.users.DEFAULT_LANGUAGE
 import ch.nokillswit.users.UserRole
@@ -41,7 +40,7 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
 private const val LOST_MEMBERSHIP_CHUNK = 500
 
 /** The ONE sortable whitelist - derived from the column map so the two can never drift. */
-val ROOM_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
+val ROOM_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys + PERSONAL_ORDER
 
 /**
  * The room record, immutable access policy and membership (V13, V36). Every write that changes a room goes through `withRoomWrite`; the
@@ -125,7 +124,7 @@ class RoomService(
         suspendTransaction(database) {
             val predicate = buildPredicate(filter, callerUserId, callerIsAdmin)
             val total = Rooms.selectAll().where { predicate }.count()
-            val rows = Rooms.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
+            val rows = Rooms.selectAll().where { predicate }.applyRoomPaging(paging, SORTABLE_COLUMNS, callerUserId).toList()
             val ids = rows.map { it[Rooms.id].value }
             val counts = activeMemberCounts(ids)
             val mine = callerMemberships(ids, callerUserId)

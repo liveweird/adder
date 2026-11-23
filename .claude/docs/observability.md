@@ -163,6 +163,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   a live key the document dropped); `threadsMoved` is a Long, the threads moved to a replacement status. A refused PUT (400, 403, 404, a stale-revision, archived,
   `field-type-immutable`, key-budget or `status-in-use` 409) emits no `room.workflow_updated` (a 403 still emits `authz.denied`),
 - `room.join_requested` (byUserId/roomId) records a submission for a restricted visible room, including a new attempt after rejection.
+- `room.organization_changed` (byUserId/groupCount/roomCount) records a changed personal layout. Group names and room IDs are private.
 - `room.join_request_approved` and `room.join_request_rejected` (byUserId/roomId/requestId/targetUserId) record an owner's decision.
   Public self-join uses `room.member_added`.
 - `room.member_added` (byUserId/roomId/targetUserId/viaTeamId) — ONE line per person actually added (`POST /api/v1/rooms/{id}/members`, C8; OWNER or ADMIN); `viaTeamId` is the team whose roster

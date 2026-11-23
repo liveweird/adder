@@ -1,0 +1,12 @@
+.page {
+  inline-size: 100%;
+  max-inline-size: 64rem;
+}
+
+.intro {
+  max-inline-size: 46rem;
+}
+
+.loadMore {
+  align-self: center;
+}

@@ -47,6 +47,8 @@ theme's `foldedOptionsFilter` (`web/src/utils/text.ts`).
 reads it whole in `pageSize=100` pages: `chat-model.md` "List endpoint ledger"); a purpose-built document answers
 outside it only with a documented cap. `GET /home` is a single dashboard document with up to five entries in each of four sections.
 Its section order and caps are in the OpenAPI contract.
+`GET /room-organization` is the caller's revisioned layout document with up to 50 groups and 2,000 explicit room placements.
+`GET /rooms` continues to page the joined-room list, including when the caller requests their `personalOrder`.
 
 **Sub-collections and facets:** a record's own sub-collection is paged like any list, however small. Facet counts (`GET .../facets`) are not implemented — port Covenant's
 pattern with the first filterable list that needs them.

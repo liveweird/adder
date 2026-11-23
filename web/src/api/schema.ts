@@ -742,7 +742,9 @@ export interface paths {
          * List rooms
          * @description Lists public rooms, restricted visible rooms, and restricted hidden rooms the caller belongs to. Deleted rooms never appear.
          *
-         *     - Sortable fields: `id`, `name`, `lastActivityAt`, `createdAt`. Default `id` ascending.
+         *     - Sortable fields: `id`, `name`, `lastActivityAt`, `createdAt`, `personalOrder`. Default `id` ascending.
+         *     - `personalOrder` requires `member=true` and no `memberId`. It orders joined rooms by the caller's saved groups and room order before
+         *       pagination. Rooms without a saved position follow them, in descending activity order and then ascending ID.
          *     - Filters: `name` (case- and accent-insensitive substring, at most 80 characters - `400` beyond); `archived` (strict `true` or
          *       `false`; omitted = both); `member` (strict `true` or `false`: `true` = only rooms the caller is a member of - the rooms rail
          *       always sends it; `false` = discoverable rooms the caller has not joined; omitted = both). A repeated key is a `400`.
@@ -768,6 +770,36 @@ export interface paths {
          *     shared with the rename (`429` beyond it). The name may not contain invisible formatting characters (`400`).
          */
         post: operations["createRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/room-organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get your room organization
+         * @description A private document for the signed-in caller. A caller with no saved organization gets revision 1 and empty arrays.
+         *     Room placements for memberships the caller no longer holds or rooms that were deleted are omitted.
+         */
+        get: operations["getRoomOrganization"];
+        /**
+         * Save your room organization
+         * @description Replaces the signed-in caller's private document. Only current room members can place a room in their own layout.
+         *     Group IDs and room IDs must be unique in the document. A group reference must point to one of its groups or be `null`
+         *     for an ungrouped room. Group names are trimmed single-line text and unique within the document, ignoring case.
+         *     A missing, deleted, or non-member room reference is
+         *     a uniform `400`. Missing or invalid `X-Expected-Revision` is `400`; a stale revision is `409` of type
+         *     `urn:adder:problem:revision-conflict`. Uses the per-user `chat-write` bucket of 240 requests per minute.
+         */
+        put: operations["replaceRoomOrganization"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2868,6 +2900,35 @@ export interface components {
         RoomUpdateRequest: {
             name: string;
             description?: string | null;
+        };
+        RoomOrganizationGroup: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        RoomOrganizationPlacement: {
+            /** Format: int32 */
+            roomId: number;
+            /**
+             * Format: uuid
+             * @description The personal group containing the room, or `null` for Ungrouped.
+             */
+            groupId: string | null;
+        };
+        RoomOrganizationUpdate: {
+            /** @description Personal groups in display order. */
+            groups: components["schemas"]["RoomOrganizationGroup"][];
+            /** @description Explicit room placements in display order within each group, including Ungrouped. */
+            rooms: components["schemas"]["RoomOrganizationPlacement"][];
+        };
+        RoomOrganization: {
+            /**
+             * Format: int64
+             * @description The current revision used in `X-Expected-Revision`.
+             */
+            revision: number;
+            groups: components["schemas"]["RoomOrganizationGroup"][];
+            rooms: components["schemas"]["RoomOrganizationPlacement"][];
         };
         RoomListItem: {
             /** Format: int32 */
@@ -5286,6 +5347,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RoomResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getRoomOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's room groups and room order */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomOrganization"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    replaceRoomOrganization: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description The revision of the document the caller read (`revision`, or a room's `workflowRevision`). Missing, repeated or
+                 *     malformed is a `400`; a stale one is a `409` of type `urn:adder:problem:revision-conflict`. Every successful PUT
+                 *     bumps the revision.
+                 */
+                "X-Expected-Revision": components["parameters"]["ExpectedRevision"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomOrganizationUpdate"];
+            };
+        };
+        responses: {
+            /** @description The saved organization and its current revision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomOrganization"];
                 };
             };
             400: components["responses"]["BadRequest"];

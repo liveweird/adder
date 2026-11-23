@@ -40,6 +40,13 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
   public and restricted visible rooms.
 - **Limits:** room name <= 80, description <= 500; 500 members per room, 200 user ids per add; 200 members per team.
 
+### Personal room groups (1.8.0)
+
+The signed-in caller can place each joined room in one private group and order the groups and rooms. Ungrouped comes after named groups,
+with new or unplaced rooms following the explicitly ordered ones by recent activity. Deleting a group moves its rooms to Ungrouped.
+Archived rooms can be organized and appear in their saved order when shown in the sidebar. Room discovery and membership are independent
+of this personal layout. The editor saves the complete document under `X-Expected-Revision`, with revision conflicts surfaced in place.
+
 ### Personal Home (1.7.0)
 
 `GET /home` returns four previews of up to five items each, all scoped to the caller's current rooms. Administrators use the same membership scope.
@@ -572,6 +579,9 @@ Per-endpoint detail of the list rules; the generic rules stay in `list-endpoints
 - **Repeated keys.** Ledger: `GET /rooms/{id}/threads` takes `status`, `ownerId`, `field=key:value` (each at most 20 distinct), `mentionedId` (same bound), `threadTag` (the curated tags, 1.2: at most 20 distinct raw values, each normalised and checked against the tag grammar, any-of, retired tags included) and `tag` (at most 10 after case folding; any-of within a key, all-of across; `threads/ThreadListFilter.kt`; both searches take the SAME `threadTag` through the same parser, `Parameters.threadTagFilter`); `closed`, `watching`, `mentionsMe` and `unread` (1.2: strict `true`/`false`, a repeat or any other word is a `400`) stay scalar. `GET /notifications` takes `type` (a known kind, at most 12 distinct since 1.3, `NotificationType.entries.size`).
 
 **Member filters (1.2 D7).** `GET /rooms` and `GET /teams` take `memberId` (one optional STRICT id via `optionalPositiveId`: ASCII digits, 1 to int32, one value; anything else, a blank `memberId=` too, is a `400` that does not echo the value; an unknown or removed person an empty page; spec parameter `MemberId`): the rooms or teams that ACTIVE user belongs to, ANDed with the caller's own scope (the profile page's lists). Scalar, so it is not in the repeated-keys ledger.
+
+**Personal room order (1.8.0).** `GET /rooms?member=true&sort=personalOrder` applies the caller's saved layout before pagination.
+`personalOrder` requires `member=true` and cannot accompany `memberId`. The editor and sidebar both use it.
 
 **Search** is the second `q` consumer: `GET /rooms/{id}/search?q=` and `GET /search?q=` (`q` REQUIRED unless `watching=true`, 1.1, or a `threadTag`, 1.2; hits are THREADS in the envelope, `SearchPageSize` at most 20; `chat-model.md`).
 
