@@ -3,6 +3,7 @@ package ch.nokillswit.rooms
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.RoomStanding
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
@@ -43,7 +44,7 @@ private const val LOST_MEMBERSHIP_CHUNK = 500
 val ROOM_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
 /**
- * The room record and its membership (V13). Every write that changes a room goes through `withRoomWrite` (`RoomLock.kt`); the
+ * The room record, immutable access policy and membership (V13, V36). Every write that changes a room goes through `withRoomWrite`; the
  * cross-feature reads (the active-user join of every member count, the template read at creation) are listed in `persistence.md`.
  */
 class RoomService(
@@ -59,6 +60,7 @@ class RoomService(
         // query-only, so no `.uniqueIndex()` here.
         val name = varchar("name", length = MAX_ROOM_NAME_LENGTH)
         val description = varchar("description", length = MAX_ROOM_DESCRIPTION_LENGTH).nullable()
+        val accessType = varchar("access_type", length = 24).default(RoomAccessType.RESTRICTED_HIDDEN.name)
 
         /** Null = active; the epoch-millis moment it was archived otherwise. */
         val archivedAt = long("archived_at").nullable()
@@ -114,8 +116,9 @@ class RoomService(
     }
 
     /**
-     * The rooms [callerUserId] may read, filtered and paged: a member's own rooms, plus every room for an ADMIN ([callerIsAdmin]).
-     * `member=true` narrows to the caller's own, `member=false` to the readable ones the caller is NOT in. One predicate for the count and
+     * The directory visible to [callerUserId]: discoverable rooms plus hidden rooms they belong to. `member=true` narrows to their own,
+     * `member=false` to discoverable rooms they have not joined. With [RoomListFilter.memberId], the scope is content-readable instead.
+     * One predicate for the count and
      * the rows, in one transaction; the member counts and the caller's roles are batched lookups for the page, not per row.
      */
     suspend fun list(callerUserId: UInt, callerIsAdmin: Boolean, filter: RoomListFilter, paging: PageRequest): RoomListResult =
@@ -134,6 +137,7 @@ class RoomService(
                         name = row[Rooms.name],
                         description = row[Rooms.description],
                         archived = row[Rooms.archivedAt] != null,
+                        accessType = RoomAccessType.valueOf(row[Rooms.accessType]),
                         role = mine[id]?.role,
                         memberCount = counts[id] ?: 0,
                         lastActivityAt = row[Rooms.lastActivityAt],
@@ -156,8 +160,10 @@ class RoomService(
             description = row[Rooms.description],
             archived = row[Rooms.archivedAt] != null,
             archivedAt = row[Rooms.archivedAt],
+            accessType = RoomAccessType.valueOf(row[Rooms.accessType]),
             role = callerMemberships(listOf(id), callerUserId)[id]?.role,
             memberCount = activeMemberCounts(listOf(id))[id] ?: 0,
+            ownerCount = activeOwnerCount(id),
             workflowRevision = row[Rooms.workflowRevision],
             lastActivityAt = row[Rooms.lastActivityAt],
             createdAt = row[Rooms.createdAt],
@@ -179,6 +185,7 @@ class RoomService(
         val id = Rooms.insert {
             it[name] = request.name
             it[description] = request.description
+            it[accessType] = (request.accessType ?: RoomAccessType.RESTRICTED_HIDDEN).name
             it[lastActivityAt] = stamp
             it[createdAt] = stamp
             it[updatedAt] = stamp
@@ -196,9 +203,9 @@ class RoomService(
 
     /**
      * Which of [roomIds] the caller may read, for the live socket's subscribe (`live.md` "The hub"): ONE transaction, three reads. The
-     * existing rooms are the non-deleted ones among [roomIds]; an ADMIN reads every one of them, anyone else the ones they are an ACTIVE
-     * member of (the same membership join as [readStanding]: a soft-deleted user's row is inert). Whether the caller is an ADMIN is read
-     * HERE from the stored role of the ACTIVE user, never taken from the socket (its snapshot dates from the ticket): a demoted or deleted
+     * existing rooms are the non-deleted ones among [roomIds]; an ADMIN reads visible rooms without joining. Hidden rooms require
+     * active membership as in [readStanding], so a soft-deleted user's row is inert. The ADMIN verdict uses the active account's
+     * current stored role, never the socket's ticket-time snapshot: a demoted or deleted
      * ADMIN cannot gain NEW rooms (their existing subscriptions end at the next account sweep). The rest of the existing rooms are
      * [ReadableRooms.deniedExisting], the ids the subscribe audits as `live.subscribe_denied`; an id that matches no room is in neither set
      * (nothing was denied, and a caller must not learn which ids exist). Archived rooms are readable.
@@ -206,44 +213,59 @@ class RoomService(
     suspend fun readableRoomIds(userId: UInt, roomIds: Collection<UInt>): ReadableRooms {
         if (roomIds.isEmpty()) return ReadableRooms(emptySet(), emptySet())
         return suspendTransaction(database) {
-            val existing = Rooms.select(Rooms.id).where { (Rooms.id inList roomIds) and Rooms.active() }
-                .map { it[Rooms.id].value }.toList().toSet()
-            val admin = existing.isNotEmpty() && UserService.Users.select(UserService.Users.id)
+            val existing = Rooms.select(Rooms.id, Rooms.accessType).where { (Rooms.id inList roomIds) and Rooms.active() }
+                .map { it[Rooms.id].value to it[Rooms.accessType] }.toList().toMap()
+            if (existing.isEmpty()) return@suspendTransaction ReadableRooms(emptySet(), emptySet())
+            val admin = UserService.Users.select(UserService.Users.id)
                 .where {
                     (UserService.Users.id eq userId) and (UserService.Users.role eq UserRole.ADMIN.name) and UserService.Users.active()
                 }
                 .toList().isNotEmpty()
-            if (admin) {
-                ReadableRooms(readable = existing, deniedExisting = emptySet())
-            } else if (existing.isEmpty()) {
-                ReadableRooms(readable = emptySet(), deniedExisting = emptySet())
+            val members = RoomMembers.innerJoin(UserService.Users).select(RoomMembers.roomId)
+                .where { (RoomMembers.roomId inList existing.keys) and (RoomMembers.userId eq userId) and UserService.Users.active() }
+                .map { it[RoomMembers.roomId].value }.toList().toSet()
+            val readable = if (admin) {
+                members + existing.filterValues { it != RoomAccessType.RESTRICTED_HIDDEN.name }.keys
             } else {
-                val member = RoomMembers.innerJoin(UserService.Users).select(RoomMembers.roomId)
-                    .where { (RoomMembers.roomId inList existing) and (RoomMembers.userId eq userId) and UserService.Users.active() }
-                    .map { it[RoomMembers.roomId].value }.toList().toSet()
-                ReadableRooms(readable = member, deniedExisting = existing - member)
+                members
             }
+            ReadableRooms(readable = readable, deniedExisting = existing.keys - readable)
         }
     }
 
     /**
-     * Of the (user, room) pairs a live socket holds ACTIVE subscriptions for, the ones whose owner is no longer an ACTIVE member of an
-     * existing room (the removal's pushed hint can be lost in a listener gap; the live sweep and every gap re-check with this).
-     * Callers pass non-ADMIN pairs only. One read per [LOST_MEMBERSHIP_CHUNK] distinct rooms.
+     * Of the (user, room) pairs a live socket holds ACTIVE subscriptions for, the ones the user may no longer read. Active membership
+     * keeps every room; an active ADMIN also keeps a visible room without membership. Hidden rooms always require membership. The
+     * removal's pushed hint can be lost in a listener gap, so the live sweep and every gap re-check with this.
      */
     suspend fun lostMemberships(pairs: Collection<Pair<UInt, UInt>>): Set<Pair<UInt, UInt>> {
         if (pairs.isEmpty()) return emptySet()
         val present = HashSet<Pair<UInt, UInt>>()
+        val candidateAdminIds = pairs.map { it.first }.distinct()
+        val activeAdmins = suspendTransaction(database) {
+            UserService.Users.select(UserService.Users.id).where {
+                (UserService.Users.id inList candidateAdminIds) and
+                    (UserService.Users.role eq UserRole.ADMIN.name) and UserService.Users.active()
+            }.map { it[UserService.Users.id].value }.toList().toSet()
+        }
         pairs.map { it.second }.distinct().chunked(LOST_MEMBERSHIP_CHUNK).map { it.toSet() }.forEach { roomIds ->
             val userIds = pairs.filter { it.second in roomIds }.map { it.first }.toSet()
-            present += suspendTransaction(database) {
+            val (memberships, adminRooms) = suspendTransaction(database) {
                 RoomMembers.innerJoin(UserService.Users).innerJoin(Rooms)
                     .select(RoomMembers.userId, RoomMembers.roomId)
                     .where {
                         (RoomMembers.roomId inList roomIds) and (RoomMembers.userId inList userIds) and
                             UserService.Users.active() and Rooms.active()
                     }
-                    .map { it[RoomMembers.userId].value to it[RoomMembers.roomId].value }.toList()
+                    .map { it[RoomMembers.userId].value to it[RoomMembers.roomId].value }.toList() to
+                    Rooms.select(Rooms.id).where {
+                        (Rooms.id inList roomIds) and Rooms.active() and
+                            (Rooms.accessType neq RoomAccessType.RESTRICTED_HIDDEN.name)
+                    }.map { it[Rooms.id].value }.toList().toSet()
+            }
+            present += memberships
+            pairs.filterTo(present) { (userId, roomId) ->
+                userId in activeAdmins && roomId in adminRooms
             }
         }
         return pairs.filterTo(HashSet()) { it !in present }
@@ -319,6 +341,14 @@ class RoomService(
             .toMap()
     }
 
+    private suspend fun activeOwnerCount(roomId: UInt): Int =
+        RoomMembers.innerJoin(UserService.Users).select(RoomMembers.userId)
+            .where {
+                (RoomMembers.roomId eq roomId) and (RoomMembers.role eq RoomRole.OWNER.name) and UserService.Users.active()
+            }
+            .count()
+            .toInt()
+
     /** The caller's role and the moment they last looked at each of [roomIds] they belong to (absent = not a member), one query. */
     private suspend fun callerMemberships(roomIds: List<UInt>, callerUserId: UInt): Map<UInt, CallerMembership> {
         if (roomIds.isEmpty()) return emptyMap()
@@ -334,17 +364,18 @@ class RoomService(
 
     private fun buildPredicate(filter: RoomListFilter, callerUserId: UInt, callerIsAdmin: Boolean): Op<Boolean> {
         val memberOf = Rooms.id inSubQuery RoomMembers.select(RoomMembers.roomId).where { RoomMembers.userId eq callerUserId }
+        val discoverable = Rooms.accessType neq RoomAccessType.RESTRICTED_HIDDEN.name
+        val contentReadable = if (callerIsAdmin) memberOf or discoverable else memberOf
         var op: Op<Boolean> = Rooms.active()
-        if (!callerIsAdmin) op = op and memberOf
         when (filter.member) {
             true -> op = op and memberOf
-            false -> op = op and not(memberOf)
-            null -> Unit
+            false -> op = op and discoverable and not(memberOf)
+            null -> op = op and (memberOf or discoverable)
         }
         filter.archived?.let { op = op and (if (it) Rooms.archivedAt.isNotNull() else Rooms.archivedAt.isNull()) }
         // The person's own rooms: an inert row of a soft-deleted user never counts, so a removed id matches nothing.
         filter.memberId?.let { id ->
-            op = op and (Rooms.id inSubQuery RoomMembers.innerJoin(UserService.Users).select(RoomMembers.roomId)
+            op = op and contentReadable and (Rooms.id inSubQuery RoomMembers.innerJoin(UserService.Users).select(RoomMembers.roomId)
                 .where { (RoomMembers.userId eq id) and UserService.Users.active() })
         }
         filter.name?.takeIf { it.isNotBlank() }?.let { op = op and Rooms.name.containsNormalized(it) }

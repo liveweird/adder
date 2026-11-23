@@ -12,14 +12,41 @@
     "button": "O tym pokoju"
   },
   "archivedBadge": "Zarchiwizowany",
+  "access": {
+    "label": "Kto może znaleźć ten pokój i do niego dołączyć?",
+    "creationHint": "Po utworzeniu pokoju nie można zmienić tego wyboru.",
+    "PUBLIC": {
+      "label": "Publiczny",
+      "description": "Każda osoba może znaleźć ten pokój i od razu dołączyć."
+    },
+    "RESTRICTED_VISIBLE": {
+      "label": "Ograniczony, widoczny",
+      "description": "Każda osoba może znaleźć ten pokój. Właściciele/ki zatwierdzają prośby o dołączenie."
+    },
+    "RESTRICTED_HIDDEN": {
+      "label": "Ograniczony, ukryty",
+      "description": "Tylko członkowie i członkinie mogą znaleźć ten pokój. Właściciele/ki zapraszają osoby bezpośrednio."
+    },
+    "pending": "Prośba oczekuje",
+    "rejected": "Prośba odrzucona",
+    "join": "Dołącz do pokoju",
+    "request": "Poproś o dołączenie",
+    "requestAgain": "Poproś ponownie",
+    "previewBack": "Wróć do katalogu pokoi",
+    "joinFailed": "Nie udało się dołączyć do pokoju",
+    "requestFailed": "Nie udało się wysłać prośby",
+    "full": "Ten pokój jest pełny.",
+    "joined": "Dołączono do pokoju",
+    "requested": "Wysłano prośbę"
+  },
   "memberCount_one": "{{count}} członek/członkini",
   "memberCount_few": "{{count}} członków/członkiń",
   "memberCount_many": "{{count}} członków/członkiń",
   "memberCount_other": "{{count}} członka/członkini",
   "scope": {
     "aria": "Które pokoje wyświetlić",
-    "mine": "Moje",
-    "all": "Wszystkie"
+    "mine": "Dołączone",
+    "all": "Przeglądaj"
   },
   "column": {
     "role": "Twoja rola",
@@ -162,6 +189,8 @@
     "you": "Ty",
     "makeOwner": "Ustaw jako właściciela/kę",
     "makeMember": "Ustaw jako członka/członkinię",
+    "stepDown": "Zrezygnuj z roli właściciela/ki",
+    "stepDownHint": "Inny właściciel lub właścicielka nadal będzie zarządzać tym pokojem.",
     "remove": "Usuń",
     "leave": "Opuść pokój",
     "roleFailed": "Nie udało się zmienić roli",
@@ -171,6 +200,21 @@
     "gone": "Ta osoba nie jest już członkiem/członkinią pokoju.",
     "lastOwner": "Pokój potrzebuje przynajmniej jednego właściciela/ki. Najpierw ustaw kogoś innego jako właściciela/kę.",
     "lastOwnerLeave": "Jesteś jedynym właścicielem/jedyną właścicielką tego pokoju. Zanim go opuścisz, ustaw kogoś innego jako właściciela/kę.",
+    "requests": {
+      "title": "Prośby o dołączenie",
+      "description": "Osoby oczekujące na zatwierdzenie dostępu przez właściciela/kę.",
+      "empty": "Brak oczekujących próśb",
+      "loadFailed": "Nie udało się wczytać próśb o dołączenie",
+      "approve": "Zatwierdź",
+      "reject": "Odrzuć",
+      "approveAria": "Zatwierdź: {{name}}",
+      "rejectAria": "Odrzuć: {{name}}",
+      "requestedColumn": "Wysłano",
+      "decisionFailed": "Nie udało się rozpatrzyć prośby",
+      "approved": "Zatwierdzono prośbę",
+      "rejected": "Odrzucono prośbę",
+      "requested": "Wysłano {{date}}"
+    },
     "removeTitle": "Usunąć z pokoju?",
     "removeBody": "{{name}} straci dostęp do pokoju „{{room}}”. Możesz dodać tę osobę ponownie.",
     "leaveTitle": "Opuścić ten pokój?",
@@ -180,6 +224,7 @@
       "alreadyMember": "Już jest w pokoju",
       "teamAdded": "Dodano zespół: {{added}} nowych, {{already}} już w pokoju",
       "roleChanged": "Zmieniono rolę",
+      "steppedDown": "Masz teraz rolę członka/członkini",
       "removed": "Usunięto z pokoju",
       "left": "Opuszczono pokój"
     }

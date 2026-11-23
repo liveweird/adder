@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.NotFoundException
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.rooms.visibleStanding
 import ch.nokillswit.users.UserRole
 import java.util.UUID
@@ -43,7 +44,9 @@ class RoomAccessAuditTest {
             val other = user("ra-other")
             val admin = user("ra-admin", UserRole.ADMIN)
             val template = TestThreads.seedTemplate().also { templates += it }
-            val room = TestRooms.seed(owner.userId, template, "Aud ${UUID.randomUUID().toString().substring(0, 8)}").also { rooms += it }
+            val room = TestRooms.seed(
+                owner.userId, template, "Aud ${UUID.randomUUID().toString().substring(0, 8)}", accessType = RoomAccessType.PUBLIC,
+            ).also { rooms += it }
             val service = TestRooms.service
 
             withAuditCapture { capture ->
@@ -59,7 +62,7 @@ class RoomAccessAuditTest {
                 assertEquals(1, lines(other).size)
                 assertEquals(1, lines(outsider).size, "the first outsider's window is untouched")
 
-                // A member and an ADMIN are no denial, and a room that does not exist has nothing to deny.
+                // A member and an ADMIN reading this public room are no denial; a room that does not exist has nothing to deny.
                 service.visibleStanding(owner, room)
                 service.visibleStanding(admin, room)
                 assertFailsWith<NotFoundException> { service.visibleStanding(other, 2_000_000_000u) }

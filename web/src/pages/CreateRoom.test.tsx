@@ -91,11 +91,20 @@ describe("CreateRoom page", () => {
     expect(within(preview).getByText("Resolved")).toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "Name" }), " Night Shift ");
     await user.type(screen.getByRole("textbox", { name: "Description" }), "Handover");
+    const access = screen.getByRole("group", { name: "Who can find and join this room?" });
+    expect(within(access).getByRole("radio", { name: /Restricted, hidden/ })).toBeChecked();
+    await user.click(within(access).getByRole("radio", { name: /Public/ }));
     await user.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByText("at /rooms/9")).toBeInTheDocument();
     const [[url, init]] = postCalls(mockFetch);
     expect(url).toBe("/api/v1/rooms");
-    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ name: "Night Shift", description: "Handover", templateId: 2, language: "en" });
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      name: "Night Shift",
+      description: "Handover",
+      templateId: 2,
+      language: "en",
+      accessType: "PUBLIC",
+    });
   });
 
   test("a Polish UI previews the Polish labels (EN where a label has none) and creates the room in Polish", async () => {
@@ -111,7 +120,11 @@ describe("CreateRoom page", () => {
     await user.type(screen.getByRole("textbox", { name: "Nazwa" }), "Nocna zmiana");
     await user.click(screen.getByRole("button", { name: "Utwórz" }));
     await screen.findByText("at /rooms/9");
-    expect(JSON.parse((postCalls(mockFetch)[0][1] as RequestInit).body as string)).toMatchObject({ templateId: 2, language: "pl" });
+    expect(JSON.parse((postCalls(mockFetch)[0][1] as RequestInit).body as string)).toMatchObject({
+      templateId: 2,
+      language: "pl",
+      accessType: "RESTRICTED_HIDDEN",
+    });
   });
 
   test("a blank name and no template are refused before any request", async () => {

@@ -59,7 +59,7 @@ async function createRoom(api: APIRequestContext, name: string, template: "Defau
   expect(templates.status(), await templates.text()).toBe(200);
   const found = ((await templates.json()) as { items: { id: number; name: string }[] }).items.find((candidate) => candidate.name === template);
   expect(found, `the seeded ${template} template`).toBeDefined();
-  const created = await api.post("/api/v1/rooms", { data: { name, templateId: found!.id } });
+  const created = await api.post("/api/v1/rooms", { data: { name, templateId: found!.id, accessType: "RESTRICTED_VISIBLE" } });
   expect(created.status(), await created.text()).toBe(201);
   const id = ((await created.json()) as { id: number }).id;
   cleanup.unshift(`/api/v1/rooms/${id}`);

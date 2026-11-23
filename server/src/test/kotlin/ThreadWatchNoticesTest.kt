@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.notifications.NotificationChannel
 import ch.nokillswit.notifications.NotificationPageResponse
@@ -448,7 +449,7 @@ class ThreadWatchNoticesTest {
         val admin = seedActor("wn-big-adm", UserRole.ADMIN).also { minted.users += it.id }
         val template = TestThreads.seedTemplate().also { minted.templates += it }
         val name = "Big ${java.util.UUID.randomUUID().toString().substring(0, 8)}"
-        val room = TestRooms.seed(owner.id, template, name).also { minted.rooms += it }
+        val room = TestRooms.seed(owner.id, template, name, accessType = RoomAccessType.PUBLIC).also { minted.rooms += it }
         TestThreads.seed(room, owner.id)
         bulk += TestRooms.seedMembers(room, 499, "wn-big-${java.util.UUID.randomUUID().toString().substring(0, 8)}")
         PostgresTestSupport.connect().use { c ->

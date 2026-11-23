@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadResponse
@@ -46,7 +47,9 @@ class ThreadWriteBoundsTest {
 
     private suspend fun room(owner: RoomActor, vararg members: RoomActor): UInt {
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        return TestRooms.seed(owner.id, template, "Bnd ${UUID.randomUUID().toString().substring(0, 8)}").also { room ->
+        return TestRooms.seed(
+            owner.id, template, "Bnd ${UUID.randomUUID().toString().substring(0, 8)}", accessType = RoomAccessType.PUBLIC,
+        ).also { room ->
             mintedRooms += room
             members.forEach { TestRooms.addMember(room, it.id) }
         }

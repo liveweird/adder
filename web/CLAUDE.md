@@ -14,6 +14,9 @@ shell is the precedent) — plus, since 0.2.0, the ADMIN workflow-template pages
   these are baked in and served by the Ktor server itself (via `WEB_STATIC_DIR`; see
   `plugins/Routing.kt`), so production is single-origin and there is no Vite proxy — the SPA and
   `/api` share `http://localhost:8087`.
+- **Room access (1.6.0)** appears at creation and in the directory. Visitors to discoverable rooms can join or request access from
+  the room preview. Restricted visible room owners review requests in Members, alongside the existing roster controls. See
+  `.claude/docs/web-internals.md` "Room discovery and enrollment".
 - Regenerate API types: `cd web && npm run gen:api`. Reads
   `server/src/main/resources/openapi/documentation.yaml` directly (no server needed) and writes
   `web/src/api/schema.ts`. Run this after editing the OpenAPI spec; commit the regenerated

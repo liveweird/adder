@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Badge, Box, Group, Stack, Text } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../api/http";
-import { getRoom, type RoomResponse } from "../api/rooms";
+import { getRoom, getRoomAccess, type RoomResponse } from "../api/rooms";
 import { useRoomSeen } from "../hooks/useRoomSeen";
 import { parseRoomId, roomsPath } from "../utils/roomLinks";
 import { loadErrorMessage } from "../utils/saveError";
@@ -11,6 +11,7 @@ import EditPageLoadState from "./EditPageLoadState";
 import PageHeader from "./PageHeader";
 import PinnedPanel from "./PinnedPanel";
 import RoomAbout from "./RoomAbout";
+import RoomAccessPreview, { RoomEnrollmentAction } from "./RoomAccessPreview";
 import RoomTabs, { type RoomTabKey } from "./RoomTabs";
 import classes from "./RoomPage.module.css";
 import { roomKeys } from "../utils/roomKeys";
@@ -25,16 +26,36 @@ export default function RoomPage({ idParam, tab, fill = false, children }: { idP
   // An id that is not a plain positive number names no room: the not-found state, without a request.
   const id = parseRoomId(idParam);
   const { data: room, isLoading, error } = useQuery({ queryKey: roomKeys.detail(id), queryFn: () => getRoom(id!), enabled: id !== null });
-  // A 404 wins over data cached from an earlier visit (the room was deleted, or the caller left it, since).
-  const notFound = id === null || (error instanceof ApiError && error.status === 404);
+  const contentDenied = error instanceof ApiError && error.status === 404;
+  const readableOutsideMembership = room?.role === null && room.accessType !== "RESTRICTED_HIDDEN";
+  const access = useQuery({
+    queryKey: roomKeys.access(id),
+    queryFn: () => getRoomAccess(id!),
+    enabled: id !== null && (contentDenied || readableOutsideMembership),
+  });
   // Opening the room (any of its pages) is looking at it: a member's "room seen" goes out on arrival and while the rail says it is new again.
-  useRoomSeen(room && !notFound ? room.id : null, room !== undefined && room.role !== null);
+  useRoomSeen(room && !contentDenied ? room.id : null, room !== undefined && !contentDenied && room.role !== null);
 
-  if (!room || notFound) {
+  if (contentDenied) {
+    const accessNotFound = access.error instanceof ApiError && access.error.status === 404;
+    // TanStack Query retains the last good data when a refetch fails. The fresh error must win or a deleted preview leaks from the cache.
+    if (!access.error && access.data) return <RoomAccessPreview room={access.data} />;
+    return (
+      <EditPageLoadState
+        isLoading={access.isLoading}
+        message={accessNotFound ? t("rooms.notFound") : loadErrorMessage(access.error, t)}
+        backTo={roomsPath}
+        backLabel={t("rooms.backToRooms")}
+        title={t("rooms.title")}
+      />
+    );
+  }
+
+  if (!room || id === null) {
     return (
       <EditPageLoadState
         isLoading={isLoading}
-        message={notFound ? t("rooms.notFound") : loadErrorMessage(error, t)}
+        message={id === null ? t("rooms.notFound") : loadErrorMessage(error, t)}
         backTo={roomsPath}
         backLabel={t("rooms.backToRooms")}
         title={t("rooms.title")}
@@ -72,6 +93,7 @@ export default function RoomPage({ idParam, tab, fill = false, children }: { idP
           />
           {!threads && navigation}
         </Box>
+        {readableOutsideMembership && access.data && <RoomEnrollmentAction room={access.data} compact />}
         {children(room)}
       </Stack>
     </Box>

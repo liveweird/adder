@@ -19,6 +19,7 @@ const RAIL: QueryKey = ["rooms", "rail"];
 const LIST: QueryKey = ["rooms", "list"];
 const gone = (r: number): QueryKey[] => [
   ["rooms", "detail", r],
+  ["rooms", "access", r],
   ["rooms", "threads", r],
   ["rooms", "members", r],
   ["rooms", "workflow", r],
@@ -94,9 +95,17 @@ describe("keysForFrame: the key map", () => {
     ]);
   });
 
-  test("room.member_added, room.member_role_changed and room.member_removed re-read the members (table and picker), the room, the rail and the rooms list", () => {
+  test("membership changes re-read the roster and room surfaces, and an add also settles access previews and request queues", () => {
     const keys = [["rooms", "members", 5], ["rooms", "detail", 5], RAIL, LIST];
-    for (const kind of ["room.member_added", "room.member_role_changed", "room.member_removed"]) expect(keysForFrame(event(kind, 5))).toEqual(keys);
+    expect(keysForFrame(event("room.member_added", 5))).toEqual([
+      ["rooms", "members", 5],
+      ["rooms", "join-requests", 5],
+      ["rooms", "detail", 5],
+      ["rooms", "access", 5],
+      RAIL,
+      LIST,
+    ]);
+    for (const kind of ["room.member_role_changed", "room.member_removed"]) expect(keysForFrame(event(kind, 5))).toEqual(keys);
   });
 
   test("room.deleted and an unknown kind with a room re-read everything the room's pages read; room.deleted also names the room's search results", () => {
@@ -183,6 +192,8 @@ describe("the keys and the readers cannot drift apart", () => {
     [...roomKeys.rail, "active"],
     [...roomKeys.list, 1, 20, "name", "", false, false],
     roomKeys.detail(5),
+    roomKeys.access(5),
+    [...roomKeys.joinRequests(5), 1],
     [...roomKeys.members(5), 1, 20, "name", "", null],
     [...roomKeys.members(5), "picker", "term"],
     roomKeys.workflow(5),

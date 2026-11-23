@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.live.LiveHubKey
 import ch.nokillswit.live.LiveServerFrame
@@ -55,9 +56,14 @@ class LiveSocketTest {
     private suspend fun ApplicationTestBuilder.actor(prefix: String, role: UserRole = UserRole.USER): RoomActor =
         seedActor(prefix, role).also { users += it.id }
 
-    private suspend fun room(owner: RoomActor, vararg members: RoomActor): UInt {
+    private suspend fun room(
+        owner: RoomActor,
+        vararg members: RoomActor,
+        accessType: RoomAccessType = RoomAccessType.RESTRICTED_HIDDEN,
+    ): UInt {
         val template = TestThreads.seedTemplate().also { templates += it }
-        val room = TestRooms.seed(owner.id, template, "Live ${UUID.randomUUID().toString().substring(0, 8)}").also { roomIds += it }
+        val room = TestRooms.seed(owner.id, template, "Live ${UUID.randomUUID().toString().substring(0, 8)}", accessType = accessType)
+            .also { roomIds += it }
         members.forEach { TestRooms.addMember(room, it.id) }
         return room
     }
@@ -255,16 +261,18 @@ class LiveSocketTest {
     }
 
     @Test
-    fun `an ADMIN subscribes to a room they are not in`() = testApplication {
+    fun `an ADMIN subscribes to a visible room but cannot discover a hidden room`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("live-adm-own")
         val admin = actor("live-adm", UserRole.ADMIN)
-        val room = room(owner)
+        val room = room(owner, accessType = RoomAccessType.PUBLIC)
+        val hidden = room(owner)
         val socket = openAuthenticatedLive(liveClient(), admin)
         withAuditCapture { capture ->
-            socket.subscribe(room)
-            assertEquals(LiveServerFrame.Subscribed(listOf(room), emptyList(), emptyList()), socket.nextNonResync())
-            assertTrue(capture.events.none { it.message == "live.subscribe_denied" })
+            socket.subscribe(room, hidden)
+            assertEquals(LiveServerFrame.Subscribed(listOf(room), listOf(hidden), emptyList()), socket.nextNonResync())
+            val line = assertNotNull(capture.awaitEvent { it.message == "live.subscribe_denied" })
+            assertTrue(line.hasKeyValue("roomIds", listOf(hidden.toLong())))
         }
         socket.close()
     }
@@ -276,8 +284,8 @@ class LiveSocketTest {
         val marker = UUID.randomUUID().toString().substring(0, 8)
         val ids = PostgresTestSupport.connect().use { connection ->
             connection.prepareStatement(
-                "INSERT INTO rooms (name, last_activity_at, created_at, updated_at) " +
-                    "SELECT ? || '-' || g, 1, 1, 1 FROM generate_series(1, ?) g RETURNING id",
+                "INSERT INTO rooms (name, last_activity_at, created_at, updated_at, access_type) " +
+                    "SELECT ? || '-' || g, 1, 1, 1, 'PUBLIC' FROM generate_series(1, ?) g RETURNING id",
             ).use { st ->
                 st.setString(1, "Cap $marker")
                 st.setInt(2, MAX_SUBSCRIPTIONS + 1)

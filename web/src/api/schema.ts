@@ -740,18 +740,16 @@ export interface paths {
         };
         /**
          * List rooms
-         * @description Any authenticated user: the rooms the caller may read - the ones they are a member of, and for an `ADMIN` every room.
-         *     Deleted rooms never appear.
+         * @description Lists public rooms, restricted visible rooms, and restricted hidden rooms the caller belongs to. Deleted rooms never appear.
          *
          *     - Sortable fields: `id`, `name`, `lastActivityAt`, `createdAt`. Default `id` ascending.
          *     - Filters: `name` (case- and accent-insensitive substring, at most 80 characters - `400` beyond); `archived` (strict `true` or
          *       `false`; omitted = both); `member` (strict `true` or `false`: `true` = only rooms the caller is a member of - the rooms rail
-         *       always sends it; `false` = only readable rooms the caller is NOT in, which is empty for a non-admin; omitted = every readable
-         *       room). A repeated key is a `400`.
+         *       always sends it; `false` = discoverable rooms the caller has not joined; omitted = both). A repeated key is a `400`.
          *     - `memberId` (1.2): only the rooms that ACTIVE user is a member of, ANDed with everything above - a member sees the rooms they
-         *       SHARE with that user, an `ADMIN` every room of that user (the profile page's rooms). An unknown or removed user matches
+         *       SHARE with that user, with an `ADMIN` exception for public and restricted visible rooms. An unknown or removed user matches
          *       nothing (an empty page); anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank `memberId=`), or a repeated key, is a `400`.
-         *     - Each row's `role` is the CALLER's role in that room, `null` for an `ADMIN` who is not a member.
+         *     - Each row's `role` is the caller's role in that room, or `null` before they join.
          */
         get: operations["listRooms"];
         put?: never;
@@ -762,6 +760,8 @@ export interface paths {
          *     (default `en`; a label the template has no translation for falls back to its `en` text). The copy is single-language plain text
          *     and has no link back: a later template edit or delete never touches the room. When per-label resolution would clash within a list,
          *     that whole list is copied in EN.
+         *
+         *     The access type is fixed at creation. Omitting `accessType` creates a restricted hidden room.
          *
          *     An unknown or deleted `templateId` is a `400` of type `urn:adder:problem:template-gone`; an unsupported `language` is a plain `400`. A case-insensitive name clash with a non-deleted
          *     room is `409` (archived rooms keep their names; a deleted room frees its own). Rides a per-USER rate bucket of 30 per minute
@@ -785,8 +785,9 @@ export interface paths {
         };
         /**
          * Get a room
-         * @description A member of the room or an `ADMIN`. A non-member (and any caller for a room that does not exist or was deleted) gets the same
-         *     `404`, so a room's existence is not disclosed. `role` is the caller's role, `null` for an `ADMIN` outside the room.
+         * @description A member of the room or an `ADMIN` in a public or restricted visible room. A caller without content access gets the same
+         *     `404` as for a missing or deleted room. `role` is the caller's role, `null` for an `ADMIN` outside the room.
+         *     Signed-in non-members can use the access preview to discover public and restricted visible rooms.
          *     `workflowRevision` is what a workflow PUT names in `X-Expected-Revision`.
          */
         get: operations["getRoom"];
@@ -808,6 +809,106 @@ export interface paths {
          *     restore. An archived room can be deleted. Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token).
          */
         delete: operations["deleteRoom"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a room access preview
+         * @description Public and restricted visible rooms are available to any signed-in user. A restricted hidden room is available only to
+         *     members. The preview contains room metadata and the caller's own request state. Inaccessible, missing, and deleted rooms return the same `404`.
+         */
+        get: operations["getRoomAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join a public room
+         * @description Adds the signed-in caller as a member of a public room, including an archived one. Already a member is a no-op.
+         *     The room-members bucket permits 60 writes per user per minute.
+         */
+        post: operations["joinPublicRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/join-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List pending room join requests
+         * @description Room owners can see pending requests from active users for a restricted visible room. Sort by `id` (request id) or
+         *     `requestedAt`. Default order is ascending by `id`.
+         */
+        get: operations["listRoomJoinRequests"];
+        put?: never;
+        /**
+         * Request to join a restricted visible room
+         * @description Submits a request for the signed-in caller. A caller with a pending request or an existing membership can repeat the action
+         *     safely. Submitting again after a rejection creates a new pending request. The room-members bucket permits 60 writes per user
+         *     per minute.
+         */
+        post: operations["requestRoomMembership"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/join-requests/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                requestId: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Approve or reject a room join request
+         * @description A room owner decides a request. Approval grants membership in the same transaction. Rejection leaves the applicant outside the
+         *     room and records the outcome in their access preview. A later request has a new id. The room-members bucket permits 60 writes
+         *     per user per minute.
+         */
+        put: operations["decideRoomJoinRequest"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2619,6 +2720,47 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        /**
+         * @description Public is discoverable and open to self-join. Restricted visible is discoverable and requires an owner to grant access. Restricted hidden is members-only and invitation-only.
+         * @enum {string}
+         */
+        RoomAccessType: "PUBLIC" | "RESTRICTED_VISIBLE" | "RESTRICTED_HIDDEN";
+        RoomAccessPreview: {
+            /** Format: int32 */
+            id: number;
+            name: string;
+            description?: string | null;
+            accessType: components["schemas"]["RoomAccessType"];
+            archived: boolean;
+            /**
+             * @description The caller's own join request state, or `null` when there is no request.
+             * @enum {string|null}
+             */
+            requestStatus: "PENDING" | "REJECTED" | null;
+        };
+        RoomJoinRequest: {
+            /** Format: int32 */
+            id: number;
+            /** Format: int32 */
+            userId: number;
+            name: string;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            requestedAt: number;
+        };
+        RoomJoinRequestPage: {
+            items: components["schemas"]["RoomJoinRequest"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
+        };
+        RoomJoinRequestDecision: {
+            /** @enum {string} */
+            decision: "APPROVE" | "REJECT";
+        };
         RoomCreateRequest: {
             name: string;
             description?: string | null;
@@ -2628,6 +2770,11 @@ export interface components {
              */
             templateId: number;
             language?: components["schemas"]["Language"];
+            /**
+             * @default RESTRICTED_HIDDEN
+             * @enum {string|null}
+             */
+            accessType: "PUBLIC" | "RESTRICTED_VISIBLE" | "RESTRICTED_HIDDEN" | null;
         };
         RoomUpdateRequest: {
             name: string;
@@ -2638,9 +2785,10 @@ export interface components {
             id: number;
             name: string;
             description?: string | null;
+            accessType: components["schemas"]["RoomAccessType"];
             archived: boolean;
             /**
-             * @description The CALLER's role in the room; `null` for an `ADMIN` who is not a member.
+             * @description The caller's role in the room, or `null` before they join.
              * @enum {string|null}
              */
             role: "OWNER" | "MEMBER" | null;
@@ -2667,6 +2815,7 @@ export interface components {
             id: number;
             name: string;
             description?: string | null;
+            accessType: components["schemas"]["RoomAccessType"];
             archived: boolean;
             /**
              * Format: int64
@@ -2683,6 +2832,11 @@ export interface components {
              * @description Active members only
              */
             memberCount: number;
+            /**
+             * Format: int32
+             * @description Active owners only
+             */
+            ownerCount: number;
             /**
              * Format: int64
              * @description The room workflow's optimistic-concurrency token (`X-Expected-Revision` of its PUT). Starts at 1.
@@ -5135,6 +5289,159 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getRoomAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The access preview */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomAccessPreview"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    joinPublicRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller is a member */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listRoomJoinRequests: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of pending join requests */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomJoinRequestPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    requestRoomMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request is pending or the caller is already a member */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    decideRoomJoinRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                requestId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomJoinRequestDecision"];
+            };
+        };
+        responses: {
+            /** @description Decision recorded */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };

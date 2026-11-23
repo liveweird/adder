@@ -8,13 +8,14 @@ import type { TFunction } from "i18next";
 import { useAdmin } from "../auth";
 import { ApiError } from "../api/http";
 import { getUserId } from "../api/session";
-import { listRoomMembers, removeRoomMember, setRoomMemberRole, type RoomMember, type RoomResponse, type RoomRole } from "../api/rooms";
+import { listRoomMembers, removeRoomMember, setRoomMemberRole, type RoomResponse, type RoomRole } from "../api/rooms";
 import ClearableTextInput from "../components/ClearableTextInput";
 import ConfirmActionModal from "../components/ConfirmActionModal";
 import FilterPanel from "../components/FilterPanel";
 import FormErrorAlert from "../components/FormErrorAlert";
 import RegistryListTable from "../components/RegistryListTable";
 import RoomMembersAdd from "../components/RoomMembersAdd";
+import RoomJoinRequests from "../components/RoomJoinRequests";
 import RoomPage from "../components/RoomPage";
 import RoomTabHeader from "../components/RoomTabHeader";
 import RowActionsMenu from "../components/RowActionsMenu";
@@ -107,9 +108,9 @@ function MembersBody({ room }: { room: RoomResponse }) {
     if (isAccessRefusal(failure)) await refresh();
   };
   const changeRole = useMutation({
-    mutationFn: ({ member, to }: { member: RoomMember; to: RoomRole }) => setRoomMemberRole(room.id, member.userId, to),
-    onSuccess: async () => {
-      showSuccessToast(t("rooms.members.toast.roleChanged"));
+    mutationFn: ({ userId, to }: { userId: number; to: RoomRole }) => setRoomMemberRole(room.id, userId, to),
+    onSuccess: async (_none, { userId, to }) => {
+      showSuccessToast(t(userId === me && to === "MEMBER" ? "rooms.members.toast.steppedDown" : "rooms.members.toast.roleChanged"));
       await refresh();
     },
     onError: refreshOnRefusal,
@@ -156,6 +157,19 @@ function MembersBody({ room }: { room: RoomResponse }) {
                 }}
               >
                 {t("rooms.members.leave")}
+              </Button>
+            )}
+            {room.role === "OWNER" && room.ownerCount > 1 && me !== null && (
+              <Button
+                variant="default"
+                leftSection={<IconShieldCheck size={16} aria-hidden="true" />}
+                loading={changeRole.isPending && changeRole.variables?.userId === me}
+                onClick={() => {
+                  remove.reset();
+                  changeRole.mutate({ userId: me, to: "MEMBER" });
+                }}
+              >
+                {t("rooms.members.stepDown")}
               </Button>
             )}
             {canManage && (
@@ -253,14 +267,14 @@ function MembersBody({ room }: { room: RoomResponse }) {
                     {canManage && !self && (
                       <RowActionsMenu
                         label={t("common.table.operationsAria", { name: member.name })}
-                        loading={changeRole.isPending && changeRole.variables?.member.userId === member.userId}
+                        loading={changeRole.isPending && changeRole.variables?.userId === member.userId}
                         disabled={changeRole.isPending}
                       >
                         <Menu.Item
                           leftSection={<IconShieldCheck size={14} />}
                           onClick={() => {
                             remove.reset();
-                            changeRole.mutate({ member, to: promote ? "OWNER" : "MEMBER" });
+                            changeRole.mutate({ userId: member.userId, to: promote ? "OWNER" : "MEMBER" });
                           }}
                         >
                           {t(promote ? "rooms.members.makeOwner" : "rooms.members.makeMember")}
@@ -293,6 +307,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
         </div>
       </Stack>
 
+      {room.role === "OWNER" && room.accessType === "RESTRICTED_VISIBLE" && <RoomJoinRequests roomId={room.id} />}
       {canManage && <RoomMembersAdd room={room} memberValues={memberValues} onAddFailure={setAddFailure} />}
       {addFailure && <FormErrorAlert title={t("rooms.members.addFailed")}>{addFailure}</FormErrorAlert>}
       <ConfirmActionModal

@@ -446,7 +446,7 @@ Redemption re-judges the token (`accessVerdict`: a logout, delete, password chan
 `room.created` (byUserId, roomId, name) names the creator, `room.name_conflict` shows who probed, and `DELETE /rooms/{id}` (ADMIN, soft) frees the name. A per-creator cap on active rooms and an
 owner/creator filter for ADMINs are a backlog item (`BACKLOG.md`).
 
-**What the room surface discloses (names).** A room is members-only: a non-member's `GET`, `PUT`, archive, unarchive, `DELETE` and workflow read are the same `404` as for a room that does not exist, so
+**What the room surface discloses (names).** Hidden rooms are members-only, including for administrators. For a hidden room, a non-member's `GET`, `PUT`, archive, unarchive, `DELETE` and workflow read are the same `404` as for a room that does not exist, so
 a room's existence is not disclosed through any status code (`authorization.md` "Rooms"; `RoomAuthzMatrixTest` pins the whole table); the one probe it cannot hide, the name clash, discloses only
 that a non-deleted room of that name exists (`409` on create or rename; Slack's private-channel rule). The denied probe is audited (`room.access_denied`, `observability.md`), which is the
 detection a quiet `404` would otherwise lack. A room response carries no other user's data (the member list, with names and emails, is `GET /rooms/{id}/members`, a reader-only route; see the third surface below).

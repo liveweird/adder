@@ -41,7 +41,7 @@ async function makeRoom(api: APIRequestContext, name: string): Promise<number> {
   expect(templates.status(), await templates.text()).toBe(200);
   const template = ((await templates.json()) as { items: { id: number; name: string }[] }).items.find((candidate) => candidate.name === "Default");
   expect(template, "the seeded Default template").toBeDefined();
-  const created = await api.post("/api/v1/rooms", { data: { name, templateId: template!.id } });
+  const created = await api.post("/api/v1/rooms", { data: { name, templateId: template!.id, accessType: "RESTRICTED_VISIBLE" } });
   expect(created.status(), await created.text()).toBe(201);
   const id = ((await created.json()) as { id: number }).id;
   cleanup.unshift(`/api/v1/rooms/${id}`);

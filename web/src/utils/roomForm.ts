@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { RoomCreateBody, RoomResponse, RoomUpdateBody } from "../api/rooms";
+import type { RoomAccessType, RoomCreateBody, RoomResponse, RoomUpdateBody } from "../api/rooms";
 import type { SupportedLanguage } from "../i18n";
 import { descriptionRule, nameRule } from "./formRules";
 import { PROBLEM_TYPES, isProblem } from "./problems";
@@ -15,9 +15,10 @@ export type RoomDetails = { name: string; description: string };
 export type RoomFormValues = RoomDetails & {
   /** The picked workflow template's id (a string, the Select's value type); null until one is picked. */
   templateId: string | null;
+  accessType: RoomAccessType;
 };
 
-export const EMPTY_ROOM_FORM: RoomFormValues = { name: "", description: "", templateId: null };
+export const EMPTY_ROOM_FORM: RoomFormValues = { name: "", description: "", templateId: null, accessType: "RESTRICTED_HIDDEN" };
 
 export function toRoomDetails(room: RoomResponse): RoomDetails {
   return { name: room.name, description: room.description ?? "" };
@@ -49,7 +50,7 @@ export function toRoomUpdateBody(values: RoomDetails): RoomUpdateBody {
 
 /** `language` is the UI language the room's labels are copied in (the server resolves every template label to it). */
 export function toRoomCreateBody(values: RoomFormValues, templateId: number, language: SupportedLanguage): RoomCreateBody {
-  return { ...toRoomUpdateBody(values), templateId, language };
+  return { ...toRoomUpdateBody(values), templateId, language, accessType: values.accessType };
 }
 
 /** Dirty = the trimmed details differ from what the room has (so edited back is clean). */

@@ -390,7 +390,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.5.0** (clearer room tabs), on 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.6.0** (room access), on 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -407,6 +407,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.4.0 Clearer workspace** | A focused chat layout with independently scrolling thread and message regions, compact headers, clearer messages and composer, and structured Details; Home with active joined rooms and unread cues; a responsive room directory; a cleaner application header, mobile navigation and command palette (1.4 D1 to D3). No API, migration or domain-rule change. |
 | **1.4.1 Thread status actions and refreshed Strike logo** | Valid workflow moves in the conversation header. Updated adder mark for light and dark themes and a dedicated browser favicon. |
 | **1.5.0 Clearer room tabs** | Shared room navigation on Search, Members, Workflow and Settings, with grouped search filters, a roster-first member view, a responsive workflow editor and distinct settings sections. |
+| **1.6.0 Room access** | Public self-join, visible restricted rooms with owner-reviewed requests, and restricted hidden rooms. Co-owners can step down while another active owner remains. |
 
 ## Donors
 
@@ -431,6 +432,12 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v1.6.0 — room access (2026-11-23)
+
+Creation sets the room's access type. The Rooms directory exposes public and restricted visible rooms to all signed-in users. Owners review
+requests from Members and can add people directly. Restricted hidden rooms are visible only to members. Existing rooms default to hidden.
+New members can read the room's existing conversation. Owners can share ownership or step down while another active owner remains.
 
 ### v1.5.0 — clearer room tabs (2026-11-23)
 

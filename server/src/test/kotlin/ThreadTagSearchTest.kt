@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.threads.ThreadSearchPageResponse
@@ -56,7 +57,9 @@ class ThreadTagSearchTest {
 
     private suspend fun room(owner: RoomActor, label: String): UInt {
         val template = TestThreads.seedTemplate().also { minted.templates += it }
-        return TestRooms.seed(owner.id, template, "$label ${UUID.randomUUID().toString().substring(0, 8)}").also { minted.rooms += it }
+        return TestRooms.seed(
+            owner.id, template, "$label ${UUID.randomUUID().toString().substring(0, 8)}", accessType = RoomAccessType.PUBLIC,
+        ).also { minted.rooms += it }
     }
 
     private suspend fun HttpClient.tag(room: UInt, number: Int, tags: List<String>) {
@@ -281,7 +284,7 @@ class ThreadTagSearchTest {
     @Test
     fun `an ADMIN finds a room's tagged threads by the room route, and across rooms only in the rooms they belong to`() = testApplication {
         val w = world("tsrch-admin")
-        assertEquals(listOf(w.c to 1), w.admin.client.inRoom(w.c, tagged(w.t1)).at(), "an ADMIN reads every room, member or not")
+        assertEquals(listOf(w.c to 1), w.admin.client.inRoom(w.c, tagged(w.t1)).at(), "an ADMIN reads this public room, member or not")
         val none = w.admin.client.everywhere(tagged(w.t1))
         assertEquals(0L, none.total, "membership is the scope across rooms, an ADMIN's too")
         assertEquals(emptyList(), none.items)

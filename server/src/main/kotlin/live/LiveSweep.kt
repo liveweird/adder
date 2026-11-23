@@ -40,8 +40,8 @@ private class Pass(val closed: Int, val failures: Map<Half, Exception>)
  * closed 4003 with ONE `live.revoked` line per user per sweep. This is how a logout, a user deletion, a password change and a role change
  * (a demoted ADMIN's room subscriptions included) end a socket without any `auth/` or `users/` write path knowing about the hub.
  *
- * The same pass re-checks MEMBERSHIPS: a non-ADMIN socket's ACTIVE room whose owner is no longer an active member of an existing room
- * gets `revoked` (and one `live.revoked reason=membership` line per user). Removal and deletion are normally pushed at once by their
+ * The same pass re-checks access to ACTIVE rooms. A socket that lost access gets `revoked` (and one `live.revoked reason=membership`
+ * line per user). Removal and deletion are normally pushed at once by their
  * hints; this is the net for a hint lost in a listener gap (so the bound is "immediate, or at most [intervalMillis] after a gap"), and a
  * gap also triggers it straight away ([hub]'s observer). The two halves run independently, and a half that fails is retried ONCE after
  * [retryDelayMillis], so neither a failing verdict query nor a failing membership query leaves the other undone, and a blip does not
@@ -150,8 +150,7 @@ class LiveSweep internal constructor(
     }
 
     private suspend fun revokeLostMemberships(views: List<SocketView>): Int {
-        // An ADMIN socket reads every room, member or not: only the other sockets can lose a room to a removal.
-        val held = views.filter { !it.socket.isAdmin && it.activeRooms.isNotEmpty() }
+        val held = views.filter { it.activeRooms.isNotEmpty() }
         val gone = lost(held.flatMap { view -> view.activeRooms.map { view.socket.userId to it } })
         var revoked = 0
         val perUser = LinkedHashMap<UInt, MutableSet<UInt>>()

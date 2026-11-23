@@ -8,6 +8,8 @@ import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.rooms.RoomMemberServiceKey
+import ch.nokillswit.rooms.RoomEnrollmentService
+import ch.nokillswit.rooms.RoomEnrollmentServiceKey
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomServiceKey
 import ch.nokillswit.rooms.RoomWorkflowService
@@ -322,6 +324,7 @@ suspend fun Application.configureDatabase() {
     attributes.put(RoomServiceKey, roomService)
     val roomMemberService = RoomMemberService(database, teamService)
     attributes.put(RoomMemberServiceKey, roomMemberService)
+    attributes.put(RoomEnrollmentServiceKey, RoomEnrollmentService(database))
     publishChatServices(
         database, roomService, roomMemberService, roomWorkflowService, teamService, readMaxConcurrent, searchMaxConcurrent,
     )

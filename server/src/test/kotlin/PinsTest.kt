@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.paging.PageResponse
@@ -76,7 +77,9 @@ class PinsTest {
         val outsider = actor("out")
         val admin = actor("adm", UserRole.ADMIN)
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        val room = TestRooms.seed(owner.id, template, "Pins ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
+        val room = TestRooms.seed(
+            owner.id, template, "Pins ${UUID.randomUUID().toString().substring(0, 8)}", accessType = RoomAccessType.PUBLIC,
+        ).also { mintedRooms += it }
         TestRooms.addMember(room, member.id)
         val thread = TestThreads.seed(room, member.id, title = "Awaria bazy")
         return Cast(owner, member, outsider, admin, room, thread.id)

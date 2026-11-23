@@ -12,10 +12,12 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
 
 ### Rooms
 
-- **Members only.** `room_members(room_id, user_id, role OWNER|MEMBER)`. Any signed-in user creates a room and becomes its OWNER. A non-member
-  gets `404` (existence is not disclosed; the denial is audited `room.access_denied`, the response stays 404); an ADMIN reads and manages every
-  room. OWNER or ADMIN edits name and description, manages members and the workflow, archives and unarchives; soft delete is ADMIN only
-  (reader `404` first, then `403`), with no restore API in 0.2.
+- **Access (1.6.0, V36).** Any signed-in user can create a room and becomes its OWNER. Its access type is set at creation. Public rooms are
+  discoverable and allow self-join. Restricted visible rooms are discoverable and allow join requests or direct additions. Restricted hidden
+  rooms are available only to their members, including administrators. Existing rooms and requests that omit `accessType` default to hidden.
+  The directory and access preview disclose a visible room's metadata. Its content requires membership, with an ADMIN exception for visible
+  rooms. A caller without content access receives the uniform `404` (`room.access_denied`). Owners or authorized ADMINs edit metadata, manage
+  members and workflow and archive or unarchive. Soft delete is ADMIN only after the content guard. There is no restore API.
 - **Guard order, every room route:** 401; visibility (404 for a missing room and a non-member alike); role (403); the `X-Expected-Revision`
   header, then the body (400); then, under the room lock, the guard again, the state checks (409) and the write. A non-member's malformed body is
   still 404, a plain member's still 403.
@@ -23,16 +25,19 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
   (a live link would eject people mid-incident and break per-member roles and the last-OWNER rule). Add is idempotent (existing members are
   skipped and counted) and always adds as MEMBER; promotion is a separate audited step. The last OWNER cannot leave, be demoted or be removed
   (`409`, `urn:adder:problem:last-owner`): after the write the room keeps at least one OWNER whose user is active. A member leaves by deleting their
-  own membership; an OWNER or ADMIN removes others.
-- **Deleted users.** Their membership rows stay, inert: lists and the last-OWNER count resolve through active users, a room whose owners are all
-  deleted is managed by ADMINs, and deleting a user is never blocked by room ownership.
+  own membership; an OWNER or authorized ADMIN removes others.
+- **Joining.** Owners decide pending requests in Members. Approval grants membership immediately. Rejection is visible to the applicant,
+  who may send another request with a new id. Direct additions clear outstanding requests. A new member can read earlier threads and messages.
+  The join date sets the start of unread tracking. An OWNER can promote any member to OWNER or step down to MEMBER while another active OWNER remains.
+- **Deleted users.** Their membership rows stay inert. Lists and the last-OWNER count resolve through active users. Account deletion retains its
+  separate rules. If it removes the last active owner of a hidden room, recovery through the app requires an existing ADMIN member.
 - **Room names** may not contain invisible formatting characters (Unicode category Cf, U+2028/U+2029): a `400`, applied to room names only (`rooms/Room.kt`), so two rooms never look identical and a bidi override cannot reorder a name.
 - **Archived = read-only** for name, description, workflow and (0.3) content (`409`, `room-archived`); membership management stays allowed, so
   access to the record stays manageable. Archive and unarchive are no-ops (and unaudited) when already in that state.
 - **Names** are unique among non-deleted rooms, case-insensitively (a partial unique index; archived rooms keep theirs; a delete frees the name).
   A clash discloses only that a room of that name exists. No slug: URLs use the numeric id.
-- **Activity.** `last_activity_at` equals creation time in 0.2 and 0.3 bumps it. The rail shows the caller's member rooms, most recent first; an
-  ADMIN gets every room on the Rooms page.
+- **Activity.** `last_activity_at` starts at creation. The rail shows the caller's member rooms, most recent first. The Rooms directory also lists
+  public and restricted visible rooms.
 - **Limits:** room name <= 80, description <= 500; 500 members per room, 200 user ids per add; 200 members per team.
 
 ### Workflows
@@ -273,6 +278,9 @@ Binding for 0.5.0: thread filters and sorts, #hashtags, full-text search. The co
 is the destination. The user's decisions 0.5 D1-0.5 D5 (2026-11-19) and the assumptions 0.5 A1-0.5 A18 are in `product.md` "0.5.0 Find". Deviations from the old sketch are marked **[changed]**.
 
 ### Paged lists of a room
+
+Owners of restricted visible rooms page pending join requests through `GET /rooms/{id}/join-requests`. Rows contain `id`, `userId`,
+`name` and `requestedAt`, with sort fields `id` (default ascending) and `requestedAt`.
 
 A room's members are the first paged sub-collection: `GET /rooms/{id}/members` (reader; `{userId,name,email,role,addedAt}` rows; sortable `id` = the user id, `name`, `role`, `addedAt`; filters `role` (enum, `400` on an unknown name) and `name` (`containsNormalized` on the display name, at most 50 characters: the user name column's own limit); ACTIVE users only, count and rows over ONE predicate in one transaction, in `rooms/RoomMemberService`). A room holds at most 500 members, so the page envelope is bounded by that cap, never unbounded.
 

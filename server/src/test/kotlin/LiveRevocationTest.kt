@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.live.LiveHubKey
@@ -55,9 +56,14 @@ class LiveRevocationTest {
     private suspend fun ApplicationTestBuilder.actor(prefix: String, role: UserRole = UserRole.USER): RoomActor =
         seedActor(prefix, role).also { users += it.id }
 
-    private suspend fun room(owner: RoomActor, vararg members: RoomActor): UInt {
+    private suspend fun room(
+        owner: RoomActor,
+        vararg members: RoomActor,
+        accessType: RoomAccessType = RoomAccessType.RESTRICTED_HIDDEN,
+    ): UInt {
         val template = TestThreads.seedTemplate().also { templates += it }
-        val room = TestRooms.seed(owner.id, template, "Rev ${UUID.randomUUID().toString().substring(0, 8)}").also { roomIds += it }
+        val room = TestRooms.seed(owner.id, template, "Rev ${UUID.randomUUID().toString().substring(0, 8)}", accessType = accessType)
+            .also { roomIds += it }
         members.forEach { TestRooms.addMember(room, it.id) }
         return room
     }
@@ -117,7 +123,7 @@ class LiveRevocationTest {
         val hub = application.attributes[LiveHubKey]
         val owner = actor("rev-aown")
         val admin = actor("rev-adm", UserRole.ADMIN)
-        val room = room(owner, admin)
+        val room = room(owner, admin, accessType = RoomAccessType.RESTRICTED_VISIBLE)
         val thread = TestThreads.seed(room, owner.id)
         val adminSocket = subscribed(admin, room)
         awaitListenerUp(hub)
@@ -125,8 +131,24 @@ class LiveRevocationTest {
         assertEquals(HttpStatusCode.NoContent, owner.client.delete("$rooms/$room/members/${admin.id}").status)
         assertEquals(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_REMOVED, room), adminSocket.nextNonResync())
         owner.client.postJson("$rooms/$room/threads/${thread.number}/messages", MessageRequest("Still here"))
-        assertEquals(LiveKind.MESSAGE_POSTED, (adminSocket.nextNonResync() as LiveServerFrame.Event).kind, "an ADMIN reads every room")
+        assertEquals(LiveKind.MESSAGE_POSTED, (adminSocket.nextNonResync() as LiveServerFrame.Event).kind)
         adminSocket.close()
+    }
+
+    @Test
+    fun `a removed ADMIN loses a hidden room immediately and cannot subscribe again`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("rev-hidden-own")
+        val admin = actor("rev-hidden-adm", UserRole.ADMIN)
+        val room = room(owner, admin)
+        val socket = subscribed(admin, room)
+        awaitListenerUp(application.attributes[LiveHubKey])
+
+        assertEquals(HttpStatusCode.NoContent, owner.client.delete("$rooms/$room/members/${admin.id}").status)
+        assertEquals(LiveServerFrame.Revoked(room), socket.nextNonResync())
+        socket.subscribe(room)
+        assertEquals(LiveServerFrame.Subscribed(emptyList(), listOf(room), emptyList()), socket.nextNonResync())
+        socket.close()
     }
 
     @Test
@@ -136,7 +158,7 @@ class LiveRevocationTest {
         val owner = actor("rev-down")
         val member = actor("rev-dmem")
         val admin = actor("rev-dadm", UserRole.ADMIN)
-        val room = room(owner, member)
+        val room = room(owner, member, accessType = RoomAccessType.RESTRICTED_VISIBLE)
         val ownerSocket = subscribed(owner, room)
         val adminSocket = subscribed(admin, room) // an ADMIN who is not a member
         val memberSocket = openAuthenticatedLive(liveClient(), member) // a member who never subscribed
@@ -225,7 +247,7 @@ class LiveRevocationTest {
         val sockets = listOf(loggedOut, deleted, rotated, demoted, fine).associateWith { openAuthenticatedLive(ws, it) }
         val loggedOutTwo = openAuthenticatedLive(ws, loggedOut) // two tabs: still ONE audit line for the user
         val owner = actor("sw-own")
-        val room = room(owner)
+        val room = room(owner, accessType = RoomAccessType.RESTRICTED_VISIBLE)
         sockets.getValue(demoted).subscribe(room) // an ADMIN subscribed to a room they are not in
         assertEquals(LiveServerFrame.Subscribed(listOf(room), emptyList(), emptyList()), sockets.getValue(demoted).nextNonResync())
 
@@ -291,29 +313,38 @@ class LiveRevocationTest {
     }
 
     @Test
-    fun `a removal whose hint was lost is revoked by the next sweep, and an ADMIN subscription is left alone`() = testApplication {
+    fun `the sweep revokes lost member access and keeps an ADMIN's visible rooms`() = testApplication {
         usePostgresTestcontainer()
         val hub = application.attributes[LiveHubKey]
         val sweep = application.attributes[LiveSweepKey]
         val owner = actor("lost-own")
         val member = actor("lost-mem")
         val admin = actor("lost-adm", UserRole.ADMIN)
-        val room = room(owner, member)
+        val room = room(owner, member, accessType = RoomAccessType.RESTRICTED_VISIBLE)
+        val hidden = room(owner, admin)
         val memberSocket = subscribed(member, room)
         val adminSocket = subscribed(admin, room) // an ADMIN who is not a member
         val ownerSocket = subscribed(owner, room)
+        adminSocket.subscribe(hidden)
+        assertEquals(LiveServerFrame.Subscribed(listOf(hidden), emptyList(), emptyList()), adminSocket.nextNonResync())
         awaitListenerUp(hub)
 
         deleteMembership(room, member.id) // raw: no hint is emitted, exactly like a hint lost in a listener gap
+        deleteMembership(hidden, admin.id)
         withAuditCapture { capture ->
             assertEquals(0, sweep.sweepNow(), "no socket closes; only the subscription goes")
-            val line = assertNotNull(capture.awaitEvent { it.message == "live.revoked" && it.hasKeyValue("reason", "membership") })
-            assertTrue(line.hasKeyValue("byUserId", member.id.toLong()))
-            assertTrue(line.hasKeyValue("rooms", 1))
-            assertTrue(line.hasKeyValue("sockets", 1))
-            assertEquals(1, capture.events.count { it.message == "live.revoked" }, "one line, for the member alone")
+            listOf(member, admin).forEach { removed ->
+                val line = assertNotNull(capture.awaitEvent {
+                    it.message == "live.revoked" && it.hasKeyValue("reason", "membership") &&
+                        it.hasKeyValue("byUserId", removed.id.toLong())
+                })
+                assertTrue(line.hasKeyValue("rooms", 1))
+                assertTrue(line.hasKeyValue("sockets", 1))
+            }
+            assertEquals(2, capture.events.count { it.message == "live.revoked" })
         }
         assertEquals(LiveServerFrame.Revoked(room), memberSocket.nextNonResync())
+        assertEquals(LiveServerFrame.Revoked(hidden), adminSocket.nextNonResync())
         listOf(adminSocket, ownerSocket).forEach {
             it.sendText("""{"type":"ping"}""")
             assertEquals(LiveServerFrame.Pong, it.nextNonResync(), "still subscribed, and told nothing")
@@ -343,8 +374,8 @@ class LiveRevocationTest {
         val owner = actor("adm-own")
         val demoted = actor("adm-dem", UserRole.ADMIN)
         val deleted = actor("adm-del", UserRole.ADMIN)
-        val room = room(owner)
-        val other = room(owner)
+        val room = room(owner, accessType = RoomAccessType.RESTRICTED_VISIBLE)
+        val other = room(owner, accessType = RoomAccessType.RESTRICTED_VISIBLE)
         val demotedSocket = openAuthenticatedLive(liveClient(), demoted)
         val deletedSocket = openAuthenticatedLive(liveClient(), deleted)
         demotedSocket.subscribe(room)

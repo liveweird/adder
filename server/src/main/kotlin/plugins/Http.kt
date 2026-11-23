@@ -69,7 +69,8 @@ private val SMALL_BODY_PATHS = setOf(
 // `+` (`%2B1`), leading zeros and every Unicode decimal digit, so a digits-only pattern let those spellings of a real id past the
 // ceiling to the global one (BodyLimitIdSpellingTest). A segment that is no id never routes, and a tighter ceiling there costs nothing.
 private val ROOM_MEMBERS_PATH = Regex("^/api/v1/rooms/[^/]+/members$")
-private val THREAD_SMALL_PUT_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+/(status|owner|read-marker|watch|tags)$")
+private val ROOM_SMALL_PUT_PATH =
+    Regex("^/api/v1/rooms/[^/]+/(threads/[^/]+/(status|owner|read-marker|watch|tags)|join-requests/[^/]+)$")
 private val THREAD_CREATE_PATH = Regex("^/api/v1/rooms/[^/]+/threads$")
 private val THREAD_DETAILS_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+$")
 private val NOTIFICATION_PREFERENCES_PATH = Regex("^/api/v1/users/[^/]+/notification-preferences$")
@@ -104,7 +105,7 @@ internal fun requestBodyLimit(call: ApplicationCall): Long {
         // (the test host feeds the upgraded socket's frames through the request channel) starves the server of every client frame.
         method == HttpMethod.Get && path == LIVE_SOCKET_PATH -> Long.MAX_VALUE
         method == HttpMethod.Post && (path in SMALL_BODY_PATHS || ROOM_MEMBERS_PATH.matches(path)) -> MAX_SMALL_REQUEST_BODY_BYTES
-        method == HttpMethod.Put && THREAD_SMALL_PUT_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
+        method == HttpMethod.Put && ROOM_SMALL_PUT_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Put && PIN_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Put && NOTIFICATION_PREFERENCES_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Put && MESSAGE_REACTION_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES

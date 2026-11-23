@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.rooms.RoomFieldDef
 import ch.nokillswit.rooms.RoomOptionDef
@@ -67,7 +68,9 @@ class ThreadListFilterTest {
     /** A room of the fixture template (statuses `open`, `monitoring`, `done`, `wontdo`) owned by [owner], with [members] added. */
     private suspend fun room(owner: RoomActor, vararg members: RoomActor): UInt {
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        return TestRooms.seed(owner.id, template, "Flt ${UUID.randomUUID().toString().substring(0, 8)}").also { room ->
+        return TestRooms.seed(
+            owner.id, template, "Flt ${UUID.randomUUID().toString().substring(0, 8)}", accessType = RoomAccessType.PUBLIC,
+        ).also { room ->
             mintedRooms += room
             members.forEach { TestRooms.addMember(room, it.id) }
         }

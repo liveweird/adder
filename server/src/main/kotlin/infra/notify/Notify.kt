@@ -61,6 +61,8 @@ data class LiveHint(
     val threadNumber: Int? = null,
     val messageId: UInt? = null,
     val targetUserIds: List<UInt>? = null,
+    /** True when an ADMIN outside the room must lose the subscription too (a hidden room member left). */
+    val requiresMembership: Boolean = false,
     @EncodeDefault val v: Int = LIVE_HINT_VERSION,
 )
 

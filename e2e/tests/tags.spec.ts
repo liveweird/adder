@@ -164,7 +164,7 @@ async function threadScene(page: Page) {
   const templates = await ownerApi.get("/api/v1/workflow-templates?name=Default");
   const template = ((await templates.json()) as { items: { id: number; name: string }[] }).items.find((candidate) => candidate.name === "Default");
   expect(template, "the seeded Default template").toBeDefined();
-  const created = await ownerApi.post("/api/v1/rooms", { data: { name: uniqueText("e2e-tags-room"), templateId: template!.id } });
+  const created = await ownerApi.post("/api/v1/rooms", { data: { name: uniqueText("e2e-tags-room"), templateId: template!.id, accessType: "RESTRICTED_VISIBLE" } });
   expect(created.status(), await created.text()).toBe(201);
   const roomId = ((await created.json()) as { id: number }).id;
   userPaths.unshift(`/api/v1/rooms/${roomId}`); // rooms before users

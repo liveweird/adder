@@ -4,7 +4,7 @@
 // team (`e2e-room-team-*`) and users, removed through the API in an `afterEach` (rooms first, then the team, then the users). The seeded Default and Incident templates
 // are shared and read-only here: rooms only copy them. Every room is created by a throwaway user (the room-name bucket is
 // per user, 30 a minute, and the member add has its own per-user bucket: this file stays far below both), so the seed administrator is never a member of any of them.
-import { apiAsAdmin, createRoomViaUi, deleteViaApi, expect, login, openFilters, rail, rowOperation, signOut, specAdmins, test, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, apiAsUser, axeViolations, createRoomViaUi, deleteViaApi, expect, login, openFilters, rail, rowOperation, signOut, specAdmins, test, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-rooms-admin");
@@ -36,6 +36,7 @@ test("a user creates a room from the Incident template and finds it in the rooms
   // Picking the Incident template previews its five statuses.
   await page.getByRole("textbox", { name: "Name", exact: true }).fill(name);
   await page.getByRole("textbox", { name: "Description" }).fill("Playwright's own room");
+  await page.getByText("Restricted, visible", { exact: true }).click();
   await page.getByRole("combobox", { name: "Workflow template" }).click();
   await page.getByRole("option", { name: "Incident", exact: true }).click();
   const preview = page.getByRole("group", { name: "Statuses" });
@@ -206,7 +207,7 @@ test("the owner adds a person and a whole team, hands over ownership and leaves"
   await expect(page).toHaveURL(/\/rooms$/);
   await expect(rail(page).getByRole("link", { name, exact: true })).toHaveCount(0);
   await page.goto(`/rooms/${id}`);
-  await expect(page.getByText(NOT_A_MEMBER)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Request to join", exact: true })).toBeVisible();
   await signOut(page);
 
   // The new owner sees the room with the original owner gone, and has the controls.
@@ -228,7 +229,7 @@ test("the owner adds a person and a whole team, hands over ownership and leaves"
   await expect(page.getByRole("button", { name: "Leave room", exact: true })).toBeVisible();
 });
 
-test("a non-member cannot open a room while an administrator can", async ({ page }) => {
+test("a hidden room is invisible to non-members including administrators", async ({ page }) => {
   await admin.login(page);
   const owner = await throwawayUser(page, "E2E Room Owner", cleanup);
   const outsider = await throwawayUser(page, "E2E Room Outsider", cleanup);
@@ -236,7 +237,19 @@ test("a non-member cannot open a room while an administrator can", async ({ page
 
   await login(page, owner.email, owner.password);
   const name = uniqueText("e2e-room");
-  const id = await createRoomViaUi(page, name, "Default", cleanup);
+  const id = await createRoomViaUi(page, name, "Default", cleanup, {
+    name: "Name", template: "Workflow template", create: "Create", access: "Restricted, hidden",
+  });
+  // Only the teardown administrator is added. The separate administrator used below must be an outsider.
+  const { api: cleanupApi, userId } = await apiAsAdmin();
+  const { api: ownerApi } = await apiAsUser(owner.email, owner.password);
+  try {
+    const added = await ownerApi.post(`/api/v1/rooms/${id}/members`, { data: { userIds: [userId] } });
+    expect(added.status(), await added.text()).toBe(200);
+  } finally {
+    await cleanupApi.dispose();
+    await ownerApi.dispose();
+  }
   await signOut(page);
 
   // The outsider gets the same answer as for a room that does not exist, and the room is in none of their lists.
@@ -247,23 +260,108 @@ test("a non-member cannot open a room while an administrator can", async ({ page
   await expect(rail(page).getByRole("link", { name, exact: true })).toHaveCount(0);
   await page.getByRole("link", { name: "Back to rooms" }).click();
   await openFilters(page);
+  await page.getByRole("radiogroup", { name: "Which rooms to list" }).getByText("Browse", { exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill(name);
   await expect(page.getByText("No rooms yet")).toBeVisible();
   await signOut(page);
 
-  // The administrator is not a member: their own list is empty of it, "All" finds it without a role, and it opens.
+  // An administrator outside the room sees the same directory and deep-link result.
   await admin.login(page);
   await page.goto("/rooms");
   await openFilters(page);
+  await page.getByRole("radiogroup", { name: "Which rooms to list" }).getByText("Browse", { exact: true }).click();
   await page.getByLabel("Name", { exact: true }).fill(name);
   await expect(page.getByText("No rooms yet")).toBeVisible();
-  await page.getByRole("radiogroup", { name: "Which rooms to list" }).getByText("All", { exact: true }).click();
-  const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: `Open room ${name}` }) });
-  await expect(row.getByText("Your role: —", { exact: true })).toBeVisible();
-  await page.getByRole("link", { name: `Open room ${name}` }).click();
-  await expect(page.getByRole("heading", { level: 2, name })).toBeVisible();
-  await expect(page.getByText(NOT_A_MEMBER)).toHaveCount(0);
-  await expect(rail(page).getByRole("link", { name, exact: true })).toHaveCount(0);
+  await page.goto(`/rooms/${id}/members`);
+  await expect(page.getByText(NOT_A_MEMBER)).toBeVisible();
+});
+
+test("a person joins a public room from the directory and reads earlier messages", async ({ page, browser }) => {
+  await admin.login(page);
+  const owner = await throwawayUser(page, "E2E Public Owner", cleanup);
+  const newMember = await throwawayUser(page, "E2E Public Member", cleanup);
+  const name = uniqueText("e2e-public-room");
+  await login(page, owner.email, owner.password);
+  const id = await createRoomViaUi(page, name, "Default", cleanup, {
+    name: "Name", template: "Workflow template", create: "Create", access: "Public",
+  });
+  const { api } = await apiAsUser(owner.email, owner.password);
+  try {
+    const created = await api.post(`/api/v1/rooms/${id}/threads`, {
+      data: { title: "Earlier conversation", body: "This message was written before you joined." },
+    });
+    expect(created.status(), await created.text()).toBe(201);
+  } finally {
+    await api.dispose();
+  }
+
+  const readerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const reader = await readerContext.newPage();
+  const subscriptions: { roomIds?: number[]; refused?: number[] }[] = [];
+  reader.on("websocket", (socket) => {
+    socket.on("framereceived", ({ payload }) => {
+      const frame = JSON.parse(payload.toString()) as { type: string; roomIds?: number[]; refused?: number[] };
+      if (frame.type === "subscribed") subscriptions.push(frame);
+    });
+  });
+  try {
+    await login(reader, newMember.email, newMember.password, "/rooms");
+    await openFilters(reader);
+    await reader.getByRole("radiogroup", { name: "Which rooms to list" }).getByText("Browse", { exact: true }).click();
+    await reader.getByLabel("Name", { exact: true }).fill(name);
+    await reader.getByRole("link", { name: `Open room ${name}` }).click();
+    await expect(reader.getByRole("heading", { level: 2, name })).toBeVisible();
+    await expect(reader.getByText("Earlier conversation")).toHaveCount(0);
+    expect(await axeViolations(reader, "main")).toEqual([]);
+    await expect.poll(() => subscriptions.some((frame) => frame.refused?.includes(id))).toBe(true);
+    await reader.getByRole("button", { name: "Join room", exact: true }).click();
+    await expect.poll(() => subscriptions.some((frame) => frame.roomIds?.includes(id))).toBe(true);
+    await reader.getByRole("link", { name: /Earlier conversation/ }).click();
+    await expect(reader.getByText("This message was written before you joined.")).toBeVisible();
+  } finally {
+    await readerContext.close();
+  }
+});
+
+test("an owner declines and approves access requests and steps down after naming a co-owner", async ({ page, browser }) => {
+  await admin.login(page);
+  const owner = await throwawayUser(page, "E2E Restricted Owner", cleanup);
+  const applicant = await throwawayUser(page, "E2E Restricted Applicant", cleanup);
+  const name = uniqueText("e2e-visible-room");
+  await login(page, owner.email, owner.password);
+  const id = await createRoomViaUi(page, name, "Default", cleanup);
+  const memberPath = `/rooms/${id}/members`;
+  const decision = (response: { url(): string; status(): number; request(): { method(): string } }) =>
+    response.request().method() === "PUT" && response.url().includes(`/rooms/${id}/join-requests/`) && response.status() === 204;
+  const visitor = await browser.newPage();
+  try {
+    await login(visitor, applicant.email, applicant.password, `/rooms/${id}`);
+    await visitor.getByRole("button", { name: "Request to join", exact: true }).click();
+    await expect(visitor.getByText("Request pending", { exact: true })).toBeVisible();
+
+    await page.goto(memberPath);
+    await expect(page.getByRole("button", { name: "Step down as owner" })).toHaveCount(0);
+    await Promise.all([page.waitForResponse(decision), page.getByRole("button", { name: /^Decline/ }).click()]);
+    await visitor.reload();
+    await expect(visitor.getByText("Request declined", { exact: true })).toBeVisible();
+    await visitor.getByRole("button", { name: "Request again", exact: true }).click();
+    await expect(visitor.getByText("Request pending", { exact: true })).toBeVisible();
+
+    await page.reload();
+    await Promise.all([page.waitForResponse(decision), page.getByRole("button", { name: /^Approve/ }).click()]);
+    await expect(visitor.getByRole("link", { name: "Threads", exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: `Operations for ${applicant.name}` }).click();
+    await page.getByRole("menuitem", { name: "Make owner", exact: true }).click();
+    const stepDown = page.getByRole("button", { name: "Step down as owner" });
+    await expect(stepDown).toBeVisible();
+    await stepDown.click();
+    await expect(stepDown).toHaveCount(0);
+    const remaining = page.getByRole("row").filter({ hasText: applicant.name });
+    await expect(remaining.getByText("Owner", { exact: true })).toBeVisible();
+  } finally {
+    await visitor.close();
+  }
 });
 
 test("an owner archives and unarchives a room and an administrator deletes it", async ({ page }) => {

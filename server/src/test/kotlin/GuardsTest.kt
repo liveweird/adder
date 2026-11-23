@@ -14,6 +14,7 @@ import ch.nokillswit.authz.requireRoomReader
 import ch.nokillswit.authz.requireSelfOrAdmin
 import ch.nokillswit.authz.requireTeamManagerOrAdmin
 import ch.nokillswit.authz.requireThreadSteward
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.authz.RoomStanding
 import ch.nokillswit.users.UserRole
@@ -80,32 +81,35 @@ class GuardsTest {
 
     private val owner = RoomStanding(RoomRole.OWNER, archived = false)
     private val member = RoomStanding(RoomRole.MEMBER, archived = false)
-    private val outside = RoomStanding(role = null, archived = false)
+    private val outside = RoomStanding(role = null, archived = false, accessType = RoomAccessType.PUBLIC)
+    private val hiddenOutside = RoomStanding(role = null, archived = false, accessType = RoomAccessType.RESTRICTED_HIDDEN)
 
     @Test
     fun `requireRoomReader admits a member and an admin, and answers a missing room and a non-member with the same 404`() {
         requireRoomReader(user, member)
         requireRoomReader(user, owner)
-        requireRoomReader(admin, outside) // an ADMIN reads every room, member or not
+        requireRoomReader(admin, outside) // an ADMIN reads a visible room, member or not
         requireRoomReader(admin, member)
         val missing = assertFailsWith<NotFoundException> { requireRoomReader(user, null) }
         val stranger = assertFailsWith<NotFoundException> { requireRoomReader(user, outside) }
         assertEquals(missing.message, stranger.message, "a missing room and a non-member are indistinguishable")
         // An ADMIN gets no free pass for a room that does not exist: nothing to read.
         assertFailsWith<NotFoundException> { requireRoomReader(admin, null) }
+        assertFailsWith<NotFoundException> { requireRoomReader(admin, hiddenOutside) }
     }
 
     @Test
     fun `requireRoomManager admits the OWNER and an admin, refuses a plain member with 403 and an outsider with the 404`() {
         requireRoomManager(user, owner)
         requireRoomManager(admin, owner)
-        requireRoomManager(admin, outside) // an ADMIN manages every room
+        requireRoomManager(admin, outside) // an ADMIN manages a visible room
         requireRoomManager(admin, member)
         assertFailsWith<ForbiddenException> { requireRoomManager(user, member) }
         // Visibility comes first: an outsider must never learn the room exists through a 403.
         assertFailsWith<NotFoundException> { requireRoomManager(user, outside) }
         assertFailsWith<NotFoundException> { requireRoomManager(user, null) }
         assertFailsWith<NotFoundException> { requireRoomManager(admin, null) }
+        assertFailsWith<NotFoundException> { requireRoomManager(admin, hiddenOutside) }
     }
 
     @Test
@@ -113,12 +117,13 @@ class GuardsTest {
         requireRoomMember(user, member)
         requireRoomMember(user, owner)
         requireRoomMember(admin, member) // an ADMIN who IS a member speaks like any member
-        // Only members speak: an ADMIN reads every room but is refused here, after the reader check passed.
+        // Only members speak: an ADMIN reads this visible room but is refused here, after the reader check passed.
         assertFailsWith<ForbiddenException> { requireRoomMember(admin, outside) }
         // Visibility comes first: an outsider must never learn the room exists through a 403.
         assertFailsWith<NotFoundException> { requireRoomMember(user, outside) }
         assertFailsWith<NotFoundException> { requireRoomMember(user, null) }
         assertFailsWith<NotFoundException> { requireRoomMember(admin, null) }
+        assertFailsWith<NotFoundException> { requireRoomMember(admin, hiddenOutside) }
     }
 
     @Test

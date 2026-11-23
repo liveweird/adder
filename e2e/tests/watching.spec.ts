@@ -57,7 +57,7 @@ async function scene(page: Page): Promise<Scene> {
 
 /** A room (unique name) created through `api` from the template, with `mateId` added as a plain member; its removal is queued first. */
 async function makeRoom(api: APIRequestContext, templateId: number, mateId: number): Promise<number> {
-  const created = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-watch"), templateId } });
+  const created = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-watch"), templateId, accessType: "RESTRICTED_VISIBLE" } });
   expect(created.status(), await created.text()).toBe(201);
   const roomId = ((await created.json()) as { id: number }).id;
   cleanup.unshift(`/api/v1/rooms/${roomId}`);

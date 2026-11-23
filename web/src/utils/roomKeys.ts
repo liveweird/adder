@@ -27,6 +27,10 @@ export const roomKeys = {
   memberRooms: (userId: number) => [...roomKeys.list, "member", userId] as const,
   /** One room's record (`null`: a route that names no room, which is never fetched). */
   detail: (room: number | null) => ["rooms", "detail", room] as const,
+  /** The discovery-only preview for a room the caller has not joined. */
+  access: (room: number | null) => ["rooms", "access", room] as const,
+  /** Pending access requests, read by room owners. */
+  joinRequests: (room: number) => ["rooms", "join-requests", room] as const,
   /** The members table and the member picker (`"picker"` appended). */
   members: (room: number) => ["rooms", "members", room] as const,
   /** The shared workflow read (status pills, the thread form's fields) and the Workflow tab's own editor read. */

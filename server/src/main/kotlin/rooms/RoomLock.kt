@@ -5,6 +5,7 @@ import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.authz.RoomStanding
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.requireRoomManager
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.authz.requireRoomReader
@@ -43,7 +44,7 @@ private fun R2dbcDatabase.roomLockWaitMillis(): Int = lockWaitMillisByDatabase[t
  */
 internal suspend fun readStanding(roomId: UInt, userId: UInt, lock: Boolean): RoomStanding? {
     val rooms = RoomService.Rooms
-    val query = rooms.select(rooms.archivedAt).where { (rooms.id eq roomId) and rooms.active() }
+    val query = rooms.select(rooms.archivedAt, rooms.accessType).where { (rooms.id eq roomId) and rooms.active() }
     val row = (if (lock) query.forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate) else query).toList().singleOrNull() ?: return null
     val members = RoomService.RoomMembers
     // Joined to ACTIVE users: a soft-deleted user's membership row is inert and never reads as a role.
@@ -52,7 +53,11 @@ internal suspend fun readStanding(roomId: UInt, userId: UInt, lock: Boolean): Ro
         .toList()
         .singleOrNull()
         ?.let { RoomRole.valueOf(it[members.role]) }
-    return RoomStanding(role = role, archived = row[rooms.archivedAt] != null)
+    return RoomStanding(
+        role = role,
+        archived = row[rooms.archivedAt] != null,
+        accessType = RoomAccessType.valueOf(row[rooms.accessType]),
+    )
 }
 
 /** A room write's guard: it judges the caller as RE-READ under the room lock ([withRoomWrite]) and their standing in the room. */

@@ -17,10 +17,12 @@ const ROOM = {
   id: 12,
   name: "Night Shift",
   description: null,
+  accessType: "RESTRICTED_HIDDEN",
   archived: false,
   archivedAt: null,
   role: "OWNER",
   memberCount: 3,
+  ownerCount: 2,
   workflowRevision: 1,
   lastActivityAt: 1,
   createdAt: 1,
@@ -70,6 +72,7 @@ type ServeOptions = {
   onMembers?: () => void;
   /** A role change waits for this before it answers. */
   holdRole?: Promise<void>;
+  joinRequests?: Array<{ id: number; userId: number; name: string; requestedAt: number }>;
 };
 
 /**
@@ -78,6 +81,7 @@ type ServeOptions = {
  */
 function serve(mockFetch: FetchMock, opts: ServeOptions = {}) {
   let roster = ROSTER.map((member) => ({ ...member }));
+  let joinRequests = opts.joinRequests?.map((request) => ({ ...request })) ?? [];
   let room: Record<string, unknown> | null = opts.room ?? ROOM;
   mockFetch.mockImplementation((url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -91,11 +95,24 @@ function serve(mockFetch: FetchMock, opts: ServeOptions = {}) {
       const items = roster.filter((m) => (!params.get("role") || m.role === params.get("role")) && (!params.get("name") || m.name.toLowerCase().includes(params.get("name")!.toLowerCase())));
       return Promise.resolve(jsonResponse(200, { items, page: 1, pageSize: 20, total: opts.total ?? items.length }));
     }
+    if (method === "GET" && url.startsWith("/api/v1/rooms/12/join-requests?")) {
+      return Promise.resolve(jsonResponse(200, { items: joinRequests, page: 1, pageSize: 20, total: joinRequests.length }));
+    }
     if (method === "GET" && url.startsWith("/api/v1/users/directory?")) return Promise.resolve(jsonResponse(200, DIRECTORY));
     if (method === "GET" && url.startsWith("/api/v1/teams?")) return Promise.resolve(jsonResponse(200, TEAMS));
     if (key === "GET /api/v1/teams/5") return Promise.resolve(jsonResponse(200, team(5, "Backend", 2)));
     if (key === "GET /api/v1/teams/6") return Promise.resolve(jsonResponse(200, team(6, "Design", 0)));
     if (key === "POST /api/v1/rooms/12/members") return Promise.resolve(jsonResponse(200, opts.add ?? { added: 1, alreadyMembers: 0 }));
+    const joinDecision = /^PUT \/api\/v1\/rooms\/12\/join-requests\/(\d+)$/.exec(key);
+    if (joinDecision) {
+      const request = joinRequests.find((item) => String(item.id) === joinDecision[1]);
+      const body = JSON.parse(init!.body as string) as { decision: string };
+      if (request && body.decision === "APPROVE") {
+        roster.push({ userId: request.userId, name: request.name, email: "new@example.test", role: "MEMBER", addedAt: request.requestedAt });
+      }
+      joinRequests = joinRequests.filter((item) => String(item.id) !== joinDecision[1]);
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
     const role = /^PUT \/api\/v1\/rooms\/12\/members\/(\d+)$/.exec(key);
     if (role) {
       const body = JSON.parse(init!.body as string) as { role: string };
@@ -131,6 +148,23 @@ function renderMembers(queryClient?: QueryClient) {
     </Routes>,
     { route: "/rooms/12/members", queryClient },
   );
+}
+
+async function ownerReviewsJoinRequest(mockFetch: FetchMock) {
+  serve(mockFetch, {
+    room: { ...ROOM, accessType: "RESTRICTED_VISIBLE" },
+    joinRequests: [{ id: 91, userId: 20, name: "Eli Newcomer", requestedAt: Date.UTC(2026, 10, 4) }],
+  });
+  const user = userEvent.setup();
+  renderMembers();
+  const requests = await screen.findByRole("table", { name: "Join requests" });
+  expect(within(requests).getByRole("link", { name: "Eli Newcomer" })).toHaveAttribute("href", "/people/20");
+  await user.click(within(requests).getByRole("button", { name: "Approve Eli Newcomer" }));
+  await waitFor(() => expect(calls(mockFetch, "PUT").some((call) => call.url === "/api/v1/rooms/12/join-requests/91")).toBe(true));
+  const request = calls(mockFetch, "PUT").find((call) => call.url.endsWith("/join-requests/91"))!;
+  expect(JSON.parse(request.body as string)).toEqual({ decision: "APPROVE" });
+  expect(await screen.findByText("No pending requests")).toBeInTheDocument();
+  expect(within(screen.getByRole("table", { name: "Members" })).getByRole("link", { name: "Eli Newcomer" })).toBeInTheDocument();
 }
 
 /** Sign in as the given user id and roles (an ADMIN by default; the caller below is the room's OWNER `Olga`, id 7). */
@@ -225,6 +259,10 @@ describe("RoomMembers page", () => {
     renderMembers();
     expect(await screen.findByRole("combobox", { name: "Add a person" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Operations for Max Member" })).toBeInTheDocument();
+  });
+
+  test("a restricted-visible room owner reviews pending join requests by request id", async () => {
+    await ownerReviewsJoinRequest(mockFetch);
   });
 
   test("the name and role filters and the sort go to the server", async () => {
@@ -386,6 +424,23 @@ describe("RoomMembers page", () => {
   });
 
   describe("roles", () => {
+    test("an owner can step down when another owner remains", async () => {
+      serve(mockFetch);
+      const user = userEvent.setup();
+      renderMembers();
+      await user.click(await screen.findByRole("button", { name: "Step down as owner" }));
+      await waitFor(() => expect(calls(mockFetch, "PUT")).toHaveLength(1));
+      expect(calls(mockFetch, "PUT")[0].url).toBe("/api/v1/rooms/12/members/7");
+      expect(JSON.parse(calls(mockFetch, "PUT")[0].body as string)).toEqual({ role: "MEMBER" });
+    });
+
+    test("the sole owner is not offered the step-down action", async () => {
+      serve(mockFetch, { room: { ...ROOM, ownerCount: 1 } });
+      renderMembers();
+      await screen.findByText("olga@example.test");
+      expect(screen.queryByRole("button", { name: "Step down as owner" })).not.toBeInTheDocument();
+    });
+
     test("Make owner PUTs OWNER and the row follows; Make member sends it back", async () => {
       serve(mockFetch);
       const user = userEvent.setup();

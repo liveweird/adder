@@ -69,7 +69,7 @@ async function scene(page: Page): Promise<Scene> {
   expect(templates.status(), await templates.text()).toBe(200);
   const template = ((await templates.json()) as { items: { id: number; name: string }[] }).items.find((candidate) => candidate.name === "Default");
   expect(template, "the seeded Default template").toBeDefined();
-  const created = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-live"), templateId: template!.id } });
+  const created = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-live"), templateId: template!.id, accessType: "RESTRICTED_VISIBLE" } });
   expect(created.status(), await created.text()).toBe(201);
   const roomId = ((await created.json()) as { id: number }).id;
   cleanup.unshift(`/api/v1/rooms/${roomId}`);
@@ -236,9 +236,9 @@ test("a member removed from a room loses it from the rail and the open room", as
     manager.page.getByRole("dialog", { name: "Remove from the room?" }).getByRole("button", { name: "Remove", exact: true }).click(),
   ]);
 
-  // The removed member's rail drops the room and the open room turns into the same "not a member" answer as for a stranger.
+  // The removed member's rail drops the room and only the restricted visible access preview remains.
   await expect(roomLink).toHaveCount(0);
-  await expect(removed.page.getByText("This room does not exist, or you are not a member of it.")).toBeVisible();
+  await expect(removed.page.getByRole("button", { name: "Request to join", exact: true })).toBeVisible();
   await expectNoReload(removed);
 });
 

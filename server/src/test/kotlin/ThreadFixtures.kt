@@ -213,7 +213,7 @@ object TestThreads {
 
     suspend fun rawEvents(threadId: UInt): List<RawEvent> = suspendTransaction(sharedDatabaseForTests()) {
         val e = ThreadEventService.ThreadEvents
-        e.selectAll().where { e.ownerId eq threadId }.map {
+        e.selectAll().where { e.ownerId eq threadId }.orderBy(e.id to SortOrder.ASC).map {
             RawEvent(it[e.id].value, it[e.userId].value, it[e.eventType], it[e.params], it[e.createdAt])
         }.toList()
     }

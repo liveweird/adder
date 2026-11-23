@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.LAST_OWNER_PROBLEM_TYPE
@@ -69,7 +70,7 @@ class RoomMembersTest {
     /** A room owned by [owner], seeded through the service (the real create path). */
     private suspend fun room(owner: RoomActor): UInt {
         val template = templateId ?: TestTemplates.seed("mem").also { templateId = it }
-        return TestRooms.seed(owner.id, template, "Members ${marker()}").also { mintedRooms += it }
+        return TestRooms.seed(owner.id, template, "Members ${marker()}", accessType = RoomAccessType.PUBLIC).also { mintedRooms += it }
     }
 
     private suspend fun team(vararg users: RoomActor): UInt {

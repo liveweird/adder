@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.5.0
+  version: 1.6.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -15,10 +15,10 @@ info:
     any authenticated user, and the writes on a workflow template and on the tag registry are `ADMIN` only; telemetry is `ADMIN` only. A caller without the right gets a uniform `403`, whether or not the
     addressed resource exists.
 
-    Rooms are the exception to that: a room is members-only, so a caller who is not a member (an `ADMIN` reads and manages every room)
-    gets the same `404` as for a room that does not exist, and a member without the room's OWNER role gets a `403`. Every room operation
-    checks in this order: authentication (`401`), visibility (`404`), role (`403`), the header and the body (`400`), then the state of the
-    room under its lock (`409`).
+    Public and restricted visible rooms can be discovered by signed-in users. Hidden rooms and their content are available only to
+    members, including administrators. Room content requires membership, with an `ADMIN` exception for public and restricted visible
+    rooms. An inaccessible room returns the same `404` as a missing room. Owner-only actions check the caller's room role before
+    reading any request body and recheck it under the room lock before writing.
 
     List operations page with `page` / `pageSize` / `sort` into an `{items, page, pageSize, total}` envelope.
 
@@ -45,7 +45,7 @@ tags:
   - name: tags
     description: The ADMIN-curated tag registry (categories of tags, one global vocabulary for every room) - readable by any authenticated user, written by ADMIN only, the whole-category writes under `X-Expected-Revision`.
   - name: rooms
-    description: Members-only rooms created from a workflow template, each with its own copy of the template's statuses and fields - a non-member gets a uniform `404`, an `ADMIN` reads and manages every room.
+    description: Rooms with public, restricted visible, or restricted hidden access, each with its own workflow and membership roster.
   - name: threads
     description: The room's threads - a per-room number, a title, a workflow status, an owner and typed field values - and their append-only history. Members-only like the room; a non-member gets the uniform `404`.
   - name: messages
@@ -1121,18 +1121,16 @@ paths:
       operationId: listRooms
       summary: List rooms
       description: |
-        Any authenticated user: the rooms the caller may read - the ones they are a member of, and for an `ADMIN` every room.
-        Deleted rooms never appear.
+        Lists public rooms, restricted visible rooms, and restricted hidden rooms the caller belongs to. Deleted rooms never appear.
 
         - Sortable fields: `id`, `name`, `lastActivityAt`, `createdAt`. Default `id` ascending.
         - Filters: `name` (case- and accent-insensitive substring, at most 80 characters - `400` beyond); `archived` (strict `true` or
           `false`; omitted = both); `member` (strict `true` or `false`: `true` = only rooms the caller is a member of - the rooms rail
-          always sends it; `false` = only readable rooms the caller is NOT in, which is empty for a non-admin; omitted = every readable
-          room). A repeated key is a `400`.
+          always sends it; `false` = discoverable rooms the caller has not joined; omitted = both). A repeated key is a `400`.
         - `memberId` (1.2): only the rooms that ACTIVE user is a member of, ANDed with everything above - a member sees the rooms they
-          SHARE with that user, an `ADMIN` every room of that user (the profile page's rooms). An unknown or removed user matches
+          SHARE with that user, with an `ADMIN` exception for public and restricted visible rooms. An unknown or removed user matches
           nothing (an empty page); anything but 1 to 2147483647 in ASCII digits (a sign, a fraction, `0`, a blank `memberId=`), or a repeated key, is a `400`.
-        - Each row's `role` is the CALLER's role in that room, `null` for an `ADMIN` who is not a member.
+        - Each row's `role` is the caller's role in that room, or `null` before they join.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1172,6 +1170,8 @@ paths:
         and has no link back: a later template edit or delete never touches the room. When per-label resolution would clash within a list,
         that whole list is copied in EN.
 
+        The access type is fixed at creation. Omitting `accessType` creates a restricted hidden room.
+
         An unknown or deleted `templateId` is a `400` of type `urn:adder:problem:template-gone`; an unsupported `language` is a plain `400`. A case-insensitive name clash with a non-deleted
         room is `409` (archived rooms keep their names; a deleted room frees its own). Rides a per-USER rate bucket of 30 per minute
         shared with the rename (`429` beyond it). The name may not contain invisible formatting characters (`400`).
@@ -1206,8 +1206,9 @@ paths:
       operationId: getRoom
       summary: Get a room
       description: |
-        A member of the room or an `ADMIN`. A non-member (and any caller for a room that does not exist or was deleted) gets the same
-        `404`, so a room's existence is not disclosed. `role` is the caller's role, `null` for an `ADMIN` outside the room.
+        A member of the room or an `ADMIN` in a public or restricted visible room. A caller without content access gets the same
+        `404` as for a missing or deleted room. `role` is the caller's role, `null` for an `ADMIN` outside the room.
+        Signed-in non-members can use the access preview to discover public and restricted visible rooms.
         `workflowRevision` is what a workflow PUT names in `X-Expected-Revision`.
       responses:
         '200':
@@ -1264,6 +1265,123 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/access:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [rooms]
+      operationId: getRoomAccess
+      summary: Get a room access preview
+      description: |
+        Public and restricted visible rooms are available to any signed-in user. A restricted hidden room is available only to
+        members. The preview contains room metadata and the caller's own request state. Inaccessible, missing, and deleted rooms return the same `404`.
+      responses:
+        '200':
+          description: The access preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomAccessPreview'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/join:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [rooms]
+      operationId: joinPublicRoom
+      summary: Join a public room
+      description: |
+        Adds the signed-in caller as a member of a public room, including an archived one. Already a member is a no-op.
+        The room-members bucket permits 60 writes per user per minute.
+      responses:
+        '204':
+          description: The caller is a member
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/join-requests:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [rooms]
+      operationId: listRoomJoinRequests
+      summary: List pending room join requests
+      description: |
+        Room owners can see pending requests from active users for a restricted visible room. Sort by `id` (request id) or
+        `requestedAt`. Default order is ascending by `id`.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: A page of pending join requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomJoinRequestPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    post:
+      tags: [rooms]
+      operationId: requestRoomMembership
+      summary: Request to join a restricted visible room
+      description: |
+        Submits a request for the signed-in caller. A caller with a pending request or an existing membership can repeat the action
+        safely. Submitting again after a rejection creates a new pending request. The room-members bucket permits 60 writes per user
+        per minute.
+      responses:
+        '204':
+          description: The request is pending or the caller is already a member
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/join-requests/{requestId}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: requestId
+        in: path
+        required: true
+        schema: { type: integer, format: int32, minimum: 1 }
+    put:
+      tags: [rooms]
+      operationId: decideRoomJoinRequest
+      summary: Approve or reject a room join request
+      description: |
+        A room owner decides a request. Approval grants membership in the same transaction. Rejection leaves the applicant outside the
+        room and records the outcome in their access preview. A later request has a new id. The room-members bucket permits 60 writes
+        per user per minute.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomJoinRequestDecision'
+      responses:
+        '204':
+          description: Decision recorded
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/seen:
@@ -3861,6 +3979,48 @@ components:
           format: int64
           minimum: 0
 
+    RoomAccessType:
+      type: string
+      enum: [PUBLIC, RESTRICTED_VISIBLE, RESTRICTED_HIDDEN]
+      description: Public is discoverable and open to self-join. Restricted visible is discoverable and requires an owner to grant access. Restricted hidden is members-only and invitation-only.
+    RoomAccessPreview:
+      type: object
+      required: [id, name, accessType, archived, requestStatus]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        accessType: { $ref: '#/components/schemas/RoomAccessType' }
+        archived: { type: boolean }
+        requestStatus:
+          type: string
+          enum: [PENDING, REJECTED]
+          nullable: true
+          description: The caller's own join request state, or `null` when there is no request.
+    RoomJoinRequest:
+      type: object
+      required: [id, userId, name, requestedAt]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        userId: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        requestedAt: { type: integer, format: int64, description: Epoch millis }
+    RoomJoinRequestPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoomJoinRequest'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, format: int64, minimum: 0 }
+    RoomJoinRequestDecision:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [APPROVE, REJECT] }
     RoomCreateRequest:
       type: object
       required: [name, templateId]
@@ -3874,6 +4034,11 @@ components:
           description: The workflow template to copy; unknown or deleted is a `400` of type `urn:adder:problem:template-gone`.
         language:
           $ref: '#/components/schemas/Language'
+        accessType:
+          type: string
+          enum: [PUBLIC, RESTRICTED_VISIBLE, RESTRICTED_HIDDEN]
+          nullable: true
+          default: RESTRICTED_HIDDEN
     RoomUpdateRequest:
       type: object
       required: [name]
@@ -3882,28 +4047,30 @@ components:
         description: { type: string, maxLength: 500, nullable: true }
     RoomListItem:
       type: object
-      required: [id, name, archived, role, memberCount, lastActivityAt, createdAt, unread]
+      required: [id, name, accessType, archived, role, memberCount, lastActivityAt, createdAt, unread]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
         description: { type: string, nullable: true }
+        accessType: { $ref: '#/components/schemas/RoomAccessType' }
         archived: { type: boolean }
         role:
           type: string
           enum: [OWNER, MEMBER]
           nullable: true
-          description: The CALLER's role in the room; `null` for an `ADMIN` who is not a member.
+          description: The caller's role in the room, or `null` before they join.
         memberCount: { type: integer, format: int32, minimum: 0, description: Active members only }
         lastActivityAt: { type: integer, format: int64, description: Epoch millis of the room's latest thread or message activity; the creation time until there is any }
         createdAt: { type: integer, format: int64, description: Epoch millis }
         unread: { type: boolean, description: 'New activity since the caller last looked at the room (`markRoomSeen`, a read marker, or their own activity); never `true` for someone who is not a member.' }
     RoomResponse:
       type: object
-      required: [id, name, archived, role, memberCount, workflowRevision, lastActivityAt, createdAt, updatedAt]
+      required: [id, name, accessType, archived, role, memberCount, ownerCount, workflowRevision, lastActivityAt, createdAt, updatedAt]
       properties:
         id: { type: integer, format: int32, minimum: 0 }
         name: { type: string }
         description: { type: string, nullable: true }
+        accessType: { $ref: '#/components/schemas/RoomAccessType' }
         archived: { type: boolean }
         archivedAt: { type: integer, format: int64, nullable: true, description: Epoch millis; `null` while the room is active }
         role:
@@ -3912,6 +4079,7 @@ components:
           nullable: true
           description: The CALLER's role in the room; `null` for an `ADMIN` who is not a member.
         memberCount: { type: integer, format: int32, minimum: 0, description: Active members only }
+        ownerCount: { type: integer, format: int32, minimum: 0, description: Active owners only }
         workflowRevision:
           type: integer
           format: int64

@@ -3,6 +3,7 @@ package ch.nokillswit.rooms
 import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.containsNormalized
@@ -178,6 +179,11 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
                 this[members.role] = RoomRole.MEMBER.name
                 this[members.addedAt] = stamp
             }
+            if (wanted.isNotEmpty()) {
+                RoomJoinRequests.deleteWhere {
+                    (RoomJoinRequests.roomId eq roomId) and (RoomJoinRequests.userId inList wanted)
+                }
+            }
             // Only when someone joined: an add of people who all belong already is a no-op and announces nothing.
             if (toAdd.isNotEmpty()) notifyLive(LiveHint(LiveKind.ROOM_MEMBER_ADDED, roomId, targetUserIds = toAdd))
             RoomMembersAddOutcome(
@@ -208,11 +214,18 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
      * non-member, `409` `last-owner` for the last active OWNER.
      */
     suspend fun remove(roomId: UInt, userId: UInt, caller: CallerPrincipal, guard: RoomGuard) {
-        database.withRoomWrite(roomId, caller, guard) { _, _ ->
+        database.withRoomWrite(roomId, caller, guard) { _, standing ->
             val current = activeRole(roomId, userId) ?: throw NotFoundException("Member not found")
             if (current == RoomRole.OWNER) requireOtherActiveOwner(roomId, userId)
             members.deleteWhere { (RoomService.RoomMembers.roomId eq roomId) and (RoomService.RoomMembers.userId eq userId) }
-            notifyLive(LiveHint(LiveKind.ROOM_MEMBER_REMOVED, roomId, targetUserIds = listOf(userId)))
+            notifyLive(
+                LiveHint(
+                    LiveKind.ROOM_MEMBER_REMOVED,
+                    roomId,
+                    targetUserIds = listOf(userId),
+                    requiresMembership = standing.accessType == RoomAccessType.RESTRICTED_HIDDEN,
+                ),
+            )
         }
     }
 

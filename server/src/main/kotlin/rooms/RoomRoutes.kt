@@ -59,6 +59,22 @@ class RoomsRoute {
         class Seen(val parent: Id)
 
         @Serializable
+        @Resource("access")
+        class Access(val parent: Id)
+
+        @Serializable
+        @Resource("join")
+        class Join(val parent: Id)
+
+        @Serializable
+        @Resource("join-requests")
+        class JoinRequests(val parent: Id) {
+            @Serializable
+            @Resource("{requestId}")
+            class Request(val parent: JoinRequests, val requestId: UInt)
+        }
+
+        @Serializable
         @Resource("members")
         class Members(val parent: Id) {
             @Serializable

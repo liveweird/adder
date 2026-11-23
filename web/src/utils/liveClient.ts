@@ -121,7 +121,11 @@ export class LiveClient {
   /** What the caller wants subscribed (in priority order), what this socket has been asked for, and what the server refused. */
   private desired: number[] = [];
   private readonly requested = new Set<number>();
+  /** Subscribe frames sent on this socket whose answer has not arrived yet. */
+  private readonly awaitingSubscription = new Set<number>();
   private readonly refused = new Set<number>();
+  /** A personal membership hint may race the refusal for an earlier subscribe; retry that stale refusal once. */
+  private readonly retryAfterRefusal = new Set<number>();
   private maxSubscriptions = DEFAULT_MAX_SUBSCRIPTIONS;
 
   constructor(dependencies: LiveDependencies) {
@@ -279,13 +283,30 @@ export class LiveClient {
     }
     if (!this.connected || frame.type === "pong") return;
     if (frame.type === "subscribed") {
-      for (const id of [...frame.refused, ...frame.capped]) {
+      for (const id of frame.roomIds) {
+        this.awaitingSubscription.delete(id);
+        this.retryAfterRefusal.delete(id);
+      }
+      for (const id of frame.refused) {
+        this.awaitingSubscription.delete(id);
+        this.requested.delete(id);
+        if (this.retryAfterRefusal.delete(id)) this.scheduleSync();
+        else this.refused.add(id);
+      }
+      for (const id of frame.capped) {
+        this.awaitingSubscription.delete(id);
+        this.retryAfterRefusal.delete(id);
         this.requested.delete(id);
         this.refused.add(id);
       }
     } else if (frame.type === "revoked") {
       // The server dropped the room; if the caller still wants it, the next diff asks again and is told no.
       this.requested.delete(frame.roomId);
+    } else if (frame.type === "event" && frame.kind === "room.member_added") {
+      // The new member receives this personal hint even without a room subscription. It is the signal that a preview may now be readable.
+      // If the old refusal already arrived, retry now. If the hint won the race, consume it only when that stale refusal arrives.
+      if (this.refused.delete(frame.roomId)) this.scheduleSync();
+      else if (this.awaitingSubscription.has(frame.roomId)) this.retryAfterRefusal.add(frame.roomId);
     }
     this.deps.onFrame(frame);
   }
@@ -450,6 +471,8 @@ export class LiveClient {
     const socket = this.socket;
     this.socket = null;
     this.requested.clear();
+    this.awaitingSubscription.clear();
+    this.retryAfterRefusal.clear();
     if (socket === null) return;
     // Closing a socket that is still connecting makes the browser log a failed handshake: let it open, then close it (its late events are stale).
     if (socket.readyState === CONNECTING) socket.addEventListener("open", () => socket.close(code));
@@ -487,7 +510,14 @@ export class LiveClient {
       this.send({ type: "subscribe", roomIds: add.slice(i, i + this.maxSubscriptions) });
     }
     for (const id of drop) this.requested.delete(id);
-    for (const id of add) this.requested.add(id);
+    for (const id of drop) {
+      this.awaitingSubscription.delete(id);
+      this.retryAfterRefusal.delete(id);
+    }
+    for (const id of add) {
+      this.requested.add(id);
+      this.awaitingSubscription.add(id);
+    }
   }
 
   /** The socket is open and authenticated (`live`, or `quiet` after 5 minutes hidden). */

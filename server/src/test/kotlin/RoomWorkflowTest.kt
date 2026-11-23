@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.infra.revision.REVISION_CONFLICT_PROBLEM_TYPE
@@ -69,7 +70,7 @@ class RoomWorkflowTest {
     /** A room owned by [owner]: statuses `open` (initial), `half` (OPEN), `done` (CLOSED); fields `severity` (SELECT), `note` (TEXT). */
     private suspend fun room(owner: RoomActor): UInt {
         val template = templateId ?: TestTemplates.seed("wf").also { templateId = it }
-        return TestRooms.seed(owner.id, template, "Workflow ${marker()}").also { mintedRooms += it }
+        return TestRooms.seed(owner.id, template, "Workflow ${marker()}", accessType = RoomAccessType.PUBLIC).also { mintedRooms += it }
     }
 
     private suspend fun HttpClient.workflow(room: UInt): RoomWorkflowResponse = get("$rooms/$room/workflow").body()

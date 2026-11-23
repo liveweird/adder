@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.json.decodeParams
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
@@ -67,7 +68,9 @@ class ThreadOwnerTest {
         val outsider = actor("out")
         val admin = actor("adm", UserRole.ADMIN)
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        val room = TestRooms.seed(owner.id, template, "Own ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
+        val room = TestRooms.seed(
+            owner.id, template, "Own ${UUID.randomUUID().toString().substring(0, 8)}", accessType = RoomAccessType.PUBLIC,
+        ).also { mintedRooms += it }
         TestRooms.addMember(room, threadOwner.id)
         TestRooms.addMember(room, member.id)
         TestThreads.seed(room, threadOwner.id)

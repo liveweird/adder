@@ -52,8 +52,8 @@ change can only arrive by being pushed, and marks the document, so "without a re
 2. The owner opens the teammate's row menu, chooses **Remove** and confirms in the "Remove from the room?" dialog.
    - *Expected*: the delete answers 204.
 3. The teammate does nothing.
-   - *Expected*: the room leaves their rail and the open page reads "This room does not exist, or you are not a member of it." (the same answer as for
-     a stranger); their document was not reloaded.
+   - *Expected*: the room leaves their rail and the open conversation is replaced by a restricted visible access preview with **Request to join**.
+     Their document was not reloaded.
 
 ## Scenario: the header says it is reconnecting while the browser is offline
 

@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.threads.MessagePostRequest
@@ -40,8 +41,9 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * The thread authorization matrix (`authorization.md` "Threads"): for every implemented thread operation, what an outsider, a plain
  * member, the THREAD owner (a plain member who started the thread), the room's OWNER and an ADMIN who is not a member each get. A
- * non-member (an ADMIN excepted) always sees the uniform `404`; every reader reads; only members speak, so an ADMIN outside the room is
- * `403` on the POST. The rows: the three reads and the create (S2) and the details PUT (S3) and the status and owner PUTs (S4), and the
+ * non-member (an ADMIN excepted for this public room) always sees the uniform `404`; every reader reads; only members speak, so an ADMIN
+ * outside the room is `403` on the POST. The rows: the three reads and the create (S2) and the details PUT (S3) and the status and owner
+ * PUTs (S4), and the
  * message operations (S5: the list, the post, the single read, someone else's message edited and deleted; a caller's OWN message is
  * [own messages] below). Each cell gets a FRESH room, seeded through the services.
  */
@@ -307,11 +309,11 @@ class ThreadAuthzMatrixTest {
         )
     }
 
-    /** A fresh room with the fixture thread #1 started by the thread owner, and `author`'s reply as [Cast.other]. */
+    /** A fresh PUBLIC room with thread #1 started by the thread owner, and `author`'s reply as [Cast.other]. */
     private suspend fun freshRoom(cast: Cast): UInt {
         val template = templateId ?: TestThreads.seedTemplate("tx").also { templateId = it }
         if (cast.foreign == 0u) cast.foreign = foreignMessage(cast, template)
-        return TestRooms.seed(cast.owner.id, template, "Matrix ${UUID.randomUUID()}").also { room ->
+        return TestRooms.seed(cast.owner.id, template, "Matrix ${UUID.randomUUID()}", accessType = RoomAccessType.PUBLIC).also { room ->
             TestRooms.addMember(room, cast.member.id)
             TestRooms.addMember(room, cast.threadOwner.id)
             TestRooms.addMember(room, cast.author.id)
@@ -323,7 +325,9 @@ class ThreadAuthzMatrixTest {
 
     /** A message in another room (where the room owner and the author are members too), so only the room match can refuse it. */
     private suspend fun foreignMessage(cast: Cast, template: UInt): UInt {
-        val room = TestRooms.seed(cast.owner.id, template, "Foreign ${UUID.randomUUID()}").also { mintedRooms += it }
+        val room = TestRooms.seed(
+            cast.owner.id, template, "Foreign ${UUID.randomUUID()}", accessType = RoomAccessType.PUBLIC,
+        ).also { mintedRooms += it }
         TestRooms.addMember(room, cast.member.id)
         TestRooms.addMember(room, cast.threadOwner.id)
         TestRooms.addMember(room, cast.author.id)

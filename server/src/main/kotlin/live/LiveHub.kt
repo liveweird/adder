@@ -366,19 +366,18 @@ class LiveHub internal constructor(
     }
 
     /**
-     * `room.member_removed`: each non-ADMIN socket of the removed user drops the room (ACTIVE or PENDING) and gets `revoked`. An ADMIN may
-     * still read the room, so their sockets keep it and hear the removal like any subscriber (also when not subscribed: it changes what
-     * their rail shows).
+     * `room.member_removed`: targets that lose access drop the room (ACTIVE or PENDING) and get `revoked`. An ADMIN retains access
+     * to public and restricted visible rooms and hears the removal even when unsubscribed so their rail refreshes.
      */
     private fun memberRemoved(hint: LiveHint) {
-        val (adminSockets, memberSockets) = targetSockets(hint).partition { it.isAdmin }
-        memberSockets.forEach {
+        val (stillReadable, revoked) = targetSockets(hint).partition { it.isAdmin && !hint.requiresMembership }
+        revoked.forEach {
             drop(it, hint.roomId)
             queueFrame(it, LiveServerFrame.Revoked(hint.roomId))
         }
         val recipients = LinkedHashSet<HubSocket>()
         subscribersByRoom[hint.roomId]?.let { recipients += it }
-        recipients += adminSockets
+        recipients += stillReadable
         val event = eventOf(hint)
         recipients.forEach { queueFrame(it, event) }
     }

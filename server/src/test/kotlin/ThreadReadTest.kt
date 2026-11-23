@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.threads.ReadMarkerRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
@@ -78,7 +79,7 @@ class ThreadReadTest {
         val admin = actor("adm", UserRole.ADMIN)
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
         val name = "Rd ${UUID.randomUUID().toString().substring(0, 8)}"
-        val room = TestRooms.seed(owner.id, template, name).also { mintedRooms += it }
+        val room = TestRooms.seed(owner.id, template, name, accessType = RoomAccessType.PUBLIC).also { mintedRooms += it }
         TestRooms.addMember(room, alice.id)
         TestRooms.addMember(room, bob.id)
         delay(SETTLE)
