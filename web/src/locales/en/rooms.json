@@ -12,12 +12,39 @@
     "button": "About this room"
   },
   "archivedBadge": "Archived",
+  "access": {
+    "label": "Who can find and join this room?",
+    "creationHint": "This choice is permanent after the room is created.",
+    "PUBLIC": {
+      "label": "Public",
+      "description": "Everyone can find this room and join immediately."
+    },
+    "RESTRICTED_VISIBLE": {
+      "label": "Restricted, visible",
+      "description": "Everyone can find this room. Owners approve requests to join."
+    },
+    "RESTRICTED_HIDDEN": {
+      "label": "Restricted, hidden",
+      "description": "Only members can find this room. Owners invite people directly."
+    },
+    "pending": "Request pending",
+    "rejected": "Request declined",
+    "join": "Join room",
+    "request": "Request to join",
+    "requestAgain": "Request again",
+    "previewBack": "Back to room directory",
+    "joinFailed": "Could not join the room",
+    "requestFailed": "Could not send the request",
+    "full": "This room is full.",
+    "joined": "You joined the room",
+    "requested": "Request sent"
+  },
   "memberCount_one": "{{count}} member",
   "memberCount_other": "{{count}} members",
   "scope": {
     "aria": "Which rooms to list",
-    "mine": "Mine",
-    "all": "All"
+    "mine": "Joined",
+    "all": "Browse"
   },
   "column": {
     "role": "Your role",
@@ -156,6 +183,8 @@
     "you": "You",
     "makeOwner": "Make owner",
     "makeMember": "Make member",
+    "stepDown": "Step down as owner",
+    "stepDownHint": "Another owner will continue managing this room.",
     "remove": "Remove",
     "leave": "Leave room",
     "roleFailed": "Could not change the role",
@@ -165,6 +194,21 @@
     "gone": "This person is no longer a member of the room.",
     "lastOwner": "A room needs at least one owner. Make someone else an owner first.",
     "lastOwnerLeave": "You are the only owner of this room. Make someone else an owner before you leave.",
+    "requests": {
+      "title": "Join requests",
+      "description": "People waiting for an owner to approve access.",
+      "empty": "No pending requests",
+      "loadFailed": "Could not load join requests",
+      "approve": "Approve",
+      "reject": "Decline",
+      "approveAria": "Approve {{name}}",
+      "rejectAria": "Decline {{name}}",
+      "requestedColumn": "Requested",
+      "decisionFailed": "Could not review the request",
+      "approved": "Request approved",
+      "rejected": "Request declined",
+      "requested": "Requested {{date}}"
+    },
     "removeTitle": "Remove from the room?",
     "removeBody": "{{name}} loses access to “{{room}}”. You can add them again later.",
     "leaveTitle": "Leave this room?",
@@ -174,6 +218,7 @@
       "alreadyMember": "Already in the room",
       "teamAdded": "Team added: {{added}} new, {{already}} already in the room",
       "roleChanged": "Role changed",
+      "steppedDown": "You are now a member",
       "removed": "Removed from the room",
       "left": "You left the room"
     }

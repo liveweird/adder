@@ -361,12 +361,12 @@ class LiveHubTest {
     }
 
     @Test
-    fun `a removal processed while a subscribe is pending wins`() = withHub {
-        val s = socket(1u)
+    fun `a hidden room removal wins even while an administrator subscription is pending`() = withHub {
+        val s = socket(1u, admin = true)
         register(s)
         s.drain()
         val begin = beginSubscribe(s, listOf(7u)) // PENDING; the readable check (made BEFORE the removal) says readable
-        deliver(hint(7u, LiveKind.ROOM_MEMBER_REMOVED, targets = listOf(1u)))
+        deliver(LiveHint(LiveKind.ROOM_MEMBER_REMOVED, 7u, targetUserIds = listOf(1u), requiresMembership = true))
         completeSubscribe(s, begin, readable = setOf(7u))
         barrier(s)
         assertEquals(

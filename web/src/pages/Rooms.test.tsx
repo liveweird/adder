@@ -8,8 +8,6 @@ import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 import { pinBrowserTimeZone } from "../test/timeZone";
 
-const ROLES_KEY = "adder.auth.roles";
-
 type FetchMock = ReturnType<typeof vi.fn>;
 
 // 20:00 UTC is already the next calendar day in Auckland, the zone these tests pin: the list prints the reader's day, not UTC's.
@@ -17,9 +15,9 @@ const EVENING = 20 * 3_600_000;
 
 const PAGE = {
   items: [
-    { id: 1, name: "Night Shift", description: "Handover notes", archived: false, role: "OWNER", memberCount: 3, lastActivityAt: 86_400_000 + EVENING, createdAt: 172_800_000 + EVENING },
-    { id: 2, name: "Old Incident", description: null, archived: true, role: "MEMBER", memberCount: 1, lastActivityAt: 0, createdAt: 0 },
-    { id: 3, name: "Someone Else's", description: null, archived: false, role: null, memberCount: 12, lastActivityAt: 0, createdAt: 0 },
+    { id: 1, name: "Night Shift", description: "Handover notes", accessType: "RESTRICTED_HIDDEN", archived: false, role: "OWNER", memberCount: 3, lastActivityAt: 86_400_000 + EVENING, createdAt: 172_800_000 + EVENING },
+    { id: 2, name: "Old Incident", description: null, accessType: "RESTRICTED_VISIBLE", archived: true, role: "MEMBER", memberCount: 1, lastActivityAt: 0, createdAt: 0 },
+    { id: 3, name: "Someone Else's", description: null, accessType: "PUBLIC", archived: false, role: null, memberCount: 12, lastActivityAt: 0, createdAt: 0 },
   ],
   page: 1,
   pageSize: 20,
@@ -69,9 +67,11 @@ describe("Rooms page", () => {
     expect(within(screen.getByRole("row", { name: /Old Incident/ })).getByText("Archived")).toBeInTheDocument();
     expect(within(screen.getByRole("row", { name: /Someone Else's/ })).getByText("—")).toBeInTheDocument();
     expect(headingOutline()).toEqual([[2, "Rooms"]]);
-    // A regular user has no Mine/All control and only ever asks for their own, active rooms.
-    expect(screen.queryByRole("radio", { name: "All" })).not.toBeInTheDocument();
-    expect(listUrls(mockFetch)).toEqual(["/api/v1/rooms?page=1&pageSize=20&sort=name&archived=false&member=true"]);
+    const scope = screen.getByRole("radiogroup", { name: "Which rooms to list" });
+    expect(within(scope).getByRole("radio", { name: "Browse" })).toBeChecked();
+    expect(within(row).getByText("Restricted, hidden")).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Someone Else's/ })).getByText("Public")).toBeInTheDocument();
+    expect(listUrls(mockFetch)).toEqual(["/api/v1/rooms?page=1&pageSize=20&sort=name&archived=false"]);
   });
 
   test("Show archived asks for both, and the choice persists", async () => {
@@ -79,23 +79,22 @@ describe("Rooms page", () => {
     renderPage();
     await screen.findByRole("link", { name: "Open room Night Shift" });
     await user.click(screen.getByRole("switch", { name: "Include archived rooms" }));
-    await waitFor(() => expect(listUrls(mockFetch).at(-1)).toBe("/api/v1/rooms?page=1&pageSize=20&sort=name&member=true"));
+    await waitFor(() => expect(listUrls(mockFetch).at(-1)).toBe("/api/v1/rooms?page=1&pageSize=20&sort=name"));
     expect(localStorage.getItem("adder.viewSettings.rooms.showArchived")).toBe("true");
   });
 
-  test("an administrator chooses between Mine and All; All drops the member filter, and the choice persists", async () => {
-    localStorage.setItem(ROLES_KEY, JSON.stringify(["ADMIN"]));
+  test("everyone chooses between Browse and Joined; Joined adds the member filter, and the choice persists", async () => {
     const user = userEvent.setup();
     renderPage();
     const scope = await screen.findByRole("radiogroup", { name: "Which rooms to list" });
-    expect(within(scope).getByRole("radio", { name: "Mine" })).toBeChecked();
-    await user.click(within(scope).getByText("All"));
-    await waitFor(() => expect(listUrls(mockFetch).at(-1)).toBe("/api/v1/rooms?page=1&pageSize=20&sort=name&archived=false"));
-    expect(localStorage.getItem("adder.viewSettings.rooms.scope")).toBe('"all"');
+    expect(within(scope).getByRole("radio", { name: "Browse" })).toBeChecked();
+    await user.click(within(scope).getByText("Joined"));
+    await waitFor(() => expect(listUrls(mockFetch).at(-1)).toBe("/api/v1/rooms?page=1&pageSize=20&sort=name&archived=false&member=true"));
+    expect(localStorage.getItem("adder.viewSettings.rooms.scope")).toBe('"mine"');
   });
 
-  test("a stored All is ignored for a regular user", async () => {
-    localStorage.setItem("adder.viewSettings.rooms.scope", '"all"');
+  test("a stored Joined choice is restored for a regular user", async () => {
+    localStorage.setItem("adder.viewSettings.rooms.scope", '"mine"');
     renderPage();
     await screen.findByRole("link", { name: "Open room Night Shift" });
     expect(listUrls(mockFetch)[0]).toContain("member=true");

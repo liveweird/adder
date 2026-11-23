@@ -9,6 +9,7 @@ type Rooms = ReturnType<typeof useRailRooms>;
 
 const room = (overrides: Partial<RoomListItem> & Pick<RoomListItem, "id" | "name">): RoomListItem => ({
   description: null,
+  accessType: "RESTRICTED_HIDDEN",
   archived: false,
   role: "MEMBER",
   memberCount: 3,

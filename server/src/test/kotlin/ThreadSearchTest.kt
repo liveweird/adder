@@ -399,7 +399,7 @@ class ThreadSearchTest {
         assertEquals(HttpStatusCode.NotFound, cast.outsider.client.raw(cast.room, "?watching=true").status)
         assertEquals(HttpStatusCode.NotFound, cast.outsider.client.raw(cast.room, "?watching=false").status, "404 before 400")
         val none = admin.client.raw(cast.room, "?watching=true")
-        assertEquals(HttpStatusCode.OK, none.status, "an ADMIN reads every room")
+        assertEquals(HttpStatusCode.OK, none.status, "an ADMIN reads this public room")
         assertEquals(0, none.body<ThreadSearchPageResponse>().total, "a non-member has no watches")
         assertEquals(listOf(1), admin.client.numbers(cast.room, "kappa", "&watching=false"), "and every match is one they do not watch")
         assertEquals(emptyList(), admin.client.numbers(cast.room, "kappa", "&watching=true"))

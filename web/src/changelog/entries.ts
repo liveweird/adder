@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.6.0",
+    date: "2026-11-23",
+    en: `**Adder 1.6.0 — room access**
+
+- Choose a room's access when you create it. Anyone signed in can join a public room or request access to a restricted visible room. Only members can find a restricted hidden room.
+- Room owners can approve or decline requests from the Members tab and add people directly. New members can read the room's existing conversations.
+- Owners can promote other members to co-owners and step down while another active owner remains. Existing rooms become restricted hidden.`,
+    pl: `**Adder 1.6.0 — dostęp do pokoi**
+
+- Wybierz dostęp podczas tworzenia pokoju. Każda zalogowana osoba może dołączyć do pokoju publicznego lub poprosić o dostęp do ograniczonego pokoju widocznego. Ograniczony pokój ukryty widzą tylko jego członkowie i członkinie.
+- Właściciele/ki mogą zatwierdzać i odrzucać prośby na karcie „Członkowie” oraz dodawać osoby bezpośrednio. Nowe osoby w pokoju mogą czytać wcześniejsze rozmowy.
+- Właściciele/ki mogą nadawać uprawnienia innym osobom i zrezygnować z roli, jeśli w pokoju pozostaje inny aktywny właściciel lub właścicielka. Dotychczasowe pokoje stają się ukryte.`,
+  },
+  {
     version: "1.5.0",
     date: "2026-11-23",
     en: `**Adder 1.5.0 — clearer room tabs**

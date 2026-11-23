@@ -68,7 +68,7 @@ describe("room form mappers", () => {
     const room = { name: "Night Shift", description: null };
     expect(toRoomDetails(room as Parameters<typeof toRoomDetails>[0])).toEqual({ name: "Night Shift", description: "" });
     expect(toRoomDetails({ ...room, description: "Handover" } as Parameters<typeof toRoomDetails>[0]).description).toBe("Handover");
-    expect(EMPTY_ROOM_FORM).toEqual({ name: "", description: "", templateId: null });
+    expect(EMPTY_ROOM_FORM).toEqual({ name: "", description: "", templateId: null, accessType: "RESTRICTED_HIDDEN" });
   });
 
   test("the update body trims, and a blank description travels as null", () => {
@@ -77,11 +77,12 @@ describe("room form mappers", () => {
   });
 
   test("the create body adds the template id and the UI language", () => {
-    expect(toRoomCreateBody({ name: "A", description: "", templateId: "4" }, 4, "pl")).toEqual({
+    expect(toRoomCreateBody({ name: "A", description: "", templateId: "4", accessType: "PUBLIC" }, 4, "pl")).toEqual({
       name: "A",
       description: null,
       templateId: 4,
       language: "pl",
+      accessType: "PUBLIC",
     });
   });
 

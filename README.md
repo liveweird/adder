@@ -1,11 +1,15 @@
 # Adder
 
 Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each thread with a workflow status and an owner) for short-lived, intensive, asynchronous collaboration — e.g. 30+ people working a complex, multi-threaded incident without chaos. People work in
-**rooms** (members only); all talk lives in **threads** (you either start a thread or reply in one); every thread carries a **workflow status plus configurable metadata** and an
+**rooms**; all talk lives in **threads** (you either start a thread or reply in one); every thread carries a **workflow status plus configurable metadata** and an
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.5.0 — clearer room tabs)
+## What's here today (1.6.0 — room access)
+
+Choose a room's access when you create it. Any signed-in user can find and join a **Public** room. Anyone can find a **Restricted, visible** room and request to join. A **Restricted, hidden** room is visible only to members. Existing rooms become restricted hidden.
+
+Use **Members** to add people directly, review join requests and promote members to co-owner. You can step down when another active owner remains. People who join can read existing threads and replies.
 
 Adder's repository started as an exact copy of [Flow](https://github.com/liveweird/flow) (1.57.1, `4e43e480`), trimmed to its generic foundation. 1.5.0 gives room Search, Members, Workflow and Settings a shared navigation layout. Search groups its filters, Members puts the roster first, Workflow keeps save actions in reach, and Settings separates room details, availability and deletion. The tabs wrap on narrow screens.
 
@@ -73,8 +77,7 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
 
 0.2.0 added the rooms they live in, on the 0.1.0 platform:
 
-- **Rooms** (`/api/v1/rooms`) — members-only, created from a **workflow template** whose statuses (colour, open/closed category, order) and typed fields the room copies. People or a whole
-  team (a snapshot) are added as members; OWNER or ADMIN manages the room, a room always keeps one active OWNER, and a room can be archived (read-only) and unarchived. A non-member sees a uniform 404.
+- **Rooms** (`/api/v1/rooms`) — created from a **workflow template** whose statuses and typed fields the room copies. A room can be archived (read-only) and unarchived. Owners can add people or a whole team as a snapshot of its current roster.
 - **Workflow templates** — an ADMIN-curated registry (Default and Incident are seeded, English and Polish). A room's workflow is edited in place by its owners, as a whole document under `X-Expected-Revision`.
 - The sidebar **rooms rail** (most recently active first, archived behind a switch) and **team members** (a roster managed by an ADMIN or the team's manager).
 

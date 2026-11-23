@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.ThreadResponse
@@ -488,7 +489,9 @@ class ChatLogHygieneTest {
         val owner = seedActor("$prefix-own").also { mintedUsers += it.id }
         val member = seedActor("$prefix-mem").also { mintedUsers += it.id }
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        val room = TestRooms.seed(owner.id, template, "Hyg ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
+        val room = TestRooms.seed(
+            owner.id, template, "Hyg ${UUID.randomUUID().toString().substring(0, 8)}", accessType = RoomAccessType.PUBLIC,
+        ).also { mintedRooms += it }
         TestRooms.addMember(room, member.id)
         val created = member.client.raw(HttpMethod.Post, "$rooms/$room/threads", """{"title":"T","body":"B","fields":{"severity":"s1"}}""")
         assertEquals(HttpStatusCode.Created, created.status)

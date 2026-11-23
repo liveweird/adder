@@ -197,7 +197,7 @@ test("a room created by a Polish-speaking user gets the Polish labels of the tem
 
   // Creating a room in Polish copies the template's Polish labels (a room's labels are plain text in its creator's language).
   const roomName = uniqueText("e2e-room");
-  const roomId = await createRoomViaUi(page, roomName, "Incident", cleanup, { name: "Nazwa", template: "Szablon przepływu pracy", create: "Utwórz" });
+  const roomId = await createRoomViaUi(page, roomName, "Incident", cleanup, { name: "Nazwa", template: "Szablon przepływu pracy", create: "Utwórz", access: "Ograniczony, widoczny" });
   await page.getByRole("link", { name: "Przepływ pracy", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/workflow$`));
   const labels = ["Triaż", "Analiza", "Mitygacja", "Monitorowanie", "Rozwiązane"];

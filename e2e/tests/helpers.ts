@@ -386,17 +386,19 @@ const ROOM_CREATE_API = /\/api\/v1\/rooms$/;
 
 /**
  * Create a room from the create form as the signed-in user and register its cleanup (`cleanup` is the spec's teardown list, rooms
- * first: `unshift`); leaves the browser on the new room. `labels` are the form's own words for a UI that speaks another language.
+ * first: `unshift`); leaves the browser on the new room. The default access choice lets the teardown administrator delete it.
+ * `labels` are the form's own words for a UI that speaks another language or a test exercising a specific access type.
  */
 export async function createRoomViaUi(
   page: Page,
   name: string,
   template: string,
   cleanup: string[],
-  labels = { name: "Name", template: "Workflow template", create: "Create" },
+  labels: { name: string; template: string; create: string; access?: string } = { name: "Name", template: "Workflow template", create: "Create" },
 ): Promise<number> {
   await page.goto("/rooms/new");
   await page.getByRole("textbox", { name: labels.name, exact: true }).fill(name);
+  await page.getByText(labels.access ?? "Restricted, visible", { exact: true }).click();
   await page.getByRole("combobox", { name: labels.template }).click();
   await page.getByRole("option", { name: template, exact: true }).click();
   const [created] = await Promise.all([

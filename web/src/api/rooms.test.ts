@@ -39,10 +39,10 @@ describe("rooms API wrappers", () => {
 
   test("createRoom POSTs the body and returns the room", async () => {
     mockFetch.mockResolvedValue(json(201, { id: 9 }));
-    await expect(createRoom({ name: "A", description: null, templateId: 2, language: "pl" })).resolves.toMatchObject({ id: 9 });
+    await expect(createRoom({ name: "A", description: null, templateId: 2, language: "pl", accessType: "PUBLIC" })).resolves.toMatchObject({ id: 9 });
     const [url, init] = lastCall();
     expect([url, init.method]).toEqual(["/api/v1/rooms", "POST"]);
-    expect(JSON.parse(init.body as string)).toEqual({ name: "A", description: null, templateId: 2, language: "pl" });
+    expect(JSON.parse(init.body as string)).toEqual({ name: "A", description: null, templateId: 2, language: "pl", accessType: "PUBLIC" });
   });
 
   test("updateRoom PUTs, archive/unarchive POST without a body, and delete DELETEs", async () => {

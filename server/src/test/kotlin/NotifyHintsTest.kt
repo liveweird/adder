@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
@@ -81,7 +82,7 @@ class NotifyHintsTest {
 
     /** A room owned by [owner] (raw-seeded: past the hint-emitting routes' clients, though the service create does emit). */
     private suspend fun room(owner: RoomActor, template: UInt): UInt =
-        TestRooms.seed(owner.id, template, "Hint ${marker()}").also { mintedRooms += it }
+        TestRooms.seed(owner.id, template, "Hint ${marker()}", accessType = RoomAccessType.PUBLIC).also { mintedRooms += it }
 
     private fun hint(kind: LiveKind, room: UInt, thread: Int? = null, message: UInt? = null, targets: List<UInt>? = null) =
         LiveHint(kind, room, thread, message, targets)
@@ -109,7 +110,9 @@ class NotifyHintsTest {
         var room = 0u
         NotifyCapture().use { capture ->
             val hints = capture.during {
-                val created = owner.client.postJson(rooms, RoomCreateRequest("Hint ${marker()}", template))
+                val created = owner.client.postJson(
+                    rooms, RoomCreateRequest("Hint ${marker()}", template, accessType = RoomAccessType.PUBLIC),
+                )
                 created.expect(HttpStatusCode.Created)
                 room = created.headers["Location"]!!.substringAfterLast('/').toUInt().also { mintedRooms += it }
                 TestRooms.addMember(room, member.id) // raw: the delete's targets are the creator AND this member

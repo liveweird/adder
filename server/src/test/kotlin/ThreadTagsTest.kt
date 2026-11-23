@@ -72,7 +72,7 @@ class ThreadTagsTest {
 
     private suspend fun HttpClient.thread(room: UInt): ThreadResponse = get("$rooms/$room/threads/1").body()
 
-    /** PUTs [tags] under [revision] (default: the thread's current one, read as the ADMIN of the cast who may read every room). */
+    /** PUTs [tags] under [revision] (default: the thread's current one, read as the ADMIN who may read this public room). */
     private suspend fun HttpClient.putTags(room: UInt, tags: List<String>, revision: Long, number: Int = 1): HttpResponse =
         put("$rooms/$room/threads/$number/tags") {
             header(EXPECTED_REVISION_HEADER, revision.toString())

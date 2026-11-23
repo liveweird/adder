@@ -8,12 +8,12 @@ import { notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
 import { lookingAt } from "./lookingAt";
 
-const { rail: RAIL, list: ROOM_LIST, detail, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
+const { rail: RAIL, list: ROOM_LIST, detail, access, joinRequests, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
 
 const isKnownKind = (kind: string): kind is LiveEventKind => (LIVE_EVENT_KINDS as readonly string[]).includes(kind);
 
 /** What a room's loss (or an unknown change to it) makes stale: everything the room's pages read, so each turns to its not-found or its new truth. */
-const roomGone = (r: number): QueryKey[] => [detail(r), threads(r), members(r), workflow(r), workflowEdit(r), pins(r), RAIL, ROOM_LIST];
+const roomGone = (r: number): QueryKey[] => [detail(r), access(r), threads(r), members(r), workflow(r), workflowEdit(r), pins(r), RAIL, ROOM_LIST];
 
 type ThreadScopedKind = Extract<LiveEventKind, `thread.${string}` | `message.${string}`>;
 
@@ -62,6 +62,7 @@ function eventKeys(kind: LiveEventKind, r: number, n: number | undefined): Query
     case "room.workflow_updated":
       return [workflow(r), workflowEdit(r), threadList(r), roomKeys.threadDetails(r), roomKeys.threadHistories(r)];
     case "room.member_added":
+      return [members(r), joinRequests(r), detail(r), access(r), RAIL, ROOM_LIST];
     case "room.member_role_changed":
     case "room.member_removed":
       return [members(r), detail(r), RAIL, ROOM_LIST];

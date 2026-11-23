@@ -1,7 +1,8 @@
 package ch.nokillswit
 
-import ch.nokillswit.rooms.RoomCreateRequest
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.rooms.RoomCreateRequest
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomWorkflowService
 import ch.nokillswit.rooms.WorkflowUsage
@@ -83,9 +84,17 @@ object TestRooms {
     val workflows: RoomWorkflowService by lazy { RoomWorkflowService(sharedDatabaseForTests()) }
     val service: RoomService by lazy { RoomService(sharedDatabaseForTests(), TestTemplates.service, workflows) }
 
-    /** Creates a room as [ownerId] through the service (the real create path) and returns its id. */
-    suspend fun seed(ownerId: UInt, templateId: UInt, name: String, language: String? = null): UInt =
-        service.create(ownerId, RoomCreateRequest(name = name, templateId = templateId, language = language))
+    /** Creates a room as [ownerId] through the service (the real create path); fixtures default to restricted hidden. */
+    suspend fun seed(
+        ownerId: UInt,
+        templateId: UInt,
+        name: String,
+        language: String? = null,
+        accessType: RoomAccessType = RoomAccessType.RESTRICTED_HIDDEN,
+    ): UInt = service.create(
+        ownerId,
+        RoomCreateRequest(name = name, templateId = templateId, language = language, accessType = accessType),
+    )
 
     /** Adds [userId] to the room by raw insert, past the member routes' guards. */
     suspend fun addMember(roomId: UInt, userId: UInt, role: RoomRole = RoomRole.MEMBER) {

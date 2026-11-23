@@ -36,7 +36,10 @@ suspend fun requireTeamManagerOrAdmin(
  * room lock for a write) and passed in. The route audits `room.access_denied` for a room that exists; this guard only decides.
  */
 fun requireRoomReader(caller: CallerPrincipal, standing: RoomStanding?) {
-    if (standing == null || (standing.role == null && !caller.isAdmin())) throw NotFoundException("Room not found")
+    if (
+        standing == null ||
+        (standing.role == null && (!caller.isAdmin() || standing.accessType == RoomAccessType.RESTRICTED_HIDDEN))
+    ) throw NotFoundException("Room not found")
 }
 
 /**

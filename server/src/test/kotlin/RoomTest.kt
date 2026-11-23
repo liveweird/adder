@@ -1,5 +1,7 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
+import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.MAX_ROOM_NAME_LENGTH
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
@@ -7,7 +9,6 @@ import ch.nokillswit.rooms.TEMPLATE_GONE_PROBLEM_TYPE
 import ch.nokillswit.rooms.RoomCreateRequest
 import ch.nokillswit.rooms.RoomPageResponse
 import ch.nokillswit.rooms.RoomResponse
-import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.rooms.RoomUpdateRequest
 import ch.nokillswit.rooms.RoomWorkflowResponse
 import ch.nokillswit.rooms.WorkflowUsageKey
@@ -65,7 +66,10 @@ class RoomTest {
     private suspend fun template(): UInt = TestTemplates.seed().also { mintedTemplates += it }
 
     private suspend fun HttpClient.create(name: String, templateId: UInt, language: String? = null): RoomResponse {
-        val response = postJson(rooms, RoomCreateRequest(name = name, templateId = templateId, language = language))
+        val response = postJson(
+            rooms,
+            RoomCreateRequest(name = name, templateId = templateId, language = language, accessType = RoomAccessType.PUBLIC),
+        )
         assertEquals(HttpStatusCode.Created, response.status, "create $name")
         return response.body<RoomResponse>().also { mintedRooms += it.id }
     }
@@ -84,6 +88,7 @@ class RoomTest {
         assertEquals("/api/v1/rooms/${room.id}", response.headers["Location"])
         assertTrue(room.name.startsWith("Copy "), "the sanitizer trims")
         assertEquals("A room", room.description)
+        assertEquals(RoomAccessType.RESTRICTED_HIDDEN, room.accessType, "omitting accessType keeps a room hidden")
         assertEquals(RoomRole.OWNER, room.role)
         assertEquals(1, room.memberCount)
         assertEquals(1L, room.workflowRevision)
@@ -213,7 +218,7 @@ class RoomTest {
     }
 
     @Test
-    fun `the list filters, sorts and pages, and scopes non-admins to their own rooms`() = testApplication {
+    fun `the list filters sorts and pages discoverable rooms while member narrows to joined rooms`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("room-list")
         val other = actor("room-list-other")
@@ -230,14 +235,15 @@ class RoomTest {
         suspend fun HttpClient.list(query: String): RoomPageResponse = get("$rooms?name=$m&$query").body()
         fun RoomPageResponse.names() = items.map { it.name.substringBefore(' ') }
 
-        // A non-admin sees the rooms they are in - Delta as a plain member - and never the ones they are not in.
+        // The directory shows visible rooms to every signed-in caller; role and membership filters describe the caller's own standing.
         val mine = owner.client.list("sort=name")
         assertEquals(listOf("Alpha", "Bravo", "Charlie", "Delta"), mine.names())
         assertEquals(listOf(RoomRole.OWNER, RoomRole.OWNER, RoomRole.OWNER, RoomRole.MEMBER), mine.items.map { it.role })
         assertEquals(listOf(true), mine.items.filter { it.name.startsWith("Bravo") }.map { it.archived })
         assertEquals(listOf(1, 1, 1, 2), mine.items.map { it.memberCount })
-        assertEquals(listOf("Delta"), other.client.list("").names())
-        assertEquals(emptyList(), other.client.list("member=false").names(), "a non-admin has nothing readable outside their rooms")
+        assertEquals(listOf("Alpha", "Bravo", "Charlie", "Delta"), other.client.list("sort=name").names())
+        assertEquals(listOf("Delta"), other.client.list("member=true").names())
+        assertEquals(listOf("Alpha", "Bravo", "Charlie"), other.client.list("member=false&sort=name").names())
 
         assertEquals(listOf("Alpha", "Charlie", "Delta"), owner.client.list("archived=false&sort=name").names())
         assertEquals(listOf("Bravo"), owner.client.list("archived=true").names())
@@ -251,7 +257,7 @@ class RoomTest {
         assertEquals(listOf("Delta"), owner.client.list("sort=name&pageSize=3&page=2").names())
         assertEquals(listOf("Delta"), owner.client.get("$rooms?name=delta%20$m").body<RoomPageResponse>().names(), "case-insensitive")
 
-        // An ADMIN sees every room: a null role outside them, `member=true` narrows to their own (none), `member=false` to the others.
+        // An ADMIN sees the same visible directory: a null role outside them, with the same membership filters.
         val everything = admin.client.list("sort=name")
         assertEquals(4, everything.items.size)
         assertTrue(everything.items.all { it.role == null })
@@ -265,7 +271,7 @@ class RoomTest {
     }
 
     @Test
-    fun `memberId lists a person's rooms, ANDed with what the caller reads - the shared ones for a member, all for an ADMIN`() =
+    fun `memberId lists a person's rooms shared with a member and visible to an ADMIN`() =
         testApplication {
             usePostgresTestcontainer()
             val ada = actor("room-memberid-a")
@@ -286,12 +292,18 @@ class RoomTest {
 
             // A member sees only the rooms THEY share with the person: Ada and Bob share one; Ada and Cy none.
             assertEquals(listOf(shared.id), ada.client.listing("memberId=${bob.id}"))
+            assertEquals(listOf(shared.id), ada.client.listing("memberId=${bob.id}&member=true"))
+            assertEquals(
+                emptyList(),
+                ada.client.listing("memberId=${bob.id}&member=false"),
+                "membership filters must not reveal a person's visible rooms outside the caller's shared profile scope",
+            )
             assertEquals(emptyList(), ada.client.listing("memberId=${cy.id}"))
             val bobsOwn = bob.client.listing("memberId=${bob.id}")
             assertEquals(listOf(shared.id, bobOwn.id, bobAndCy.id), bobsOwn, "one's own id lists one's own rooms")
             assertEquals(listOf(shared.id, adaOnly.id), ada.client.listing("memberId=${ada.id}"))
             assertEquals(listOf(bobAndCy.id), cy.client.listing("memberId=${bob.id}"))
-            // An ADMIN outside every room reads all of the person's rooms, and the other filters still narrow.
+            // An ADMIN outside every room reads the person's visible rooms, and the other filters still narrow.
             assertEquals(listOf(shared.id, bobOwn.id, bobAndCy.id), admin.client.listing("memberId=${bob.id}"))
             assertEquals(listOf(bobAndCy.id), admin.client.listing("memberId=${cy.id}"))
             val narrowed = admin.client.get("$rooms?name=Shared%20$m&memberId=${bob.id}").body<RoomPageResponse>()
@@ -718,7 +730,7 @@ class RoomTest {
             val admin = actor("room-unread-adm", UserRole.ADMIN)
             val template = TestThreads.seedTemplate().also { mintedTemplates += it }
             val name = "Unread ${marker()}"
-            val room = TestRooms.seed(owner.id, template, name).also { mintedRooms += it }
+            val room = TestRooms.seed(owner.id, template, name, accessType = RoomAccessType.PUBLIC).also { mintedRooms += it }
             TestRooms.addMember(room, member.id)
             suspend fun HttpClient.dot() = get("$rooms?name=$name").body<RoomPageResponse>().items.single().unread
 

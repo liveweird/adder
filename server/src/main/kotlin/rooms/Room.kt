@@ -1,6 +1,7 @@
 package ch.nokillswit.rooms
 
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.requireNameAndDescription
 import ch.nokillswit.infra.validation.sanitizeSingleLine
@@ -10,9 +11,9 @@ import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
 
 /**
- * Rooms (V13): the members-only place people work in. Any signed-in user creates one (becoming its OWNER) from a workflow template
- * whose statuses and fields the room COPIES; afterwards the room edits its own copy. A non-member gets a uniform `404`; an ADMIN reads
- * and manages every room; the room's OWNER or an ADMIN edits it, archives it and unarchives it; only an ADMIN deletes (soft) it.
+ * Rooms (V13, V36): any signed-in user creates one (becoming its OWNER) from a workflow template and chooses its immutable access type.
+ * Public and restricted-visible rooms are discoverable; restricted-hidden rooms are known only to members. Content stays member-only,
+ * with an ADMIN read/management exception for the two discoverable types.
  * `chat-model.md` "Rooms" holds the rules.
  */
 const val MAX_ROOM_NAME_LENGTH = 80
@@ -25,6 +26,7 @@ data class RoomCreateRequest(
     val templateId: UInt,
     val description: String? = null,
     val language: String? = null,
+    val accessType: RoomAccessType? = null,
 )
 
 /** The metadata PUT is a full replace: an omitted description clears it. */
@@ -34,13 +36,14 @@ data class RoomUpdateRequest(
     val description: String? = null,
 )
 
-/** One list row. [role] is the CALLER's role in the room: null for an ADMIN who is not a member. */
+/** One directory row. [role] is the caller's role in the room, null for a discoverable room they have not joined. */
 @Serializable
 data class RoomListItem(
     val id: UInt,
     val name: String,
     val description: String?,
     val archived: Boolean,
+    val accessType: RoomAccessType,
     val role: RoomRole?,
     /** The member count, ACTIVE users only. */
     val memberCount: Int,
@@ -60,8 +63,11 @@ data class RoomResponse(
     val description: String?,
     val archived: Boolean,
     val archivedAt: Long?,
+    val accessType: RoomAccessType,
     val role: RoomRole?,
     val memberCount: Int,
+    /** The current number of OWNER memberships whose users are active. */
+    val ownerCount: Int,
     /** The room workflow's optimistic-concurrency token (`X-Expected-Revision` of its PUT); starts at 1. */
     val workflowRevision: Long,
     val lastActivityAt: Long,
@@ -72,9 +78,9 @@ data class RoomResponse(
 typealias RoomPageResponse = PageResponse<RoomListItem>
 
 /**
- * `member` = true: only rooms the caller is in; false: only readable rooms the caller is NOT in; null: every readable room.
- * [memberId] (1.2 D7): only rooms that ACTIVE user is a member of, ANDed with what the caller may read (a member sees the rooms they share
- * with that user, an ADMIN every room of that user); an unknown or removed id matches nothing.
+ * `member` = true: only rooms the caller is in; false: discoverable rooms they are not in; null: both, plus their hidden rooms.
+ * [memberId] narrows that result to rooms the active user belongs to. It remains content-readable scope: a regular caller sees shared
+ * memberships, while an ADMIN may also see that person's discoverable rooms.
  */
 data class RoomListFilter(
     val name: String? = null,

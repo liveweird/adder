@@ -12,6 +12,7 @@ import ErrorAlert from "../components/ErrorAlert";
 import PageHeader from "../components/PageHeader";
 import RegistryEditorActions from "../components/RegistryEditorActions";
 import RegistryMetadataFields from "../components/RegistryMetadataFields";
+import RoomAccessTypePicker from "../components/RoomAccessTypePicker";
 import StatusPill from "../components/StatusPill";
 import { useDiscardGuard } from "../hooks/useDiscardGuard";
 import { asSupportedLanguage } from "../i18n";
@@ -113,6 +114,7 @@ export default function CreateRoom() {
               nameInputProps={form.getInputProps("name")}
               descriptionInputProps={form.getInputProps("description")}
             />
+            <RoomAccessTypePicker value={form.values.accessType} onChange={(value) => form.setFieldValue("accessType", value)} />
             {templates.isError && <ErrorAlert error={templates.error} title={t("rooms.create.templatesFailed")} />}
             {noTemplates && (
               <Alert color="gray" variant="light" role="note">

@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.rooms.RoomFieldDef
@@ -39,8 +40,8 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * The room authorization matrix (`authorization.md` "Rooms"): for every implemented room operation, what an outsider, a plain member, the
- * room's OWNER and an ADMIN who is not a member each get. A non-member (an ADMIN excepted) always sees the uniform `404`, so the room's
- * existence is never disclosed; a plain member is `403` on every write; ADMIN reads and manages every room. Each cell gets a FRESH room
+ * room's OWNER and an ADMIN who is not a member each get in a PUBLIC room. A regular non-member gets the uniform `404` from content
+ * routes; a plain member is `403` on every management write; an ADMIN reads and manages a visible room. Each cell gets a FRESH room
  * (a delete or an archive would poison the next), seeded through the service. The member rows are C8's, the workflow-write row
  * C9's.
  */
@@ -141,7 +142,7 @@ class RoomAuthzMatrixTest {
 
     private suspend fun freshRoom(cast: Cast): UInt {
         val template = templateId ?: TestTemplates.seed("mx").also { templateId = it }
-        return TestRooms.seed(cast.owner.id, template, "Matrix ${UUID.randomUUID()}").also {
+        return TestRooms.seed(cast.owner.id, template, "Matrix ${UUID.randomUUID()}", accessType = RoomAccessType.PUBLIC).also {
             TestRooms.addMember(it, cast.member.id, RoomRole.MEMBER)
             TestRooms.addMember(it, cast.other.id, RoomRole.MEMBER)
             mintedRooms += it

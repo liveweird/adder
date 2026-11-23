@@ -368,7 +368,7 @@ class MessageTagsTest {
         assertEquals(HttpStatusCode.NotFound, tooLong.status, "404 before 400")
         assertEquals(HttpStatusCode.NotFound, cast.outsider.client.get("$rooms/999999999/tags").status)
         assertTrue(cast.owner.client.tags(cast.room).items.any { it.tag == "secret" })
-        // An ADMIN reads every room, a member or not (the matrix of `authorization.md`).
+        // An ADMIN reads this public room, a member or not (the matrix of `authorization.md`).
         val admin = seedActor("tag-404-adm", UserRole.ADMIN).also { mintedUsers += it.id }
         assertTrue(admin.client.tags(cast.room).items.any { it.tag == "secret" })
     }

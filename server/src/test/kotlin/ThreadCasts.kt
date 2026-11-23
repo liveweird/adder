@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.users.UserRole
 import io.ktor.server.testing.ApplicationTestBuilder
 import java.util.UUID
@@ -22,7 +23,7 @@ private suspend fun ApplicationTestBuilder.mintActor(
 
 private suspend fun mintRoom(minted: MintedIds, owner: RoomActor, label: String): UInt {
     val template = TestThreads.seedTemplate().also { minted.templates += it }
-    return TestRooms.seed(owner.id, template, roomName(label)).also { minted.rooms += it }
+    return TestRooms.seed(owner.id, template, roomName(label), accessType = RoomAccessType.PUBLIC).also { minted.rooms += it }
 }
 
 /** A room owned by `owner` with `member` in it; `outsider` is no member. */

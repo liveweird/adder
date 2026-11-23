@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.threads.SEARCH_BUSY_PROBLEM_TYPE
 import ch.nokillswit.threads.SEARCH_TIMEOUT_PROBLEM_TYPE
@@ -57,7 +58,9 @@ class GlobalSearchTest {
 
     /** A room owned by [owner] named `<label> <random>`, with one thread holding [body] in its opening message. */
     private suspend fun room(owner: RoomActor, label: String, body: String, title: String = "Thread of $label"): UInt =
-        TestRooms.seed(owner.id, template(), "$label ${UUID.randomUUID().toString().substring(0, 8)}").also { room ->
+        TestRooms.seed(
+            owner.id, template(), "$label ${UUID.randomUUID().toString().substring(0, 8)}", accessType = RoomAccessType.PUBLIC,
+        ).also { room ->
             mintedRooms += room
             TestThreads.seed(room, owner.id, title = title, body = body)
         }
@@ -152,7 +155,7 @@ class GlobalSearchTest {
         val room = room(owner, "Closed door", "The $term inside")
 
         val single = admin.client.get("$rooms/$room/search?q=${encoded(term)}").body<ThreadSearchPageResponse>()
-        assertEquals(listOf(1), single.items.map { it.threadNumber }, "the room's own search admits an ADMIN, who reads every room")
+        assertEquals(listOf(1), single.items.map { it.threadNumber }, "the room's own search admits an ADMIN for this public room")
         val global = admin.client.find(term)
         assertEquals(0, global.total, "the global scope is membership only")
         assertEquals(emptyList(), global.items)

@@ -89,7 +89,7 @@ async function scene(page: Page, { addMate = true }: { addMate?: boolean } = {})
   const template = ((await templates.json()) as { items: { id: number; name: string }[] }).items.find((candidate) => candidate.name === "Default");
   expect(template, "the seeded Default template").toBeDefined();
   const roomName = uniqueText("e2e-soc");
-  const created = await api.post("/api/v1/rooms", { data: { name: roomName, templateId: template!.id } });
+  const created = await api.post("/api/v1/rooms", { data: { name: roomName, templateId: template!.id, accessType: "RESTRICTED_VISIBLE" } });
   expect(created.status(), await created.text()).toBe(201);
   const roomId = ((await created.json()) as { id: number }).id;
   cleanup.unshift(`/api/v1/rooms/${roomId}`);

@@ -52,27 +52,43 @@
    - *Expected*: the role change answers 204 and the person's row now reads Owner.
 6. They click **Leave room** again and confirm.
    - *Expected*: the leave answers 204, the app lands on `/rooms`, the room is gone from the rail, and the room's URL now
-     shows "This room does not exist, or you are not a member of it."
+     shows the access preview with **Request to join**.
 7. The person signs in.
    - *Expected*: the room is in their rail; its members page lists the person and the teammate but not the former owner,
      and shows the **Add a person** picker (the new owner has the controls).
 8. The teammate signs in and opens the members page.
    - *Expected*: the list is read-only: no add pickers and no row menus, and **Leave room** is offered in the **Members** section's header.
 
-## Scenario: a non-member cannot open a room while an administrator can
+## Scenario: a hidden room is invisible to non-members including administrators
 
 1. The admin creates two throwaway users (an owner and an outsider) and signs out. The owner signs in and creates a room
-   from the Default template.
+   from the Default template and selects **Restricted, hidden**.
 2. The outsider signs in and opens the room's URL.
    - *Expected*: the page says "This room does not exist, or you are not a member of it." under the h2 "Rooms" (the same
      answer as for an unknown id), and the room is not in the rail.
 3. They open the Rooms page and filter by the room's name.
    - *Expected*: "No rooms yet".
-4. The administrator signs in, opens the Rooms page and filters by the name.
-   - *Expected*: the default **Mine** scope is empty ("No rooms yet", the admin is not a member).
-5. They switch to **All**.
-   - *Expected*: the room's row appears with "Your role: —" below its name (the admin has no role); opening it shows the room with its name
-     as the h2, no "not a member" message, and the room still absent from the admin's own rail.
+4. An administrator outside the room searches for it in **Browse**, then opens its Members link.
+   - *Expected*: the room is absent from Browse, and its link shows the same unavailable page.
+
+## Scenario: a person joins a public room from the directory and reads earlier messages
+
+1. An owner creates a **Public** room and starts a thread before adding anyone.
+2. Another user opens **Browse** on a phone and finds the room by name.
+   - *Expected*: opening it shows its access preview with **Join room**. The thread stays private until joining. An axe scan of the preview finds no WCAG A/AA violations.
+3. They join and open the thread.
+   - *Expected*: the open room subscribes to live updates after joining. The opening message written before they joined is visible.
+
+## Scenario: an owner declines and approves access requests and steps down after naming a co-owner
+
+1. An owner creates a **Restricted, visible** room. An outsider follows its link and requests access.
+   - *Expected*: the outsider sees **Request pending**. The owner sees the request in **Members** and cannot step down as the sole owner.
+2. The owner declines the request. The outsider reloads and requests again.
+   - *Expected*: the preview shows **Request declined**, then **Request pending** for the new attempt.
+3. The owner approves the new request.
+   - *Expected*: the applicant's open preview becomes the room's Threads tab without a reload.
+4. The owner promotes the applicant to Owner, then steps down.
+   - *Expected*: the original owner is now a member, and the roster shows the promoted person as Owner.
 
 ## Scenario: an owner archives and unarchives a room and an administrator deletes it
 

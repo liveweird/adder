@@ -212,7 +212,7 @@ test.describe("detail pages and overlays", () => {
     expect(joined.status(), await joined.text()).toBe(200);
     ({ threadNumber, threadTitle } = await seedThread(api, roomId));
     await seedConversation(api, adminId, roomId, threadNumber, mate);
-    const archived = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-axe-room"), templateId: defaultTemplate!.id } });
+    const archived = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-axe-room"), templateId: defaultTemplate!.id, accessType: "RESTRICTED_VISIBLE" } });
     expect(archived.status(), await archived.text()).toBe(201);
     archivedRoomId = (await archived.json() as { id: number }).id;
     ({ threadNumber: archivedThreadNumber } = await seedThread(api, archivedRoomId));

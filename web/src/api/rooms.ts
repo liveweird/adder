@@ -7,7 +7,11 @@ import type { paths } from "./schema";
 
 export type RoomPage = paths["/api/v1/rooms"]["get"]["responses"]["200"]["content"]["application/json"];
 export type RoomListItem = RoomPage["items"][number];
+export type RoomAccessType = RoomListItem["accessType"];
 export type RoomResponse = paths["/api/v1/rooms/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
+export type RoomAccessPreview = paths["/api/v1/rooms/{id}/access"]["get"]["responses"]["200"]["content"]["application/json"];
+export type RoomJoinRequestPage = paths["/api/v1/rooms/{id}/join-requests"]["get"]["responses"]["200"]["content"]["application/json"];
+export type RoomJoinRequest = RoomJoinRequestPage["items"][number];
 export type RoomWorkflow = paths["/api/v1/rooms/{id}/workflow"]["get"]["responses"]["200"]["content"]["application/json"];
 export type RoomWorkflowUpdateBody = paths["/api/v1/rooms/{id}/workflow"]["put"]["requestBody"]["content"]["application/json"];
 export type RoomCreateBody = paths["/api/v1/rooms"]["post"]["requestBody"]["content"]["application/json"];
@@ -15,7 +19,6 @@ export type RoomUpdateBody = paths["/api/v1/rooms/{id}"]["put"]["requestBody"]["
 
 export type RoomRole = paths["/api/v1/rooms/{id}/members"]["get"]["responses"]["200"]["content"]["application/json"]["items"][number]["role"];
 export type RoomMemberPage = paths["/api/v1/rooms/{id}/members"]["get"]["responses"]["200"]["content"]["application/json"];
-export type RoomMember = RoomMemberPage["items"][number];
 export type RoomMembersAddBody = paths["/api/v1/rooms/{id}/members"]["post"]["requestBody"]["content"]["application/json"];
 export type RoomMembersAddResult = paths["/api/v1/rooms/{id}/members"]["post"]["responses"]["200"]["content"]["application/json"];
 
@@ -47,6 +50,30 @@ export async function listRooms(q: RoomListQuery): Promise<RoomPage> {
 
 export async function getRoom(id: number): Promise<RoomResponse> {
   return jsonRequest<RoomResponse>(`/api/v1/rooms/${id}`);
+}
+
+export async function getRoomAccess(id: number): Promise<RoomAccessPreview> {
+  return jsonRequest<RoomAccessPreview>(`/api/v1/rooms/${id}/access`);
+}
+
+export async function joinPublicRoom(id: number): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${id}/join`, { method: "POST" });
+}
+
+export async function requestRoomMembership(id: number): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${id}/join-requests`, { method: "POST" });
+}
+
+export async function listRoomJoinRequests(id: number, q: { page: number; pageSize: number; sort?: string }): Promise<RoomJoinRequestPage> {
+  const params = buildQuery(q);
+  return jsonRequest<RoomJoinRequestPage>(`/api/v1/rooms/${id}/join-requests?${params}`);
+}
+
+export async function decideRoomJoinRequest(id: number, requestId: number, decision: "APPROVE" | "REJECT"): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${id}/join-requests/${requestId}`, {
+    method: "PUT",
+    body: JSON.stringify({ decision }),
+  });
 }
 
 export async function getRoomWorkflow(id: number): Promise<RoomWorkflow> {

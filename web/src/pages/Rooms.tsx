@@ -3,12 +3,12 @@ import { Link as RouterLink } from "react-router-dom";
 import { Anchor, Avatar, Badge, Box, Button, Group, SegmentedControl, Stack, Switch, Table, Text } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { IconDoor, IconPlus } from "@tabler/icons-react";
-import { useAdmin } from "../auth";
 import { listRooms } from "../api/rooms";
 import ClearableTextInput from "../components/ClearableTextInput";
 import FilterPanel from "../components/FilterPanel";
 import PageHeader from "../components/PageHeader";
 import RegistryListTable from "../components/RegistryListTable";
+import RoomAccessBadge from "../components/RoomAccessBadge";
 import SortHeader from "../components/SortHeader";
 import { useRegistryListControls } from "../hooks/useRegistryListControls";
 import { isBoolean, isOneOf, useStoredState } from "../hooks/useStoredState";
@@ -28,14 +28,13 @@ const SCOPES = ["mine", "all"] as const;
 const SETTINGS_KEY = "rooms";
 
 /**
- * The Rooms page (`/rooms`): the caller's rooms as a paged table (a room's name opens it). An ADMIN additionally chooses between
- * Mine and All (every room, members or not); everyone can show the archived ones, which stay hidden by default. The Mine/All
+ * The Rooms page (`/rooms`): the discoverable room directory. Everyone chooses between Joined and Browse; Browse includes public and
+ * restricted-visible rooms plus the caller's joined hidden rooms. Everyone can show archived rooms, which stay hidden by default. The scope
  * choice and the archived switch persist like the other view settings.
  */
 export default function Rooms() {
   const { t } = useTranslation();
-  const admin = useAdmin();
-  const [scope, setScope] = useStoredState(`${SETTINGS_KEY}.scope`, "mine", isOneOf(SCOPES));
+  const [scope, setScope] = useStoredState(`${SETTINGS_KEY}.scope`, "all", isOneOf(SCOPES));
   const [showArchived, setShowArchived] = useStoredState(`${SETTINGS_KEY}.showArchived`, false, isBoolean);
   const { nameFilter, setNameFilter, debouncedName, nameFilterActive, page, setPage, pageSize, setPageSize, sortField, sortDir, sortParam, toggleSort } =
     useRegistryListControls<SortField>({
@@ -44,11 +43,10 @@ export default function Rooms() {
       initialSortField: "name",
       extraFilterDeps: [scope, showArchived],
     });
-  // A regular user only ever has "mine" (the server would answer the same); an ADMIN's "all" omits the member filter.
-  const everything = admin && scope === "all";
+  const joined = scope === "mine";
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: [...roomKeys.list, page, pageSize, sortParam, debouncedName, everything, showArchived],
+    queryKey: [...roomKeys.list, page, pageSize, sortParam, debouncedName, joined, showArchived],
     queryFn: () =>
       listRooms({
         page,
@@ -56,7 +54,7 @@ export default function Rooms() {
         sort: sortParam,
         name: debouncedName || undefined,
         archived: showArchived ? undefined : false,
-        member: everything ? undefined : true,
+        member: joined ? true : undefined,
       }),
     placeholderData: keepPreviousData,
   });
@@ -72,17 +70,15 @@ export default function Rooms() {
         }
         toolbar={
           <Group gap="lg" className={classes.scopeBar}>
-            {admin && (
-              <SegmentedControl
-                aria-label={t("rooms.scope.aria")}
-                value={scope}
-                onChange={(value) => setScope(value as (typeof SCOPES)[number])}
-                data={[
-                  { value: "mine", label: t("rooms.scope.mine") },
-                  { value: "all", label: t("rooms.scope.all") },
-                ]}
-              />
-            )}
+            <SegmentedControl
+              aria-label={t("rooms.scope.aria")}
+              value={scope}
+              onChange={(value) => setScope(value as (typeof SCOPES)[number])}
+              data={[
+                { value: "all", label: t("rooms.scope.all") },
+                { value: "mine", label: t("rooms.scope.mine") },
+              ]}
+            />
             <Switch label={t("rooms.showArchived")} checked={showArchived} onChange={(event) => setShowArchived(event.currentTarget.checked)} />
           </Group>
         }
@@ -141,6 +137,7 @@ export default function Rooms() {
                             {room.name}
                           </Anchor>
                           {room.role && <Badge size="xs">{t(`rooms.role.${room.role}`)}</Badge>}
+                          <RoomAccessBadge accessType={room.accessType} size="xs" />
                           {room.archived && <Badge size="xs">{t("rooms.archivedBadge")}</Badge>}
                         </Group>
                         {room.description && (

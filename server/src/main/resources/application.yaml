@@ -53,6 +53,7 @@ ktor:
       - ch.nokillswit.rooms.RoomRoutesKt.configureRoomRoutes
       - ch.nokillswit.rooms.RoomWorkflowRoutesKt.configureRoomWorkflowRoutes
       - ch.nokillswit.rooms.RoomMemberRoutesKt.configureRoomMemberRoutes
+      - ch.nokillswit.rooms.RoomEnrollmentRoutesKt.configureRoomEnrollmentRoutes
       # Threads (V14): the room's threads and their history, then their messages (0.3.0 S5). After the room routes, before the catch-all.
       - ch.nokillswit.threads.ThreadRoutesKt.configureThreadRoutes
       - ch.nokillswit.threads.MessageRoutesKt.configureMessageRoutes

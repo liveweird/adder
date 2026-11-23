@@ -10,7 +10,7 @@ import { renderWithProviders } from "../test/render";
 // The thread list's "Tags" filter (1.2 D3): the curated registry, grouped by category, written as the repeated `threadTag` key beside the
 // hashtags' `tag`. The rest of the panel is `ThreadFilters.test.tsx`.
 const ROOM: RoomResponse = {
-  id: 12, name: "Night Shift", description: null, archived: false, archivedAt: null, role: "MEMBER", memberCount: 3,
+  id: 12, name: "Night Shift", description: null, accessType: "RESTRICTED_HIDDEN", archived: false, archivedAt: null, role: "MEMBER", memberCount: 3, ownerCount: 1,
   workflowRevision: 1, lastActivityAt: 1, createdAt: 1, updatedAt: 1,
 };
 const WORKFLOW = { revision: 1, statuses: [], fields: [] };

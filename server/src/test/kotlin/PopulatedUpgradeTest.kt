@@ -49,6 +49,7 @@ import org.flywaydb.core.api.MigrationVersion
  *    owner of each thread watchers where they still hold a membership row, stamped with the thread's creation, with no notice;
  *  - V27 reshaped the notices (`in_app` TRUE on every row, the new unique and bell indexes) and V28's `enabled` column kept the two
  *    V22 email rows meaning "off", so a 1.0.0 account reads the 1.1.0 defaults (the app on, email off for every kind);
+ *  - V36 keeps every existing room restricted and hidden, and creates an empty join-request queue;
  *  - the application boots on the migrated database and its reads answer, each checked against the OpenAPI contract.
  *
  * The database is created on the fork's Testcontainers server, named uniquely and dropped in a `finally`: the shared suite database is
@@ -98,8 +99,8 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35")
-        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V35 ran on the populated database: $after")
+        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36")
+        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V36 ran on the populated database: $after")
         val tagIndexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'message_tags'") { it.getString(1) }
             .toSet()
         val both = "idx_message_tags_thread" in tagIndexes && "idx_message_tags_room_tag" in tagIndexes
@@ -115,6 +116,21 @@ class PopulatedUpgradeTest {
         ) { it.getString(1) }.single()
         assertTrue("(recipient_id, room_id, id)" in partial && "seen_at IS NULL" in partial, "V34 is partial on the unseen rows: $partial")
         assertMessageQuotesAdded(database)
+        assertRoomAccessAdded(database)
+    }
+
+    /** V36 preserves existing rooms as invitation-only and starts with no requests to join them. */
+    private fun assertRoomAccessAdded(database: String) {
+        assertEquals(
+            0L,
+            query(database, "SELECT count(*) FROM rooms WHERE access_type <> 'RESTRICTED_HIDDEN'") { it.getLong(1) }.single(),
+            "V36 keeps every migrated room restricted and hidden, deleted rooms included",
+        )
+        assertEquals(
+            0L,
+            query(database, "SELECT count(*) FROM room_join_requests") { it.getLong(1) }.single(),
+            "V36 starts with no join requests",
+        )
     }
 
     /**

@@ -275,6 +275,38 @@ describe("subscriptions", () => {
     expect(newest().frames()).toHaveLength(4);
   });
 
+  test("a personal member-added hint retries a room that was refused before the caller joined", async () => {
+    const t = setup();
+    t.client.setRooms([40]);
+    await goLive(t);
+    newest().receive({ type: "subscribed", roomIds: [], refused: [40], capped: [] });
+
+    newest().receive({ type: "event", kind: "room.member_added", roomId: 40 });
+    t.clock.advanceBy(100);
+
+    expect(newest().frames().filter((frame) => frame.type === "subscribe")).toEqual([
+      { type: "subscribe", roomIds: [40] },
+      { type: "subscribe", roomIds: [40] },
+    ]);
+  });
+
+  test("a member-added hint that beats the stale refusal still retries exactly once", async () => {
+    const t = setup();
+    t.client.setRooms([40]);
+    await goLive(t);
+
+    newest().receive({ type: "event", kind: "room.member_added", roomId: 40 });
+    newest().receive({ type: "subscribed", roomIds: [], refused: [40], capped: [] });
+    t.clock.advanceBy(100);
+    newest().receive({ type: "subscribed", roomIds: [], refused: [40], capped: [] });
+    t.clock.advanceBy(100);
+
+    expect(newest().frames().filter((frame) => frame.type === "subscribe")).toEqual([
+      { type: "subscribe", roomIds: [40] },
+      { type: "subscribe", roomIds: [40] },
+    ]);
+  });
+
   test("a revoked room is dropped from the socket's set; a caller that still wants it asks again at the next diff", async () => {
     const t = setup();
     t.client.setRooms([12]);

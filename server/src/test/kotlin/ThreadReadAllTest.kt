@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.rooms.RoomPageResponse
 import ch.nokillswit.rooms.RoomMemberService
@@ -79,7 +80,7 @@ class ThreadReadAllTest {
         val admin = actor("adm", UserRole.ADMIN)
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
         val name = "Ra ${UUID.randomUUID().toString().substring(0, 8)}"
-        val room = TestRooms.seed(owner.id, template, name).also { mintedRooms += it }
+        val room = TestRooms.seed(owner.id, template, name, accessType = RoomAccessType.PUBLIC).also { mintedRooms += it }
         TestRooms.addMember(room, alice.id)
         delay(SETTLE)
         return Cast(owner, alice, bob, outsider, admin, room, name)
@@ -283,7 +284,9 @@ class ThreadReadAllTest {
         usePostgresTestcontainer()
         val cast = populated("ra-notices")
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
-        val other = TestRooms.seed(cast.owner.id, template, "Rb ${UUID.randomUUID().toString().substring(0, 8)}").also { mintedRooms += it }
+        val other = TestRooms.seed(
+            cast.owner.id, template, "Rb ${UUID.randomUUID().toString().substring(0, 8)}", accessType = RoomAccessType.PUBLIC,
+        ).also { mintedRooms += it }
         TestRooms.addMember(other, cast.alice.id)
         TestRooms.addMember(other, cast.bob.id)
         delay(SETTLE)
