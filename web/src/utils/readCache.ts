@@ -1,9 +1,10 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
+import type { HomeResponse } from "../api/home";
 import type { MessagePage } from "../api/messages";
 import type { NotificationPage } from "../api/notifications";
 import { requestRefresh } from "./liveKeys";
 import { notificationKeys } from "./notificationKeys";
-import { roomKeys } from "./roomKeys";
+import { homeKey, roomKeys } from "./roomKeys";
 import { announceSeen } from "./seenSync";
 
 type Row = Record<string, unknown>;
@@ -19,6 +20,10 @@ export function markRoomSeenInCaches(queryClient: QueryClient, roomId: number): 
   const clear = (row: Row) => (row.id === roomId ? { ...row, unread: false } : row);
   queryClient.setQueriesData<unknown>({ queryKey: roomKeys.rail }, (page: unknown) => mapRows(page, clear));
   queryClient.setQueriesData<unknown>({ queryKey: roomKeys.list }, (page: unknown) => mapRows(page, clear));
+  queryClient.setQueryData<HomeResponse>(homeKey, (home) => home === undefined ? undefined : {
+    ...home,
+    ownedRooms: home.ownedRooms.map((room) => room.id === roomId ? { ...room, unread: false } : room),
+  });
 }
 
 /**
@@ -35,6 +40,13 @@ export function markRoomReadInCaches(queryClient: QueryClient, roomId: number): 
     typeof thread === "object" && thread !== null && "unreadCount" in thread ? { ...thread, unreadCount: 0, firstUnreadMessageId: null } : thread,
   );
   markRoomSeenInCaches(queryClient, roomId);
+  queryClient.setQueryData<HomeResponse>(homeKey, (home) => home === undefined ? undefined : {
+    ...home,
+    quotes: home.quotes.map((quote) => quote.roomId === roomId ? { ...quote, unread: false } : quote),
+    ownedThreads: home.ownedThreads.map((thread) => thread.roomId === roomId ? { ...thread, unreadCount: 0 } : thread),
+    watchedThreads: home.watchedThreads.map((thread) => thread.roomId === roomId ? { ...thread, unreadCount: 0 } : thread),
+  });
+  requestRefresh(queryClient, homeKey);
   void queryClient.invalidateQueries({ queryKey: roomKeys.threadList(roomId) });
   void queryClient.invalidateQueries({ queryKey: roomKeys.rail });
   void queryClient.invalidateQueries({ queryKey: notificationKeys.all });
@@ -67,7 +79,20 @@ export function markThreadReadInCaches(queryClient: QueryClient, roomId: number,
       thread === undefined ? undefined : { ...thread, unreadCount: 0, firstUnreadMessageId: null },
     );
     markRoomSeenInCaches(queryClient, roomId);
+    queryClient.setQueryData<HomeResponse>(homeKey, (home) => home === undefined ? undefined : {
+      ...home,
+      quotes: home.quotes.map((quote) => quote.roomId === roomId && quote.threadNumber === threadNumber && quote.messageId <= sentMessageId
+        ? { ...quote, unread: false }
+        : quote),
+      ownedThreads: home.ownedThreads.map((thread) => thread.roomId === roomId && thread.number === threadNumber
+        ? { ...thread, unreadCount: 0 }
+        : thread),
+      watchedThreads: home.watchedThreads.map((thread) => thread.roomId === roomId && thread.number === threadNumber
+        ? { ...thread, unreadCount: 0 }
+        : thread),
+    });
   }
+  requestRefresh(queryClient, homeKey);
   const holdsNotice = (page: NotificationPage | undefined) =>
     page?.items.some((item) => item.roomId === roomId && item.threadNumber === threadNumber) === true;
   // Either query (the badge's or the rail's) holding a notice of this thread means the server has just marked it seen: re-read both.

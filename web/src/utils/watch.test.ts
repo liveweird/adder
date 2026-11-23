@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
 import { refreshAfterWatchWrite, WATCH_SEARCH_KEYS } from "./watch";
 import { refreshQueriesAfterMutation } from "./queryRefresh";
-import { roomKeys, searchAllKey } from "./roomKeys";
+import { homeKey, roomKeys, searchAllKey } from "./roomKeys";
 
 /** A client holding one fresh (not invalidated) result under each key. */
 function seeded(keys: readonly (readonly unknown[])[]) {
@@ -27,7 +27,7 @@ describe("what a watch write makes stale", () => {
   });
 
   test("the keys the automatic watches (a new thread, a hand-over) add are the search prefix, outside the rooms tree", async () => {
-    expect(WATCH_SEARCH_KEYS).toEqual([searchAllKey]);
+    expect(WATCH_SEARCH_KEYS).toEqual([searchAllKey, homeKey]);
     const client = seeded([allRooms, oneRoom, list]);
     await refreshQueriesAfterMutation(client, ["rooms"], ...WATCH_SEARCH_KEYS);
     expect(stale(client, allRooms)).toBe(true);

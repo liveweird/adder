@@ -4,7 +4,7 @@
 
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { LiveClock } from "./liveClient";
-import { notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
+import { homeKey, notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
 import { lookingAt } from "./lookingAt";
 
@@ -13,62 +13,62 @@ const { rail: RAIL, list: ROOM_LIST, detail, access, joinRequests, members, work
 const isKnownKind = (kind: string): kind is LiveEventKind => (LIVE_EVENT_KINDS as readonly string[]).includes(kind);
 
 /** What a room's loss (or an unknown change to it) makes stale: everything the room's pages read, so each turns to its not-found or its new truth. */
-const roomGone = (r: number): QueryKey[] => [detail(r), access(r), threads(r), members(r), workflow(r), workflowEdit(r), pins(r), RAIL, ROOM_LIST];
+const roomGone = (r: number): QueryKey[] => [detail(r), access(r), threads(r), members(r), workflow(r), workflowEdit(r), pins(r), RAIL, ROOM_LIST, homeKey];
 
 type ThreadScopedKind = Extract<LiveEventKind, `thread.${string}` | `message.${string}`>;
 
 /** The thread-scoped kinds need the thread number; a hint without one falls back to the room's whole thread tree. */
 function threadKeys(kind: ThreadScopedKind, r: number, n: number | undefined): QueryKey[] {
   // A deleted message takes its notices with it, so even a hint that names no thread re-reads them.
-  if (n === undefined) return kind === "message.deleted" ? [threads(r), RAIL, notificationsKey] : [threads(r), RAIL];
+  if (n === undefined) return kind === "message.deleted" ? [threads(r), RAIL, notificationsKey, homeKey] : [threads(r), RAIL, homeKey];
   switch (kind) {
     case "thread.created":
-      return [threadList(r), workflow(r), workflowEdit(r), RAIL];
+      return [threadList(r), workflow(r), workflowEdit(r), RAIL, homeKey];
     case "thread.updated":
     case "thread.owner_changed":
-      return [threadDetail(r, n), threadEvents(r, n), threadList(r), RAIL];
+      return [threadDetail(r, n), threadEvents(r, n), threadList(r), RAIL, homeKey];
     case "thread.status_changed":
-      return [threadDetail(r, n), threadEvents(r, n), threadList(r), RAIL, workflow(r), workflowEdit(r)];
+      return [threadDetail(r, n), threadEvents(r, n), threadList(r), RAIL, workflow(r), workflowEdit(r), homeKey];
     case "message.posted":
-      return [messages(r, n), threadDetail(r, n), threadList(r), RAIL];
+      return [messages(r, n), threadDetail(r, n), threadList(r), RAIL, homeKey];
     case "message.edited":
       // The conversation, the thread itself (an edit can add or drop a hashtag, which its header and side panel show), the list (the same, on
       // its rows, and a tag filter would show or hide the thread) and the room's pins (a pinned message's body shows in the panel; a
       // redacted one must not linger there).
-      return [messages(r, n), threadDetail(r, n), threadList(r), pins(r)];
+      return [messages(r, n), threadDetail(r, n), threadList(r), pins(r), homeKey];
     case "message.reaction_changed":
       // Only the conversation shows reactions: no count, no list order and no rail moves with one (a reaction is not activity). Spaced: `isSlowFrame`.
       return [messages(r, n)];
     default:
       // message.deleted: the tombstone, the count on the thread and its row, the room's pins (a deleted message loses its pin) and the notices
       // (the ones about it went with it, and the badge and the drawer must not keep a row that now opens nothing).
-      return [messages(r, n), threadDetail(r, n), threadList(r), pins(r), notificationsKey];
+      return [messages(r, n), threadDetail(r, n), threadList(r), pins(r), notificationsKey, homeKey];
   }
 }
 
 function eventKeys(kind: LiveEventKind, r: number, n: number | undefined): QueryKey[] {
   switch (kind) {
     case "room.created":
-      return [RAIL, ROOM_LIST];
+      return [RAIL, ROOM_LIST, homeKey];
     case "room.updated":
     case "room.archived":
     case "room.unarchived":
-      return [detail(r), RAIL, ROOM_LIST];
+      return [detail(r), RAIL, ROOM_LIST, homeKey];
     case "room.deleted":
       // The one hint besides `revoked` that names the room's search results: the room is gone, so are its hits (and the notices of the room).
       return [...roomGone(r), roomKeys.search(r), notificationsKey];
     case "room.pin_changed":
       return [pins(r)];
     case "room.workflow_updated":
-      return [workflow(r), workflowEdit(r), threadList(r), roomKeys.threadDetails(r), roomKeys.threadHistories(r)];
+      return [workflow(r), workflowEdit(r), threadList(r), roomKeys.threadDetails(r), roomKeys.threadHistories(r), homeKey];
     case "room.member_added":
-      return [members(r), joinRequests(r), detail(r), access(r), RAIL, ROOM_LIST];
+      return [members(r), joinRequests(r), detail(r), access(r), RAIL, ROOM_LIST, homeKey];
     case "room.member_role_changed":
     case "room.member_removed":
-      return [members(r), detail(r), RAIL, ROOM_LIST];
+      return [members(r), detail(r), RAIL, ROOM_LIST, homeKey];
     case "notification.created":
       // Personal: it reaches the recipient's sockets whether or not they subscribed to the room, and names no page of the room.
-      return [notificationsKey];
+      return [notificationsKey, homeKey];
     default:
       return threadKeys(kind, r, n);
   }
@@ -86,12 +86,14 @@ export function keysForFrame(frame: LiveServerFrame): QueryKey[] {
       return [...roomGone(frame.roomId), roomKeys.search(frame.roomId), searchAllKey, notificationsKey];
     case "subscribed":
       // The subscription is live only from this ack: whatever changed between the page's own read and now is caught by one re-read.
-      return frame.roomIds.flatMap((r) => [detail(r), threads(r), members(r), workflow(r), workflowEdit(r)]);
+      return frame.roomIds.length === 0
+        ? []
+        : [...frame.roomIds.flatMap((r) => [detail(r), threads(r), members(r), workflow(r), workflowEdit(r)]), homeKey];
     case "ready":
       // A notice may have been minted while the socket was down: the badge and the drawer are re-read with the lists.
-      return [RAIL, ROOM_LIST, notificationsKey];
+      return [RAIL, ROOM_LIST, notificationsKey, homeKey];
     case "resync":
-      return [roomKeys.all, notificationsKey];
+      return [roomKeys.all, notificationsKey, homeKey];
     case "pong":
       return [];
   }
@@ -119,7 +121,7 @@ const QUIET_MIN_GAP_MS = 60_000;
  * `["rooms","threads",R,"list"]`, `["notifications"]`.
  */
 function isAggregate(key: QueryKey): boolean {
-  if (key.length === 1) return key[0] === notificationsKey[0];
+  if (key.length === 1) return key[0] === notificationsKey[0] || key[0] === homeKey[0];
   if (key.length === 2) return key[1] === "rail" || key[1] === "list";
   return key.length === 4 && key[1] === "threads" && key[3] === "list";
 }

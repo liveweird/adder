@@ -8,7 +8,7 @@ import type { RoomResponse, RoomWorkflow } from "../api/rooms";
 import { setThreadStatus, type ThreadResponse } from "../api/threads";
 import { useAdmin } from "../auth";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { roomKeys } from "../utils/roomKeys";
+import { homeKey, roomKeys } from "../utils/roomKeys";
 import { isStaleWrite, threadStatusErrorMessage } from "../utils/threadActions";
 import { isThreadSteward, statusMoveBlock } from "../utils/threadAccess";
 import { showSuccessToast } from "../utils/toast";
@@ -66,7 +66,7 @@ export default function ThreadStatusControl({
     try {
       await setThreadStatus(room.id, thread.number, key);
       showSuccessToast(t("threads.toast.statusChanged"));
-      await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail, roomKeys.workflow(room.id));
+      await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail, roomKeys.workflow(room.id), homeKey);
     } catch (err) {
       setError(threadStatusErrorMessage(err, t));
       if (isStaleWrite(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);

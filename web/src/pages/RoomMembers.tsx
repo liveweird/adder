@@ -31,7 +31,7 @@ import { roomsPath } from "../utils/roomLinks";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import { MAX_USER_NAME_LENGTH } from "../utils/userForm";
-import { roomKeys } from "../utils/roomKeys";
+import { homeKey, roomKeys } from "../utils/roomKeys";
 import classes from "./RoomMembers.module.css";
 
 const SORT_FIELDS = ["name", "role", "addedAt"] as const;
@@ -65,7 +65,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
   const canManage = canManageRoom(room, admin);
   const me = getUserId();
   const settingsKey = `${SETTINGS_KEY}.${room.id}`;
-  const refresh = () => refreshQueriesAfterMutation(queryClient, ["rooms"]);
+  const refresh = () => refreshQueriesAfterMutation(queryClient, ["rooms"], homeKey);
   const [role, setRole] = useStoredState<RoomRole | null>(`${settingsKey}.filter.role`, null, isOneOfOrNull(ROLES));
   const { nameFilter, setNameFilter, debouncedName, nameFilterActive, page, setPage, pageSize, setPageSize, sortField, sortDir, sortParam, toggleSort } =
     useRegistryListControls<SortField>({ settingsKey, sortFields: SORT_FIELDS, initialSortField: "name", extraFilterDeps: [role] });

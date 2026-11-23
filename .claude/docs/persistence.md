@@ -15,7 +15,7 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   `MigrationChecksumTest` pins every file's checksum; a new migration adds one manifest line, and
   a red pin means REVERT the edit (clarifications go into this doc), never update the pinned
   value. **The one exception, an unreleased migration:** a migration may still change while NO released
-  version has applied it (today V36, 1.6.0's room access and join requests: nothing but a developer's own database, or an OrbStack deployment from this branch, has it; V31 to V34 shipped in 1.2.0, V25 to V30 in 1.1.0 and V17 to V24 in 1.0.0, and are immutable);
+  version has applied it (V36 shipped with 1.6.0 and its checksum is now immutable);
   the pin is then re-pinned in the same commit, and a dev database that booted an earlier checksum of such a file is reset (`docker compose down -v`) or repaired (`flyway repair`).
   **The lanes of one release land in any order, so a dev database can apply a later 0.6 migration before an earlier one (V20 before V18, say):** Flyway then refuses the
   lower number (`outOfOrder` is off) and the table it creates is missing, so reset such a database with `docker compose down -v`; a fresh one (a test container, CI) applies them in order.
@@ -153,6 +153,8 @@ service to preserve it. Exposed reuses an enclosing transaction for nested `susp
 calls on the same database. Route handlers never touch tables (services only). The reads/writes in
 place:
 
+- `HomeService` reads the caller's room memberships, rooms and join requests, workflow statuses, threads, watches, messages and read markers
+  in one bounded read transaction. The quote query joins author names and uses the shared batched reads for mention metadata.
 - `TeamService` reads `UserService.Users` for the manager: the active manager's display name (one
   batched lookup per page), the manager id check on create AND update, and `isActiveManager`'s `Teams` ⋈ `Users` join (the
   team-manager guard). `teams.manager_user_id` has no `ON DELETE` rule: users are only ever soft-deleted;

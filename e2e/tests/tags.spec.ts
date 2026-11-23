@@ -136,7 +136,7 @@ test("a regular user reads the registry through the API but has no Tags page and
   await expect(page.getByRole("link", { name: "Tags", exact: true })).toHaveCount(0);
   await page.goto("/tags");
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { level: 2, name: "Adder" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Home" })).toBeVisible();
 
   const { api } = await apiAsUser(user.email, user.password);
   try {

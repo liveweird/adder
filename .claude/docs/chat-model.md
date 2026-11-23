@@ -40,6 +40,17 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
   public and restricted visible rooms.
 - **Limits:** room name <= 80, description <= 500; 500 members per room, 200 user ids per add; 200 members per team.
 
+### Personal Home (1.7.0)
+
+`GET /home` returns four previews of up to five items each, all scoped to the caller's current rooms. Administrators use the same membership scope.
+
+- **Replies quoting you** lists the newest readable replies from other people that quote messages you wrote in the same thread. Reading a
+  reply only changes its unread cue. The reply stays in the list if the original was removed. Notification settings and retention are independent.
+- **Open threads you own** shows active-room threads that are still open, most recent activity first.
+- **Watched threads** shows persisted watches, with unread threads first, then recent activity. Archived rooms remain readable.
+- **Rooms you own** surfaces rooms with pending join requests first. Requests count active applicants. Within each group, active rooms
+  come first, then the most recently active. Owners can review pending requests in an archived room.
+
 ### Workflows
 
 - **Vocabulary.** A room owns its workflow: ordered **statuses** `{key, label, colour GRAY|BLUE|GRAPE|TEAL|RED|ORANGE, category OPEN|CLOSED,

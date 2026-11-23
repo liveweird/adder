@@ -16,6 +16,9 @@ export const searchAllKey = ["search"] as const;
  */
 export const notificationsKey = ["notifications"] as const;
 
+/** The caller's personal Home summary, outside the room tree because it combines rooms, threads and quoted replies. */
+export const homeKey = ["home"] as const;
+
 export const roomKeys = {
   /** Everything about rooms: the blunt refresh after a refusal, and a live `resync`. */
   all: ["rooms"] as const,

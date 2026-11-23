@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Group, Paper, Stack, Table, Text, Title } from "@mantine/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconCheck, IconX } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "react-router-dom";
 import { decideRoomJoinRequest, listRoomJoinRequests, type RoomJoinRequest, type RoomJoinRequestPage } from "../api/rooms";
 import { browserTimeZone, formatDate } from "../utils/formatDate";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { roomKeys } from "../utils/roomKeys";
+import { homeKey, roomKeys } from "../utils/roomKeys";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import ErrorAlert from "./ErrorAlert";
@@ -14,6 +15,7 @@ import FormErrorAlert from "./FormErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import PaginationBar from "./PaginationBar";
 import PersonLink from "./PersonLink";
+import classes from "./RoomJoinRequests.module.css";
 
 const PAGE_SIZE = 20;
 
@@ -22,6 +24,13 @@ export default function RoomJoinRequests({ roomId }: { roomId: number }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const { hash } = useLocation();
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    if (hash !== "#room-join-requests-title") return;
+    titleRef.current?.focus({ preventScroll: true });
+    titleRef.current?.scrollIntoView?.({ block: "start" });
+  }, [hash]);
   const query = useQuery({
     queryKey: [...roomKeys.joinRequests(roomId), page],
     queryFn: () => listRoomJoinRequests(roomId, { page, pageSize: PAGE_SIZE, sort: "requestedAt" }),
@@ -31,7 +40,7 @@ export default function RoomJoinRequests({ roomId }: { roomId: number }) {
       decideRoomJoinRequest(roomId, request.id, value),
     onSuccess: async (_none, { value }) => {
       showSuccessToast(t(value === "APPROVE" ? "rooms.members.requests.approved" : "rooms.members.requests.rejected"));
-      await refreshQueriesAfterMutation(queryClient, roomKeys.joinRequests(roomId), roomKeys.members(roomId), roomKeys.detail(roomId), roomKeys.list);
+      await refreshQueriesAfterMutation(queryClient, roomKeys.joinRequests(roomId), roomKeys.members(roomId), roomKeys.detail(roomId), roomKeys.list, homeKey);
       const refreshed = queryClient.getQueryData<RoomJoinRequestPage>([...roomKeys.joinRequests(roomId), page]);
       if (refreshed) setPage(Math.min(page, Math.max(1, Math.ceil(refreshed.total / PAGE_SIZE))));
     },
@@ -41,7 +50,7 @@ export default function RoomJoinRequests({ roomId }: { roomId: number }) {
     <Paper component="section" withBorder p="lg" aria-labelledby="room-join-requests-title">
       <Stack gap="md">
         <Stack gap={2}>
-          <Title id="room-join-requests-title" order={4} size="h5">
+          <Title ref={titleRef} id="room-join-requests-title" order={4} size="h5" tabIndex={-1} className={classes.heading}>
             {t("rooms.members.requests.title")}
           </Title>
           <Text size="sm" c="dimmed">

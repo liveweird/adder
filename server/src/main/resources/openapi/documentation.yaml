@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.6.0
+  version: 1.7.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -46,6 +46,8 @@ tags:
     description: The ADMIN-curated tag registry (categories of tags, one global vocabulary for every room) - readable by any authenticated user, written by ADMIN only, the whole-category writes under `X-Expected-Revision`.
   - name: rooms
     description: Rooms with public, restricted visible, or restricted hidden access, each with its own workflow and membership roster.
+  - name: home
+    description: The signed-in caller's recent quotes, owned and watched threads, and owned rooms.
   - name: threads
     description: The room's threads - a per-room number, a title, a workflow status, an owner and typed field values - and their append-only history. Members-only like the room; a non-member gets the uniform `404`.
   - name: messages
@@ -2555,6 +2557,28 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/home:
+    get:
+      tags: [home]
+      operationId: getHome
+      summary: Get the caller's personal Home dashboard
+      description: |
+        Returns up to five items per section. All sections are scoped to rooms the signed-in caller currently belongs to, including
+        for administrators. Recent quotes are replies from other people to the caller's messages, newest first. The quote list is
+        independent of notification preferences and includes read items. Owned threads are open threads in active rooms, newest
+        activity first. Watched threads put unread threads first, then sort by latest activity. Owned rooms with pending join requests
+        appear first. Within each group, active rooms precede archived ones and the most recently active rooms come first.
+        The per-user chat-read bucket and bounded thread-list read limiter apply.
+      responses:
+        '200':
+          description: The caller's dashboard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/search:
     get:
       tags: [threads]
@@ -3979,6 +4003,75 @@ components:
           format: int64
           minimum: 0
 
+    HomeResponse:
+      type: object
+      required: [quotes, ownedThreads, watchedThreads, ownedRooms]
+      properties:
+        quotes:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/HomeQuote' }
+        ownedThreads:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/HomeThread' }
+        watchedThreads:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/HomeThread' }
+        ownedRooms:
+          type: array
+          maxItems: 5
+          items: { $ref: '#/components/schemas/HomeRoom' }
+    HomeQuote:
+      type: object
+      required: [roomId, roomName, roomArchived, threadNumber, threadTitle, messageId, authorName, body, truncated, mentions, groupMentions, createdAt, unread]
+      properties:
+        roomId: { type: integer, format: int32, minimum: 1 }
+        roomName: { type: string }
+        roomArchived: { type: boolean }
+        threadNumber: { type: integer, format: int32, minimum: 1 }
+        threadTitle: { type: string }
+        messageId: { type: integer, format: int32, minimum: 1 }
+        authorName: { type: string }
+        body: { type: string, maxLength: 1000, description: Clipped Markdown for the client to turn into a plain-text excerpt. }
+        truncated: { type: boolean }
+        mentions:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/MentionedUser' }
+        groupMentions:
+          type: array
+          maxItems: 7
+          items: { $ref: '#/components/schemas/GroupMention' }
+        createdAt: { type: integer, format: int64, description: Epoch millis }
+        unread: { type: boolean }
+    HomeThread:
+      type: object
+      required: [roomId, roomName, roomArchived, number, title, status, statusLabel, statusColour, closed, unreadCount, lastActivityAt]
+      properties:
+        roomId: { type: integer, format: int32, minimum: 1 }
+        roomName: { type: string }
+        roomArchived: { type: boolean }
+        number: { type: integer, format: int32, minimum: 1 }
+        title: { type: string }
+        status: { type: string, description: The status key. }
+        statusLabel: { type: string }
+        statusColour: { $ref: '#/components/schemas/StatusColour' }
+        closed: { type: boolean }
+        unreadCount: { type: integer, minimum: 0, maximum: 100 }
+        lastActivityAt: { type: integer, format: int64, description: Epoch millis }
+    HomeRoom:
+      type: object
+      required: [id, name, accessType, archived, unread, pendingJoinRequests, lastActivityAt]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        name: { type: string }
+        accessType: { $ref: '#/components/schemas/RoomAccessType' }
+        archived: { type: boolean }
+        unread: { type: boolean }
+        pendingJoinRequests: { type: integer, format: int64, minimum: 0 }
+        lastActivityAt: { type: integer, format: int64, description: Epoch millis }
     RoomAccessType:
       type: string
       enum: [PUBLIC, RESTRICTED_VISIBLE, RESTRICTED_HIDDEN]

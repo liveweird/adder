@@ -34,7 +34,7 @@ test("admin creates a user who signs in, changes their password, and is finally 
   await loginViaForm(page, throwaway.email, throwaway.password);
   await expect(page.getByRole("link", { name: "Users" })).toHaveCount(0);
   await page.goto("/users");
-  await expect(page.getByRole("heading", { name: "Adder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
   const newPassword = `${uniqueText("self-pw")}`;
   await page.goto("/change-password");
   await page.getByLabel(/^Current password/).fill(throwaway.password);
@@ -113,7 +113,7 @@ test("an admin's demotion and deletion reach a signed-in user on their next requ
     await userPage.goto("/");
     await expect(userPage.getByRole("link", { name: "Users" })).toHaveCount(0);
     await userPage.goto("/users");
-    await expect(userPage.getByRole("heading", { name: "Adder" })).toBeVisible();
+    await expect(userPage.getByRole("heading", { name: "Home" })).toBeVisible();
     await expect(userPage.getByRole("button", { name: "Account menu" })).toBeVisible();
 
     // Deleted: the refresh is rejected too, so their next navigation lands on the sign-in page with the notice.

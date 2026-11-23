@@ -45,4 +45,12 @@ describe("RoomJoinRequests", () => {
     await waitFor(() => expect(screen.getByText("Person 1")).toBeInTheDocument());
     expect(screen.queryByText("No pending requests.")).not.toBeInTheDocument();
   });
+
+  test("focuses the request queue when an async room route carries its anchor", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, { items: [], total: 0, page: 1, pageSize: 20 }));
+    renderWithProviders(<RoomJoinRequests roomId={12} />, { route: "/rooms/12/members#room-join-requests-title" });
+
+    const heading = await screen.findByRole("heading", { name: "Join requests" });
+    await waitFor(() => expect(heading).toHaveFocus());
+  });
 });

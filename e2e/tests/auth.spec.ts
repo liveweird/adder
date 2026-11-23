@@ -3,7 +3,7 @@ import { accountMenu, ADMIN, expect, login, signOut, test } from "./helpers";
 
 test("signing out from a protected route starts the next login at home", async ({ page }) => {
   await login(page);
-  await expect(page.getByRole("heading", { name: "Adder" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
 
   await page.goto("/teams");
   await expect(page.getByRole("heading", { name: "Teams", exact: true })).toBeVisible();
@@ -41,7 +41,7 @@ test("signing out from a protected route starts the next login at home", async (
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole("heading", { name: "Adder" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
   } finally {
     releaseLogout();
     if (logoutIntercepted) await logoutSettled;

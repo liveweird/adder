@@ -38,7 +38,7 @@ test("login screen has no WCAG A/AA violations", async ({ page }) => {
 
 // One test per page keeps the report line-per-page.
 const AUTHED_PAGES: { path: string; heading: string }[] = [
-  { path: "/", heading: "Adder" },
+  { path: "/", heading: "Home" },
   { path: "/search", heading: "Search" },
   { path: "/rooms", heading: "Rooms" },
   { path: "/rooms/new", heading: "New room" },
@@ -92,7 +92,7 @@ function registerMobileShellScan(scheme: Scheme): void {
   const suffix = scheme === "dark" ? " in the dark scheme" : "";
   test(`the app shell at a mobile width has no WCAG A/AA violations${suffix}`, async ({ page }) => {
     await signIn(page, "/");
-    await expect(page.getByRole("heading", { name: "Adder" }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Home" }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Toggle navigation" })).toBeVisible();
     await expectScheme(page, scheme);
     await scan(page);
