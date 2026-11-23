@@ -82,6 +82,10 @@ test("Home shows personal quotes, owned threads, watched threads, and room reque
   const rooms = page.getByRole("region", { name: "Rooms you own" });
   const quote = quotes.getByRole("link", { name: /I checked the rollout timestamps/ });
   await expect(quote).toBeVisible();
+  const unreadLabel = quote.getByText("New", { exact: true });
+  await expect(unreadLabel).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
+  expect(await unreadLabel.evaluate((label) => label.scrollWidth - label.clientWidth)).toBe(0);
   await expect(ownedThreads.getByRole("link", { name: /Check the incident timeline/ })).toBeVisible();
   await expect(watchedThreads.getByRole("link", { name: /Watch the support handoff/ })).toBeVisible();
   await expect(rooms.getByText(ownedRoom)).toBeVisible();

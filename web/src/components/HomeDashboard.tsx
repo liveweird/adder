@@ -64,7 +64,7 @@ function Quotes({ items, zone }: { items: HomeQuote[]; zone: string }) {
           <RouterLink to={threadMessagePath(quote.roomId, quote.threadNumber, quote.messageId)} className={classes.row}>
             <div className={classes.rowBody}>
               <Group gap="xs" wrap="nowrap" className={classes.contextLine}>
-                {quote.unread && <UnreadCue size="xs">{t("home.new")}</UnreadCue>}
+                {quote.unread && <UnreadCue size="xs" className={classes.quoteUnread}>{t("home.new")}</UnreadCue>}
                 <Text component="span" size="xs" c="dimmed" lineClamp={1}>
                   {t("home.quotes.context", { author: quote.authorName, room: quote.roomName })}
                 </Text>

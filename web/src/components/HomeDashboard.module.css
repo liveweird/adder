@@ -26,6 +26,10 @@
   min-inline-size: 0;
 }
 
+.quoteUnread {
+  flex: none;
+}
+
 .sectionAction {
   display: inline-flex;
   flex: 0 0 auto;

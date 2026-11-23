@@ -9,7 +9,7 @@
 1. An owner starts a thread in a room they own. A colleague replies by quoting one of the owner's replies. Another person requests to join that room.
 2. The owner joins the colleague's room and watches a thread there.
 3. The owner opens Home at phone width.
-   - *Expected*: The quote, owned thread, watched thread, and owned room appear in their respective sections. The joined room is absent from the owned-room list. An axe scan finds no WCAG A/AA violations.
+   - *Expected*: The quote, owned thread, watched thread, and owned room appear in their respective sections. The quote's New badge is fully readable, and the joined room is absent from the owned-room list. An axe scan finds no WCAG A/AA violations.
 4. The owner opens the quote and returns Home.
    - *Expected*: The link opens the reply that quotes the owner in its thread. The reply still appears on Home after it is read.
 5. The owner opens the join requests from the owned room.
