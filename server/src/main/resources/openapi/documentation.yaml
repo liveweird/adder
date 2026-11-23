@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.7.0
+  version: 1.8.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -1125,7 +1125,9 @@ paths:
       description: |
         Lists public rooms, restricted visible rooms, and restricted hidden rooms the caller belongs to. Deleted rooms never appear.
 
-        - Sortable fields: `id`, `name`, `lastActivityAt`, `createdAt`. Default `id` ascending.
+        - Sortable fields: `id`, `name`, `lastActivityAt`, `createdAt`, `personalOrder`. Default `id` ascending.
+        - `personalOrder` requires `member=true` and no `memberId`. It orders joined rooms by the caller's saved groups and room order before
+          pagination. Rooms without a saved position follow them, in descending activity order and then ascending ID.
         - Filters: `name` (case- and accent-insensitive substring, at most 80 characters - `400` beyond); `archived` (strict `true` or
           `false`; omitted = both); `member` (strict `true` or `false`: `true` = only rooms the caller is a member of - the rooms rail
           always sends it; `false` = discoverable rooms the caller has not joined; omitted = both). A repeated key is a `400`.
@@ -1198,6 +1200,56 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/room-organization:
+    get:
+      tags: [rooms]
+      operationId: getRoomOrganization
+      summary: Get your room organization
+      description: |
+        A private document for the signed-in caller. A caller with no saved organization gets revision 1 and empty arrays.
+        Room placements for memberships the caller no longer holds or rooms that were deleted are omitted.
+      responses:
+        '200':
+          description: The caller's room groups and room order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomOrganization'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+    put:
+      tags: [rooms]
+      operationId: replaceRoomOrganization
+      summary: Save your room organization
+      description: |
+        Replaces the signed-in caller's private document. Only current room members can place a room in their own layout.
+        Group IDs and room IDs must be unique in the document. A group reference must point to one of its groups or be `null`
+        for an ungrouped room. Group names are trimmed single-line text and unique within the document, ignoring case.
+        A missing, deleted, or non-member room reference is
+        a uniform `400`. Missing or invalid `X-Expected-Revision` is `400`; a stale revision is `409` of type
+        `urn:adder:problem:revision-conflict`. Uses the per-user `chat-write` bucket of 240 requests per minute.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedRevision'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoomOrganizationUpdate'
+      responses:
+        '200':
+          description: The saved organization and its current revision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomOrganization'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}:
@@ -4138,6 +4190,49 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
         description: { type: string, maxLength: 500, nullable: true }
+    RoomOrganizationGroup:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 60 }
+    RoomOrganizationPlacement:
+      type: object
+      required: [roomId, groupId]
+      properties:
+        roomId: { type: integer, format: int32, minimum: 1 }
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+          description: The personal group containing the room, or `null` for Ungrouped.
+    RoomOrganizationUpdate:
+      type: object
+      required: [groups, rooms]
+      properties:
+        groups:
+          type: array
+          maxItems: 50
+          description: Personal groups in display order.
+          items: { $ref: '#/components/schemas/RoomOrganizationGroup' }
+        rooms:
+          type: array
+          maxItems: 2000
+          description: Explicit room placements in display order within each group, including Ungrouped.
+          items: { $ref: '#/components/schemas/RoomOrganizationPlacement' }
+    RoomOrganization:
+      type: object
+      required: [revision, groups, rooms]
+      properties:
+        revision: { type: integer, format: int64, minimum: 1, description: The current revision used in `X-Expected-Revision`. }
+        groups:
+          type: array
+          maxItems: 50
+          items: { $ref: '#/components/schemas/RoomOrganizationGroup' }
+        rooms:
+          type: array
+          maxItems: 2000
+          items: { $ref: '#/components/schemas/RoomOrganizationPlacement' }
     RoomListItem:
       type: object
       required: [id, name, accessType, archived, role, memberCount, lastActivityAt, createdAt, unread]

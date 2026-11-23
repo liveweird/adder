@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
 import { ActionIcon, AppShell, Burger, Drawer, Group, Text, Tooltip, useMantineTheme } from "@mantine/core";
 import { useDisclosure, useMediaQuery } from "@mantine/hooks";
+import { useQuery } from "@tanstack/react-query";
 import { IconLayoutSidebarLeftCollapse, IconLayoutSidebarLeftExpand } from "@tabler/icons-react";
 import { Link as RouterLink, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { RedirectIfAuthed, RequireAdmin, RequireAuth, useAdmin } from "./auth";
+import { getRoomOrganization } from "./api/roomOrganization";
 import BrandLogo from "./components/BrandLogo";
 import CommandPalette from "./components/CommandPalette";
 import LiveStatus from "./components/LiveStatus";
@@ -17,7 +19,8 @@ import WorkspaceNav from "./components/WorkspaceNav";
 import ErrorBoundary, { RouteErrorBoundary } from "./components/ErrorBoundary";
 import { KnownNamesContext, useSessionKnownNames } from "./utils/knownNames";
 import { activeNavPath, homePath, visibleSections } from "./utils/navigation";
-import { roomPath } from "./utils/roomLinks";
+import { roomOrganizationKey } from "./utils/roomKeys";
+import { roomOrganizationPath, roomPath } from "./utils/roomLinks";
 import { unseenByRoom } from "./utils/unread";
 import { useCloseOnPageChange } from "./hooks/useCloseOnPageChange";
 import { usePrintLifecycle } from "./hooks/usePrintLifecycle";
@@ -37,6 +40,7 @@ const Home = lazy(() => import("./pages/Home"));
 const Search = lazy(() => import("./pages/Search"));
 const RoomSearch = lazy(() => import("./pages/RoomSearch"));
 const Rooms = lazy(() => import("./pages/Rooms"));
+const RoomOrganization = lazy(() => import("./pages/RoomOrganization"));
 const CreateRoom = lazy(() => import("./pages/CreateRoom"));
 const RoomHome = lazy(() => import("./pages/RoomHome"));
 const RoomMembers = lazy(() => import("./pages/RoomMembers"));
@@ -111,6 +115,7 @@ function Shell() {
   // The caller's rooms (the rail under "All rooms"): the toggle for the archived ones is device-level, like the other view settings.
   const [showArchived, setShowArchived] = useStoredState("rooms.rail.showArchived", false, isBoolean);
   const railRooms = useRailRooms(showArchived);
+  const { data: organization } = useQuery({ queryKey: roomOrganizationKey, queryFn: getRoomOrganization });
   // The unseen notices ADDRESSED to the caller (a mention of any kind, a hand-over; the bell's own query, shared): their count per room is
   // the `@` number in the rail. A reply or a new thread is in the bell and its badge, never here (0.6 D1).
   const addressed = useAddressedNotifications();
@@ -127,7 +132,7 @@ function Shell() {
   }));
   const activeTo = activeNavPath(pathname, [...sections.flatMap((section) => section.items), ...roomLeaves]);
 
-  const navigation = { sections, activeTo, railRooms, mentions, showArchived, onShowArchivedChange: setShowArchived };
+  const navigation = { sections, activeTo, railRooms, organization, mentions, showArchived, onShowArchivedChange: setShowArchived };
 
   return (
     <AppShell
@@ -256,6 +261,7 @@ export default function App() {
             <Route index element={<Home />} />
             <Route path="search" element={<Search />} />
             <Route path="rooms" element={<Rooms />} />
+            <Route path={roomOrganizationPath} element={<RoomOrganization />} />
             <Route path="rooms/new" element={<CreateRoom />} />
             <Route path="rooms/:id" element={<RoomHome />} />
             <Route path="rooms/:id/threads/new" element={<RoomHome isNew />} />

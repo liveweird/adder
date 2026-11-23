@@ -4,6 +4,7 @@ import { listSearch, writeFocus, writeThreadListParams } from "./threadListParam
 /** The ONE place the room route family is spelled out — never hand-assemble a room URL. */
 export const roomsPath = "/rooms";
 export const newRoomPath = `${roomsPath}/new`;
+export const roomOrganizationPath = `${roomsPath}/organize`;
 export const roomPath = (id: number) => `${roomsPath}/${id}`;
 export const roomMembersPath = (id: number) => `${roomPath(id)}/members`;
 export const roomWorkflowPath = (id: number) => `${roomPath(id)}/workflow`;

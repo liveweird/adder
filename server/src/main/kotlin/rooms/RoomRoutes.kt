@@ -8,6 +8,7 @@ import ch.nokillswit.authz.requireAdmin
 import ch.nokillswit.authz.requireRoomManager
 import ch.nokillswit.authz.requireRoomReader
 import ch.nokillswit.infra.catchingFailures
+import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoolean
 import ch.nokillswit.infra.paging.optionalBoundedString
@@ -22,6 +23,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
@@ -86,6 +88,7 @@ class RoomsRoute {
 
 fun Application.configureRoomRoutes() {
     val roomService = attributes[RoomServiceKey]
+    val organizationService = RoomOrganizationService(attributes[R2dbcDatabaseKey])
 
     routing {
         authenticate {
@@ -93,6 +96,7 @@ fun Application.configureRoomRoutes() {
             // for a missing room and for a non-member alike, `room.access_denied` audited for a room that exists); role (403); then the
             // header and the body (400); then the service re-runs the guard under the room lock before it writes.
             roomReads(roomService)
+            roomOrganizationRoutes(organizationService)
             roomCreate(roomService)
             roomWrites(roomService)
         }
@@ -110,6 +114,9 @@ private fun Route.roomReads(roomService: RoomService) {
             member = params.optionalBoolean("member"),
             memberId = params.optionalPositiveId("memberId"),
         )
+        if (paging.sort.any { it.name == PERSONAL_ORDER } && (filter.member != true || filter.memberId != null)) {
+            throw BadRequestException("personalOrder requires member=true and no memberId")
+        }
         val result = roomService.list(caller.userId, caller.isAdmin(), filter, paging)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }

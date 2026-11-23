@@ -105,6 +105,11 @@ excerpt renderer. Pending join requests link directly to Members. Home refreshes
 All rooms uses the directory's existing filters, pagination and server sort. Its table groups membership and archive state with the room name. On narrower main
 areas the rows become cards, and the same sort buttons stay visible above them. Both views use the reader's time zone.
 
+**Organize rooms** opens `/rooms/organize` from the directory, sidebar or command palette. The editor loads the account's revisioned
+organization and pages through joined rooms. Group order, room order and assignments stay in the draft until Save. The editor keeps a
+draft on a revision conflict and offers to reload the current layout. The sidebar uses `personalOrder` before its page cap and labels
+the groups from the shared organization query. The archived switch reveals archived rooms in their saved positions.
+
 ### The room view (the Threads tab)
 
 `pages/RoomHome.tsx` serves THREE routes (`/rooms/:id`, `/rooms/:id/threads/new` through the `isNew` prop, `/rooms/:id/threads/:number`; the static `new` outranks `:number`),

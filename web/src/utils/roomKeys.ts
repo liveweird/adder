@@ -19,6 +19,9 @@ export const notificationsKey = ["notifications"] as const;
 /** The caller's personal Home summary, outside the room tree because it combines rooms, threads and quoted replies. */
 export const homeKey = ["home"] as const;
 
+/** The caller's saved groups and room positions, shared by the organizer and the navigation. */
+export const roomOrganizationKey = ["room-organization"] as const;
+
 export const roomKeys = {
   /** Everything about rooms: the blunt refresh after a refusal, and a live `resync`. */
   all: ["rooms"] as const,

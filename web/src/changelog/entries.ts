@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.8.0",
+    date: "2026-11-24",
+    en: `**Adder 1.8.0 — personal room groups**
+
+- Open **Organize rooms** to create groups for the rooms you belong to. Name them and move rooms between them.
+- Reorder groups and rooms, then save to apply the order in your sidebar. The layout is private and follows your account across devices.`,
+    pl: `**Adder 1.8.0 — osobiste grupy pokojów**
+
+- Otwórz **Uporządkuj pokoje**, aby utworzyć grupy pokojów, do których należysz. Nadaj grupom nazwy i przenoś pokoje między nimi.
+- Zmień kolejność grup i pokojów, a następnie zapisz układ, aby pojawił się na pasku bocznym. Układ jest prywatny i dostępny po zalogowaniu na innych urządzeniach.`,
+  },
+  {
     version: "1.7.0",
     date: "2026-11-23",
     en: `**Adder 1.7.0 — personal Home**

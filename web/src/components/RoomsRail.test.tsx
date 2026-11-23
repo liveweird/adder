@@ -101,6 +101,27 @@ describe("RoomsRail unread marks", () => {
     expect(container.querySelectorAll("[data-unread-cue=dot]")).toHaveLength(1);
   });
 
+  test("uses saved group and room order across active and archived rooms", () => {
+    const items = [room({ id: 1, name: "Operations" }), room({ id: 2, name: "Accounts" }), room({ id: 3, name: "Lobby" })];
+    const archived = railOf([room({ id: 4, name: "Old rollout", archived: true })]).active;
+    const organization = {
+      revision: 2,
+      groups: [{ id: "work", name: "Work" }, { id: "projects", name: "Projects" }, { id: "empty", name: "Empty group" }],
+      rooms: [{ roomId: 2, groupId: "projects" }, { roomId: 4, groupId: "work" }, { roomId: 1, groupId: "work" }],
+    };
+    renderWithProviders(
+      <RoomsRail rooms={{ ...railOf(items), archived }} organization={organization} showArchived onShowArchivedChange={vi.fn()}
+        collapsed={false} activeTo={null} />,
+    );
+
+    const work = within(screen.getByRole("group", { name: "Work" }));
+    expect(work.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/rooms/4", "/rooms/1"]);
+    expect(work.getByRole("link", { name: "Old rollout" })).toHaveAccessibleDescription("Archived");
+    expect(within(screen.getByRole("group", { name: "Projects" })).getByRole("link", { name: "Accounts" })).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Ungrouped" })).getByRole("link", { name: "Lobby" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Empty group" })).not.toBeInTheDocument();
+  });
+
   test.each([
     { collapsed: false, layout: "expanded" },
     { collapsed: true, layout: "collapsed" },

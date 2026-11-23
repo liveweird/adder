@@ -57,6 +57,7 @@ class MigrationChecksumTest {
         "V34__index_notifications_unseen_by_room.sql" to 48846012,
         "V35__add_message_quotes.sql" to 2028848017,
         "V36__add_room_access.sql" to 508947737,
+        "V37__create_user_room_organizations.sql" to -848673763,
     )
 
     @Test

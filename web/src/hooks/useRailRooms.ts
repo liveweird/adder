@@ -8,7 +8,7 @@ export const RAIL_PAGE_SIZE = 100;
 /** The rail's query options: `useRoomSeen` reads the same cache entry without fetching it (`enabled: false`). */
 export const railQuery = (archived: boolean) => ({
   queryKey: [...roomKeys.rail, archived ? "archived" : "active"],
-  queryFn: () => listRooms({ page: 1, pageSize: RAIL_PAGE_SIZE, sort: "-lastActivityAt", archived, member: true }),
+  queryFn: () => listRooms({ page: 1, pageSize: RAIL_PAGE_SIZE, sort: "personalOrder", archived, member: true }),
 });
 
 /**

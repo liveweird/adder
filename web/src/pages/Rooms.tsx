@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Link as RouterLink } from "react-router-dom";
 import { Anchor, Avatar, Badge, Box, Button, Group, SegmentedControl, Stack, Switch, Table, Text } from "@mantine/core";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { IconDoor, IconPlus } from "@tabler/icons-react";
+import { IconDoor, IconFolder, IconPlus } from "@tabler/icons-react";
 import { listRooms } from "../api/rooms";
 import ClearableTextInput from "../components/ClearableTextInput";
 import FilterPanel from "../components/FilterPanel";
@@ -15,7 +15,7 @@ import { isBoolean, isOneOf, useStoredState } from "../hooks/useStoredState";
 import { browserTimeZone, formatDate } from "../utils/formatDate";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { MAX_ROOM_NAME_LENGTH } from "../utils/roomForm";
-import { newRoomPath, roomPath } from "../utils/roomLinks";
+import { newRoomPath, roomOrganizationPath, roomPath } from "../utils/roomLinks";
 import { roomKeys } from "../utils/roomKeys";
 import { initialsOf } from "../utils/text";
 import classes from "./Rooms.module.css";
@@ -64,9 +64,14 @@ export default function Rooms() {
       <PageHeader
         title={t("rooms.title")}
         actions={
-          <Button component={RouterLink} to={newRoomPath} leftSection={<IconPlus size={16} />} className={classes.newRoom}>
-            {t("rooms.newRoom")}
-          </Button>
+          <>
+            <Button component={RouterLink} to={roomOrganizationPath} variant="default" leftSection={<IconFolder size={16} aria-hidden="true" />}>
+              {t("rooms.organization.title")}
+            </Button>
+            <Button component={RouterLink} to={newRoomPath} leftSection={<IconPlus size={16} />} className={classes.newRoom}>
+              {t("rooms.newRoom")}
+            </Button>
+          </>
         }
         toolbar={
           <Group gap="lg" className={classes.scopeBar}>

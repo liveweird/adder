@@ -5,7 +5,12 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.7.0 — personal Home)
+## What's here today (1.8.0 — personal room groups)
+
+Use **Organize rooms** in the sidebar or Rooms page to create private groups for rooms you have joined. Move rooms between groups, reorder
+groups and rooms, and save to update your sidebar. Your setup follows your account across devices.
+
+### Personal Home (1.7.0)
 
 Home shows the latest replies quoting your messages, open threads you own, watched threads with unread replies first, and rooms you own. Each section shows up to five items. Quote links open the reply in context, and pending join requests link to the room's Members tab.
 
@@ -82,7 +87,7 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
 
 - **Rooms** (`/api/v1/rooms`) — created from a **workflow template** whose statuses and typed fields the room copies. A room can be archived (read-only) and unarchived. Owners can add people or a whole team as a snapshot of its current roster.
 - **Workflow templates** — an ADMIN-curated registry (Default and Incident are seeded, English and Polish). A room's workflow is edited in place by its owners, as a whole document under `X-Expected-Revision`.
-- The sidebar **rooms rail** (most recently active first, archived behind a switch) and **team members** (a roster managed by an ADMIN or the team's manager).
+- The sidebar **rooms rail** (personal groups and order, recent activity for unplaced rooms, archived behind a switch) and **team members** (a roster managed by an ADMIN or the team's manager).
 
 The 0.1.0 foundation:
 

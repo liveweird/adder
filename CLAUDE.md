@@ -11,7 +11,7 @@ at first, passable like a Jira assignee); a thread in a CLOSED-category status i
 or an ADMIN reopens it. Room content is filterable, sortable and searchable; the usual chat affordances apply (pins, @mentions, reactions, emoji,
 #hashtags). Updates reach open browsers live over a WebSocket.
 
-**Roadmap:** **1.7.0 (current: personal Home)** on **1.6.0 (room access)** on **1.5.0 (clearer room tabs)** on **1.4.1 (thread status actions and refreshed Strike logo)** on **1.4.0 (clearer workspace)** on **1.3.0 (quotes)** on **1.2.0 (room view, tags, unread)** on **1.1.0 (watching, group mentions, notice kinds)** on **1.0.0 (the checkup)** on 0.1.0 to 0.6.0. The version chain, scope, decisions and assumptions: `.claude/docs/product.md`.
+**Roadmap:** **1.8.0 (current: personal room groups)** on **1.7.0 (personal Home)** on **1.6.0 (room access)** on **1.5.0 (clearer room tabs)** on **1.4.1 (thread status actions and refreshed Strike logo)** on **1.4.0 (clearer workspace)** on **1.3.0 (quotes)** on **1.2.0 (room view, tags, unread)** on **1.1.0 (watching, group mentions, notice kinds)** on **1.0.0 (the checkup)** on 0.1.0 to 0.6.0. The version chain, scope, decisions and assumptions: `.claude/docs/product.md`.
 The domain sketch: `.claude/docs/chat-model.md`; the live protocol: `.claude/docs/live.md`. Open items: `BACKLOG.md`.
 
 Brand: olive / venom chartreuse (the `adder` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`). The logo "Strike" shows
@@ -156,7 +156,7 @@ disagree, the doc wins. The always-loaded set (this file plus the two imports) s
 | Doc | Read before you touch |
 |---|---|
 | `.claude/docs/conventions.md` | adding a feature, route, service, migration or page: the `teams/` feature template (DTO + validator, routes, service, migration + checksum pin, spec paths, `gen:api`, lazy page + nav entry, e2e spec + scenario) |
-| `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql`, V1–V36 today — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `ops` schema |
+| `.claude/docs/persistence.md` | any migration (`db/migration/V*.sql`, V1–V37 today — applied bytes are immutable, `MigrationChecksumTest`), an Exposed table/`*Service.kt`, soft delete, a cross-feature table read/write (the list there IS the permission), the connection pool, the `ops` schema |
 | `.claude/docs/security.md` | auth/JWT/MFA/password reset, rate limits, headers/CSP, secrets/encryption at rest, production fail-closed startup checks, payload validation |
 | `.claude/docs/authorization.md` | any route: its guard (ADMIN vs any authenticated), 403-before-400/404 ordering, existence disclosure, the error/`ProblemDetail` mapping |
 | `.claude/docs/observability.md` | any mutation or denial path (it needs an `audit(...)` event, listed there), logging, OpenTelemetry, health probes, the telemetry panel's server side |

@@ -1,6 +1,7 @@
 import { Box, Divider, NavLink, ScrollArea, Text, Tooltip } from "@mantine/core";
 import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import type { RoomOrganization } from "../api/roomOrganization";
 import type { useRailRooms } from "../hooks/useRailRooms";
 import { ROOMS_SECTION, type NavSection } from "../utils/navigation";
 import classes from "../theme.module.css";
@@ -12,6 +13,7 @@ export default function WorkspaceNav({
   rail = false,
   activeTo,
   railRooms,
+  organization,
   mentions,
   showArchived,
   onShowArchivedChange,
@@ -21,6 +23,7 @@ export default function WorkspaceNav({
   rail?: boolean;
   activeTo: string | null;
   railRooms: ReturnType<typeof useRailRooms>;
+  organization?: RoomOrganization;
   mentions: ReadonlyMap<number, number>;
   showArchived: boolean;
   onShowArchivedChange: (next: boolean) => void;
@@ -61,6 +64,7 @@ export default function WorkspaceNav({
             {section.label === ROOMS_SECTION && (
               <RoomsRail
                 rooms={railRooms}
+                organization={organization}
                 showArchived={showArchived}
                 onShowArchivedChange={onShowArchivedChange}
                 collapsed={rail}

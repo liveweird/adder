@@ -5,7 +5,7 @@ import { createLiveInvalidator, keysForFrame } from "./liveKeys";
 import { LIVE_EVENT_KINDS, type LiveServerFrame } from "./liveProtocol";
 import { notificationKeys } from "./notificationKeys";
 import { markThreadReadInCaches } from "./readCache";
-import { homeKey, notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
+import { homeKey, notificationsKey, roomKeys, roomOrganizationKey, searchAllKey } from "./roomKeys";
 
 const event = (kind: string, roomId: number, threadNumber?: number, messageId?: number): LiveServerFrame => ({
   type: "event",
@@ -115,12 +115,12 @@ describe("keysForFrame: the key map", () => {
   });
 
   test("room.deleted and an unknown kind with a room re-read everything the room's pages read; room.deleted also names the room's search results", () => {
-    expect(keysForFrame(event("room.deleted", 5))).toEqual([...gone(5), ["search", "room", 5], ["notifications"]]);
+    expect(keysForFrame(event("room.deleted", 5))).toEqual([...gone(5), ["search", "room", 5], ["notifications"], ["room-organization"]]);
     expect(keysForFrame(event("room.from_the_future", 5, 7))).toEqual(gone(5));
   });
 
   test("revoked re-reads the same, the room's own search results, and an open search across rooms (a lost room's hits must leave it)", () => {
-    expect(keysForFrame({ type: "revoked", roomId: 5 })).toEqual([...gone(5), ["search", "room", 5], ["search"], ["notifications"]]);
+    expect(keysForFrame({ type: "revoked", roomId: 5 })).toEqual([...gone(5), ["search", "room", 5], ["search"], ["notifications"], ["room-organization"]]);
   });
 
   test("of every frame, only revoked and room.deleted name a room's search results: results are not live", () => {
@@ -170,7 +170,7 @@ describe("keysForFrame: the key map", () => {
 
   test("ready re-reads the rail, the rooms list and the notices, resync all of ['rooms'] and the notices, pong nothing", () => {
     expect(keysForFrame({ type: "ready", protocol: 1, maxSubscriptions: 128 })).toEqual([RAIL, LIST, ["notifications"], HOME]);
-    expect(keysForFrame({ type: "resync" })).toEqual([["rooms"], ["notifications"], HOME]);
+    expect(keysForFrame({ type: "resync" })).toEqual([["rooms"], ["notifications"], HOME, ["room-organization"]]);
     expect(keysForFrame({ type: "pong" })).toEqual([]);
   });
 
@@ -215,6 +215,7 @@ describe("the keys and the readers cannot drift apart", () => {
     [...searchAllKey, "term", "all", 1],
     [...notificationsKey, "unseen"], // the bell reads under this prefix
     homeKey,
+    roomOrganizationKey,
   ];
 
   test("the room's tag options sit under the thread-list prefix, so every hint that refreshes the list refreshes them", () => {
@@ -456,9 +457,9 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(0);
     t.invalidator.handle(event("room.created", 5));
     t.clock.advanceBy(2999);
-    expect(t.flushed()).toEqual([["rooms"], ["notifications"], HOME]);
+    expect(t.flushed()).toEqual([["rooms"], ["notifications"], HOME, ["room-organization"]]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toEqual([["rooms"], ["notifications"], HOME, RAIL, LIST, HOME]);
+    expect(t.flushed()).toEqual([["rooms"], ["notifications"], HOME, ["room-organization"], RAIL, LIST, HOME]);
   });
 
   test("a focused key is never spaced by the 3 s gap (only the aggregates are)", () => {
@@ -561,7 +562,7 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(999);
     expect(t.flushed()).toEqual([]);
     t.clock.advanceBy(1);
-    expect(t.flushed()).toEqual([["rooms"], ["notifications"], HOME]);
+    expect(t.flushed()).toEqual([["rooms"], ["notifications"], HOME, ["room-organization"]]);
   });
 
   test("a key being fetched is NOT cancelled or re-read: it is tried again until it is idle", () => {

@@ -4,7 +4,7 @@
 
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { LiveClock } from "./liveClient";
-import { homeKey, notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
+import { homeKey, notificationsKey, roomKeys, roomOrganizationKey, searchAllKey } from "./roomKeys";
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
 import { lookingAt } from "./lookingAt";
 
@@ -56,7 +56,7 @@ function eventKeys(kind: LiveEventKind, r: number, n: number | undefined): Query
       return [detail(r), RAIL, ROOM_LIST, homeKey];
     case "room.deleted":
       // The one hint besides `revoked` that names the room's search results: the room is gone, so are its hits (and the notices of the room).
-      return [...roomGone(r), roomKeys.search(r), notificationsKey];
+      return [...roomGone(r), roomKeys.search(r), notificationsKey, roomOrganizationKey];
     case "room.pin_changed":
       return [pins(r)];
     case "room.workflow_updated":
@@ -83,7 +83,7 @@ export function keysForFrame(frame: LiveServerFrame): QueryKey[] {
     case "revoked":
       // A lost room's hits leave an open search, the room's own and the one across rooms; search results are otherwise not live.
       // The notices of a lost room leave the badge and the drawer too (the server stops listing them).
-      return [...roomGone(frame.roomId), roomKeys.search(frame.roomId), searchAllKey, notificationsKey];
+      return [...roomGone(frame.roomId), roomKeys.search(frame.roomId), searchAllKey, notificationsKey, roomOrganizationKey];
     case "subscribed":
       // The subscription is live only from this ack: whatever changed between the page's own read and now is caught by one re-read.
       return frame.roomIds.length === 0
@@ -93,7 +93,7 @@ export function keysForFrame(frame: LiveServerFrame): QueryKey[] {
       // A notice may have been minted while the socket was down: the badge and the drawer are re-read with the lists.
       return [RAIL, ROOM_LIST, notificationsKey, homeKey];
     case "resync":
-      return [roomKeys.all, notificationsKey, homeKey];
+      return [roomKeys.all, notificationsKey, homeKey, roomOrganizationKey];
     case "pong":
       return [];
   }
