@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Paper, SegmentedControl, Stack, Switch, Text, TextInput } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
+import type { RoomWorkflow } from "../api/rooms";
 import { useTagCategories } from "../hooks/useTagCategories";
 import { detectStructuredSearch, queryProblem, type QueryProblem } from "../utils/searchParams";
 import { insertSearchToken } from "../utils/searchQueryEditor";
@@ -31,6 +32,8 @@ export default function SearchForm({
   onScope,
   onWatching,
   onThreadTag,
+  assistantRoomId,
+  assistantStatuses,
 }: {
   label: string;
   q: string;
@@ -42,6 +45,8 @@ export default function SearchForm({
   onScope: (scope: Scope) => void;
   onWatching: (watching: boolean) => void;
   onThreadTag: (threadTag: string[]) => void;
+  assistantRoomId?: number;
+  assistantStatuses?: RoomWorkflow["statuses"];
 }) {
   const { t } = useTranslation();
   // The registry is one cached read shared with the thread list's filter and the tag editor; a tag in the URL it no longer lists (retired, or not
@@ -136,6 +141,8 @@ export default function SearchForm({
           structured={structuredDraft}
           onModeChange={setModeOverride}
           onInsert={insert}
+          roomId={assistantRoomId}
+          statuses={assistantStatuses}
         />
         <fieldset className={classes.filters}>
           <legend className={classes.legend}>{t("search.filters.label")}</legend>

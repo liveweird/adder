@@ -35,10 +35,10 @@ describe("queryProblem: the server's rules, so a bad term never travels", () => 
   });
 
   test("drafts with operators opt in to structured search", () => {
-    for (const query of ['"server down"', "outage -test", "out*", "in:ops", "frmo:alex", "has:reaction:👍"]) {
+    for (const query of ['"server down"', "outage -test", "out*", "in:ops", "frmo:alex", "has:reaction:👍", "status:investigating", "hashtag:incident"]) {
       expect(detectStructuredSearch(query), query).toBe(true);
     }
-    for (const query of ["outage", "alert-triage", "https://example.test", "a * b", "mailto:help@example.test", "time:10", "status:open"]) {
+    for (const query of ["outage", "alert-triage", "https://example.test", "a * b", "mailto:help@example.test", "time:10"]) {
       expect(detectStructuredSearch(query), query).toBe(false);
     }
   });

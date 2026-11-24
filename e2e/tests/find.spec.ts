@@ -664,3 +664,37 @@ test("find in thread pages through messages and opens an old reply in context", 
   await expect(page).not.toHaveURL(/message=/);
   await expect(page).toHaveURL(/[?&]focus=1(&|$)/);
 });
+
+test("status and hashtag clauses refine global, room and thread search", async ({ page }) => {
+  const [owner] = await people(page, "E2E Search Filters Owner");
+  const api = await actingAs(owner);
+  const roomId = await createRoom(api, uniqueText("e2e-find-filters"), "Incident");
+  const tag = rareWord("replica");
+  const word = rareWord("handoff");
+  const title = uniqueText("Replica recovery");
+  const hit = await startThread(api, roomId, title, `${word} #${tag}`);
+  await moveThread(api, roomId, hit, "investigating");
+  await postMessage(api, roomId, hit, `${word} without the hashtag`);
+  await startThread(api, roomId, uniqueText("Other status"), `${word} #${tag}`);
+  const split = await startThread(api, roomId, uniqueText("Split across messages"), `Tagged #${tag}`);
+  await moveThread(api, roomId, split, "investigating");
+  await postMessage(api, roomId, split, `${word} in a separate reply`);
+  const query = `status:investigating hashtag:${tag} ${word}`;
+
+  for (const [path, label] of [["/search", "Search all your rooms"], [`/rooms/${roomId}/search`, "Keywords"]] as const) {
+    await page.goto(path);
+    const filter = page.getByRole("searchbox", { name: label });
+    await filter.fill(query);
+    await filter.press("Enter");
+    await expect(page.getByText("1 thread found")).toBeVisible();
+    await expect(page.getByRole("link", { name: `#${hit} ${title}` })).toHaveAttribute("href", `/rooms/${roomId}/threads/${hit}`);
+  }
+
+  await page.goto(`/rooms/${roomId}/threads/${hit}`);
+  await page.getByRole("button", { name: "Find in thread" }).click();
+  const input = page.getByRole("searchbox", { name: "Search messages" });
+  await input.fill(query);
+  await input.press("Enter");
+  await expect(page.getByText("1 message found")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Messages found" }).getByRole("link")).toHaveCount(1);
+});

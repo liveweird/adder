@@ -4225,12 +4225,18 @@ export interface components {
          *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
          *       The person filters also accept exact email addresses. `from` selects a matching message's author,
          *       `with` a thread with a live message by that user, and `owner` its current owner.
+         *     - `status:key` requires the thread's exact current workflow status key. Keys use the immutable workflow-key grammar; multiple
+         *       status clauses are AND-combined, so different keys match nothing. A well-formed unknown key also matches nothing.
+         *     - `hashtag:tag` requires an exact hashtag on the matching live message. A single leading `#` is optional. Matching uses the
+         *       hashtag index's NFC, case and accent folding; it never does a partial match. Multiple hashtag clauses must hold on that same
+         *       message.
          *     - `on:YYYY-MM-DD` selects the named day, `before:` selects earlier days, `after:` selects later days,
          *       and `during:YYYY-MM` or `during:YYYY` selects a month or year. Calendar boundaries use `timeZone`.
          *     - `has:pin` requires a pinned thread or matching message. `has:link` matches an HTTP(S), `www.`, or `mailto:` link.
          *       `has:reaction` requires any reaction, `has:reaction:👍` requires that reaction, and `has:emoji:👍` finds the literal emoji in the body.
          *
-         *     All message clauses must hold on one live message. Positive text can also match a title when no filter requires a message.
+         *     All message clauses, including `hashtag:`, must hold on one live message. Positive text can also match a title when no filter
+         *     requires a message; a hashtag therefore prevents a title-only match.
          *     A query with only thread filters can produce hits without message snippets. Malformed clauses and unknown operators return
          *     `400` without echoing the query.
          */
@@ -6143,12 +6149,18 @@ export interface operations {
                  *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
                  *       The person filters also accept exact email addresses. `from` selects a matching message's author,
                  *       `with` a thread with a live message by that user, and `owner` its current owner.
+                 *     - `status:key` requires the thread's exact current workflow status key. Keys use the immutable workflow-key grammar; multiple
+                 *       status clauses are AND-combined, so different keys match nothing. A well-formed unknown key also matches nothing.
+                 *     - `hashtag:tag` requires an exact hashtag on the matching live message. A single leading `#` is optional. Matching uses the
+                 *       hashtag index's NFC, case and accent folding; it never does a partial match. Multiple hashtag clauses must hold on that same
+                 *       message.
                  *     - `on:YYYY-MM-DD` selects the named day, `before:` selects earlier days, `after:` selects later days,
                  *       and `during:YYYY-MM` or `during:YYYY` selects a month or year. Calendar boundaries use `timeZone`.
                  *     - `has:pin` requires a pinned thread or matching message. `has:link` matches an HTTP(S), `www.`, or `mailto:` link.
                  *       `has:reaction` requires any reaction, `has:reaction:👍` requires that reaction, and `has:emoji:👍` finds the literal emoji in the body.
                  *
-                 *     All message clauses must hold on one live message. Positive text can also match a title when no filter requires a message.
+                 *     All message clauses, including `hashtag:`, must hold on one live message. Positive text can also match a title when no filter
+                 *     requires a message; a hashtag therefore prevents a title-only match.
                  *     A query with only thread filters can produce hits without message snippets. Malformed clauses and unknown operators return
                  *     `400` without echoing the query.
                  */
@@ -6713,12 +6725,18 @@ export interface operations {
                  *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
                  *       The person filters also accept exact email addresses. `from` selects a matching message's author,
                  *       `with` a thread with a live message by that user, and `owner` its current owner.
+                 *     - `status:key` requires the thread's exact current workflow status key. Keys use the immutable workflow-key grammar; multiple
+                 *       status clauses are AND-combined, so different keys match nothing. A well-formed unknown key also matches nothing.
+                 *     - `hashtag:tag` requires an exact hashtag on the matching live message. A single leading `#` is optional. Matching uses the
+                 *       hashtag index's NFC, case and accent folding; it never does a partial match. Multiple hashtag clauses must hold on that same
+                 *       message.
                  *     - `on:YYYY-MM-DD` selects the named day, `before:` selects earlier days, `after:` selects later days,
                  *       and `during:YYYY-MM` or `during:YYYY` selects a month or year. Calendar boundaries use `timeZone`.
                  *     - `has:pin` requires a pinned thread or matching message. `has:link` matches an HTTP(S), `www.`, or `mailto:` link.
                  *       `has:reaction` requires any reaction, `has:reaction:👍` requires that reaction, and `has:emoji:👍` finds the literal emoji in the body.
                  *
-                 *     All message clauses must hold on one live message. Positive text can also match a title when no filter requires a message.
+                 *     All message clauses, including `hashtag:`, must hold on one live message. Positive text can also match a title when no filter
+                 *     requires a message; a hashtag therefore prevents a title-only match.
                  *     A query with only thread filters can produce hits without message snippets. Malformed clauses and unknown operators return
                  *     `400` without echoing the query.
                  */
@@ -7040,12 +7058,18 @@ export interface operations {
                  *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
                  *       The person filters also accept exact email addresses. `from` selects a matching message's author,
                  *       `with` a thread with a live message by that user, and `owner` its current owner.
+                 *     - `status:key` requires the thread's exact current workflow status key. Keys use the immutable workflow-key grammar; multiple
+                 *       status clauses are AND-combined, so different keys match nothing. A well-formed unknown key also matches nothing.
+                 *     - `hashtag:tag` requires an exact hashtag on the matching live message. A single leading `#` is optional. Matching uses the
+                 *       hashtag index's NFC, case and accent folding; it never does a partial match. Multiple hashtag clauses must hold on that same
+                 *       message.
                  *     - `on:YYYY-MM-DD` selects the named day, `before:` selects earlier days, `after:` selects later days,
                  *       and `during:YYYY-MM` or `during:YYYY` selects a month or year. Calendar boundaries use `timeZone`.
                  *     - `has:pin` requires a pinned thread or matching message. `has:link` matches an HTTP(S), `www.`, or `mailto:` link.
                  *       `has:reaction` requires any reaction, `has:reaction:👍` requires that reaction, and `has:emoji:👍` finds the literal emoji in the body.
                  *
-                 *     All message clauses must hold on one live message. Positive text can also match a title when no filter requires a message.
+                 *     All message clauses, including `hashtag:`, must hold on one live message. Positive text can also match a title when no filter
+                 *     requires a message; a hashtag therefore prevents a title-only match.
                  *     A query with only thread filters can produce hits without message snippets. Malformed clauses and unknown operators return
                  *     `400` without echoing the query.
                  */

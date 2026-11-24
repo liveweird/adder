@@ -4,12 +4,21 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/render";
 import { SEARCH_ASSISTANT_KEY } from "../utils/searchQueryEditor";
 import SearchForm from "./SearchForm";
+import type { RoomWorkflow } from "../api/rooms";
 
 const listRooms = vi.fn();
+const getRoom = vi.fn();
+const getRoomWorkflow = vi.fn();
+const listRoomHashtags = vi.fn();
 const searchUserDirectory = vi.fn();
 
 vi.mock("../hooks/useTagCategories", () => ({ useTagCategories: () => ({ data: [] }) }));
-vi.mock("../api/rooms", () => ({ listRooms: (...args: unknown[]) => listRooms(...args) }));
+vi.mock("../api/rooms", () => ({
+  getRoom: (...args: unknown[]) => getRoom(...args),
+  getRoomWorkflow: (...args: unknown[]) => getRoomWorkflow(...args),
+  listRooms: (...args: unknown[]) => listRooms(...args),
+}));
+vi.mock("../api/threads", () => ({ listRoomHashtags: (...args: unknown[]) => listRoomHashtags(...args) }));
 vi.mock("../api/users", () => ({ searchUserDirectory: (...args: unknown[]) => searchUserDirectory(...args) }));
 vi.mock("./EmojiButton", () => ({
   default: ({ label, onSelect }: { label: string; onSelect: (emoji: string) => void }) => (
@@ -17,7 +26,18 @@ vi.mock("./EmojiButton", () => ({
   ),
 }));
 
-function renderForm({ q = "", structured = false, onSubmit = vi.fn() } = {}) {
+const STATUSES: RoomWorkflow["statuses"] = [
+  { key: "investigating", label: "Investigating", colour: "BLUE", category: "OPEN", initial: true, threadCount: 4 },
+  { key: "resolved", label: "Resolved", colour: "TEAL", category: "CLOSED", initial: false, threadCount: 2 },
+];
+
+function renderForm({ q = "", structured = false, onSubmit = vi.fn(), roomId, statuses }: {
+  q?: string;
+  structured?: boolean;
+  onSubmit?: (q: string, structured: boolean) => void;
+  roomId?: number;
+  statuses?: RoomWorkflow["statuses"];
+} = {}) {
   renderWithProviders(
     <SearchForm
       label="Search all your rooms"
@@ -30,6 +50,8 @@ function renderForm({ q = "", structured = false, onSubmit = vi.fn() } = {}) {
       onScope={vi.fn()}
       onWatching={vi.fn()}
       onThreadTag={vi.fn()}
+      assistantRoomId={roomId}
+      assistantStatuses={statuses}
     />,
   );
   return onSubmit;
@@ -38,6 +60,9 @@ function renderForm({ q = "", structured = false, onSubmit = vi.fn() } = {}) {
 afterEach(() => {
   cleanup();
   listRooms.mockReset();
+  getRoom.mockReset();
+  getRoomWorkflow.mockReset();
+  listRoomHashtags.mockReset();
   searchUserDirectory.mockReset();
 });
 
@@ -62,6 +87,8 @@ describe("SearchForm structured query assistant", () => {
     await user.click(screen.getByRole("button", { name: "Search syntax" }));
     expect(screen.getByRole("button", { name: /has:reaction Messages with any reaction/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /from:"Ada Lovelace" Messages written/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /status:investigating Threads in a workflow status/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /hashtag:incident Threads containing a hashtag/ })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /in:"Night Shift" Search in one room/ }));
     expect(box).toHaveValue("disk in:");
     expect(box).toHaveFocus();
@@ -119,6 +146,71 @@ describe("SearchForm structured query assistant", () => {
     expect(box).toHaveValue("has:reaction:🚀");
     await user.click(screen.getByRole("button", { name: "Choose an emoji in a message" }));
     expect(box).toHaveValue("has:reaction:🚀 has:emoji:🚀");
+  });
+
+  test("suggests stable status keys and exact indexed hashtags in a known room", async () => {
+    listRoomHashtags.mockResolvedValue({ items: [{ tag: "incident-żółć", threadCount: 3 }] });
+    renderForm({ roomId: 12, statuses: STATUSES });
+    const user = userEvent.setup();
+    const box = screen.getByRole("searchbox");
+    await user.type(box, "status:inv");
+    await user.click(screen.getByRole("button", { name: /Investigating.*Status/ }));
+    expect(box).toHaveValue("status:investigating");
+    await user.clear(box);
+    await user.type(box, "hashtag:inc");
+    await user.click(await screen.findByRole("button", { name: /incident-żółć.*Hashtag/ }));
+    expect(box).toHaveValue("hashtag:incident-żółć");
+    expect(listRoomHashtags).toHaveBeenCalledWith(12, { page: 1, pageSize: 8, sort: "-threadCount", q: "inc" });
+  });
+
+  test("global status and hashtag values ask for one room until in: resolves a joined room", async () => {
+    getRoom.mockResolvedValue({ id: 12, name: "Night Shift", role: "MEMBER" });
+    getRoomWorkflow.mockResolvedValue({ statuses: STATUSES, fields: [], revision: 1 });
+    renderForm();
+    const user = userEvent.setup();
+    const box = screen.getByRole("searchbox");
+    await user.type(box, "status:inv");
+    expect(screen.getByText("Choose one room with in: to see its statuses and hashtags.")).toBeVisible();
+    expect(getRoomWorkflow).not.toHaveBeenCalled();
+    await user.clear(box);
+    await user.type(box, "in:#12 status:inv");
+    expect(await screen.findByRole("button", { name: /Investigating.*Status/ })).toBeVisible();
+    expect(getRoom).toHaveBeenCalledWith(12);
+    expect(getRoomWorkflow).toHaveBeenCalledWith(12);
+  });
+
+  test("resolves an exact joined room name before offering hashtag values", async () => {
+    listRooms.mockResolvedValue({ items: [{ id: 12, name: "Night Shift", role: "MEMBER" }] });
+    listRoomHashtags.mockResolvedValue({ items: [{ tag: "incident", threadCount: 7 }] });
+    renderForm();
+    const user = userEvent.setup();
+    const box = screen.getByRole("searchbox");
+    await user.type(box, 'in:"Night Shift" hashtag:inc');
+    expect(await screen.findByRole("button", { name: /incident.*Hashtag/ })).toBeVisible();
+    expect(listRooms).toHaveBeenCalledWith({ page: 1, pageSize: 8, sort: "name", name: "Night Shift", member: true });
+  });
+
+  test("drops hashtag values from a previous room while the next room lookup settles", async () => {
+    let finishSecond: () => void = () => undefined;
+    const secondHashtags = new Promise<{ items: Array<{ tag: string; threadCount: number }> }>((resolve) => {
+      finishSecond = () => resolve({ items: [{ tag: "incident-new", threadCount: 2 }] });
+    });
+    getRoom.mockImplementation((id: number) => Promise.resolve({ id, name: `Room ${id}`, role: "MEMBER" }));
+    listRoomHashtags.mockImplementation((id: number) => id === 12
+      ? Promise.resolve({ items: [{ tag: "incident-old", threadCount: 5 }] })
+      : secondHashtags);
+    renderForm();
+    const user = userEvent.setup();
+    const box = screen.getByRole("searchbox");
+    await user.type(box, "in:#12 hashtag:inc");
+    await waitFor(() => expect(listRoomHashtags).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: /incident-old.*Hashtag/ })).toBeVisible();
+    await user.clear(box);
+    await user.type(box, "in:#13 hashtag:inc");
+    await waitFor(() => expect(listRoomHashtags).toHaveBeenLastCalledWith(13, { page: 1, pageSize: 8, sort: "-threadCount", q: "inc" }));
+    expect(screen.queryByRole("button", { name: /incident-old/ })).not.toBeInTheDocument();
+    finishSecond();
+    expect(await screen.findByRole("button", { name: /incident-new.*Hashtag/ })).toBeVisible();
   });
 
   test("suggestions from a previous lookup cannot be selected while the next lookup loads", async () => {

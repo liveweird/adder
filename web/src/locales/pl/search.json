@@ -28,7 +28,13 @@
     "applyCorrection": "Użyj podpowiedzi",
     "suggestions": {
       "label": "Podpowiedzi wyszukiwania",
-      "room": "Pokój"
+      "room": "Pokój",
+      "status": "Status · {{key}}",
+      "hashtag_one": "Hashtag · {{count}} wątek",
+      "hashtag_few": "Hashtag · {{count}} wątki",
+      "hashtag_many": "Hashtag · {{count}} wątków",
+      "hashtag_other": "Hashtag · {{count}} wątku",
+      "chooseRoom": "Wybierz jeden pokój za pomocą in:, aby zobaczyć jego statusy i hashtagi."
     },
     "emoji": {
       "title": "Filtry emoji",
@@ -44,6 +50,8 @@
       "from": "Wiadomości napisane przez tę osobę",
       "with": "Wątki, w których uczestniczy ta osoba",
       "owner": "Wątki obecnie należące do tej osoby",
+      "status": "Wątki w danym statusie procesu",
+      "hashtag": "Wątki zawierające hashtag",
       "on": "Wiadomości wysłane w danym dniu",
       "before": "Wiadomości wysłane przed daną datą",
       "after": "Wiadomości wysłane po danej dacie",

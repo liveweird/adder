@@ -30,6 +30,7 @@ function RoomSearchBody({ room }: { room: RoomResponse }) {
         baseKey={roomKeys.search(room.id)}
         fetchPage={(query) => searchRoom(room.id, query)}
         statuses={workflow.data?.statuses}
+        roomId={room.id}
         showRoom={false}
         onGone={onGone}
       />

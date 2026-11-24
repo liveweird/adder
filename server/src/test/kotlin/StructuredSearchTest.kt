@@ -86,6 +86,17 @@ class StructuredSearchTest {
     }
 
     @Test
+    fun `status and hashtag filters become canonical typed clauses`() {
+        val parsed = parseStructuredSearch(
+            "status:investigating status:waiting-on-customer hashtag:Incident hashtag:#Zażółć",
+            null,
+        )
+
+        assertEquals(listOf("investigating", "waiting-on-customer"), parsed.statuses)
+        assertEquals(listOf("incident", "zażółć"), parsed.hashtags)
+    }
+
+    @Test
     fun `date filters form half open intersections in the requested time zone`() {
         val zone = ZoneId.of("Europe/Warsaw")
         val parsed = parseStructuredSearch(
@@ -140,6 +151,15 @@ class StructuredSearchTest {
             "has:reaction:not-an-emoji",
             "has:emoji:👍👍",
             "has:missing",
+            "status:",
+            "status:Investigating",
+            "status:two--hyphens",
+            "status:${"secret".repeat(8)}",
+            "hashtag:",
+            "hashtag:#",
+            "hashtag:##secret",
+            "hashtag:bad#tag",
+            "hashtag:${"hunter2".repeat(22)}",
             "on:2026-02-30",
             "on:2026-02",
             "during:2026-13",

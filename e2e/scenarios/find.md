@@ -150,3 +150,11 @@ The data of each scenario is seeded through the API (threads, replies, status mo
    - *Expected* — the message receives focus and the reply after it is visible. One context request arrives without any chain of older-page reads.
 4. Reload the message link and choose **Back to latest**.
    - *Expected* — the link opens at the same message. Returning shows the latest replies and clears the message parameter while preserving focus view.
+
+## Scenario: status and hashtag clauses refine global, room and thread search
+
+1. Create Incident threads with a tagged match in Investigating, the same tagged text in another status, and a tag and matching word on separate messages.
+2. Submit the status and hashtag clauses with the word in global and room search.
+   - *Expected* — the Investigating thread whose message satisfies both message clauses is the sole hit.
+3. Search that conversation with the same query.
+   - *Expected* — the tagged message is the only hit, even though another reply contains the word.

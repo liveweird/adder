@@ -259,6 +259,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             focusView={focusView}
             onClose={() => setFindState({ threadNumber: thread.number, open: false })}
             onSelect={requestJump}
+            statuses={workflow.data?.statuses}
           />
         </div>
       </Stack>

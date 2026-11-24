@@ -1,6 +1,7 @@
 package ch.nokillswit.threads
 
 import ch.nokillswit.infra.paging.positiveId
+import ch.nokillswit.workflows.requireKey
 import io.ktor.server.plugins.BadRequestException
 import java.time.DateTimeException
 import java.time.LocalDate
@@ -28,6 +29,8 @@ internal data class StructuredSearch(
     val authors: List<SearchReference>,
     val participants: List<SearchReference>,
     val owners: List<SearchReference>,
+    val statuses: List<String>,
+    val hashtags: List<String>,
     val startMillis: Long?,
     val endMillis: Long?,
     val pinned: Boolean,
@@ -48,6 +51,8 @@ private data class MutableStructuredSearch(
     val authors: MutableList<SearchReference> = mutableListOf(),
     val participants: MutableList<SearchReference> = mutableListOf(),
     val owners: MutableList<SearchReference> = mutableListOf(),
+    val statuses: MutableList<String> = mutableListOf(),
+    val hashtags: MutableList<String> = mutableListOf(),
     var startMillis: Long? = null,
     var endMillis: Long? = null,
     var pinned: Boolean = false,
@@ -61,6 +66,8 @@ private data class MutableStructuredSearch(
         authors = authors,
         participants = participants,
         owners = owners,
+        statuses = statuses,
+        hashtags = hashtags,
         startMillis = startMillis,
         endMillis = endMillis,
         pinned = pinned,
@@ -172,6 +179,8 @@ private fun MutableStructuredSearch.add(lexeme: Lexeme, zone: ZoneId) {
         "from" -> authors += reference(operand, quotedOperand)
         "with" -> participants += reference(operand, quotedOperand)
         "owner" -> owners += reference(operand, quotedOperand)
+        "status" -> statuses += statusKey(operand)
+        "hashtag" -> hashtags += hashtagKey(operand)
         "on" -> dateRange(operand, zone).also { intersect(it.first, it.second) }
         "before" -> intersect(null, dateStart(operand, zone))
         "after" -> intersect(dateStart(operand, zone, plusDays = 1), null)
@@ -179,6 +188,19 @@ private fun MutableStructuredSearch.add(lexeme: Lexeme, zone: ZoneId) {
         "has" -> addHas(operand)
         else -> invalidQuery()
     }
+}
+
+private fun statusKey(value: String): String = try {
+    requireKey(value, "Status key")
+    value
+} catch (_: BadRequestException) {
+    invalidQuery()
+}
+
+private fun hashtagKey(value: String): String = try {
+    requireTagFilter(value.removePrefix("#"))
+} catch (_: BadRequestException) {
+    invalidQuery()
 }
 
 private fun textClause(raw: String): SearchTextClause {
