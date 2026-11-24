@@ -157,10 +157,23 @@ describe("SearchForm structured query assistant", () => {
     await user.click(screen.getByRole("button", { name: /Investigating.*Status/ }));
     expect(box).toHaveValue("status:investigating");
     await user.clear(box);
-    await user.type(box, "hashtag:inc");
+    await user.type(box, "hashtag:#inc");
     await user.click(await screen.findByRole("button", { name: /incident-żółć.*Hashtag/ }));
     expect(box).toHaveValue("hashtag:incident-żółć");
     expect(listRoomHashtags).toHaveBeenCalledWith(12, { page: 1, pageSize: 8, sort: "-threadCount", q: "inc" });
+  });
+
+  test("inserts indexed hashtag operands as one clause when normalization introduced whitespace or quotes", async () => {
+    const tag = 'a 1/2"';
+    listRoomHashtags.mockResolvedValue({ items: [{ tag, threadCount: 1 }] });
+    const onSubmit = renderForm({ roomId: 12 });
+    const user = userEvent.setup();
+    const box = screen.getByRole("searchbox");
+    await user.type(box, "replica hashtag:a");
+    await user.click(await screen.findByRole("button", { name: /a 1\/2".*Hashtag/ }));
+    expect(box).toHaveValue('replica hashtag:"a 1/2\\""');
+    await user.keyboard("{Enter}");
+    expect(onSubmit).toHaveBeenCalledWith('replica hashtag:"a 1/2\\""', true);
   });
 
   test("global status and hashtag values ask for one room until in: resolves a joined room", async () => {

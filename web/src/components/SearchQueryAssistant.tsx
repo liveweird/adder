@@ -38,6 +38,7 @@ type Props = {
 };
 
 const normalizedValue = (value: string) => value.replace(/^"/u, "").replace(/"$/u, "").trim();
+const hashtagOperand = (tag: string) => /[\s"\\]/u.test(tag) ? `"${tag.replace(/["\\]/gu, "\\$&")}"` : tag;
 const sameRoomName = (left: string, right: string) => left.localeCompare(right, undefined, { sensitivity: "accent" }) === 0;
 const isPersonOperator = (operator: SearchTokenContext["operator"]) => operator === "from" || operator === "with" || operator === "owner";
 const isRoomFilterOperator = (operator: SearchTokenContext["operator"]) => operator === "status" || operator === "hashtag";
@@ -111,7 +112,7 @@ function makeSuggestions({
   if (token.operator === "hashtag" && selectedRoomId !== undefined && filterLookupSettled) {
     return hashtags.map((hashtag) => ({
       id: `hashtag-${hashtag.tag}`,
-      insert: `hashtag:${hashtag.tag}`,
+      insert: `hashtag:${hashtagOperand(hashtag.tag)}`,
       label: hashtag.tag,
       description: t("search.syntax.suggestions.hashtag", { count: hashtag.threadCount }),
     }));
@@ -144,7 +145,8 @@ const SearchQueryAssistant = forwardRef<SearchQueryAssistantHandle, Props>(funct
   const globalRoomFilterActive = fixedRoomId === undefined && roomFilterActive;
   const entityLookupEnabled = isEntityOperator(token.operator) && lookup !== null;
   const filterLookup = normalizedValue(token.value);
-  const boundedFilterLookup = [...filterLookup].length <= 50 ? filterLookup : null;
+  const hashtagLookup = filterLookup.replace(/^#/u, "").replace(/\\(["\\])/gu, "$1");
+  const boundedFilterLookup = [...hashtagLookup].length <= 50 ? hashtagLookup : null;
   const [debouncedFilterLookup] = useDebouncedValue(boundedFilterLookup ?? "", LOOKUP_DEBOUNCE_MS);
   const filterLookupSettled = boundedFilterLookup !== null && boundedFilterLookup === debouncedFilterLookup;
   const roomOperand = fixedRoomId === undefined ? roomSelectionOperand(query) : null;
