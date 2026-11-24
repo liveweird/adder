@@ -1,81 +1,196 @@
 .editor {
   inline-size: 100%;
-  max-inline-size: 64rem;
+  max-inline-size: 52rem;
   container-type: inline-size;
 }
 
-.group {
-  overflow: hidden;
+.toolbar {
+  min-block-size: 2.25rem;
+}
+
+.tree {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs);
   border: 1px solid var(--mantine-color-default-border);
   border-radius: var(--mantine-radius-md);
-  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+}
+
+.group {
+  position: relative;
+  overflow: visible;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-body);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.group[data-drop-target="true"] {
+  border-color: var(--mantine-primary-color-filled);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mantine-primary-color-filled) 24%, transparent);
+}
+
+.group[data-drag-source="true"],
+.roomItem[data-drag-source="true"] {
+  z-index: 2;
+  opacity: 0.78;
+  box-shadow: var(--mantine-shadow-md);
 }
 
 .groupHeader {
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
-  border-bottom: 1px solid var(--mantine-color-default-border);
-  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+  display: grid;
+  grid-template-columns: 2rem 2rem minmax(0, 1fr) 2rem;
+  align-items: center;
+  gap: 0.125rem;
+  min-block-size: 2.75rem;
+  padding-inline: var(--mantine-spacing-xs);
+  border-radius: inherit;
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
 }
 
-.groupName {
-  flex: 1;
-  min-inline-size: 12rem;
+.groupTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.handlePlaceholder {
+  inline-size: 2rem;
+}
+
+.dragHandle {
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  color: var(--mantine-color-dimmed);
+}
+
+.dragHandle:is(:hover, :focus-visible) {
+  color: var(--mantine-color-text);
+  background: var(--mantine-color-default-hover);
+}
+
+.editor[data-dragging="true"],
+.editor[data-dragging="true"] * {
+  cursor: grabbing;
 }
 
 .roomList {
   padding: 0;
   margin: 0;
   list-style: none;
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.roomItem {
+  position: relative;
+  scroll-margin-block: var(--mantine-spacing-md);
 }
 
 .roomItem + .roomItem {
   border-top: 1px solid var(--mantine-color-default-border);
 }
 
+.roomItem[data-drop-target="true"]::before {
+  position: absolute;
+  z-index: 3;
+  inset-block-start: -2px;
+  inset-inline: var(--mantine-spacing-xs);
+  block-size: 3px;
+  border-radius: 999px;
+  background: var(--mantine-primary-color-filled);
+  content: "";
+  pointer-events: none;
+}
+
 .roomRow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(10rem, 15rem) auto;
+  grid-template-columns: 2rem minmax(0, 1fr) 2rem;
   align-items: center;
-  gap: var(--mantine-spacing-md);
-  min-block-size: 3.5rem;
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  gap: 0.25rem;
+  min-block-size: 2.75rem;
+  padding-inline: var(--mantine-spacing-xs);
+  background: var(--mantine-color-body);
+}
+
+.roomItem:last-child .roomRow {
+  border-end-start-radius: var(--mantine-radius-sm);
+  border-end-end-radius: var(--mantine-radius-sm);
 }
 
 .roomName {
   min-inline-size: 0;
+  overflow: hidden;
 }
 
 .empty {
   padding: var(--mantine-spacing-md);
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.renameInput {
+  min-inline-size: 0;
+}
+
+.newGroupForm {
+  align-self: flex-start;
+  inline-size: min(100%, 30rem);
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-body);
+}
+
+.newGroupInput {
+  flex: 1;
+}
+
+.newGroupAction {
+  margin-block-start: 1.625rem;
 }
 
 .footer {
   position: sticky;
   inset-block-end: 0;
-  z-index: 2;
-  padding-block: var(--mantine-spacing-sm);
+  z-index: 4;
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
   background: color-mix(in srgb, var(--mantine-color-body) 94%, transparent);
-  border-top: 1px solid var(--mantine-color-default-border);
+  box-shadow: var(--mantine-shadow-sm);
+  backdrop-filter: blur(8px);
 }
 
-@container (max-width: 42rem) {
-  .roomRow {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .roomGroup {
-    grid-column: 1 / -1;
-    grid-row: 2;
+@media (prefers-reduced-motion: reduce) {
+  .group {
+    transition: none;
   }
 }
 
-@container (max-width: 28rem) {
-  .groupHeader {
-    align-items: stretch;
+@media (forced-colors: active) {
+  .group[data-drop-target="true"],
+  .roomItem[data-drop-target="true"]::before {
+    border-color: Highlight;
+    background: Highlight;
+  }
+}
+
+@container (max-width: 30rem) {
+  .toolbar {
+    align-items: flex-start;
   }
 
-  .groupName {
-    min-inline-size: 0;
-    inline-size: 100%;
+  .newGroupForm {
+    flex-wrap: wrap;
+  }
+
+  .newGroupInput {
+    flex-basis: 100%;
+  }
+
+  .newGroupAction {
+    margin-block-start: 0;
   }
 }
