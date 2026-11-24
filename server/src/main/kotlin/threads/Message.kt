@@ -74,6 +74,18 @@ data class ReactionRequest(val emoji: String, val reacted: Boolean)
 
 typealias MessagePageResponse = PageResponse<MessageResponse>
 
+/**
+ * A bounded chronological window around [messageId]. [older] and [newer] say that more messages exist outside [items], so a client can
+ * replace this window by asking for context around its first or last item. The target is included even when it is a tombstone.
+ */
+@Serializable
+data class MessageContextResponse(
+    val messageId: UInt,
+    val items: List<MessageResponse>,
+    val older: Boolean,
+    val newer: Boolean,
+)
+
 /** One page of a thread's messages plus the total AFTER the `id[lt]` filter (the list-endpoint envelope, keyset inside it). */
 data class MessageListResult(val items: List<MessageResponse>, val total: Long)
 

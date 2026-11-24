@@ -52,6 +52,7 @@ class MessageService internal constructor(
     private val mentions: MessageMentionService,
     followers: List<MessageFollower> = emptyList(),
     private val reactions: MessageReactionService = MessageReactionService(database),
+    private val contextLimiter: ReadLimiter = ReadLimiter(perUser = THREAD_READS_PER_USER),
 ) {
     /**
      * Every follower of a write, in order: the mention index first, then the [followers] the composition root adds, then the reactions'
@@ -60,7 +61,7 @@ class MessageService internal constructor(
      */
     private val followers: List<MessageFollower> = listOf<MessageFollower>(mentions) + followers + reactions.follower + AuthorReadMarker
 
-    /** The ONE assembly of message rows into responses, shared by [list], [read] and [readInTransaction] (`MessageAssembly.kt`). */
+    /** Shared by [list], [context], [read] and [readInTransaction] to assemble the same message responses. */
     private val assembly = MessageAssembly(mentions, reactions)
 
     object Messages : UIntIdTable("messages"), SoftDeletable {
@@ -148,6 +149,34 @@ class MessageService internal constructor(
             val rows = Messages.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
             MessageListResult(assembly.responses(rows, viewerId) { number }, total)
         }
+
+    /**
+     * A fixed window around [messageId], including a tombstone anchor. Two bounded probes use `idx_messages_thread`: the 26 rows before
+     * the anchor and the anchor plus 26 rows after it. The extra row on each side becomes [MessageContextResponse.older]/[newer]; no
+     * unbounded count is sent. An absent anchor, including an id of another thread, returns null without disclosing where it exists.
+     */
+    suspend fun context(
+        callerUserId: UInt,
+        roomId: UInt,
+        threadId: UInt,
+        number: Int,
+        messageId: UInt,
+    ): MessageContextResponse? = contextLimiter.run(database, callerUserId, roomId, "thread") { budget ->
+        budget.arm(this)
+        val before = Messages.selectAll().where { (Messages.threadId eq threadId) and (Messages.id less messageId) }
+            .orderBy(Messages.id, SortOrder.DESC).limit(CONTEXT_SIDE + 1).toList()
+        budget.arm(this)
+        val fromAnchor = Messages.selectAll().where { (Messages.threadId eq threadId) and (Messages.id greaterEq messageId) }
+            .orderBy(Messages.id, SortOrder.ASC).limit(CONTEXT_SIDE + 2).toList()
+        if (fromAnchor.firstOrNull()?.get(Messages.id)?.value != messageId) return@run null
+        val rows = before.take(CONTEXT_SIDE).reversed() + fromAnchor.take(CONTEXT_SIDE + 1)
+        MessageContextResponse(
+            messageId = messageId,
+            items = assembly.responses(rows, callerUserId, beforeStatement = { budget.arm(this) }) { number },
+            older = before.size > CONTEXT_SIDE,
+            newer = fromAnchor.size > CONTEXT_SIDE + 1,
+        )
+    }
 
     /**
      * Message [messageId] of room [roomId] as [viewerId] sees it (their own reactions are marked), or null when it is unknown, DELETED or
@@ -307,6 +336,8 @@ class MessageService internal constructor(
         return Messages.select(first).where { Messages.threadId eq threadId }.toList().single()[first]?.value == messageId
     }
 }
+
+private const val CONTEXT_SIDE = 25
 
 /** A message just inserted: its row [id] and what [MessageService.followPosted] needs to tell the followers about it. */
 internal class InsertedMessage(val id: UInt, val ref: MessageRef, val authorId: UInt, val body: String, val at: Long)

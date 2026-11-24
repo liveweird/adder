@@ -121,7 +121,7 @@ internal fun Application.publishChatServices(
     val reactionService = MessageReactionService(database)
     attributes.put(MessageReactionServiceKey, reactionService)
     val messageService = MessageService(
-        database, roomService, messageTagService, messageMentionService, listOf(PinCleanup()), reactionService,
+        database, roomService, messageTagService, messageMentionService, listOf(PinCleanup()), reactionService, threadReadLimiter,
     )
     attributes.put(MessageServiceKey, messageService)
     attributes.put(PinServiceKey, PinService(database, messageService))

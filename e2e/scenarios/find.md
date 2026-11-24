@@ -140,3 +140,13 @@ The data of each scenario is seeded through the API (threads, replies, status mo
    - *Expected*: the button is still pressed, the list is still hidden and the conversation is shown.
 5. The owner presses the button again.
    - *Expected*: `focus` leaves the address; the list is visible again with the other thread's row; the button is not pressed.
+
+## Scenario: find in thread pages through messages and opens an old reply in context
+
+1. Create a thread with enough replies to put its opening message outside the latest page. Create a second thread that uses the same phrase.
+2. Open **Find in thread** and submit the exact phrase with an excluded word.
+   - *Expected* — the search box receives focus. Only matching messages of the open thread are counted, including those on later pages.
+3. Page to the opening message and follow the result.
+   - *Expected* — the message receives focus and the reply after it is visible. One context request arrives without any chain of older-page reads.
+4. Reload the message link and choose **Back to latest**.
+   - *Expected* — the link opens at the same message. Returning shows the latest replies and clears the message parameter while preserving focus view.

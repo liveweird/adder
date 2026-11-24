@@ -15,6 +15,18 @@ const isKnownKind = (kind: string): kind is LiveEventKind => (LIVE_EVENT_KINDS a
 /** What a room's loss (or an unknown change to it) makes stale: everything the room's pages read, so each turns to its not-found or its new truth. */
 const roomGone = (r: number): QueryKey[] => [detail(r), access(r), threads(r), members(r), workflow(r), workflowEdit(r), pins(r), RAIL, ROOM_LIST, homeKey];
 
+/** Discard replies issued under the old room permissions, including a first request that has no cache data yet. */
+function resetRoomReads(queryClient: QueryClient, roomId: number, includeGlobalSearch: boolean) {
+  void queryClient.resetQueries({
+    queryKey: searchAllKey,
+    predicate: ({ queryKey }) => queryKey[1] === "room" ? queryKey[2] === roomId : includeGlobalSearch,
+  });
+  void queryClient.resetQueries({
+    queryKey: threads(roomId),
+    predicate: ({ queryKey }) => queryKey[3] === "messages" && queryKey[5] === "context",
+  });
+}
+
 type ThreadScopedKind = Extract<LiveEventKind, `thread.${string}` | `message.${string}`>;
 
 /** The thread-scoped kinds need the thread number; a hint without one falls back to the room's whole thread tree. */
@@ -248,6 +260,8 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       quiet = next;
     },
     handle(frame) {
+      const roomLost = frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted");
+      if (roomLost) resetRoomReads(queryClient, frame.roomId, frame.type === "revoked");
       // A notice about the thread the reader is looking at (open, visible, at the end) is acknowledged by the pane through the read marker; the
       // bell is not re-read, so the badge never rises and falls again (`utils/lookingAt.ts`).
       if (frame.type === "event" && frame.kind === "notification.created") {
@@ -265,7 +279,10 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
         frame.type === "subscribed" ||
         (frame.type === "event" && frame.kind === "notification.created");
       const slow = isSlowFrame(frame);
-      for (const key of keysForFrame(frame)) if (!quiet || isBellKey(key)) queue(key, spread, slow);
+      for (const key of keysForFrame(frame)) {
+        if (roomLost && key[0] === searchAllKey[0]) continue;
+        if (!quiet || isBellKey(key)) queue(key, spread, slow);
+      }
       arm();
     },
     request(keys) {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Box, Button, Group, Stack, Text, Title } from "@mantine/core";
@@ -9,6 +9,7 @@ import {
   IconLayoutSidebarRightCollapse,
   IconLayoutSidebarRightExpand,
   IconMessageOff,
+  IconSearch,
 } from "@tabler/icons-react";
 import { ApiError } from "../api/http";
 import type { MessageResponse } from "../api/messages";
@@ -32,6 +33,7 @@ import PersonLink from "./PersonLink";
 import PinMark from "./PinMark";
 import TagPills from "./TagPills";
 import ThreadHashtags from "./ThreadHashtags";
+import ThreadMessageSearch from "./ThreadMessageSearch";
 import ThreadPinButton from "./ThreadPinButton";
 import ThreadPinStrip from "./ThreadPinStrip";
 import ThreadSidePanel from "./ThreadSidePanel";
@@ -67,12 +69,22 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   const { t } = useTranslation();
   const headingId = useId();
   const sideId = useId();
+  const findId = useId();
   const location = useLocation();
-  const [search, setSearch] = useLiveSearchParams();
+  const [search, setSearch, liveUrl] = useLiveSearchParams();
   const focusView = parseFocus(search);
   const anchorId = parseMessageAnchor(search);
   const paneRef = useRef<HTMLDivElement>(null);
+  const findTriggerRef = useRef<HTMLSpanElement>(null);
   const number = parseThreadNumber(numberParam);
+  const mountedThreadRef = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const key = number === null ? null : `${room.id}/${number}`;
+    mountedThreadRef.current = key;
+    return () => {
+      if (mountedThreadRef.current === key) mountedThreadRef.current = null;
+    };
+  }, [room.id, number]);
   const workflow = useRoomWorkflow(room.id);
   // Whether THIS thread is pinned (the room's one pins query, shared with the pin button, the strip and the list's marks): a failed read marks nothing.
   const { threadNumbers: pinnedThreads } = useRoomPins(room.id);
@@ -82,6 +94,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   // message is a URL change, and the change is the jump.
   const [jumpSeq, setJumpSeq] = useState(0);
   const requestJump = useCallback((messageId: number) => (messageId === anchorId ? setJumpSeq((seq) => seq + 1) : undefined), [anchorId]);
+  const [findState, setFindState] = useState<{ threadNumber: number; open: boolean } | null>(null);
   const focusPane = useCallback(() => paneRef.current?.focus(), []);
   // "Quote" on a message (1.3): the pane hands the picked message to the reply box (which keeps the draft per thread, like the text) and numbers the
   // request, so picking the same message twice, or after removing the quote, is a new request that moves the focus to the box again.
@@ -126,6 +139,14 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   }, [focusRequested, location.key, loadedId]);
   // A 404 wins over a copy cached from an earlier visit (the room lost the thread's reader since).
   const notFound = number === null || (error instanceof ApiError && error.status === 404);
+  const returnToLatest = useCallback(() => {
+    if (!liveUrl.params().has("message")) return;
+    setSearch((previous) => {
+      const next = new URLSearchParams(previous);
+      next.delete("message");
+      return next;
+    }, { replace: true, state: liveUrl.state() });
+  }, [liveUrl, setSearch]);
   // In the focus view the list is hidden: a pane with no thread to show carries its own way back.
   const showList = focusView ? (
     <Button variant="default" size="xs" style={{ alignSelf: "flex-start" }} onClick={() => setSearch((prev) => writeFocus(prev, false), { replace: true })}>
@@ -152,8 +173,17 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
     );
   }
 
+  const findOpen = findState?.threadNumber === thread.number && findState.open;
   return (
-    <Box component="section" ref={paneRef} tabIndex={-1} aria-labelledby={headingId} className={classes.pane} data-side={detailsOpen ? "open" : "closed"}>
+    <Box
+      component="section"
+      ref={paneRef}
+      tabIndex={-1}
+      aria-labelledby={headingId}
+      className={classes.pane}
+      data-side={detailsOpen ? "open" : "closed"}
+      data-find-open={findOpen || undefined}
+    >
       <Stack gap={5} className={classes.head}>
         {workflow.isError && <ErrorAlert error={workflow.error} title={t("threads.pane.workflowFailed")} />}
         <div className={classes.summary}>
@@ -171,6 +201,18 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             </span>
             <ThreadPinButton room={room} threadNumber={thread.number} onError={reportActionError} />
             <ThreadWatchButton room={room} thread={thread} onError={reportActionError} />
+            <span ref={findTriggerRef}>
+              <HeaderIconButton
+                label={t("threads.find.open")}
+                expanded={findOpen}
+                controls={findId}
+                icon={<IconSearch size={17} />}
+                onClick={() => setFindState((current) => ({
+                  threadNumber: thread.number,
+                  open: current?.threadNumber !== thread.number || !current.open,
+                }))}
+              />
+            </span>
             <HeaderIconButton
               label={t("threads.side.toggle")}
               expanded={detailsOpen}
@@ -206,6 +248,19 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           </div>
         )}
         <ThreadPinStrip room={room} threadNumber={thread.number} open={pinsOpen} onOpenChange={setPinsOpen} onShow={requestJump} focusPane={focusPane} />
+        <div id={findId} className={classes.find}>
+          <ThreadMessageSearch
+            key={`${room.id}/${thread.number}`}
+            roomId={room.id}
+            threadNumber={thread.number}
+            open={findOpen}
+            triggerRef={findTriggerRef}
+            locationSearch={location.search}
+            focusView={focusView}
+            onClose={() => setFindState({ threadNumber: thread.number, open: false })}
+            onSelect={requestJump}
+          />
+        </div>
       </Stack>
       <div id={sideId} className={classes.side} data-open={detailsOpen} role="region" aria-label={t("threads.side.aria")} tabIndex={0}>
         <ThreadSidePanel key={`${room.id}/${thread.number}`} room={room} thread={thread} />
@@ -221,13 +276,19 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           layoutKey={`${detailsOpen}/${pinsOpen}/${focusView}`}
           jumpSeq={jumpSeq}
           threadSettled={!isFetching}
+          readingPaused={findOpen}
           onQuote={quoteMessage}
           onShowQuoted={requestJump}
+          onReturnToLatest={returnToLatest}
         />
         <MessageComposer
           room={room}
           thread={thread}
-          onPosted={(messageId) => setScrollRequest({ threadNumber: thread.number, messageId })}
+          onPosted={(messageId) => {
+            if (mountedThreadRef.current !== `${room.id}/${thread.number}`) return;
+            returnToLatest();
+            setScrollRequest({ threadNumber: thread.number, messageId });
+          }}
           quoteRequest={quoteRequest}
         />
       </Stack>

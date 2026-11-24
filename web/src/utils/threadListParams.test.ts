@@ -336,8 +336,8 @@ describe("threadListParams", () => {
 
     test("the message to jump to is a positive integer; anything else is dropped", () => {
       expect(parseMessageAnchor(q("message=42"))).toBe(42);
-      expect(parseMessageAnchor(q("message=123456789012345"))).toBe(123456789012345);
-      for (const junk of ["", "message=", "message=0", "message=-1", "message=4x", "message=1.5", "message=1e3", "message=012", "message=1234567890123456", "message=%20"]) {
+      expect(parseMessageAnchor(q("message=2147483647"))).toBe(2147483647);
+      for (const junk of ["", "message=", "message=0", "message=-1", "message=4x", "message=1.5", "message=1e3", "message=012", "message=2147483648", "message=1234567890123456", "message=%20"]) {
         expect(parseMessageAnchor(q(junk))).toBeNull();
       }
     });

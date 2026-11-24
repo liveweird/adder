@@ -606,3 +606,61 @@ test("the focus view hides the thread list and survives a reload", async ({ page
   await expect(threadLink(page, other)).toBeVisible();
   await expect(page.getByRole("button", { name: "Focus on this thread", exact: true })).toHaveAttribute("aria-pressed", "false");
 });
+
+test("find in thread pages through messages and opens an old reply in context", async ({ page }) => {
+  const [owner] = await people(page, "E2E Find Owner");
+  const api = await actingAs(owner);
+  const roomId = await createRoom(api, uniqueText("e2e-find-context"), "Default");
+  const phrase = rareWord("replica");
+  const first = `Early finding: ${phrase} decision kept writes consistent.`;
+  const second = "The next reply records the checks.";
+  const latest = "The final reply is the latest message.";
+  const number = await startThread(api, roomId, uniqueText("Long incident thread"), first);
+  await postMessage(api, roomId, number, second);
+  for (let index = 1; index <= 58; index += 1) {
+    await postMessage(api, roomId, number, index <= 24 ? `${phrase} decision follow-up ${index}` : `Ordinary reply ${index}`);
+  }
+  await postMessage(api, roomId, number, latest);
+  await postMessage(api, roomId, number, `draft ${phrase} decision excluded`);
+  await startThread(api, roomId, uniqueText("Another thread"), `Foreign ${phrase} decision`);
+
+  const path = `/rooms/${roomId}/threads/${number}`;
+  const apiPath = `/api/v1${path}/messages`;
+  await page.goto(`${path}?focus=1`);
+  await expect(messageNamed(page, latest)).toBeVisible();
+  await expect(messageNamed(page, first)).toHaveCount(0);
+  const find = page.getByRole("button", { name: "Find in thread", exact: true });
+  await find.click();
+  const input = page.getByRole("searchbox", { name: "Search messages" });
+  await expect(input).toBeFocused();
+  await input.fill(`"${phrase} decision" -draft`);
+  await input.press("Enter");
+  await expect(page.getByText("25 messages found")).toBeVisible();
+  await expect(page.getByRole("link", { name: new RegExp(phrase + " decision follow-up") }).first()).toBeVisible();
+  await expect(page.getByText("Foreign", { exact: false })).toHaveCount(0);
+
+  const earlyHit = page.getByRole("link", { name: /Early finding/ });
+  await page.getByRole("button", { name: "Next page", exact: true }).click();
+  await expect(earlyHit).toBeVisible();
+  const contextRequests: string[] = [];
+  const olderRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === `${apiPath}/context`) contextRequests.push(url.search);
+    if (url.pathname === apiPath && url.searchParams.has("id[lt]")) olderRequests.push(url.search);
+  });
+  await earlyHit.click();
+  const target = messageNamed(page, first);
+  await expect(target).toBeFocused();
+  await expect(messageNamed(page, second)).toBeVisible();
+  expect(contextRequests).toEqual([expect.stringMatching(/^\?messageId=\d+$/)]);
+  expect(olderRequests).toEqual([]);
+  await expect(page).toHaveURL(/[?&]message=\d+/);
+
+  await page.reload();
+  await expect(target).toBeFocused();
+  await page.getByRole("button", { name: "Back to latest" }).click();
+  await expect(messageNamed(page, latest)).toBeVisible();
+  await expect(page).not.toHaveURL(/message=/);
+  await expect(page).toHaveURL(/[?&]focus=1(&|$)/);
+});

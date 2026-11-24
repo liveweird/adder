@@ -131,7 +131,10 @@
   },
   "anchor": {
     "gone": "Ta wiadomość już nie istnieje.",
-    "tooFar": "Ta wiadomość jest zbyt daleko w historii, by od razu do niej przejść. Wczytuj starsze wiadomości, aby szukać dalej.",
+    "navigation": "Kontekst wiadomości",
+    "earlier": "Starsze wiadomości",
+    "later": "Nowsze wiadomości",
+    "latest": "Wróć do najnowszych",
     "found": "Znaleziono wiadomość autora: {{author}}."
   },
   "message": {
@@ -348,6 +351,21 @@
     "announce_few": "Pojawiły się {{count}} nowe wiadomości",
     "announce_many": "Pojawiło się {{count}} nowych wiadomości",
     "announce_other": "Pojawiło się {{count}} nowej wiadomości"
+  },
+  "find": {
+    "open": "Znajdź w wątku",
+    "aria": "Znajdź wiadomości w tym wątku",
+    "title": "Znajdź w wątku",
+    "label": "Szukaj w wiadomościach",
+    "submit": "Przeszukaj ten wątek",
+    "close": "Zamknij wyszukiwanie",
+    "results": "Znalezione wiadomości",
+    "count_one": "Znaleziono {{count}} wiadomość",
+    "count_few": "Znaleziono {{count}} wiadomości",
+    "count_many": "Znaleziono {{count}} wiadomości",
+    "count_other": "Znaleziono {{count}} wiadomości",
+    "empty": "Żadna wiadomość nie pasuje do „{{q}}”.",
+    "failed": "Nie udało się przeszukać tego wątku"
   },
   "tags": {
     "aria": "Tagi",

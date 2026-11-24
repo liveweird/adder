@@ -10,6 +10,17 @@ export type ThreadSearchHit = ThreadSearchPage["items"][number];
 export type MessageSearchHit = ThreadSearchHit["messages"][number];
 export type SnippetSegment = ThreadSearchHit["titleSnippet"][number];
 
+/** A flat page of matching messages inside one thread. */
+export type ThreadMessageSearchPage = paths["/api/v1/rooms/{id}/threads/{number}/messages/search"]["get"]["responses"]["200"]["content"]["application/json"];
+
+export interface ThreadMessageSearchQuery {
+  q: string;
+  syntax?: "structured";
+  timeZone?: string;
+  page: number;
+  pageSize: number;
+}
+
 export interface SearchQuery {
   /**
    * Plain text (2 to 100 code points), or up to 512 code points of search clauses with `syntax: "structured"`.
@@ -37,4 +48,17 @@ export async function searchRoom(roomId: number, query: SearchQuery): Promise<Th
 /** One page of the threads that match across the rooms the caller is a member of (none: an empty page). Newest activity first. */
 export async function searchRooms(query: SearchQuery): Promise<ThreadSearchPage> {
   return jsonRequest<ThreadSearchPage>(`/api/v1/search?${buildQuery({ ...query })}`);
+}
+
+/** Matching live messages of one thread, newest first. Thread-level clauses narrow the named thread and never become a title hit. */
+export async function searchThreadMessages(
+  roomId: number,
+  threadNumber: number,
+  query: ThreadMessageSearchQuery,
+  signal?: AbortSignal,
+): Promise<ThreadMessageSearchPage> {
+  return jsonRequest<ThreadMessageSearchPage>(
+    `/api/v1/rooms/${roomId}/threads/${threadNumber}/messages/search?${buildQuery({ ...query })}`,
+    { signal },
+  );
 }

@@ -281,6 +281,7 @@ describe("createLiveInvalidator", () => {
     clients.push(queryClient);
     const clock = new FakeClock();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    const reset = vi.spyOn(queryClient, "resetQueries").mockResolvedValue();
     const fetching = vi.spyOn(queryClient, "isFetching").mockReturnValue(0);
     const invalidator = createLiveInvalidator(queryClient, clock);
     const flushed = () => invalidate.mock.calls.map(([filters]) => filters?.queryKey);
@@ -289,15 +290,16 @@ describe("createLiveInvalidator", () => {
     const flushedMessages = () => flushed().filter((key) => (key as unknown[])[3] === "messages");
     /** Holds the room's thread list busy (a re-read of it waits, never cancels), so a test can watch the conversation key's timing alone, strictly. */
     const holdListBusy = () => fetching.mockImplementation((filters) => (keyOf(filters)[3] === "list" ? 1 : 0));
-    return { queryClient, clock, invalidate, fetching, invalidator, flushed, flushedWithoutHome, flushedMessages, holdListBusy };
+    return { queryClient, clock, invalidate, reset, fetching, invalidator, flushed, flushedWithoutHome, flushedMessages, holdListBusy };
   }
 
-  test("a re-read of an open search is flushed like any focused key, and the rail's next re-read is not delayed by it", () => {
+  test("revocation resets sensitive reads immediately and leaves the rail's normal cadence", () => {
     const t = setup();
     t.invalidator.handle({ type: "revoked", roomId: 5 });
+    expect(t.reset.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([["search"], ["rooms", "threads", 5]]);
     t.clock.advanceBy(300);
-    expect(t.flushed()).toContainEqual(["search"]);
-    expect(t.flushed()).toContainEqual(["search", "room", 5]);
+    expect(t.flushed()).not.toContainEqual(["search"]);
+    expect(t.flushed()).not.toContainEqual(["search", "room", 5]);
     const railReads = () => t.flushed().filter((key) => JSON.stringify(key) === JSON.stringify(RAIL)).length;
     expect(railReads()).toBe(1);
     // The rail is spaced from ITS OWN last re-read (3 s), never from a search's: a hint 3 s after it re-reads it again at once (300 ms settle).
@@ -599,6 +601,34 @@ describe("createLiveInvalidator", () => {
     expect(t.clock.pendingDelays()).toEqual([]);
     t.clock.advanceBy(10_000);
     expect(t.flushed()).toEqual([]);
+  });
+
+  test.each([
+    ["search", [...roomKeys.search(5), "thread-messages", 7, "decision"]],
+    ["message context", roomKeys.messageContext(5, 7, 44)],
+  ])("a revoked room cannot restore data from an in-flight %s response", async (_label, key) => {
+    const queryClient = new QueryClient();
+    clients.push(queryClient);
+    const clock = new FakeClock();
+    let resolveOld!: (value: string) => void;
+    let resolveNew!: (value: string) => void;
+    const queryFn = vi.fn()
+      .mockImplementationOnce(() => new Promise<string>((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise<string>((resolve) => { resolveNew = resolve; }));
+    const observer = new QueryObserver(queryClient, { queryKey: key, queryFn });
+    const seen: (string | undefined)[] = [];
+    const unsubscribe = observer.subscribe((result) => seen.push(result.data));
+    const invalidator = createLiveInvalidator(queryClient, clock);
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledOnce());
+
+    invalidator.handle({ type: "revoked", roomId: 5 });
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2));
+    resolveOld("old room data");
+    resolveNew("new authorization verdict");
+    await vi.waitFor(() => expect(queryClient.getQueryData(key)).toBe("new authorization verdict"));
+    expect(seen).not.toContain("old room data");
+    unsubscribe();
+    invalidator.dispose();
   });
 
   test("with a real in-flight fetch, the hint waits for it instead of cancelling it, then re-reads", async () => {

@@ -48,6 +48,8 @@ reads it whole in `pageSize=100` pages: `chat-model.md` "List endpoint ledger");
 outside it only with a documented cap. `GET /home` is a single dashboard document with up to five entries in each of four sections.
 Its section order and caps are in the OpenAPI contract.
 `GET /room-organization` is the caller's revisioned layout document with up to 50 groups and 2,000 explicit room placements.
+`GET /rooms/{id}/threads/{number}/messages/context` returns a fixed context document with the anchor, up to 25 neighbors on either side,
+and boundary flags. The conversation list and the thread message search still return paged envelopes.
 `GET /rooms` continues to page the joined-room list, including when the caller requests their `personalOrder`.
 
 **Sub-collections and facets:** a record's own sub-collection is paged like any list, however small. Facet counts (`GET .../facets`) are not implemented — port Covenant's

@@ -1,31 +1,37 @@
-import { useCallback, useSyncExternalStore } from "react";
-import { hashKey, useQueryClient, type InfiniteData } from "@tanstack/react-query";
-import type { MessagePage, MessageResponse } from "../api/messages";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { partialMatchKey, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import type { MessageContext, MessagePage, MessageResponse } from "../api/messages";
 import { roomKeys } from "../utils/roomKeys";
 
-/**
- * A message as the thread's conversation has it loaded RIGHT NOW (the pane's own `MessageList` query), or `undefined` when it is not loaded. It
- * reads the cache and never fetches: the composer uses it to keep the message it quotes honest (a delete or an edit that the list has already
- * seen) without a request of its own. Not an observer: a second observer on the list's infinite query would share its options and its fetches.
- */
+/** A message already fetched by the conversation, including its active history window. Never makes a request. */
 export function useLoadedMessage(roomId: number, threadNumber: number, messageId: number | null): MessageResponse | undefined {
   const queryClient = useQueryClient();
-  const hash = hashKey(roomKeys.messages(roomId, threadNumber));
+  const messagesKey = useMemo(() => roomKeys.messages(roomId, threadNumber), [roomId, threadNumber]);
   const subscribe = useCallback(
     (notify: () => void) =>
       queryClient.getQueryCache().subscribe((event) => {
-        if (event.query.queryHash === hash) notify();
+        if (partialMatchKey(event.query.queryKey, messagesKey)) notify();
       }),
-    [queryClient, hash],
+    [queryClient, messagesKey],
   );
   const read = useCallback((): MessageResponse | undefined => {
     if (messageId === null) return undefined;
-    const data = queryClient.getQueryData<InfiniteData<MessagePage>>(roomKeys.messages(roomId, threadNumber));
-    for (const page of data?.pages ?? []) {
-      const found = page.items.find((message) => message.id === messageId);
-      if (found !== undefined) return found;
+    const latest = queryClient.getQueryState<InfiniteData<MessagePage>>(messagesKey);
+    let fromLatest: MessageResponse | undefined;
+    for (const page of latest?.data?.pages ?? []) {
+      fromLatest = page.items.find((message) => message.id === messageId);
+      if (fromLatest !== undefined) break;
     }
-    return undefined;
-  }, [queryClient, roomId, threadNumber, messageId]);
+    // A tombstone remains authoritative even if another mounted copy is still waiting on the same live hint.
+    if (fromLatest?.deleted) return fromLatest;
+    const history = queryClient.getQueriesData<MessageContext>({ queryKey: [...messagesKey, "context"], type: "active" });
+    for (const [key, data] of history) {
+      const state = queryClient.getQueryState(key);
+      if (state?.status !== "success") continue;
+      const found = data?.items.find((message) => message.id === messageId);
+      if (found?.deleted || (found && (!fromLatest || state.dataUpdatedAt >= (latest?.dataUpdatedAt ?? 0)))) return found;
+    }
+    return fromLatest;
+  }, [queryClient, messagesKey, messageId]);
   return useSyncExternalStore(subscribe, read);
 }

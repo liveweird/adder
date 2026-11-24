@@ -135,13 +135,15 @@ export function writeFocus(base: URLSearchParams, on: boolean): URLSearchParams 
   return out;
 }
 
-/** A message id as the API carries it: a positive integer within JavaScript's safe range (at most 15 digits). */
-const MESSAGE_ID = /^[1-9]\d{0,14}$/;
+/** A message id as the API carries it: a positive, signed 32-bit integer. */
+const MESSAGE_ID = /^[1-9]\d{0,9}$/;
 
 /** The message a thread link asks to jump to (`message=<id>`), or null when the key is absent or not a positive integer. */
 export function parseMessageAnchor(search: URLSearchParams): number | null {
   const raw = search.get("message");
-  return raw !== null && MESSAGE_ID.test(raw) ? Number(raw) : null;
+  if (raw === null || !MESSAGE_ID.test(raw)) return null;
+  const id = Number(raw);
+  return id <= 2_147_483_647 ? id : null;
 }
 
 /** The list keys that differ from the defaults, in URL order. */

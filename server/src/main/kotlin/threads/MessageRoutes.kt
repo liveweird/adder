@@ -40,6 +40,16 @@ import kotlinx.serialization.Serializable
 @Resource("messages")
 class ThreadMessagesRoute(val parent: ThreadsRoute.Number)
 
+/** A bounded conversation window centred on one message. */
+@Serializable
+@Resource("context")
+class ThreadMessageContextRoute(val parent: ThreadMessagesRoute)
+
+/** A flat search of one thread's live messages. */
+@Serializable
+@Resource("search")
+class ThreadMessageSearchRoute(val parent: ThreadMessagesRoute)
+
 /**
  * `/api/v1/rooms/{id}/messages/{messageId}`: ONE message, addressed through its room (API-RES-006 bans a path of three parameters), so
  * the route checks that the message belongs to that room: a message of another room is the uniform `404`.
@@ -59,6 +69,7 @@ fun Application.configureMessageRoutes() {
     val roomService = attributes[RoomServiceKey]
     val threadService = attributes[ThreadServiceKey]
     val messageService = attributes[MessageServiceKey]
+    val searchService = attributes[ThreadSearchServiceKey]
 
     routing {
         authenticate {
@@ -67,7 +78,7 @@ fun Application.configureMessageRoutes() {
             // 404 for a missing room and a non-member alike, audited `room.access_denied`); the pre-check (member for the POST, the
             // author or a remover for the writes: 403, a missing or deleted message is 404 first); the body (400); then the service
             // re-runs the guards under the room lock. Audit lines carry ids, never a body.
-            messageReads(roomService, threadService, messageService)
+            messageReads(roomService, threadService, messageService, searchService)
             messagePost(roomService, messageService)
             messageEdit(roomService, messageService)
             messageDelete(roomService, messageService)
@@ -75,7 +86,12 @@ fun Application.configureMessageRoutes() {
     }
 }
 
-private fun Route.messageReads(roomService: RoomService, threadService: ThreadService, messageService: MessageService) {
+private fun Route.messageReads(
+    roomService: RoomService,
+    threadService: ThreadService,
+    messageService: MessageService,
+    searchService: ThreadSearchService,
+) {
     get<ThreadMessagesRoute> { route ->
         val caller = call.caller()
         val roomId = route.parent.parent.parent.id
@@ -88,6 +104,32 @@ private fun Route.messageReads(roomService: RoomService, threadService: ThreadSe
         if (idLt != null && idLt !in 1u..MAX_MESSAGE_ID) throw BadRequestException("id[lt] must be between 1 and $MAX_MESSAGE_ID")
         val result = messageService.list(threadId, number, idLt, paging, caller.userId)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+    }
+    get<ThreadMessageContextRoute> { route ->
+        val caller = call.caller()
+        val roomId = route.parent.parent.parent.parent.id
+        roomService.visibleStanding(caller, roomId)
+        val number = route.parent.parent.number.toInt()
+        val threadId = threadService.idOf(roomId, number).orNotFound("Thread")
+        val messageId = call.request.queryParameters.optionalUInt("messageId")
+            ?: throw BadRequestException("messageId is required")
+        if (messageId !in 1u..MAX_MESSAGE_ID) throw BadRequestException("messageId must be between 1 and $MAX_MESSAGE_ID")
+        val context = messageService.context(caller.userId, roomId, threadId, number, messageId).orNotFound("Message")
+        call.respond(HttpStatusCode.OK, context)
+    }
+    rateLimit(RateLimitName(RateLimits.SEARCH)) {
+        get<ThreadMessageSearchRoute> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.parent.parent.id
+            roomService.visibleStanding(caller, roomId)
+            val number = route.parent.parent.number.toInt()
+            val threadId = threadService.idOf(roomId, number).orNotFound("Thread")
+            val params = call.parseMessageSearchParams()
+            val result = searchService.searchThreadMessages(
+                roomId, threadId, caller.userId, params.q, params.structured, params.paging,
+            )
+            call.respond(HttpStatusCode.OK, params.paging.toPage(result.items, result.total))
+        }
     }
     get<RoomMessagesRoute.Id> { route ->
         val caller = call.caller()

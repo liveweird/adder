@@ -7,6 +7,7 @@ import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { makeMessage, messagePage } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
+import { messageHit } from "../test/searchFixtures";
 import { SIDE_WORKFLOW } from "../test/sideFixtures";
 import userEvent from "@testing-library/user-event";
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
@@ -68,6 +69,9 @@ describe("ThreadPane", () => {
       if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(typeof thread === "function" ? thread() : thread);
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
       if (url.startsWith("/api/v1/rooms/12/threads/42/messages?")) return Promise.resolve(jsonResponse(200, messagePage(MESSAGES)));
+      if (url.endsWith("/threads/42/messages/context?messageId=1")) {
+        return Promise.resolve(jsonResponse(200, { messageId: 1, items: [...MESSAGES].reverse(), older: false, newer: false }));
+      }
       if (url.startsWith("/api/v1/rooms/12/threads/42/events?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 }));
       return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
     });
@@ -381,7 +385,9 @@ describe("ThreadPane", () => {
       serve(jsonResponse(200, THREAD));
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       queryClient.setQueryData(["rooms", "threads", 12, "detail", 42], THREAD);
-      queryClient.setQueryData(["rooms", "threads", 12, "messages", 42], { pages: [messagePage(MESSAGES)], pageParams: [undefined] });
+      queryClient.setQueryData(["rooms", "threads", 12, "messages", 42, "context", 1], {
+        messageId: 1, items: [...MESSAGES].reverse(), older: false, newer: false,
+      });
       renderPane("/rooms/12/threads/42?message=1", { state: focusThreadPaneState, queryClient });
       const first = (await screen.findByText("the opening message")).closest("li")!;
       await waitFor(() => expect(first).toHaveFocus());
@@ -391,28 +397,7 @@ describe("ThreadPane", () => {
       expect(screen.getByRole("region", { name: "#42 Disk full on db-3" })).not.toHaveFocus();
     });
 
-    test("switching to another thread mid-jump starts the conversation clean: the new thread's own anchor is looked for there", async () => {
-      const second = { ...THREAD, id: 2, number: 43, title: "Second thread" };
-      mockFetch.mockImplementation((url: string) => {
-        if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, THREAD));
-        if (url === "/api/v1/rooms/12/threads/43") return Promise.resolve(jsonResponse(200, second));
-        if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
-        // Thread 42 has more behind its first page, and the next page never answers: the search is in flight when the reader switches.
-        if (url.startsWith("/api/v1/rooms/12/threads/42/messages?") && url.includes("id%5Blt%5D")) return new Promise<Response>(() => undefined);
-        if (url.startsWith("/api/v1/rooms/12/threads/42/messages?")) return Promise.resolve(jsonResponse(200, messagePage([makeMessage({ id: 30, body: "in forty-two" })], 99)));
-        if (url.startsWith("/api/v1/rooms/12/threads/43/messages?")) return Promise.resolve(jsonResponse(200, messagePage([makeMessage({ id: 5, threadNumber: 43, body: "in forty-three" })])));
-        if (url.includes("/events?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 }));
-        return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
-      });
-      const { rerender } = renderWithProviders(<ThreadPane room={ROOM} numberParam="42" />, { route: "/rooms/12/threads/42?message=5" });
-      await screen.findByText("in forty-two");
-      await waitFor(() => expect(mockFetch.mock.calls.some(([url]) => String(url).includes("/threads/42/messages?") && String(url).includes("id%5Blt%5D"))).toBe(true));
-      rerender(<ThreadPane room={ROOM} numberParam="43" />);
-      const target = (await screen.findByText("in forty-three")).closest("li")!;
-      await waitFor(() => expect(target).toHaveFocus());
-      expect(screen.queryByText("in forty-two")).not.toBeInTheDocument();
-      expect(screen.queryByRole("note")).not.toBeInTheDocument();
-    });
+
   });
 
   test("closing the thread from its header updates the status and replaces the reply box with the closed note", async () => {
@@ -439,4 +424,121 @@ describe("ThreadPane", () => {
     expect(within(region).getByRole("status", { name: "Thread status" })).toHaveTextContent("Done");
     expect(screen.queryByRole("textbox", { name: "Reply" })).not.toBeInTheDocument();
   });
+});
+
+test("Find in thread opens a focused submitted search and returns focus to the header control", async () => {
+  const fetch = vi.fn((url: string) => {
+    if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, THREAD));
+    if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+    if (url.startsWith("/api/v1/rooms/12/threads/42/messages/search?")) {
+      return Promise.resolve(jsonResponse(200, { items: [messageHit(501)], page: 1, pageSize: 20, total: 1 }));
+    }
+    if (url.startsWith("/api/v1/rooms/12/threads/42/messages?")) return Promise.resolve(jsonResponse(200, messagePage(MESSAGES)));
+    if (url.startsWith("/api/v1/rooms/12/threads/42/events?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 }));
+    return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+  });
+  vi.stubGlobal("fetch", fetch);
+  localStorage.setItem("adder.auth.token", "fake-token");
+  const user = userEvent.setup();
+  try {
+    renderWithProviders(<ThreadPane room={ROOM} numberParam="42" />, { route: "/rooms/12/threads/42?scope=all" });
+    const pane = await screen.findByRole("region", { name: "#42 Disk full on db-3" });
+    const trigger = within(pane).getByRole("button", { name: "Find in thread" });
+    await user.click(trigger);
+    const input = within(pane).getByRole("searchbox", { name: "Search messages" });
+    await waitFor(() => expect(input).toHaveFocus());
+    await user.type(input, "outage{Enter}");
+    expect(await within(pane).findByRole("link", { name: /the outage started/i })).toHaveAttribute("href", "/rooms/12/threads/42?message=501&scope=all");
+    await user.click(within(pane).getByRole("button", { name: "Close search" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  }
+});
+
+test("a post completed after switching threads cannot clear the new thread's message anchor", async () => {
+  let finishPost!: (response: Response) => void;
+  const pendingPost = new Promise<Response>((resolve) => { finishPost = resolve; });
+  let thread43Reads = 0;
+  const second = { ...THREAD, id: 2, number: 43, title: "Second thread" };
+  const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url === "/api/v1/rooms/12/threads/42/messages" && init?.method === "POST") return pendingPost;
+    if (url === "/api/v1/rooms/12/threads/43/messages" && init?.method === "POST") {
+      return Promise.resolve(jsonResponse(201, makeMessage({ id: 901, threadNumber: 43, body: "new reply" })));
+    }
+    if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, THREAD));
+    if (url === "/api/v1/rooms/12/threads/43") {
+      thread43Reads += 1;
+      return Promise.resolve(jsonResponse(200, second));
+    }
+    if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+    if (url.includes("/messages/context?messageId=1")) {
+      return Promise.resolve(jsonResponse(200, { messageId: 1, items: [...MESSAGES].reverse(), older: false, newer: false }));
+    }
+    if (url.includes("/events?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 }));
+    return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+  });
+  function LocationProbe() {
+    const location = useLocation();
+    return <output aria-label="location">{`${location.pathname}${location.search}`}</output>;
+  }
+  vi.stubGlobal("fetch", fetch);
+  localStorage.setItem("adder.auth.token", "fake-token");
+  const user = userEvent.setup();
+  try {
+    const { rerender } = renderWithProviders(
+      <><ThreadPane room={ROOM} numberParam="42" /><LocationProbe /></>,
+      { route: "/rooms/12/threads/42?message=1&scope=all" },
+    );
+    await user.type(await screen.findByRole("textbox", { name: "Reply" }), "still sending");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(fetch.mock.calls.some(([url, init]) => url === "/api/v1/rooms/12/threads/42/messages" && init?.method === "POST")).toBe(true));
+    rerender(<><ThreadPane room={ROOM} numberParam="43" /><LocationProbe /></>);
+    await screen.findByRole("region", { name: "#43 Second thread" });
+    finishPost(jsonResponse(201, makeMessage({ id: 900, body: "still sending" })));
+    await waitFor(() => expect(thread43Reads).toBeGreaterThan(1));
+    expect(screen.getByLabelText("location")).toHaveTextContent("/rooms/12/threads/42?message=1&scope=all");
+    await user.type(screen.getByRole("textbox", { name: "Reply" }), "new reply");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("/rooms/12/threads/42?scope=all"));
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  }
+});
+
+test("switching to another thread mid-jump starts the conversation clean: the new thread's own anchor is looked for there", async () => {
+  const second = { ...THREAD, id: 2, number: 43, title: "Second thread" };
+  const fetch = vi.fn((url: string) => {
+    if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, THREAD));
+    if (url === "/api/v1/rooms/12/threads/43") return Promise.resolve(jsonResponse(200, second));
+    if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+    // The first thread's context is still in flight when the reader moves away.
+    if (url.includes("/threads/42/messages/context?")) return new Promise<Response>(() => undefined);
+    if (url.includes("/threads/43/messages/context?")) {
+      return Promise.resolve(jsonResponse(200, {
+        messageId: 5, items: [makeMessage({ id: 5, threadNumber: 43, body: "in forty-three" })], older: false, newer: false,
+      }));
+    }
+    if (url.includes("/events?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 }));
+    return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+  });
+  vi.stubGlobal("fetch", fetch);
+  localStorage.setItem("adder.auth.token", "fake-token");
+  try {
+    const { rerender } = renderWithProviders(<ThreadPane room={ROOM} numberParam="42" />, { route: "/rooms/12/threads/42?message=5" });
+    await waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/threads/42/messages/context?messageId=5"))).toBe(true));
+    rerender(<ThreadPane room={ROOM} numberParam="43" />);
+    const target = (await screen.findByText("in forty-three")).closest("li")!;
+    await waitFor(() => expect(target).toHaveFocus());
+    expect(screen.queryByText("in forty-two")).not.toBeInTheDocument();
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  }
 });

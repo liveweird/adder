@@ -21,13 +21,24 @@ internal class MessageAssembly(
      * author and mention lists ride the page's own names, mentions and group-mentions reads. The cost bound: a page whose quoted
      * bodies hold no `<@` token adds at most that one statement; a page whose only `<@` tokens sit in an off-page quoted body adds up
      * to four (the quote read, the mentions read, the group-mentions read and the teams lookup of a team mention).
+     * [beforeStatement] lets a bounded caller re-arm its shared deadline before each batched assembly stage.
      */
-    suspend fun responses(rows: List<ResultRow>, viewerId: UInt, numberOf: (ResultRow) -> Int): List<MessageResponse> {
+    suspend fun responses(
+        rows: List<ResultRow>,
+        viewerId: UInt,
+        beforeStatement: (() -> Unit)? = null,
+        numberOf: (ResultRow) -> Int,
+    ): List<MessageResponse> {
+        beforeStatement?.invoke()
         val quoted = quotedMessagesOf(rows)
+        beforeStatement?.invoke()
         val names = userNames(rows.map { it[Messages.authorId].value } + quoted.values.map { it.authorId })
         val tokenIds = (rows.liveWithTokens() + quoted.values.filter { it.hasTokens }.map { it.id }).distinct()
+        beforeStatement?.invoke()
         val mentioned = mentions.mentionsOf(tokenIds)
+        beforeStatement?.invoke()
         val grouped = mentions.groups.groupsOf(tokenIds)
+        beforeStatement?.invoke()
         val reacted = reactionsOf(viewerId, rows)
         return rows.map {
             val id = it[Messages.id].value
