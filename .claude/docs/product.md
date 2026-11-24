@@ -390,7 +390,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.8.0** (personal room groups), on 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.9.0** (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -410,6 +410,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.6.0 Room access** | Public self-join, visible restricted rooms with owner-reviewed requests, and restricted hidden rooms. Co-owners can step down while another active owner remains. |
 | **1.7.0 Personal Home** | Recent replies quoting you, open threads you own, watched threads with unread first, and owned rooms with pending join requests. |
 | **1.8.0 Personal room groups** | Private room groups, manual group and room order, and an account-synced sidebar layout. |
+| **1.9.0 Structured search** | AND-combined clauses for text, room, people, calendar dates and message features. The query editor offers examples, entity suggestions and spelling corrections. |
 
 ## Donors
 
@@ -434,6 +435,11 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v1.9.0 — structured search (2026-11-24)
+
+Both search views provide a syntax guide and in-place suggestions. Both search endpoints accept `syntax=structured` and optional `timeZone`.
+Existing plain searches remain compatible. Search uses the existing database schema.
 
 ### v1.8.0 — personal room groups (2026-11-24)
 

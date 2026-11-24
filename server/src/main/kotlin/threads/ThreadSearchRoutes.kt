@@ -57,7 +57,11 @@ private fun Route.roomSearch(roomService: RoomService, searchService: ThreadSear
             val roomId = route.parent.id
             roomService.visibleStanding(caller, roomId)
             val params = call.parseSearchParams()
-            val result = searchService.searchRoom(
+            val result = params.structured?.let {
+                searchService.searchRoomStructured(
+                    roomId, caller.userId, params.closed, params.paging, params.watching, params.threadTags, it,
+                )
+            } ?: searchService.searchRoom(
                 roomId, caller.userId, params.q, params.closed, params.paging, params.watching, params.threadTags,
             )
             call.respond(HttpStatusCode.OK, params.paging.toPage(result.items, result.total))
@@ -79,7 +83,11 @@ private fun Route.globalSearch(searchService: ThreadSearchService) {
         get<SearchRoute> {
             val caller = call.caller()
             val params = call.parseSearchParams()
-            val result = searchService.searchMemberRooms(
+            val result = params.structured?.let {
+                searchService.searchMemberRoomsStructured(
+                    caller.userId, params.closed, params.paging, params.watching, params.threadTags, it,
+                )
+            } ?: searchService.searchMemberRooms(
                 caller.userId, params.q, params.closed, params.paging, params.watching, params.threadTags,
             )
             call.respond(HttpStatusCode.OK, params.paging.toPage(result.items, result.total))

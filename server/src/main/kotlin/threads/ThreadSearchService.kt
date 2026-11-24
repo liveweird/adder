@@ -79,11 +79,32 @@ class ThreadSearchService(
         paging: PageRequest,
         watching: Boolean? = null,
         tagNames: List<String> = emptyList(),
+    ): ThreadSearchResult = searchRoomWith(roomId, callerUserId, q, closed, paging, watching, tagNames, null)
+
+    internal suspend fun searchRoomStructured(
+        roomId: UInt,
+        callerUserId: UInt,
+        closed: Boolean?,
+        paging: PageRequest,
+        watching: Boolean?,
+        tagNames: List<String>,
+        structured: StructuredSearch,
+    ): ThreadSearchResult = searchRoomWith(roomId, callerUserId, null, closed, paging, watching, tagNames, structured)
+
+    private suspend fun searchRoomWith(
+        roomId: UInt,
+        callerUserId: UInt,
+        q: String?,
+        closed: Boolean?,
+        paging: PageRequest,
+        watching: Boolean?,
+        tagNames: List<String>,
+        structured: StructuredSearch?,
     ): ThreadSearchResult =
         budgeted(callerUserId, roomId) { budget ->
             budget.arm(this)
             val room = rooms.summary(roomId) ?: throw NotFoundException("Room not found")
-            searchIn(listOf(room), callerUserId, q, closed, watching, tagNames, paging, budget)
+            searchIn(listOf(room), callerUserId, q, closed, watching, tagNames, paging, budget, structured)
         }
 
     /**
@@ -103,6 +124,25 @@ class ThreadSearchService(
         paging: PageRequest,
         watching: Boolean? = null,
         tagNames: List<String> = emptyList(),
+    ): ThreadSearchResult = searchMemberRoomsWith(callerUserId, q, closed, paging, watching, tagNames, null)
+
+    internal suspend fun searchMemberRoomsStructured(
+        callerUserId: UInt,
+        closed: Boolean?,
+        paging: PageRequest,
+        watching: Boolean?,
+        tagNames: List<String>,
+        structured: StructuredSearch,
+    ): ThreadSearchResult = searchMemberRoomsWith(callerUserId, null, closed, paging, watching, tagNames, structured)
+
+    private suspend fun searchMemberRoomsWith(
+        callerUserId: UInt,
+        q: String?,
+        closed: Boolean?,
+        paging: PageRequest,
+        watching: Boolean?,
+        tagNames: List<String>,
+        structured: StructuredSearch?,
     ): ThreadSearchResult =
         budgeted(callerUserId, null) { budget ->
             budget.arm(this)
@@ -110,7 +150,7 @@ class ThreadSearchService(
             if (memberRooms.isEmpty()) {
                 ThreadSearchResult(emptyList(), 0)
             } else {
-                searchIn(memberRooms, callerUserId, q, closed, watching, tagNames, paging, budget)
+                searchIn(memberRooms, callerUserId, q, closed, watching, tagNames, paging, budget, structured)
             }
         }
 
@@ -165,13 +205,19 @@ class ThreadSearchService(
         tagNames: List<String>,
         paging: PageRequest,
         budget: SearchBudget,
+        structured: StructuredSearch?,
     ): ThreadSearchResult {
         budget.arm(this)
         val tagIds = threadTags.idsOf(tagNames)
         budget.arm(this)
         val queryText = if (q == null) null else ftsQueryText(q) ?: return ThreadSearchResult(emptyList(), 0)
+        val resolved = structured?.let { query ->
+            resolveStructuredSearch(query, inRooms) { budget.arm(this) }
+        }
+        if (resolved?.impossible == true) return ThreadSearchResult(emptyList(), 0)
         val threads = ThreadService.Threads
-        var predicate: Op<Boolean> = threads.roomId.equalsAnyInt(inRooms.map { it.id.toInt() })
+        var predicate: Op<Boolean> = resolved?.threadPredicate()?.asOp()
+            ?: threads.roomId.equalsAnyInt(inRooms.map { it.id.toInt() })
         queryText?.let { predicate = predicate and matchesTitleOrMessage(it) }
         closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
         if (tagNames.isNotEmpty()) predicate = predicate and threadCarriesAnyThreadTag(threads.id, tagIds)
@@ -193,6 +239,11 @@ class ThreadSearchService(
             matches = messageSnippets(ids, queryText)
             budget.arm(this)
             titles = titleSnippets(ids, queryText)
+        } else if (resolved != null) {
+            budget.arm(this)
+            matches = structuredMessageSnippets(ids, resolved)
+            budget.arm(this)
+            titles = structuredTitleSnippets(ids, resolved)
         }
         budget.arm(this)
         val tagsOf = threadTags.forThreads(ids)

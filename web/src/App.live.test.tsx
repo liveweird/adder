@@ -163,6 +163,15 @@ describe("the shell's live socket", () => {
   });
 
   describe("the tab title and the person's other tabs (1.2 D8, D9)", () => {
+    async function openHomeWithUnreadCount() {
+      unseenTotal = 3;
+      renderApp("/");
+      await vi.waitFor(() => expect(SocketStub.instances).toHaveLength(1));
+      act(() => makeLive(lastSocket()));
+      // The lazy page and the bell can settle in different tasks. Wait for the title before hiding the tab.
+      await vi.waitFor(() => expect(document.title).toMatch(/^\(3\) /));
+    }
+
     test("the title counts the bell's number once the socket is live, follows the bell and keeps it through a short drop", async () => {
       unseenTotal = 3;
       renderApp("/");
@@ -184,16 +193,7 @@ describe("the shell's live socket", () => {
     test("a hidden tab keeps its number while quiet and its socket, and shown again it is live", async () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       try {
-        unseenTotal = 3;
-        renderApp("/");
-        await act(async () => {
-          for (let i = 0; i < 20; i++) await Promise.resolve();
-        });
-        act(() => makeLive(lastSocket()));
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(100);
-        });
-        expect(document.title).toMatch(/^\(3\) /);
+        await openHomeWithUnreadCount();
         setTabVisible(false);
         await act(async () => {
           await vi.advanceTimersByTimeAsync(5 * 60_000);
@@ -239,16 +239,7 @@ describe("the shell's live socket", () => {
       try {
         localStorage.setItem("adder.auth.userId", "7");
         vi.stubGlobal("BroadcastChannel", ChannelStub);
-        unseenTotal = 3;
-        renderApp("/");
-        await act(async () => {
-          for (let i = 0; i < 20; i++) await Promise.resolve();
-        });
-        act(() => makeLive(lastSocket()));
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(100);
-        });
-        expect(document.title).toMatch(/^\(3\) /);
+        await openHomeWithUnreadCount();
         setTabVisible(false);
         // Five minutes to quiet, then every minute answered (a silent socket would fail at the next tick) up to the 8-hour close.
         await act(async () => {

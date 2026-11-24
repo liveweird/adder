@@ -3,6 +3,7 @@ import i18n from "../i18n";
 import { ApiError } from "../api/http";
 import { PROBLEM_TYPES } from "./problems";
 import {
+  detectStructuredSearch,
   isSearchable,
   parseSearchParams,
   queryProblem,
@@ -33,6 +34,25 @@ describe("queryProblem: the server's rules, so a bad term never travels", () => 
     expect(queryProblem("x".repeat(101))).toBe("tooLong");
   });
 
+  test("drafts with operators opt in to structured search", () => {
+    for (const query of ['"server down"', "outage -test", "out*", "in:ops", "frmo:alex", "has:reaction:👍"]) {
+      expect(detectStructuredSearch(query), query).toBe(true);
+    }
+    for (const query of ["outage", "alert-triage", "https://example.test", "a * b", "mailto:help@example.test", "time:10", "status:open"]) {
+      expect(detectStructuredSearch(query), query).toBe(false);
+    }
+  });
+
+  test("structured queries have their own encoding and length checks", () => {
+    expect(queryProblem("x".repeat(488) + " has:emoji:👩‍💻", true)).toBeNull();
+    expect(queryProblem("😀".repeat(512), true)).toBeNull();
+    expect(queryProblem("😀".repeat(513), true)).toBe("structuredTooLong");
+    for (const forbidden of ["\u202e", "\u061c", "\u200e", "\u200f", "\u2028", "\u2029", "\t"]) {
+      expect(queryProblem(`${forbidden}has:link`, true)).toBe("structuredInvalid");
+    }
+    expect(queryProblem(" ", true)).toBe("structuredInvalid");
+  });
+
   test("a control character, or a hidden direction or separator, is invalid; an edge one is trimmed away first", () => {
     for (const bad of ["ab\u0001cd", "ab\u0000", "ab\tcd", "ab\ncd", "ab\u202ecd", "ab\u2066cd", "ab\u2028cd", "ab\u2029cd", "ab\u007fcd"]) expect(queryProblem(bad), JSON.stringify(bad)).toBe("invalid");
     expect(queryProblem("\tab\n")).toBeNull();
@@ -40,6 +60,19 @@ describe("queryProblem: the server's rules, so a bad term never travels", () => 
 });
 
 describe("the search URL", () => {
+  test("preserves a structured query and its zone through refinements and pagination", () => {
+    const q = '"outage alert" from:#51 on:2026-10-25';
+    const base = new URLSearchParams({ q, syntax: "structured", timeZone: "Europe/Warsaw", page: "3" });
+    expect(parseSearchParams(base)).toMatchObject({ q, syntax: "structured", timeZone: "Europe/Warsaw", page: 3 });
+    expect(parseSearchParams(writeSearchParams(base, { scope: "closed" }))).toMatchObject({
+      q, syntax: "structured", timeZone: "Europe/Warsaw", scope: "closed", page: 1,
+    });
+    expect(writeSearchParams(base, { q: "", watching: true }).toString()).toBe("watching=1");
+    expect(writeSearchParams(base, { q: "outage", syntax: undefined }).toString()).toBe("q=outage");
+    expect(parseSearchParams(new URLSearchParams({ q, syntax: "invalid", timeZone: "UTC" }))).not.toHaveProperty("syntax");
+    expect(parseSearchParams(new URLSearchParams({ q, syntax: "structured" }))).not.toHaveProperty("timeZone");
+    expect(isSearchable(parseSearchParams(new URLSearchParams({ q: "x".repeat(120), syntax: "structured" })))).toBe(true);
+  });
   test("parses the term (trimmed), the scope (default all) and the page (default 1); junk is the default", () => {
     expect(parseSearchParams(new URLSearchParams("q=%20outage%20&scope=closed&page=3"))).toEqual({ q: "outage", scope: "closed", watching: false, threadTag: [], page: 3 });
     expect(parseSearchParams(new URLSearchParams(""))).toEqual({ q: "", scope: "all", watching: false, threadTag: [], page: 1 });

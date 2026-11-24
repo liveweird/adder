@@ -17,6 +17,44 @@
     "label": "Search all your rooms"
   },
   "hint": "3 or more characters match the start of a word; case and accents are ignored.",
+  "syntax": {
+    "open": "Search syntax",
+    "title": "Build a precise search",
+    "description": "Choose a format to insert it at the cursor. Combine any terms with spaces; every term must match.",
+    "mode": "Structured mode",
+    "hint": "Matches whole words. Add a * for a prefix, or combine phrases and filters.",
+    "tip": "Type a filter to see suggestions.",
+    "correction": "Did you mean {{value}}?",
+    "applyCorrection": "Use suggestion",
+    "suggestions": {
+      "label": "Search suggestions",
+      "room": "Room"
+    },
+    "emoji": {
+      "title": "Emoji filters",
+      "description": "Choose an exact reaction or an emoji contained in a message.",
+      "reaction": "Choose a reaction",
+      "contains": "Choose an emoji in a message"
+    },
+    "operators": {
+      "phrase": "Match this exact phrase",
+      "exclude": "Exclude a word",
+      "prefix": "Match words beginning with this prefix",
+      "in": "Search in one room",
+      "from": "Messages written by this person",
+      "with": "Threads this person participates in",
+      "owner": "Threads currently owned by this person",
+      "on": "Messages sent on a date",
+      "before": "Messages sent before a date",
+      "after": "Messages sent after a date",
+      "during": "Messages sent during a month or year",
+      "pin": "Pinned threads or messages",
+      "link": "Messages containing a link",
+      "reactionAny": "Messages with any reaction",
+      "reaction": "Messages with an exact reaction",
+      "emoji": "Messages containing an exact emoji"
+    }
+  },
   "empty": "Nothing matches “{{q}}”.",
   "watching": {
     "label": "Threads I watch",
@@ -38,6 +76,8 @@
     "tooShort": "Type at least two characters, with a letter or a digit.",
     "tooLong": "Use at most 100 characters.",
     "invalid": "The search cannot contain control characters.",
+    "structuredTooLong": "Use at most 512 characters in a structured query.",
+    "structuredInvalid": "Check the search syntax. Filters need a value, and emoji filters need an actual emoji.",
     "timeout": "The search took too long. Narrow it down with a more specific word.",
     "busy": "The server is busy. Try again in a moment.",
     "rate": "Too many searches. Wait a moment and try again.",

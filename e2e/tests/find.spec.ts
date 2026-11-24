@@ -518,6 +518,58 @@ test("a tag alone finds its threads across rooms", async ({ page }) => {
   await expect(page.getByText("1 thread found")).toBeVisible();
 });
 
+test("structured search suggests clauses and combines them on one message", async ({ page }) => {
+  const [reader, author] = await people(page, "E2E Structured Reader", uniqueText("E2E Structured Author"));
+  const api = await actingAs(reader);
+  const authorApi = await actingAs(author);
+  const roomId = await createRoom(api, uniqueText("e2e-find-structured"), "Default");
+  await addMembers(api, roomId, [author]);
+  const phrase = `disk ${rareWord("diagnostic")}`;
+  const good = uniqueText("Confirmed outage");
+  const split = uniqueText("Separate replies");
+  const different = uniqueText("Reordered phrase");
+  const body = `The ${phrase} points to https://example.test/runbook.`;
+  const goodNumber = await startThread(authorApi, roomId, good, body);
+  const splitNumber = await startThread(authorApi, roomId, split, `The ${phrase} needs review.`);
+  await postMessage(authorApi, roomId, splitNumber, "Runbook at https://example.test/runbook.");
+  await startThread(authorApi, roomId, different, "No matching phrase at https://example.test/runbook.");
+  await startThread(api, roomId, uniqueText("Different author"), body);
+
+  await page.goto("/search");
+  const input = page.getByRole("searchbox", { name: "Search all your rooms" });
+  await page.getByRole("button", { name: "Search syntax", exact: true }).click();
+  await page.getByRole("button", { name: /^has:link/ }).click();
+  await expect(input).toHaveValue(/has:link/);
+  await input.fill(`has:link "${phrase}" form:`);
+  await expect(page.getByText("Did you mean from:?")).toBeVisible();
+  await page.getByRole("button", { name: "Use suggestion", exact: true }).click();
+  await expect(input).toHaveValue(`has:link "${phrase}" from:`);
+  await input.press("End");
+  await input.pressSequentially(`"${author.name}"`);
+  await page.getByRole("button", { name: new RegExp(author.name) }).click();
+  const q = `has:link "${phrase}" from:#${author.id}`;
+  await expect(input).toHaveValue(q);
+  await expect(page).toHaveURL(/\/search$/);
+
+  const [result] = await Promise.all([
+    page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/v1/search" && url.searchParams.get("q") === q;
+    }),
+    page.getByRole("button", { name: "Search", exact: true }).click(),
+  ]);
+  expect(result.status(), await result.text()).toBe(200);
+  const params = new URL(page.url()).searchParams;
+  expect(params.get("syntax")).toBe("structured");
+  expect(params.get("q")).toBe(q);
+  expect(params.get("timeZone")).toBeTruthy();
+  await expect(page.getByText("1 thread found")).toBeVisible();
+  await expect(page.getByRole("link", { name: `#${goodNumber} ${good}` })).toHaveAttribute("href", `/rooms/${roomId}/threads/${goodNumber}`);
+  await page.reload();
+  await expect(input).toHaveValue(q);
+  await expect(page.getByText("1 thread found")).toBeVisible();
+});
+
 test("the focus view hides the thread list and survives a reload", async ({ page }) => {
   const [owner] = await people(page, "E2E Find Owner");
   const api = await actingAs(owner);

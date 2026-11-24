@@ -32,10 +32,11 @@ if [[ "$*" == *gradle* && "$*" != *--no-daemon* ]]; then
   exit 2
 fi
 
-# Transient-network signatures: a failed HTTP fetch, a miss on a full group:artifact:version coordinate (the 404 Maven Central
-# answered transiently), HTTP 5xx, resets/timeouts, DNS, and the wrapper's distribution download. Deliberately NOT a bare
-# "Could not find"/"Could not resolve", which also start build-script errors.
+# Transient-network signatures include failed HTTP fetches, artifact or plugin-marker misses with a complete coordinate,
+# HTTP 5xx, resets/timeouts, DNS, and the wrapper's distribution download. A bare "Could not resolve" also starts
+# build-script errors, so matching that message requires a plugin-marker coordinate.
 transient='Could not (GET|HEAD|download) |Could not find [A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[A-Za-z0-9_.+-]+|Read timed out|Connect timed out|Connection (reset|refused|timed out)|Remote host terminated|Premature end of Content-Length|Received status code 5[0-9][0-9]|Server returned HTTP response code: 5|Unknown host|Temporary failure in name resolution|java\.net\.(SocketException|SocketTimeoutException|UnknownHostException|ConnectException)|javax\.net\.ssl\.SSLException'
+marker_miss="could not resolve plugin artifact '[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+[.]gradle[.]plugin:[A-Za-z0-9_.+-]+'"
 # Never retried, even next to a transient signature. (`Did not resolve ... which is part of the dependency lock state` is NOT here
 # on purpose: it is what the real transient miss prints beside `Could not find`.)
 final='Dependency verification failed|not part of the dependency lock state|[Ll]ock state (is )?out of date|Invalid lock state'
@@ -50,7 +51,7 @@ while true; do
   if [ "$code" -eq 0 ]; then
     exit 0
   fi
-  if [ "$n" -ge "$attempts" ] || grep -Eq "$final" "$log" || ! grep -Eq "$transient" "$log"; then
+  if [ "$n" -ge "$attempts" ] || grep -Eq "$final" "$log" || ! grep -Eq "$transient|$marker_miss" "$log"; then
     exit "$code"
   fi
   wait_for=$((pause * n))
