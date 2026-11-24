@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.12.0",
+    date: "2026-11-25",
+    en: `**Adder 1.12.0 — room organizer**
+
+- Use **Organize rooms** to drag rooms within or between groups and to reorder groups. Collapse groups to make long lists easier to browse.
+- Use the row menus to move rooms and groups by keyboard or tap. Save to apply the new sidebar layout across devices.`,
+    pl: `**Adder 1.12.0 — organizowanie pokoi**
+
+- Otwórz **Organizuj pokoje**, aby przeciągać pokoje w obrębie grup i między nimi oraz zmieniać kolejność grup. Zwijaj grupy, aby ułatwić przeglądanie długich list.
+- Użyj menu przy pokoju lub grupie, aby zmienić położenie klawiaturą lub dotykiem. Zapisz układ paska bocznego, aby korzystać z niego na innych urządzeniach.`,
+  },
+  {
     version: "1.11.0",
     date: "2026-11-25",
     en: `**Adder 1.11.0 — search by status and hashtag**
