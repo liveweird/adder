@@ -7,6 +7,7 @@
 import type { TFunction } from "i18next";
 import { ApiError, isTimeoutError } from "../api/http";
 import { PROBLEM_TYPES, isProblem } from "./problems";
+import { searchOperatorFor } from "./searchQueryEditor";
 import { SCOPE_FILTER, SCOPES, threadTagValues, type Scope } from "./threadListParams";
 
 /** The server's page size for a search (a hit carries up to three snippets, so the shared 100 is not offered). */
@@ -22,7 +23,8 @@ export type QueryProblem = "tooShort" | "tooLong" | "invalid" | "structuredTooLo
 
 /** Detect operators in a newly submitted draft. Shared links keep the syntax stored in their URL. */
 export function detectStructuredSearch(raw: string): boolean {
-  return /"|(?:^|\s)-\S|\S\*(?:\s|$)|(?:^|\s)[a-z]+:(?!\/\/)/i.test(raw);
+  if (/"|(?:^|\s)-\S|\S\*(?:\s|$)/.test(raw)) return true;
+  return [...raw.matchAll(/(?:^|\s)([a-z]+):(?!\/\/)/gi)].some(([, operator]) => searchOperatorFor(operator) !== null);
 }
 
 /**

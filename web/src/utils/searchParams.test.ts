@@ -38,7 +38,7 @@ describe("queryProblem: the server's rules, so a bad term never travels", () => 
     for (const query of ['"server down"', "outage -test", "out*", "in:ops", "frmo:alex", "has:reaction:👍"]) {
       expect(detectStructuredSearch(query), query).toBe(true);
     }
-    for (const query of ["outage", "alert-triage", "https://example.test", "a * b"]) {
+    for (const query of ["outage", "alert-triage", "https://example.test", "a * b", "mailto:help@example.test", "time:10", "status:open"]) {
       expect(detectStructuredSearch(query), query).toBe(false);
     }
   });

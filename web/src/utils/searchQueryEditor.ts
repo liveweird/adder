@@ -135,6 +135,15 @@ function editDistanceAtMostOne(left: string, right: string): boolean {
   return false;
 }
 
+/** A known operator or an unambiguous one-edit correction. */
+export function searchOperatorFor(candidate: string): SearchOperator | null {
+  const normalized = candidate.toLowerCase();
+  const exact = SEARCH_OPERATORS.find((operator) => operator === normalized);
+  if (exact !== undefined) return exact;
+  const matches = SEARCH_OPERATORS.filter((operator) => editDistanceAtMostOne(normalized, operator));
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function operatorCorrection(query: string, caret: number): {
   start: number;
   end: number;
@@ -144,10 +153,8 @@ export function operatorCorrection(query: string, caret: number): {
   const token = contextualSearchToken(query, caret);
   const separator = token.text.indexOf(":");
   if (separator < 1 || token.operator !== null) return null;
-  const candidate = token.text.slice(0, separator).toLowerCase();
-  const matches = SEARCH_OPERATORS.filter((operator) => editDistanceAtMostOne(candidate, operator));
-  if (matches.length !== 1) return null;
-  const [operator] = matches;
+  const operator = searchOperatorFor(token.text.slice(0, separator));
+  if (operator === null) return null;
   return {
     start: token.start,
     end: token.end,
