@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { markRoomReadInCaches, markRoomSeenInCaches, markThreadReadInCaches } from "./readCache";
 import { notificationKeys } from "./notificationKeys";
 import { homeKey, roomKeys } from "./roomKeys";
@@ -137,6 +137,27 @@ describe("markThreadReadInCaches", () => {
     expect(queryClient.getQueryState([...roomKeys.threadList(12), 1])?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(roomKeys.threadDetail(12, 4))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState([...roomKeys.rail, "active"])?.isInvalidated).toBe(true);
+  });
+
+  test.each([[31, false], [30, true]] as const)("context with last id %i and newer=%s preserves unread replies while a marker lands", (id, newer) => {
+    const client = new QueryClient();
+    const data = { messageId: 30, items: [{ id }], older: false, newer };
+    const observer = new QueryObserver(client, {
+      queryKey: roomKeys.messageContext(12, 4, 30),
+      queryFn: () => Promise.resolve(data),
+      initialData: data,
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    try {
+      client.setQueryData(roomKeys.threadDetail(12, 4), { number: 4, unreadCount: 1, firstUnreadMessageId: 31 });
+      markThreadReadInCaches(client, 12, 4, 30);
+      expect(client.getQueryData(roomKeys.threadDetail(12, 4))).toMatchObject({ unreadCount: 1, firstUnreadMessageId: 31 });
+      expect(client.getQueryState(roomKeys.threadDetail(12, 4))?.isInvalidated).toBe(true);
+    } finally {
+      unsubscribe();
+      client.clear();
+    }
   });
 
   test("a cached newest message that is the one sent zeroes the row as usual", () => {

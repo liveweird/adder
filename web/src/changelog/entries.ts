@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.10.0",
+    date: "2026-11-25",
+    en: `**Adder 1.10.0 — find in thread**
+
+- Use **Find in thread** to search the current conversation with keywords or structured clauses. Results show the author, time and a highlighted excerpt.
+- Open a result, quote, pin or message link to see it in context. Browse earlier or later messages, then choose **Back to latest**. Reading an older section leaves newer messages unread.`,
+    pl: `**Adder 1.10.0 — wyszukiwanie w wątku**
+
+- Użyj opcji **Szukaj w wątku**, aby wyszukać słowa kluczowe lub użyć operatorów w bieżącej rozmowie. Wyniki pokazują autora/autorkę, czas i wyróżniony fragment.
+- Otwórz wynik, cytat, przypięcie lub link do wiadomości, aby zobaczyć jej kontekst. Przejdź do starszych lub nowszych wiadomości. Opcja **Wróć do najnowszych** prowadzi na koniec rozmowy. Przeglądanie historii pozostawia nowsze wiadomości jako nieprzeczytane.`,
+  },
+  {
     version: "1.9.0",
     date: "2026-11-24",
     en: `**Adder 1.9.0 — structured search**

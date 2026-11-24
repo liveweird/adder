@@ -5,7 +5,13 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.9.0 — structured search)
+## What's here today (1.10.0 — find in thread)
+
+Open **Find in thread** in the conversation header to search messages in that thread. Enter plain keywords or use structured clauses such as
+`"exact phrase" -draft`. Choose a result to read it with the messages that came before and after it. Existing links from quotes, pins, and
+notifications use the same view. Use **Earlier messages** or **Later messages** to browse, and **Back to latest** to return to the conversation's end.
+
+### Personal room groups (1.8.0)
 
 Use **Organize rooms** in the sidebar or Rooms page to create private groups for rooms you have joined. Move rooms between groups, reorder
 groups and rooms, and save to update your sidebar. Your setup follows your account across devices.

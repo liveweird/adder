@@ -56,6 +56,7 @@ export const roomKeys = {
   threadDetail: (room: number, thread: number | null) => ["rooms", "threads", room, "detail", thread] as const,
   threadEvents: (room: number, thread: number) => ["rooms", "threads", room, "events", thread] as const,
   messages: (room: number, thread: number) => ["rooms", "threads", room, "messages", thread] as const,
+  messageContext: (room: number, thread: number, messageId: number | null) => [...roomKeys.messages(room, thread), "context", messageId] as const,
   /** One room's search results (see `searchAllKey`): not under the room's thread tree, so the hints that re-read the tree leave an open search alone. */
   search: (room: number) => [...searchAllKey, "room", room] as const,
 };

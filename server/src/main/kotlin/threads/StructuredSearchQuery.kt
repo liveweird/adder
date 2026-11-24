@@ -57,14 +57,20 @@ internal data class ResolvedStructuredSearch(
     }
 
     fun threadPredicate(threadAlias: String = "threads"): SearchSql {
-        var result = roomIdsSql(threadAlias)
-        ownerIds.forEach { result = result.and(anyLong("$threadAlias.owner_id", it)) }
-        participantIds.forEach { ids -> result = result.and(participantSql(threadAlias, ids)) }
+        var result = threadScopePredicate(threadAlias)
 
         val message = messagePredicate("m", threadAlias) ?: return result
         val probe = messageProbe(threadAlias, message)
         val title = titlePredicate(threadAlias)
         return result.and(if (title == null) probe else probe.or(title))
+    }
+
+    /** Room, current owner and participant clauses only, for a message search whose thread is already selected. */
+    fun threadScopePredicate(threadAlias: String = "threads"): SearchSql {
+        var result = roomIdsSql(threadAlias)
+        ownerIds.forEach { result = result.and(anyLong("$threadAlias.owner_id", it)) }
+        participantIds.forEach { ids -> result = result.and(participantSql(threadAlias, ids)) }
+        return result
     }
 
     fun messagePredicate(messageAlias: String, threadAlias: String): SearchSql? {

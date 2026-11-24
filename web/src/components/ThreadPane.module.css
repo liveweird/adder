@@ -103,6 +103,10 @@
   gap: 0.25rem 0.75rem;
 }
 
+.find:empty {
+  display: none;
+}
+
 .hashtagRow {
   flex: 1 1 17rem;
 }
@@ -189,6 +193,18 @@
       --chat-timeline-max: none;
       --chat-timeline-flex: 1 1 0;
     }
+  }
+}
+
+@container room-workspace (max-width: 45.99rem) {
+  .pane[data-find-open] .head {
+    min-block-size: 0;
+    overflow-y: auto;
+  }
+
+  .pane[data-find-open] .side,
+  .pane[data-find-open][data-side] .conversation {
+    display: none;
   }
 }
 

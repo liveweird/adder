@@ -136,7 +136,7 @@ private val SNIPPET_WHITESPACE = Regex("\\s+")
 private val LINK_SNIPPET = Regex("(?i)(^|[^\\p{L}\\p{N}_])((?:http://|https://|www\\.|mailto:)\\S+)")
 
 /** Non-text filters have no honest token to mark; return a bounded plain excerpt instead of inventing a hit. */
-private fun plainSnippet(body: String, search: ResolvedStructuredSearch): List<SnippetSegment> {
+internal fun plainSnippet(body: String, search: ResolvedStructuredSearch): List<SnippetSegment> {
     val literals = search.literalHighlights().mapNotNull { needle ->
         body.indexOf(needle, ignoreCase = true).takeIf { it >= 0 }?.let { it until it + needle.length }
     }
@@ -152,6 +152,20 @@ private fun plainSnippet(body: String, search: ResolvedStructuredSearch): List<S
         plain.substring(0, plain.offsetByCodePoints(0, PLAIN_SNIPPET_CHARS)).trimEnd() + " …"
     }
     return listOf(SnippetSegment(excerpt, false))
+}
+
+/** Headlines the selected message ids only; the page query already proved each one matches. */
+internal suspend fun R2dbcTransaction.messageSearchSnippets(ids: List<UInt>, queryText: String): Map<UInt, List<SnippetSegment>> {
+    if (ids.isEmpty()) return emptyMap()
+    val sql = "SELECT m.id, ${ftsHeadlineSql("m.body")} FROM messages m WHERE m.id = ANY(CAST(? AS int4[]))"
+    val arguments = listOf(
+        TextColumnType() to queryText,
+        TextColumnType() to FTS_FRAGMENT_OPTIONS,
+        FTS_INT_ARRAY to ids.map(UInt::toInt),
+    )
+    return exec(sql, arguments, explicitStatementType = StatementType.SELECT) { row ->
+        row.get(0, Int::class.javaObjectType)!!.toUInt() to splitHeadline(row.get(1, String::class.java).orEmpty()).map { it.toWire() }
+    }?.toList().orEmpty().filterNotNull().toMap()
 }
 
 private fun markedExcerpt(body: String, hit: IntRange): List<SnippetSegment> {

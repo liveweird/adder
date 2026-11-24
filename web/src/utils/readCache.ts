@@ -1,6 +1,6 @@
 import type { InfiniteData, QueryClient } from "@tanstack/react-query";
 import type { HomeResponse } from "../api/home";
-import type { MessagePage } from "../api/messages";
+import type { MessageContext, MessagePage } from "../api/messages";
 import type { NotificationPage } from "../api/notifications";
 import { requestRefresh } from "./liveKeys";
 import { notificationKeys } from "./notificationKeys";
@@ -54,9 +54,13 @@ export function markRoomReadInCaches(queryClient: QueryClient, roomId: number): 
   announceSeen();
 }
 
-/** The newest message id the conversation's cache holds (its pages read newest first), or undefined while nothing is cached. */
-function cachedNewestMessageId(queryClient: QueryClient, roomId: number, threadNumber: number): number | undefined {
-  return queryClient.getQueryData<InfiniteData<MessagePage>>(roomKeys.messages(roomId, threadNumber))?.pages[0]?.items[0]?.id;
+/** A live refresh may have found replies beyond an acknowledged message in either conversation view. */
+function hasNewerCachedMessage(queryClient: QueryClient, roomId: number, threadNumber: number, sent: number): boolean {
+  const key = roomKeys.messages(roomId, threadNumber);
+  const latest = queryClient.getQueryData<InfiniteData<MessagePage>>(key)?.pages[0]?.items[0]?.id ?? 0;
+  return latest > sent || queryClient
+    .getQueriesData<MessageContext>({ queryKey: [...key, "context"], type: "active" })
+    .some(([, context]) => context !== undefined && (context.newer || (context.items.at(-1)?.id ?? 0) > sent));
 }
 
 /**
@@ -66,8 +70,7 @@ function cachedNewestMessageId(queryClient: QueryClient, roomId: number, threadN
  * server's newer answer, which zeroing would undo, so those are re-read instead.
  */
 export function markThreadReadInCaches(queryClient: QueryClient, roomId: number, threadNumber: number, sentMessageId: number): void {
-  const newest = cachedNewestMessageId(queryClient, roomId, threadNumber);
-  if (newest !== undefined && newest > sentMessageId) {
+  if (hasNewerCachedMessage(queryClient, roomId, threadNumber, sentMessageId)) {
     void queryClient.invalidateQueries({ queryKey: roomKeys.threadList(roomId) });
     void queryClient.invalidateQueries({ queryKey: roomKeys.threadDetail(roomId, threadNumber) });
     void queryClient.invalidateQueries({ queryKey: roomKeys.rail });

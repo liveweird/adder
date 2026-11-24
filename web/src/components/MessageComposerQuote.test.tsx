@@ -3,7 +3,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { act, screen, waitFor } from "@testing-library/react";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, useQuery } from "@tanstack/react-query";
 import MessageComposer, { type QuoteRequest } from "./MessageComposer";
 import ThreadDraftsProvider from "./ThreadDraftsProvider";
 import type { QuoteDraft } from "../hooks/useThreadDrafts";
@@ -267,6 +267,26 @@ describe("MessageComposer: quoting a message", () => {
       // The reader is still told by Send, and removing the quote leaves nothing behind.
       await user.click(screen.getByRole("button", { name: "Remove the quote" }));
       expect(screen.queryByText("Quoting Ann Author")).not.toBeInTheDocument();
+    });
+
+    test("the active historical window keeps the quoted draft in sync without fetching it separately", async () => {
+      const user = userEvent.setup();
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const contextKey = roomKeys.messageContext(makeRoom().id, 42, 31);
+      const initial = { messageId: 31, items: [annsMessage({ body: "A corrected reading." })], older: true, newer: true };
+
+      function HistoricalQuote() {
+        useQuery({ queryKey: contextKey, queryFn: () => Promise.resolve(initial), initialData: initial, staleTime: Infinity });
+        return <QuoteHarness />;
+      }
+
+      renderWithProviders(<HistoricalQuote />, { queryClient: client });
+      await user.click(screen.getByRole("button", { name: "quote Ann" }));
+      expect(screen.getByText("A corrected reading.")).toBeInTheDocument();
+      act(() => void client.setQueryData(contextKey, { ...initial, items: [annsMessage({ deleted: true, body: null })] }));
+      expect(await screen.findByText(GONE)).toBeInTheDocument();
+      expect(screen.queryByText("A corrected reading.")).not.toBeInTheDocument();
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     test("a quote picked while the list already shows the message as deleted is blank at once, and after a reload of the pane", async () => {

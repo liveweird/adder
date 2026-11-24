@@ -1699,6 +1699,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/threads/{number}/messages/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a message window in a thread
+         * @description Lands directly on `messageId` in the selected thread and returns it with up to 25 earlier and 25 later messages, oldest first.
+         *     This is a bounded replacement window, not a page to append: request the first returned id to move earlier or the last returned
+         *     id to move later. `older` and `newer` say whether another window exists outside the returned one. The anchor is included even
+         *     when it is a deleted tombstone; an unknown id and a message of another thread are the same uniform `404`.
+         *
+         *     Room members may read it. An `ADMIN` outside the room can read public and restricted visible rooms. Other callers get the uniform `404`. The read shares the bounded per-user thread
+         *     detail budget and may answer `429`; it never counts or scans the whole history.
+         */
+        get: operations["getThreadMessageContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/messages/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Search messages in one thread
+         * @description Room members may search it. An `ADMIN` outside the room can search public and restricted visible rooms. Other callers and an unknown
+         *     thread number get the uniform `404`. Returns a flat page of live message hits from this thread; deleted tombstones and the thread title are never searched or returned. Search is case- and
+         *     accent-insensitive except that an exact phrase preserves accents, punctuation and spaces.
+         *
+         *     With `syntax=structured`, `in:` must resolve to this room, while `owner:` and `with:` test the selected thread. `from:`, date,
+         *     text, link, reaction and emoji clauses test each returned message. `has:pin` alone returns pinned messages only; when combined
+         *     with another message clause, a thread pin also admits messages that satisfy those other clauses. Clauses remain AND-combined.
+         *
+         *     - Sortable field: `id` only. Default `-id` (newest first).
+         *     - At most 20 hits per page. Each hit contains a plain-text snippet with matching runs marked; render it as text, never HTML.
+         *     - Uses the shared search rate limit, concurrency cap and deadline; a refused, busy or timed-out search is `429`.
+         */
+        get: operations["searchThreadMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rooms/{id}/messages/{messageId}": {
         parameters: {
             query?: never;
@@ -3372,6 +3436,16 @@ export interface components {
             /** @description A fragment of the message, at most two pieces of 6 to 18 words joined by an ellipsis, its hits marked. */
             snippet: components["schemas"]["SnippetSegment"][];
         };
+        MessageSearchPage: {
+            items: components["schemas"]["MessageSearchHit"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Matching live messages in the selected thread.
+             */
+            total: number;
+        };
         ThreadSearchHit: {
             /** Format: int32 */
             roomId: number;
@@ -3467,6 +3541,20 @@ export interface components {
              * @description The message of the SAME thread this one quotes; optional, and `null` quotes nothing. Unknown, of another thread or room, or deleted is a `400` of type `urn:adder:problem:quote-unavailable`. Answered as `quote.messageId` on the message, not as a mirror here. An edit cannot name it.
              */
             quotedMessageId?: number | null;
+        };
+        /** @description A chronological replacement window centred on one message, with at most 25 messages on either side. */
+        MessageContextResponse: {
+            /**
+             * Format: int32
+             * @description The anchor, which is always present in `items`.
+             */
+            messageId: number;
+            /** @description Oldest first; includes deleted tombstones. */
+            items: components["schemas"]["MessageResponse"][];
+            /** @description There are messages before the first returned item. */
+            older: boolean;
+            /** @description There are messages after the last returned item. */
+            newer: boolean;
         };
         MessageResponse: {
             /**
@@ -4102,6 +4190,8 @@ export interface components {
         ThreadNumberPath: number;
         /** @description A message id (int32; ids start at 1). */
         MessageIdPath: number;
+        /** @description The message to anchor a chronological context window on. A repeated key is a `400`. */
+        MessageIdQuery: number;
         /** @description Keyset filter of a message list - only rows whose `id` is below this value (the older messages). A repeated key is a `400`. */
         IdLt: number;
         /** @description 1-based page index. Defaults to 1. */
@@ -4124,6 +4214,8 @@ export interface components {
         Q: string;
         /** @description Search input (API-LIST-005) for either search route. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true` or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
         SearchQ: string;
+        /** @description Required search input. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit. Length is measured after trimming. A repeated key, control character or direction override character is invalid. */
+        MessageSearchQ: string;
         /**
          * @description Omit for plain full-text search. Use `structured` for the following AND-combined clauses:
          *
@@ -6571,6 +6663,106 @@ export interface operations {
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getThreadMessageContext: {
+        parameters: {
+            query: {
+                /** @description The message to anchor a chronological context window on. A repeated key is a `400`. */
+                messageId: components["parameters"]["MessageIdQuery"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The chronological bounded window containing the anchor */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageContextResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    searchThreadMessages: {
+        parameters: {
+            query: {
+                /** @description Required search input. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit. Length is measured after trimming. A repeated key, control character or direction override character is invalid. */
+                q: components["parameters"]["MessageSearchQ"];
+                /**
+                 * @description Omit for plain full-text search. Use `structured` for the following AND-combined clauses:
+                 *
+                 *     - `word` matches a full indexed word, `prefix*` an indexed word starting with at least two letters or digits, and `"exact phrase"`
+                 *       a contiguous literal phrase. Phrase matching ignores case and preserves accents, punctuation and spaces. Prefix a text
+                 *       clause with `-` to exclude it.
+                 *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
+                 *       The person filters also accept exact email addresses. `from` selects a matching message's author,
+                 *       `with` a thread with a live message by that user, and `owner` its current owner.
+                 *     - `on:YYYY-MM-DD` selects the named day, `before:` selects earlier days, `after:` selects later days,
+                 *       and `during:YYYY-MM` or `during:YYYY` selects a month or year. Calendar boundaries use `timeZone`.
+                 *     - `has:pin` requires a pinned thread or matching message. `has:link` matches an HTTP(S), `www.`, or `mailto:` link.
+                 *       `has:reaction` requires any reaction, `has:reaction:👍` requires that reaction, and `has:emoji:👍` finds the literal emoji in the body.
+                 *
+                 *     All message clauses must hold on one live message. Positive text can also match a title when no filter requires a message.
+                 *     A query with only thread filters can produce hits without message snippets. Malformed clauses and unknown operators return
+                 *     `400` without echoing the query.
+                 */
+                syntax?: components["parameters"]["SearchSyntax"];
+                /**
+                 * @description IANA time zone used to interpret structured date clauses. Omit for UTC.
+                 * @example Europe/Warsaw
+                 */
+                timeZone?: components["parameters"]["SearchTimeZone"];
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page for the search only (a hit carries up to three snippets). Defaults to 20, maximum 20 (the shared maximum is 100). */
+                pageSize?: components["parameters"]["SearchPageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A flat page of matching live messages */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageSearchPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };

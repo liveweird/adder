@@ -77,3 +77,19 @@
     max-block-size: none;
   }
 }
+
+.contextControls {
+  padding: 0.375rem var(--chat-gutter, var(--mantine-spacing-sm));
+  background: var(--adder-surface-tint);
+  border-block-end: 1px solid var(--mantine-color-default-border);
+}
+
+.backToLatest {
+  margin-inline-start: auto;
+}
+
+@media (pointer: coarse) {
+  .contextControls button {
+    min-block-size: 2.75rem;
+  }
+}

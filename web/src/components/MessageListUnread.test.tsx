@@ -32,6 +32,10 @@ describe("MessageList: unread", () => {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       const decoded = decodeURIComponent(url);
       if (init?.method === "PUT") return Promise.resolve(new Response(null, { status: 204 }));
+      const anchor = /\/messages\/context\?messageId=(\d+)$/.exec(decoded);
+      if (anchor) return Promise.resolve(jsonResponse(200, {
+        messageId: Number(anchor[1]), items: [...newestFirst, ...older].reverse(), older: false, newer: true,
+      }));
       if (decoded.includes("id[lt]=")) return Promise.resolve(jsonResponse(200, messagePage(older, older.length)));
       return Promise.resolve(jsonResponse(200, messagePage(newestFirst, newestFirst.length + older.length)));
     });
@@ -156,7 +160,7 @@ describe("MessageList: unread", () => {
       expect(await screen.findByRole("button", JUMP)).toBeInTheDocument();
     });
 
-    test("loads older messages until the first new one is listed, then lands on it", async () => {
+    test("loads the first unread message directly when it is outside the latest page", async () => {
       const user = userEvent.setup();
       serve([makeMessage({ id: 10, authorId: 8, authorName: "Eve Older", body: "the first new one" })]);
       renderList({ thread: makeThread({ firstUnreadMessageId: 10 }) });
@@ -165,6 +169,8 @@ describe("MessageList: unread", () => {
       await user.click(await screen.findByRole("button", JUMP));
       await waitFor(() => expect(item(10)).toHaveFocus());
       expect(within(item(10)).getByRole("separator")).toBeInTheDocument();
+      expect(mockFetch.mock.calls.some(([url]) => String(url).endsWith("/messages/context?messageId=10"))).toBe(true);
+      expect(mockFetch.mock.calls.some(([url]) => String(url).includes("id%5Blt%5D"))).toBe(false);
       expect(screen.getByRole("region", { name: "Messages" }).scrollTop).toBe(SCROLL_HEIGHT + centreOffsetOf(10));
     });
 
@@ -257,13 +263,24 @@ describe("MessageList: unread", () => {
       await waitFor(() => expect(markerIds()).toEqual([30]));
     });
 
-    test("not while the reader is scrolled up (a list opened on a jump): it goes when they reach the end", async () => {
+    test("a historical window does not acknowledge unread activity even at its bottom", async () => {
       serve();
       renderList({ anchorId: 20 });
       const region = await screen.findByRole("region", { name: "Messages" });
       await waitFor(() => expect(item(20)).toHaveFocus());
       expect(markerIds()).toEqual([]);
       scrollTo(region, 0);
+      expect(markerIds()).toEqual([]);
+      await userEvent.setup().click(screen.getByRole("button", { name: "Back to latest" }));
+      await waitFor(() => expect(markerIds()).toEqual([30]));
+    });
+
+    test("not while Find is open, even with the latest messages loaded", async () => {
+      serve();
+      const { rerender } = renderList({ readingPaused: true });
+      await screen.findByRole("region", { name: "Messages" });
+      expect(markerIds()).toEqual([]);
+      rerender(ui({ readingPaused: false }));
       await waitFor(() => expect(markerIds()).toEqual([30]));
     });
 

@@ -31,6 +31,9 @@ describe("ThreadPane: pinning the thread", () => {
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
       if (url.startsWith("/api/v1/rooms/12/pins?")) return Promise.resolve(jsonResponse(200, { items: pinned, page: 1, pageSize: 50, total: pinned.length }));
       if (url.startsWith("/api/v1/rooms/12/threads/42/messages?")) return Promise.resolve(jsonResponse(200, messagePage([makeMessage({ id: 1 })])));
+      if (url.endsWith("/threads/42/messages/context?messageId=1")) {
+        return Promise.resolve(jsonResponse(200, { messageId: 1, items: [makeMessage({ id: 1 })], older: false, newer: false }));
+      }
       if (url.startsWith("/api/v1/rooms/12/threads/42/events?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 }));
       return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
     });
@@ -127,6 +130,22 @@ describe("ThreadPane: pinning the thread", () => {
     await user.click(toggle);
     expect(within(strip).getByRole("link", { name: /^Show in thread/ })).toHaveAttribute("href", "/rooms/12/threads/42?message=1");
     expect(within(strip).getByRole("button", { name: "Pinned in this thread (1)" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("unpinning the strip's last message returns focus to the thread pane", async () => {
+    const user = userEvent.setup();
+    pinned = [{ ...THREAD_PIN, id: 4, kind: "MESSAGE", message: makeMessage({ id: 1, body: "Restart the replica first" }) }];
+    serve(() => {
+      pinned = [];
+      return new Response(null, { status: 204 });
+    });
+    renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
+    const pane = await screen.findByRole("region", { name: "#42 Disk full on db-3" });
+    const strip = await screen.findByRole("region", { name: "Pins in this thread" });
+    await user.click(within(strip).getByRole("button", { name: /^Pinned: / }));
+    await user.click(within(strip).getByRole("button", { name: /^Unpin / }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Pins in this thread" })).not.toBeInTheDocument());
+    expect(pane).toHaveFocus();
   });
 
   test("expanded or not is remembered per person in the browser; a corrupt stored value reads as collapsed", async () => {

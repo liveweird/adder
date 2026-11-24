@@ -127,7 +127,10 @@
   },
   "anchor": {
     "gone": "That message no longer exists.",
-    "tooFar": "That message is too far back to jump to. Keep loading older messages to look for it.",
+    "navigation": "Message context",
+    "earlier": "Earlier messages",
+    "later": "Later messages",
+    "latest": "Back to latest",
     "found": "Found the message by {{author}}."
   },
   "message": {
@@ -330,6 +333,19 @@
     "button_other": "{{count}} new messages below",
     "announce_one": "{{count}} new message arrived",
     "announce_other": "{{count}} new messages arrived"
+  },
+  "find": {
+    "open": "Find in thread",
+    "aria": "Find messages in this thread",
+    "title": "Find in thread",
+    "label": "Search messages",
+    "submit": "Search this thread",
+    "close": "Close search",
+    "results": "Messages found",
+    "count_one": "{{count}} message found",
+    "count_other": "{{count}} messages found",
+    "empty": "No message matches “{{q}}”.",
+    "failed": "Could not search this thread"
   },
   "tags": {
     "aria": "Tags",

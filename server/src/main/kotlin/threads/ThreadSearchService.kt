@@ -37,6 +37,11 @@ private val SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
     "createdAt" to ThreadService.Threads.createdAt,
 )
 
+private val MESSAGE_SEARCH_COLUMNS: Map<String, Column<*>> = mapOf("id" to MessageService.Messages.id)
+
+/** The sortable whitelist of a search inside one thread's messages. */
+val MESSAGE_SEARCH_SORT_FIELDS: Set<String> = MESSAGE_SEARCH_COLUMNS.keys
+
 /** The sortable whitelist of a search: derived from the column map, so the two cannot disagree. */
 val SEARCH_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
 
@@ -159,11 +164,11 @@ class ThreadSearchService(
      * spent between two statements becomes the audited `429` `search-timeout`. Takes one of the process's permits first: none free is
      * the audited `429` `search-busy` at once, before a pool connection is asked for. [roomId] is null for a search across rooms.
      */
-    private suspend fun budgeted(
+    private suspend fun <T> budgeted(
         callerUserId: UInt,
         roomId: UInt?,
-        block: suspend R2dbcTransaction.(SearchBudget) -> ThreadSearchResult,
-    ): ThreadSearchResult {
+        block: suspend R2dbcTransaction.(SearchBudget) -> T,
+    ): T {
         if (!permits.tryAcquire()) {
             audit("search.busy", "byUserId" to callerUserId.toLong(), "roomId" to roomId?.toLong())
             throw searchBusy()
@@ -173,6 +178,68 @@ class ThreadSearchService(
         } finally {
             permits.release()
         }
+    }
+
+    /**
+     * A flat page of live matching messages of one selected thread. It uses the same search deadline and process semaphore as both
+     * thread-search routes. Structured room, owner and participant clauses first decide whether the selected thread is in scope; every
+     * message clause must then match the returned message. Thread titles never participate. With `has:pin` alone only message pins
+     * match; combined with another message clause a thread pin admits messages matching the remaining clauses, as in structured search.
+     */
+    internal suspend fun searchThreadMessages(
+        roomId: UInt,
+        threadId: UInt,
+        callerUserId: UInt,
+        q: String?,
+        structured: StructuredSearch?,
+        paging: PageRequest,
+    ): MessageSearchResult = budgeted(callerUserId, roomId) { budget ->
+        budget.arm(this)
+        val room = rooms.summary(roomId) ?: throw NotFoundException("Room not found")
+        val resolved = structured?.let { resolveStructuredSearch(it, listOf(room)) { budget.arm(this) } }
+        if (resolved?.impossible == true) return@budgeted MessageSearchResult(emptyList(), 0)
+        if (resolved != null) {
+            budget.arm(this)
+            val inScope = ThreadService.Threads.select(ThreadService.Threads.id).where {
+                (ThreadService.Threads.id eq threadId) and resolved.threadScopePredicate().asOp()
+            }.limit(1).toList().isNotEmpty()
+            if (!inScope) return@budgeted MessageSearchResult(emptyList(), 0)
+        }
+        budget.arm(this)
+        val queryText = q?.let { ftsQueryText(it) ?: return@budgeted MessageSearchResult(emptyList(), 0) }
+        val messages = MessageService.Messages
+        val source = messages.innerJoin(ThreadService.Threads)
+        var predicate: Op<Boolean> = (messages.threadId eq threadId) and messages.active()
+        if (queryText != null) predicate = predicate and messages.ftsRowVector().ftsMatches(queryText)
+        resolved?.messagePredicate("messages", "threads")?.let { predicate = predicate and it.asOp() }
+        budget.arm(this)
+        val total = source.select(messages.columns).where { predicate }.count()
+        budget.arm(this)
+        val rows = source.select(messages.columns).where { predicate }.applyPaging(paging, MESSAGE_SEARCH_COLUMNS).toList()
+        if (rows.isEmpty()) return@budgeted MessageSearchResult(emptyList(), total)
+        val ids = rows.map { it[messages.id].value }
+        budget.arm(this)
+        val snippets = when {
+            queryText != null -> messageSearchSnippets(ids, queryText)
+            resolved?.headlineQuery() != null -> messageSearchSnippets(ids, resolved.headlineQuery()!!)
+            resolved != null -> rows.associate { it[messages.id].value to plainSnippet(it[messages.body], resolved) }
+            else -> emptyMap()
+        }
+        budget.arm(this)
+        val names = userNames(rows.map { it[messages.authorId].value })
+        MessageSearchResult(
+            rows.map { row ->
+                val id = row[messages.id].value
+                MessageSearchHit(
+                    id = id,
+                    authorId = row[messages.authorId].value,
+                    authorName = names.getValue(row[messages.authorId].value),
+                    createdAt = row[messages.createdAt],
+                    snippet = snippets[id].orEmpty(),
+                )
+            },
+            total,
+        )
     }
 
     /** The audited `429` `search-timeout` (ids only, never the term); the cause is deliberately neither logged nor attached. */

@@ -629,6 +629,10 @@ and needs no backfill. A 1.7.0 binary can run with the new table present.
 
 ### Search (V16)
 
+**Find in thread (1.10.0).** The existing message index on `(thread_id, id)` supplies both ranges of the context read. Each takes one extra
+row to determine whether its side continues. Message search applies one predicate to the count and page, and only the page's hits are headlined.
+Both use the existing schema and shared read budgets.
+
 Structured search (1.9.0) uses the same schema and budget. Message predicates share one live-message probe per candidate thread.
 Room restrictions are applied before text and filter matching, and only the page's matching messages feed snippets.
 

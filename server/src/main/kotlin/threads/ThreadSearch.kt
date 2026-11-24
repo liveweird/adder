@@ -75,9 +75,13 @@ data class ThreadSearchHit(
 )
 
 typealias ThreadSearchPageResponse = PageResponse<ThreadSearchHit>
+typealias MessageSearchPageResponse = PageResponse<MessageSearchHit>
 
 /** One page of matching threads plus the total of matching threads. */
 data class ThreadSearchResult(val items: List<ThreadSearchHit>, val total: Long)
+
+/** One page of live matching messages plus the total after the query. */
+data class MessageSearchResult(val items: List<MessageSearchHit>, val total: Long)
 
 internal fun FtsSegment.toWire() = SnippetSegment(text, hit)
 
@@ -143,5 +147,32 @@ internal fun ApplicationCall.parseSearchParams(): SearchParams {
         watching = watching,
         paging = paging,
         threadTags = threadTags,
+    )
+}
+
+/** The required query and page of a search inside one thread's live messages. */
+internal class MessageSearchParams(
+    val q: String?,
+    val structured: StructuredSearch?,
+    val paging: PageRequest,
+)
+
+/** Message search uses the shared query language and a flat id-sorted page capped at 20. */
+internal fun ApplicationCall.parseMessageSearchParams(): MessageSearchParams {
+    val paging = parsePaging(sortable = MESSAGE_SEARCH_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
+    if (paging.pageSize > MAX_SEARCH_PAGE_SIZE) throw BadRequestException("pageSize must be between 1 and $MAX_SEARCH_PAGE_SIZE")
+    val params = request.queryParameters
+    val syntax = params.optionalString("syntax")
+    if (syntax != null && syntax != "structured") throw BadRequestException("Unsupported search syntax")
+    val structured = if (syntax == "structured") {
+        val raw = params.singleValue("q")?.takeIf { it.isNotBlank() } ?: throw BadRequestException("q is required")
+        parseStructuredSearch(raw, params.optionalString("timeZone"))
+    } else {
+        null
+    }
+    return MessageSearchParams(
+        q = if (structured == null) validateSearchQuery(params.optionalString("q")) else null,
+        structured = structured,
+        paging = paging,
     )
 }

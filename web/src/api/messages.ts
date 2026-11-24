@@ -9,6 +9,7 @@ import type { paths } from "./schema";
 export type MessagePage = paths["/api/v1/rooms/{id}/threads/{number}/messages"]["get"]["responses"]["200"]["content"]["application/json"];
 /** One message. A deleted one is a tombstone: `body` is null, `deleted` is true, `editedAt` is null and `deletedByModerator` says whose hand removed it. */
 export type MessageResponse = MessagePage["items"][number];
+export type MessageContext = paths["/api/v1/rooms/{id}/threads/{number}/messages/context"]["get"]["responses"]["200"]["content"]["application/json"];
 /** The quoted message as a message answers it (1.3): live, as it reads NOW; `deleted` has no text. Not the draft a composer holds (`useThreadDrafts`' `QuoteDraft`). */
 export type MessageQuoteSummary = NonNullable<MessageResponse["quote"]>;
 export type MessageBody = paths["/api/v1/rooms/{id}/threads/{number}/messages"]["post"]["requestBody"]["content"]["application/json"];
@@ -21,6 +22,12 @@ export type MessageEditBody = paths["/api/v1/rooms/{id}/messages/{messageId}"]["
 export async function listMessages(roomId: number, threadNumber: number, q: { idLt?: number; pageSize: number }): Promise<MessagePage> {
   const params = buildQuery({ page: 1, pageSize: q.pageSize, sort: "-id", "id[lt]": q.idLt });
   return jsonRequest<MessagePage>(`/api/v1/rooms/${roomId}/threads/${threadNumber}/messages?${params}`);
+}
+
+/** A bounded, chronological window of messages around an anchor, including tombstones. */
+export function getMessageContext(roomId: number, threadNumber: number, messageId: number, signal?: AbortSignal): Promise<MessageContext> {
+  const params = buildQuery({ messageId });
+  return jsonRequest<MessageContext>(`/api/v1/rooms/${roomId}/threads/${threadNumber}/messages/context?${params}`, { signal });
 }
 
 /**

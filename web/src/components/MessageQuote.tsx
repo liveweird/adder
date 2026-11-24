@@ -17,8 +17,7 @@ import classes from "./MessageQuote.module.css";
  * conversation re-reads when the quoted message changes: `message.edited` and `message.deleted` hints).
  *
  * The link is the jump of the pin strip's "Show in thread": `messageJumpPath` with the list's keys and the focus view kept, so the
- * conversation loads older pages, centres, focuses and highlights the quoted message (a deleted one is a listed tombstone, so the jump lands on
- * that). `onShow` runs when it is followed, so the pane can run the jump again when the URL already names that message. **Its accessible name is
+ * conversation opens the quoted message directly with its surrounding context (a deleted one opens at its tombstone). `onShow` runs when it is followed, so the pane can run the jump again when the URL already names that message. **Its accessible name is
  * its content** (no `aria-label`: axe's `label-content-name-mismatch`, WCAG 2.5.3, wants the visible words inside the name): a visually hidden
  * lead-in, "Quoted message by", then the author, "(edited)" and the excerpt, so a screen-reader user hears who and what is quoted, and a
  * deleted quote says "The quoted message was deleted." in its name.
