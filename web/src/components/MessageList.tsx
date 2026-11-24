@@ -56,7 +56,7 @@ function ContextControls({ context, onSelect, onLatest }: {
 
 /**
  * Latest messages use the chronological timeline and older-page cursor. A message jump opens a bounded historical
- * window instead. Browsing that window never acknowledges unread activity or scrolls to newly posted messages.
+ * window instead. Only a window that reaches the thread's latest message can follow and acknowledge new replies.
  */
 export default function MessageList({
   room,
@@ -123,6 +123,7 @@ export default function MessageList({
   const read = inContext ? context : latest;
   const missing = inContext && context.error instanceof ApiError && context.error.status === 404;
   const messageWindow = missing ? undefined : context.data;
+  const reachesEnd = !inContext || messageWindow?.newer === false;
   const messages = inContext ? messageWindow?.items ?? [] : (latest.data?.pages.flatMap((page) => page.items) ?? []).reverse();
   const newestId = messages.at(-1)?.id;
   const newestEditedAt = messages.at(-1)?.editedAt;
@@ -132,8 +133,8 @@ export default function MessageList({
   const opened = useRef(false);
   const focusLatest = useRef(false);
   const atBottom = useRef(!inContext);
-  const [position, setPosition] = useState({ inContext, atEnd: !inContext });
-  if (position.inContext !== inContext) setPosition({ inContext, atEnd: !inContext });
+  const [position, setPosition] = useState({ windowId, atEnd: !inContext });
+  if (position.windowId !== windowId) setPosition({ windowId, atEnd: !inContext });
   const setBottom = useCallback((value: boolean) => {
     atBottom.current = value;
     setPosition((current) => current.atEnd === value ? current : { ...current, atEnd: value });
@@ -148,11 +149,11 @@ export default function MessageList({
     opened.current = false;
     anchor.current = null;
     atBottom.current = !inContext;
-  }, [inContext]);
+  }, [windowId, inContext]);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (!el || inContext || messages.length === 0) return;
-    if (!opened.current) {
+    if (!el || !reachesEnd || messages.length === 0) return;
+    if (!inContext && !opened.current) {
       opened.current = true;
       el.scrollTop = el.scrollHeight;
     } else if (anchor.current !== null) {
@@ -162,11 +163,11 @@ export default function MessageList({
     } else if (atBottom.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [inContext, messages.length, trackBottom]);
+  }, [inContext, reachesEnd, messages.length, trackBottom]);
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (!inContext && el && opened.current && anchor.current === null && atBottom.current) el.scrollTop = el.scrollHeight;
-  }, [inContext, newestId, newestEditedAt, layoutKey]);
+    if (reachesEnd && el && anchor.current === null && atBottom.current) el.scrollTop = el.scrollHeight;
+  }, [reachesEnd, newestId, newestEditedAt, layoutKey]);
 
   const selectContext = (id: number) => setSelection({ key: jumpKey, id });
   const returnToLatest = useCallback(() => {
@@ -202,8 +203,9 @@ export default function MessageList({
     jumpedTo.current = { id: windowId, key: jumpKey };
     centreInScroller(el, item);
     item.focus({ preventScroll: true });
+    trackBottom();
     setSpotlight(windowId);
-  }, [windowId, found, jumpKey]);
+  }, [windowId, found, jumpKey, trackBottom]);
   useEffect(() => {
     if (spotlight === null) return;
     const timer = setTimeout(() => setSpotlight(null), SPOTLIGHT_MS);
@@ -231,18 +233,18 @@ export default function MessageList({
     if (read.isLoading || !el) return;
     // Opening Details or resizing the workspace changes the visible height without adding messages.
     const observer = new ResizeObserver(() => {
-      if (!inContext && opened.current && atBottom.current && anchor.current === null) el.scrollTop = el.scrollHeight;
+      if (reachesEnd && atBottom.current && anchor.current === null) el.scrollTop = el.scrollHeight;
       measureFirstUnread();
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, [inContext, read.isLoading, measureFirstUnread]);
-  const readingLatest = !inContext && position.atEnd;
-  const arrivals = useArrivals(inContext ? [] : messages, readingLatest, userId);
+  }, [reachesEnd, read.isLoading, measureFirstUnread]);
+  const readingLatest = reachesEnd && position.atEnd;
+  const arrivals = useArrivals(reachesEnd ? messages : [], readingLatest, userId);
   // Only a settled conversation is read: the newest id of a stale cached copy (an earlier visit's) was never seen, and a re-read is about to replace it.
   useThreadReadMarker({
     roomId: room.id, threadNumber: thread.number, newestId, atEnd: readingLatest && !readingPaused,
-    enabled: !inContext && room.role !== null && threadSettled && !latest.isFetching,
+    enabled: reachesEnd && room.role !== null && threadSettled && !read.isFetching,
   });
 
   function jumpToFirstUnread() {
@@ -329,7 +331,7 @@ export default function MessageList({
         aria-label={t("threads.messages.aria")}
         tabIndex={0}
         onScroll={() => {
-          if (!inContext) trackBottom();
+          trackBottom();
           measureFirstUnread();
         }}
       >

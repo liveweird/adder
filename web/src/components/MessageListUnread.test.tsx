@@ -34,7 +34,7 @@ describe("MessageList: unread", () => {
       if (init?.method === "PUT") return Promise.resolve(new Response(null, { status: 204 }));
       const anchor = /\/messages\/context\?messageId=(\d+)$/.exec(decoded);
       if (anchor) return Promise.resolve(jsonResponse(200, {
-        messageId: Number(anchor[1]), items: [...newestFirst, ...older].reverse(), older: false, newer: false,
+        messageId: Number(anchor[1]), items: [...newestFirst, ...older].reverse(), older: false, newer: true,
       }));
       if (decoded.includes("id[lt]=")) return Promise.resolve(jsonResponse(200, messagePage(older, older.length)));
       return Promise.resolve(jsonResponse(200, messagePage(newestFirst, newestFirst.length + older.length)));

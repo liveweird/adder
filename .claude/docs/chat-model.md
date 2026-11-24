@@ -741,4 +741,4 @@ Leaving a room revokes the reader's access on the next request. Archived rooms a
   The context uses bounded reads on the existing thread/message index, with no whole-thread count. The older-page list contract is independent.
 - **Navigation.** Any message link can open directly, including links from quotes, pins, notifications, and the global, room and thread searches.
   In the conversation, Earlier and Later open the next overlapping window. Back to latest clears the anchor and resumes ordinary reading.
-  Reading a historical window never acknowledges the latest reply.
+  A window can follow and acknowledge replies once the reader reaches the actual end of the thread.

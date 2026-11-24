@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import MessageList from "./MessageList";
 import { jsonResponse } from "../test/http";
@@ -61,6 +61,7 @@ describe("MessageList: direct message context", () => {
     });
   });
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -131,14 +132,37 @@ describe("MessageList: direct message context", () => {
     await user.click(screen.getByRole("button", { name: "Later messages" }));
     await waitFor(() => expect(item(22)).toHaveFocus());
     expect(screen.queryByRole("button", { name: "Later messages" })).not.toBeInTheDocument();
-    const historical = screen.getByRole("region", conversation);
-    historical.scrollTop = 5000;
-    fireEvent.scroll(historical);
-    expect(readMarkers()).toEqual([]);
     await user.click(screen.getByRole("button", { name: "Back to latest" }));
     expect(await screen.findByText("The newest reply")).toBeInTheDocument();
     expect(screen.getByRole("region", conversation)).toHaveFocus();
     expect(showLatest).toHaveBeenCalledOnce();
+  });
+
+  test("the end of historical context leaves newer messages unread", async () => {
+    serve(() => context(20));
+    renderWithProviders(ui(20));
+    const region = await screen.findByRole("region", conversation);
+    await waitFor(() => expect(item(20)).toHaveFocus());
+    region.scrollTop = 5000;
+    fireEvent.scroll(region);
+    expect(readMarkers()).toEqual([]);
+  });
+
+  test("a context window at the actual end acknowledges and follows newer replies", async () => {
+    let items = [before, target, after];
+    serve(() => context(22, items, true, false));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderWithProviders(ui(22), { queryClient });
+    const region = await screen.findByRole("region", conversation);
+    await waitFor(() => expect(item(22)).toHaveFocus());
+    region.scrollTop = 5000;
+    fireEvent.scroll(region);
+    await waitFor(() => expect(readMarkers()).toHaveLength(1));
+    items = [...items, latest];
+    await queryClient.invalidateQueries({ queryKey: roomKeys.messages(12, 42) });
+    expect(await screen.findByText(latest.body!)).toBeInTheDocument();
+    expect(region.scrollTop).toBe(5000);
+    expect(item(22)).toHaveFocus();
   });
 
   test("a live refresh updates the selected window without repeating the focus jump", async () => {
