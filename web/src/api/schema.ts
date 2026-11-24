@@ -1236,7 +1236,7 @@ export interface paths {
          *     before any guard, so a refused search costs a token too), visibility (`404`, audited `room.access_denied`), the parameters
          *     (`400`), then the query. A non-member's bad `q` or `threadTag` is still a `404`. An archived room is searched.
          *
-         *     - `q` (REQUIRED unless `watching=true` or a `threadTag` is given, below; 2 to 100 characters after trimming, at least one letter or digit, no control characters; repeating it is a `400`)
+         *     - Plain `q` (when `syntax` is omitted; REQUIRED unless `watching=true` or a `threadTag` is given; 2 to 100 code points after trimming, at least one letter or digit, no control characters; repeating it is a `400`)
          *       is matched case- and accent-insensitively: `zolw` finds `Żółw` and the snippet keeps the diacritics. Every term is required
          *       within ONE message or within the title; a term of three or more characters matches as a PREFIX (there is no stemming, so
          *       `awari` finds `awaria` and `awarii`, but `bazy` does not find `baza`), a shorter one matches exactly. There are no operators:
@@ -1244,9 +1244,11 @@ export interface paths {
          *       (`!!!`) is a `400`, while tag-shaped input such as `<script>` has no indexable word and matches nothing. `PROD-123` is indexed as `prod` and `-123`: searching it finds it, `123` alone does not.
          *       Hashtag text is searchable (`#db-outage` indexes `db-outage`, `db` and `outage`). Field values and deleted messages are never
          *       searched.
+         *     - `syntax=structured` makes `q` required and enables space-separated clauses combined with AND. See the `SearchSyntax`
+         *       parameter for the grammar. `timeZone` supplies the time zone of calendar dates.
          *     - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
          *     - `watching` (strict `true` or `false`; a repeated key is a `400`) keeps the threads the CALLER watches (`PUT .../watch`), or, with
-         *       `false`, the ones they do not; it narrows the matches of `q`. **`q` is optional ONLY with `watching=true` or a `threadTag`** (below): with `watching=true` that is the room's
+         *       `false`, the ones they do not; it narrows the matches of `q`. **In plain mode, `q` is optional with `watching=true` or a `threadTag`** (below): with `watching=true` that is the room's
          *       "Threads I watch" list, every thread of the room the caller watches, sorted like any search (default newest activity first),
          *       with NO query: no text is matched, so each hit has `messages: []`, `matchCount: 0` and its title as one segment with `hit:
          *       false`. A blank `q` counts as none there; a given `q` is validated as ever. Without `watching=true` (omitted, or `false`) and without a
@@ -1938,12 +1940,14 @@ export interface paths {
          *     (`429`; spent before anything else, so a refused search costs a token too), the parameters (`400`: no room is looked at first),
          *     then the query.
          *
-         *     - `q` (REQUIRED unless `watching=true` or a `threadTag` is given, below; 2 to 100 characters after trimming, at least one letter or digit, no
+         *     - Plain `q` (when `syntax` is omitted; REQUIRED unless `watching=true` or a `threadTag` is given; 2 to 100 code points after trimming, at least one letter or digit, no
          *       control characters; repeating it is a `400`): case- and accent-insensitive, every term required within ONE message or the title, a term of three or more characters
          *       matches as a PREFIX, no operators. Exactly as the room search documents it.
+         *     - `syntax=structured` makes `q` required and enables the same clauses as room search. `in:` narrows the set of rooms the
+         *       caller already belongs to. `timeZone` supplies the time zone of calendar dates.
          *     - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
          *     - `watching` (strict `true` or `false`; a repeated key is a `400`) keeps the threads the CALLER watches (`PUT .../watch`), or, with
-         *       `false`, the ones they do not. **`q` is optional ONLY with `watching=true` or a `threadTag`** (below): with `watching=true` that is the cross-room "Threads I watch" view,
+         *       `false`, the ones they do not. **In plain mode, `q` is optional with `watching=true` or a `threadTag`** (below): with `watching=true` that is the cross-room "Threads I watch" view,
          *       every thread the caller watches in the rooms they are an ACTIVE member of (the view starts from those rooms, never from the
          *       watches: a deleted room's watches are never listed), newest activity first by default, with NO query: each hit has `messages:
          *       []`, `matchCount: 0` and its title as one segment with `hit: false`. A blank `q` counts as none there; a given `q` is
@@ -4118,8 +4122,32 @@ export interface components {
         SearchPageSize: number;
         /** @description Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
         Q: string;
-        /** @description Free-text search (API-LIST-005) of the two search routes: case- and accent-insensitive, every term required within one message or the title, a term of three or more characters a prefix. Required UNLESS `watching=true` (the watched-threads view lists with no query) or a `threadTag` is given (the tag view lists with no query); a blank value counts as omitted. A given value is trimmed first, then must be 2 to 100 characters (code points) with at least one letter or digit, else `400`; the schema states only the maximum, because a blank value is legal where `q` is optional. The shared `Q` stays REQUIRED for the user directory. */
+        /** @description Search input (API-LIST-005) for either search route. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true` or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
         SearchQ: string;
+        /**
+         * @description Omit for plain full-text search. Use `structured` for the following AND-combined clauses:
+         *
+         *     - `word` matches a full indexed word, `prefix*` an indexed word starting with at least two letters or digits, and `"exact phrase"`
+         *       a contiguous literal phrase. Phrase matching ignores case and preserves accents, punctuation and spaces. Prefix a text
+         *       clause with `-` to exclude it.
+         *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
+         *       The person filters also accept exact email addresses. `from` selects a matching message's author,
+         *       `with` a thread with a live message by that user, and `owner` its current owner.
+         *     - `on:YYYY-MM-DD` selects the named day, `before:` selects earlier days, `after:` selects later days,
+         *       and `during:YYYY-MM` or `during:YYYY` selects a month or year. Calendar boundaries use `timeZone`.
+         *     - `has:pin` requires a pinned thread or matching message. `has:link` matches an HTTP(S), `www.`, or `mailto:` link.
+         *       `has:reaction` requires any reaction, `has:reaction:👍` requires that reaction, and `has:emoji:👍` finds the literal emoji in the body.
+         *
+         *     All message clauses must hold on one live message. Positive text can also match a title when no filter requires a message.
+         *     A query with only thread filters can produce hits without message snippets. Malformed clauses and unknown operators return
+         *     `400` without echoing the query.
+         */
+        SearchSyntax: "structured";
+        /**
+         * @description IANA time zone used to interpret structured date clauses. Omit for UTC.
+         * @example Europe/Warsaw
+         */
+        SearchTimeZone: string;
         /** @description Free-text substring of a hashtag (API-LIST-005; the room's tag list). Unlike `Q` it is OPTIONAL and has no minimum, because a picker lists every tag before the user types. Case- and accent-insensitive; trimmed first; at most 50 characters (code points), `400` past that. */
         TagQ: string;
         /** @description Repeatable - any of these status keys (the thread list). A well-formed key that is not a status of the room matches nothing; a malformed one, or more than 20 distinct values, is a `400`. */
@@ -6012,8 +6040,32 @@ export interface operations {
     searchRoom: {
         parameters: {
             query?: {
-                /** @description Free-text search (API-LIST-005) of the two search routes: case- and accent-insensitive, every term required within one message or the title, a term of three or more characters a prefix. Required UNLESS `watching=true` (the watched-threads view lists with no query) or a `threadTag` is given (the tag view lists with no query); a blank value counts as omitted. A given value is trimmed first, then must be 2 to 100 characters (code points) with at least one letter or digit, else `400`; the schema states only the maximum, because a blank value is legal where `q` is optional. The shared `Q` stays REQUIRED for the user directory. */
+                /** @description Search input (API-LIST-005) for either search route. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true` or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
                 q?: components["parameters"]["SearchQ"];
+                /**
+                 * @description Omit for plain full-text search. Use `structured` for the following AND-combined clauses:
+                 *
+                 *     - `word` matches a full indexed word, `prefix*` an indexed word starting with at least two letters or digits, and `"exact phrase"`
+                 *       a contiguous literal phrase. Phrase matching ignores case and preserves accents, punctuation and spaces. Prefix a text
+                 *       clause with `-` to exclude it.
+                 *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
+                 *       The person filters also accept exact email addresses. `from` selects a matching message's author,
+                 *       `with` a thread with a live message by that user, and `owner` its current owner.
+                 *     - `on:YYYY-MM-DD` selects the named day, `before:` selects earlier days, `after:` selects later days,
+                 *       and `during:YYYY-MM` or `during:YYYY` selects a month or year. Calendar boundaries use `timeZone`.
+                 *     - `has:pin` requires a pinned thread or matching message. `has:link` matches an HTTP(S), `www.`, or `mailto:` link.
+                 *       `has:reaction` requires any reaction, `has:reaction:👍` requires that reaction, and `has:emoji:👍` finds the literal emoji in the body.
+                 *
+                 *     All message clauses must hold on one live message. Positive text can also match a title when no filter requires a message.
+                 *     A query with only thread filters can produce hits without message snippets. Malformed clauses and unknown operators return
+                 *     `400` without echoing the query.
+                 */
+                syntax?: components["parameters"]["SearchSyntax"];
+                /**
+                 * @description IANA time zone used to interpret structured date clauses. Omit for UTC.
+                 * @example Europe/Warsaw
+                 */
+                timeZone?: components["parameters"]["SearchTimeZone"];
                 closed?: boolean;
                 /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view; a `threadTag` does too). */
                 watching?: components["parameters"]["ThreadWatchingFilter"];
@@ -6785,8 +6837,32 @@ export interface operations {
     searchRooms: {
         parameters: {
             query?: {
-                /** @description Free-text search (API-LIST-005) of the two search routes: case- and accent-insensitive, every term required within one message or the title, a term of three or more characters a prefix. Required UNLESS `watching=true` (the watched-threads view lists with no query) or a `threadTag` is given (the tag view lists with no query); a blank value counts as omitted. A given value is trimmed first, then must be 2 to 100 characters (code points) with at least one letter or digit, else `400`; the schema states only the maximum, because a blank value is legal where `q` is optional. The shared `Q` stays REQUIRED for the user directory. */
+                /** @description Search input (API-LIST-005) for either search route. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true` or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
                 q?: components["parameters"]["SearchQ"];
+                /**
+                 * @description Omit for plain full-text search. Use `structured` for the following AND-combined clauses:
+                 *
+                 *     - `word` matches a full indexed word, `prefix*` an indexed word starting with at least two letters or digits, and `"exact phrase"`
+                 *       a contiguous literal phrase. Phrase matching ignores case and preserves accents, punctuation and spaces. Prefix a text
+                 *       clause with `-` to exclude it.
+                 *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
+                 *       The person filters also accept exact email addresses. `from` selects a matching message's author,
+                 *       `with` a thread with a live message by that user, and `owner` its current owner.
+                 *     - `on:YYYY-MM-DD` selects the named day, `before:` selects earlier days, `after:` selects later days,
+                 *       and `during:YYYY-MM` or `during:YYYY` selects a month or year. Calendar boundaries use `timeZone`.
+                 *     - `has:pin` requires a pinned thread or matching message. `has:link` matches an HTTP(S), `www.`, or `mailto:` link.
+                 *       `has:reaction` requires any reaction, `has:reaction:👍` requires that reaction, and `has:emoji:👍` finds the literal emoji in the body.
+                 *
+                 *     All message clauses must hold on one live message. Positive text can also match a title when no filter requires a message.
+                 *     A query with only thread filters can produce hits without message snippets. Malformed clauses and unknown operators return
+                 *     `400` without echoing the query.
+                 */
+                syntax?: components["parameters"]["SearchSyntax"];
+                /**
+                 * @description IANA time zone used to interpret structured date clauses. Omit for UTC.
+                 * @example Europe/Warsaw
+                 */
+                timeZone?: components["parameters"]["SearchTimeZone"];
                 closed?: boolean;
                 /** @description `true` = only the threads the CALLER watches (`PUT .../watch`), `false` = only the ones they do not; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member watches none. On the two searches `true` also makes `q` optional (the watched-threads view; a `threadTag` does too). */
                 watching?: components["parameters"]["ThreadWatchingFilter"];

@@ -5,7 +5,7 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.8.0 — personal room groups)
+## What's here today (1.9.0 — structured search)
 
 Use **Organize rooms** in the sidebar or Rooms page to create private groups for rooms you have joined. Move rooms between groups, reorder
 groups and rooms, and save to update your sidebar. Your setup follows your account across devices.
@@ -61,7 +61,7 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
 
 - **Filters and sorts in the URL** — filter a room's threads by status, owner, hashtag and the room's choice and person fields, and sort by activity, newest, number or workflow order; the address bar carries the filter, so a link shows the same list to whoever opens it.
 - **#hashtags** — written in messages, each is a link to the room's threads that use it; the room's tag list is paged.
-- **Full-text search** of one room or of all your rooms (`GET /api/v1/rooms/{id}/search`, `GET /api/v1/search`): words match from their beginning (from three letters), ignore accents and case, and the hits are threads with the matching words highlighted.
+- **Search** one room or all your joined rooms. Combine phrases and filters in a query such as `"disk alert" -test in:"On Call" during:2026-11 has:link`. Open the syntax guide to insert clauses and see examples. Turn on **Structured mode** to match whole words in a query with no operators. [Search syntax](.claude/docs/chat-model.md#structured-search-190).
 - **Jump to a message** (`?message=`) from a search hit or a notice, and the **focus view** (the thread list hidden, the conversation at full width).
 
 0.4.0 made the rooms live:

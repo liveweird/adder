@@ -7,6 +7,7 @@ import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 import { searchPage, threadHit } from "../test/searchFixtures";
+import { pinBrowserTimeZone } from "../test/timeZone";
 
 function Where() {
   const { search } = useLocation();
@@ -77,6 +78,7 @@ describe("Search page (all your rooms)", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     localStorage.clear();
   });
 
@@ -87,6 +89,37 @@ describe("Search page (all your rooms)", () => {
     expect(screen.getByRole("searchbox", { name: "Search all your rooms" })).toBeInTheDocument();
     expect(screen.getByText(/match the start of a word/)).toBeInTheDocument();
     expect(searches).toEqual([]);
+  });
+
+  test("submits a structured draft with its zone, then drops both when structured mode is switched off", async () => {
+    pinBrowserTimeZone("Europe/Warsaw");
+    const searches = serve(() => jsonResponse(200, searchPage([])));
+    const user = userEvent.setup();
+    renderSearch();
+    const input = screen.getByRole("searchbox", { name: "Search all your rooms" });
+    const q = '"outage alert" during:2026-10';
+    await user.type(input, q);
+    expect(searches).toEqual([]);
+    await user.click(screen.getByRole("button", { name: /^Search$/ }));
+    const expected = new URLSearchParams({ q, syntax: "structured", timeZone: "Europe/Warsaw" });
+    await waitFor(() => expect(Object.fromEntries(new URLSearchParams(searches.at(-1)?.split("?")[1]))).toMatchObject({
+      q, syntax: "structured", timeZone: "Europe/Warsaw",
+    }));
+    expect(screen.getByTestId("search")).toHaveTextContent(`?${expected}`);
+    await user.clear(input);
+    await user.type(input, "outage");
+    await user.click(screen.getByRole("switch", { name: "Structured mode" }));
+    await user.click(screen.getByRole("button", { name: /^Search$/ }));
+    await waitFor(() => expect(searches.at(-1)).toBe("/api/v1/search?q=outage&page=1&pageSize=20"));
+    expect(screen.getByTestId("search")).toHaveTextContent("?q=outage");
+  });
+
+  test("a shared structured query retains its time zone and explains malformed clauses", async () => {
+    const searches = serve(() => problem(400, "about:blank"));
+    const params = new URLSearchParams({ q: '"unclosed phrase', syntax: "structured", timeZone: "Pacific/Auckland" });
+    renderSearch(`/search?${params}`);
+    expect(await screen.findByText(/check the search syntax/i)).toBeVisible();
+    expect(Object.fromEntries(new URLSearchParams(searches[0].split("?")[1]))).toMatchObject(Object.fromEntries(params));
   });
 
   test("submitting searches every room: hits carry the room, Open or Closed, Archived, and links into their own room", async () => {

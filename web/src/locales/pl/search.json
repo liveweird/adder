@@ -17,6 +17,44 @@
     "label": "Szukaj we wszystkich swoich pokojach"
   },
   "hint": "Od 3 znaków pasuje początek słowa; wielkość liter i znaki diakrytyczne nie mają znaczenia.",
+  "syntax": {
+    "open": "Składnia wyszukiwania",
+    "title": "Zbuduj precyzyjne wyszukiwanie",
+    "description": "Wybierz format, aby wstawić go w miejscu kursora. Łącz dowolne warunki spacjami — każdy z nich musi pasować.",
+    "mode": "Tryb z operatorami",
+    "hint": "Dopasowuje całe słowa. Dodaj *, aby dopasować początek słowa, lub połącz frazy z filtrami.",
+    "tip": "Zacznij wpisywać filtr, aby zobaczyć podpowiedzi.",
+    "correction": "Czy chodziło Ci o {{value}}?",
+    "applyCorrection": "Użyj podpowiedzi",
+    "suggestions": {
+      "label": "Podpowiedzi wyszukiwania",
+      "room": "Pokój"
+    },
+    "emoji": {
+      "title": "Filtry emoji",
+      "description": "Wybierz konkretną reakcję lub emoji znajdujące się w wiadomości.",
+      "reaction": "Wybierz reakcję",
+      "contains": "Wybierz emoji w wiadomości"
+    },
+    "operators": {
+      "phrase": "Znajdź dokładnie tę frazę",
+      "exclude": "Wyklucz słowo",
+      "prefix": "Znajdź słowa zaczynające się od tego ciągu",
+      "in": "Szukaj w jednym pokoju",
+      "from": "Wiadomości napisane przez tę osobę",
+      "with": "Wątki, w których uczestniczy ta osoba",
+      "owner": "Wątki obecnie należące do tej osoby",
+      "on": "Wiadomości wysłane w danym dniu",
+      "before": "Wiadomości wysłane przed daną datą",
+      "after": "Wiadomości wysłane po danej dacie",
+      "during": "Wiadomości wysłane w danym miesiącu lub roku",
+      "pin": "Przypięte wątki lub wiadomości",
+      "link": "Wiadomości zawierające link",
+      "reactionAny": "Wiadomości z dowolną reakcją",
+      "reaction": "Wiadomości z konkretną reakcją",
+      "emoji": "Wiadomości zawierające konkretne emoji"
+    }
+  },
   "empty": "Nic nie pasuje do „{{q}}”.",
   "watching": {
     "label": "Wątki, które obserwuję",
@@ -38,6 +76,8 @@
     "tooShort": "Wpisz co najmniej dwa znaki, w tym literę lub cyfrę.",
     "tooLong": "Użyj najwyżej 100 znaków.",
     "invalid": "Wyszukiwane słowa nie mogą zawierać znaków sterujących.",
+    "structuredTooLong": "Zapytanie strukturalne może mieć najwyżej 512 znaków.",
+    "structuredInvalid": "Sprawdź składnię wyszukiwania. Filtry wymagają wartości, a filtry emoji — rzeczywistego emoji.",
     "timeout": "Wyszukiwanie trwało zbyt długo. Zawęź je dokładniejszym słowem.",
     "busy": "Serwer jest teraz zajęty. Spróbuj ponownie za chwilę.",
     "rate": "Zbyt wiele wyszukiwań. Poczekaj chwilę i spróbuj ponownie.",

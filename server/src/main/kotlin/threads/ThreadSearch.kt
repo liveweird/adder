@@ -7,6 +7,7 @@ import ch.nokillswit.infra.paging.SortField
 import ch.nokillswit.infra.paging.optionalBoolean
 import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
+import ch.nokillswit.infra.paging.singleValue
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.plugins.BadRequestException
@@ -100,8 +101,9 @@ fun validateSearchQuery(raw: String?): String {
  * [threadTags] name (the tag view)), the strict `closed` and `watching` booleans (null = both / no filter), the CURATED tag names
  * ([threadTags]: normalised, grammar-checked, at most [MAX_FILTER_VALUES] distinct, any-of; empty = no filter) and the page.
  */
-class SearchParams(
+internal class SearchParams(
     val q: String?,
+    val structured: StructuredSearch?,
     val closed: Boolean?,
     val watching: Boolean?,
     val paging: PageRequest,
@@ -114,15 +116,29 @@ class SearchParams(
  * list's repeated key, parsed by the same function. `q` is REQUIRED unless `watching` is `true` or a `threadTag` is given (a blank `q`
  * counts as none there, as everywhere); with either, a given `q` is validated as ever.
  */
-fun ApplicationCall.parseSearchParams(): SearchParams {
+internal fun ApplicationCall.parseSearchParams(): SearchParams {
     val paging = parsePaging(sortable = SEARCH_SORT_FIELDS, defaultSort = SEARCH_DEFAULT_SORT)
     if (paging.pageSize > MAX_SEARCH_PAGE_SIZE) throw BadRequestException("pageSize must be between 1 and $MAX_SEARCH_PAGE_SIZE")
     val params = request.queryParameters
     val watching = params.optionalBoolean("watching")
     val threadTags = params.threadTagFilter()
+    val syntax = params.optionalString("syntax")
+    if (syntax != null && syntax != "structured") throw BadRequestException("Unsupported search syntax")
     val raw = params.optionalString("q")
+    val structured = if (syntax == "structured") {
+        val structuredRaw = params.singleValue("q")?.takeIf { it.isNotBlank() }
+            ?: throw BadRequestException("q is required")
+        parseStructuredSearch(structuredRaw, params.optionalString("timeZone"))
+    } else {
+        null
+    }
     return SearchParams(
-        q = if ((watching == true || threadTags.isNotEmpty()) && raw == null) null else validateSearchQuery(raw),
+        q = if (structured != null) null else if ((watching == true || threadTags.isNotEmpty()) && raw == null) {
+            null
+        } else {
+            validateSearchQuery(raw)
+        },
+        structured = structured,
         closed = params.optionalBoolean("closed"),
         watching = watching,
         paging = paging,

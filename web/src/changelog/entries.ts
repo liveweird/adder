@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.9.0",
+    date: "2026-11-24",
+    en: `**Adder 1.9.0 — structured search**
+
+- Search for an exact phrase, exclude words, or match a word prefix. Combine clauses to narrow results by room, author, participant, owner, date, pins, links, reactions, or emoji.
+- Use the search syntax guide to insert clauses. Suggestions complete room and person filters and offer corrections for misspelled filter names.`,
+    pl: `**Adder 1.9.0 — wyszukiwanie z operatorami**
+
+- Wyszukuj dokładne frazy, wykluczaj słowa lub dopasowuj ich początki. Łącz warunki, aby zawęzić wyniki według pokoju, autora/autorki, uczestnika/uczestniczki, właściciela/właścicielki wątku, daty, przypięć, linków, reakcji lub emoji.
+- Otwórz przewodnik po składni, aby wstawiać warunki. Podpowiedzi uzupełniają nazwy pokojów i osób oraz pomagają poprawić literówki w nazwach operatorów.`,
+  },
+  {
     version: "1.8.0",
     date: "2026-11-24",
     en: `**Adder 1.8.0 — personal room groups**

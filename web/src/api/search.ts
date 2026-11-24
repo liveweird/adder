@@ -12,10 +12,13 @@ export type SnippetSegment = ThreadSearchHit["titleSnippet"][number];
 
 export interface SearchQuery {
   /**
-   * Trimmed, 2 to 100 characters with a letter or a digit (`utils/searchParams.ts` `queryProblem`): the server answers 400 otherwise, never echoing it.
-   * Omitted ONLY with `watching: true` (the "Threads I watch" list) or a `threadTag` (the tag view): neither has a query, so its hits carry no messages and no marked words.
+   * Plain text (2 to 100 code points), or up to 512 code points of search clauses with `syntax: "structured"`.
+   * A plain search with `watching: true` or a `threadTag` can omit the query.
    */
   q?: string;
+  syntax?: "structured";
+  /** Time zone for structured date clauses. The API defaults to UTC. */
+  timeZone?: string;
   page: number;
   pageSize: number;
   /** `true` = only closed threads, `false` = only open ones; omitted = both. */

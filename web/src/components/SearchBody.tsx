@@ -50,12 +50,13 @@ export default function SearchBody({
 }) {
   const { t } = useTranslation();
   const { state, submit, setScope, setWatching, setThreadTag, setPage, resetPage } = useSearchUrl();
-  const { q, scope, watching, threadTag, page } = state;
+  const { q, syntax, timeZone, scope, watching, threadTag, page } = state;
+  const structured = syntax === "structured";
   // A term the URL holds but the server would refuse (hand-edited, too short) is never sent; the form says why. With the "Threads I watch"
   // toggle on or a tag picked, no term at all is a search too: the threads the caller watches, or the ones that carry a chosen tag.
   const searchable = isSearchable(state);
   const { data, isLoading, isError, error, isPlaceholderData, refetch } = useQuery({
-    queryKey: [...baseKey, q, scope, page, watching, threadTag],
+    queryKey: [...baseKey, q, scope, page, watching, threadTag, syntax, timeZone],
     queryFn: () =>
       fetchPage({
         q: q === "" ? undefined : q,
@@ -64,6 +65,7 @@ export default function SearchBody({
         closed: scopeToClosed(scope),
         watching: watching || undefined,
         threadTag: threadTag.length > 0 ? threadTag : undefined,
+        ...(structured ? { syntax, timeZone } : {}),
       }),
     enabled: searchable,
     staleTime: SEARCH_STALE_MS,
@@ -90,13 +92,14 @@ export default function SearchBody({
         scope={scope}
         watching={watching}
         threadTag={threadTag}
-        onSubmit={(next) => (next === q ? void refetch() : submit(next))}
+        structured={structured}
+        onSubmit={(next, nextStructured) => (next === q && nextStructured === structured ? void refetch() : submit(next, nextStructured))}
         onScope={setScope}
         onWatching={setWatching}
         onThreadTag={setThreadTag}
       />
       {!searchable && initialLabel && <EmptyState icon={IconSearch} label={initialLabel} />}
-      {searchable && isError && <FormErrorAlert>{searchErrorMessage(error, t)}</FormErrorAlert>}
+      {searchable && isError && <FormErrorAlert>{searchErrorMessage(error, t, structured)}</FormErrorAlert>}
       {searchable && isLoading && <LoadingBlock />}
       {/* A live region that is always there while a search is shown, so the count is announced when it changes. */}
       {searchable && (

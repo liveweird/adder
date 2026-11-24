@@ -118,6 +118,17 @@ The data of each scenario is seeded through the API (threads, replies, status mo
 4. The reader reloads the page.
    - *Expected*: the box still holds the word and "1 thread found" is shown again.
 
+## Scenario: structured search suggests clauses and combines them on one message
+
+1. The reader and a teammate share a Default room. Seed one match with the phrase and a link in a message by the teammate. Seed threads where
+   the phrase and link are in separate messages, the phrase is absent, or the matching message is by the reader.
+2. The reader opens global search, opens **Search syntax**, and inserts `has:link`. The reader then enters the exact phrase and misspells `from:`.
+   - *Expected* — the guide inserts the link clause. The editor offers a spelling correction for the operator.
+3. The reader accepts the correction, types the teammate's name, and picks the suggestion.
+   - *Expected* — the author clause uses the teammate's ID. The URL stays on the empty search until submission.
+4. The reader submits and reloads.
+   - *Expected* — the URL retains the clauses, syntax, and time zone. Only the thread where one message satisfies every clause is listed.
+
 ## Scenario: the focus view hides the thread list and survives a reload
 
 1. The administrator mints an owner; the owner makes a Default room through the API and seeds two threads.

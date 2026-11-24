@@ -80,3 +80,92 @@ internal suspend fun R2dbcTransaction.titleSnippets(threadIds: List<UInt>, query
         row.get(0, Int::class.javaObjectType)!!.toUInt() to splitHeadline(row.get(1, String::class.java).orEmpty()).map { it.toWire() }
     }?.toList().orEmpty().filterNotNull().toMap()
 }
+
+/** Structured search uses the exact same compiled live-message predicate as the count and page query. */
+internal suspend fun R2dbcTransaction.structuredMessageSnippets(
+    threadIds: List<UInt>,
+    search: ResolvedStructuredSearch,
+): Map<UInt, ThreadMatches> {
+    val predicate = search.messagePredicate("x", "t") ?: return emptyMap()
+    val headline = search.headlineQuery()
+    val renderedBody = if (headline == null) "m.body" else ftsHeadlineSql("m.body")
+    val sql = """
+SELECT r.thread_id, r.id, m.author_id, m.created_at, r.hits, $renderedBody
+FROM (SELECT x.id, x.thread_id,
+             row_number() OVER (PARTITION BY x.thread_id ORDER BY x.id DESC) AS rn,
+             count(*)      OVER (PARTITION BY x.thread_id) AS hits
+      FROM messages x JOIN threads t ON t.id = x.thread_id
+      WHERE x.thread_id = ANY(CAST(? AS int4[])) AND NOT x.marked_as_deleted AND (${predicate.text})) r
+JOIN messages m ON m.id = r.id
+WHERE r.rn <= $SEARCH_MESSAGES_PER_THREAD
+ORDER BY r.thread_id, r.id DESC
+""".trimIndent()
+    val arguments = buildList {
+        if (headline != null) {
+            add(TextColumnType() to headline)
+            add(TextColumnType() to FTS_FRAGMENT_OPTIONS)
+        }
+        add(FTS_INT_ARRAY to threadIds.map(UInt::toInt))
+        addAll(predicate.arguments)
+    }
+    val rows = exec(sql, arguments, explicitStatementType = StatementType.SELECT) { row ->
+        val body = row.get(5, String::class.java).orEmpty()
+        SnippetRow(
+            threadId = row.get(0, Int::class.javaObjectType)!!.toUInt(),
+            message = MatchedMessage(
+                id = row.get(1, Int::class.javaObjectType)!!.toUInt(),
+                authorId = row.get(2, Long::class.javaObjectType)!!.toUInt(),
+                createdAt = row.get(3, Long::class.javaObjectType)!!,
+                snippet = if (headline == null) plainSnippet(body, search) else splitHeadline(body).map { it.toWire() },
+            ),
+            hits = row.get(4, Long::class.javaObjectType)!!,
+        )
+    }?.toList().orEmpty().filterNotNull()
+    return rows.groupBy { it.threadId }.mapValues { (_, own) -> ThreadMatches(own.first().hits, own.map { it.message }) }
+}
+
+/** A structured title is highlighted only when its positive full-text clauses can be represented by `ts_headline`. */
+internal suspend fun R2dbcTransaction.structuredTitleSnippets(
+    threadIds: List<UInt>,
+    search: ResolvedStructuredSearch,
+): Map<UInt, List<SnippetSegment>> = search.titleHeadlineQuery()?.let { titleSnippets(threadIds, it) }.orEmpty()
+
+private const val PLAIN_SNIPPET_CHARS = 300
+private const val PLAIN_SNIPPET_CONTEXT = 120
+private val SNIPPET_WHITESPACE = Regex("\\s+")
+private val LINK_SNIPPET = Regex("(?i)(^|[^\\p{L}\\p{N}_])((?:http://|https://|www\\.|mailto:)\\S+)")
+
+/** Non-text filters have no honest token to mark; return a bounded plain excerpt instead of inventing a hit. */
+private fun plainSnippet(body: String, search: ResolvedStructuredSearch): List<SnippetSegment> {
+    val literals = search.literalHighlights().mapNotNull { needle ->
+        body.indexOf(needle, ignoreCase = true).takeIf { it >= 0 }?.let { it until it + needle.length }
+    }
+    val link = if (search.query.link) LINK_SNIPPET.find(body)?.groups?.get(2)?.range else null
+    val hit = (literals + listOfNotNull(link)).minByOrNull(IntRange::first)
+    if (hit != null) return markedExcerpt(body, hit)
+
+    val plain = body.replace(SNIPPET_WHITESPACE, " ").trim()
+    if (plain.isEmpty()) return emptyList()
+    val excerpt = if (plain.codePointCount(0, plain.length) <= PLAIN_SNIPPET_CHARS) {
+        plain
+    } else {
+        plain.substring(0, plain.offsetByCodePoints(0, PLAIN_SNIPPET_CHARS)).trimEnd() + " …"
+    }
+    return listOf(SnippetSegment(excerpt, false))
+}
+
+private fun markedExcerpt(body: String, hit: IntRange): List<SnippetSegment> {
+    val beforePoints = minOf(PLAIN_SNIPPET_CONTEXT, body.codePointCount(0, hit.first))
+    val afterStart = hit.last + 1
+    val afterPoints = minOf(PLAIN_SNIPPET_CONTEXT, body.codePointCount(afterStart, body.length))
+    val start = body.offsetByCodePoints(hit.first, -beforePoints)
+    val end = body.offsetByCodePoints(afterStart, afterPoints)
+    val segments = buildList {
+        val before = body.substring(start, hit.first).replace(SNIPPET_WHITESPACE, " ").trim()
+        if (before.isNotEmpty()) add(SnippetSegment((if (start > 0) "… " else "") + before + " ", false))
+        add(SnippetSegment(body.substring(hit.first, hit.last + 1).replace(SNIPPET_WHITESPACE, " "), true))
+        val after = body.substring(hit.last + 1, end).replace(SNIPPET_WHITESPACE, " ").trim()
+        if (after.isNotEmpty()) add(SnippetSegment(" $after" + if (end < body.length) " …" else "", false))
+    }
+    return segments
+}
