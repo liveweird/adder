@@ -144,7 +144,7 @@ The data of each scenario is seeded through the API (threads, replies, status mo
 ## Scenario: find in thread pages through messages and opens an old reply in context
 
 1. Create a thread with enough replies to put its opening message outside the latest page. Create a second thread that uses the same phrase.
-2. Open **Find in thread** and submit the exact phrase with an excluded word.
+2. Wait for the initial room subscription to refresh the conversation. Open **Find in thread** and submit the exact phrase with an excluded word.
    - *Expected* — the search box receives focus. Only matching messages of the open thread are counted, including those on later pages.
 3. Page to the opening message and follow the result.
    - *Expected* — the message receives focus and the reply after it is visible. One context request arrives without any chain of older-page reads.

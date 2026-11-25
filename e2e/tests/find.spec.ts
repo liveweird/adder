@@ -628,9 +628,30 @@ test("find in thread pages through messages and opens an old reply in context", 
 
   const path = `/rooms/${roomId}/threads/${number}`;
   const apiPath = `/api/v1${path}/messages`;
+  // Let the genuine room subscription catch up after the initial read. Its delayed refresh
+  // would otherwise sometimes land while we count the requests caused by opening the hit.
+  let forwardSubscription!: () => void;
+  const initialRead = new Promise<void>((resolve) => { forwardSubscription = resolve; });
+  await page.routeWebSocket(/\/api\/v1\/live$/, (socket) => {
+    const server = socket.connectToServer();
+    server.onMessage((payload) => {
+      const frame = JSON.parse(payload.toString()) as { type: string; roomIds?: number[] };
+      if (frame.type === "subscribed" && frame.roomIds?.includes(roomId)) {
+        void initialRead.then(() => socket.send(payload));
+      } else {
+        socket.send(payload);
+      }
+    });
+  });
   await page.goto(`${path}?focus=1`);
   await expect(messageNamed(page, latest)).toBeVisible();
   await expect(messageNamed(page, first)).toHaveCount(0);
+  const catchUp = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.ok() && response.request().method() === "GET" && url.pathname === apiPath && !url.searchParams.has("id[lt]");
+  });
+  forwardSubscription();
+  await catchUp;
   const find = page.getByRole("button", { name: "Find in thread", exact: true });
   await find.click();
   const input = page.getByRole("searchbox", { name: "Search messages" });
