@@ -2195,6 +2195,39 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/threads/{number}/mute:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/ThreadNumberPath'
+    put:
+      tags: [threads]
+      operationId: setThreadMute
+      summary: Mute or unmute a thread for the caller
+      description: |
+        A room member sets their own mute independently of watching. A mute suppresses new notices for this thread and
+        skips pending email while muted. The preference is visible as `muted` in the caller's thread detail.
+        Closed threads and archived rooms are allowed. Leaving or being removed drops the preference.
+        The user's thread settings bucket is shared with the watch write (30 per minute). A non-member receives the uniform
+        `404`, an administrator outside the room receives `403`. The membership guard runs before the request body is decoded.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [muted]
+              properties:
+                muted: { type: boolean }
+      responses:
+        '204': { description: The requested mute state is in effect. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/threads/{number}/tags:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -4937,6 +4970,7 @@ components:
           description: The first of those messages; `null` when none is unread or the caller is not a member.
         watching: { type: boolean, description: The CALLER watches the thread (`PUT .../watch`); `false` for someone who is not a member. }
         watcherCount: { type: integer, format: int32, minimum: 0, description: 'How many active members watch the thread; who they are is not on the wire.' }
+        muted: { type: boolean, description: The caller muted notices for this thread. Omitted when unmuted. }
         hashtags:
           $ref: '#/components/schemas/ThreadHashtags'
         tags:

@@ -39,6 +39,7 @@ import ThreadPinStrip from "./ThreadPinStrip";
 import ThreadSidePanel from "./ThreadSidePanel";
 import ThreadStatusControl from "./ThreadStatusControl";
 import ThreadWatchButton from "./ThreadWatchButton";
+import ThreadMuteButton from "./ThreadMuteButton";
 import classes from "./ThreadPane.module.css";
 import { roomKeys } from "../utils/roomKeys";
 
@@ -212,6 +213,9 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             </span>
             <ThreadPinButton room={room} threadNumber={thread.number} onError={reportActionError} />
             <ThreadWatchButton room={room} thread={thread} onError={reportActionError} />
+            {room.role !== null && (
+              <ThreadMuteButton roomId={room.id} number={thread.number} muted={thread.muted ?? false} onError={reportActionError} />
+            )}
             <span ref={findTriggerRef}>
               <HeaderIconButton
                 label={t("threads.find.open")}

@@ -334,6 +334,7 @@
     "show": "Pokaż w wątku",
     "showAria": "Pokaż w wątku: {{name}}"
   },
+  "mute": "Wycisz powiadomienia z wątku",
   "watch": {
     "thread": "Obserwuj ten wątek",
     "showPeople_one": "Pokaż {{count}} osobę obserwującą",

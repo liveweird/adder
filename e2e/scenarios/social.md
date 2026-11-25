@@ -200,6 +200,14 @@ what the scenario is about.
 - **Reactions or pins refused** (a closed thread, an archived room, the 50-pin and the reaction limits) — covered by the server tests and the
   component tests; E2E asserts only the visible consequences above.
 
+## Scenario: muting a thread silences its mentions and keeps the watch
+
+1. Watch a thread and mute its notifications using the header controls.
+2. Leave the thread while another member posts a direct mention.
+   - *Expected*: the feed has no new notice from the mention.
+3. Return to the thread and unmute it.
+   - *Expected*: the watch is still active and a later reply reaches the bell when the reader is elsewhere.
+
 ## Scenario: a watcher hears a reply
 
 1. The administrator mints an author and a reader; the author makes a room through the API and starts a thread, THEN adds the reader (the room was not told of a thread

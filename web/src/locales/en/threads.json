@@ -322,6 +322,7 @@
     "show": "Show in thread",
     "showAria": "Show in thread: {{name}}"
   },
+  "mute": "Mute thread notifications",
   "watch": {
     "thread": "Watch this thread",
     "showPeople_one": "Show {{count}} watcher",

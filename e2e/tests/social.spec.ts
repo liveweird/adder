@@ -837,6 +837,38 @@ test("a watched thread groups plain replies and keeps an addressed quote separat
   await expect(messageNamed(reader.page, "First checkout follow-up")).toBeFocused();
 });
 
+test("muting a thread silences its mentions and keeps the watch", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  await startThread(room, uniqueText("Muted checkout"));
+  await addMember(room);
+  const reader = await signedIn(browser, room.mate);
+  const thread = `/rooms/${room.roomId}/threads/1`;
+  await reader.page.goto(thread);
+  const watch = reader.page.getByRole("button", { name: "Watch this thread", exact: true });
+  const mute = reader.page.getByRole("button", { name: "Mute thread notifications", exact: true });
+  await watch.click();
+  await expect(watch).toHaveAttribute("aria-pressed", "true");
+  await mute.click();
+  await expect(mute).toHaveAttribute("aria-pressed", "true");
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await postMessage(room, 1, `<@${room.mate.id}> quiet update`);
+
+  const { api } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(api);
+  const feed = await api.get("/api/v1/notifications/feed?seen=false");
+  expect(feed.ok()).toBe(true);
+  expect(((await feed.json()) as { total: number }).total).toBe(0);
+
+  await reader.page.goto(thread);
+  await expect(watch).toHaveAttribute("aria-pressed", "true");
+  await expect(mute).toHaveAttribute("aria-pressed", "true");
+  await mute.click();
+  await expect(mute).toHaveAttribute("aria-pressed", "false");
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await postMessage(room, 1, "A new reply after unmuting");
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+});
+
 test("everyone in the room hears about a new thread", async ({ page, browser }) => {
   const room = await scene(page);
   const author = await signedIn(browser, room.owner);

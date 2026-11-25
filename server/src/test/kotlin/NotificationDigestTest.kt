@@ -178,6 +178,26 @@ class NotificationDigestTest {
     )
 
     @Test
+    fun `a thread muted after claim does not send its pending email`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val id = s.notice(ann)
+        val mailer = RecordingMailer()
+        val digest = digest(mailer, s, afterClaim = {
+            sql("INSERT INTO thread_mutes (thread_id, room_id, user_id) VALUES (?, ?, ?)") { st ->
+                st.setInt(1, s.thread.toInt())
+                st.setInt(2, s.room.toInt())
+                st.setLong(3, ann.id.toLong())
+                st.executeUpdate()
+            }
+        })
+
+        digest.run()
+        assertTrue(mailer.to(ann.email).isEmpty())
+        assertTrue(emailedAt(id) != null, "the old notice is settled, so unmuting will not send it later")
+    }
+
+    @Test
     fun `an unseen notice older than the delay is mailed once`() = runBlocking {
         val s = setup()
         val ann = s.member()

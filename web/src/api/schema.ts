@@ -1572,6 +1572,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/threads/{number}/mute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mute or unmute a thread for the caller
+         * @description A room member sets their own mute independently of watching. A mute suppresses new notices for this thread and
+         *     skips pending email while muted. The preference is visible as `muted` in the caller's thread detail.
+         *     Closed threads and archived rooms are allowed. Leaving or being removed drops the preference.
+         *     The user's thread settings bucket is shared with the watch write (30 per minute). A non-member receives the uniform
+         *     `404`, an administrator outside the room receives `403`. The membership guard runs before the request body is decoded.
+         */
+        put: operations["setThreadMute"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rooms/{id}/threads/{number}/tags": {
         parameters: {
             query?: never;
@@ -3506,6 +3534,8 @@ export interface components {
              * @description How many active members watch the thread; who they are is not on the wire.
              */
             watcherCount: number;
+            /** @description The caller muted notices for this thread. Omitted when unmuted. */
+            muted?: boolean;
             hashtags: components["schemas"]["ThreadHashtags"];
             tags: components["schemas"]["ThreadTags"];
         };
@@ -6834,6 +6864,42 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setThreadMute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    muted: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The requested mute state is in effect. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };
     };

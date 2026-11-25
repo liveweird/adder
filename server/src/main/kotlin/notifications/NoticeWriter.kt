@@ -14,6 +14,7 @@ import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.threads.NoticeRevision
 import ch.nokillswit.threads.SeenChunk
 import ch.nokillswit.threads.ThreadNotices
+import ch.nokillswit.threads.mutedInThread
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.ArrayColumnType
@@ -248,11 +249,13 @@ internal class NoticeWriter(
         eventId: UInt? = null,
         beforeInsert: suspend (Set<UInt>) -> List<UInt> = { emptyList() },
     ): NoticeOutcome {
+        val muted = mutedInThread(threadId)
+        val eligible = wanted.filterNot { it.userId in muted }
         val preferences = effectivePreferencesOf(
-            wanted.map { it.userId },
-            wanted.flatMap { it.allReasons() }.map { it.toNotificationType() }.distinct(),
+            eligible.map { it.userId },
+            eligible.flatMap { it.allReasons() }.map { it.toNotificationType() }.distinct(),
         )
-        val candidates = wanted.mapNotNull { judger.judge(it, preferences) }
+        val candidates = eligible.mapNotNull { judger.judge(it, preferences) }
         val now = nowMillis()
         val refreshed = if (messageId == null) refreshThreadNotices(threadId, actorId, now, candidates, eventId) else emptyList()
         val refreshedIds = refreshed.map { it.first }.toSet()
@@ -264,7 +267,8 @@ internal class NoticeWriter(
         // The hint's targets keep the audience's priority order, the rows made and the rows refreshed alike.
         val shown = deliveries.filter { it.inApp && it.userId in madeIds }.map { it.userId }.toSet() +
             refreshed.filter { it.third }.map { it.first }
-        announce(candidates.map { it.userId }.filter { it in shown } + extraTargets + late, roomId, threadNumber, messageId)
+        val targets = candidates.map { it.userId }.filter { it in shown } + extraTargets + late
+        announce(targets.filterNot { it in muted }, roomId, threadNumber, messageId)
         val reasons = (made + refreshed.map { it.first to it.second }).map { (user, type) -> user to checkNotNull(type.toNoticeReason()) }
         if (reasons.isEmpty()) return NoticeOutcome.NONE
         return NoticeOutcome(

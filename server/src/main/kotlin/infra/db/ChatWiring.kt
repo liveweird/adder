@@ -12,6 +12,8 @@ import ch.nokillswit.notifications.NoticeWriter
 import ch.nokillswit.notifications.NotificationEmailBudget
 import ch.nokillswit.notifications.NotificationService
 import ch.nokillswit.notifications.NotificationServiceKey
+import ch.nokillswit.threads.ThreadMuteService
+import ch.nokillswit.threads.ThreadMuteServiceKey
 import ch.nokillswit.rooms.RoomEnrollmentService
 import ch.nokillswit.rooms.RoomEnrollmentServiceKey
 import ch.nokillswit.rooms.RoomMemberService
@@ -121,6 +123,7 @@ internal fun Application.publishChatServices(
     val digestDelayMillis = requireConfigInt(environment.config, "notifications.email.delaySeconds", min = 0, max = 86_400) * 1_000L
     val noticeWriter = NoticeWriter(emailBudget, mailAvailable = mailer() != null, digestDelayMillis = digestDelayMillis)
     val roomMemberService = RoomMemberService(database, teamService, noticeWriter)
+    attributes.put(ThreadMuteServiceKey, ThreadMuteService(database, roomMemberService))
     attributes.put(RoomMemberServiceKey, roomMemberService)
     attributes.put(RoomEnrollmentServiceKey, RoomEnrollmentService(database, noticeWriter))
     attributes.put(NotificationServiceKey, NotificationService(database, roomService, emailBudget, notificationReadLimiter))

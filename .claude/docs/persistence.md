@@ -676,6 +676,11 @@ pointer in the same transaction, including when an unseen notice is refreshed. T
 for its authorized notice IDs on the current page only. The join requires the same thread and extracts only workflow labels or
 ownership names. Existing notices keep a null pointer, and older binaries ignore the column.
 
+`V42__create_thread_mutes.sql` adds one `thread_mutes` row per muted thread and member. The thread and the membership keys
+cascade on deletion. `ThreadMuteService` holds the member row before writing, and toggles use the unique `(thread_id, user_id)` key.
+`NoticeWriter` may read mutes of the current thread before delivery, and `NotificationDigest` may use the member's mute predicate
+when resolving threads in a claim. Older binaries ignore thread mutes.
+
 ### Reactions (V20)
 
 `V20__create_message_reactions.sql`: `message_reactions (message_id, user_id, emoji, created_at)`, primary key `(message_id, emoji, user_id)`, `message_id` and `user_id` `ON DELETE CASCADE`, no other index (the key groups a message's rows by emoji, which is how they are read, and a person's own reactions of a message are found through the same key). V17 to V19 are the other migrations of the same release; the number is never reused or shifted.

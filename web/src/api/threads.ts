@@ -126,3 +126,7 @@ export async function listThreadEvents(roomId: number, number: number, q: { page
   const params = buildQuery({ page: q.page, pageSize: q.pageSize });
   return jsonRequest<ThreadEventPage>(`/api/v1/rooms/${roomId}/threads/${number}/events?${params}`);
 }
+
+export async function setThreadMute(roomId: number, number: number, muted: boolean): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/mute`, { method: "PUT", body: JSON.stringify({ muted }) });
+}

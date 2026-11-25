@@ -7,6 +7,7 @@ import ch.nokillswit.infra.mail.Mailer
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.rooms.RoomSummary
 import ch.nokillswit.threads.ThreadService
+import ch.nokillswit.threads.threadNotMutedBy
 import ch.nokillswit.threads.userNames
 import ch.nokillswit.users.UserService
 import ch.nokillswit.plugins.scrubbedSummary
@@ -346,7 +347,7 @@ internal class NotificationDigest(
         }
         val threads = ThreadService.Threads
         val numbers = kept.mapNotNull { it.threadId }.distinct().chunked(RECHECK_CHUNK).flatMap { chunk ->
-            threads.select(threads.id, threads.number).where { threads.id inList chunk }
+            threads.select(threads.id, threads.number).where { (threads.id inList chunk) and threadNotMutedBy(threads.id, recipientId) }
                 .map { it[threads.id].value to it[threads.number] }.toList()
         }.toMap()
         val survivors = kept.filter { it.threadId == null || it.threadId in numbers }.sortedBy { it.rank }

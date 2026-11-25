@@ -63,6 +63,7 @@ ktor:
       - ch.nokillswit.threads.ThreadReadRoutesKt.configureThreadReadRoutes
       # Watching (V26): the caller's own watch of a thread, beside the read marker (own state, no room lock, no live hint).
       - ch.nokillswit.threads.ThreadWatchRoutesKt.configureThreadWatchRoutes
+      - ch.nokillswit.threads.ThreadMuteRoutesKt.configureThreadMuteRoutes
       # A thread's curated tags (V33, 1.2.0): a whole-set PUT under the room lock, after the watch routes (copied from them).
       - ch.nokillswit.threads.ThreadTagRoutesKt.configureThreadTagRoutes
       # The room's pins (V21): the list and the two pin PUTs, after the message routes whose path family they extend.
