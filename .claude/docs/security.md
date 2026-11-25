@@ -338,7 +338,7 @@ the full link roundtrip incl. the session revocation), `PasswordResetThrottleTes
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
-`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, `live-connect` (below), and the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `chat-read`, `read-state`, `thread-watch`, `notification-prefs`, `notification-read`, `live-ticket`, `search` and `password-change` below): blank **follows the mode** — 10/min in production,
+`login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, `live-connect` (below), and the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `chat-read`, `read-state`, `thread-watch`, `notification-prefs`, `notification-read`, `live-ticket`, `search`, `link-preview` and `password-change` below): blank **follows the mode** — 10/min in production,
 1000/min in development — and an explicit number pins it in either mode (the `http.exposeOpenApi`
 idiom). Development is lifted because the e2e suite drives its logins from one host and would
 otherwise sleep out the bucket; **the per-account lockout above is the actual brute-force defence

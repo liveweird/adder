@@ -390,7 +390,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.12.0** (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.13.0** (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -414,6 +414,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.10.0 Find in thread** | Paged message hits in the open thread, with structured syntax and direct message context from search, quotes, pins and existing links. |
 | **1.11.0 Search by status and hashtag** | Structured clauses for a current workflow status and an indexed message hashtag, with room-aware suggestions. |
 | **1.12.0 Room organizer** | Drag to move rooms and groups. Collapsible sections, contextual menus and a private, account-synced layout. |
+| **1.13.0 External links and previews** | Destination confirmation and compact on-demand previews for message links and images. |
 
 ## Donors
 
@@ -439,6 +440,11 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v1.13.0 — external links and previews (2026-11-25)
+
+External message and pinned-copy links open through a destination confirmation. Explicit preview requests show bounded page metadata
+and verified PNG or JPEG content when available. The route uses the current message and room permissions and a guarded public HTTPS fetch.
 
 ### v1.12.0 — room organizer (2026-11-25)
 
