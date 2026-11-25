@@ -17,7 +17,9 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.inSubQuery
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
@@ -110,16 +112,35 @@ internal class NotificationService(
         return NotificationListResult(result.items.map { it.asThreadNotice() }, result.total)
     }
 
-    suspend fun feed(callerUserId: UInt, seen: Boolean?, types: Set<NotificationType>, paging: PageRequest): NotificationFeedResult =
+    suspend fun feed(
+        callerUserId: UInt,
+        seen: Boolean?,
+        types: Set<NotificationType>,
+        paging: PageRequest,
+        groupReplies: Boolean = false,
+    ): NotificationFeedResult =
         readLimiter.run(database, callerUserId, null, "notifications") { budget ->
             budget.arm(this)
             val memberRooms = rooms.memberRooms(callerUserId)
             if (memberRooms.isEmpty()) return@run NotificationFeedResult(emptyList(), 0)
+            val requestedTypes = types.ifEmpty { NotificationType.entries.toSet() }
+            if (groupReplies && seen != true && NotificationType.THREAD_REPLIED in requestedTypes) {
+                val roomIds = memberRooms.map { it.id.toInt() }
+                budget.arm(this)
+                val counted = countGroupedFeed(callerUserId, roomIds, requestedTypes, seen)
+                val total = counted.coerceAtMost(MAX_COUNTED_NOTICES.toLong())
+                if (counted == 0L || (paging.page - 1).toLong() * paging.pageSize >= MAX_COUNTED_NOTICES) {
+                    return@run NotificationFeedResult(emptyList(), total)
+                }
+                budget.arm(this)
+                val pointers = readGroupedFeed(callerUserId, roomIds, requestedTypes, seen, paging)
+                return@run enrich(pointers, memberRooms, budget, this, total)
+            }
             val n = Notifications
             var predicate: Op<Boolean> = (n.recipientId eq callerUserId) and
                 n.roomId.equalsAnyInt(memberRooms.map { it.id.toInt() }) and
                 n.inApp and
-                (n.type inList (types.ifEmpty { NotificationType.entries.toSet() }).map { it.name })
+                (n.type inList requestedTypes.map { it.name })
             seen?.let { predicate = predicate and (if (it) n.seenAt.isNotNull() else n.seenAt.isNull()) }
             // Capped: the count reads at most MAX_COUNTED_NOTICES + 1 rows, so it never grows with a recipient's history.
             budget.arm(this)
@@ -132,36 +153,61 @@ internal class NotificationService(
             budget.arm(this)
             val rows = n.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
             if (rows.isEmpty()) return@run NotificationFeedResult(emptyList(), total)
-            budget.arm(this)
-
-            val threads = ThreadService.Threads
-            val threadIds = rows.mapNotNull { it[n.threadId] }.toSet()
-            val threadRows = if (threadIds.isEmpty()) emptyMap() else threads.select(threads.id, threads.number, threads.title)
-                .where { threads.id inList threadIds }
-                .map { it[threads.id].value to (it[threads.number] to it[threads.title]) }.toList().toMap()
-            budget.arm(this)
-            val actors = userNames(rows.map { it[n.actorId] })
-            val roomById = memberRooms.associateBy { it.id }
-            NotificationFeedResult(
-                rows.map { row ->
-                    val thread = row[n.threadId]?.let(threadRows::getValue)
-                    NotificationFeedItem(
-                        id = row[n.id].value,
-                        type = NotificationType.valueOf(row[n.type]),
-                        seen = row[n.seenAt] != null,
-                        createdAt = row[n.createdAt],
-                        actorId = row[n.actorId],
-                        actorName = actors.getValue(row[n.actorId]),
-                        roomId = row[n.roomId],
-                        roomName = roomById.getValue(row[n.roomId]).name,
-                        threadNumber = thread?.first,
-                        threadTitle = thread?.second,
-                        messageId = row[n.messageId],
-                    )
-                },
-                total,
-            )
+            val pointers = rows.map { row ->
+                FeedPointer(
+                    id = row[n.id].value,
+                    type = NotificationType.valueOf(row[n.type]),
+                    seen = row[n.seenAt] != null,
+                    createdAt = row[n.createdAt],
+                    actorId = row[n.actorId],
+                    roomId = row[n.roomId],
+                    threadId = row[n.threadId],
+                    messageId = row[n.messageId],
+                )
+            }
+            enrich(pointers, memberRooms, budget, this, total)
         }
+
+    private suspend fun enrich(
+        pointers: List<FeedPointer>,
+        memberRooms: List<ch.nokillswit.rooms.RoomSummary>,
+        budget: ch.nokillswit.threads.SearchBudget,
+        transaction: org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction,
+        total: Long,
+    ): NotificationFeedResult {
+        if (pointers.isEmpty()) return NotificationFeedResult(emptyList(), total)
+        budget.arm(transaction)
+        val threads = ThreadService.Threads
+        val threadIds = pointers.mapNotNull { it.threadId }.toSet()
+        val threadRows = if (threadIds.isEmpty()) emptyMap() else threads.select(threads.id, threads.number, threads.title)
+            .where { threads.id inList threadIds }
+            .map { it[threads.id].value to (it[threads.number] to it[threads.title]) }.toList().toMap()
+        budget.arm(transaction)
+        val actors = userNames(pointers.map { it.actorId })
+        val roomById = memberRooms.associateBy { it.id }
+        return NotificationFeedResult(
+            pointers.map { pointer ->
+                val thread = pointer.threadId?.let(threadRows::getValue)
+                NotificationFeedItem(
+                    id = pointer.id,
+                    type = pointer.type,
+                    seen = pointer.seen,
+                    createdAt = pointer.createdAt,
+                    actorId = pointer.actorId,
+                    actorName = actors.getValue(pointer.actorId),
+                    roomId = pointer.roomId,
+                    roomName = roomById.getValue(pointer.roomId).name,
+                    threadNumber = thread?.first,
+                    threadTitle = thread?.second,
+                    messageId = pointer.messageId,
+                    replyCount = pointer.replyCount,
+                    replyFloorId = pointer.replyFloorId,
+                    replyCeilingId = pointer.replyCeilingId,
+                )
+            },
+            total,
+        )
+    }
 
     /**
      * Marks the caller's notice [id] seen at [at]. False only when the caller has no such notice (it is someone else's or does not exist:
@@ -171,6 +217,57 @@ internal class NotificationService(
         val n = Notifications
         val moved = n.update({ (n.id eq id) and (n.recipientId eq callerUserId) and n.seenAt.isNull() }) { it[seenAt] = at }
         moved > 0 || n.select(n.id).where { (n.id eq id) and (n.recipientId eq callerUserId) }.toList().isNotEmpty()
+    }
+
+    /**
+     * Idempotently marks the caller's unseen in-app plain reply notices for one room/thread from [floor] through [ceiling] seen. The feed
+     * supplies that exact bounded window, so older deferred replies and replies made after the person opened the drawer remain unseen.
+     * Addressed notice kinds, replies in other threads and somebody else's rows are outside the predicate. Chunks keep lock and
+     * connection hold times short.
+     */
+    suspend fun markReplyGroupSeen(
+        callerUserId: UInt,
+        roomId: UInt,
+        threadNumber: Int,
+        floor: UInt,
+        ceiling: UInt,
+        at: Long,
+        chunk: Int = SEEN_BATCH,
+    ): Int {
+        require(floor > 0u && floor <= ceiling)
+        val n = Notifications
+        val threads = ThreadService.Threads
+        val matchingThread = threads.select(threads.id).where {
+            (threads.roomId eq roomId) and (threads.number eq threadNumber)
+        }
+        var total = 0
+        var selectedTotal = 0
+        var after = floor - 1u
+        do {
+            val batchSize = minOf(chunk, GROUPED_REPLY_WINDOW - selectedTotal)
+            val (ids, moved) = suspendTransaction(database) {
+                val ids = n.select(n.id).where {
+                    (n.recipientId eq callerUserId) and
+                        (n.roomId eq roomId) and
+                        (n.type eq NotificationType.THREAD_REPLIED.name) and
+                        n.seenAt.isNull() and n.inApp and (n.id greater after) and (n.id lessEq ceiling)
+                }.orderBy(n.id).limit(batchSize)
+                    .map { it[n.id].value }.toList()
+                ids to if (ids.isEmpty()) 0 else n.update({
+                    (n.id inList ids) and
+                        (n.recipientId eq callerUserId) and
+                        (n.roomId eq roomId) and
+                        (n.threadId inSubQuery matchingThread) and
+                        (n.type eq NotificationType.THREAD_REPLIED.name) and
+                        n.seenAt.isNull() and n.inApp
+                }) { it[seenAt] = at }
+            }
+            val selected = ids.size
+            total += moved
+            selectedTotal += selected
+            ids.lastOrNull()?.let { after = it }
+        } while (selected == batchSize && selectedTotal < GROUPED_REPLY_WINDOW)
+        return total
     }
 
     /**

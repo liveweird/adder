@@ -59,6 +59,7 @@ class MigrationChecksumTest {
         "V36__add_room_access.sql" to 508947737,
         "V37__create_user_room_organizations.sql" to -848673763,
         "V38__room_membership_notices.sql" to 1292978383,
+        "V39__index_grouped_reply_notifications.sql" to 1972208925,
     )
 
     @Test

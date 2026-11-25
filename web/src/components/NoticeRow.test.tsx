@@ -63,6 +63,16 @@ describe("NoticeRow", () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
+  test("a reply group is one actor-free action with the grouped count", () => {
+    renderRow(notice({ type: "THREAD_REPLIED", replyCount: 12, replyFloorId: 79, replyCeilingId: 90 }));
+    const row = screen.getByRole("listitem");
+    expect(within(row).queryByRole("link", { name: "Ada" })).not.toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "Unseen 12 new replies in #42 Awaria bazy" })).toHaveAttribute(
+      "href",
+      "/rooms/12/threads/42?message=991",
+    );
+  });
+
   test("a name with markup in it is text, in the sentence and in the link's name", () => {
     renderRow(notice({ actorName: "<b>Ada</b>", threadTitle: "<strong>x</strong>", seen: true }));
     expect(document.querySelector("b, strong")).toBeNull();

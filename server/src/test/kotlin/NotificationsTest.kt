@@ -2,8 +2,10 @@ package ch.nokillswit
 
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.notifications.MAX_COUNTED_NOTICES
 import ch.nokillswit.notifications.NotificationChannel
+import ch.nokillswit.notifications.NotificationFeedItem
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.notifications.THREAD_NOTIFICATION_TYPES
@@ -15,6 +17,7 @@ import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
 import ch.nokillswit.threads.ThreadResponse
+import ch.nokillswit.threads.WatchRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -31,6 +34,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -81,6 +85,12 @@ class NotificationsTest {
 
     private suspend fun HttpClient.notices(query: String = ""): NotificationPageResponse {
         val response = get("$api$query")
+        assertEquals(HttpStatusCode.OK, response.status, query)
+        return response.body()
+    }
+
+    private suspend fun HttpClient.feed(query: String = ""): PageResponse<NotificationFeedItem> {
+        val response = get("$api/feed$query")
         assertEquals(HttpStatusCode.OK, response.status, query)
         return response.body()
     }
@@ -172,6 +182,221 @@ class NotificationsTest {
         assertTrue(beyond.items.isEmpty())
         assertEquals(MAX_COUNTED_NOTICES.toLong(), beyond.total)
         assertTrue(cast.bob.client.notices("?pageSize=100&page=2000000").items.isEmpty())
+    }
+
+    @Test
+    fun `grouped feed collapses replies before pagination and its ceiling preserves a newer reply`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("nt-group")
+        assertEquals(
+            HttpStatusCode.NoContent,
+            cast.owner.client.putJson("$rooms/${cast.room}/threads/1/watch", WatchRequest(true)).status,
+        )
+        assertEquals(
+            0L,
+            cast.owner.client.feed("?seen=false&groupReplies=true&type=THREAD_REPLIED").total,
+            "an empty grouped partition returns before its page read",
+        )
+        val first = cast.ann.client.post(cast.room, 1, "first")
+        cast.ann.client.post(cast.room, 1, "second")
+        cast.ann.client.post(cast.room, 1, "third")
+
+        assertEquals(3L, cast.owner.client.feed("?seen=false").total, "legacy feed remains raw")
+        val snapshot = cast.owner.client.feed("?seen=false&groupReplies=true&pageSize=1")
+        assertEquals(1L, snapshot.total, "the displayed group is counted before pagination")
+        val group = snapshot.items.single()
+        assertEquals(NotificationType.THREAD_REPLIED, group.type)
+        assertEquals(3, group.replyCount)
+        assertEquals(first.id, group.messageId, "the group opens its oldest included reply")
+        val floor = assertNotNull(group.replyFloorId)
+        val ceiling = assertNotNull(group.replyCeilingId)
+
+        val newer = cast.ann.client.post(cast.room, 1, "new after the drawer snapshot")
+        val marked = cast.owner.client.postJson(
+            "$api/reply-groups/${cast.room}/1/seen",
+            ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(floor, ceiling),
+        )
+        assertEquals(HttpStatusCode.NoContent, marked.status)
+        val remaining = cast.owner.client.feed("?seen=false&groupReplies=true").items.single()
+        assertEquals(1, remaining.replyCount)
+        assertEquals(newer.id, remaining.messageId, "a reply newer than the snapshot stays unseen")
+        val seenHistory = cast.owner.client.feed("?seen=true&groupReplies=true")
+        assertEquals(3L, seenHistory.total, "seen history bypasses grouping")
+        assertTrue(seenHistory.items.all { it.replyCount == null && it.replyFloorId == null && it.replyCeilingId == null })
+
+        cast.ann.client.post(cast.room, 1, "addressed ${token(cast.owner)}")
+        PostgresTestSupport.connect().use { c ->
+            c.prepareStatement(
+                """UPDATE notifications
+                   SET created_at = CASE WHEN notification_type = 'MENTIONED' THEN 2000000 ELSE 1000000 END
+                   WHERE recipient_id = ? AND room_id = ? AND seen_at IS NULL""".trimIndent(),
+            ).use { st ->
+                st.setLong(1, cast.owner.id.toLong())
+                st.setInt(2, cast.room.toInt())
+                assertEquals(2, st.executeUpdate())
+            }
+        }
+        val addressed = cast.owner.client.feed("?seen=false&groupReplies=true&type=MENTIONED")
+        assertEquals(1L, addressed.total, "a type set without replies bypasses grouping")
+        assertEquals(NotificationType.MENTIONED, addressed.items.single().type)
+        val byCreated = cast.owner.client.feed("?seen=false&groupReplies=true&sort=createdAt")
+        assertEquals(
+            listOf(NotificationType.THREAD_REPLIED, NotificationType.MENTIONED),
+            byCreated.items.map { it.type },
+            "the grouped projection applies ascending createdAt order across ordinary rows and reply groups",
+        )
+        val beyond = cast.owner.client.feed("?seen=false&groupReplies=true&pageSize=100&page=11")
+        assertTrue(beyond.items.isEmpty(), "a grouped page starting at the cap returns before its page read")
+        assertEquals(2L, beyond.total, "the pre-pagination displayed total is retained")
+
+        assertEquals(
+            HttpStatusCode.NoContent,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${cast.room}/1/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(floor, ceiling),
+            ).status,
+            "clearing an already-cleared snapshot is idempotent",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.owner.client.postJson(
+                "$api/reply-groups/0/1/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(floor, ceiling),
+            ).status,
+            "zero is outside the room id contract",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${UInt.MAX_VALUE}/1/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(floor, ceiling),
+            ).status,
+            "a room id above int32 is rejected before conversion",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${cast.room}/0/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(floor, ceiling),
+            ).status,
+            "zero is outside the thread number contract",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${cast.room}/${UInt.MAX_VALUE}/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(floor, ceiling),
+            ).status,
+            "a path value outside the documented int32 range is rejected before conversion",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${cast.room}/1/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(0u, ceiling),
+            ).status,
+            "zero is outside the snapshot floor contract",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${cast.room}/1/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(floor, UInt.MAX_VALUE),
+            ).status,
+            "the snapshot ceiling also stays inside the int32 wire contract",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${cast.room}/1/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(floor, 0u),
+            ).status,
+            "zero is outside the snapshot ceiling contract",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${cast.room}/1/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(UInt.MAX_VALUE, ceiling),
+            ).status,
+            "the snapshot floor also stays inside the int32 wire contract",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${cast.room}/1/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(ceiling, floor),
+            ).status,
+            "an inverted snapshot range is rejected",
+        )
+        assertFailsWith<IllegalArgumentException> {
+            TestThreads.notices.markReplyGroupSeen(cast.owner.id, cast.room, 1, 0u, ceiling, System.currentTimeMillis())
+        }
+        assertFailsWith<IllegalArgumentException> {
+            TestThreads.notices.markReplyGroupSeen(cast.owner.id, cast.room, 1, ceiling, floor, System.currentTimeMillis())
+        }
+    }
+
+    @Test
+    fun `grouped feed defers replies beyond its raw window and group seen keysets across chunks`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("nt-group-window")
+        PostgresTestSupport.connect().use { c ->
+            c.prepareStatement(
+                """WITH made AS (
+                       INSERT INTO messages (thread_id, author_id, body, created_at)
+                       SELECT ?, ?, 'bulk reply ' || g, 1000000 + g FROM generate_series(1, 5001) g
+                       RETURNING id, created_at
+                   )
+                   INSERT INTO notifications
+                       (recipient_id, room_id, notification_type, actor_id, thread_id, message_id, created_at, in_app)
+                   SELECT ?, ?, 'THREAD_REPLIED', ?, ?, id, created_at, TRUE FROM made""".trimIndent(),
+            ).use { st ->
+                st.setInt(1, cast.thread.toInt())
+                st.setLong(2, cast.ann.id.toLong())
+                st.setLong(3, cast.owner.id.toLong())
+                st.setInt(4, cast.room.toInt())
+                st.setLong(5, cast.ann.id.toLong())
+                st.setInt(6, cast.thread.toInt())
+                assertEquals(5001, st.executeUpdate())
+            }
+        }
+        val bounds = PostgresTestSupport.connect().use { c ->
+            c.prepareStatement(
+                """SELECT min(id), max(id) FROM notifications
+                   WHERE recipient_id = ? AND room_id = ? AND thread_id = ?
+                     AND notification_type = 'THREAD_REPLIED' AND seen_at IS NULL""".trimIndent(),
+            ).use { st ->
+                st.setLong(1, cast.owner.id.toLong())
+                st.setInt(2, cast.room.toInt())
+                st.setInt(3, cast.thread.toInt())
+                st.executeQuery().use { rs ->
+                    assertTrue(rs.next())
+                    rs.getInt(1).toUInt() to rs.getInt(2).toUInt()
+                }
+            }
+        }
+
+        val recent = cast.owner.client.feed("?seen=false&groupReplies=true").items.single()
+        assertEquals(5000, recent.replyCount)
+        assertEquals(bounds.first + 1u, recent.replyFloorId, "the oldest raw reply is outside the newest-5000 window")
+        assertEquals(bounds.second, recent.replyCeilingId)
+        assertEquals(
+            HttpStatusCode.NoContent,
+            cast.owner.client.postJson(
+                "$api/reply-groups/${cast.room}/1/seen",
+                ch.nokillswit.notifications.NotificationReplyGroupSeenRequest(
+                    assertNotNull(recent.replyFloorId),
+                    assertNotNull(recent.replyCeilingId),
+                ),
+            ).status,
+        )
+
+        val deferred = cast.owner.client.feed("?seen=false&groupReplies=true").items.single()
+        assertEquals(1, deferred.replyCount)
+        assertEquals(bounds.first, deferred.replyFloorId)
+        assertEquals(bounds.first, deferred.replyCeilingId)
+        assertEquals(1, count("SELECT count(*) FROM notifications WHERE id = ? AND seen_at IS NULL", bounds.first.toLong()))
     }
 
     @Test

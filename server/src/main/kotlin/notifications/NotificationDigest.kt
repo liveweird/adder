@@ -100,6 +100,31 @@ internal data class ClaimedNotice(
     val rank: Long,
 )
 
+internal data class GroupedDigestNotice(val notice: ClaimedNotice, val replyCount: Int)
+
+/** Collapses only plain reply notices, at their oldest occurrence, while every individually addressed kind remains its own line. */
+internal fun groupDigestNotices(notices: List<ClaimedNotice>): List<GroupedDigestNotice> {
+    val grouped = mutableListOf<GroupedDigestNotice>()
+    val replyIndexes = mutableMapOf<Pair<UInt, UInt?>, Int>()
+    for (notice in notices.sortedBy { it.rank }) {
+        if (notice.type != NotificationType.THREAD_REPLIED) {
+            grouped += GroupedDigestNotice(notice, 1)
+            continue
+        }
+        val key = notice.roomId to notice.threadId
+        val index = replyIndexes[key]
+        if (index == null) {
+            replyIndexes[key] = grouped.size
+            grouped += GroupedDigestNotice(notice, 1)
+        } else {
+            val current = grouped[index]
+            // Keep the oldest message target/rank. Grouped reply wording is actor-free, so no arbitrary actor is exposed.
+            grouped[index] = current.copy(replyCount = current.replyCount + 1)
+        }
+    }
+    return grouped
+}
+
 /** What one run did, in counts (a test seam and the log line). */
 internal data class DigestRun(val claimed: Int, val sent: Int, val failed: Int, val released: Int = 0)
 
@@ -325,15 +350,17 @@ internal class NotificationDigest(
                 .map { it[threads.id].value to it[threads.number] }.toList()
         }.toMap()
         val survivors = kept.filter { it.threadId == null || it.threadId in numbers }.sortedBy { it.rank }
-        if (survivors.isEmpty()) return@suspendTransaction null
-        val listed = survivors.take(DIGEST_MAX_NOTICES_PER_RECIPIENT)
-        val actors = userNames(listed.map { it.actorId })
-        val entries = listed.map {
-            DigestEntry(it.type, actors[it.actorId].orEmpty(), it.roomId, roomNames.getValue(it.roomId),
-                it.threadId?.let(numbers::getValue), it.messageId)
+        val grouped = groupDigestNotices(survivors)
+        if (grouped.isEmpty()) return@suspendTransaction null
+        val listed = grouped.take(DIGEST_MAX_NOTICES_PER_RECIPIENT)
+        val actors = userNames(listed.map { it.notice.actorId })
+        val entries = listed.map { groupedNotice ->
+            val notice = groupedNotice.notice
+            DigestEntry(notice.type, actors[notice.actorId].orEmpty(), notice.roomId, roomNames.getValue(notice.roomId),
+                notice.threadId?.let(numbers::getValue), notice.messageId, groupedNotice.replyCount)
         }
-        val email = notificationEmail(user[users.name], entries, appUrl, user[users.language], survivors.size - listed.size)
-        Mail(user[users.email], email.subject, email.body, survivors.size)
+        val email = notificationEmail(user[users.name], entries, appUrl, user[users.language], grouped.size - listed.size)
+        Mail(user[users.email], email.subject, email.body, grouped.size)
     }
 
     /** What one person is mailed, resolved at send time. */

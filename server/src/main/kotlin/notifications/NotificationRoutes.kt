@@ -20,6 +20,7 @@ import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.resources.get
 import io.ktor.server.resources.post
+import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.routing
@@ -32,6 +33,18 @@ class NotificationsRoute {
     @Serializable
     @Resource("feed")
     class Feed(val parent: NotificationsRoute = NotificationsRoute())
+
+    @Serializable
+    @Resource("reply-groups/{roomId}/{threadNumber}")
+    class ReplyGroup(
+        val parent: NotificationsRoute = NotificationsRoute(),
+        val roomId: UInt,
+        val threadNumber: UInt,
+    ) {
+        @Serializable
+        @Resource("seen")
+        class Seen(val parent: ReplyGroup)
+    }
 
     /** `/api/v1/notifications/{id}`: ONE notice of the caller's; only its `seen` child is a route. */
     @Serializable
@@ -54,6 +67,7 @@ fun Application.configureNotificationRoutes() {
             notificationList(notifications)
             notificationFeed(notifications)
             notificationSeen(notifications)
+            notificationReplyGroupSeen(notifications)
             notificationSeenAll(notifications)
         }
     }
@@ -85,9 +99,38 @@ private fun Route.notificationFeed(notifications: NotificationService) {
             val caller = call.caller()
             val paging = call.parsePaging(sortable = NOTIFICATION_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
             val seen = call.request.queryParameters.optionalBoolean("seen")
+            val groupReplies = call.request.queryParameters.optionalBoolean("groupReplies") ?: false
             val types = call.request.queryParameters.notificationTypes(NotificationType.entries.toSet())
-            val result = notifications.feed(caller.userId, seen, types, paging)
+            val result = notifications.feed(caller.userId, seen, types, paging, groupReplies)
             call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+        }
+    }
+}
+
+@Serializable
+data class NotificationReplyGroupSeenRequest(val fromId: UInt, val throughId: UInt)
+
+/** Marks only the caller's still-unseen plain replies in this room/thread through the feed snapshot ceiling. */
+private fun Route.notificationReplyGroupSeen(notifications: NotificationService) {
+    rateLimit(RateLimitName(RateLimits.READ_STATE)) {
+        post<NotificationsRoute.ReplyGroup.Seen> { route ->
+            val request = call.receive<NotificationReplyGroupSeenRequest>()
+            if (route.parent.roomId !in 1u..Int.MAX_VALUE.toUInt()) throw BadRequestException("roomId must be a positive int32")
+            if (route.parent.threadNumber !in 1u..Int.MAX_VALUE.toUInt()) {
+                throw BadRequestException("threadNumber must be a positive int32")
+            }
+            if (request.fromId !in 1u..Int.MAX_VALUE.toUInt()) throw BadRequestException("fromId must be a positive int32")
+            if (request.throughId !in 1u..Int.MAX_VALUE.toUInt()) throw BadRequestException("throughId must be a positive int32")
+            if (request.fromId > request.throughId) throw BadRequestException("fromId must not exceed throughId")
+            notifications.markReplyGroupSeen(
+                call.caller().userId,
+                route.parent.roomId,
+                route.parent.threadNumber.toInt(),
+                request.fromId,
+                request.throughId,
+                nowMillis(),
+            )
+            call.respond(HttpStatusCode.NoContent)
         }
     }
 }

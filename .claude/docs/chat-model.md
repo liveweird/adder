@@ -445,6 +445,24 @@ the existing seen operation. Removal deletes it through the membership foreign k
 Adds of more than 20 people use the actor's daily wide-event budget. After exhaustion, up to 20 directly named additions can
 still receive a notice. Membership changes succeed independently of notification budgets.
 
+### Grouped reply notifications (1.17.0)
+
+`GET /api/v1/notifications/feed?groupReplies=true` collapses only unseen `THREAD_REPLIED` rows by the caller's room and thread before
+the cap, total and page are calculated. The default is false, so the original feed and `GET /notifications` retain their row-for-row
+history. Mentions, quotes and every other individually addressed kind remain individual; seen reply history also remains individual.
+The projection takes at most 5,000 candidates per current room through the room-keyed partial index, then groups only the newest 5,000
+eligible raw replies for the caller; retained rows of a soft-deleted room are never walked, while older eligible replies wait unseen and
+surface on a later read after newer groups are cleared. A group uses the newest notice for ordering/current actor metadata, carries `replyCount`, `replyFloorId`
+and `replyCeilingId`, and links to the oldest included message. `POST /api/v1/notifications/reply-groups/{roomId}/{threadNumber}/seen`
+marks only that inclusive floor-to-ceiling snapshot, in id-keyset chunks and never more than 5,000 raw rows per call; older deferred
+replies, newer replies, another thread/person and every other kind survive. Missing and already cleared groups are the same idempotent
+204. Raw notice rows stay intact for edits, deletes, read markers, visibility and delivery.
+
+The bell and its badge opt into this projection, so a watched thread contributes one visible item such as “12 new replies in #42”. The
+email digest applies the same room/thread grouping only after its existing claim and send-time re-check, but before its displayed
+10-entry limit. Its subject and “and N more” count displayed groups; raw claiming, opt-in checks, bounds and at-most-once settlement are
+unchanged. Grouped mail wording is actor-free and retains the content safeguard: room name and thread number only, never title/body.
+
 ### Notifications (V18)
 
 - **[changed] A notice is ids only.** The sketch ported Lettuce's row, which stores `params` (names and titles as text) and a `link`. In Adder a title or a body is content (`security.md` "Log hygiene") and a removed member must stop seeing a room at once. `notifications(id, recipient_id, room_id, notification_type, actor_id, thread_id, message_id?, created_at, seen_at?)` has no text column, so no name, title or body can leak or need scrubbing; the room's name, the thread's title and the actor's name are read at request time (a renamed one shows its current name).

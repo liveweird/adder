@@ -2161,6 +2161,12 @@ export interface paths {
          *     An add of more than 20 people uses the actor's daily wide-event budget. After exhaustion only the first 20 named
          *     recipients are considered for a notice. Membership changes still succeed for the whole audience.
          *
+         *     With `groupReplies=true`, the server takes at most 5,000 candidates from each current active room and groups only the newest
+         *     5,000 unseen `THREAD_REPLIED` notices across those rooms before counting and pagination. Older eligible replies remain unseen
+         *     and surface after newer groups are cleared; retained history of an inactive room is excluded. Individually addressed mentions
+         *     and quotes, seen history, and every other kind remain individual. A group points to its oldest included message and carries
+         *     the inclusive oldest/newest raw notice ids (`replyFloorId`/`replyCeilingId`) used by the group-seen action.
+         *
          *     - Sortable fields: `id` and `createdAt`. Default `-id` (newest first; `id` breaks ties).
          *     - Filters: `seen` (strict boolean) and repeated `type` (any-of, duplicates collapse, unknown names are rejected).
          *     - `total` is capped at 1000. Pages starting at row 1000 or later are empty.
@@ -2168,6 +2174,31 @@ export interface paths {
         get: operations["listNotificationFeed"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/reply-groups/{roomId}/{threadNumber}/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+                threadNumber: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark one grouped reply snapshot seen
+         * @description Idempotently marks only the caller's unseen in-app `THREAD_REPLIED` notices in this room/thread from `fromId` through `throughId`.
+         *     Replies outside that inclusive snapshot range, other threads and addressed notice kinds remain unseen. A missing or already-cleared group
+         *     is a `204`, so the tuple discloses nothing. Uses the per-user `read-state` rate bucket and emits no audit or live event.
+         */
+        post: operations["markNotificationReplyGroupSeen"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3966,6 +3997,21 @@ export interface components {
              * @description Null for a room or thread notice.
              */
             messageId: number | null;
+            /**
+             * Format: int32
+             * @description Raw replies represented by a grouped unseen THREAD_REPLIED item; null otherwise.
+             */
+            replyCount?: number | null;
+            /**
+             * Format: int32
+             * @description Oldest raw notice id represented by the group; null otherwise.
+             */
+            replyFloorId?: number | null;
+            /**
+             * Format: int32
+             * @description Newest raw notice id represented by the group; null otherwise.
+             */
+            replyCeilingId?: number | null;
         };
         NotificationFeedPage: {
             items: components["schemas"]["NotificationFeedItem"][];
@@ -7367,6 +7413,8 @@ export interface operations {
                 seen?: boolean;
                 /** @description Repeatable. Omitted includes every kind. */
                 type?: components["schemas"]["NotificationFeedType"][];
+                /** @description Collapse the newest 5,000 eligible unseen plain replies per room/thread; older replies remain unseen for later pages after groups clear. */
+                groupReplies?: boolean;
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];
                 /** @description Rows per page. Defaults to 20, maximum 100. */
@@ -7397,6 +7445,41 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    markNotificationReplyGroupSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roomId: number;
+                threadNumber: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: int32 */
+                    fromId: number;
+                    /** Format: int32 */
+                    throughId: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Marked, already marked, or no matching caller-owned group */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            413: components["responses"]["PayloadTooLarge"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };

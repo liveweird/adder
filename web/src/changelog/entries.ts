@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.17.0",
+    date: "2026-11-25",
+    en: `**Adder 1.17.0 — grouped reply notifications**
+
+- The bell groups unseen plain replies in a watched thread. Open the group to start at its earliest reply. Mentions and quotes still get their own entries.
+- When you opt in to reply emails, the digest groups replies by thread too.`,
+    pl: `**Adder 1.17.0 — grupowanie powiadomień o odpowiedziach**
+
+- Dzwonek grupuje nieprzeczytane odpowiedzi w obserwowanym wątku. Otwórz grupę, aby zacząć od najstarszej odpowiedzi. Wzmianki i cytaty nadal mają własne pozycje.
+- Jeśli włączysz powiadomienia o odpowiedziach e-mailem, podsumowanie też pogrupuje je według wątków.`,
+  },
+  {
     version: "1.16.0",
     date: "2026-11-25",
     en: `**Adder 1.16.0 — search unread threads**

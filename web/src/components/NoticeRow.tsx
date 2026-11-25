@@ -32,6 +32,9 @@ const KNOWN_KINDS: readonly string[] = [
 
 /** One sentence per notice from ids' current names and the thread's title, text only (`escapeValue` is off because React escapes); `actor` is what stands for the actor's name. */
 function describe(n: NotificationFeedItem, t: TFunction, actor: string): string {
+  if (n.type === "THREAD_REPLIED" && n.replyCount != null && n.replyCount > 1) {
+    return t("notifications.replyGroup", { count: n.replyCount, number: n.threadNumber, title: n.threadTitle });
+  }
   if (!KNOWN_KINDS.includes(n.type)) return n.type;
   return t(`notifications.event.${n.type}`, { actor, number: n.threadNumber, title: n.threadTitle });
 }

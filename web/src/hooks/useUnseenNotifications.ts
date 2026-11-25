@@ -31,7 +31,7 @@ function useUnseenQuery<T>(queryKey: readonly unknown[], queryFn: () => Promise<
 export function useUnseenNotifications() {
   return useUnseenQuery(
     notificationKeys.unseen,
-    () => listNotificationFeed({ page: 1, pageSize: UNSEEN_PAGE_SIZE, seen: false }),
+    () => listNotificationFeed({ page: 1, pageSize: UNSEEN_PAGE_SIZE, seen: false, groupReplies: true }),
     NO_FEED_ITEMS,
   );
 }

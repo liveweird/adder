@@ -200,6 +200,24 @@ class NotificationDigestTest {
     }
 
     @Test
+    fun `plain replies are grouped before the digest display limit and addressed notices stay individual`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        repeat(DIGEST_MAX_ENTRIES + 4) { s.notice(ann, type = "THREAD_REPLIED") }
+        s.notice(ann, type = "MENTIONED")
+        val mailer = RecordingMailer()
+
+        val result = digest(mailer, s).run()
+
+        assertEquals(1, result.sent)
+        val mail = mailer.to(ann.email).single()
+        assertEquals("Adder: 2 unseen notifications", mail.subject, "one reply group plus the addressed notice")
+        assertTrue(mail.body.contains("- 14 new replies in #${s.number} (${s.roomName})"))
+        assertTrue(mail.body.contains("- Olga mentioned you in #${s.number} (${s.roomName})"))
+        assertFalse(mail.body.contains("...and"), "grouping happens before the ten-entry display limit")
+    }
+
+    @Test
     fun `a seen notice and a younger one are not mailed`() = runBlocking {
         val s = setup()
         val seen = s.member()
