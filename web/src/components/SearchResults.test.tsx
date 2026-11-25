@@ -24,15 +24,15 @@ describe("SearchResults", () => {
     expect(headingOutline().map(([level]) => level)).toEqual([4, 4]);
   });
 
-  test("a message snippet is a link to the thread that names the message, headed by its author and time", () => {
+  test("a message snippet links to the thread while its author links separately to their profile", () => {
     renderWithProviders(<SearchResults label="Search results" hits={[threadHit(42, { matchCount: 5, messages: [messageHit(991), messageHit(990, { authorName: "Bo" })] })]} statuses={STATUSES} showRoom={false} />);
     expect(screen.getByText("5 matching messages")).toBeInTheDocument();
     const rows = screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.includes("message="));
     expect(rows.map((row) => row.getAttribute("href"))).toEqual(["/rooms/12/threads/42?message=991", "/rooms/12/threads/42?message=990"]);
-    expect(rows[0]).toHaveTextContent("Ada");
     expect(rows[0]).toHaveTextContent("the outage started");
     expect(rows[0].querySelector("mark")?.textContent).toBe("outage");
-    expect(rows[1]).toHaveTextContent("Bo");
+    expect(screen.getAllByRole("link", { name: "Ada" })).toHaveLength(2); // thread owner and first message author
+    expect(screen.getByRole("link", { name: "Bo" })).toHaveAttribute("href", "/people/7");
   });
 
   test("a title-only hit has no message list and no count", () => {
@@ -42,12 +42,13 @@ describe("SearchResults", () => {
     expect(screen.getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(["/rooms/12/threads/42", "/people/7"]);
   });
 
-  test("the owner is a link to their profile and, across rooms, the room is a link to the room; a message row stays one link, its author text", () => {
+  test("the owner, message author and room are separate links without nested interactive controls", () => {
     renderWithProviders(<SearchResults label="Search results" showRoom hits={[threadHit(42, { matchCount: 1, messages: [messageHit(991)] })]} />);
     const article = screen.getByRole("article");
-    expect(within(article).getByRole("link", { name: "Ada" })).toHaveAttribute("href", "/people/7");
+    expect(within(article).getAllByRole("link", { name: "Ada" })).toHaveLength(2);
+    for (const person of within(article).getAllByRole("link", { name: "Ada" })) expect(person).toHaveAttribute("href", "/people/7");
     expect(within(article).getByRole("link", { name: "Night Shift" })).toHaveAttribute("href", "/rooms/12");
-    // The matching message's author is inside the message link: no link in a link.
+    // Author and target are siblings: neither link contains another interactive control.
     const row = within(article).getAllByRole("link").find((link) => link.getAttribute("href")?.includes("message="));
     expect(row?.querySelector("a")).toBeNull();
   });

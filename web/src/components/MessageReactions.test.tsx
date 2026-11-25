@@ -14,8 +14,8 @@ vi.mock("./EmojiPicker", () => ({
   default: ({ onSelect }: { onSelect: (native: string) => void }) => <button onClick={() => onSelect("🎉")}>pick</button>,
 }));
 
-const THUMBS = { emoji: "👍", count: 3, reacted: true, names: ["Ada", "Bob", "Cy"] };
-const HEART = { emoji: "❤️", count: 5, reacted: false, names: ["Ada", "Bob", "Cy"] };
+const THUMBS = { emoji: "👍", key: "a".repeat(64), count: 3, reacted: true, names: ["Ada", "Bob", "Cy"] };
+const HEART = { emoji: "❤️", key: "b".repeat(64), count: 5, reacted: false, names: ["Ada", "Bob", "Cy"] };
 
 describe("MessageReactions", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -94,9 +94,25 @@ describe("MessageReactions", () => {
     await waitFor(() => expect(screen.getByRole("tooltip")).toHaveTextContent("Ada, Bob, Cy and 2 more"));
   });
 
+  test("the people action opens a paged roster whose names link to profiles", async () => {
+    mockFetch.mockImplementation((url: string) => Promise.resolve(jsonResponse(200, url.includes("page=2")
+      ? { items: [{ userId: 9, name: "Cy" }], page: 2, pageSize: 20, total: 21 }
+      : { items: [{ userId: 7, name: "Ada" }, { userId: 8, name: "Bob" }], page: 1, pageSize: 20, total: 21 })));
+    renderReactions(makeMessage({ id: 9, reactions: [THUMBS] }));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "See everyone who reacted with 👍" }));
+    expect(await screen.findByRole("dialog", { name: "👍 reactions" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ada" })).toHaveAttribute("href", "/people/7");
+    expect(screen.getByRole("link", { name: "Bob" })).toHaveAttribute("href", "/people/8");
+    expect(mockFetch.mock.calls[0][0]).toBe(`/api/v1/rooms/12/messages/9/reactors?reactionKey=${THUMBS.key}&page=1&pageSize=20&sort=createdAt`);
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(await screen.findByRole("link", { name: "Cy" })).toHaveAttribute("href", "/people/9");
+    expect(mockFetch.mock.calls[1][0]).toBe(`/api/v1/rooms/12/messages/9/reactors?reactionKey=${THUMBS.key}&page=2&pageSize=20&sort=createdAt`);
+  });
+
   test("a name is text, never markup", async () => {
     const user = userEvent.setup();
-    renderReactions(makeMessage({ reactions: [{ emoji: "👍", count: 1, reacted: false, names: ["<b>Eve</b>"] }] }));
+    renderReactions(makeMessage({ reactions: [{ emoji: "👍", key: "a".repeat(64), count: 1, reacted: false, names: ["<b>Eve</b>"] }] }));
     await user.hover(screen.getByRole("button", { name: "👍, 1 reaction" }));
     expect(await screen.findByRole("tooltip")).toHaveTextContent("<b>Eve</b>");
     expect(screen.getByRole("button", { name: "👍, 1 reaction" })).toHaveAccessibleDescription("<b>Eve</b>");
@@ -194,7 +210,7 @@ describe("MessageReactions", () => {
 
   test("when the pressed chip vanishes (its count reached 0) focus moves to the add button", async () => {
     const user = userEvent.setup();
-    const solo = { emoji: "👍", count: 1, reacted: true, names: ["Me"] };
+    const solo = { emoji: "👍", key: "a".repeat(64), count: 1, reacted: true, names: ["Me"] };
     const { rerender } = renderReactions(makeMessage({ reactions: [solo] }));
     const chip = screen.getByRole("button", { name: "👍, 1 reaction" });
     await user.click(chip);
@@ -216,7 +232,8 @@ describe("MessageReactions", () => {
 
   test("where the reader may not react the chips are list items of text naming the reactors and the reader's own reaction, and there is no picker", () => {
     renderReactions(makeMessage({ reactions: [THUMBS, HEART] }), false);
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("button", { name: "👍, 3 reactions" })).toBeNull();
+    expect(screen.getByRole("button", { name: "See everyone who reacted with 👍" })).toBeInTheDocument();
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.queryByRole("status")).toBeNull();
     const [own, other] = reactionList().getAllByRole("listitem");
@@ -239,7 +256,7 @@ describe("MessageReactions", () => {
   ])("in Polish a chip of %i reactions reads by the Polish plural rules, label and reactors alike", async (count, label, names) => {
     await i18n.changeLanguage("pl");
     try {
-      renderReactions(makeMessage({ reactions: [{ emoji: "👍", count, reacted: false, names: ["Ada", "Bob", "Cy"] }] }));
+      renderReactions(makeMessage({ reactions: [{ emoji: "👍", key: "a".repeat(64), count, reacted: false, names: ["Ada", "Bob", "Cy"] }] }));
       expect(screen.getByRole("button", { name: label })).toHaveAccessibleDescription(names);
     } finally {
       await i18n.changeLanguage("en");

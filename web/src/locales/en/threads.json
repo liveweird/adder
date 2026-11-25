@@ -287,6 +287,8 @@
   "reaction": {
     "group": "Reactions",
     "add": "Add a reaction",
+    "viewPeople": "See everyone who reacted with {{emoji}}",
+    "peopleTitle": "{{emoji}} reactions",
     "chip_one": "{{emoji}}, {{count}} reaction",
     "chip_other": "{{emoji}}, {{count}} reactions",
     "youReacted": "You reacted",

@@ -18,14 +18,20 @@ const plain = (segments: readonly { text: string }[]) => segments.map((segment) 
 
 function MessageRow({ hit, message, zone }: { hit: ThreadSearchHit; message: MessageSearchHit; zone: string }) {
   return (
-    <Anchor component={RouterLink} to={threadMessagePath(hit.roomId, hit.threadNumber, message.id)} className={classes.message} underline="hover">
+    <div className={classes.message}>
       <Text size="xs" c="dimmed">
-        {message.authorName} · {formatDateTime(message.createdAt, zone)}
+        <PersonLink id={message.authorId} name={message.authorName} inherit /> · {formatDateTime(message.createdAt, zone)}
       </Text>
-      <Text size="sm" style={{ overflowWrap: "anywhere" }}>
-        <Snippet segments={message.snippet} />
-      </Text>
-    </Anchor>
+      <Anchor
+        component={RouterLink}
+        to={threadMessagePath(hit.roomId, hit.threadNumber, message.id)}
+        className={classes.messageTarget}
+        underline="hover"
+        aria-label={`${message.authorName}: ${plain(message.snippet)}`}
+      >
+        <Text size="sm" style={{ overflowWrap: "anywhere" }}><Snippet segments={message.snippet} /></Text>
+      </Anchor>
+    </div>
   );
 }
 
@@ -33,8 +39,8 @@ function MessageRow({ hit, message, zone }: { hit: ThreadSearchHit; message: Mes
  * One search hit: the thread (a heading whose link goes to the thread) with where it stands, then up to three of its newest matching
  * messages, each a link that names the message to jump to. Where the room's workflow is at hand (the room's own search) the status is its pill;
  * a search across rooms carries no workflow, so it shows Open or Closed, the room and an Archived badge for an archived room. The room and the owner are
- * links (1.2 D6: `RoomLink`, `PersonLink`), siblings of the thread's heading link; the tags are plain pills; a matching message's row is ONE link to the message, so its author
- * (in the dimmed line of that link) stays text rather than nest a link in a link.
+ * links (1.2 D6: `RoomLink`, `PersonLink`), siblings of the thread's heading link; the tags are plain pills. A matching message keeps its
+ * author profile link beside the separate message-target link, so interactive elements never nest.
  */
 function Hit({ hit, statuses, showRoom, zone }: { hit: ThreadSearchHit; statuses: RoomWorkflow["statuses"] | undefined; showRoom: boolean; zone: string }) {
   const { t } = useTranslation();

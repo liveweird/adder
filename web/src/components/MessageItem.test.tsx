@@ -352,7 +352,7 @@ describe("MessageItem", () => {
   });
 
   describe("reactions", () => {
-    const THUMBS = { emoji: "👍", count: 2, reacted: false, names: ["Ann Owner", "Bob Starter"] };
+    const THUMBS = { emoji: "👍", key: "a".repeat(64), count: 2, reacted: false, names: ["Ann Owner", "Bob Starter"] };
 
     test("with the react action the message offers the chips and the picker", () => {
       renderItem(makeMessage({ reactions: [THUMBS] }), { edit: false, remove: null, react: true });

@@ -63,10 +63,18 @@ data class MentionedUser(val userId: UInt, val name: String)
 
 /**
  * One emoji on a message: how many people chose it, whether the READER did, and the first three of them by time ([names]: display
- * names, soft-deleted accounts included). The full list of reactors is not part of the wire.
+ * names, soft-deleted accounts included). [key] opens the separately paged full roster without putting the emoji in a URL.
  */
 @Serializable
-data class ReactionSummary(val emoji: String, val count: Int, val reacted: Boolean, val names: List<String>)
+data class ReactionSummary(val emoji: String, val key: String, val count: Int, val reacted: Boolean, val names: List<String>)
+
+/** One person in the paged full roster for a message reaction. */
+@Serializable
+data class ReactorResponse(val userId: UInt, val name: String)
+
+typealias ReactorPageResponse = PageResponse<ReactorResponse>
+
+data class ReactorListResult(val items: List<ReactorResponse>, val total: Long)
 
 /** `PUT /rooms/{id}/messages/{messageId}/reaction`: the caller's own state of ONE [emoji] ([reacted] true adds, false removes). */
 @Serializable

@@ -1995,6 +1995,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/messages/{messageId}/reactors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List every person who chose one reaction
+         * @description Returns the full paged roster behind one reaction summary, ordered by reaction time and then user id. `reactionKey` is the opaque
+         *     key from `ReactionSummary`; the emoji itself never enters the URL. A reader who cannot see the room or message receives the same
+         *     `404` as the message read. A key that is well formed but does not name a current reaction of the message is `404`.
+         *
+         *     Standard list rules apply. Sortable field: `createdAt`; default `createdAt` ascending, with user id as the stable tie-breaker.
+         */
+        get: operations["listMessageReactors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/home": {
         parameters: {
             query?: never;
@@ -3787,10 +3815,12 @@ export interface components {
             /** @description The team's CURRENT display name; `null` for the two keywords. */
             teamName: string | null;
         };
-        /** @description One emoji on a message. The full list of reactors is not part of the contract. */
+        /** @description One emoji on a message. Use `key` to page through every reactor without putting the emoji in a URL. */
         ReactionSummary: {
             /** @description The emoji as it was sent (one emoji, `setMessageReaction`). */
             emoji: string;
+            /** @description Opaque stable key for `listMessageReactors`; it carries no chosen text. */
+            key: string;
             /**
              * Format: int32
              * @description How many people chose it.
@@ -3800,6 +3830,19 @@ export interface components {
             reacted: boolean;
             /** @description The display names of the first three reactors by time (a soft-deleted account keeps its recorded name). */
             names: string[];
+        };
+        Reactor: {
+            /** Format: int32 */
+            userId: number;
+            /** @description The person's current display name; a soft-deleted account keeps its recorded name. */
+            name: string;
+        };
+        ReactorPage: {
+            items: components["schemas"]["Reactor"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
         };
         ReadMarkerRequest: {
             /**
@@ -7263,6 +7306,49 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listMessageReactors: {
+        parameters: {
+            query: {
+                /** @description The opaque key of the reaction summary whose people are requested. */
+                reactionKey: string;
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of reactors */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactorPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalServerError"];
         };
     };

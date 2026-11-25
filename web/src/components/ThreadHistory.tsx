@@ -2,13 +2,27 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { listThreadEvents } from "../api/threads";
+import type { ThreadEvent } from "../api/threads";
+import type { TFunction } from "i18next";
 import { describeEvent, eventLines } from "../utils/threadEvents";
 import EventTimeline from "./EventTimeline";
 import PersonLink from "./PersonLink";
 import { roomKeys } from "../utils/roomKeys";
+import { fillSlots, slot } from "../utils/slots";
 
 /** Ten a page: the history sits in a narrow side panel, newest first. */
 const PAGE_SIZE = 10;
+
+function eventTitle(event: ThreadEvent, t: TFunction) {
+  if (event.type !== "OWNER_CHANGED") return describeEvent(event, t);
+  const fromId = Number(event.params.fromId);
+  const toId = Number(event.params.toId);
+  if (!Number.isInteger(fromId) || fromId < 1 || !Number.isInteger(toId) || toId < 1) return describeEvent(event, t);
+  return fillSlots(t("threads.event.ownerChanged", { from: slot("from"), to: slot("to") }), {
+    from: <PersonLink id={fromId} name={event.params.fromName || event.params.fromId} inherit />,
+    to: <PersonLink id={toId} name={event.params.toName || event.params.toId} inherit />,
+  });
+}
 
 /**
  * A thread's change history (Toadie's `CatalogFileHistory`): the server's structured events rendered in the viewer's language, newest first
@@ -33,7 +47,7 @@ export default function ThreadHistory({ roomId, number }: { roomId: number; numb
     <EventTimeline
       items={data?.items.map((event) => ({
         key: event.id,
-        title: describeEvent(event, t),
+        title: eventTitle(event, t),
         lines: eventLines(event, t),
         who: event.actorDeleted ? t("threads.history.userDeleted", { name: event.actorName }) : <PersonLink id={event.actorId} name={event.actorName} quiet inherit />,
         when: event.createdAt,

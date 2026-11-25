@@ -479,6 +479,13 @@ test("a reaction from the picker appears for another member without a reload, an
   await expect(readerChip).toHaveAccessibleDescription(room.owner.name);
   await expectNoReload(reader);
 
+  // The separate roster action works by keyboard or touch and keeps the person's profile link out of the reaction toggle.
+  await readerMessage.getByRole("button", { name: "See everyone who reacted with 👍" }).click();
+  const roster = reader.page.getByRole("dialog", { name: "👍 reactions" });
+  await expect(roster.getByRole("link", { name: room.owner.name })).toHaveAttribute("href", `/people/${room.owner.id}`);
+  await roster.getByRole("button", { name: "Close" }).click();
+  await expect(roster).toBeHidden();
+
   // The teammate presses it: theirs joins (two reactions, pressed), and the author's chip follows live.
   await readerChip.click();
   await expect(readerChip).toHaveAccessibleName("👍, 2 reactions");

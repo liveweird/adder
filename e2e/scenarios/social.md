@@ -107,11 +107,13 @@ what the scenario is about.
    - *Expected*: the reaction PUT succeeds; the author's chip is named "👍, 1 reaction" and is pressed.
 3. The reader does nothing.
    - *Expected*: a chip "👍, 1 reaction" appears, not pressed, described by the author's name; the document was not reloaded.
-4. The reader presses the chip.
+4. The reader opens **See everyone who reacted with 👍**.
+   - *Expected*: the paged roster dialog names the reaction and links the author to their profile; closing returns to the conversation.
+5. The reader presses the chip.
    - *Expected*: it reads "👍, 2 reactions" and is pressed; the author's chip follows to "👍, 2 reactions".
-5. The reader presses it again.
+6. The reader presses it again.
    - *Expected*: it reads "👍, 1 reaction" and is not pressed; the author's chip follows to "👍, 1 reaction".
-6. Both pages are asked what they recorded.
+7. Both pages are asked what they recorded.
    - *Expected*: no policy violation in either (the lazy emoji chunk and its shadow-root picker run under the strict policy).
 
 ## Scenario: a pinned thread and a pinned message show in the pinned panel for another member, and unpinning removes them

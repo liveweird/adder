@@ -295,6 +295,8 @@
   "reaction": {
     "group": "Reakcje",
     "add": "Dodaj reakcję",
+    "viewPeople": "Zobacz wszystkie osoby, które zareagowały {{emoji}}",
+    "peopleTitle": "Reakcje {{emoji}}",
     "chip_one": "{{emoji}}, {{count}} reakcja",
     "chip_few": "{{emoji}}, {{count}} reakcje",
     "chip_many": "{{emoji}}, {{count}} reakcji",

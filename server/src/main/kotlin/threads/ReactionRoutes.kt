@@ -2,7 +2,12 @@ package ch.nokillswit.threads
 
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.caller
+import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireRoomMember
+import ch.nokillswit.infra.paging.SortField
+import ch.nokillswit.infra.paging.optionalBoundedString
+import ch.nokillswit.infra.paging.parsePaging
+import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomServiceKey
@@ -11,9 +16,11 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.resources.Resource
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
+import io.ktor.server.resources.get
 import io.ktor.server.resources.put
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -29,14 +36,43 @@ import kotlinx.serialization.Serializable
 @Resource("reaction")
 class MessageReactionRoute(val parent: RoomMessagesRoute.Id)
 
+/** The paged full roster behind one reaction summary. */
+@Serializable
+@Resource("reactors")
+class MessageReactorsRoute(val parent: RoomMessagesRoute.Id)
+
 fun Application.configureReactionRoutes() {
     val roomService = attributes[RoomServiceKey]
+    val messageService = attributes[MessageServiceKey]
     val reactionService = attributes[MessageReactionServiceKey]
 
     routing {
         authenticate {
+            messageReactors(roomService, messageService, reactionService)
             messageReaction(roomService, reactionService)
         }
+    }
+}
+
+private val REACTION_KEY = Regex("^[0-9a-f]{64}$")
+private val REACTOR_SORT = setOf("createdAt")
+
+/** A room reader may inspect the people behind a reaction already visible on the message. */
+private fun Route.messageReactors(
+    roomService: RoomService,
+    messageService: MessageService,
+    reactionService: MessageReactionService,
+) {
+    get<MessageReactorsRoute> { route ->
+        val caller = call.caller()
+        val roomId = route.parent.parent.parent.id
+        roomService.visibleStanding(caller, roomId)
+        messageService.read(roomId, route.parent.messageId, caller.userId).orNotFound("Message")
+        val key = call.request.queryParameters.optionalBoundedString("reactionKey", 64)
+        if (key == null || !REACTION_KEY.matches(key)) throw BadRequestException("reactionKey must be a reaction key")
+        val paging = call.parsePaging(REACTOR_SORT, listOf(SortField("createdAt", descending = false)))
+        val result = reactionService.reactors(route.parent.messageId, key, paging).orNotFound("Reaction")
+        call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }
 }
 

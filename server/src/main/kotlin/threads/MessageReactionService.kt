@@ -5,6 +5,8 @@ import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.notify.notifyLive
+import ch.nokillswit.infra.paging.PageRequest
+import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.rooms.memberGuard
 import ch.nokillswit.users.UserService
 import io.ktor.util.AttributeKey
@@ -22,6 +24,9 @@ import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.insert
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import java.security.MessageDigest
+import java.util.HexFormat
 
 val MessageReactionServiceKey = AttributeKey<MessageReactionService>("MessageReactionService")
 
@@ -43,6 +48,9 @@ ORDER BY g.first_at, g.emoji"""
 
 /** How many reactors a summary names. */
 private const val NAMED_REACTORS = 3
+
+/** Opaque URL-safe handle for one emoji. The chosen emoji itself never enters a URL or request log. */
+internal fun reactionKey(emoji: String): String = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(emoji.toByteArray()))
 
 /** What a reaction write changed, for the route's audit line (null from the service when the state was already the requested one). */
 data class ReactionChange(val threadId: UInt, val messageId: UInt, val reacted: Boolean)
@@ -127,9 +135,27 @@ class MessageReactionService(private val database: R2dbcDatabase) {
         val names = userNames(rows.flatMap { it.reactors })
         return rows.groupBy { it.messageId }.mapValues { (_, perEmoji) ->
             perEmoji.take(MAX_DISTINCT_REACTIONS).map {
-                ReactionSummary(it.emoji, it.count, it.reacted, it.reactors.take(NAMED_REACTORS).map(names::getValue))
+                ReactionSummary(
+                    it.emoji,
+                    reactionKey(it.emoji),
+                    it.count,
+                    it.reacted,
+                    it.reactors.take(NAMED_REACTORS).map(names::getValue),
+                )
             }
         }
+    }
+
+    /** Every person behind one summary, by reaction time then id, through the summary's opaque [key]. */
+    suspend fun reactors(messageId: UInt, key: String, paging: PageRequest): ReactorListResult? = suspendTransaction(database) {
+        val emoji = Reactions.select(Reactions.emoji).where { Reactions.messageId eq messageId }.withDistinct()
+            .map { it[Reactions.emoji] }.toList().singleOrNull { reactionKey(it) == key } ?: return@suspendTransaction null
+        val predicate = (Reactions.messageId eq messageId) and (Reactions.emoji eq emoji)
+        val total = Reactions.select(Reactions.userId).where { predicate }.count()
+        val rows = Reactions.select(Reactions.userId, Reactions.createdAt).where { predicate }
+            .applyPaging(paging, mapOf("id" to Reactions.userId, "createdAt" to Reactions.createdAt)).toList()
+        val names = userNames(rows.map { it[Reactions.userId].value })
+        ReactorListResult(rows.map { ReactorResponse(it[Reactions.userId].value, names.getValue(it[Reactions.userId].value)) }, total)
     }
 
     /** The follower of a message's writes: a deleted message loses its reactions in the delete's own transaction. */

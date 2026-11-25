@@ -8,7 +8,9 @@ import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.REACTION_LIMIT_PROBLEM_TYPE
 import ch.nokillswit.threads.THREAD_CLOSED_PROBLEM_TYPE
 import ch.nokillswit.threads.ReactionRequest
+import ch.nokillswit.threads.ReactorPageResponse
 import ch.nokillswit.threads.ReactionSummary
+import ch.nokillswit.threads.reactionKey
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -83,6 +85,9 @@ class MessageReactionsTest {
     private suspend fun HttpClient.reactionsOf(room: UInt, message: UInt): List<ReactionSummary> =
         get("$rooms/$room/messages/$message").body<MessageResponse>().reactions
 
+    private suspend fun HttpClient.reactorsOf(room: UInt, message: UInt, key: String, page: Int = 1): ReactorPageResponse =
+        get("$rooms/$room/messages/$message/reactors?reactionKey=$key&page=$page&pageSize=2&sort=createdAt").body()
+
     /** Reactions straight into the table (the limit tests start from a crowded message; the person is not the one under test). */
     private fun seedRaw(message: UInt, user: UInt, vararg emoji: String) = PostgresTestSupport.connect().use { c ->
         c.prepareStatement("INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)").use { st ->
@@ -110,7 +115,7 @@ class MessageReactionsTest {
         withAuditCapture { capture ->
             assertEquals(HttpStatusCode.NoContent, cast.member.client.react(cast.room, cast.message, THUMBS_UP).status)
             val own = cast.member.client.reactionsOf(cast.room, cast.message)
-            assertEquals(listOf(ReactionSummary(THUMBS_UP, 1, true, listOf("Marek"))), own)
+            assertEquals(listOf(ReactionSummary(THUMBS_UP, reactionKey(THUMBS_UP), 1, true, listOf("Marek"))), own)
             assertEquals(1, rawRows(cast.message))
 
             assertEquals(HttpStatusCode.NoContent, cast.member.client.react(cast.room, cast.message, THUMBS_UP, reacted = false).status)
@@ -180,8 +185,8 @@ class MessageReactionsTest {
         }
         val expectedFor = { member: Boolean, author: Boolean ->
             listOf(
-                ReactionSummary(PARTY, 1, author, listOf("Alina")),
-                ReactionSummary(THUMBS_UP, 4, member || author, listOf("Olivia", "Marek", "Adam")),
+                ReactionSummary(PARTY, reactionKey(PARTY), 1, author, listOf("Alina")),
+                ReactionSummary(THUMBS_UP, reactionKey(THUMBS_UP), 4, member || author, listOf("Olivia", "Marek", "Adam")),
             )
         }
         assertEquals(expectedFor(true, false), cast.member.client.reactionsOf(cast.room, cast.message), "the reader's own is marked")
@@ -191,6 +196,33 @@ class MessageReactionsTest {
         val page = cast.member.client.get("$rooms/${cast.room}/threads/1/messages").body<MessagePageResponse>()
         assertEquals(expectedFor(true, false), page.items.single { it.id == cast.message }.reactions)
         assertTrue(page.items.filter { it.id != cast.message }.all { it.reactions.isEmpty() }, "a message nobody reacted to has none")
+    }
+
+    @Test
+    fun `a member pages through every reactor without putting the emoji in the URL`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("rx-roster")
+        TestRooms.addMember(cast.room, cast.admin.id)
+        for (who in listOf(cast.owner, cast.member, cast.admin, cast.author)) {
+            assertEquals(HttpStatusCode.NoContent, who.client.react(cast.room, cast.message, THUMBS_UP).status)
+        }
+        val summary = cast.member.client.reactionsOf(cast.room, cast.message).single()
+        assertEquals(64, summary.key.length)
+        assertTrue(summary.key.all { it in '0'..'9' || it in 'a'..'f' })
+
+        val first = cast.member.client.reactorsOf(cast.room, cast.message, summary.key)
+        assertEquals(4L, first.total)
+        assertEquals(listOf(cast.owner.id, cast.member.id), first.items.map { it.userId })
+        assertEquals(listOf("Olivia", "Marek"), first.items.map { it.name })
+        val second = cast.member.client.reactorsOf(cast.room, cast.message, summary.key, page = 2)
+        assertEquals(listOf(cast.admin.id, cast.author.id), second.items.map { it.userId })
+
+        suspend fun reactorStatus(client: HttpClient, key: String) = client
+            .get("$rooms/${cast.room}/messages/${cast.message}/reactors?reactionKey=$key")
+            .status
+        assertEquals(HttpStatusCode.NotFound, reactorStatus(cast.member.client, "0".repeat(64)))
+        assertEquals(HttpStatusCode.BadRequest, reactorStatus(cast.member.client, "bad"))
+        assertEquals(HttpStatusCode.NotFound, reactorStatus(cast.outsider.client, summary.key))
     }
 
     @Test
