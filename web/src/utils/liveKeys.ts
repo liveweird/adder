@@ -7,6 +7,7 @@ import type { LiveClock } from "./liveClient";
 import { homeKey, notificationsKey, roomKeys, roomOrganizationKey, searchAllKey } from "./roomKeys";
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
 import { lookingAt } from "./lookingAt";
+import { clearRoomLinkPreviews } from "./linkPreviewCache";
 
 const { rail: RAIL, list: ROOM_LIST, detail, access, joinRequests, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
 
@@ -261,7 +262,10 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
     },
     handle(frame) {
       const roomLost = frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted");
-      if (roomLost) resetRoomReads(queryClient, frame.roomId, frame.type === "revoked");
+      if (roomLost) {
+        resetRoomReads(queryClient, frame.roomId, frame.type === "revoked");
+        clearRoomLinkPreviews(queryClient, frame.roomId);
+      }
       // A notice about the thread the reader is looking at (open, visible, at the end) is acknowledged by the pane through the read marker; the
       // bell is not re-read, so the badge never rises and falls again (`utils/lookingAt.ts`).
       if (frame.type === "event" && frame.kind === "notification.created") {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MantineProvider } from "@mantine/core";
 import { MemoryRouter } from "react-router-dom";
 import { createKnownNames, KnownNamesContext } from "../utils/knownNames";
@@ -78,26 +79,45 @@ describe("MarkdownView (message)", () => {
     }
   });
 
-  test("opens links in a new tab without opener or referrer", () => {
+  test("exposes the external href only inside the destination confirmation", async () => {
     renderView("[docs](https://example.com/docs)", "message");
-    const link = screen.getByRole("link", { name: "docs" });
+    const user = userEvent.setup();
+    const trigger = screen.getByRole("button", { name: "docs" });
+    expect(trigger).not.toHaveAttribute("href");
+    expect(screen.queryByRole("link")).toBeNull();
+    await user.click(trigger);
+    const dialog = await screen.findByRole("dialog", { name: "Open external link" });
+    expect(dialog).toHaveTextContent("https://example.com/docs");
+    const link = screen.getByRole("link", { name: "Open link" });
     expect(link).toHaveAttribute("href", "https://example.com/docs");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("link")).toBeNull();
   });
 
-  test("renders an image as a link labelled by its alt text (the CSP blocks remote images)", () => {
+  test("offers confirmation for a message image using its alt text", () => {
     renderView("![a cat](https://example.com/cat.png)", "message");
     expect(document.querySelector("img")).toBeNull();
-    const link = screen.getByRole("link", { name: "a cat" });
-    expect(link).toHaveAttribute("href", "https://example.com/cat.png");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByRole("button", { name: "a cat" })).not.toHaveAttribute("href");
   });
 
   test("an image without alt text is labelled by its address", () => {
     renderView("![](https://example.com/cat.png)", "message");
-    expect(screen.getByRole("link", { name: "https://example.com/cat.png" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "https://example.com/cat.png" })).toBeInTheDocument();
+  });
+
+  test("links to the app directly and gives a linked image one interactive destination", () => {
+    renderView("[room](/rooms/7) [![preview](https://example.com/cat.png)](https://example.com/gallery)", "message");
+    expect(screen.getByRole("link", { name: "room" })).toHaveAttribute("href", "/rooms/7");
+    const gallery = screen.getByRole("button", { name: "preview" });
+    expect(gallery.querySelector("button, a, img")).toBeNull();
+  });
+
+  test("a linked image with empty alt text uses the actual parent destination as its label", () => {
+    renderView("[![](https://example.com/cat.png)](https://example.com/gallery) [![](https://example.com/cat.png)](/rooms/7)", "message");
+    expect(screen.getByRole("button", { name: "https://example.com/gallery" })).not.toHaveAttribute("href");
+    expect(screen.getByRole("link", { name: "/rooms/7" })).toHaveAttribute("href", "/rooms/7");
   });
 
   test("an image with an unsafe address stays as its alt text, not a link", () => {
@@ -142,16 +162,13 @@ describe("MarkdownView (message)", () => {
     expect(screen.getByRole("link", { name: "#a_b" })).toHaveAttribute("href", "/rooms/7/threads/42?scope=all&tag=a_b");
   });
 
-  test("tags in code and in links stay text, and an external link still opens a new tab", () => {
+  test("tags in code and in links stay text, and external destinations get confirmation controls", () => {
     renderView("`#a` and [docs #b](https://example.com/#c) and https://example.com/x#d and #real", "message", tagHref);
     expect(screen.getByRole("link", { name: "#real" })).not.toHaveAttribute("target");
-    const external = screen.getByRole("link", { name: "docs #b" });
-    expect(external).toHaveAttribute("href", "https://example.com/#c");
-    expect(external).toHaveAttribute("target", "_blank");
-    expect(external).toHaveAttribute("rel", "noopener noreferrer");
-    expect(screen.getByRole("link", { name: "https://example.com/x#d" })).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("button", { name: "docs #b" })).not.toHaveAttribute("href");
+    expect(screen.getByRole("button", { name: "https://example.com/x#d" })).not.toHaveAttribute("href");
     expect(screen.getByText("#a").tagName).toBe("CODE");
-    expect(screen.getAllByRole("link")).toHaveLength(3);
+    expect(screen.getAllByRole("link")).toHaveLength(1);
   });
 
   test("a tag is text inside its link: markup around it is never interpreted", () => {
@@ -173,12 +190,12 @@ describe("MarkdownView (message)", () => {
     );
     const { rerender } = render(view((tag) => `/a?tag=${tag}`));
     const link = screen.getByRole("link", { name: "#outage" });
-    const docs = screen.getByRole("link", { name: "docs" });
+    const docs = screen.getByRole("button", { name: "docs" });
     link.focus();
     rerender(view((tag) => `/b?tag=${tag}`));
     // The new closure is used (the href follows it) on the SAME nodes: nothing was remounted.
     expect(screen.getByRole("link", { name: "#outage" })).toBe(link);
-    expect(screen.getByRole("link", { name: "docs" })).toBe(docs);
+    expect(screen.getByRole("button", { name: "docs" })).toBe(docs);
     expect(link).toHaveAttribute("href", "/b?tag=outage");
     expect(link).toHaveFocus();
   });
@@ -230,11 +247,10 @@ describe("MarkdownView (message): mentions", () => {
 
   test("a mention in a link's text is shown inside the link, and code is left alone", () => {
     renderView("[see <@5>](https://example.com) `<@9>`", "message", undefined, people);
-    const link = screen.getByRole("link", { name: "see @Ada Lovelace" });
-    expect(link).toHaveAttribute("href", "https://example.com");
-    // A link may not hold a link: inside the link's own text the mention is a span, and it is the only link there is.
+    const link = screen.getByRole("button", { name: "see @Ada Lovelace" });
+    // The mention is a span inside the link label, so there is only one interactive control.
     expect(link.querySelector("a")).toBeNull();
-    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.queryByRole("link")).toBeNull();
     expect(screen.getByText("@Ada Lovelace").tagName).toBe("SPAN");
     expect(screen.getByText("<@9>").tagName).toBe("CODE");
   });
@@ -270,7 +286,7 @@ describe("MarkdownView (message): mentions", () => {
     renderView("![alt <@5>](https://example.com/a.png)", "message", undefined, people);
     expect(document.querySelector("[data-mention]")).toBeNull();
     expect(document.body.textContent).not.toContain("Ada Lovelace");
-    expect(screen.getByRole("link", { name: "alt <@5>" })).toHaveAttribute("href", "https://example.com/a.png"); // an image is its alt, as a link
+    expect(screen.getByRole("button", { name: "alt <@5>" })).toBeInTheDocument();
   });
 
   test("a mention beside a hashtag link: both are read", () => {
@@ -328,7 +344,8 @@ describe("MarkdownView (message): group mentions", () => {
     expect(screen.getAllByRole("link")).toHaveLength(1);
     cleanup();
     renderView("[page <@team:12>](https://example.com)", "message", undefined, undefined, groups);
-    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "page @oncall" })).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
     expect(screen.getByText("@oncall").tagName).toBe("SPAN");
   });
 
@@ -350,7 +367,7 @@ describe("MarkdownView (message): group mentions", () => {
 
   test("code is left alone, a link's text is read, and the document variant never reads a token", () => {
     const { unmount } = renderView("[see <@everyone>](https://example.com) `<@team:12>`", "message", undefined, undefined, groups);
-    expect(screen.getByRole("link", { name: "see @everyone" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "see @everyone" })).toBeInTheDocument();
     expect(screen.getByText("<@team:12>").tagName).toBe("CODE");
     unmount();
     renderView("Ping <@everyone>", "document", undefined, undefined, groups);

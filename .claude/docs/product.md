@@ -433,8 +433,9 @@ reinvent**: when Adder needs a capability a sibling repo already has, port its i
 - **Covenant** (`~/Sources/covenant`): ported in 0.6.0: the compact notification bell (`NotificationsButton.tsx`, itself Lettuce's; polling replaced by the live hint), while its in-transaction insert became the `ThreadNotices` port (`chat-model.md`); ported in 0.5.0: the pass-through group of `CommandPalette.tsx` and the shape of `useReviewInboxFilters.ts` (validate, omit defaults, `replace`); its facets (`ContractService.kt`) are a reference only (no facets so far); next: the `contracts/Lifecycle.kt` 409-on-illegal-move shape.
 - **Hammurabi** (`~/Sources/hammurabi`): the donor of 1.2's tags (newer than Toadie's: tags are rows, the PUT and DELETE take `X-Expected-Revision`, retired tags revive): `tags/` (`TagCategory.kt`, `TagCategoryRoutes.kt`, `TagCategoryService.kt`), `infra/db/Locking.kt`, `V13__create_tags.sql`, the `adrs/AdrTagService.kt` shape for a record's tags, and the web half (`Tags` page, `TagCategoryEditorModal`, pills and editor, `tags.json`); ported in 1.2.0 (S6, S7).
 
+Adder 1.13.0 adapts Flow's `infra/outbound/` connection-time DNS guard and URL-free `outbound.blocked` audit for message link previews.
 Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `identities/`, `metrics/`, `reports/`, `integration/` (service tokens),
-`infra/outbound/` (the SSRF guard — port it with the first server-initiated call other than SMTP), `plugins/Role.kt`, `EncryptedAtRest`/`Reencrypt`.
+`plugins/Role.kt`, `EncryptedAtRest`/`Reencrypt`.
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history

@@ -2529,6 +2529,47 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/messages/{messageId}/link-preview:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/MessageIdPath'
+    post:
+      tags: [messages]
+      operationId: previewMessageLink
+      summary: Preview an external message link
+      description: |
+        A reader of the room may explicitly request a bounded preview for an external URL that is a link, image or autolink in the
+        current live message. Merely reading or hovering a message never calls this operation. The message and URL association are
+        checked before and after the outbound work, so an edit, deletion or access loss cannot release a stale preview. An unknown,
+        deleted or foreign-room message and a non-reader are the same `404`.
+
+        A syntactically valid link that the guarded fetcher does not support, or an unavailable upstream, returns `200` with
+        `kind: UNAVAILABLE`. Invalid input or a URL absent from the current message is `400`. Calls ride a per-user bucket of 20 per
+        minute and one preview may be in flight for a caller (`429` beyond either bound). The response is generated on demand and
+        carries `Cache-Control: no-store`. The compact request has a 16 KiB transport ceiling (`413` beyond it).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkPreviewRequest'
+      responses:
+        '200':
+          description: The preview, or a stable unavailable result
+          headers:
+            Cache-Control:
+              schema: { type: string, enum: [no-store] }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkPreviewResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/pins:
     parameters:
       - $ref: '#/components/parameters/ResourceId'
@@ -4956,6 +4997,53 @@ components:
           minLength: 1
           maxLength: 8000
           description: Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays.
+    LinkPreviewRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 2048
+          description: The exact external link destination currently present in the live message.
+    LinkPreviewKind:
+      type: string
+      enum: [PAGE, IMAGE, UNAVAILABLE]
+    LinkPreviewImage:
+      type: object
+      required: [mediaType, data, width, height]
+      properties:
+        mediaType: { type: string, enum: [image/png, image/jpeg] }
+        data:
+          type: string
+          format: byte
+          maxLength: 349528
+          description: Base64 of a server-decoded and re-encoded raster, at most 256 KiB before base64 encoding.
+        width: { type: integer, minimum: 1, maximum: 640 }
+        height: { type: integer, minimum: 1, maximum: 640 }
+    LinkPreviewResponse:
+      type: object
+      required: [kind, url, finalUrl, title, image]
+      properties:
+        kind: { $ref: '#/components/schemas/LinkPreviewKind' }
+        url: { type: string, format: uri, maxLength: 2048, description: The validated request destination. }
+        finalUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+          nullable: true
+          description: The final guarded destination, or `null` when unavailable.
+        title:
+          type: string
+          maxLength: 300
+          nullable: true
+          description: Bounded plain page metadata, never remote markup.
+        image:
+          allOf:
+            - $ref: '#/components/schemas/LinkPreviewImage'
+          nullable: true
+          description: A verified raster preview, or `null` for a text-only or unavailable result.
     MessagePostRequest:
       type: object
       required: [body]

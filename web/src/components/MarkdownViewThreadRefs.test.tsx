@@ -46,15 +46,13 @@ describe("MarkdownView (message): #42 thread references (1.2 A9)", () => {
     expect(screen.getByRole("link", { name: "#7" })).toBeInTheDocument();
   });
 
-  test("numbers in code and in links stay text, an external link still opens a new tab, and glued numbers are no references", () => {
+  test("numbers in code and in links stay text, external links ask for confirmation, and glued numbers are no references", () => {
     renderView("`#1` and [docs #2](https://example.com/#3) and https://example.com/x#4 and foo#5 and #6");
     expect(screen.getByText("#1").tagName).toBe("CODE");
-    const external = screen.getByRole("link", { name: "docs #2" });
-    expect(external).toHaveAttribute("href", "https://example.com/#3");
-    expect(external).toHaveAttribute("target", "_blank");
-    expect(screen.getByRole("link", { name: "https://example.com/x#4" })).toHaveAttribute("target", "_blank");
+    expect(screen.getByRole("button", { name: "docs #2" })).not.toHaveAttribute("href");
+    expect(screen.getByRole("button", { name: "https://example.com/x#4" })).not.toHaveAttribute("href");
     expect(screen.getByRole("link", { name: "#6" })).not.toHaveAttribute("target");
-    expect(screen.getAllByRole("link")).toHaveLength(3);
+    expect(screen.getAllByRole("link")).toHaveLength(1);
     expect(screen.queryByRole("link", { name: "#5" })).toBeNull();
   });
 

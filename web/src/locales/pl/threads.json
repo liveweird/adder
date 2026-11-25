@@ -3,6 +3,16 @@
   "newThread": "Nowy wątek",
   "back": "Wróć do wątków",
   "loadFailed": "Nie udało się wczytać wątków",
+  "linkPreview": {
+    "confirm": "Otwórz link zewnętrzny",
+    "leaving": "Ten link prowadzi poza Addera.",
+    "open": "Otwórz link",
+    "preview": "Podgląd",
+    "hide": "Ukryj podgląd",
+    "loading": "Wczytywanie podglądu…",
+    "unavailable": "Podgląd tego linku jest niedostępny.",
+    "imageAlt": "Podgląd obrazu z linku"
+  },
   "scope": {
     "aria": "Które wątki wyświetlić",
     "open": "Otwarte",

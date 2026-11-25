@@ -4,6 +4,8 @@ import ch.nokillswit.home.HomeService
 import ch.nokillswit.home.HomeServiceKey
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.mail.mailer
+import ch.nokillswit.infra.outbound.PreviewFetcher
+import ch.nokillswit.infra.outbound.PublicLinkPreviewFetcher
 import ch.nokillswit.notifications.MAX_BROADCASTS_PER_ACTOR
 import ch.nokillswit.notifications.MAX_EMAIL_BUDGET_PER_ACTOR
 import ch.nokillswit.notifications.NoticeWriter
@@ -16,6 +18,8 @@ import ch.nokillswit.rooms.RoomWorkflowService
 import ch.nokillswit.rooms.WorkflowUsageKey
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.threads.MessageMentionService
+import ch.nokillswit.threads.MessageLinkPreviewService
+import ch.nokillswit.threads.MessageLinkPreviewServiceKey
 import ch.nokillswit.threads.MessageReactionService
 import ch.nokillswit.threads.MessageReactionServiceKey
 import ch.nokillswit.threads.MessageService
@@ -44,7 +48,11 @@ import ch.nokillswit.threads.ThreadWatchService
 import ch.nokillswit.threads.ThreadWatchServiceKey
 import ch.nokillswit.threads.ThreadWorkflowUsage
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
+import io.ktor.util.AttributeKey
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+
+internal val PreviewFetcherKey = AttributeKey<PreviewFetcher>("PreviewFetcher")
 
 /**
  * The chat services of the composition root (`rooms/`' neighbours: `threads/` and `notifications/`), split out of [configureDatabase] so
@@ -61,6 +69,9 @@ internal fun Application.publishChatServices(
     readMaxConcurrent: Int,
     searchMaxConcurrent: Int,
 ) {
+    val previewFetcher = PublicLinkPreviewFetcher()
+    attributes.put(PreviewFetcherKey, previewFetcher)
+    monitor.subscribe(ApplicationStopped) { previewFetcher.close() }
     // The thread aggregate (V14): a thread write runs under the room lock and reads the room through the rooms/ services only.
     val threadEventService = ThreadEventService(database)
     // The hashtag index (V15) is written inside the message writes, so the message service holds it; a boot reindex reads it back.
@@ -124,6 +135,7 @@ internal fun Application.publishChatServices(
         database, roomService, messageTagService, messageMentionService, listOf(PinCleanup()), reactionService, threadReadLimiter,
     )
     attributes.put(MessageServiceKey, messageService)
+    attributes.put(MessageLinkPreviewServiceKey, MessageLinkPreviewService(roomService, messageService))
     attributes.put(PinServiceKey, PinService(database, messageService))
     // The thread's curated tags (V33): the list and the read put them on every thread; the PUT is a thread write under the room lock.
     val threadTagService = ThreadTagService(database, threadEventService)

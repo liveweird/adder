@@ -7,7 +7,7 @@
 // by a throwaway user, so the seed administrator is never a member of one; the per-user `room-name` (30 a minute), `room-members` (60) and
 // `chat-post` (120) buckets are far from reached. Threads are never deleted: a room's removal hides its threads with it.
 import type { Page } from "@playwright/test";
-import { apiAsUser, conversation, createRoomViaUi, deleteViaApi, expect, login, rail, signOut, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsUser, axeViolations, conversation, createRoomViaUi, deleteViaApi, expect, login, rail, signOut, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-threads-admin");
@@ -654,4 +654,88 @@ test("the details panel opens on demand and stays open for the next thread", asy
   await expect(page.getByRole("button", { name: "Details", exact: true })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("heading", { level: 4, name: "Owner", exact: true })).toBeVisible();
   await sendInView("with the panel stacked open");
+});
+
+test("message links ask before opening and load a preview only on request", async ({ page, context }) => {
+  await admin.login(page);
+  const owner = await throwawayUser(page, "E2E Link Preview Owner", cleanup);
+  await signOut(page);
+  await login(page, owner.email, owner.password);
+  const roomId = await createRoomViaUi(page, uniqueText("e2e-thr-links"), "Default", cleanup);
+  const destination = "https://partner.example.test/replication-guide";
+  let destinationRequests = 0;
+  let destinationReferrer: string | undefined;
+  await context.route(destination, async (route) => {
+    destinationRequests += 1;
+    destinationReferrer = route.request().headers().referer;
+    await route.fulfill({ contentType: "text/html", body: "<h1>Replica guide</h1>" });
+  });
+  let previewRequests = 0;
+  page.on("request", (req) => { if (req.url().endsWith("/link-preview")) previewRequests += 1; });
+  await startThreadViaUi(page, roomId, uniqueText("Replica restore"),
+    `[Replica handbook](${destination})\n\n![Replica diagram](https://partner.example.test/diagram.png)`);
+
+  const trigger = conversation(page).getByRole("button", { name: "Replica handbook", exact: true });
+  await expect(trigger).not.toHaveAttribute("href");
+  await trigger.hover();
+  await trigger.click({ button: "middle" });
+  expect(previewRequests).toBe(0);
+  expect(destinationRequests).toBe(0);
+  await expect(page.getByRole("dialog", { name: "Open external link" })).toHaveCount(0);
+
+  await trigger.press("Enter");
+  const confirmation = page.getByRole("dialog", { name: "Open external link" });
+  await expect(confirmation).toContainText(destination);
+  await expect(confirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  expect(previewRequests).toBe(0);
+  const preview = page.waitForResponse((res) => res.url().endsWith("/link-preview") && res.request().method() === "POST");
+  await confirmation.getByRole("button", { name: "Preview", exact: true }).click();
+  expect((await preview).status()).toBe(200);
+  await expect(confirmation.getByRole("status")).toHaveText("A preview is unavailable for this link.");
+  expect(previewRequests).toBe(1);
+  expect(destinationRequests).toBe(0);
+  expect(await axeViolations(page, '[role="dialog"]')).toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  await trigger.press("Enter");
+  const openLink = confirmation.getByRole("link", { name: "Open link", exact: true });
+  await expect(openLink).toHaveAttribute("rel", "noopener noreferrer");
+  const popupPromise = page.waitForEvent("popup");
+  await openLink.click();
+  const popup = await popupPromise;
+  await expect(popup.getByRole("heading", { name: "Replica guide" })).toBeVisible();
+  expect(await popup.evaluate(() => window.opener === null)).toBe(true);
+  expect(destinationReferrer).toBeUndefined();
+  expect(destinationRequests).toBe(1);
+  await popup.close();
+  await expect(trigger).toBeFocused();
+
+  const message = messageNamed(page, "Replica handbook");
+  await kebab(message).click();
+  await Promise.all([
+    page.waitForResponse((res) => res.url().endsWith("/pin") && res.request().method() === "PUT" && res.status() === 204),
+    page.getByRole("menuitem", { name: "Pin message", exact: true }).click(),
+  ]);
+  await page.goto(`/rooms/${roomId}`);
+  await page.getByRole("button", { name: "Pinned (1)", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "Pinned in this room" });
+  const image = drawer.getByRole("button", { name: "Replica diagram", exact: true });
+  await image.press("Enter");
+  const imageConfirmation = drawer.getByRole("dialog", { name: "Open external link" });
+  await expect(imageConfirmation).toContainText("https://partner.example.test/diagram.png");
+  await expect(imageConfirmation.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(imageConfirmation.getByRole("link", { name: "Open link" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(imageConfirmation.getByRole("button", { name: "Preview" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(imageConfirmation).toHaveCount(0);
+  await expect(drawer).toBeVisible();
+  await expect(image).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  expect(previewRequests).toBe(1);
+  expect(destinationRequests).toBe(1);
 });

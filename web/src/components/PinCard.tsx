@@ -75,7 +75,14 @@ export default function PinCard({
           <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
             {t("rooms.pins.inThread", { thread: threadName })}
           </Text>
-          <MarkdownView variant="message" tagHref={(tag) => tagFilterPath(room.id, pin.threadNumber, tag)} threadHref={threadHref} mentions={message.mentions} groupMentions={message.groupMentions}>
+          <MarkdownView
+            variant="message"
+            tagHref={(tag) => tagFilterPath(room.id, pin.threadNumber, tag)}
+            threadHref={threadHref}
+            mentions={message.mentions}
+            groupMentions={message.groupMentions}
+            linkSource={{ roomId: room.id, messageId: message.id, editedAt: message.editedAt }}
+          >
             {message.body}
           </MarkdownView>
         </>
