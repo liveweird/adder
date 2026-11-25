@@ -61,6 +61,7 @@ class MigrationChecksumTest {
         "V38__room_membership_notices.sql" to 1292978383,
         "V39__index_grouped_reply_notifications.sql" to 1972208925,
         "V40__remember_thread_unwatch.sql" to 1233017481,
+        "V41__link_workflow_notices_to_events.sql" to -2093159295,
     )
 
     @Test

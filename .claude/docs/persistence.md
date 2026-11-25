@@ -670,6 +670,12 @@ Room restrictions are applied before text and filter matching, and only the page
 
 `V39__index_grouped_reply_notifications.sql`: `idx_notifications_grouped_replies ON notifications (recipient_id, room_id, id) WHERE in_app AND seen_at IS NULL AND notification_type = 'THREAD_REPLIED'` (1.17.0). The grouped bell feed takes at most 5,000 candidates from each known active room through one lateral backward index scan, then keeps the newest 5,000 globally before grouping by room/thread. The room key prevents retained history for a soft-deleted room from widening any active-room scan; work scales with current rooms rather than excluded history and remains under the shared notification-read deadline. A group carries its inclusive minimum and maximum raw notice ids. Its seen write advances an id keyset through only that interval, in 1,000-row transactions and with a hard 5,000-row call ceiling, so older deferred replies, concurrent newer replies and every other kind remain untouched. The index rewrites no row and preserves the notifications table's HARD delete class. Building it takes a SHARE lock, so notice writes wait during the partial-index scan while reads continue. **Rollback below 1.17.0: nothing to run**; an older binary ignores and maintains the extra index. `MigrationChecksumTest` pins the bytes.
 
+`V41__link_workflow_notices_to_events.sql` adds nullable `notifications.event_id` referencing `thread_events(id)` with
+`ON DELETE SET NULL` and a partial index on the non-null pointers. A status move or handover creates the event and stores its
+pointer in the same transaction, including when an unseen notice is refreshed. The notification feed may read `thread_events`
+for its authorized notice IDs on the current page only. The join requires the same thread and extracts only workflow labels or
+ownership names. Existing notices keep a null pointer, and older binaries ignore the column.
+
 ### Reactions (V20)
 
 `V20__create_message_reactions.sql`: `message_reactions (message_id, user_id, emoji, created_at)`, primary key `(message_id, emoji, user_id)`, `message_id` and `user_id` `ON DELETE CASCADE`, no other index (the key groups a message's rows by emoji, which is how they are read, and a person's own reactions of a message are found through the same key). V17 to V19 are the other migrations of the same release; the number is never reused or shifted.

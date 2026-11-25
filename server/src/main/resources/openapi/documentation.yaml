@@ -2985,6 +2985,9 @@ paths:
         and quotes, seen history, and every other kind remain individual. A group points to its oldest included message and carries
         the inclusive oldest/newest raw notice ids (`replyFloorId`/`replyCeilingId`) used by the group-seen action.
 
+        Workflow notices linked to history include `change` with the previous and next status labels or owner names.
+        An unseen notice refreshed by another change of the same kind describes that latest change.
+
         - Sortable fields: `id` and `createdAt`. Default `-id` (newest first; `id` breaks ties).
         - Filters: `seen` (strict boolean) and repeated `type` (any-of, duplicates collapse, unknown names are rejected).
         - `total` is capped at 1000. Pages starting at row 1000 or later are empty.
@@ -5567,6 +5570,14 @@ components:
         replyCount: { type: integer, format: int32, minimum: 1, nullable: true, description: Raw replies represented by a grouped unseen THREAD_REPLIED item; null otherwise. }
         replyFloorId: { type: integer, format: int32, minimum: 1, nullable: true, description: Oldest raw notice id represented by the group; null otherwise. }
         replyCeilingId: { type: integer, format: int32, minimum: 1, nullable: true, description: Newest raw notice id represented by the group; null otherwise. }
+        change:
+          type: object
+          nullable: true
+          description: The labels or names as recorded in the linked workflow event. Omitted for older notices and unrelated kinds.
+          required: [from, to]
+          properties:
+            from: { type: string, description: Previous status label or owner name. }
+            to: { type: string, description: Next status label or owner name. }
     NotificationFeedPage:
       type: object
       required: [items, page, pageSize, total]

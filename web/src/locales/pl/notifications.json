@@ -16,6 +16,7 @@
   "unseen_other": "{{count}} nieprzeczytanego",
   "inRoom": "{{room}} · {{when}}",
   "openRoom": "Otwórz pokój",
+  "change": "{{from}} → {{to}}",
   "toast": {
     "preferencesSaved": "Zapisano ustawienia powiadomień"
   },

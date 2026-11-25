@@ -36,7 +36,8 @@ function describe(n: NotificationFeedItem, t: TFunction, actor: string): string 
     return t("notifications.replyGroup", { count: n.replyCount, number: n.threadNumber, title: n.threadTitle });
   }
   if (!KNOWN_KINDS.includes(n.type)) return n.type;
-  return t(`notifications.event.${n.type}`, { actor, number: n.threadNumber, title: n.threadTitle });
+  const event = t(`notifications.event.${n.type}`, { actor, number: n.threadNumber, title: n.threadTitle });
+  return n.change ? `${event} · ${t("notifications.change", n.change)}` : event;
 }
 
 /**

@@ -123,7 +123,14 @@ internal interface ThreadNotices {
      * Tells [notices] about thread [threadNumber] (a hand-over or a status move: the notices have no message) by [byUserId], with the same
      * rules and ONE hint as [forMessage]. An empty list writes nothing and answers [NoticeOutcome.NONE].
      */
-    suspend fun forThread(roomId: UInt, threadId: UInt, threadNumber: Int, byUserId: UInt, notices: List<Notice>): NoticeOutcome
+    suspend fun forThread(
+        roomId: UInt,
+        threadId: UInt,
+        threadNumber: Int,
+        byUserId: UInt,
+        notices: List<Notice>,
+        eventId: UInt? = null,
+    ): NoticeOutcome
 
     /**
      * [userId] read thread [threadId] up to message [upToMessageId] at [at]: the unseen notices of that person in the thread about a

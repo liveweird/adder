@@ -312,6 +312,7 @@ test("handing a thread over notifies its new owner", async ({ page, browser }) =
   await bell(receiver.page).click();
   const notice = drawer(receiver.page).getByRole("link", { name: new RegExp(`${room.owner.name} made you the owner of #1 ${title}`) });
   await expect(notice).toBeVisible();
+  await expect(notice).toContainText(`${room.owner.name} → ${room.mate.name}`);
 
   // Following it opens the thread, whose pane names the new owner, and the badge clears.
   await notice.click();

@@ -58,8 +58,14 @@ internal class NoticeWriter(
     override suspend fun forMessage(at: MessageRef, byUserId: UInt, notices: List<Notice>): NoticeOutcome =
         make(at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, notices)
 
-    override suspend fun forThread(roomId: UInt, threadId: UInt, threadNumber: Int, byUserId: UInt, notices: List<Notice>): NoticeOutcome =
-        make(roomId, threadId, threadNumber, null, byUserId, notices)
+    override suspend fun forThread(
+        roomId: UInt,
+        threadId: UInt,
+        threadNumber: Int,
+        byUserId: UInt,
+        notices: List<Notice>,
+        eventId: UInt?,
+    ): NoticeOutcome = make(roomId, threadId, threadNumber, null, byUserId, notices, eventId)
 
     override suspend fun membersAdded(roomId: UInt, actorId: UInt, recipients: List<UInt>, named: Set<UInt>): Int {
         val type = NotificationType.ROOM_ADDED
@@ -215,9 +221,10 @@ internal class NoticeWriter(
         messageId: UInt?,
         actorId: UInt,
         notices: List<Notice>,
+        eventId: UInt? = null,
     ): NoticeOutcome {
         val wanted = withinBroadcastBudget(distinctOthers(notices, actorId), roomId, actorId)
-        return deliver(roomId, threadId, threadNumber, messageId, actorId, wanted)
+        return deliver(roomId, threadId, threadNumber, messageId, actorId, wanted, eventId = eventId)
     }
 
     /** [notices] without the actor and with a person once (the first of a person wins: the most specific reason is listed first). */
@@ -238,6 +245,7 @@ internal class NoticeWriter(
         actorId: UInt,
         wanted: List<Notice>,
         extraTargets: List<UInt> = emptyList(),
+        eventId: UInt? = null,
         beforeInsert: suspend (Set<UInt>) -> List<UInt> = { emptyList() },
     ): NoticeOutcome {
         val preferences = effectivePreferencesOf(
@@ -246,12 +254,12 @@ internal class NoticeWriter(
         )
         val candidates = wanted.mapNotNull { judger.judge(it, preferences) }
         val now = nowMillis()
-        val refreshed = if (messageId == null) refreshThreadNotices(threadId, actorId, now, candidates) else emptyList()
+        val refreshed = if (messageId == null) refreshThreadNotices(threadId, actorId, now, candidates, eventId) else emptyList()
         val refreshedIds = refreshed.map { it.first }.toSet()
         val fresh = candidates.filter { it.userId !in refreshedIds }
         val deliveries = withinEmailBudget(actorId, roomId, fresh)
         val late = beforeInsert(deliveries.map { it.userId }.toSet())
-        val made = if (deliveries.isEmpty()) emptyList() else insert(roomId, threadId, messageId, actorId, now, deliveries)
+        val made = if (deliveries.isEmpty()) emptyList() else insert(roomId, threadId, messageId, actorId, now, deliveries, eventId)
         val madeIds = made.map { it.first }.toSet()
         // The hint's targets keep the audience's priority order, the rows made and the rows refreshed alike.
         val shown = deliveries.filter { it.inApp && it.userId in madeIds }.map { it.userId }.toSet() +
@@ -281,6 +289,7 @@ internal class NoticeWriter(
         actorId: UInt,
         now: Long,
         deliveries: List<Delivery>,
+        eventId: UInt?,
     ): List<Triple<UInt, NotificationType, Boolean>> {
         val coalescing = deliveries.filter { it.type in THREAD_LEVEL_KINDS }
         if (coalescing.isEmpty()) return emptyList()
@@ -295,6 +304,7 @@ internal class NoticeWriter(
                 LongColumnType() to actorId.toLong(),
                 IntegerColumnType() to threadId.toInt(),
                 LongColumnType() to now,
+                IntegerColumnType() to eventId?.toInt(),
             ),
             explicitStatementType = StatementType.SELECT,
         ) { row ->
@@ -329,6 +339,7 @@ internal class NoticeWriter(
         actorId: UInt,
         now: Long,
         deliveries: List<Delivery>,
+        eventId: UInt? = null,
     ): List<Pair<UInt, NotificationType>> {
         val arguments = listOf(
             IntegerColumnType() to roomId.toInt(),
@@ -337,6 +348,7 @@ internal class NoticeWriter(
             IntegerColumnType() to messageId?.toInt(),
             LongColumnType() to now,
             LongColumnType() to now,
+            IntegerColumnType() to eventId?.toInt(),
             ArrayColumnType<Long, List<Long>>(LongColumnType()) to deliveries.map { it.userId.toLong() },
             ArrayColumnType<String, List<String>>(TextColumnType()) to deliveries.map { it.type.name },
             ArrayColumnType<Boolean, List<Boolean>>(BooleanColumnType()) to deliveries.map { it.inApp },

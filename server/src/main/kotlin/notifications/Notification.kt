@@ -93,6 +93,10 @@ typealias NotificationPageResponse = PageResponse<NotificationResponse>
 /** One page of the caller's notices plus the pre-pagination total (the list-endpoint envelope). */
 data class NotificationListResult(val items: List<NotificationResponse>, val total: Long)
 
+/** The labels or names recorded when a status or ownership change happened. */
+@Serializable
+data class NotificationChange(val from: String, val to: String)
+
 /** A feed item targets the room itself, a thread, or a message within a thread. */
 @Serializable
 data class NotificationFeedItem(
@@ -113,6 +117,8 @@ data class NotificationFeedItem(
     val replyFloorId: UInt? = null,
     /** The newest raw notice included in that group; the group-seen write never crosses it. */
     val replyCeilingId: UInt? = null,
+    /** Present for workflow notices linked to a recorded transition. */
+    val change: NotificationChange? = null,
 ) {
     internal fun asThreadNotice() = NotificationResponse(
         id, type, seen, createdAt, actorId, actorName, roomId, roomName,

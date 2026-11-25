@@ -2235,6 +2235,9 @@ export interface paths {
          *     and quotes, seen history, and every other kind remain individual. A group points to its oldest included message and carries
          *     the inclusive oldest/newest raw notice ids (`replyFloorId`/`replyCeilingId`) used by the group-seen action.
          *
+         *     Workflow notices linked to history include `change` with the previous and next status labels or owner names.
+         *     An unseen notice refreshed by another change of the same kind describes that latest change.
+         *
          *     - Sortable fields: `id` and `createdAt`. Default `-id` (newest first; `id` breaks ties).
          *     - Filters: `seen` (strict boolean) and repeated `type` (any-of, duplicates collapse, unknown names are rejected).
          *     - `total` is capped at 1000. Pages starting at row 1000 or later are empty.
@@ -4108,6 +4111,13 @@ export interface components {
              * @description Newest raw notice id represented by the group; null otherwise.
              */
             replyCeilingId?: number | null;
+            /** @description The labels or names as recorded in the linked workflow event. Omitted for older notices and unrelated kinds. */
+            change?: {
+                /** @description Previous status label or owner name. */
+                from: string;
+                /** @description Next status label or owner name. */
+                to: string;
+            } | null;
         };
         NotificationFeedPage: {
             items: components["schemas"]["NotificationFeedItem"][];

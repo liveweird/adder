@@ -12,6 +12,7 @@
   "unseen_other": "{{count}} unseen",
   "inRoom": "{{room}} · {{when}}",
   "openRoom": "Open room",
+  "change": "{{from}} → {{to}}",
   "toast": {
     "preferencesSaved": "Notification preferences saved"
   },

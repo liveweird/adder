@@ -465,6 +465,11 @@ unchanged. Grouped mail wording is actor-free and retains the content safeguard:
 
 ### Notifications (V18)
 
+Workflow notices in the bell show the previous and next status labels or owner names recorded by the linked history event (V41).
+An unseen notice refreshed by another move of the same kind points to the new event. Existing notices without an event reference
+show their usual description. The bell fetches these details for the current page after membership filtering. Email digests keep
+their established content rules.
+
 - **[changed] A notice is ids only.** The sketch ported Lettuce's row, which stores `params` (names and titles as text) and a `link`. In Adder a title or a body is content (`security.md` "Log hygiene") and a removed member must stop seeing a room at once. `notifications(id, recipient_id, room_id, notification_type, actor_id, thread_id, message_id?, created_at, seen_at?)` has no text column, so no name, title or body can leak or need scrubbing; the room's name, the thread's title and the actor's name are read at request time (a renamed one shows its current name).
 - **The membership key is the leak rule in the schema:** `(room_id, recipient_id)` references `room_members ON DELETE CASCADE`, so leaving or being removed deletes that person's notices of the room; rejoining starts clean (0.6 A12). Rows also go with their message (cascade) and by retention (`notifications.retentionDays`, 90, 1..3650; an hourly `notifications/NotificationSweep.kt` in its own scope, never inside a chat write; `notifications.sweepEnabled` is false in the test harness) (0.6 A13). The unique index `(message_id, recipient_id, notification_type) WHERE message_id IS NOT NULL` makes an insert `ON CONFLICT DO NOTHING` (**[changed] see 1.1:** the index becomes `(message_id, recipient_id)`).
 - **Two kinds, persisted and frozen** (**[changed] see 1.1:** eleven kinds, **1.3:** twelve; these two stay) (the Kotlin enum is the whitelist, no CHECK; a stored name this build does not know is invisible, never fatal): `MENTIONED` and `THREAD_ASSIGNED`. A steward who takes a thread themself gets none. No notice for being added to a room, for a reply or for a reaction (0.6 A10).

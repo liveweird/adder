@@ -53,7 +53,7 @@ what the scenario is about.
    - *Expected*: the owner PUT answers 204.
 3. The reader does nothing.
    - *Expected*: the bell says "1 unseen" and the reader's document was not reloaded; the drawer holds "`<author>` made you the owner of #1
-     `<title>`".
+     `<title>`" and shows the change from the author’s name to the reader’s.
 4. The reader clicks the notice.
    - *Expected*: the thread opens, its pane reads "Owner: `<reader>`", and the bell says "0 unseen".
 
