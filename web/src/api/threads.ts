@@ -122,9 +122,13 @@ export async function listThreadWatchers(roomId: number, number: number, q: { pa
 }
 
 /** One page of the thread's history, newest first (the server's default order). */
-export async function listThreadEvents(roomId: number, number: number, q: { page: number; pageSize: number }): Promise<ThreadEventPage> {
-  const params = buildQuery({ page: q.page, pageSize: q.pageSize });
-  return jsonRequest<ThreadEventPage>(`/api/v1/rooms/${roomId}/threads/${number}/events?${params}`);
+export async function listThreadEvents(
+  roomId: number,
+  number: number,
+  q: { page: number; pageSize: number; from?: number; to?: number; signal?: AbortSignal },
+): Promise<ThreadEventPage> {
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, "createdAt[gte]": q.from, "createdAt[lte]": q.to });
+  return jsonRequest<ThreadEventPage>(`/api/v1/rooms/${roomId}/threads/${number}/events?${params}`, { signal: q.signal });
 }
 
 export async function setThreadMute(roomId: number, number: number, muted: boolean): Promise<void> {

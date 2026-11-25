@@ -24,8 +24,7 @@ package ch.nokillswit.threads
  * ([Notice.fallbacks], in priority order): the writer falls back to the next one when the top kind is switched off on both channels
  * (1.1 A36). The kernel decides who and why; whether and how each person is reached (their switches, the budgets) is the writer's.
  *
- * What makes NO notice is also here, by absence: a title or field edit, a message edit as such, a delete, a reaction, a pin and the
- * workflow PUT's `moveThreads` have no function.
+ * Titles, field edits, deletes and pins generate no notices. A reaction targets the original author independently of this audience.
  */
 internal data class MentionGroupAudience(
     val teams: Collection<UInt> = emptyList(),

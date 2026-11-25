@@ -112,3 +112,7 @@ fun readAllBusy(): TooManyRequestsException = TooManyRequestsException(
     problemType = READ_BUSY_PROBLEM_TYPE,
     retryAfterSeconds = READ_BUSY_RETRY_AFTER_SECONDS,
 )
+internal fun threadMerged(): ConflictException = ConflictException(
+    "This thread was merged into another thread",
+    problemType = ProblemTypes.THREAD_MERGED,
+)

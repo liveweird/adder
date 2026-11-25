@@ -463,6 +463,8 @@ class LiveHubTest {
             LiveKind.ROOM_WORKFLOW_UPDATED to Audience.SUBSCRIBERS,
             LiveKind.THREAD_CREATED to Audience.SUBSCRIBERS,
             LiveKind.THREAD_UPDATED to Audience.SUBSCRIBERS,
+            LiveKind.THREAD_DELETED to Audience.SUBSCRIBERS,
+            LiveKind.THREAD_MERGED to Audience.SUBSCRIBERS,
             LiveKind.THREAD_STATUS_CHANGED to Audience.SUBSCRIBERS,
             LiveKind.THREAD_OWNER_CHANGED to Audience.SUBSCRIBERS,
             LiveKind.MESSAGE_POSTED to Audience.SUBSCRIBERS,

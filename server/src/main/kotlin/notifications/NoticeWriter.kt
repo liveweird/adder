@@ -60,6 +60,41 @@ internal class NoticeWriter(
     override suspend fun forMessage(at: MessageRef, byUserId: UInt, notices: List<Notice>): NoticeOutcome =
         make(at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, notices)
 
+    override suspend fun reactionChanged(
+        at: MessageRef,
+        byUserId: UInt,
+        authorId: UInt,
+        reacting: Boolean,
+    ): NoticeOutcome {
+        if (authorId == byUserId) return NoticeOutcome.NONE
+        if (reacting) {
+            return deliver(
+                at.roomId,
+                at.threadId,
+                at.threadNumber,
+                at.messageId,
+                byUserId,
+                listOf(Notice(authorId, NoticeReason.REACTION_ADDED)),
+            )
+        }
+        val n = Notifications
+        val rows = n.select(n.inApp).where {
+            (n.messageId eq at.messageId) and
+                (n.recipientId eq authorId) and
+                (n.actorId eq byUserId) and
+                (n.type eq NotificationType.REACTION_ADDED.name)
+        }.map { it[n.inApp] }.toList()
+        if (rows.isEmpty()) return NoticeOutcome.NONE
+        n.deleteWhere {
+            (n.messageId eq at.messageId) and
+                (n.recipientId eq authorId) and
+                (n.actorId eq byUserId) and
+                (n.type eq NotificationType.REACTION_ADDED.name)
+        }
+        if (rows.any { it }) announce(listOf(authorId), at.roomId, at.threadNumber, at.messageId)
+        return NoticeOutcome.NONE
+    }
+
     override suspend fun forThread(
         roomId: UInt,
         threadId: UInt,
@@ -173,6 +208,17 @@ internal class NoticeWriter(
 
     override suspend fun messageRemoved(messageId: UInt) {
         Notifications.deleteWhere { Notifications.messageId eq messageId }
+    }
+
+    override suspend fun threadsRemoved(roomId: UInt, threadIds: List<UInt>) {
+        if (threadIds.isEmpty()) return
+        val ids = threadIds.distinct()
+        val recipients = Notifications.select(Notifications.recipientId).where {
+            (Notifications.roomId eq roomId) and (Notifications.threadId inList ids) and Notifications.inApp
+        }.withDistinct().map { it[Notifications.recipientId] }.toList()
+        Notifications.deleteWhere { (Notifications.roomId eq roomId) and (Notifications.threadId inList ids) }
+        // `notification_push_queue.notification_id` is ON DELETE CASCADE (V44), so the same delete also cancels queued browser delivery.
+        announce(recipients, roomId, null, null)
     }
 
     override suspend fun threadRead(threadId: UInt, userId: UInt, upToMessageId: UInt, at: Long) {

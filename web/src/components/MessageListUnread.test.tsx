@@ -30,6 +30,7 @@ describe("MessageList: unread", () => {
 
   function serve(older: ReturnType<typeof makeMessage>[] = []) {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/events?")) return Promise.resolve(jsonResponse(200, { items: [], total: 0 }));
       const decoded = decodeURIComponent(url);
       if (init?.method === "PUT") return Promise.resolve(new Response(null, { status: 204 }));
       const anchor = /\/messages\/context\?messageId=(\d+)$/.exec(decoded);

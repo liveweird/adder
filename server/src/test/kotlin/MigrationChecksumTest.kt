@@ -65,6 +65,8 @@ class MigrationChecksumTest {
         "V42__create_thread_mutes.sql" to 944899791,
         "V43__create_message_here_mentions.sql" to 1864521402,
         "V44__browser_push_subscriptions.sql" to 1840861196,
+        "V45__reaction_notifications.sql" to 372869932,
+        "V46__thread_lifecycle.sql" to 175696962,
     )
 
     @Test

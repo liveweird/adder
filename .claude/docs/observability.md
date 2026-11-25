@@ -181,6 +181,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
 - `thread.updated` (byUserId/roomId/threadId/number/revision/titleChanged/fieldsChanged) - `PUT /api/v1/rooms/{id}/threads/{number}` (0.3.0 S3; any reader): one line per CHANGE, emitted by the route after
   the transaction commits; `revision` is the NEW one, `titleChanged` a boolean and `fieldsChanged` the comma-joined field KEYS, never the title or a value. A no-op PUT (`204`, nothing changed) and a refused one
   (400, 404, the archived, closed or stale-revision 409) emit no `thread.*` line,
+- `thread.deleted` (byUserId/roomId/threadId) records a committed thread deletion. `thread.merged` adds targetNumber and records a committed
+  merge. A repeated merge emits no audit entry. Both routes use the steward guard and record IDs only.
 - `thread.status_changed` (byUserId/roomId/threadId/number/from/to/transition) - `PUT .../threads/{number}/status` (0.3.0 S4; any reader for an OPEN to OPEN move, a steward for every move that enters or leaves
   CLOSED): `from` and `to` are status KEYS and `transition` is `MOVED`, `CLOSED` or `REOPENED` (the reopen is audited and recorded in the history). Setting the status the thread already has is a `204` with no line,
   and so is every refusal (400, 403, 404, the archived 409),

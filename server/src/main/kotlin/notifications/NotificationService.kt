@@ -134,7 +134,7 @@ internal class NotificationService(
                 }
                 budget.arm(this)
                 val pointers = readGroupedFeed(callerUserId, roomIds, requestedTypes, seen, paging)
-                return@run enrich(pointers, memberRooms, budget, this, total)
+                return@run enrich(callerUserId, pointers, memberRooms, budget, this, total)
             }
             val n = Notifications
             var predicate: Op<Boolean> = (n.recipientId eq callerUserId) and
@@ -165,10 +165,11 @@ internal class NotificationService(
                     messageId = row[n.messageId],
                 )
             }
-            enrich(pointers, memberRooms, budget, this, total)
+            enrich(callerUserId, pointers, memberRooms, budget, this, total)
         }
 
     private suspend fun enrich(
+        callerUserId: UInt,
         pointers: List<FeedPointer>,
         memberRooms: List<ch.nokillswit.rooms.RoomSummary>,
         budget: ch.nokillswit.threads.SearchBudget,
@@ -188,6 +189,11 @@ internal class NotificationService(
         val changes = if (workflowIds.isEmpty()) emptyMap() else {
             budget.arm(transaction)
             transaction.workflowNoticeChanges(workflowIds)
+        }
+        val teamMessageIds = pointers.filter { it.type == NotificationType.TEAM_MENTIONED }.mapNotNull { it.messageId }
+        val teamNames = if (teamMessageIds.isEmpty()) emptyMap() else {
+            budget.arm(transaction)
+            teamMentionNames(callerUserId, teamMessageIds)
         }
         val roomById = memberRooms.associateBy { it.id }
         return NotificationFeedResult(
@@ -209,6 +215,7 @@ internal class NotificationService(
                     replyFloorId = pointer.replyFloorId,
                     replyCeilingId = pointer.replyCeilingId,
                     change = changes[pointer.id],
+                    teamName = pointer.messageId?.let(teamNames::get),
                 )
             },
             total,

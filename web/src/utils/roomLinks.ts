@@ -98,10 +98,26 @@ export function wantsThreadPaneFocus(state: unknown): boolean {
  * Transient router state for an in-app quote jump. The URL keeps only the durable target message, while this source id lets the same
  * history entry offer a return to the reply that contained the quote, including a reload of that entry. A copied URL or new tab carries no return.
  */
-export const quoteReturnState = (messageId: number) => ({ quoteReturnMessageId: messageId }) as const;
+export type QuoteReturnLocation = { roomId: number; threadNumber: number; messageId: number };
+
+export const quoteReturnState = (roomId: number, threadNumber: number, messageId: number) => ({
+  quoteReturnRoomId: roomId,
+  quoteReturnThreadNumber: threadNumber,
+  quoteReturnMessageId: messageId,
+}) as const;
+
+export function quoteReturnLocation(state: unknown): QuoteReturnLocation | null {
+  if (typeof state !== "object" || state === null) return null;
+  if (!("quoteReturnRoomId" in state) || !("quoteReturnThreadNumber" in state) || !("quoteReturnMessageId" in state)) return null;
+  const roomId = state.quoteReturnRoomId;
+  const threadNumber = state.quoteReturnThreadNumber;
+  const messageId = state.quoteReturnMessageId;
+  if (typeof roomId !== "number" || parseRoomId(String(roomId)) === null) return null;
+  if (typeof threadNumber !== "number" || parseRoomId(String(threadNumber)) === null) return null;
+  if (typeof messageId !== "number" || parseRoomId(String(messageId)) === null) return null;
+  return { roomId, threadNumber, messageId };
+}
 
 export function quoteReturnMessageId(state: unknown): number | null {
-  if (typeof state !== "object" || state === null || !("quoteReturnMessageId" in state)) return null;
-  const messageId = state.quoteReturnMessageId;
-  return typeof messageId === "number" ? parseRoomId(String(messageId)) : null;
+  return quoteReturnLocation(state)?.messageId ?? null;
 }

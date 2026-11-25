@@ -16,8 +16,10 @@ describe("MessageList", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   const listUrls = () => mockFetch.mock.calls.map(([url]) => decodeURIComponent(url as string)).filter((url) => url.includes("/messages?"));
 
-  function serve(handler: (url: string) => Response) {
-    mockFetch.mockImplementation((url: string) => Promise.resolve(handler(decodeURIComponent(url))));
+  function serve(handler: (url: string) => Response, history?: (url: string) => Response) {
+    mockFetch.mockImplementation((url: string) => Promise.resolve(url.includes("/events?")
+      ? history?.(decodeURIComponent(url)) ?? jsonResponse(200, { items: [], total: 0 })
+      : handler(decodeURIComponent(url))));
   }
 
   beforeEach(() => {
@@ -46,6 +48,32 @@ describe("MessageList", () => {
     expect(items.map((item) => item.textContent)).toEqual([expect.stringContaining("second"), expect.stringContaining("third, mine")]);
     expect(listUrls()).toEqual(["/api/v1/rooms/12/threads/42/messages?page=1&pageSize=50&sort=-id"]);
     expect(screen.queryByRole("button", { name: "Load older messages" })).not.toBeInTheDocument();
+  });
+
+  test("interleaves workflow history within the loaded message window, including activity after the latest reply", async () => {
+    const statusEvent = (id: number, createdAt: number, fromLabel: string, toLabel: string) => ({
+      id, createdAt, actorId: 8, actorName: "Di Other", actorDeleted: false,
+      type: "STATUS_CHANGED", params: { fromLabel, toLabel },
+    });
+    serve(
+      () => jsonResponse(200, messagePage([
+        makeMessage({ id: 30, createdAt: 300, body: "latest reply" }),
+        makeMessage({ id: 20, createdAt: 200, body: "earlier reply" }),
+      ], 3)),
+      (url) => url.includes("createdAt[gte]=200")
+        ? jsonResponse(200, { items: [statusEvent(2, 400, "Investigating", "In review"), statusEvent(1, 250, "Open", "Investigating")], total: 2 })
+        : jsonResponse(400, { status: 400 }),
+    );
+    renderList();
+    expect(await screen.findByText("Moved the thread from Open to Investigating")).toBeInTheDocument();
+    const region = screen.getByRole("region", { name: "Messages" });
+    expect(within(region).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      expect.stringContaining("earlier reply"),
+      expect.stringContaining("Moved the thread from Open to Investigating"),
+      expect.stringContaining("latest reply"),
+      expect.stringContaining("Moved the thread from Investigating to In review"),
+    ]);
+    expect(within(region).getAllByRole("link", { name: "Di Other" })).toHaveLength(2);
   });
 
   test("offers actions by the caller's standing: every member can pin; only the author's own message offers Edit and Delete", async () => {
@@ -230,11 +258,12 @@ describe("MessageList", () => {
   test("while older messages load the button keeps focus: it is busy, not disabled", async () => {
     const user = userEvent.setup();
     let answer!: (response: Response) => void;
-    mockFetch.mockImplementation((url: string) =>
-      decodeURIComponent(url).includes("id[lt]=20")
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/events?")) return Promise.resolve(jsonResponse(200, { items: [], total: 0 }));
+      return decodeURIComponent(url).includes("id[lt]=20")
         ? new Promise<Response>((resolve) => (answer = resolve))
-        : Promise.resolve(jsonResponse(200, messagePage(NEWEST_FIRST, 3))),
-    );
+        : Promise.resolve(jsonResponse(200, messagePage(NEWEST_FIRST, 3)));
+    });
     renderList();
     await screen.findByRole("region", { name: "Messages" });
     const button = screen.getByRole("button", { name: "Load older messages" });

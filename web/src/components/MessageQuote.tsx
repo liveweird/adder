@@ -42,11 +42,11 @@ export default function MessageQuote({
   return (
     <UnstyledButton
       component={RouterLink}
-      to={messageJumpPath(roomId, threadNumber, quote.messageId, listRouteSearch(pathname, search), parseFocus(new URLSearchParams(search)))}
-      state={quoteReturnState(sourceMessageId)}
+      to={messageJumpPath(quote.roomId, quote.threadNumber, quote.messageId, listRouteSearch(pathname, search), parseFocus(new URLSearchParams(search)))}
+      state={quoteReturnState(roomId, threadNumber, sourceMessageId)}
       onClick={(event) => {
         if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-        onShow?.(quote.messageId);
+        if (quote.roomId === roomId && quote.threadNumber === threadNumber) onShow?.(quote.messageId);
       }}
       className={`${classes.rule} ${classes.link}`}
     >

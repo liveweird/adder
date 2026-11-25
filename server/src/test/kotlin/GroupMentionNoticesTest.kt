@@ -3,7 +3,9 @@ package ch.nokillswit
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.notify.MAX_NOTIFY_PAYLOAD_BYTES
 import ch.nokillswit.infra.notify.toPayload
+import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.notifications.NotificationChannel
+import ch.nokillswit.notifications.NotificationFeedItem
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.threads.MessageRequest
@@ -58,6 +60,9 @@ class GroupMentionNoticesTest {
 
     private suspend fun HttpClient.kinds(): List<NotificationType> =
         get("/api/v1/notifications?pageSize=100&sort=id").body<NotificationPageResponse>().items.map { it.type }
+
+    private suspend fun HttpClient.feed(): List<NotificationFeedItem> =
+        get("/api/v1/notifications/feed?pageSize=100&sort=id").body<PageResponse<NotificationFeedItem>>().items
 
     private suspend fun HttpClient.reply(room: UInt, body: String, thread: Int = 1): MessageResponse {
         val response = postJson("$rooms/$room/threads/$thread/messages", MessageRequest(body))
@@ -120,6 +125,27 @@ class GroupMentionNoticesTest {
         assertEquals(emptyList(), cast.outsider.client.kinds(), "on the roster, not in the room: never told")
         assertEquals(0, rowsOf(cast.outsider.id, cast.room))
         assertEquals(noticeAbout(cast.ann.id, posted.id)?.second, NotificationType.TEAM_MENTIONED)
+        val notice = cast.ann.client.feed().single { it.messageId == posted.id }
+        assertEquals(oncall.name, notice.teamName)
+    }
+
+    @Test
+    fun `a team notice names only a recipient team and chooses the lowest id regardless of mention order`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("gm-team-name")
+        val firstForAnn = team("first", cast.ann)
+        val onlyForBob = team("bob-only", cast.bob)
+        val laterForAnn = team("later", cast.ann)
+
+        val posted = cast.owner.client.reply(
+            cast.room,
+            "paging ${laterForAnn.token} ${onlyForBob.token} ${firstForAnn.token}",
+        )
+
+        val annNotice = cast.ann.client.feed().single { it.messageId == posted.id }
+        val bobNotice = cast.bob.client.feed().single { it.messageId == posted.id }
+        assertEquals(firstForAnn.name, annNotice.teamName, "the lowest team id wins, not mention order")
+        assertEquals(onlyForBob.name, bobNotice.teamName, "another recipient's team name is never exposed")
     }
 
     @Test

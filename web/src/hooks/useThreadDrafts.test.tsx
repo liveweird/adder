@@ -44,7 +44,7 @@ describe("the reply drafts", () => {
 });
 
 describe("the quote drafts (1.3)", () => {
-  const picked = { id: 9, authorId: 4, authorName: "Ann Author", body: "Is the disk full?", mentions: [], groupMentions: [] };
+  const picked = { id: 9, authorId: 4, authorName: "Ann Author", body: "Is the disk full?", mentions: [], groupMentions: [], roomId: 1, threadNumber: 7 };
 
   test("are kept per thread, per room, until they are cleared with null", () => {
     const store = createThreadDraftStore();

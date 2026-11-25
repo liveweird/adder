@@ -37,6 +37,10 @@ export function describeEvent(event: ThreadEvent, t: TFunction): string {
       return t("threads.event.fieldChanged", { field: param(p, "fieldLabel", "field") });
     case "TAGS_CHANGED":
       return t("threads.event.tagsChanged");
+    case "MERGED_INTO":
+      return t("threads.event.mergedInto", { number: param(p, "threadNumber") });
+    case "MERGED_FROM":
+      return t("threads.event.mergedFrom", { number: param(p, "threadNumber") });
     default:
       // Forward-compat: an event kind this client build does not know yet shows its raw type.
       return String(event.type);

@@ -8,6 +8,7 @@ import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.applyPaging
 import ch.nokillswit.rooms.memberGuard
+import ch.nokillswit.rooms.readStanding
 import ch.nokillswit.users.UserService
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
@@ -53,17 +54,21 @@ private const val NAMED_REACTORS = 3
 internal fun reactionKey(emoji: String): String = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(emoji.toByteArray()))
 
 /** What a reaction write changed, for the route's audit line (null from the service when the state was already the requested one). */
-data class ReactionChange(val threadId: UInt, val messageId: UInt, val reacted: Boolean)
+data class ReactionChange(val threadId: UInt, val messageId: UInt, val reacted: Boolean, val notices: NoticeOutcome = NoticeOutcome.NONE)
 
 private class SummaryRow(val messageId: UInt, val emoji: String, val count: Int, val reacted: Boolean, val reactors: List<UInt>)
 
 /**
  * The reactions of messages (V20 `message_reactions`): the single write, the grouped read the message reads attach, and the follower that
- * clears a deleted message's rows. A reaction is SPEECH, not activity (`chat-model.md`): no rail bump, no unread, no notice. The write is
- * ONE message write under the room lock ([withMessageWrite], the MEMBER guard on the re-read caller), so the two limits cannot be passed
+ * clears a deleted message's rows. Reactions can notify the author without bumping activity or unread replies. Each reaction is ONE
+ * message write under the room lock ([withMessageWrite], the MEMBER guard on the re-read caller), so the two limits cannot be passed
  * by two writers at once. The emoji is chosen text: it is never logged, audited or put in a path (`security.md` "Log hygiene").
  */
-class MessageReactionService(private val database: R2dbcDatabase) {
+class MessageReactionService internal constructor(
+    private val database: R2dbcDatabase,
+    private val notices: ThreadNotices?,
+) {
+    constructor(database: R2dbcDatabase) : this(database, null)
     /** One row per (message, emoji, person); hard-deleted (a toggle), compared by bytes in the database (`COLLATE "C"`). */
     object Reactions : Table("message_reactions") {
         val messageId = reference("message_id", MessageService.Messages)
@@ -100,8 +105,21 @@ class MessageReactionService(private val database: R2dbcDatabase) {
                 Reactions.deleteWhere { (Reactions.messageId eq messageId) and (Reactions.userId eq me) and (Reactions.emoji eq emoji) }
             }
             notifyLive(LiveHint(LiveKind.MESSAGE_REACTION_CHANGED, roomId, threadNumber = write.thread.number, messageId = messageId))
-            ReactionChange(write.thread.id, messageId, reacted)
+            val noticeOutcome = if (mine.none { it != emoji }) {
+                val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId, opening = false)
+                notifyReaction(ref, me, write.message.authorId, reacted)
+            } else {
+                NoticeOutcome.NONE
+            }
+            ReactionChange(write.thread.id, messageId, reacted, noticeOutcome)
         }
+
+    private suspend fun notifyReaction(ref: MessageRef, actor: UInt, author: UInt, reacting: Boolean): NoticeOutcome {
+        val writer = notices ?: return NoticeOutcome.NONE
+        if (actor == author) return NoticeOutcome.NONE
+        if (reacting && readStanding(ref.roomId, author, lock = false)?.role == null) return NoticeOutcome.NONE
+        return writer.reactionChanged(ref, actor, author, reacting)
+    }
 
     /** The two limits of ADDING [emoji] to message [messageId] (`409 reaction-limit`): [mineCount] of the caller's already, 20 distinct. */
     private suspend fun requireWithinLimits(messageId: UInt, emoji: String, mineCount: Int) {

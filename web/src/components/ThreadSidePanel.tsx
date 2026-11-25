@@ -35,7 +35,7 @@ function Section({ title, anchor, children }: { title: string; anchor?: string; 
  * The thread's side panel holds ownership, custom fields, tags, hashtags and history. Its fields share the header's workflow
  * query. The panel folds into the "Details" toggle in a narrow main area (`ThreadPane.module.css`).
  */
-export default function ThreadSidePanel({ room, thread }: { room: RoomResponse; thread: ThreadResponse }) {
+export default function ThreadSidePanel({ room, thread, showHistory = true }: { room: RoomResponse; thread: ThreadResponse; showHistory?: boolean }) {
   const { t } = useTranslation();
   const admin = useAdmin();
   const workflow = useRoomWorkflow(room.id);
@@ -76,7 +76,7 @@ export default function ThreadSidePanel({ room, thread }: { room: RoomResponse; 
         </Section>
       )}
       <Section title={t("threads.side.history")}>
-        <ThreadHistory roomId={room.id} number={thread.number} />
+        {showHistory && <ThreadHistory roomId={room.id} number={thread.number} />}
       </Section>
     </Stack>
   );

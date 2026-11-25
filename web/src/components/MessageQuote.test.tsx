@@ -17,6 +17,8 @@ function makeQuote(overrides: Partial<MessageQuoteSummary> = {}): MessageQuoteSu
     editedAt: null,
     mentions: [],
     groupMentions: [],
+    roomId: 12,
+    threadNumber: 42,
     ...overrides,
   };
 }
@@ -87,7 +89,10 @@ describe("MessageQuote", () => {
     expect(link).toHaveAttribute("href", "/rooms/12/threads/42?message=31&scope=closed&order=number&focus=1");
     await userEvent.setup().click(link);
     expect(screen.getByLabelText("where")).toHaveTextContent("/rooms/12/threads/42?message=31&scope=closed&order=number&focus=1");
-    expect(screen.getByLabelText("where")).toHaveAttribute("data-state", JSON.stringify({ quoteReturnMessageId: 55 }));
+    expect(screen.getByLabelText("where")).toHaveAttribute(
+      "data-state",
+      JSON.stringify({ quoteReturnRoomId: 12, quoteReturnThreadNumber: 42, quoteReturnMessageId: 55 }),
+    );
   });
 
   test("tells the pane which message was asked for, so the jump can be repeated when the URL already names it", async () => {
@@ -95,6 +100,31 @@ describe("MessageQuote", () => {
     renderWithProviders(<MessageQuote roomId={12} threadNumber={42} sourceMessageId={55} quote={makeQuote({ messageId: 31 })} onShow={onShow} />, { route: "/rooms/12/threads/42?message=31" });
     await userEvent.setup().click(screen.getByRole("link", { name: /^Quoted message by/ }));
     expect(onShow).toHaveBeenCalledWith(31);
+  });
+
+  test("a cross-room quote links to its source and keeps the reply's full location for the return action", async () => {
+    const onShow = vi.fn();
+    renderWithProviders(
+      <>
+        <MessageQuote
+          roomId={12}
+          threadNumber={42}
+          sourceMessageId={55}
+          quote={makeQuote({ roomId: 9, threadNumber: 7 })}
+          onShow={onShow}
+        />
+        <Where />
+      </>,
+      { route: "/rooms/12/threads/42" },
+    );
+    const link = screen.getByRole("link", { name: /^Quoted message by/ });
+    expect(link).toHaveAttribute("href", "/rooms/9/threads/7?message=31");
+    await userEvent.setup().click(link);
+    expect(onShow).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("where")).toHaveAttribute(
+      "data-state",
+      JSON.stringify({ quoteReturnRoomId: 12, quoteReturnThreadNumber: 42, quoteReturnMessageId: 55 }),
+    );
   });
 
   test.each([{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }])(

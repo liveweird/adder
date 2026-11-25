@@ -27,8 +27,9 @@ describe("MessageComposer: quoting a message", () => {
     localStorage.clear();
   });
 
-  const picked: QuoteDraft = { id: 31, authorId: 4, authorName: "Ann Author", body: "Is the **disk** full on db-3?", mentions: [], groupMentions: [] };
-  const other: QuoteDraft = { id: 32, authorId: 5, authorName: "Bob Starter", body: "No, the log is.", mentions: [], groupMentions: [] };
+  const picked: QuoteDraft = { id: 31, authorId: 4, authorName: "Ann Author", body: "Is the **disk** full on db-3?", mentions: [], groupMentions: [], roomId: 12, threadNumber: 42 };
+  const other: QuoteDraft = { id: 32, authorId: 5, authorName: "Bob Starter", body: "No, the log is.", mentions: [], groupMentions: [], roomId: 12, threadNumber: 42 };
+  const foreign: QuoteDraft = { ...picked, id: 33, body: "Old foreign text", roomId: 9, threadNumber: 7 };
   const GONE = "The message you are quoting is no longer available. Remove the quote to send your reply.";
   const bodyOf = (call: [string, RequestInit]) => JSON.parse(call[1].body as string) as Record<string, unknown>;
 
@@ -42,6 +43,7 @@ describe("MessageComposer: quoting a message", () => {
       <ThreadDraftsProvider>
         <button onClick={() => pick(picked)}>quote Ann</button>
         <button onClick={() => pick(other)}>quote Bob</button>
+        <button onClick={() => pick(foreign)}>quote foreign</button>
         <button onClick={() => setNumber(number === 42 ? 43 : 42)}>switch thread</button>
         <button onClick={() => setShown(!shown)}>toggle pane</button>
         {shown && <MessageComposer room={makeRoom()} thread={makeThread({ number })} onPosted={vi.fn()} quoteRequest={request} />}
@@ -75,6 +77,32 @@ describe("MessageComposer: quoting a message", () => {
     expect(status).toHaveTextContent("Quoting Bob Starter: No, the log is.");
     await user.click(screen.getByRole("button", { name: "Remove the quote" }));
     expect(status).toBeEmptyDOMElement();
+  });
+
+  test("a foreign draft exposes no saved excerpt until its source-addressed read authorizes and refreshes it", async () => {
+    let answer!: (response: Response) => void;
+    mockFetch.mockImplementationOnce(() => new Promise<Response>((resolve) => (answer = resolve)));
+    const user = userEvent.setup();
+    renderWithProviders(<QuoteHarness />);
+    await user.click(screen.getByRole("button", { name: "quote foreign" }));
+    expect(screen.queryByText("Old foreign text")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    await user.type(box(), "Cannot race authorization{Control>}{Enter}{/Control}");
+    expect(posts()).toHaveLength(0);
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining("/rooms/9/messages/33"), expect.anything()));
+    answer(jsonResponse(200, makeMessage({ id: 33, threadNumber: 7, authorId: 4, authorName: "Ann Author", body: "Fresh authorized text" })));
+    expect(await screen.findByText("Fresh authorized text")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  test("a 404 source revalidation blanks a foreign draft and never renders its saved text", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse(404, { title: "Not found", status: 404 }));
+    const user = userEvent.setup();
+    renderWithProviders(<QuoteHarness />);
+    await user.click(screen.getByRole("button", { name: "quote foreign" }));
+    expect(screen.queryByText("Old foreign text")).not.toBeInTheDocument();
+    expect(await screen.findAllByText(GONE)).toHaveLength(1);
+    expect(screen.getByText("Quoting Ann Author")).toBeInTheDocument();
   });
 
   test("Send carries the quoted message's id; a post clears the text and the quote together", async () => {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ActionIcon, Avatar, Box, Divider, Group, Menu, Stack, Text, Tooltip } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { IconPencil, IconPinFilled, IconQuote, IconTrash } from "@tabler/icons-react";
+import { IconArrowRight, IconPencil, IconPinFilled, IconQuote, IconTrash } from "@tabler/icons-react";
 import { deleteMessage, type MessageResponse } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import { useThreadRefHref } from "../hooks/useThreadRefHref";
@@ -57,6 +57,7 @@ export default function MessageItem({
   firstNew = false,
   pinnedBy,
   onQuote,
+  onQuoteElsewhere,
   onShowQuoted,
 }: {
   roomId: number;
@@ -72,6 +73,8 @@ export default function MessageItem({
   pinnedBy?: { id: number; name: string };
   /** The reader chose "Quote" on this message (1.3): the pane puts it in the reply box. Without it the message offers no quote. */
   onQuote?: (message: MessageResponse) => void;
+  /** Opens a destination picker; unlike the local action this remains useful while the source thread is closed or merged. */
+  onQuoteElsewhere?: (message: MessageResponse) => void;
   /** The reader followed this message's quote block (1.3): the quoted message's id, for the pane's repeat jump. */
   onShowQuoted?: (messageId: number) => void;
 }) {
@@ -91,6 +94,7 @@ export default function MessageItem({
   const pinner = message.deleted ? undefined : pinnedBy;
   const pinned = pinner !== undefined;
   const quoting = actions.quote === true && onQuote !== undefined ? () => onQuote(message) : undefined;
+  const quotingElsewhere = !message.deleted && onQuoteElsewhere !== undefined ? () => onQuoteElsewhere(message) : undefined;
   // The edit action went (the thread closed, the room was archived): the editor goes with it and must not come back by itself on a reopen.
   if (editing && !actions.edit) setEditing(false);
   useEffect(() => {
@@ -161,7 +165,7 @@ export default function MessageItem({
                 </Text>
               )}
             </Group>
-            {(quoting || actions.edit || actions.remove !== null || actions.pin) && !editing && (
+            {(quoting || quotingElsewhere || actions.edit || actions.remove !== null || actions.pin) && !editing && (
               <Group gap={2} wrap="nowrap" className={classes.actions}>
                 {quoting && (
                   <Tooltip label={t("threads.quote.action")}>
@@ -174,6 +178,11 @@ export default function MessageItem({
                   {quoting && (
                     <Menu.Item leftSection={<IconQuote size={14} />} onClick={quoting}>
                       {t("threads.quote.action")}
+                    </Menu.Item>
+                  )}
+                  {quotingElsewhere && (
+                    <Menu.Item leftSection={<IconArrowRight size={14} />} onClick={quotingElsewhere}>
+                      {t("threads.quote.elsewhere")}
                     </Menu.Item>
                   )}
                   {actions.edit && (

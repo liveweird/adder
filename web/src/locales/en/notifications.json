@@ -39,6 +39,7 @@
     "switchAria": "{{label}}: {{column}}",
     "group": {
       "mentions": "Mentions",
+      "reactions": "Reactions",
       "watching": "Threads you watch",
       "handed": "Threads handed to you",
       "rooms": "Rooms"
@@ -46,6 +47,7 @@
     "kind": {
       "MENTIONED": "Someone mentions me",
       "MESSAGE_QUOTED": "Someone quotes my message",
+      "REACTION_ADDED": "Someone reacts to my message",
       "TEAM_MENTIONED": "Someone mentions my team",
       "WATCHERS_MENTIONED": "Someone mentions the watchers of a thread I watch",
       "HERE_MENTIONED": "Someone mentions the people currently here",
@@ -67,8 +69,10 @@
   "event": {
     "MENTIONED": "{{actor}} mentioned you in #{{number}} {{title}}",
     "MESSAGE_QUOTED": "{{actor}} quoted your message in #{{number}} {{title}}",
+    "REACTION_ADDED": "{{actor}} reacted to your message in #{{number}} {{title}}",
     "THREAD_ASSIGNED": "{{actor}} made you the owner of #{{number}} {{title}}",
     "TEAM_MENTIONED": "{{actor}} mentioned your team in #{{number}} {{title}}",
+    "TEAM_MENTIONED_NAMED": "{{actor}} mentioned your team {{team}} in #{{number}} {{title}}",
     "WATCHERS_MENTIONED": "{{actor}} mentioned the watchers of #{{number}} {{title}}",
     "HERE_MENTIONED": "{{actor}} mentioned people here in #{{number}} {{title}}",
     "EVERYONE_MENTIONED": "{{actor}} mentioned everyone in #{{number}} {{title}}",

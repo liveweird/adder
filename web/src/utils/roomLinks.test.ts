@@ -37,8 +37,18 @@ describe("roomLinks", () => {
   });
 
   test("the quote-return state names one valid source message and rejects malformed router state", () => {
-    expect(quoteReturnMessageId(quoteReturnState(31))).toBe(31);
+    expect(quoteReturnMessageId(quoteReturnState(12, 42, 31))).toBe(31);
     for (const other of [null, undefined, "31", {}, { quoteReturnMessageId: 0 }, { quoteReturnMessageId: "31" }, { quoteReturnMessageId: 2_147_483_648 }]) {
+      expect(quoteReturnMessageId(other)).toBeNull();
+    }
+    for (const other of [
+      quoteReturnState(0, 42, 31),
+      quoteReturnState(12, -3, 31),
+      quoteReturnState(12, 42, 2_147_483_648),
+      { ...quoteReturnState(12, 42, 31), quoteReturnRoomId: "12" },
+      { ...quoteReturnState(12, 42, 31), quoteReturnThreadNumber: "42" },
+      { ...quoteReturnState(12, 42, 31), quoteReturnMessageId: "31" },
+    ]) {
       expect(quoteReturnMessageId(other)).toBeNull();
     }
   });

@@ -42,6 +42,12 @@ class HashtagsTest {
     }
 
     @Test
+    fun `tags in indented code raw HTML and image labels are ignored like the SPA`() {
+        val body = "para #kept\n\n    #indented\n\n<div>#html</div>\n\n![#image](image.png) #after"
+        assertEquals(listOf("kept", "after"), parseHashtags(body))
+    }
+
+    @Test
     fun `only the first twenty distinct tags are kept and the rest are ignored`() {
         val body = (1..30).joinToString(" ") { "#tag$it" }
         val tags = parseHashtags(body)

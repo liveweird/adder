@@ -33,7 +33,7 @@ data class MessageResponse(
     val groupMentions: List<GroupMention>,
     /** At most [MAX_DISTINCT_REACTIONS], in the order each emoji first appeared; empty on a tombstone (`chat-model.md`). */
     val reactions: List<ReactionSummary>,
-    /** The message of the same thread this one quotes, as it reads NOW; null when it quotes nothing and on a tombstone ("Quotes (1.3)"). */
+    /** A readable message this one quotes, as it reads NOW; null when it quotes nothing, is inaccessible, or this is a tombstone. */
     val quote: MessageQuote?,
 )
 
@@ -42,7 +42,8 @@ data class MessageResponse(
  * [deleted]: it is a tombstone now, and then [body] is null, [truncated] false and both lists empty. [body] is its CURRENT Markdown, at
  * most [MAX_QUOTED_BODY] code points ([truncated]: it was cut); [editedAt] is when it was last edited (null while as posted and when
  * deleted), so a client can mark a quote whose text changed after it was quoted; [mentions] and [groupMentions] are the quoted
- * message's own, so the excerpt can show names (empty when no `<@` token survived the cut).
+ * message's own, so the excerpt can show names (empty when no `<@` token survived the cut). [roomId] and [threadNumber] locate the
+ * current source; clients must not infer either when the quote is null.
  */
 @Serializable
 data class MessageQuote(
@@ -55,6 +56,9 @@ data class MessageQuote(
     val editedAt: Long?,
     val mentions: List<MentionedUser>,
     val groupMentions: List<GroupMention>,
+    /** The quoted message's current readable location. */
+    val roomId: UInt,
+    val threadNumber: Int,
 )
 
 /** A person a message mentions: the id as written in the token and their CURRENT display name (a mention of someone who left keeps it). */
@@ -102,7 +106,7 @@ data class MessageListResult(val items: List<MessageResponse>, val total: Long)
 data class MessageRequest(val body: String)
 
 /**
- * `POST .../threads/{number}/messages`: the Markdown [body] and, optionally, the message of the SAME thread it quotes
+ * `POST .../threads/{number}/messages`: the Markdown [body] and, optionally, any message the caller can currently read that it quotes
  * ([quotedMessageId], 1 to 2147483647; `chat-model.md` "Quotes (1.3)"). A separate body from the edit's [MessageRequest] keeps a quote
  * out of every edit with no code.
  */

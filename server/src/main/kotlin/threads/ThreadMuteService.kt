@@ -39,7 +39,7 @@ internal class ThreadMuteService(private val database: R2dbcDatabase, private va
     suspend fun setMuted(roomId: UInt, number: Int, userId: UInt, muted: Boolean): UInt? = suspendTransaction(database) {
         if (!members.holdMembership(roomId, userId)) throw NotFoundException("Room not found")
         val threads = ThreadService.Threads
-        val thread = threads.select(threads.id).where { (threads.roomId eq roomId) and (threads.number eq number) }
+        val thread = threads.select(threads.id).where { threadAddress(roomId, number) and threads.canonical() }
             .toList().singleOrNull()?.get(threads.id)?.value ?: throw NotFoundException("Thread not found")
         val changed = if (muted) {
             ThreadMutes.insertIgnore {

@@ -1300,6 +1300,7 @@ export interface paths {
         /**
          * List a room's threads
          * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`).
+         *     The default list shows active canonical threads. Set `mergedInto` to browse the readable source conversations of a merge.
          *
          *     - Sortable fields: `id`, `number`, `title`, `lastActivityAt`, `createdAt`, `status` (the status's position in the room's
          *       workflow: the first status first, a retired one where it sits). Default `id` ascending (the SPA sends `-lastActivityAt`).
@@ -1419,6 +1420,39 @@ export interface paths {
          *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["updateThread"];
+        post?: never;
+        /**
+         * Delete a thread
+         * @description The thread steward (the owner while a member, a room owner, or an ADMIN with room access) deletes an open or closed thread
+         *     in an active room. Deleting a canonical thread also deletes the conversations merged into it. The thread numbers are not reused.
+         *     The room write lock serializes the deletion. The per-user chat-write bucket applies.
+         */
+        delete: operations["deleteThread"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Merge a duplicate thread into another thread
+         * @description Requires stewardship of both threads in one active room. The destination must be canonical. The source conversation stays
+         *     readable with its original links, and it no longer accepts new activity. The destination retains its workflow and metadata.
+         *     Repeating the same merge is a no-op. Merging a source that already points to a different destination returns a conflict.
+         *     The room write lock serializes the merge. The per-user chat-write bucket applies.
+         */
+        put: operations["mergeThread"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1703,6 +1737,7 @@ export interface paths {
          *     (see `ThreadEventType` for the `params` of each kind, and for what a retired field hides).
          *
          *     - Sortable fields: `id`, `createdAt`. Default `-createdAt,-id` (newest first).
+         *     - `createdAt[gte]` and `createdAt[lte]` are inclusive epoch-millisecond bounds. Both may be used together.
          *     - `actorDeleted` marks an actor whose account has since been deleted (the recorded name stays).
          */
         get: operations["listThreadEvents"];
@@ -1746,8 +1781,9 @@ export interface paths {
          *     refused), the thread (`404`), an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
          *     `urn:adder:problem:thread-closed`: a steward reopens it first) and the quote.
          *
-         *     `quotedMessageId` makes the message QUOTE one earlier message of the SAME thread (a live message, the caller's own and the thread's
-         *     opening message included). An unknown id, a message of another thread or room and a deleted message are ONE answer, a `400` of type
+         *     `quotedMessageId` makes the message QUOTE any live message the caller can currently read, including one in another thread or room.
+         *     The source and destination rooms are locked in ascending id order and both permissions are re-checked under those locks. An unknown
+         *     id, an unreadable source room and a deleted message or source thread are ONE answer, a `400` of type
          *     `urn:adder:problem:quote-unavailable` with a fixed detail (never a `404`: on this POST that means the thread or the room is gone);
          *     nothing is written. The quote is set when the message is posted and never changes: the edit (`editThreadMessage`) cannot name one.
          *     The `201` carries it as `quote` (read like every message does: the quoted message as it reads NOW).
@@ -2058,8 +2094,11 @@ export interface paths {
          *     That rule judges ADDING (`reacted: true`). Removing (`reacted: false`) looks the value up as stored and checks only the bounds
          *     (1 to 32 units, at most 10 code points), so a value an earlier rule let in stays removable.
          *
-         *     A reaction is speech, not activity: no rail bump, no unread, no notice. The change is announced by one `message.reaction_changed`
-         *     hint. `reacted: true` adds the caller's reaction, `false` removes it. Like every write of the room, it waits at most about
+         *     A reaction is speech, not activity: it does not bump the rail or make the thread unread. The first reaction this caller leaves on
+         *     the message creates one `REACTION_ADDED` notice for its author (subject to mute and notification preferences); more emoji from the
+         *     same caller keep that one notice, and removing their last reaction removes it. A self-reaction is silent. The change is announced
+         *     by one `message.reaction_changed` hint. `reacted: true` adds the caller's reaction, `false` removes it. Like every write of the room,
+         *     it waits at most about
          *     3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         put: operations["setMessageReaction"];
@@ -2203,7 +2242,7 @@ export interface paths {
          *     removed, takes its notice with it. A caller who belongs to no room gets an empty page.
          *
          *     A notice is made INSIDE the write that caused it, one per person and event, labelled with the most specific reason
-         *     (`NotificationType`, thirteen thread kinds). The writes make these: `MENTIONED` (a post, a thread's opening message or an edit that
+         *     (`NotificationType`, fourteen thread kinds). The writes make these: `MENTIONED` (a post, a thread's opening message or an edit that
          *     newly mentions the caller with `<@id>`; never for a mention of oneself), `MESSAGE_QUOTED` (a post that quotes a message of the caller's;
          *     never for quoting one's own message, and not for a caller who is no longer an active member of the room; an edit of that post can
          *     also make it, when it newly names a group the caller is in and they hold no notice of it, or turn the caller's `MENTIONED` notice
@@ -2548,7 +2587,8 @@ export interface paths {
          *
          *     **Events** (`event.kind`, `LiveEventKind`; the wire name equals the audit event of the write): `room.created`, `room.updated`,
          *     `room.archived`, `room.unarchived`, `room.deleted`, `room.member_added`, `room.member_role_changed`, `room.member_removed`,
-         *     `room.workflow_updated`, `thread.created`, `thread.updated`, `thread.status_changed`, `thread.owner_changed` (these carry `threadNumber`
+         *     `room.workflow_updated`, `thread.created`, `thread.updated`, `thread.deleted`, `thread.merged`, `thread.status_changed`, `thread.owner_changed`
+         *     (thread events carry `threadNumber`
          *     for the thread kinds), `message.posted`, `message.edited`, `message.deleted` and `message.reaction_changed` (these carry `threadNumber` and `messageId`),
          *     `room.pin_changed` (a pin or unpin; it carries `threadNumber`, and `messageId` for a message pin) and `notification.created`
          *     (`threadNumber`, and `messageId` for a mention; only the people it is for hear it). An event says
@@ -2729,7 +2769,7 @@ export interface components {
          * @description What changed; the wire name equals the audit event of the write (the catalog is in the `connectLive` description).
          * @enum {string}
          */
-        LiveEventKind: "room.created" | "room.updated" | "room.archived" | "room.unarchived" | "room.deleted" | "room.member_added" | "room.member_role_changed" | "room.member_removed" | "room.workflow_updated" | "thread.created" | "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "message.posted" | "message.edited" | "message.deleted" | "message.reaction_changed" | "room.pin_changed" | "notification.created";
+        LiveEventKind: "room.created" | "room.updated" | "room.archived" | "room.unarchived" | "room.deleted" | "room.member_added" | "room.member_role_changed" | "room.member_removed" | "room.workflow_updated" | "thread.created" | "thread.updated" | "thread.deleted" | "thread.merged" | "thread.status_changed" | "thread.owner_changed" | "message.posted" | "message.edited" | "message.deleted" | "message.reaction_changed" | "room.pin_changed" | "notification.created";
         /** @description The FIRST frame of a socket, within 2 seconds, exactly once. */
         LiveAuthFrame: {
             /**
@@ -3499,6 +3539,7 @@ export interface components {
              *     - `urn:adder:problem:last-owner` (409): the write would leave a room without an active owner.
              *     - `urn:adder:problem:room-archived` (409): an archived room is read-only.
              *     - `urn:adder:problem:thread-closed` (409): a closed thread takes no activity until it is reopened.
+             *     - `urn:adder:problem:thread-merged` (409): this source conversation is merged into another thread.
              *     - `urn:adder:problem:status-in-use` (409): a workflow change would retire or re-categorise a status threads use; carries `keys`.
              *     - `urn:adder:problem:field-type-immutable` (409): a field's type is fixed per key; carries `keys`.
              *     - `urn:adder:problem:pin-limit` (409): the room already holds its 50 pins.
@@ -3511,7 +3552,7 @@ export interface components {
              *     - `urn:adder:problem:live-socket-limit` (429, `Retry-After`): the caller already holds their maximum of live sockets.
              *     - `urn:adder:problem:live-unavailable` (503, `Retry-After`): the live channel is stopping, full or without its listener.
              *     - `urn:adder:problem:template-gone` (400): the workflow template a room is created from is unknown or deleted.
-             *     - `urn:adder:problem:quote-unavailable` (400): the message a post quotes is unknown, of another thread or room, or deleted.
+             *     - `urn:adder:problem:quote-unavailable` (400): the message a post quotes is unknown, unreadable, or deleted.
              * @default about:blank
              */
             type: string;
@@ -3562,6 +3603,13 @@ export interface components {
              * @description The id of an active member of the room.
              */
             ownerId: number;
+        };
+        ThreadMergeRequest: {
+            /**
+             * Format: int32
+             * @description The destination's number in the same room.
+             */
+            targetNumber: number;
         };
         ThreadResponse: {
             /** Format: int32 */
@@ -3636,6 +3684,16 @@ export interface components {
             watcherCount: number;
             /** @description The caller muted notices for this thread. Omitted when unmuted. */
             muted?: boolean;
+            /**
+             * Format: int32
+             * @description The canonical destination thread number if this history was merged.
+             */
+            mergedIntoThreadNumber?: number | null;
+            /**
+             * Format: int64
+             * @description The number of readable source conversations merged into this thread.
+             */
+            mergedSourceCount?: number;
             hashtags: components["schemas"]["ThreadHashtags"];
             tags: components["schemas"]["ThreadTags"];
         };
@@ -3798,13 +3856,14 @@ export interface components {
          *     `TITLE_CHANGED` `{}`; `STATUS_CHANGED`, `CLOSED`, `REOPENED` and `STATUS_REPLACED` `{from, to, fromLabel, toLabel}`
          *     (status keys and the labels at that moment); `OWNER_CHANGED` `{fromId, toId, fromName, toName}`; `FIELD_CHANGED`
          *     `{field, fieldLabel, from?, to?}`; `TAGS_CHANGED` `{added?, removed?}` (registry tag names, each side joined with ", ", a side with no
-         *     change absent). The history is append-only, so it keeps no free text: no title is recorded (the thread shows
+         *     change absent); `MERGED_INTO` and `MERGED_FROM` `{threadNumber}` (the related thread's number). The history is append-only,
+         *     so it keeps no free text: no title is recorded (the thread shows
          *     the current one), and `from`/`to` (display text; an absent side means unset) exist only for a SELECT, MULTI_SELECT, USER,
          *     DATE or NUMBER field, never for a TEXT or URL one (the entry says THAT the field changed). A RETIRED field's entries answer
          *     without `from`/`to` too, and show them again if the field is revived. Entries written before 1.0.0 were scrubbed to this shape.
          * @enum {string}
          */
-        ThreadEventType: "CREATED" | "TITLE_CHANGED" | "STATUS_CHANGED" | "CLOSED" | "REOPENED" | "OWNER_CHANGED" | "FIELD_CHANGED" | "STATUS_REPLACED" | "TAGS_CHANGED";
+        ThreadEventType: "CREATED" | "TITLE_CHANGED" | "STATUS_CHANGED" | "CLOSED" | "REOPENED" | "OWNER_CHANGED" | "FIELD_CHANGED" | "STATUS_REPLACED" | "TAGS_CHANGED" | "MERGED_INTO" | "MERGED_FROM";
         ThreadEvent: {
             /** Format: int32 */
             id: number;
@@ -3879,7 +3938,7 @@ export interface components {
             body: string;
             /**
              * Format: int32
-             * @description The message of the SAME thread this one quotes; optional, and `null` quotes nothing. Unknown, of another thread or room, or deleted is a `400` of type `urn:adder:problem:quote-unavailable`. Answered as `quote.messageId` on the message, not as a mirror here. An edit cannot name it.
+             * @description Any live message the caller can currently read; optional, and `null` quotes nothing. Unknown, unreadable or deleted is a `400` of type `urn:adder:problem:quote-unavailable`. Answered as `quote.messageId` on the message, not as a mirror here. An edit cannot name it.
              */
             quotedMessageId?: number | null;
         };
@@ -3932,16 +3991,26 @@ export interface components {
             groupMentions: components["schemas"]["GroupMention"][];
             /** @description The emoji on the message, in the order each first appeared; empty when there are none and on a tombstone. At most 20 distinct. */
             reactions: components["schemas"]["ReactionSummary"][];
-            /** @description The message of the same thread this one quotes, as it reads NOW; `null` when it quotes nothing and on a tombstone. Set when the message is posted and never changed by an edit. */
+            /** @description A message this one quotes, as it reads NOW; `null` when it quotes nothing, on a tombstone, or when the caller can no longer read the source room. Set when the message is posted and never changed by an edit. */
             quote: components["schemas"]["MessageQuote"] | null;
         };
         /** @description A read-only summary of the quoted message, always as it reads now (nothing of its text is stored with the quoting message). One level: what the quoted message itself quotes is never shown. */
         MessageQuote: {
             /**
              * Format: int32
-             * @description The quoted message; a message of the same thread.
+             * @description The quoted message.
              */
             messageId: number;
+            /**
+             * Format: int32
+             * @description The quoted message's source room, returned only while the caller can read it.
+             */
+            roomId: number;
+            /**
+             * Format: int32
+             * @description The quoted message's per-room source thread number.
+             */
+            threadNumber: number;
             /** Format: int32 */
             authorId: number;
             /** @description The quoted author's CURRENT display name (a removed account keeps its last one). */
@@ -4099,7 +4168,8 @@ export interface components {
         };
         /**
          * @description The kind of a notice, which is also its reason (persisted, never renamed): `MENTIONED` (named with `<@id>`), `MESSAGE_QUOTED` (a reply
-         *     quoted a message of the caller's, `quotedMessageId` of `postThreadMessage`), `TEAM_MENTIONED` (the
+         *     quoted a message of the caller's, `quotedMessageId` of `postThreadMessage`), `REACTION_ADDED` (the actor currently leaves at least
+         *     one reaction on a message of the caller's), `TEAM_MENTIONED` (the
          *     caller's team was named), `WATCHERS_MENTIONED` (the caller watches the thread and its watchers were named), `HERE_MENTIONED`
          *     (the caller was active when `<@here>` was introduced), `EVERYONE_MENTIONED`,
          *     `THREAD_REPLIED` (a reply in a thread the caller watches), `THREAD_CREATED` (a new thread in a room the caller is in),
@@ -4109,7 +4179,7 @@ export interface components {
          *     mentions, then `THREAD_REPLIED`). A client treats a value it does not know as plain text.
          * @enum {string}
          */
-        NotificationType: "MENTIONED" | "MESSAGE_QUOTED" | "TEAM_MENTIONED" | "WATCHERS_MENTIONED" | "HERE_MENTIONED" | "EVERYONE_MENTIONED" | "THREAD_REPLIED" | "THREAD_CREATED" | "THREAD_ASSIGNED" | "THREAD_OWNER_CHANGED" | "THREAD_STATUS_CHANGED" | "THREAD_CLOSED" | "THREAD_REOPENED";
+        NotificationType: "MENTIONED" | "MESSAGE_QUOTED" | "REACTION_ADDED" | "TEAM_MENTIONED" | "WATCHERS_MENTIONED" | "HERE_MENTIONED" | "EVERYONE_MENTIONED" | "THREAD_REPLIED" | "THREAD_CREATED" | "THREAD_ASSIGNED" | "THREAD_OWNER_CHANGED" | "THREAD_STATUS_CHANGED" | "THREAD_CLOSED" | "THREAD_REOPENED";
         /** @description One notice of the caller. The row holds ids only; the names and the title are read when the list is read. */
         Notification: {
             /**
@@ -4126,7 +4196,7 @@ export interface components {
             createdAt: number;
             /**
              * Format: int32
-             * @description Who mentioned the caller, or handed the thread over.
+             * @description Who mentioned the caller, reacted to their message, or handed the thread over.
              */
             actorId: number;
             /** @description The actor's CURRENT display name (a soft-deleted account keeps its last one). */
@@ -4147,6 +4217,8 @@ export interface components {
              * @description The message that notified the caller; `null` for a thread-level kind (`THREAD_ASSIGNED`, the owner and status kinds).
              */
             messageId: number | null;
+            /** @description For TEAM_MENTIONED, the current name of the first mentioned active team the caller still belongs to; null when no such team can be resolved. */
+            teamName?: string | null;
         };
         NotificationPreferenceKind: {
             type: components["schemas"]["NotificationType"];
@@ -4181,7 +4253,7 @@ export interface components {
         NotificationPreferencesUpdate: {
             /** @description Room membership delivery switches. If omitted, the default in-app on and email off applies. */
             roomMembership?: components["schemas"]["RoomMembershipNotificationPreference"];
-            /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 26 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
+            /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 28 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
             disabled: components["schemas"]["NotificationPreferencePair"][];
             /** @description The pairs to switch ON (optional: absent is empty). A pair in neither list takes its default (in the app on, by email off), so a client that sends only `disabled` cannot switch an email on. */
             enabled?: components["schemas"]["NotificationPreferencePair"][];
@@ -4227,6 +4299,8 @@ export interface components {
              * @description Null for a room or thread notice.
              */
             messageId: number | null;
+            /** @description For TEAM_MENTIONED, the current name of the first mentioned active team the caller still belongs to; null when no such team can be resolved. */
+            teamName?: string | null;
             /**
              * Format: int32
              * @description Raw replies represented by a grouped unseen THREAD_REPLIED item; null otherwise.
@@ -6695,6 +6769,8 @@ export interface operations {
                 watching?: components["parameters"]["ThreadWatchingFilter"];
                 /** @description `true` = only the threads with something unread for the CALLER (`unreadCount` above 0), `false` = only the ones with nothing unread; omitted = both. Strict booleans: anything else, or a repeated key, is a `400`. Bound to the caller: it takes no user id, and a caller who is not a member has no read state (`true` is an empty page). On the two searches either value also makes `q` optional; global search uses the caller's independent read floor in every room and retains its membership-only scope. */
                 unread?: components["parameters"]["ThreadUnreadFilter"];
+                /** @description List only threads merged into this thread number in the room. An unknown number returns an empty page. */
+                mergedInto?: number;
             };
             header?: never;
             path: {
@@ -6818,6 +6894,70 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    deleteThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thread deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    mergeThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ThreadMergeRequest"];
+            };
+        };
+        responses: {
+            /** @description Merged or already merged to this thread */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             413: components["responses"]["PayloadTooLarge"];
@@ -7099,6 +7239,10 @@ export interface operations {
                  *     always appended as a deterministic tiebreaker.
                  */
                 sort?: components["parameters"]["Sort"];
+                /** @description Earliest event timestamp to include, in epoch milliseconds. */
+                "createdAt[gte]"?: number;
+                /** @description Latest event timestamp to include, in epoch milliseconds. */
+                "createdAt[lte]"?: number;
             };
             header?: never;
             path: {
@@ -7731,7 +7875,7 @@ export interface operations {
             query?: {
                 /** @description `true` = only seen notices, `false` = only unseen ones; omitted = both. */
                 seen?: boolean;
-                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted = every kind; at most 13 distinct. */
+                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted = every kind; at most 14 distinct. */
                 type?: components["schemas"]["NotificationType"][];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];

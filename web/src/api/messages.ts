@@ -15,6 +15,11 @@ export type MessageQuoteSummary = NonNullable<MessageResponse["quote"]>;
 export type MessageBody = paths["/api/v1/rooms/{id}/threads/{number}/messages"]["post"]["requestBody"]["content"]["application/json"];
 export type MessageEditBody = paths["/api/v1/rooms/{id}/messages/{messageId}"]["put"]["requestBody"]["content"]["application/json"];
 
+/** One live source message, re-read for a cross-room quote draft and hidden by the server as 404 when access is gone. */
+export function getMessage(roomId: number, messageId: number, signal?: AbortSignal): Promise<MessageResponse> {
+  return jsonRequest<MessageResponse>(`/api/v1/rooms/${roomId}/messages/${messageId}`, { signal });
+}
+
 /**
  * One page of a thread's messages, NEWEST first (`sort=-id`), tombstones included. `idLt` keeps only messages older than that id (keyset
  * paging inside the standard envelope): `total` counts after the filter, so `total > items.length` means older messages exist.
@@ -32,7 +37,7 @@ export function getMessageContext(roomId: number, threadNumber: number, messageI
 
 /**
  * Members only; 429 on the per-user `chat-post` bucket. The body is already normalised (`normalizeBody`). `quotedMessageId` makes the message
- * quote one earlier message of the same thread (1.3); it is sent only when there is one, and a quote that cannot be made is a typed 400
+ * quote any live message the caller can currently read; it is sent only when there is one, and a quote that cannot be made is a typed 400
  * (`PROBLEM_TYPES.quoteUnavailable`).
  */
 export async function postMessage(roomId: number, threadNumber: number, body: string, quotedMessageId?: number): Promise<MessageResponse> {

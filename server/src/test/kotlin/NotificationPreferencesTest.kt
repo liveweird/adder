@@ -88,7 +88,7 @@ class NotificationPreferencesTest {
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.body<NotificationPreferencesResponse>()
         assertEquals(THREAD_NOTIFICATION_TYPES.toList(), body.kinds.map { it.type })
-        assertEquals(13, body.kinds.size)
+        assertEquals(14, body.kinds.size)
         assertTrue(body.kinds.all { it.inApp }, "the app is on for every kind")
         assertTrue(body.kinds.none { it.email }, "email is off for every kind, the two 1.0 kinds included")
         // The test harness boots with the log transport: a mailer exists.

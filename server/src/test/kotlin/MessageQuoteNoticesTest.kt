@@ -389,7 +389,7 @@ class MessageQuoteNoticesTest {
         }
 
     @Test
-    fun `an edit of a message whose planted reference points at another thread's message tells nobody about a quote`() = testApplication {
+    fun `an edit falls back from a direct mention to a supported cross-thread quote`() = testApplication {
         usePostgresTestcontainer()
         val cast = cast("mqn-plant")
         TestThreads.seed(cast.room, cast.owner.id, title = "Thread two")
@@ -397,14 +397,15 @@ class MessageQuoteNoticesTest {
         // A plain mention: bob holds a MENTIONED notice and the message quotes nothing.
         val posted = cast.ann.client.post(cast.room, "answer <@${cast.bob.id}>")
         assertEquals(NotificationType.MENTIONED, noticeAbout(cast.bob.id, posted.id)?.second)
-        // A row the application never writes: the reference points at bob's message in the OTHER thread.
+        // The fixture shortcut makes the same cross-thread reference a quoting post may now write.
         sql("UPDATE messages SET quoted_message_id = ? WHERE id = ?", bobsElsewhere.toLong(), posted.id.toLong())
 
-        // Dropping the mention would relabel bob's notice to the quote in place if the edit read that reference as a quote (as a real
-        // one does, above); it is no quote, so the notice goes like any dropped mention's.
+        // Dropping the stronger direct mention relabels the existing notice to the quote in place.
+        val mentioned = noticeAbout(cast.bob.id, posted.id)
         cast.ann.client.edit(cast.room, posted.id, "answer")
 
-        assertNull(noticeAbout(cast.bob.id, posted.id))
-        assertEquals(0L, kindRows(cast.room, NotificationType.MESSAGE_QUOTED))
+        assertEquals(mentioned?.first, noticeAbout(cast.bob.id, posted.id)?.first)
+        assertEquals(NotificationType.MESSAGE_QUOTED, noticeAbout(cast.bob.id, posted.id)?.second)
+        assertEquals(1L, kindRows(cast.room, NotificationType.MESSAGE_QUOTED))
     }
 }

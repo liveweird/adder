@@ -42,6 +42,17 @@
   border-block-start: 1px solid var(--mantine-color-default-border);
 }
 
+.event {
+  padding-block: var(--mantine-spacing-xs);
+  color: var(--mantine-color-text);
+  overflow-wrap: anywhere;
+}
+
+.eventIcon {
+  flex: none;
+  color: var(--mantine-color-dimmed);
+}
+
 /*
  * A pinned message (1.2 D5): a gray bar down its left edge on a quiet gray tint, beside the "Pinned by {name}" line with the pin icon that the
  * item draws (words and shapes; the hue is never the only carrier). Pinned is a neutral state, so gray, not the olive accent or the unread blue.

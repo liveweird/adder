@@ -6,10 +6,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { IconSend } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import { postMessage } from "../api/messages";
+import { ApiError } from "../api/http";
 import type { RoomResponse } from "../api/rooms";
 import type { ThreadResponse } from "../api/threads";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { useLoadedMessage } from "../hooks/useLoadedMessage";
+import { useQuoteSource } from "../hooks/useQuoteSource";
 import { useThreadDrafts, type QuoteDraft } from "../hooks/useThreadDrafts";
 import { messageComposeBlock } from "../utils/messageAccess";
 import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
@@ -91,9 +93,17 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
   const posting = pending !== undefined;
   // What the conversation already loaded says about the picked message (no request of its own): deleted blanks the quote, edited refreshes it. Not while a
   // post travels: the quote it carries is compared by identity when it finishes.
-  const loaded = useLoadedMessage(room.id, thread.number, quote?.id ?? null);
-  const reconciled = quote !== null && !posting ? reconcileQuote(quote, loaded) : quote;
+  const source = useQuoteSource(room.id, thread.number, quote);
+  const loaded = useLoadedMessage(room.id, thread.number, source.foreign ? null : quote?.id ?? null);
+  const sourceMessage = source.foreign ? source.data : loaded;
+  const sourceGone = source.foreign && quote?.unavailable !== true && source.error instanceof ApiError && source.error.status === 404;
+  const reconciled = quote !== null && !posting
+    ? sourceGone ? blankQuote(quote) : reconcileQuote(quote, sourceMessage)
+    : quote;
   if (reconciled !== quote) setQuote(reconciled);
+  const sourceUnverified = quote !== null && source.foreign && quote.unavailable !== true &&
+    (source.data === undefined || source.isFetching || source.isError);
+  const visibleQuote = sourceUnverified ? { ...quote, body: "", mentions: [], groupMentions: [] } : quote;
   const [error, setError] = useState<string | null>(null);
   const [addingMember, setAddingMember] = useState(false);
   const [mentionRequest, setMentionRequest] = useState<MentionReplacementRequest | null>(null);
@@ -136,7 +146,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
   async function send() {
     // Checked on the module-level map, not a state: a held Ctrl+Enter fires again before the first press has rendered, and a remounted box
     // must not post what is already travelling.
-    if (inFlight.has(key) || addingMember) return;
+    if (inFlight.has(key) || addingMember || sourceUnverified) return;
     const invalid = messageBodyError(text, t);
     setError(invalid);
     if (invalid) return;
@@ -176,10 +186,10 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
     >
       <Stack gap={4} className={classes.surface}>
         {/* Mounted from the first render, so the words that appear in it when a quote is set are announced (the `@everyone` note is the precedent). */}
-        <VisuallyHidden role="status">{quote ? t("threads.quote.announce", { author: quote.authorName, excerpt: quoteDraftExcerpt(quote, t) }) : ""}</VisuallyHidden>
-        {quote && (
+        <VisuallyHidden role="status">{visibleQuote ? t("threads.quote.announce", { author: visibleQuote.authorName, excerpt: quoteDraftExcerpt(visibleQuote, t) }) : ""}</VisuallyHidden>
+        {visibleQuote && (
           <ComposerQuote
-            quote={quote}
+            quote={visibleQuote}
             onRemove={() => {
               // The typed 400 told the reader to remove the quote: with it gone, the words go too (the text is kept for the next try).
               setError(null);
@@ -241,7 +251,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
               }}
               focusAfterAdd={focusBox}
             />
-            <Button type="submit" size="sm" loading={posting} disabled={addingMember} leftSection={<IconSend size={15} aria-hidden="true" />} className={classes.send}>
+            <Button type="submit" size="sm" loading={posting} disabled={addingMember || sourceUnverified} leftSection={<IconSend size={15} aria-hidden="true" />} className={classes.send}>
               {t("threads.composer.send")}
             </Button>
           </Group>

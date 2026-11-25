@@ -1,7 +1,7 @@
 package ch.nokillswit.threads
 
 /**
- * Why somebody is told about an event (`chat-model.md` "Notice kinds (V27, V28)"): the chat's own vocabulary, twelve names that
+ * Why somebody is told about an event (`chat-model.md` "Notice kinds (V27, V28)"): the chat's own vocabulary, fourteen names that
  * `notifications/NoticeKinds.kt` maps to the persisted `NotificationType` by an exhaustive `when` (a new reason does not compile until it
  * is mapped, and a test pins every name equal to its kind). The order is the PRIORITY of a message event, the most specific first; a
  * hand-over is `THREAD_ASSIGNED` over `THREAD_OWNER_CHANGED`. Public only because [NoticeOutcome] rides the public write results
@@ -12,6 +12,8 @@ enum class NoticeReason {
 
     /** The author of a quoted message (1.3), right after `MENTIONED`: the order is the priority, and it is NOT a mention reason. */
     MESSAGE_QUOTED,
+    /** Somebody added at least one reaction to a message the recipient wrote. */
+    REACTION_ADDED,
     TEAM_MENTIONED,
     WATCHERS_MENTIONED,
     HERE_MENTIONED,
@@ -108,6 +110,12 @@ internal interface ThreadNotices {
      */
     suspend fun forMessage(at: MessageRef, byUserId: UInt, notices: List<Notice>): NoticeOutcome
 
+    /**
+     * [byUserId]'s reaction state on [at] changed. While [reacting] is true, the message author has one notice for this actor however
+     * many emoji the actor leaves. When their last reaction goes, that notice goes too.
+     */
+    suspend fun reactionChanged(at: MessageRef, byUserId: UInt, authorId: UInt, reacting: Boolean): NoticeOutcome
+
     /** The reasons of the notices message [messageId] already has, by recipient (a kind this build does not know is left out). */
     suspend fun ofMessage(messageId: UInt): Map<UInt, NoticeReason>
 
@@ -119,6 +127,12 @@ internal interface ThreadNotices {
 
     /** Message [messageId] was deleted, a moderator's delete included: every notice about it goes. */
     suspend fun messageRemoved(messageId: UInt)
+
+    /**
+     * Threads were removed inside their room write. Every notice and queued browser delivery pointing at them goes, and recipients whose
+     * bell changed receive one targeted invalidation. The default keeps focused service-test stubs source compatible.
+     */
+    suspend fun threadsRemoved(roomId: UInt, threadIds: List<UInt>) = Unit
 
     /**
      * Tells [notices] about thread [threadNumber] (a hand-over or a status move: the notices have no message) by [byUserId], with the same

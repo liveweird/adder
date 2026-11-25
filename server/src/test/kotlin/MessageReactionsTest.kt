@@ -1,5 +1,8 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.notifications.NotificationPageResponse
+import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
 import ch.nokillswit.threads.MAX_REACTION_UNITS
@@ -88,6 +91,9 @@ class MessageReactionsTest {
     private suspend fun HttpClient.reactorsOf(room: UInt, message: UInt, key: String, page: Int = 1): ReactorPageResponse =
         get("$rooms/$room/messages/$message/reactors?reactionKey=$key&page=$page&pageSize=2&sort=createdAt").body()
 
+    private suspend fun HttpClient.reactionNotices(): NotificationPageResponse =
+        get("/api/v1/notifications?type=REACTION_ADDED&pageSize=100").body()
+
     /** Reactions straight into the table (the limit tests start from a crowded message; the person is not the one under test). */
     private fun seedRaw(message: UInt, user: UInt, vararg emoji: String) = PostgresTestSupport.connect().use { c ->
         c.prepareStatement("INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)").use { st ->
@@ -134,6 +140,41 @@ class MessageReactionsTest {
     }
 
     @Test
+    fun `an author has one notice per reacting person while that person leaves any reaction`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("rx-notice")
+
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.react(cast.room, cast.message, THUMBS_UP).status)
+        val first = cast.author.client.reactionNotices().items.single()
+        assertEquals(NotificationType.REACTION_ADDED, first.type)
+        assertEquals(cast.member.id, first.actorId)
+        assertEquals(cast.message, first.messageId)
+
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.react(cast.room, cast.message, PARTY).status)
+        assertEquals(listOf(first.id), cast.author.client.reactionNotices().items.map { it.id }, "a second emoji keeps one notice")
+
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.react(cast.room, cast.message, THUMBS_UP, reacted = false).status)
+        assertEquals(1L, cast.author.client.reactionNotices().total, "the actor still leaves another reaction")
+
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.react(cast.room, cast.message, PARTY, reacted = false).status)
+        assertEquals(0L, cast.author.client.reactionNotices().total, "the actor's last reaction takes the notice")
+
+        assertEquals(HttpStatusCode.NoContent, cast.author.client.react(cast.room, cast.message, THUMBS_UP).status)
+        assertEquals(0L, cast.author.client.reactionNotices().total, "reacting to one's own message is silent")
+    }
+
+    @Test
+    fun `a reaction to a former room member's message succeeds without making a notice`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("rx-former")
+        val removal = cast.owner.client.delete("$rooms/${cast.room}/members/${cast.author.id}")
+        assertEquals(HttpStatusCode.NoContent, removal.status)
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.react(cast.room, cast.message, THUMBS_UP).status)
+        assertEquals(THUMBS_UP, cast.member.client.reactionsOf(cast.room, cast.message).single().emoji)
+        assertEquals(0L, cast.author.client.reactionNotices().total)
+    }
+
+    @Test
     fun `a stored value the rule would refuse today can still be removed`() = testApplication {
         usePostgresTestcontainer()
         val cast = cast("rx-legacy")
@@ -166,7 +207,10 @@ class MessageReactionsTest {
                     assertEquals(HttpStatusCode.NoContent, remove().status)
                     assertEquals(HttpStatusCode.NoContent, remove().status)
                 }
-                assertEquals(2, seen.size, "one hint for the add and one for the removal")
+                assertEquals(2, seen.count { it.kind == LiveKind.MESSAGE_REACTION_CHANGED }, "one reaction hint per actual change")
+                val noticeHints = seen.filter { it.kind == LiveKind.NOTIFICATION_CREATED }
+                assertEquals(2, noticeHints.size, "the notice add and removal each invalidate the author's bell")
+                assertTrue(noticeHints.all { it.targetUserIds == listOf(cast.author.id) })
                 val changes = capture.events.filter { it.message == "message.reaction_changed" }
                 assertEquals(2, changes.count { it.hasKeyValue("roomId", cast.room.toLong()) })
             }

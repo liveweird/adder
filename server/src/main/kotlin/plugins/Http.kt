@@ -71,7 +71,7 @@ private val SMALL_BODY_PATHS = setOf(
 // ceiling to the global one (BodyLimitIdSpellingTest). A segment that is no id never routes, and a tighter ceiling there costs nothing.
 private val ROOM_MEMBERS_PATH = Regex("^/api/v1/rooms/[^/]+/members$")
 private val ROOM_SMALL_PUT_PATH =
-    Regex("^/api/v1/rooms/[^/]+/(threads/[^/]+/(status|owner|read-marker|watch|mute|tags)|join-requests/[^/]+)$")
+    Regex("^/api/v1/rooms/[^/]+/(threads/[^/]+/(status|owner|read-marker|watch|mute|tags|merge)|join-requests/[^/]+)$")
 private val THREAD_CREATE_PATH = Regex("^/api/v1/rooms/[^/]+/threads$")
 private val THREAD_DETAILS_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+$")
 private val NOTIFICATION_PREFERENCES_PATH = Regex("^/api/v1/users/[^/]+/notification-preferences$")

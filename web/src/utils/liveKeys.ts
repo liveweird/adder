@@ -8,6 +8,8 @@ import { homeKey, notificationsKey, roomKeys, roomOrganizationKey, searchAllKey 
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
 import { lookingAt } from "./lookingAt";
 import { clearRoomLinkPreviews } from "./linkPreviewCache";
+import { quoteDependencyKeys } from "./quoteCacheDependencies";
+import { resetDeletedThreadContent, threadLifecycleKeys } from "./threadLifecycleCache";
 
 const { rail: RAIL, list: ROOM_LIST, detail, access, joinRequests, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
 
@@ -74,6 +76,10 @@ function eventKeys(kind: LiveEventKind, r: number, n: number | undefined): Query
       return [pins(r)];
     case "room.workflow_updated":
       return [workflow(r), workflowEdit(r), threadList(r), roomKeys.threadDetails(r), roomKeys.threadHistories(r), homeKey];
+    case "thread.merged":
+      return threadLifecycleKeys(r, false);
+    case "thread.deleted":
+      return threadLifecycleKeys(r, true);
     case "room.member_added":
       return [members(r), joinRequests(r), detail(r), access(r), RAIL, ROOM_LIST, homeKey];
     case "room.member_role_changed":
@@ -262,9 +268,26 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
     },
     handle(frame) {
       const roomLost = frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted");
+      const quoteDependencies = quoteDependencyKeys(queryClient, frame);
+      const quoteSourceChanged = frame.type === "event" &&
+        ["message.edited", "message.deleted", "thread.deleted", "room.deleted"].includes(frame.kind);
+      const quoteRoomId = frame.type === "event" || frame.type === "revoked" ? frame.roomId : null;
+      const quoteSourcePrefix = quoteRoomId === null ? null : [...threads(quoteRoomId), "quote-source"] as const;
+      const hasQuoteSourceReads = quoteSourcePrefix !== null && queryClient.getQueryCache().findAll({ queryKey: quoteSourcePrefix }).length > 0;
+      if (quoteSourcePrefix !== null && (roomLost || (frame.type === "event" && ["message.deleted", "thread.deleted"].includes(frame.kind)))) {
+        // Security/lifecycle losses clear excerpts immediately and cancel replies issued under the old source permission.
+        if (hasQuoteSourceReads) void queryClient.resetQueries({ queryKey: quoteSourcePrefix });
+        for (const key of quoteDependencies) void queryClient.resetQueries({ queryKey: key, exact: true });
+      } else if (quoteSourcePrefix !== null && quoteSourceChanged) {
+        if (hasQuoteSourceReads) void queryClient.invalidateQueries({ queryKey: quoteSourcePrefix });
+        for (const key of quoteDependencies) queue(key, false, false);
+      }
       if (roomLost) {
         resetRoomReads(queryClient, frame.roomId, frame.type === "revoked");
         clearRoomLinkPreviews(queryClient, frame.roomId);
+      }
+      if (frame.type === "event" && frame.kind === "thread.deleted") {
+        void resetDeletedThreadContent(queryClient, frame.roomId);
       }
       // A notice about the thread the reader is looking at (open, visible, at the end) is acknowledged by the pane through the read marker; the
       // bell is not re-read, so the badge never rises and falls again (`utils/lookingAt.ts`).

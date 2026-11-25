@@ -1,0 +1,52 @@
+{
+  "actions": {
+    "label": "Thread actions",
+    "merge": "Merge duplicate",
+    "delete": "Delete thread"
+  },
+  "merged": {
+    "notice": "This conversation was merged into #{{number}}. Its history remains available here.",
+    "openTarget": "Open #{{number}}"
+  },
+  "sources": {
+    "open_one": "Merged conversations ({{count}})",
+    "open_other": "Merged conversations ({{count}})",
+    "title": "Merged conversations",
+    "description": "These duplicate conversations remain available as read-only history.",
+    "empty": "No merged conversations remain.",
+    "loadFailed": "Merged conversations could not be loaded"
+  },
+  "merge": {
+    "title": "Merge duplicate thread",
+    "targetLabel": "Target thread number",
+    "targetDescription": "Enter the number of the canonical thread in this room.",
+    "history": "The history of #{{number}} stays readable.",
+    "replies": "New replies belong in the target thread.",
+    "targetKeeps": "The target keeps its status, owner and notification settings.",
+    "watches": "Watches from #{{number}} do not transfer.",
+    "target": "#{{number}} {{title}}",
+    "same": "Choose another thread as the target.",
+    "alreadyMerged": "That thread has already been merged into another conversation.",
+    "permission": "You must own both threads, or manage the room, to merge them.",
+    "notFound": "No readable thread has that number in this room.",
+    "confirm": "Merge threads",
+    "confirmTarget": "Merge into #{{number}}",
+    "success": "Thread merged",
+    "failed": "The threads could not be merged. Check your connection and try again.",
+    "failedStatus": "The threads could not be merged ({{status}}).",
+    "forbidden": "You no longer have permission to merge these threads.",
+    "conflict": "One of these threads changed. Review both threads and try again."
+  },
+  "delete": {
+    "title": "Delete #{{number}}?",
+    "body": "This permanently deletes #{{number}} and its entire conversation history.",
+    "bodyWithChildren_one": "This permanently deletes #{{number}} and also permanently deletes its {{count}} merged conversation.",
+    "bodyWithChildren_other": "This permanently deletes #{{number}} and also permanently deletes its {{count}} merged conversations.",
+    "confirm": "Delete thread",
+    "success": "Thread deleted",
+    "failed": "The thread could not be deleted. Check your connection and try again.",
+    "failedStatus": "The thread could not be deleted ({{status}}).",
+    "forbidden": "You no longer have permission to delete this thread.",
+    "conflict": "The room or thread changed. Review it and try again."
+  }
+}

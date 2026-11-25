@@ -10,11 +10,14 @@ import type { ThreadResponse } from "../api/threads";
 import { useAdmin } from "../auth";
 import { getUserId } from "../api/session";
 import { useArrivals, useFirstUnreadOnOpen } from "../hooks/useConversationUnread";
+import { interleaveConversation, useConversationHistory } from "../hooks/useConversationHistory";
 import { useRoomPins } from "../hooks/useRoomPins";
 import { useThreadReadMarker } from "../hooks/useThreadReadMarker";
 import { browserTimeZone } from "../utils/formatDate";
 import { messageActions } from "../utils/messageAccess";
 import ErrorAlert from "./ErrorAlert";
+import ConversationEvent from "./ConversationEvent";
+import ConversationHistoryMore from "./ConversationHistoryMore";
 import LoadingBlock from "./LoadingBlock";
 import MessageItem from "./MessageItem";
 import classes from "./MessageList.module.css";
@@ -74,6 +77,7 @@ export default function MessageList({
   threadSettled = true,
   readingPaused = false,
   onQuote,
+  onQuoteElsewhere,
   onShowQuoted,
   returnMessageId = null,
   onReturnToReply,
@@ -94,6 +98,7 @@ export default function MessageList({
   readingPaused?: boolean;
   /** The reader chose "Quote" on a message (1.3): the pane puts it in the reply box. Without it no message offers a quote. */
   onQuote?: (message: MessageResponse) => void;
+  onQuoteElsewhere?: (message: MessageResponse) => void;
   /** The reader followed a quote block (1.3): the quoted message's id; the pane runs the jump again when the URL already names it (the same `jumpSeq`). */
   onShowQuoted?: (messageId: number) => void;
   /** The reply that contained the quote which opened this context, present only for that in-app navigation entry. */
@@ -135,6 +140,7 @@ export default function MessageList({
   const messageWindow = missing ? undefined : context.data;
   const reachesEnd = !inContext || messageWindow?.newer === false;
   const messages = inContext ? messageWindow?.items ?? [] : (latest.data?.pages.flatMap((page) => page.items) ?? []).reverse();
+  const { query: history, events } = useConversationHistory(room.id, thread.number, messages, latest.hasNextPage, messageWindow);
   const newestId = messages.at(-1)?.id;
   const newestEditedAt = messages.at(-1)?.editedAt;
   const found = inContext && messages.some((message) => message.id === windowId);
@@ -177,7 +183,7 @@ export default function MessageList({
   useLayoutEffect(() => {
     const el = scroller.current;
     if (reachesEnd && el && anchor.current === null && atBottom.current) el.scrollTop = el.scrollHeight;
-  }, [reachesEnd, newestId, newestEditedAt, layoutKey]);
+  }, [reachesEnd, newestId, newestEditedAt, layoutKey, history.data]);
 
   const selectContext = (id: number) => setSelection({ key: jumpKey, id });
   const returnToLatest = useCallback(() => {
@@ -288,7 +294,7 @@ export default function MessageList({
     const active = document.activeElement;
     if (active !== null && active !== document.body) return;
     // The oldest loaded message is exactly where the button was; the scroll position is already anchored, so do not scroll.
-    (scroller.current?.querySelector<HTMLElement>("ul > li") ?? scroller.current)?.focus({ preventScroll: true });
+    (scroller.current?.querySelector<HTMLElement>("[data-message-id]") ?? scroller.current)?.focus({ preventScroll: true });
   }, [inContext, latest.hasNextPage]);
 
   function loadOlder() {
@@ -373,19 +379,23 @@ export default function MessageList({
             </Button>
           </Center>
         )}
+        <ConversationHistoryMore query={history} />
         <ul className={classes.list}>
-          {messages.map((message) => (
+          {interleaveConversation(messages, events).map((entry) => "event" in entry ? (
+            <ConversationEvent key={`event-${entry.id}`} event={entry.event} zone={zone} />
+          ) : (
             <MessageItem
-              key={message.id}
+              key={`message-${entry.id}`}
               roomId={room.id}
               mentionRoom={room}
-              message={message}
-              actions={messageActions({ room, thread, message, userId, admin })}
+              message={entry.message}
+              actions={messageActions({ room, thread, message: entry.message, userId, admin })}
               zone={zone}
-              anchored={message.id === spotlight}
-              firstNew={message.id === firstUnread}
-              pinnedBy={pinnedByMessage.get(message.id)}
+              anchored={entry.id === spotlight}
+              firstNew={entry.id === firstUnread}
+              pinnedBy={pinnedByMessage.get(entry.id)}
               onQuote={onQuote}
+              onQuoteElsewhere={onQuoteElsewhere}
               onShowQuoted={onShowQuoted}
             />
           ))}

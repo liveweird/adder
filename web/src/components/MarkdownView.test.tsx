@@ -294,8 +294,7 @@ describe("MarkdownView (message): mentions", () => {
     expect(screen.queryAllByRole("link")).toHaveLength(0);
   });
 
-  // Known disagreement (web-internals.md "Mentions in messages"): the server's pre-pass does not blank an indented code block, a raw HTML
-  // block or an image's alt text, so it lists the id even here; the SPA skips those nodes. What the reader sees is the raw token, no name.
+  // Existing stored mention rows may predate the parser fix. The renderer still skips these nodes.
   test("a listed id in indented code, a raw HTML block or image alt text stays raw, no name", () => {
     const { unmount } = renderView("para\n\n    <@5> indented\n\nafter", "message", undefined, people);
     expect(screen.getByText(/<@5> indented/).closest("pre")).not.toBeNull();
@@ -402,8 +401,7 @@ describe("MarkdownView (message): group mentions", () => {
     expect(screen.getByText("Ping <@everyone>")).toBeInTheDocument();
   });
 
-  // Known disagreement (web-internals.md "Group mentions"): the server's pre-pass does not blank an indented code block or a raw HTML block,
-  // so it lists the token even there; the SPA skips those nodes. What the reader sees is the raw token, no `@handle`.
+  // The renderer skips these nodes even when a legacy message carries matching group metadata.
   test("a listed group token in indented code or a raw HTML block stays raw", () => {
     const { unmount } = renderView("para\n\n    <@everyone> <@team:12> indented\n\nafter", "message", undefined, undefined, groups);
     expect(screen.getByText(/<@everyone> <@team:12> indented/).closest("pre")).not.toBeNull();

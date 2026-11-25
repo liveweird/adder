@@ -124,7 +124,7 @@ class ThreadWatchService internal constructor(
         suspendTransaction(database) {
             if (!members.holdMembership(roomId, userId)) throw NotFoundException("Room not found")
             val threads = ThreadService.Threads
-            val threadId = threads.select(threads.id).where { (threads.roomId eq roomId) and (threads.number eq number) }
+            val threadId = threads.select(threads.id).where { threadAddress(roomId, number) and threads.canonical() }
                 .toList().singleOrNull()?.get(threads.id)?.value ?: throw NotFoundException("Thread not found")
             val rows = TransactionManager.current().exec(
                 SET_WATCH_SQL,
@@ -205,9 +205,10 @@ class ThreadWatchService internal constructor(
     /** One page of active users who currently watch one thread. The route has already established room membership. */
     suspend fun list(roomId: UInt, threadId: UInt, paging: PageRequest): ThreadWatcherListResult = suspendTransaction(database) {
         val users = UserService.Users
-        val joined = ThreadWatches.innerJoin(users)
+        val threads = ThreadService.Threads
+        val joined = ThreadWatches.innerJoin(users).join(threads, JoinType.INNER, ThreadWatches.threadId, threads.id)
         val predicate = (ThreadWatches.roomId eq roomId) and (ThreadWatches.threadId eq threadId) and
-            ThreadWatches.watching and users.active()
+            ThreadWatches.watching and users.active() and threads.active()
         val total = joined.select(ThreadWatches.userId).where { predicate }.count()
         val items = joined.select(ThreadWatches.userId, users.name).where { predicate }
             .applyPaging(paging, WATCHER_SORTABLE_COLUMNS)

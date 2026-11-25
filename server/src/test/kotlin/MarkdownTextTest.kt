@@ -35,6 +35,30 @@ class MarkdownTextTest {
     }
 
     @Test
+    fun `indented code raw HTML and image labels are dropped while surrounding prose is kept`() {
+        val body = """
+            before <@1> #before
+
+                <@2> #indented
+
+            <div><@3> #html</div>
+
+            ![alt <@4> #image](image.png) after <@5> #after
+        """.trimIndent()
+
+        assertEquals(
+            listOf("before", "<@1>", "#before", "after", "<@5>", "#after"),
+            words(body),
+        )
+    }
+
+    @Test
+    fun `inline HTML attributes are ignored while text between tags stays searchable`() {
+        val body = """before <span title="<@6> #attribute">visible <@7> #prose</span> after"""
+        assertEquals(listOf("before", "visible", "<@7>", "#prose", "after"), words(body))
+    }
+
+    @Test
     fun `an unmatched fence runs to the end, an unmatched span is literal, and hostile bodies stay linear`() {
         assertEquals(listOf("before"), words("before\n```\n<@2> never closed"))
         assertEquals(listOf("a", "`", "b", "<@3>"), words("a ` b <@3>"))

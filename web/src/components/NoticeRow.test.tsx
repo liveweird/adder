@@ -102,9 +102,11 @@ describe("NoticeRow", () => {
   test.each(["en", "pl"] as const)("every notifications.event key in %s holds the actor once, with words after it", (lng) => {
     const t = i18n.getFixedT(lng);
     const kinds = Object.keys(enNotifications.event);
-    expect(kinds).toHaveLength(14);
+    expect(kinds).toHaveLength(16);
     for (const kind of kinds) {
-      const sentence = t(`notifications.event.${kind as keyof typeof enNotifications.event}`, { actor: slot("actor"), number: 42, title: "T" });
+      const sentence = t(`notifications.event.${kind as keyof typeof enNotifications.event}`, {
+        actor: slot("actor"), number: 42, title: "T", team: "Release",
+      });
       const parts = sentence.split(slot("actor"));
       expect(parts, `${lng} ${kind}`).toHaveLength(2);
       expect(parts[1].trim().length, `${lng} ${kind} text after the actor`).toBeGreaterThan(0);

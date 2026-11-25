@@ -1,16 +1,27 @@
 package ch.nokillswit.threads
 
+import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.threads.MessageService.Messages
+import ch.nokillswit.users.UserRole
+import ch.nokillswit.users.UserService
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.Expression
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.alias
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.exists
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.inSubQuery
+import org.jetbrains.exposed.v1.core.neq
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.core.substring
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.r2dbc.select
 
 /**
@@ -53,6 +64,8 @@ internal fun cutQuotedBody(body: String): CutBody {
 internal class QuotedMessage(
     val id: UInt,
     val threadId: UInt,
+    val roomId: UInt,
+    val threadNumber: Int,
     val authorId: UInt,
     val deleted: Boolean,
     val body: CutBody,
@@ -73,15 +86,23 @@ internal class QuotedMessage(
         editedAt = if (deleted) null else editedAt,
         mentions = if (hasTokens) mentions else emptyList(),
         groupMentions = if (hasTokens) groups else emptyList(),
+        roomId = roomId,
+        threadNumber = threadNumber,
     )
 }
 
 /** A row of [Messages] as a quoted message; [bodyOf] is the body column or the SQL's bounded head of it. */
-private fun ResultRow.toQuoted(bodyOf: Expression<String> = Messages.body): QuotedMessage {
+private fun ResultRow.toQuoted(
+    roomId: UInt,
+    threadNumber: Int,
+    bodyOf: Expression<String> = Messages.body,
+): QuotedMessage {
     val deleted = this[Messages.markedAsDeleted]
     return QuotedMessage(
         this[Messages.id].value,
         this[Messages.threadId].value,
+        roomId,
+        threadNumber,
         this[Messages.authorId].value,
         deleted,
         if (deleted) CutBody("", false) else cutQuotedBody(this[bodyOf]),
@@ -90,40 +111,72 @@ private fun ResultRow.toQuoted(bodyOf: Expression<String> = Messages.body): Quot
 }
 
 /**
- * The quote check of a post, ONE statement under the room lock: message [quotedId] of thread [threadId], live. An unknown id, a message
- * of another thread or room and a tombstone are the same empty answer, the typed `400` ([quoteUnavailable]); nothing is written. Only
+ * The final quote check of a post, ONE statement under the ordered room locks: live message [quotedId] of source room [roomId]. An
+ * unknown id and a tombstone are the same empty answer, the typed `400` ([quoteUnavailable]); nothing is written. Only
  * the first [QUOTED_BODY_FETCH] characters of the body travel.
  */
-internal suspend fun checkedQuote(threadId: UInt, quotedId: UInt): QuotedMessage {
+internal suspend fun checkedQuote(roomId: UInt, quotedId: UInt, viewerId: UInt): QuotedMessage {
     val head = Messages.body.substring(1, QUOTED_BODY_FETCH)
-    val row = Messages.select(Messages.id, Messages.authorId, Messages.editedAt, head)
-        .where { (Messages.id eq quotedId) and (Messages.threadId eq threadId) and Messages.active() }
+    val threads = ThreadService.Threads
+    val rooms = RoomService.Rooms
+    val row = Messages.innerJoin(threads).innerJoin(rooms)
+        .select(Messages.id, Messages.threadId, Messages.authorId, Messages.editedAt, threads.number, head)
+        .where {
+            (Messages.id eq quotedId) and (threads.roomId eq roomId) and Messages.active() and threads.active() and rooms.active() and
+                quoteRoomReadable(threads.roomId, viewerId)
+        }
         .toList().singleOrNull() ?: throw quoteUnavailable()
-    return QuotedMessage(quotedId, threadId, row[Messages.authorId].value, false, cutQuotedBody(row[head]), row[Messages.editedAt])
+    return QuotedMessage(
+        quotedId, row[Messages.threadId].value, roomId, row[threads.number], row[Messages.authorId].value,
+        false, cutQuotedBody(row[head]), row[Messages.editedAt],
+    )
+}
+
+private fun quoteRoomReadable(roomId: Column<EntityID<UInt>>, viewerId: UInt): Op<Boolean> {
+    val users = UserService.Users
+    val members = RoomService.RoomMembers
+    val rooms = RoomService.Rooms
+    val memberships = members.innerJoin(users).select(members.roomId).where {
+        (members.userId eq viewerId) and users.active()
+    }
+    val administrator = exists(users.select(users.id).where {
+        (users.id eq viewerId) and (users.role eq UserRole.ADMIN.name) and users.active()
+    })
+    return (roomId inSubQuery memberships) or
+        ((rooms.accessType neq RoomAccessType.RESTRICTED_HIDDEN.name) and administrator)
 }
 
 /**
  * The quoted messages of a page of [rows] (rows of [Messages]), by the id of the QUOTING row, for the rows that have a quote that counts:
- * a live quoting row (a tombstone quotes nothing) whose quoted row is of the SAME thread (anything else reads as no quote: the leak rule
- * of the read). The quoted rows are taken from the page's own rows first; ONE `id IN (...)` read brings the rest and none is sent when
- * the page needs none. Runs INSIDE the caller's transaction.
+ * a live quoting row (a tombstone quotes nothing). The quoted rows are taken from the page's own room first; ONE access-scoped
+ * `id IN (...)` read brings the rest and none is sent when the page needs none. Runs INSIDE the caller's transaction.
  */
-internal suspend fun quotedMessagesOf(rows: List<ResultRow>): Map<UInt, QuotedMessage> {
+internal suspend fun quotedMessagesOf(
+    rows: List<ResultRow>,
+    roomId: UInt,
+    viewerId: UInt,
+    numberOf: (ResultRow) -> Int,
+): Map<UInt, QuotedMessage> {
     val asking = rows.filter { !it[Messages.markedAsDeleted] && it[Messages.quotedMessageId] != null }
     if (asking.isEmpty()) return emptyMap()
     val wanted = asking.mapNotNull { it[Messages.quotedMessageId]?.value }.toSet()
-    val known = rows.filter { it[Messages.id].value in wanted }.map { it.toQuoted() }.associateBy { it.id }.toMutableMap()
+    val known = rows.filter { it[Messages.id].value in wanted }
+        .map { it.toQuoted(roomId, numberOf(it)) }.associateBy { it.id }.toMutableMap()
     val missing = wanted - known.keys
     if (missing.isNotEmpty()) {
         val head = Messages.body.substring(1, QUOTED_BODY_FETCH)
-        // Scoped to the threads of the quoting rows in SQL too, so a planted foreign reference does not even bring its text over.
-        val threads = asking.map { it[Messages.threadId].value }.toSet()
-        Messages.select(Messages.id, Messages.threadId, Messages.authorId, Messages.markedAsDeleted, Messages.editedAt, head)
-            .where { (Messages.id inList missing) and (Messages.threadId inList threads) }
-            .toList().map { it.toQuoted(head) }.forEach { known[it.id] = it }
+        val threads = ThreadService.Threads
+        val rooms = RoomService.Rooms
+        Messages.innerJoin(threads).innerJoin(rooms)
+            .select(
+                Messages.id, Messages.threadId, Messages.authorId, Messages.markedAsDeleted, Messages.editedAt,
+                threads.roomId, threads.number, head,
+            )
+            .where { (Messages.id inList missing) and threads.active() and rooms.active() and quoteRoomReadable(threads.roomId, viewerId) }
+            .toList().map { it.toQuoted(it[threads.roomId].value, it[threads.number], head) }.forEach { known[it.id] = it }
     }
     return asking.mapNotNull { row ->
-        val quoted = known[row[Messages.quotedMessageId]?.value]?.takeIf { it.threadId == row[Messages.threadId].value }
+        val quoted = known[row[Messages.quotedMessageId]?.value]
         quoted?.let { row[Messages.id].value to it }
     }.toMap()
 }
@@ -138,9 +191,11 @@ internal suspend fun quotedMessagesOf(rows: List<ResultRow>): Map<UInt, QuotedMe
  */
 internal suspend fun authorQuotedBy(messageId: UInt): UInt? {
     val quoted = Messages.alias("quoted")
+    val threads = ThreadService.Threads
     return Messages
-        .join(quoted, JoinType.INNER, Messages.quotedMessageId, quoted[Messages.id]) { Messages.threadId eq quoted[Messages.threadId] }
+        .join(quoted, JoinType.INNER, Messages.quotedMessageId, quoted[Messages.id])
+        .join(threads, JoinType.INNER, quoted[Messages.threadId], threads.id)
         .select(quoted[Messages.authorId])
-        .where { Messages.id eq messageId }
+        .where { (Messages.id eq messageId) and threads.active() }
         .toList().singleOrNull()?.get(quoted[Messages.authorId])?.value
 }

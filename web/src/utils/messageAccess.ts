@@ -28,7 +28,7 @@ const NO_ACTIONS: OwnWrites = { edit: false, remove: null };
 
 type MessageActionsInput = {
   room: Pick<RoomResponse, "role" | "archived">;
-  thread: Pick<ThreadResponse, "closed">;
+  thread: Pick<ThreadResponse, "closed" | "mergedIntoThreadNumber">;
   message: Pick<MessageResponse, "authorId" | "deleted">;
   userId: number | null;
   admin: boolean;
@@ -36,9 +36,11 @@ type MessageActionsInput = {
 
 /** 0.6 D4: any member pins and unpins a live message, in a closed thread too (a pin is the room's); a tombstone and an archived room refuse. UX only. */
 export function messageActions(args: MessageActionsInput): MessageActions {
-  const { room, message } = args;
+  const { room, message, thread } = args;
+  const pin = room.role !== null && !room.archived && !message.deleted;
+  if (thread.mergedIntoThreadNumber != null) return { ...NO_ACTIONS, pin };
   const speech = canReact(args);
-  return { ...ownWrites(args), pin: room.role !== null && !room.archived && !message.deleted, react: speech, quote: speech };
+  return { ...ownWrites(args), pin, react: speech, quote: speech };
 }
 
 /**

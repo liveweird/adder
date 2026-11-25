@@ -295,7 +295,7 @@ class NotifyHintsTest {
     }
 
     @Test
-    fun `a reaction emits one hint per change with the thread number and the message id, and a refusal or a repeat emits none`() =
+    fun `a reaction emits one hint per change plus a targeted notice when another user reacts`() =
         testApplication {
             usePostgresTestcontainer()
             val owner = actor("hint-rxown")
@@ -322,7 +322,8 @@ class NotifyHintsTest {
                     react(member, thumbsUp, false).expect(HttpStatusCode.Conflict)
                 }
                 val changed = hint(LiveKind.MESSAGE_REACTION_CHANGED, room, thread = 1, message = message)
-                assertEquals(listOf(changed, changed, changed), hints, "the add, the owner's add and the removal")
+                val notice = hint(LiveKind.NOTIFICATION_CREATED, room, thread = 1, message = message, targets = listOf(member.id))
+                assertEquals(listOf(changed, changed, notice, changed), hints, "the owner's add alone also makes a targeted notice")
             }
         }
 

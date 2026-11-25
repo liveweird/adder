@@ -418,6 +418,7 @@ describe("NotificationsButton", () => {
 
   test.each([
     ["MENTIONED", "Ada mentioned you in #42 Awaria bazy"], ["MESSAGE_QUOTED", "Ada quoted your message in #42 Awaria bazy"],
+    ["REACTION_ADDED", "Ada reacted to your message in #42 Awaria bazy"],
     ["TEAM_MENTIONED", "Ada mentioned your team in #42 Awaria bazy"],
     ["WATCHERS_MENTIONED", "Ada mentioned the watchers of #42 Awaria bazy"], ["HERE_MENTIONED", "Ada mentioned people here in #42 Awaria bazy"],
     ["EVERYONE_MENTIONED", "Ada mentioned everyone in #42 Awaria bazy"],
@@ -436,6 +437,15 @@ describe("NotificationsButton", () => {
     const drawer = await screen.findByRole("dialog", { name: "Notifications" });
     const link = await within(drawer).findByRole("link", { name: new RegExp(sentence) });
     expect(link).toHaveAttribute("href", "/rooms/12/threads/42");
+  });
+
+  test("a team mention names the team when the feed resolves it", async () => {
+    listPage = page([notice({ type: "TEAM_MENTIONED", teamName: "On call" })]);
+    const user = userEvent.setup();
+    renderBell();
+    await user.click(await bell());
+    const drawer = await screen.findByRole("dialog", { name: "Notifications" });
+    expect(await within(drawer).findByRole("link", { name: /Ada mentioned your team On call in #42 Awaria bazy/ })).toBeInTheDocument();
   });
 
   test("in Polish every kind has its sentence", async () => {

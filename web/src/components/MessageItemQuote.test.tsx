@@ -40,6 +40,8 @@ describe("MessageItem: quotes", () => {
     editedAt: null,
     mentions: [],
     groupMentions: [],
+    roomId: 12,
+    threadNumber: 42,
     ...overrides,
   });
   const quotable: MessageActions = { edit: false, remove: null, pin: true, react: true, quote: true };
@@ -70,6 +72,26 @@ describe("MessageItem: quotes", () => {
     renderQuotable(message, onQuote);
     await userEvent.setup().click(screen.getByRole("button", { name: /^Quote the message by/ }));
     expect(onQuote).toHaveBeenCalledExactlyOnceWith(message);
+  });
+
+  test("offers the destination picker for a live message even when this source thread cannot take a local reply", async () => {
+    const onQuoteElsewhere = vi.fn();
+    const message = makeMessage({ id: 9 });
+    renderWithProviders(
+      <ul>
+        <MessageItem
+          roomId={12}
+          message={message}
+          actions={{ edit: false, remove: null, pin: false, react: false, quote: false }}
+          zone={ZONE}
+          onQuoteElsewhere={onQuoteElsewhere}
+        />
+      </ul>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: NAME }));
+    await user.click(await screen.findByRole("menuitem", { name: "Quote in another thread…" }));
+    expect(onQuoteElsewhere).toHaveBeenCalledExactlyOnceWith(message);
   });
 
   test("Quote comes before Edit and Delete for the author", async () => {

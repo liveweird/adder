@@ -376,10 +376,10 @@ class ThreadTagSearchTest {
                 )
                 st.execute("ANALYZE threads; ANALYZE thread_tags")
                 st.execute("SET LOCAL plan_cache_mode = $mode")
-                st.execute("PREPARE tag_plan(int4[], int4) AS $sql")
+                st.execute("PREPARE tag_plan(int4[], boolean, int4) AS $sql")
                 val rooms = (0 until 40).joinToString(",", "'{", "}'") { (2100000000 + it).toString() }
                 buildString {
-                    st.executeQuery("EXPLAIN EXECUTE tag_plan($rooms, $tag)").use { rs ->
+                    st.executeQuery("EXPLAIN EXECUTE tag_plan($rooms, false, $tag)").use { rs ->
                         while (rs.next()) appendLine(rs.getString(1))
                     }
                 }

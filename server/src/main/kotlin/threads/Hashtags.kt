@@ -29,7 +29,7 @@ const val MAX_RAW_TAG_VALUES = 50
  * The grammar version a message's tags were indexed under (`messages.tags_version`; 0 = not indexed yet). Bumping it makes the boot
  * reindex rebuild every message's tags, which a grammar change needs.
  */
-const val TAGS_VERSION: Short = 1
+const val TAGS_VERSION: Short = 2
 
 private const val TAG_CHARACTERS = "\\p{L}\\p{N}_-"
 
@@ -45,9 +45,9 @@ private fun String.hasLetter(): Boolean = codePoints().anyMatch { Character.isLe
  * The distinct hashtags of [body] in the order they appear, as typed (NFC-normalised; two spellings that differ only by case are one,
  * the first spelling wins), at most [MAX_TAGS_PER_MESSAGE]. The stored key is the folded form: [foldedTag] here and `public.unaccent` in
  * SQL (`MessageTagService`). Text in code (fenced, inline), link destinations, `<autolinks>` and bare URLs is not searched, which
- * approximates "the text outside code and links" the SPA's Markdown tree shows; a Markdown construct this does not see (an indented
- * code block, raw HTML) can disagree with it, and the shared case table pins the common cases. The NFC pass is bounded by the caller: a
- * body is at most 8,000 UTF-16 units, where canonical reordering of the worst run of misordered combining marks takes about 10 to 20 ms.
+ * approximates "the text outside code and links" the SPA's Markdown tree shows, including indented code, raw HTML and image labels. The
+ * NFC pass is bounded by the caller: a body is at most 8,000 UTF-16 units, where canonical reordering of the worst run of misordered
+ * combining marks takes about 10 to 20 ms.
  */
 fun parseHashtags(body: String): List<String> {
     if (!body.contains('#')) return emptyList()

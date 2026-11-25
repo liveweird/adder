@@ -10,7 +10,9 @@ import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 
 const PATH = "/api/v1/users/5/notification-preferences";
-const KINDS = Object.keys(enNotifications.event).filter((type) => type !== "ROOM_ADDED") as Preferences["kinds"][number]["type"][];
+const KINDS = Object.keys(enNotifications.event).filter(
+  (type) => type !== "ROOM_ADDED" && type !== "TEAM_MENTIONED_NAMED",
+) as Preferences["kinds"][number]["type"][];
 
 /** Every kind at its default (the app on, email off) unless `over` says otherwise. */
 function prefs(
@@ -78,6 +80,7 @@ describe("NotificationPreferences page", () => {
       [2, "Notification preferences"],
       [3, "Browser notifications"],
       [3, "Mentions"],
+      [3, "Reactions"],
       [3, "Threads you watch"],
       [3, "Threads handed to you"],
       [3, "Rooms"],
@@ -87,6 +90,7 @@ describe("NotificationPreferences page", () => {
     expect(within(screen.getByRole("table", { name: "Rooms" })).getByText("A new thread in a room I am in")).toBeInTheDocument();
     expect(within(screen.getByRole("table", { name: "Rooms" })).getByText(ROOM_ADDED)).toBeInTheDocument();
     expect(within(screen.getByRole("table", { name: "Mentions" })).getByText("Someone quotes my message")).toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Reactions" })).getByText("Someone reacts to my message")).toBeInTheDocument();
     expect(screen.queryByText(/Email is off on this server/)).not.toBeInTheDocument();
     // Nothing changed: nothing to save.
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();

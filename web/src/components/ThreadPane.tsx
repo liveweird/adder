@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { useLocation, useNavigationType } from "react-router-dom";
+import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Box, Button, Group, Stack, Text, Title } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
@@ -20,7 +20,7 @@ import { isBoolean, useStoredState } from "../hooks/useStoredState";
 import { useRoomPins } from "../hooks/useRoomPins";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { fillSlots, slot } from "../utils/slots";
-import { parseThreadNumber, quoteReturnMessageId, wantsThreadPaneFocus } from "../utils/roomLinks";
+import { listRouteSearch, messageJumpPath, parseThreadNumber, quoteReturnLocation, quoteReturnMessageId, roomPath, threadPath, wantsThreadPaneFocus, withListParams } from "../utils/roomLinks";
 import { parseFocus, parseMessageAnchor, writeFocus } from "../utils/threadListParams";
 import EmptyState from "./EmptyState";
 import ErrorAlert from "./ErrorAlert";
@@ -29,6 +29,7 @@ import HeaderIconButton from "./HeaderIconButton";
 import LoadingBlock from "./LoadingBlock";
 import MessageComposer, { type QuoteRequest } from "./MessageComposer";
 import MessageList from "./MessageList";
+import QuoteDestinationModal from "./QuoteDestinationModal";
 import PersonLink from "./PersonLink";
 import PinMark from "./PinMark";
 import TagPills from "./TagPills";
@@ -40,6 +41,9 @@ import ThreadSidePanel from "./ThreadSidePanel";
 import ThreadStatusControl from "./ThreadStatusControl";
 import ThreadWatchButton from "./ThreadWatchButton";
 import ThreadMuteButton from "./ThreadMuteButton";
+import ThreadLifecycleActions from "./ThreadLifecycleActions";
+import MergedThreadBanner from "./MergedThreadBanner";
+import MergedThreadSources from "./MergedThreadSources";
 import classes from "./ThreadPane.module.css";
 import { roomKeys } from "../utils/roomKeys";
 
@@ -72,6 +76,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   const sideId = useId();
   const findId = useId();
   const location = useLocation();
+  const navigate = useNavigate();
   const [search, setSearch, liveUrl] = useLiveSearchParams();
   const focusView = parseFocus(search);
   const anchorId = parseMessageAnchor(search);
@@ -101,13 +106,18 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   // "Quote" on a message (1.3): the pane hands the picked message to the reply box (which keeps the draft per thread, like the text) and numbers the
   // request, so picking the same message twice, or after removing the quote, is a new request that moves the focus to the box again.
   const [quoteRequest, setQuoteRequest] = useState<QuoteRequest | null>(null);
+  const [quoteDestination, setQuoteDestination] = useState<MessageResponse | null>(null);
   const quoteMessage = useCallback(
     (message: MessageResponse) => {
       if (number === null) return;
       const { id, authorId, authorName, body, mentions, groupMentions } = message;
-      setQuoteRequest((prev) => ({ threadNumber: number, quote: { id, authorId, authorName, body, mentions, groupMentions }, seq: (prev?.seq ?? 0) + 1 }));
+      setQuoteRequest((prev) => ({
+        threadNumber: number,
+        quote: { id, authorId, authorName, body, mentions, groupMentions, roomId: room.id, threadNumber: message.threadNumber },
+        seq: (prev?.seq ?? 0) + 1,
+      }));
     },
-    [number],
+    [number, room.id],
   );
   // The caller's own just-posted message (and its thread, so a request never outlives a navigation): the list scrolls to the bottom once it shows it.
   const [scrollRequest, setScrollRequest] = useState<{ threadNumber: number; messageId: number } | null>(null);
@@ -151,14 +161,21 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
     }, { replace: true, state: quoteReturnMessageId(state) === null ? state : null });
   }, [liveUrl, setSearch]);
   const returnToReply = useCallback(() => {
-    const messageId = quoteReturnMessageId(liveUrl.state());
-    if (messageId === null) return;
+    const target = quoteReturnLocation(liveUrl.state());
+    if (target === null) return;
+    if (target.roomId !== room.id || target.threadNumber !== number) {
+      void navigate(
+        messageJumpPath(target.roomId, target.threadNumber, target.messageId, listRouteSearch(location.pathname, location.search), focusView),
+        { replace: true, state: null },
+      );
+      return;
+    }
     setSearch((previous) => {
       const next = new URLSearchParams(previous);
-      next.set("message", String(messageId));
+      next.set("message", String(target.messageId));
       return next;
     }, { replace: true, state: null });
-  }, [liveUrl, setSearch]);
+  }, [focusView, liveUrl, location.pathname, location.search, navigate, number, room.id, setSearch]);
   // In the focus view the list is hidden: a pane with no thread to show carries its own way back.
   const showList = focusView ? (
     <Button variant="default" size="xs" style={{ alignSelf: "flex-start" }} onClick={() => setSearch((prev) => writeFocus(prev, false), { replace: true })}>
@@ -186,6 +203,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   }
 
   const findOpen = findState?.threadNumber === thread.number && findState.open;
+  const mergedInto = thread.mergedIntoThreadNumber ?? null;
   return (
     <Box
       component="section"
@@ -212,10 +230,15 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
               />
             </span>
             <ThreadPinButton room={room} threadNumber={thread.number} onError={reportActionError} />
-            <ThreadWatchButton room={room} thread={thread} onError={reportActionError} />
-            {room.role !== null && (
-              <ThreadMuteButton roomId={room.id} number={thread.number} muted={thread.muted ?? false} onError={reportActionError} />
-            )}
+            {mergedInto === null && <ThreadWatchButton room={room} thread={thread} onError={reportActionError} />}
+            {mergedInto === null && room.role !== null && <ThreadMuteButton roomId={room.id} number={thread.number} muted={thread.muted ?? false} onError={reportActionError} />}
+            <ThreadLifecycleActions
+              key={thread.id}
+              room={room}
+              thread={thread}
+              onDeleted={() => void navigate(withListParams(roomPath(room.id), location.search), { replace: true })}
+              onMerged={(target) => void navigate(withListParams(threadPath(room.id, target), location.search), { replace: true })}
+            />
             <span ref={findTriggerRef}>
               <HeaderIconButton
                 label={t("threads.find.open")}
@@ -247,6 +270,8 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           </Group>
         </div>
         <ThreadStatusControl key={`${room.id}/${thread.number}`} room={room} thread={thread} statuses={workflow.data?.statuses} />
+        {mergedInto !== null && <MergedThreadBanner roomId={room.id} targetNumber={mergedInto} />}
+        <MergedThreadSources key={thread.id} roomId={room.id} targetNumber={thread.number} count={thread.mergedSourceCount ?? 0} />
         {actionError?.number === thread.number && <FormErrorAlert>{actionError.message}</FormErrorAlert>}
         {(thread.tags.length > 0 || thread.hashtags.length > 0) && (
           <div className={classes.labels}>
@@ -279,7 +304,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
         </div>
       </Stack>
       <div id={sideId} className={classes.side} data-open={detailsOpen} role="region" aria-label={t("threads.side.aria")} tabIndex={0}>
-        <ThreadSidePanel key={`${room.id}/${thread.number}`} room={room} thread={thread} />
+        <ThreadSidePanel key={`${room.id}/${thread.number}`} room={room} thread={thread} showHistory={detailsOpen} />
       </div>
       <Stack gap="xs" className={classes.conversation}>
         <MessageList
@@ -294,12 +319,13 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           threadSettled={!isFetching}
           readingPaused={findOpen}
           onQuote={quoteMessage}
+          onQuoteElsewhere={setQuoteDestination}
           onShowQuoted={requestJump}
           returnMessageId={returnMessageId}
           onReturnToReply={returnToReply}
           onReturnToLatest={returnToLatest}
         />
-        <MessageComposer
+        {mergedInto === null && <MessageComposer
           room={room}
           thread={thread}
           onPosted={(messageId) => {
@@ -308,8 +334,11 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
             setScrollRequest({ threadNumber: thread.number, messageId });
           }}
           quoteRequest={quoteRequest}
-        />
+        />}
       </Stack>
+      {quoteDestination && (
+        <QuoteDestinationModal key={quoteDestination.id} source={quoteDestination} currentRoom={room} onClose={() => setQuoteDestination(null)} />
+      )}
     </Box>
   );
 }

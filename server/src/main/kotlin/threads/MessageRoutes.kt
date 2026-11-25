@@ -127,7 +127,7 @@ private fun Route.messageReads(
         val paging = call.parsePaging(sortable = MESSAGE_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
         val idLt = call.request.queryParameters.optionalUInt("id[lt]")
         if (idLt != null && idLt !in 1u..MAX_MESSAGE_ID) throw BadRequestException("id[lt] must be between 1 and $MAX_MESSAGE_ID")
-        val result = messageService.list(threadId, number, idLt, paging, caller.userId)
+        val result = messageService.list(roomId, threadId, number, idLt, paging, caller.userId)
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }
     get<ThreadMessageContextRoute> { route ->
