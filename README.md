@@ -5,18 +5,20 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.13.0 — external links and previews)
+## What's here today
 
-Select an external link or image in a message to review its destination. Choose **Open link** to open it in a new tab, or **Preview**
-to see a page title or a supported PNG or JPEG image in a compact popover. Adder fetches a preview after you request it. In the
-conversation, hovering can show a preview you already loaded.
-
-### Thread chat controls
+### Chat and notification controls (1.18.0)
 
 - Open the watcher count in a thread header or the people list for a reaction to see the full roster and open profiles. Names in history, search results, and thread lists also lead to profiles.
 - Replying starts a watch. Use **Watch this thread** to change that choice. If you stop watching, later replies respect your choice. Use **Mute thread** to silence future notifications for that thread while keeping its watch.
 - Pick `@here` to notify room members with a recently visible Adder tab. Room managers can use **Add and mention** to search the directory and add someone while keeping the draft.
 - The bell shows what changed in a status or ownership update. A configured deployment offers **Browser notifications** in account notification preferences. Each browser opts in separately and receives generic alerts for unseen in-app notifications. Registrations expire after 90 days and can be enabled again there.
+
+### External links and previews (1.13.0)
+
+Select an external link or image in a message to review its destination. Choose **Open link** to open it in a new tab, or **Preview**
+to see a page title or a supported PNG or JPEG image in a compact popover. Adder fetches a preview after you request it. In the
+conversation, hovering can show a preview you already loaded.
 
 ### Room organizer (1.12.0)
 

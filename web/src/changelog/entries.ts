@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.18.0",
+    date: "2026-11-25",
+    en: `**Adder 1.18.0 — chat and notification controls**
+
+- Enable browser alerts in **Notification preferences** when your server supports them. Mute a thread to silence future notifications and keep your watch.
+- Use **@here** to reach room members with a recently visible Adder tab. Room managers can use **Add and mention** to add someone from the directory while keeping the draft.
+- Open the full list of people who reacted to a message or watch a thread. Names in history, search, reactions, and thread lists link to profiles.
+- See the previous and new status or owner in the bell. Replying starts a watch, and later replies respect your choice to stop watching.`,
+    pl: `**Adder 1.18.0 — rozmowy i ustawienia powiadomień**
+
+- Włącz powiadomienia przeglądarki w **Ustawieniach powiadomień**, jeśli serwer je udostępnia. Wycisz wątek, aby przestać otrzymywać nowe powiadomienia i nadal go obserwować.
+- Użyj **@here**, aby powiadomić osoby w pokoju, które niedawno miały widoczną kartę Addera. Osoby zarządzające pokojem mogą użyć opcji **Dodaj i wspomnij**, aby dodać osobę z katalogu i zachować szkic wiadomości.
+- Otwórz pełną listę osób, które zareagowały na wiadomość lub obserwują wątek. Nazwy osób w historii, wynikach wyszukiwania, reakcjach i na listach wątków prowadzą do ich profili.
+- W dzwonku zobaczysz poprzedni i nowy status oraz zmiany właściciela lub właścicielki. Odpowiedź włącza obserwowanie wątku. Jeśli je wyłączysz, kolejne odpowiedzi uszanują ten wybór.`,
+  },
+  {
     version: "1.17.0",
     date: "2026-11-25",
     en: `**Adder 1.17.0 — grouped reply notifications**
