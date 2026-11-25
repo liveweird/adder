@@ -31,7 +31,8 @@ const val MAX_REQUEST_BODY_BYTES: Long = 512L * 1024
 /**
  * The tight ceiling of the routes whose bodies are a handful of short fields: the anonymous auth routes (an unauthenticated caller can
  * reach them, so they must not buffer half a megabyte per request), the room member add (up to 200 ids, ~2 KiB) and the thread status
- * and owner PUTs (one status key or one user id) and the thread and message pin PUTs (one boolean). Same 413.
+ * and owner PUTs (one status key or one user id), the thread and message pin PUTs (one boolean), and the message link-preview POST (one
+ * URL of at most 2,048 characters). Same 413.
  */
 const val MAX_SMALL_REQUEST_BODY_BYTES: Long = 16L * 1024
 
@@ -77,6 +78,8 @@ private val NOTIFICATION_PREFERENCES_PATH = Regex("^/api/v1/users/[^/]+/notifica
 private val PIN_PATH = Regex("^/api/v1/rooms/[^/]+/(threads|messages)/[^/]+/pin$")
 private val MESSAGE_POST_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+/messages$")
 private val MESSAGE_REACTION_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+/reaction$")
+private val MESSAGE_LINK_PREVIEW_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+/link-preview$")
+private val SMALL_POST_PATHS = listOf(ROOM_MEMBERS_PATH, MESSAGE_LINK_PREVIEW_PATH)
 private val MESSAGE_EDIT_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+$")
 
 /**
@@ -104,7 +107,8 @@ internal fun requestBodyLimit(call: ApplicationCall): Long {
         // The live WebSocket upgrade is a GET with no body: the plugin's "no limit" answer leaves the call's channel alone. Wrapping it
         // (the test host feeds the upgraded socket's frames through the request channel) starves the server of every client frame.
         method == HttpMethod.Get && path == LIVE_SOCKET_PATH -> Long.MAX_VALUE
-        method == HttpMethod.Post && (path in SMALL_BODY_PATHS || ROOM_MEMBERS_PATH.matches(path)) -> MAX_SMALL_REQUEST_BODY_BYTES
+        method == HttpMethod.Post && (path in SMALL_BODY_PATHS || SMALL_POST_PATHS.any { it.matches(path) }) ->
+            MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Put && ROOM_SMALL_PUT_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Put && PIN_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES
         method == HttpMethod.Put && NOTIFICATION_PREFERENCES_PATH.matches(path) -> MAX_SMALL_REQUEST_BODY_BYTES

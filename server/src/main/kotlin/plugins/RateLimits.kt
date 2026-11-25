@@ -208,6 +208,11 @@ object RateLimits {
      */
     const val SEARCH = "search"
     /**
+     * A message link preview can make several tightly bounded outbound requests, so it has a small per-user bucket independent of
+     * ordinary chat reads and search. The route mounts it inside authentication and before room, message and body validation.
+     */
+    const val LINK_PREVIEW = "link-preview"
+    /**
      * `PUT /api/v1/users/{id}/password` rides a per-USER bucket (the [TELEMETRY] idiom): 5/min in every mode. The self change verifies
      * `currentPassword` with a bcrypt per request, so without a bound a stolen session guesses the password at dispatcher speed and any
      * user can occupy the small default dispatcher; the per-account lockout (`auth/LoginThrottle.kt`, a wrong current password counts
@@ -246,6 +251,7 @@ object RateLimits {
     private const val NOTIFICATION_READ_PER_MINUTE = 240
     private const val LIVE_TICKET_PER_MINUTE = 60
     private const val SEARCH_PER_MINUTE = 60
+    private const val LINK_PREVIEW_PER_MINUTE = 20
     private const val PASSWORD_CHANGE_PER_MINUTE = 5
     private const val MFA_PER_MINUTE = 10
     private const val PASSWORD_RESET_CONFIRM_PER_MINUTE = 10
@@ -288,6 +294,7 @@ object RateLimits {
     internal fun notificationReadLimit() = NOTIFICATION_READ_PER_MINUTE
     internal fun liveTicketLimit() = LIVE_TICKET_PER_MINUTE
     internal fun searchLimit() = SEARCH_PER_MINUTE
+    internal fun linkPreviewLimit() = LINK_PREVIEW_PER_MINUTE
     internal fun passwordChangeLimit() = PASSWORD_CHANGE_PER_MINUTE
     internal fun mfaLimit() = MFA_PER_MINUTE
     internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
@@ -296,7 +303,7 @@ object RateLimits {
 /**
  * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER telemetry, directory,
  * room-name, room-members, chat-post, chat-write, chat-read, read-state, thread-watch, notification-prefs, notification-read, live-
- * ticket, search and password-change buckets.
+ * ticket, search, link-preview and password-change buckets.
  * Login and password-reset follow the mode — production keeps them tight, development lifts them so one host
  * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
  * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before
@@ -329,6 +336,7 @@ fun Application.configureRateLimits() {
             NOTIFICATION_READ to notificationReadLimit(),
             LIVE_TICKET to liveTicketLimit(),
             SEARCH to searchLimit(),
+            LINK_PREVIEW to linkPreviewLimit(),
             PASSWORD_CHANGE to passwordChangeLimit(),
         )
     }
@@ -345,7 +353,7 @@ fun Application.configureRateLimits() {
             }
         }
         // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post, chat-write, chat-read, read-state, thread-watch,
-        // notification-prefs, notification-read, live-ticket, search, password-change).
+        // notification-prefs, notification-read, live-ticket, search, link-preview, password-change).
         // The routes mount them INSIDE `authenticate {}` (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt,
         // threads/ThreadRoutes.kt, live/LiveRoutes.kt, threads/ThreadSearchRoutes.kt, notifications/NotificationRoutes.kt), so this key
         // runs only for a verified token:

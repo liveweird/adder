@@ -5,7 +5,13 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.12.0 — room organizer)
+## What's here today (1.13.0 — external links and previews)
+
+Select an external link or image in a message to review its destination. Choose **Open link** to open it in a new tab, or **Preview**
+to see a page title or a supported PNG or JPEG image in a compact popover. Adder fetches a preview after you request it. In the
+conversation, hovering can show a preview you already loaded.
+
+### Room organizer (1.12.0)
 
 Open **Organize rooms** to group and order the rooms in your sidebar. Drag a room into a group or drag a group to change its position.
 The row menus offer the same moves by keyboard or tap. Choose **Save organization** to apply the layout to your account.

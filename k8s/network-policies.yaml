@@ -9,7 +9,7 @@
 #   ingress-nginx  -> app:8087            (allow-app-ingress: the controller's pods in the ingress-nginx namespace only)
 #   app            -> postgres:5432       (allow-postgres-from-app + the egress twin)
 #   app            -> cluster DNS :53     (allow-app-egress)
-#   app            -> public internet     (587/465/25 SMTP only; the app makes no HTTPS call)
+#   app            -> public IPv4         (587/465/25 SMTP and 443 link previews)
 #   kubelet probes -> every pod           (the node's own traffic is always allowed by Kubernetes)
 ---
 apiVersion: networking.k8s.io/v1
@@ -102,12 +102,8 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # An SMTP relay (587 STARTTLS, 465 implicit TLS, 25) on the public internet — the only server-initiated
-    # call the app makes (mail transport). There is NO 443 rule: the server dials no HTTPS endpoint
-    # (no outbound HTTP client, no webhook, and the OpenTelemetry exporters are `none`/`console`). A deployment that
-    # turns on an OTLP exporter (OTEL_*_EXPORTER=otlp) to a public collector adds that collector's port here, scoped to its
-    # address. Private and link-local ranges are excluded so a compromised pod cannot reach cluster-internal services,
-    # other namespaces or the cloud metadata endpoint (169.254.169.254).
+    # Public SMTP relay (587 STARTTLS, 465 implicit TLS, 25). Private and link-local ranges are excluded.
+    # Scope optional OTLP egress to the collector's address and port.
     # An in-cluster or private SMTP relay needs its own additional policy, scoped to its address
     # and port, e.g. one more item under this policy's `egress:` list:
     #   - to:
@@ -132,3 +128,29 @@ spec:
           port: 465
         - protocol: TCP
           port: 25
+    # Public HTTPS for user-requested message link previews. Match the disallowed IPv4 ranges in PreviewTarget.kt.
+    # Clusters that route private services on public address space also need deployment-specific exclusions.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.0.0.0/24
+              - 192.0.2.0/24
+              - 192.31.196.0/24
+              - 192.52.193.0/24
+              - 192.88.99.0/24
+              - 192.168.0.0/16
+              - 192.175.48.0/24
+              - 198.18.0.0/15
+              - 198.51.100.0/24
+              - 203.0.113.0/24
+              - 224.0.0.0/3
+      ports:
+        - protocol: TCP
+          port: 443

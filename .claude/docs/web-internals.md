@@ -469,9 +469,16 @@ Rendering & UI wiring:
   page). `components/MarkdownView.tsx` (Typography + react-markdown + remark-gfm/gemoji, all
   lazy-chunk-only deps) is the one markdown renderer — reuse it for future markdown content. **Two variants** (`variant`, default `"document"`): `document` is plain react-markdown output
   (the changelog; real headings, plain links), `message` is for chat bodies, where many user-written bodies share one page: headings render as BOLD PARAGRAPHS (50 messages cannot flood the heading
-  outline; the room page's h2/h3/h4 outline is the page's own), an image renders as a LINK to its address labelled by its alt text (the CSP is `img-src 'self' data:`, so a remote image would be
-  blocked anyway; an unsafe `src` that react-markdown's default `urlTransform` blanks stays as plain alt text), and every link opens with `target="_blank" rel="noopener noreferrer"`. Neither variant
-  renders raw HTML (no `rehype-raw`; never add it). The CSP is not changed. `MarkdownView.module.css` carries the `message` styling only.
+  outline). Same-origin links route directly. For external destinations, `ExternalMessageLink` displays the canonical address in a
+  confirmation popover. Only **Open link** exposes the external href with `target="_blank" rel="noopener noreferrer"`. An image uses its
+  alt text as the control label. An image already inside a Markdown link contributes its label to the parent link. Both variants retain
+  ReactMarkdown's URL filtering and raw-HTML exclusion.
+- **Message link previews (1.13.0).** Message and pinned-copy renderers supply room, message and edit identity. Only Preview requests the
+  protected API. The preview displays plain text and any verified raster through the existing `img-src 'self' data:` policy. Caches live for
+  five minutes and hold up to 32 results in the TanStack session cache. In the conversation, hover and keyboard focus can show a fresh,
+  already-loaded preview. In a containing drawer, open the link control to see its cached preview.
+  A dismissed or expired preview issues a request only on the next explicit action. A room revocation removes its previews, and session
+  changes clear the cache and dismiss open overlays. Escape dismisses the popover.
 - **The emoji trio** (Lettuce's, ported in 0.3.0): `EmojiTextarea` (a Mantine `Textarea` taking `value`/`onChange(string)`, with the picker in its right section, the emoji spliced in at the caret
   and the shared `charCountDescription` counter under it when `maxLength` is set) → `EmojiButton` (a subtle smiley `ActionIcon` in a `Popover`, labelled `common.emoji.insert`; the picker mounts only
   while open) → `EmojiPicker` (emoji-mart's `Picker`, `React.lazy`'d so the data set never rides the main bundle). `data` and `i18n` are passed explicitly (no CDN; `dependencies.md`), the theme follows the

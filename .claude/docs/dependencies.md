@@ -188,6 +188,10 @@ workspace here running the same tools:
 
 ## Dependency history
 
+Adder 1.13.0 adds CommonMark Java 0.33.0 with the autolink extension for validating stored message destinations and Jsoup 1.24.1 for
+bounded HTML parsing. Guarded preview connections use the existing OkHttp 5.5.1 pin as a direct dependency. The project generated
+Gradle locks and artifact checksums for the new module graph and validated them with strict verification from a second empty Gradle home.
+
 Flow's batch-by-batch bump log (2026-09 .. 2026-11) is not carried over: Adder starts from the dependency set Flow 1.57.1 resolved at `4e43e480` (minus WireMock and the
 integration-only clients, `infra/outbound`'s guarded HTTP client with them), and its own rounds are recorded below, newest first, as they happen. The v0.1.0 lockfiles and
 `gradle/verification-metadata.xml` were regenerated from an empty `GRADLE_USER_HOME` per `dependency-reproducibility.md`.

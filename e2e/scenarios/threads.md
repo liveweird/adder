@@ -155,3 +155,15 @@
   panel's components; they would need two browsers racing or a long setup.
 - Loading older messages (more than 50 in a thread) and the scroll position: unit-tested with the list; a 50-message fixture is too slow
   through the UI.
+
+## Scenario: message links ask before opening and load a preview only on request
+
+1. A room owner posts an external link and a Markdown image, then hovers and middle-clicks the link.
+   - *Expected*: No navigation or preview request occurs.
+2. They activate the link by keyboard, read the destination, then explicitly request a preview.
+   - *Expected*: The guarded endpoint is called once. A reserved test destination shows an unavailable preview. The confirmation passes an axe scan.
+3. They dismiss the dialog with Escape, reopen it, and choose Open link.
+   - *Expected*: Focus returns on dismissal. The confirmed page opens in a new tab without an opener or referrer.
+4. They pin the message and open its image link from the room's pinned drawer.
+   - *Expected*: The confirmation identifies the image URL and waits for a deliberate action. Tab stays within the confirmation.
+     The first Escape returns focus to the image in the open drawer. The second Escape closes the drawer.

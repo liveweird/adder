@@ -6,6 +6,7 @@ import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireMessageAuthor
 import ch.nokillswit.authz.requireMessageRemover
 import ch.nokillswit.authz.requireRoomMember
+import ch.nokillswit.infra.db.PreviewFetcherKey
 import ch.nokillswit.infra.paging.SortField
 import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.paging.parsePaging
@@ -62,6 +63,11 @@ class RoomMessagesRoute(val parent: RoomsRoute.Id) {
     class Id(val parent: RoomMessagesRoute, val messageId: UInt)
 }
 
+/** A synchronous, bounded preview of one link that still occurs in the addressed message's rendered Markdown. */
+@Serializable
+@Resource("link-preview")
+class MessageLinkPreviewRoute(val parent: RoomMessagesRoute.Id)
+
 /** The largest `id[lt]` the spec admits: message ids are int32 sequences (a wider value is a `400`, never a wrapped id). */
 private val MAX_MESSAGE_ID = Int.MAX_VALUE.toUInt()
 
@@ -69,6 +75,7 @@ fun Application.configureMessageRoutes() {
     val roomService = attributes[RoomServiceKey]
     val threadService = attributes[ThreadServiceKey]
     val messageService = attributes[MessageServiceKey]
+    val linkPreviewService = attributes[MessageLinkPreviewServiceKey]
     val searchService = attributes[ThreadSearchServiceKey]
 
     routing {
@@ -79,9 +86,27 @@ fun Application.configureMessageRoutes() {
             // author or a remover for the writes: 403, a missing or deleted message is 404 first); the body (400); then the service
             // re-runs the guards under the room lock. Audit lines carry ids, never a body.
             messageReads(roomService, threadService, messageService, searchService)
+            messageLinkPreview(linkPreviewService)
             messagePost(roomService, messageService)
             messageEdit(roomService, messageService)
             messageDelete(roomService, messageService)
+        }
+    }
+}
+
+/** The dedicated per-user bucket is before every room/message/body guard; the service repeats access after the external fetch. */
+private fun Route.messageLinkPreview(service: MessageLinkPreviewService) {
+    rateLimit(RateLimitName(RateLimits.LINK_PREVIEW)) {
+        post<MessageLinkPreviewRoute> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.parent.id
+            val authorization = service.authorize(caller, roomId, route.parent.messageId)
+            val response = service.preview(
+                authorization = authorization,
+                request = call.receive(),
+                fetcher = call.application.attributes[PreviewFetcherKey],
+            )
+            call.respond(HttpStatusCode.OK, response)
         }
     }
 }

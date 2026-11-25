@@ -1,0 +1,47 @@
+.trigger {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: 0.125rem;
+  background: transparent;
+  color: var(--mantine-color-anchor);
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-inline-size: 100%;
+  cursor: pointer;
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 0.125rem;
+}
+
+.dropdown {
+  overflow: auto;
+}
+
+.destination {
+  overflow-wrap: anywhere;
+  overflow: auto;
+  max-block-size: 5em;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--mantine-radius-sm);
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+}
+
+.preview {
+  min-inline-size: 0;
+}
+
+.image {
+  inline-size: 100%;
+  block-size: auto;
+  max-block-size: 11rem;
+  object-fit: contain;
+  border-radius: var(--mantine-radius-sm);
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8));
+}

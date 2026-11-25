@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown"
 import remarkGfm from "remark-gfm";
 import remarkGemoji from "remark-gemoji";
 import { Link as RouterLink } from "react-router-dom";
+import type { MessageLinkSource } from "../api/linkPreviews";
 import { getUserId } from "../api/session";
 import { useKnownNames } from "../utils/knownNames";
 import { personPath } from "../utils/personLinks";
@@ -12,6 +13,7 @@ import { teamPath } from "../utils/teamLinks";
 import remarkHashtags from "../utils/remarkHashtags";
 import remarkMentions from "../utils/remarkMentions";
 import remarkThreadRefs from "../utils/remarkThreadRefs";
+import ExternalMessageLink from "./ExternalMessageLink";
 import classes from "./MarkdownView.module.css";
 
 // Read-only renderer for the markdown strings the app carries. Single home for the Mantine
@@ -22,8 +24,8 @@ import classes from "./MarkdownView.module.css";
 //   plain react-markdown output, unchanged.
 // - "message": chat message bodies, where dozens of user-written bodies share one page, so
 //   a body may not shape the page: headings become bold paragraphs (50 messages cannot flood
-//   the heading outline), an image becomes a link (the CSP is `img-src 'self' data:`, a remote
-//   image would be blocked anyway), a link opens in a new tab with `rel="noopener noreferrer"`.
+//   the heading outline). External links and images show their destination before opening and can
+//   request a compact preview. Same-origin links stay direct.
 //   Neither variant renders raw HTML (react-markdown's default; there is no rehype-raw).
 //   A message variant given `tagHref` also turns each #hashtag (`remarkHashtags`) into an in-app router link (no `target`, the tag as
 //   plain text inside it) to `tagHref(tag)`; the document variant never does, and without `tagHref` a tag stays text.
@@ -52,6 +54,18 @@ const BASE_PLUGINS = [remarkGfm, remarkGemoji];
 // on a #tag link would drop to <body> on any re-render, such as a live refetch).
 type LinkHrefs = { tag?: (tag: string) => string; thread?: (number: number) => string };
 const LinkHrefsContext = createContext<LinkHrefs>({});
+const MessageSourceContext = createContext<MessageLinkSource | undefined>(undefined);
+const LinkLabelContext = createContext<string | null>(null);
+
+function MessageDestination({ href, title, children }: Pick<ComponentProps<"a">, "href" | "title" | "children">) {
+  const source = useContext(MessageSourceContext);
+  if (!href || !URL.canParse(href, window.location.href)) return <>{children}</>;
+  const destination = new URL(href, window.location.href);
+  if (destination.origin === window.location.origin) {
+    return <RouterLink to={`${destination.pathname}${destination.search}${destination.hash}`} title={title}>{children}</RouterLink>;
+  }
+  return <ExternalMessageLink destination={destination} source={source} title={title}>{children}</ExternalMessageLink>;
+}
 
 function MessageLink({ node: _node, ...props }: WithNode<"a">) {
   const { tag: tagHref, thread: threadHref } = useContext(LinkHrefsContext);
@@ -67,8 +81,20 @@ function MessageLink({ node: _node, ...props }: WithNode<"a">) {
       {props.children}
     </RouterLink>
   ) : (
-    <a {...props} target="_blank" rel="noopener noreferrer" />
+    <MessageDestination href={props.href} title={props.title}>
+      <LinkLabelContext.Provider value={props.href ?? ""}>
+        {typeof props.children === "string" && !props.children.trim() ? props.href : props.children ?? props.href}
+      </LinkLabelContext.Provider>
+    </MessageDestination>
   );
+}
+
+function MessageImage({ src, alt }: WithNode<"img">) {
+  const inLink = useContext(LinkLabelContext);
+  // A linked image contributes its label to the parent destination control. ReactMarkdown has already filtered unsafe sources.
+  if (inLink !== null) return <span>{alt || inLink}</span>;
+  if (typeof src !== "string" || src === "") return <span>{alt}</span>;
+  return <MessageDestination href={src}>{alt || src}</MessageDestination>;
 }
 
 /** One group mention the server listed (`MessageResponse.groupMentions`). */
@@ -137,16 +163,7 @@ const messageComponents: Components = {
   h6: boldParagraph,
   a: MessageLink,
   span: MessageSpan,
-  // react-markdown's default urlTransform already blanks an unsafe `src` (javascript:, data: …);
-  // with nothing to link to, the alt text stays as plain text.
-  img: ({ node: _node, src, alt }: WithNode<"img">) =>
-    typeof src === "string" && src !== "" ? (
-      <a href={src} target="_blank" rel="noopener noreferrer">
-        {alt || src}
-      </a>
-    ) : (
-      <span>{alt}</span>
-    ),
+  img: MessageImage,
 };
 
 export default function MarkdownView({
@@ -156,6 +173,7 @@ export default function MarkdownView({
   threadHref,
   mentions,
   groupMentions,
+  linkSource,
 }: {
   children: string | null | undefined;
   variant?: MarkdownVariant;
@@ -167,6 +185,7 @@ export default function MarkdownView({
   mentions?: readonly { userId: number; name: string }[];
   /** The message variant's group mentions (`MessageResponse.groupMentions`): only a team, `@watchers` or `@everyone` listed here reads as one. */
   groupMentions?: readonly GroupMentionItem[];
+  linkSource?: MessageLinkSource;
 }) {
   const message = variant === "message";
   const known = useKnownNames();
@@ -197,11 +216,13 @@ export default function MarkdownView({
   return (
     <Typography className={message ? classes.message : classes.document}>
       <LinkHrefsContext.Provider value={hrefs}>
-        <MentionsContext.Provider value={context}>
-          <ReactMarkdown remarkPlugins={plugins} components={message ? messageComponents : undefined}>
-            {children}
-          </ReactMarkdown>
-        </MentionsContext.Provider>
+        <MessageSourceContext.Provider value={linkSource}>
+          <MentionsContext.Provider value={context}>
+            <ReactMarkdown remarkPlugins={plugins} components={message ? messageComponents : undefined}>
+              {children}
+            </ReactMarkdown>
+          </MentionsContext.Provider>
+        </MessageSourceContext.Provider>
       </LinkHrefsContext.Provider>
     </Typography>
   );

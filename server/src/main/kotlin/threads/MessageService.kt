@@ -214,6 +214,14 @@ class MessageService internal constructor(
             .toList().singleOrNull()?.get(Messages.authorId)?.value
     }
 
+    /** The current Markdown body of one live message under its room parent, without assembling any response projections. */
+    internal suspend fun bodyOf(roomId: UInt, messageId: UInt): String? = suspendTransaction(database) {
+        val threads = ThreadService.Threads
+        Messages.innerJoin(threads).select(Messages.body)
+            .where { (Messages.id eq messageId) and (threads.roomId eq roomId) and Messages.active() }
+            .toList().singleOrNull()?.get(Messages.body)
+    }
+
     /**
      * Posts to thread [number] in ONE thread write ([withThreadWrite], the MEMBER guard on the re-read caller): an archived room is `409
      * room-archived`, a closed thread `409 thread-closed`, then the message, `message_count + 1` and the activity bump of the thread

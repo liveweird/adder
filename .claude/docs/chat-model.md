@@ -237,6 +237,13 @@ Four groups (D1 and D2 are the architect's recommendations, taken as assumptions
 - Limits: title single line <= 200 (`sanitizeSingleLine`); a message body is Markdown, 1 to 8,000 UTF-16 units after CRLF and a lone CR become LF and the leading blank lines and the trailing whitespace are dropped (the first line's indentation stays, so an indented code block survives), `\n` and `\t` allowed,
   other control characters and the hidden direction and separator characters (U+202A-202E, U+2066-2069, U+2028/2029) a `400` (`sanitizeMultiLine`; titles and TEXT values use `sanitizeSingleLine`, the same hidden-character rule; the zero-width joiner of emoji is fine); stored raw, rendered without HTML.
 
+### Message link previews (1.13.0)
+
+Messages keep their existing Markdown body. The authenticated preview route reads an exact destination from a live message in the room.
+It returns a bounded page title, an optional verified raster, or an unavailable result. Preview work changes no thread or message state.
+Only the reader's Preview action requests this document. The confirmation opens the original address chosen by the reader, even when
+the preview followed an allowed redirect. See `security.md` for the outbound policy.
+
 ### Field values
 
 Checked by the pure kernel `threads/ThreadFields.kt` against the room's field definitions (active and retired) and the active member ids; `null` clears a field.

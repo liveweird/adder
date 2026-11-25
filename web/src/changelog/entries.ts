@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.13.0",
+    date: "2026-11-25",
+    en: `**Adder 1.13.0 — external links and previews**
+
+- Review the destination before opening an external message link or Markdown image. Select **Open link** to open it in a new tab.
+- Select **Preview** to see a page title or a supported image in a compact popover. Already loaded previews can appear on hover in the conversation.`,
+    pl: `**Adder 1.13.0 — linki zewnętrzne i podglądy**
+
+- Sprawdź adres przed otwarciem linku zewnętrznego lub obrazu Markdown w wiadomości. Wybierz **Otwórz link**, aby przejść do nowej karty.
+- Wybierz **Podgląd**, aby zobaczyć tytuł strony lub obsługiwany obraz w małym oknie. Wczytany podgląd możesz ponownie wyświetlić, najeżdżając na link w rozmowie.`,
+  },
+  {
     version: "1.12.0",
     date: "2026-11-25",
     en: `**Adder 1.12.0 — room organizer**

@@ -3,6 +3,16 @@
   "newThread": "New thread",
   "back": "Back to threads",
   "loadFailed": "Could not load the threads",
+  "linkPreview": {
+    "confirm": "Open external link",
+    "leaving": "This destination is outside Adder.",
+    "open": "Open link",
+    "preview": "Preview",
+    "hide": "Hide preview",
+    "loading": "Loading preview…",
+    "unavailable": "A preview is unavailable for this link.",
+    "imageAlt": "Preview of the linked image"
+  },
   "scope": {
     "aria": "Which threads to list",
     "open": "Open",

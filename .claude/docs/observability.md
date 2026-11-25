@@ -328,8 +328,14 @@ design is multi-process-safe (two replicas, a rolling deploy) and kept that way 
 - **Tests:** `CgroupProbeTest`, `JvmProbeTest`, `TelemetryConfigTest`, `TelemetryStoreTest` (insert, rollup, prune boundaries, cascade, the lock),
   `LatencyCollectorTest`, `TelemetrySamplerTest` (the storage collector too), `TelemetryRoutesTest` (the read API), `PoolStatsTest`, `TelemetryRegistryTest` (the sliding window, no JVM gauge sets); the live gauges: `TelemetrySamplerTest` (the readings and the notify collector), `TelemetryWiringTest` (the production wiring), `TelemetryRoutesTest` (the read API).
 
+### Message link previews (1.13.0)
+
+`outbound.blocked` records an outbound-policy refusal with `byUserId`, `roomId`, `messageId`, `stage` (`primary` or `thumbnail`),
+and the number of suppressed repetitions. Events are coalesced per caller and stage. Audit and request logs keep the URL, its query
+string and remote content out of diagnostics. A refused thumbnail can accompany an otherwise available text preview.
+
 ### Not yet ported
 
-Flow's sync-job, data-source, metrics, capacity and outbound-guard audit events (`data_source.*`, `sync_job.*`, `outbound.blocked`, `team.capacity_*`, `public_holiday.*`,
+Flow's sync-job, data-source, metrics and capacity audit events (`data_source.*`, `sync_job.*`, `team.capacity_*`, `public_holiday.*`,
 `crypto.reencrypted`) were dropped with their features. The chat events are added above in the commit that adds the route. Flow's "code-read refusals" paragraph (a row-budget refusal
 that is neither an audit event nor a log line of its own) came with its report features and is not ported.

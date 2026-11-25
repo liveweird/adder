@@ -1820,6 +1820,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/messages/{messageId}/link-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview an external message link
+         * @description A reader of the room may explicitly request a bounded preview for an external URL that is a link, image or autolink in the
+         *     current live message. Merely reading or hovering a message never calls this operation. The message and URL association are
+         *     checked before and after the outbound work, so an edit, deletion or access loss cannot release a stale preview. An unknown,
+         *     deleted or foreign-room message and a non-reader are the same `404`.
+         *
+         *     A syntactically valid link that the guarded fetcher does not support, or an unavailable upstream, returns `200` with
+         *     `kind: UNAVAILABLE`. Invalid input or a URL absent from the current message is `400`. Calls ride a per-user bucket of 20 per
+         *     minute and one preview may be in flight for a caller (`429` beyond either bound). The response is generated on demand and
+         *     carries `Cache-Control: no-store`. The compact request has a 16 KiB transport ceiling (`413` beyond it).
+         */
+        post: operations["previewMessageLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rooms/{id}/pins": {
         parameters: {
             query?: never;
@@ -3532,6 +3564,43 @@ export interface components {
         MessageRequest: {
             /** @description Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays. */
             body: string;
+        };
+        LinkPreviewRequest: {
+            /**
+             * Format: uri
+             * @description The exact external link destination currently present in the live message.
+             */
+            url: string;
+        };
+        /** @enum {string} */
+        LinkPreviewKind: "PAGE" | "IMAGE" | "UNAVAILABLE";
+        LinkPreviewImage: {
+            /** @enum {string} */
+            mediaType: "image/png" | "image/jpeg";
+            /**
+             * Format: byte
+             * @description Base64 of a server-decoded and re-encoded raster, at most 256 KiB before base64 encoding.
+             */
+            data: string;
+            width: number;
+            height: number;
+        };
+        LinkPreviewResponse: {
+            kind: components["schemas"]["LinkPreviewKind"];
+            /**
+             * Format: uri
+             * @description The validated request destination.
+             */
+            url: string;
+            /**
+             * Format: uri
+             * @description The final guarded destination, or `null` when unavailable.
+             */
+            finalUrl: string | null;
+            /** @description Bounded plain page metadata, never remote markup. */
+            title: string | null;
+            /** @description A verified raster preview, or `null` for a text-only or unavailable result. */
+            image: components["schemas"]["LinkPreviewImage"] | null;
         };
         MessagePostRequest: {
             /** @description Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays. */
@@ -6873,6 +6942,42 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    previewMessageLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The preview, or a stable unavailable result */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkPreviewResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };

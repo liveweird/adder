@@ -17,13 +17,6 @@ Entries are proposals, not delivery commitments.
 
 The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status line and in `/backlog`.
 
-## Upcoming work
-
-- [next] **External link confirmation and on-demand previews.** Apply to links in messages and pinned copies, including pasted image links.
-  - Before opening an external link, show its actual destination and offer **Cancel** and **Open link**. Open after confirmation in a new tab with `noopener noreferrer`. Keep in-app links direct and preserve the Markdown URL and content filters.
-  - Show a compact popover with the site title and an optional thumbnail, or a scaled preview for a supported image. Use **Preview** for keyboard, touch and the first load. Cached previews can appear on hover or focus. Keep them out of the message layout, reachable from the trigger, and dismissible with Escape. Show the destination and an unavailable state if a preview cannot load. [W3C hover and focus guidance](https://www.w3.org/WAI/WCAG22/Understanding/content-on-hover-or-focus.html)
-  - Contact the destination only after an explicit preview request. Port Flow's outbound guard for public HTTPS URLs, check any redirects against the same policy, and bound fetch rate, time and size. Serve verified thumbnails and plain text through Adder. Preserve room access checks and keep full URLs out of logs. [OWASP server-side fetch guidance](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html)
-
 ## Chat MVP (0.5–0.6)
 
 - [new] **Messages: the list's `total` counts the whole thread.** `MessageService.list` runs `count(*)` over `idx_messages_thread` for every page and every live re-read of an open thread (index-only, linear in the thread: about 5 ms at 150,000 messages, unbucketed and outside any deadline; 1.2 branch audit). Bound it like the hashtag probe (the 1.2 fix) by dropping the exact count for the keyset read (`id[lt]` needs only "older exist", a `limit + 1` probe) or by answering `threads.message_count` for the unfiltered page; both change the `total` the SPA reads, so it needs a decision first. The timeline also runs the quote read on each page. Manually loaded older pages are re-read on live hints. Measure whether to cap those pages or share a bounded read pool. The 1.10.0 context endpoint is already bounded.
