@@ -15,6 +15,7 @@
 }
 
 .surface {
+  container: reply-composer / inline-size;
   padding: 0.625rem;
   border: 1px solid var(--mantine-color-default-border);
   border-radius: var(--mantine-radius-md);
@@ -45,8 +46,10 @@
 
 .footerNote {
   display: flex;
+  flex: 1 1 0;
   flex-wrap: wrap;
   gap: 0.125rem 0.75rem;
+  min-width: 3rem;
 }
 
 .count {
@@ -56,6 +59,18 @@
 .send {
   flex: none;
   min-width: 5.5rem;
+}
+
+@container reply-composer (max-width: 34rem) {
+  .hint {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 @media (max-width: 32rem) {

@@ -8,7 +8,7 @@
 // takes tags from its owner only. It also owns a throwaway `e2e-tags-*` room and two more users (rooms are removed first, then the users); the
 // room copies the seeded Default template and its threads are never deleted (a room's removal hides them).
 import type { APIRequestContext, Page } from "@playwright/test";
-import { apiAsAdmin, apiAsUser, createUserViaUi, deleteViaApi, expect, login, signOut, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, apiAsUser, createUserViaUi, deleteViaApi, expect, login, signOut, specAdmins, test, threadList, threadListRow, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-tags-admin");
@@ -213,7 +213,7 @@ test("a member tags a thread, the list filter finds it and the API refuses an un
     expect(saved.status()).toBe(204);
     await expect(section.getByText(scene.tagA, { exact: true })).toBeVisible();
     await expect(page.getByRole("group", { name: "Tags", exact: true }).first().getByText(scene.tagA, { exact: true })).toBeVisible();
-    const row = threadList(page).getByRole("link", { name: new RegExp(scene.title) });
+    const row = threadListRow(page, scene.title);
     await expect(row.getByText(scene.tagA, { exact: true })).toBeVisible();
     await expect(page.getByRole("group", { name: "History", exact: true }).getByText(`Added: ${scene.tagA}`)).toBeVisible();
 

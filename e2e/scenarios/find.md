@@ -54,7 +54,7 @@ The data of each scenario is seeded through the API (threads, replies, status mo
 1. The administrator mints an owner; the owner makes a Default room through the API and seeds two threads: Release (its opening message carries a
    hashtag typed in capitals) and Lunch (none).
 2. The owner opens the room.
-   - *Expected*: Release's row shows the hashtag in dimmed text, lower case (the stored key), and holds no link of its own; Lunch's row shows none.
+   - *Expected*: Release's row shows the lower-case hashtag as text and links to the owner's profile. Lunch's row has no hashtags.
 3. The owner opens Release and looks at the thread header.
    - *Expected*: a "Hashtags" group under the title holds a link named after the hashtag.
 4. The owner replies with a second hashtag.

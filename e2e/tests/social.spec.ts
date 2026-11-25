@@ -13,7 +13,7 @@
 // The per-user `live-ticket`, `chat-post`, `chat-write` and `read-state` buckets are only ever spent by throwaway users, far below their limits.
 import { chromium, type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, rail, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, rail, specAdmins, test, threadList, threadListRow, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-social-admin");
@@ -706,7 +706,7 @@ test("a pinned message is marked in the conversation and listed in the thread's 
   await author.page.getByRole("button", { name: "Pin this thread", exact: true }).click();
   await expect(header.locator("[data-pin-mark]")).toHaveText("Pinned");
   const row = threadLink(reader.page, title);
-  await expect(row.locator("[data-pin-mark]")).toBeVisible();
+  await expect(threadListRow(reader.page, title).locator("[data-pin-mark]")).toBeVisible();
   await expect(row).toHaveAccessibleDescription(/Pinned/);
 
   // The reader unpins one from the strip: its mark goes at once in both pages and the focus lands on the strip's button; the last unpin takes the strip
