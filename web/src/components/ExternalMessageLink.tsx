@@ -38,7 +38,6 @@ function LinkOverlay({ destination, source, children, title, identity }: Props &
   const [portalTarget, setPortalTarget] = useState<HTMLElement>();
   const overlayId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
-  const cancelButton = useRef<HTMLButtonElement>(null);
   const restoringFocus = useRef(false);
   const closeTimer = useRef<number | undefined>(undefined);
   const href = destination.href;
@@ -127,11 +126,11 @@ function LinkOverlay({ destination, source, children, title, identity }: Props &
       middlewares={{ size: true }}
       preventPositionChangeWhenVisible={false}
       trapFocus={confirmation}
+      hideDetached={!confirmation}
       closeOnEscape={false}
       withRoles={false}
       portalProps={{ target: portalTarget }}
       floatingStrategy={portalTarget ? "fixed" : "absolute"}
-      onEnterTransitionEnd={() => cancelButton.current?.focus({ preventScroll: true })}
     >
       <Popover.Target>
         <button
@@ -191,7 +190,7 @@ function LinkOverlay({ destination, source, children, title, identity }: Props &
                     {t(available ? "threads.linkPreview.hide" : "threads.linkPreview.preview")}
                   </Button>
                 )}
-                <Button ref={cancelButton} data-autofocus data-mantine-stop-propagation="true" size="compact-sm" variant="default" onClick={() => close(true)}>
+                <Button data-autofocus data-mantine-stop-propagation="true" size="compact-sm" variant="default" onClick={() => close(true)}>
                   {t("common.action.cancel")}
                 </Button>
                 <Button

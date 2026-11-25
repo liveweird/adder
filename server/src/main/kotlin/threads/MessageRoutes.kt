@@ -106,7 +106,6 @@ private fun Route.messageLinkPreview(service: MessageLinkPreviewService) {
                 request = call.receive(),
                 fetcher = call.application.attributes[PreviewFetcherKey],
             )
-            call.response.header(HttpHeaders.CacheControl, "no-store")
             call.respond(HttpStatusCode.OK, response)
         }
     }
