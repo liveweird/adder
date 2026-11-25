@@ -815,8 +815,8 @@ default `adder`/`adder`; the value is word-split on purpose):
   temp file first, so a failed `pg_restore` never reaches the database). A future migration that creates another schema or an
   extension needs no change here: the drop is by catalog, not by name. Stop the app first (compose `docker compose stop app`; k8s
   scale to 0). To restore beside the data instead, make a scratch database (`ADDER_DB_NAME=adder_restored` after `createdb`) and compare.
-- **Not in the dump:** `DATA_ENCRYPTION_KEY` and `JWT_SECRET` (the Secret / compose env). An encrypted column is unreadable without
-  its key (no column is encrypted yet, `security.md`); keep the key apart from the dump. A restored database keeps its users'
+- **Keys and application secrets** are stored separately from the dump. Keep `DATA_ENCRYPTION_KEY`, `JWT_SECRET`, and the previous
+  encryption key when applicable. A restore needs the encryption keys covering the dump's browser push endpoints (`security.md`). A restored database keeps its users'
   password hashes and `credential_revision`s, so every outstanding token stays valid or not as the live system decided. In-memory state (lockouts, MFA codes, refresh rotations) starts empty.
 - **A dump restores into the same or a newer app version** (Flyway migrates forward on boot). An OLDER app against a newer database is
   not refused by Flyway (its default ignores `*:future` migrations; the config is unchanged), so never roll the app back past the

@@ -31,7 +31,7 @@ ktor:
       # — infrastructure
       - ch.nokillswit.infra.mail.MailKt.configureMail
       # Crypto before Database: the composition root hands the FieldCipher to any service
-      # owning encrypted columns (none yet - the cipher is published for the first one).
+      # owning encrypted columns, including browser push subscriptions.
       - ch.nokillswit.infra.crypto.CryptoKt.configureCrypto
       - ch.nokillswit.infra.db.FlywayKt.configureFlyway
       - ch.nokillswit.infra.db.DatabaseKt.configureDatabase
@@ -156,14 +156,14 @@ security:
     maxAttempts: "$MFA_MAX_ATTEMPTS:5"
     maxTracked: "$MFA_MAX_TRACKED:10000"
   # Application-level encryption at rest (infra/crypto/): an AES-256-GCM key (64 hex chars,
-  # `openssl rand -hex 32`) for credentials a future feature stores (nothing is encrypted at rest yet). The
+  # `openssl rand -hex 32`) for browser push endpoints. The
   # default is a committed dev-only key (infra/crypto/Crypto.kt — it is on the burned list,
   # so production startup refuses it).
   # LOSING THIS KEY MEANS LOSING EVERY STORED ENCRYPTED VALUE — back it up apart from the DB.
   encryption:
     key: "$DATA_ENCRYPTION_KEY:ef9b766b3b3dc805220826e796b1b907d7b7fb55048940e1b730af61b7f17aa4"
-    # Decrypt-only fallback for key rotation: set the OLD key here and the new one above while
-    # re-encrypting stored values, then remove it.
+    # Decrypt-only fallback for key rotation. Keep the OLD key here until subscriptions using
+    # it have been re-registered, removed, or expired. See .claude/docs/security.md.
     previousKey: "$DATA_ENCRYPTION_KEY_PREVIOUS:"
   csrf:
     # TEMPLATE PLACEHOLDER — CSRF protection is off by default because this API
