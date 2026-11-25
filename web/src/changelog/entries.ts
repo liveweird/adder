@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.15.0",
+    date: "2026-11-25",
+    en: `**Adder 1.15.0 — return to a quoting reply**
+
+- After opening a quoted message, select **Back to reply** to return to the reply that contained it. Adder scrolls to the reply and focuses it.
+- **Back to latest** remains available when you want to resume at the end of the thread.`,
+    pl: `**Adder 1.15.0 — powrót do odpowiedzi z cytatem**
+
+- Po otwarciu cytowanej wiadomości wybierz **Wróć do odpowiedzi**, aby wrócić do odpowiedzi z cytatem. Adder przewinie rozmowę do tej odpowiedzi i przeniesie na nią fokus.
+- Wybierz **Wróć do najnowszych**, aby przejść na koniec wątku.`,
+  },
+  {
     version: "1.14.0",
     date: "2026-11-25",
     en: `**Adder 1.14.0 — room membership notifications**

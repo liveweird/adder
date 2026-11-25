@@ -23,6 +23,7 @@ describe("MessageList: direct message context", () => {
   const messages = () => paths().filter((url) => url.includes("/threads/42/messages"));
   const readMarkers = () => paths().filter((url) => url.endsWith("/threads/42/read-marker"));
   const showLatest = vi.fn();
+  const showReply = vi.fn();
   const onScrolled = vi.fn();
   const ui = (anchorId: number | null, jumpSeq = 0, scrollToId: number | null = null) => (
     <MessageList
@@ -46,6 +47,7 @@ describe("MessageList: direct message context", () => {
 
   beforeEach(() => {
     showLatest.mockClear();
+    showReply.mockClear();
     onScrolled.mockClear();
     mockFetch = vi.fn();
     vi.stubGlobal("fetch", mockFetch);
@@ -136,6 +138,26 @@ describe("MessageList: direct message context", () => {
     expect(await screen.findByText("The newest reply")).toBeInTheDocument();
     expect(screen.getByRole("region", conversation)).toHaveFocus();
     expect(showLatest).toHaveBeenCalledOnce();
+  });
+
+  test("a quote jump offers a compact path back to the exact reply", async () => {
+    serve(() => context(20));
+    renderWithProviders(
+      <MessageList
+        room={makeRoom()}
+        thread={makeThread()}
+        scrollToId={null}
+        onScrolled={onScrolled}
+        anchorId={20}
+        returnMessageId={22}
+        onReturnToReply={showReply}
+        onReturnToLatest={showLatest}
+      />,
+    );
+    await waitFor(() => expect(item(20)).toHaveFocus());
+    await userEvent.setup().click(screen.getByRole("button", { name: "Back to reply" }));
+    expect(showReply).toHaveBeenCalledOnce();
+    expect(showLatest).not.toHaveBeenCalled();
   });
 
   test("the end of historical context leaves newer messages unread", async () => {

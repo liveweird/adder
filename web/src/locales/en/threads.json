@@ -140,6 +140,7 @@
     "navigation": "Message context",
     "earlier": "Earlier messages",
     "later": "Later messages",
+    "reply": "Back to reply",
     "latest": "Back to latest",
     "found": "Found the message by {{author}}."
   },

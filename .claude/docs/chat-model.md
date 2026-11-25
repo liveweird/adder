@@ -763,5 +763,6 @@ Leaving a room revokes the reader's access on the next request. Archived rooms a
   indicating further context. A deleted anchor returns its tombstone. A missing or foreign anchor returns the same message `404`.
   The context uses bounded reads on the existing thread/message index, with no whole-thread count. The older-page list contract is independent.
 - **Navigation.** Any message link can open directly, including links from quotes, pins, notifications, and the global, room and thread searches.
-  In the conversation, Earlier and Later open the next overlapping window. Back to latest clears the anchor and resumes ordinary reading.
+  In the conversation, Earlier and Later open the next overlapping window. Following a quote in the app also offers Back to reply, which restores
+  and focuses the exact reply that contained it. A reload of that history entry keeps the action. Copied links and modified clicks open without it. Back to latest clears the anchor and resumes ordinary reading.
   A window can follow and acknowledge replies once the reader reaches the actual end of the thread.

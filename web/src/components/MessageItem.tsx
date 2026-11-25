@@ -201,7 +201,9 @@ export default function MessageItem({
               </Group>
             )}
           </Group>
-          {message.quote && !message.deleted && <MessageQuote roomId={roomId} threadNumber={message.threadNumber} quote={message.quote} onShow={onShowQuoted} />}
+          {message.quote && !message.deleted && (
+            <MessageQuote roomId={roomId} threadNumber={message.threadNumber} sourceMessageId={message.id} quote={message.quote} onShow={onShowQuoted} />
+          )}
           <Box className={classes.body}>
             {message.deleted ? (
               <Text size="sm" c="dimmed" fs="italic">

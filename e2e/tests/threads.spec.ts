@@ -326,12 +326,19 @@ test("a member quotes a message in a reply, the quote leads back to it, and a de
   await expect(page.locator("p", { hasText: "Quoting " })).toHaveCount(0);
   await expect(box).toBeFocused();
 
-  // A click on the quote leads back to the quoted message: in the address, focused, highlighted and announced.
+  // A click on the quote leads back to the quoted message: in the address, focused, highlighted and announced. The compact return action
+  // restores the reply that held the quote and then disappears, while Back to latest remains available separately.
   await block.click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/1\\?.*message=${openerId}`));
   await expect(opener).toBeFocused();
   await expect(opener).toHaveAttribute("data-anchor", "true");
   await expect(page.getByText(`Found the message by ${owner.name}.`)).toBeAttached();
+  await page.reload();
+  await expect(opener).toBeFocused();
+  await page.getByRole("button", { name: "Back to reply" }).click();
+  await expect(answer).toBeFocused();
+  expect(new URL(page.url()).searchParams.get("message")).not.toBe(String(openerId));
+  await expect(page.getByRole("button", { name: "Back to reply" })).toHaveCount(0);
 
   // The quote shows the quoted message as it reads NOW: an edit by its author is marked in words and shows the new text; a delete says so and
   // shows no text, and the quote stays a link to the tombstone.
@@ -356,6 +363,8 @@ test("a member quotes a message in a reply, the quote leads back to it, and a de
     await deleted.click();
     await expect(opener).toBeFocused();
     await expect(opener).toContainText("This message was deleted.");
+    await page.getByRole("button", { name: "Back to reply" }).click();
+    await expect(messageNamed(page, "Yes, caught up.")).toBeFocused();
   } finally {
     await ownerApi.dispose();
   }
