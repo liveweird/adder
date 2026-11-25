@@ -45,7 +45,12 @@ data class RoomMembersAddResponse(val added: Int, val alreadyMembers: Int)
 data class RoomMemberRoleRequest(val role: RoomRole)
 
 /** What the add wrote: [addedUserIds] in order, and which of them came ONLY through the team ([viaTeamUserIds]) for the audit line. */
-data class RoomMembersAddOutcome(val addedUserIds: List<UInt>, val viaTeamUserIds: Set<UInt>, val alreadyMembers: Int)
+data class RoomMembersAddOutcome(
+    val addedUserIds: List<UInt>,
+    val viaTeamUserIds: Set<UInt>,
+    val alreadyMembers: Int,
+    val noticesCreated: Int,
+)
 
 /** The rules of the add body - enforced by the route AND re-checked by the service. */
 fun validateRoomMembersAdd(request: RoomMembersAddRequest) {

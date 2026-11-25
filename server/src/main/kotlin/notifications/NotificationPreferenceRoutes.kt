@@ -55,8 +55,9 @@ fun Application.configureNotificationPreferenceRoutes() {
                     requireSelfOrAdmin(caller, route.id)
                     val request = call.receive<NotificationPreferencesUpdateRequest>()
                     // Validated here (a 400 wins over the target's 404) and again by the service, which takes the raw lists.
-                    val wanted = validateNotificationPreferences(request.disabled, request.enabled).deviations()
-                    val before = preferences.replace(route.id, request.disabled, request.enabled).orNotFound("User").deviations
+                    val wanted = validateNotificationPreferences(request.disabled, request.enabled, request.roomMembership).deviations()
+                    val before = preferences.replace(route.id, request.disabled, request.enabled, request.roomMembership)
+                        .orNotFound("User").deviations
                     if (before != wanted) {
                         audit(
                             "user.notification_preferences_changed",

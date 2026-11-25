@@ -9,6 +9,7 @@
   "unseen_one": "{{count}} unseen",
   "unseen_other": "{{count}} unseen",
   "inRoom": "{{room}} · {{when}}",
+  "openRoom": "Open room",
   "toast": {
     "preferencesSaved": "Notification preferences saved"
   },
@@ -37,6 +38,7 @@
       "EVERYONE_MENTIONED": "Someone mentions everyone in a room I am in",
       "THREAD_REPLIED": "A reply in a thread I watch",
       "THREAD_CREATED": "A new thread in a room I am in",
+      "ROOM_ADDED": "Someone adds me to a room",
       "THREAD_ASSIGNED": "Someone makes me the owner of a thread",
       "THREAD_OWNER_CHANGED": "The owner of a thread I watch changes",
       "THREAD_STATUS_CHANGED": "A thread I watch moves to another status",
@@ -44,7 +46,7 @@
       "THREAD_REOPENED": "A thread I watch is reopened"
     },
     "emailOff": "Email is off on this server, so no notification emails are sent. Your choices are kept.",
-    "emailHint": "Email is off by default. An email follows only for a notification you have not seen after a few minutes, as one message listing who, the room and the thread number.",
+    "emailHint": "Email is off by default. An email follows only for a notification you have not seen after a few minutes, as one message listing who and where it happened.",
     "saveFailedStatus": "Saving the choices failed ({{status}})",
     "saveFailedNetwork": "Saving the choices failed. Check your connection and try again."
   },
@@ -60,7 +62,8 @@
     "THREAD_OWNER_CHANGED": "{{actor}} changed the owner of #{{number}} {{title}}",
     "THREAD_STATUS_CHANGED": "{{actor}} moved #{{number}} {{title}} to another status",
     "THREAD_CLOSED": "{{actor}} closed #{{number}} {{title}}",
-    "THREAD_REOPENED": "{{actor}} reopened #{{number}} {{title}}"
+    "THREAD_REOPENED": "{{actor}} reopened #{{number}} {{title}}",
+    "ROOM_ADDED": "{{actor}} added you to the room"
   },
   "emptyMentions": "You have no mentions.",
   "view": {

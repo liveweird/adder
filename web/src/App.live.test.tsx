@@ -27,7 +27,7 @@ const calls: string[] = [];
 function api(url: string, init?: RequestInit): Promise<Response> {
   calls.push(`${init?.method ?? "GET"} ${url}`);
   if (url === "/api/v1/live/tickets") return Promise.resolve(jsonResponse(200, { ticket: "t".repeat(43), expiresAt: Date.now() + 30_000 }));
-  if (url.startsWith("/api/v1/notifications?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: unseenTotal }));
+  if (url.startsWith("/api/v1/notifications/feed?") || url.startsWith("/api/v1/notifications?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: unseenTotal }));
   if (url.startsWith("/api/v1/rooms?")) return Promise.resolve(jsonResponse(200, RAIL));
   if (url === "/api/v1/rooms/12") return Promise.resolve(roomStatus === 200 ? jsonResponse(200, ROOM_12) : jsonResponse(roomStatus, { title: "Not found", status: roomStatus }));
   if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));

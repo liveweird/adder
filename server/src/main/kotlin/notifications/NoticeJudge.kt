@@ -44,14 +44,22 @@ internal class NoticeJudge(
      * [emailReachable] is false when email cannot be the reason (the row was already mailed or settled).
      */
     fun judge(notice: Notice, preferences: Map<UInt, EffectivePreferences>, emailReachable: Boolean = true): Delivery? {
-        val person = preferences[notice.userId] ?: EffectivePreferences.DEFAULTS
         for (reason in notice.allReasons()) {
-            val type = reason.toNotificationType()
-            val inApp = person.on(type, NotificationChannel.IN_APP)
-            val email = mailAvailable && emailReachable && person.on(type, NotificationChannel.EMAIL)
-            if (inApp || email) return Delivery(notice.userId, type, inApp, email)
+            judge(notice.userId, reason.toNotificationType(), preferences, emailReachable)?.let { return it }
         }
         return null
+    }
+
+    fun judge(
+        userId: UInt,
+        type: NotificationType,
+        preferences: Map<UInt, EffectivePreferences>,
+        emailReachable: Boolean = true,
+    ): Delivery? {
+        val person = preferences[userId] ?: EffectivePreferences.DEFAULTS
+        val inApp = person.on(type, NotificationChannel.IN_APP)
+        val email = mailAvailable && emailReachable && person.on(type, NotificationChannel.EMAIL)
+        return if (inApp || email) Delivery(userId, type, inApp, email) else null
     }
 
     /** What [relabel] decided: the people whose row goes, and the people whose bell changes (a hint for them). */

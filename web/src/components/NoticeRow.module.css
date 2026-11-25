@@ -28,6 +28,11 @@
   outline-offset: -2px;
 }
 
+.roomAction {
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
 /* The sentence and the room line: the name links lift above the stretched link. */
 .row a:not(.open) {
   position: relative;

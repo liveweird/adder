@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ActionIcon, Box, Button, Drawer, Group, SegmentedControl, Stack } from "@mantine/core";
 import { IconBell, IconBellOff, IconChecks } from "@tabler/icons-react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ADDRESSED_TYPES, listNotifications, markAllNotificationsSeen, markNotificationSeen, NOTIFICATION_TOTAL_CAP, type NotificationItem } from "../api/notifications";
+import { ADDRESSED_TYPES, listNotificationFeed, listNotifications, markAllNotificationsSeen, markNotificationSeen, NOTIFICATION_TOTAL_CAP, type NotificationFeedItem } from "../api/notifications";
 import { getToken } from "../api/session";
 import { useCloseOnPageChange } from "../hooks/useCloseOnPageChange";
 import { useUnseenNotifications } from "../hooks/useUnseenNotifications";
@@ -52,7 +52,10 @@ export default function NotificationsButton() {
 
   const listQuery = useQuery({
     queryKey: notificationKeys.list(page, view),
-    queryFn: () => listNotifications({ page, pageSize: PAGE_SIZE, type: view === "mentions" ? ADDRESSED_TYPES : undefined }),
+    queryFn: () =>
+      view === "mentions"
+        ? listNotifications({ page, pageSize: PAGE_SIZE, type: ADDRESSED_TYPES })
+        : listNotificationFeed({ page, pageSize: PAGE_SIZE }),
     enabled: drawerOpen,
     placeholderData: keepPreviousData,
   });
@@ -75,7 +78,7 @@ export default function NotificationsButton() {
     },
   });
 
-  function open(n: NotificationItem, event: MouseEvent<HTMLAnchorElement>) {
+  function open(n: NotificationFeedItem, event: MouseEvent<HTMLAnchorElement>) {
     // Acting on it is "seen"; the navigation does not wait for the write, and a failed write re-reads what the server holds.
     if (!n.seen) markSeen.mutate(n.id);
     // Ctrl/Cmd/Shift/Alt-click opens a new tab or window (the router leaves it to the browser): the drawer and the focus stay where they are.

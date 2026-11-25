@@ -31,7 +31,7 @@ data class RoomJoinRequestListResult(val items: List<RoomJoinRequestResponse>, v
 @Serializable
 data class RoomJoinDecisionRequest(val decision: RoomJoinDecision)
 
-data class RoomJoinDecisionOutcome(val decision: RoomJoinDecision, val userId: UInt)
+data class RoomJoinDecisionOutcome(val decision: RoomJoinDecision, val userId: UInt, val noticesCreated: Int = 0)
 
 /** V36's owner-reviewed enrollment record. A direct invitation or approval removes it. */
 internal object RoomJoinRequests : UIntIdTable("room_join_requests") {

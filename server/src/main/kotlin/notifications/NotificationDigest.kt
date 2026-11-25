@@ -92,7 +92,7 @@ internal data class ClaimedNotice(
     val id: UInt,
     val recipientId: UInt,
     val roomId: UInt,
-    val threadId: UInt,
+    val threadId: UInt?,
     val messageId: UInt?,
     val type: NotificationType,
     val actorId: UInt,
@@ -289,7 +289,7 @@ internal class NotificationDigest(
                     id = row.get(0, Int::class.javaObjectType)!!.toUInt(),
                     recipientId = row.get(1, Long::class.javaObjectType)!!.toUInt(),
                     roomId = row.get(2, Int::class.javaObjectType)!!.toUInt(),
-                    threadId = row.get(3, Int::class.javaObjectType)!!.toUInt(),
+                    threadId = row.get(3, Int::class.javaObjectType)?.toUInt(),
                     messageId = row.get(4, Int::class.javaObjectType)?.toUInt(),
                     type = it,
                     actorId = row.get(6, Long::class.javaObjectType)!!.toUInt(),
@@ -320,17 +320,17 @@ internal class NotificationDigest(
             it.id in pending && it.roomId in roomNames && switches.on(it.type, NotificationChannel.EMAIL)
         }
         val threads = ThreadService.Threads
-        val numbers = kept.map { it.threadId }.distinct().chunked(RECHECK_CHUNK).flatMap { chunk ->
+        val numbers = kept.mapNotNull { it.threadId }.distinct().chunked(RECHECK_CHUNK).flatMap { chunk ->
             threads.select(threads.id, threads.number).where { threads.id inList chunk }
                 .map { it[threads.id].value to it[threads.number] }.toList()
         }.toMap()
-        val survivors = kept.filter { it.threadId in numbers }.sortedBy { it.rank }
+        val survivors = kept.filter { it.threadId == null || it.threadId in numbers }.sortedBy { it.rank }
         if (survivors.isEmpty()) return@suspendTransaction null
         val listed = survivors.take(DIGEST_MAX_NOTICES_PER_RECIPIENT)
         val actors = userNames(listed.map { it.actorId })
         val entries = listed.map {
             DigestEntry(it.type, actors[it.actorId].orEmpty(), it.roomId, roomNames.getValue(it.roomId),
-                numbers.getValue(it.threadId), it.messageId)
+                it.threadId?.let(numbers::getValue), it.messageId)
         }
         val email = notificationEmail(user[users.name], entries, appUrl, user[users.language], survivors.size - listed.size)
         Mail(user[users.email], email.subject, email.body, survivors.size)

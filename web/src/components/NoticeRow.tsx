@@ -3,7 +3,7 @@ import { Link as RouterLink } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Anchor, Box, Group, Stack, Text } from "@mantine/core";
 import type { TFunction } from "i18next";
-import type { NotificationItem } from "../api/notifications";
+import type { NotificationFeedItem } from "../api/notifications";
 import { formatDateTime } from "../utils/formatDate";
 import { noticeLinkOf } from "../utils/noticeLinks";
 import { focusThreadPaneState } from "../utils/roomLinks";
@@ -27,10 +27,11 @@ const KNOWN_KINDS: readonly string[] = [
   "THREAD_STATUS_CHANGED",
   "THREAD_CLOSED",
   "THREAD_REOPENED",
-] satisfies NotificationItem["type"][];
+  "ROOM_ADDED",
+] satisfies NotificationFeedItem["type"][];
 
 /** One sentence per notice from ids' current names and the thread's title, text only (`escapeValue` is off because React escapes); `actor` is what stands for the actor's name. */
-function describe(n: NotificationItem, t: TFunction, actor: string): string {
+function describe(n: NotificationFeedItem, t: TFunction, actor: string): string {
   if (!KNOWN_KINDS.includes(n.type)) return n.type;
   return t(`notifications.event.${n.type}`, { actor, number: n.threadNumber, title: n.threadTitle });
 }
@@ -43,11 +44,13 @@ function describe(n: NotificationItem, t: TFunction, actor: string): string {
  * as text and once as the notice's link. The actor is cut out of the sentence at its marker (`slot`): whatever a language puts before the name stays
  * text, whatever follows is the notice link's text.
  */
-export default function NoticeRow({ n, zone, onOpen }: { n: NotificationItem; zone: string; onOpen: (n: NotificationItem, event: MouseEvent<HTMLAnchorElement>) => void }) {
+export default function NoticeRow({ n, zone, onOpen }: { n: NotificationFeedItem; zone: string; onOpen: (n: NotificationFeedItem, event: MouseEvent<HTMLAnchorElement>) => void }) {
   const { t } = useTranslation();
   const when = formatDateTime(n.createdAt, zone);
+  const roomNotice = n.type === "ROOM_ADDED";
   // The notice link is named for the unseen word and the sentence; the room and the time follow as the room link and the row's text.
   const name = [n.seen ? null : t("notifications.unseenRow"), describe(n, t, n.actorName)].filter(Boolean).join(" ");
+  const openName = roomNotice ? `${name}. ${t("notifications.openRoom")}` : name;
   const marker = slot("actor");
   const sentence = describe(n, t, marker);
   const at = sentence.indexOf(marker);
@@ -69,19 +72,22 @@ export default function NoticeRow({ n, zone, onOpen }: { n: NotificationItem; zo
               component={RouterLink}
               to={noticeLinkOf(n)}
               // A thread-level notice lands on the thread's pane, which then takes focus (as a list row and a pin do); a message jump focuses the message itself.
-              state={n.messageId === null ? focusThreadPaneState : undefined}
+              state={n.threadNumber !== null && n.messageId === null ? focusThreadPaneState : undefined}
               onClick={(event: MouseEvent<HTMLAnchorElement>) => onOpen(n, event)}
-              aria-label={name}
+              aria-label={openName}
               className={classes.open}
               underline="never"
               inherit
               c="inherit"
             >
               {after}
+              {roomNotice && <> · <span className={classes.roomAction}>{t("notifications.openRoom")}</span></>}
             </Anchor>
           </Text>
           <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
-            {fillSlots(t("notifications.inRoom", { room: slot("room"), when }), { room: <RoomLink id={n.roomId} name={n.roomName} inherit /> })}
+            {fillSlots(t("notifications.inRoom", { room: slot("room"), when }), {
+              room: roomNotice ? <span>{n.roomName}</span> : <RoomLink id={n.roomId} name={n.roomName} inherit />,
+            })}
           </Text>
         </Stack>
       </Group>

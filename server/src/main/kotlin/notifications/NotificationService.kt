@@ -78,7 +78,7 @@ internal class NotificationService(
         val roomId = uinteger("room_id")
         val type = varchar("notification_type", length = 40)
         val actorId = uinteger("actor_id")
-        val threadId = uinteger("thread_id")
+        val threadId = uinteger("thread_id").nullable()
 
         /** Null for a hand-over of a thread (a thread-level notice). */
         val messageId = uinteger("message_id").nullable()
@@ -105,11 +105,16 @@ internal class NotificationService(
      * (`in_app`, V27). The caller's active rooms come first as one array argument (the global search's shape), and no rooms is an
      * empty page.
      */
-    suspend fun list(callerUserId: UInt, seen: Boolean?, types: Set<NotificationType>, paging: PageRequest): NotificationListResult =
+    suspend fun list(callerUserId: UInt, seen: Boolean?, types: Set<NotificationType>, paging: PageRequest): NotificationListResult {
+        val result = feed(callerUserId, seen, types.ifEmpty { THREAD_NOTIFICATION_TYPES }, paging)
+        return NotificationListResult(result.items.map { it.asThreadNotice() }, result.total)
+    }
+
+    suspend fun feed(callerUserId: UInt, seen: Boolean?, types: Set<NotificationType>, paging: PageRequest): NotificationFeedResult =
         readLimiter.run(database, callerUserId, null, "notifications") { budget ->
             budget.arm(this)
             val memberRooms = rooms.memberRooms(callerUserId)
-            if (memberRooms.isEmpty()) return@run NotificationListResult(emptyList(), 0)
+            if (memberRooms.isEmpty()) return@run NotificationFeedResult(emptyList(), 0)
             val n = Notifications
             var predicate: Op<Boolean> = (n.recipientId eq callerUserId) and
                 n.roomId.equalsAnyInt(memberRooms.map { it.id.toInt() }) and
@@ -122,24 +127,25 @@ internal class NotificationService(
             val total = counted.coerceAtMost(MAX_COUNTED_NOTICES.toLong())
             // Nothing counted, or a page that starts at or past the cap (nothing the capped count admits): the page statement never runs.
             if (counted == 0L || (paging.page - 1).toLong() * paging.pageSize >= MAX_COUNTED_NOTICES) {
-                return@run NotificationListResult(emptyList(), total)
+                return@run NotificationFeedResult(emptyList(), total)
             }
             budget.arm(this)
             val rows = n.selectAll().where { predicate }.applyPaging(paging, SORTABLE_COLUMNS).toList()
-            if (rows.isEmpty()) return@run NotificationListResult(emptyList(), total)
+            if (rows.isEmpty()) return@run NotificationFeedResult(emptyList(), total)
             budget.arm(this)
 
             val threads = ThreadService.Threads
-            val threadRows = threads.select(threads.id, threads.number, threads.title)
-                .where { threads.id inList rows.map { it[n.threadId] }.toSet() }
+            val threadIds = rows.mapNotNull { it[n.threadId] }.toSet()
+            val threadRows = if (threadIds.isEmpty()) emptyMap() else threads.select(threads.id, threads.number, threads.title)
+                .where { threads.id inList threadIds }
                 .map { it[threads.id].value to (it[threads.number] to it[threads.title]) }.toList().toMap()
             budget.arm(this)
             val actors = userNames(rows.map { it[n.actorId] })
             val roomById = memberRooms.associateBy { it.id }
-            NotificationListResult(
+            NotificationFeedResult(
                 rows.map { row ->
-                    val (number, title) = threadRows.getValue(row[n.threadId])
-                    NotificationResponse(
+                    val thread = row[n.threadId]?.let(threadRows::getValue)
+                    NotificationFeedItem(
                         id = row[n.id].value,
                         type = NotificationType.valueOf(row[n.type]),
                         seen = row[n.seenAt] != null,
@@ -148,8 +154,8 @@ internal class NotificationService(
                         actorName = actors.getValue(row[n.actorId]),
                         roomId = row[n.roomId],
                         roomName = roomById.getValue(row[n.roomId]).name,
-                        threadNumber = number,
-                        threadTitle = title,
+                        threadNumber = thread?.first,
+                        threadTitle = thread?.second,
                         messageId = row[n.messageId],
                     )
                 },

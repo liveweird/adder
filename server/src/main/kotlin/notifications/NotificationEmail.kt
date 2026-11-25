@@ -17,7 +17,7 @@ internal data class DigestEntry(
     val actorName: String,
     val roomId: UInt,
     val roomName: String,
-    val threadNumber: Int,
+    val threadNumber: Int?,
     val messageId: UInt?,
 )
 
@@ -79,6 +79,10 @@ private fun entryText(type: NotificationType): LocalizedText = when (type) {
     NotificationType.THREAD_REOPENED -> LocalizedText(
         en = "%s reopened #%d (%s)",
         pl = "%s ponownie otwiera wątek #%d (%s)",
+    )
+    NotificationType.ROOM_ADDED -> LocalizedText(
+        en = "%s added you to %s",
+        pl = "%s dodaje Cię do pokoju %s",
     )
 }
 
@@ -201,11 +205,16 @@ internal fun notificationEmail(
         appendLine(INTRO.of(language))
         appendLine()
         for (entry in entries.take(DIGEST_MAX_ENTRIES)) {
-            val text = fmt(entryText(entry.type).of(language), mailSafe(entry.actorName), entry.threadNumber, mailSafe(entry.roomName))
+            val pattern = entryText(entry.type).of(language)
+            val actor = mailSafe(entry.actorName)
+            val room = mailSafe(entry.roomName)
+            val number = entry.threadNumber
+            val text = if (number == null) fmt(pattern, actor, room) else fmt(pattern, actor, number, room)
             appendLine("- $text")
             if (appUrl != null) {
+                val thread = number?.let { "/threads/$it" }.orEmpty()
                 val message = entry.messageId?.let { "?message=$it" }.orEmpty()
-                appendLine("  $appUrl/rooms/${entry.roomId}/threads/${entry.threadNumber}$message")
+                appendLine("  $appUrl/rooms/${entry.roomId}$thread$message")
             }
         }
         val more = maxOf(entries.size - DIGEST_MAX_ENTRIES, 0) + unlisted

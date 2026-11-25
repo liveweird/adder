@@ -4,6 +4,7 @@ import ch.nokillswit.notifications.MAX_PREFERENCE_PAIRS
 import ch.nokillswit.notifications.NotificationChannel
 import ch.nokillswit.notifications.NotificationPreferencePair
 import ch.nokillswit.notifications.NotificationType
+import ch.nokillswit.notifications.THREAD_NOTIFICATION_TYPES
 import ch.nokillswit.notifications.validateNotificationPreferences
 import io.ktor.server.plugins.BadRequestException
 import kotlin.test.Test
@@ -14,7 +15,7 @@ import kotlin.test.assertNotNull
 /** The notification-preferences PUT body's bound: the spec's `maxItems` and the validator agree, and the validator is real. */
 class NotificationPreferenceBoundTest {
 
-    private val everyPair = NotificationType.entries.flatMap { type ->
+    private val everyPair = THREAD_NOTIFICATION_TYPES.flatMap { type ->
         NotificationChannel.entries.map { NotificationPreferencePair(type, it) }
     }
 
@@ -33,8 +34,14 @@ class NotificationPreferenceBoundTest {
     fun `the spec's maxItems on the notification list's type filter is the number of kinds the server accepts`() {
         val parameter = OpenApiSpec.parsed.paths["/api/v1/notifications"]?.get?.parameters?.firstOrNull { it.name == "type" }
         assertNotNull(parameter, "the type parameter is missing from the spec")
-        assertEquals(NotificationType.entries.size, parameter.schema.maxItems)
-        assertEquals(12, NotificationType.entries.size)
+        assertEquals(THREAD_NOTIFICATION_TYPES.size, parameter.schema.maxItems)
+        assertEquals(12, THREAD_NOTIFICATION_TYPES.size)
+        val feed = OpenApiSpec.parsed.paths["/api/v1/notifications/feed"]?.get?.parameters?.firstOrNull { it.name == "type" }
+        assertEquals(NotificationType.entries.size, assertNotNull(feed).schema.maxItems)
+        val roomPair = NotificationPreferencePair(NotificationType.ROOM_ADDED, NotificationChannel.IN_APP)
+        assertFailsWith<BadRequestException> {
+            validateNotificationPreferences(listOf(roomPair), emptyList())
+        }
     }
 
     @Test

@@ -48,6 +48,9 @@ enum class NotificationType {
 
     /** The recipient watches the thread and it was reopened. */
     THREAD_REOPENED,
+
+    /** Another person added the recipient to a room. */
+    ROOM_ADDED,
     ;
 
     /**
@@ -57,10 +60,13 @@ enum class NotificationType {
      */
     fun defaultOn(channel: NotificationChannel): Boolean = when (this) {
         MENTIONED, MESSAGE_QUOTED, TEAM_MENTIONED, WATCHERS_MENTIONED, EVERYONE_MENTIONED, THREAD_REPLIED, THREAD_CREATED,
-        THREAD_ASSIGNED, THREAD_OWNER_CHANGED, THREAD_STATUS_CHANGED, THREAD_CLOSED, THREAD_REOPENED,
+        THREAD_ASSIGNED, THREAD_OWNER_CHANGED, THREAD_STATUS_CHANGED, THREAD_CLOSED, THREAD_REOPENED, ROOM_ADDED,
         -> channel == NotificationChannel.IN_APP
     }
 }
+
+/** The kinds exposed by the original thread notice list and preference pairs. */
+internal val THREAD_NOTIFICATION_TYPES = NotificationType.entries.filterNot { it == NotificationType.ROOM_ADDED }.toSet()
 
 /**
  * One notice of the caller, for the bell. The row holds ids only: the actor's and the room's names and the thread's number and title are
@@ -86,3 +92,26 @@ typealias NotificationPageResponse = PageResponse<NotificationResponse>
 
 /** One page of the caller's notices plus the pre-pagination total (the list-endpoint envelope). */
 data class NotificationListResult(val items: List<NotificationResponse>, val total: Long)
+
+/** A feed item targets the room itself, a thread, or a message within a thread. */
+@Serializable
+data class NotificationFeedItem(
+    val id: UInt,
+    val type: NotificationType,
+    val seen: Boolean,
+    val createdAt: Long,
+    val actorId: UInt,
+    val actorName: String,
+    val roomId: UInt,
+    val roomName: String,
+    val threadNumber: Int?,
+    val threadTitle: String?,
+    val messageId: UInt?,
+) {
+    internal fun asThreadNotice() = NotificationResponse(
+        id, type, seen, createdAt, actorId, actorName, roomId, roomName,
+        checkNotNull(threadNumber), checkNotNull(threadTitle), messageId,
+    )
+}
+
+internal data class NotificationFeedResult(val items: List<NotificationFeedItem>, val total: Long)

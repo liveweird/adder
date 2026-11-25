@@ -94,6 +94,7 @@ private fun Route.memberAdd(roomService: RoomService, memberService: RoomMemberS
                     "viaTeamId" to (if (userId in outcome.viaTeamUserIds) request.teamId?.toLong() else null),
                 )
             }
+            auditRoomNotices(caller.userId, roomId, outcome.noticesCreated)
             call.respond(HttpStatusCode.OK, RoomMembersAddResponse(outcome.addedUserIds.size, outcome.alreadyMembers))
         }
     }

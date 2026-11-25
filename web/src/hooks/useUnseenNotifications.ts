@@ -1,24 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
 import { getToken } from "../api/session";
-import { ADDRESSED_TYPES, listNotifications, type NotificationItem } from "../api/notifications";
+import { ADDRESSED_TYPES, listNotificationFeed, listNotifications, type NotificationFeedItem, type NotificationItem } from "../api/notifications";
 import { notificationKeys } from "../utils/notificationKeys";
 import { useNotificationRetryAfter } from "./useNotificationRetryAfter";
 
 /** One empty list for every render without rows, so a memo keyed on `items` does not recompute while nothing has loaded. */
-const NO_ITEMS: NotificationItem[] = [];
+const NO_FEED_ITEMS: NotificationFeedItem[] = [];
+const NO_THREAD_ITEMS: NotificationItem[] = [];
 
 /** The unseen notices the bell reads in one go (the server's page maximum). */
 const UNSEEN_PAGE_SIZE = 100;
 
 /** Both unseen queries read this: one page of the caller's unseen notices, optionally of the addressed kinds only. */
-function useUnseenQuery(queryKey: readonly unknown[], addressedOnly: boolean) {
+function useUnseenQuery<T>(queryKey: readonly unknown[], queryFn: () => Promise<{ total: number; items: T[] }>, noItems: T[]) {
   const query = useQuery({
     queryKey,
-    queryFn: () => listNotifications({ page: 1, pageSize: UNSEEN_PAGE_SIZE, seen: false, type: addressedOnly ? ADDRESSED_TYPES : undefined }),
+    queryFn,
     enabled: getToken() !== null,
   });
   useNotificationRetryAfter(query.error);
-  return { ...query, total: query.data?.total ?? 0, items: query.data?.items ?? NO_ITEMS };
+  return { ...query, total: query.data?.total ?? 0, items: query.data?.items ?? noItems };
 }
 
 /**
@@ -28,7 +29,11 @@ function useUnseenQuery(queryKey: readonly unknown[], addressedOnly: boolean) {
  * instead, so an activity notice (a reply, a new thread) never raises them (1.1 A21).
  */
 export function useUnseenNotifications() {
-  return useUnseenQuery(notificationKeys.unseen, false);
+  return useUnseenQuery(
+    notificationKeys.unseen,
+    () => listNotificationFeed({ page: 1, pageSize: UNSEEN_PAGE_SIZE, seen: false }),
+    NO_FEED_ITEMS,
+  );
 }
 
 /**
@@ -37,5 +42,9 @@ export function useUnseenNotifications() {
  * (0.6 D1 stays). Re-read by the same hints as the badge, because it sits under the same `["notifications"]` prefix.
  */
 export function useAddressedNotifications() {
-  return useUnseenQuery(notificationKeys.addressed, true);
+  return useUnseenQuery(
+    notificationKeys.addressed,
+    () => listNotifications({ page: 1, pageSize: UNSEEN_PAGE_SIZE, seen: false, type: ADDRESSED_TYPES }),
+    NO_THREAD_ITEMS,
+  );
 }

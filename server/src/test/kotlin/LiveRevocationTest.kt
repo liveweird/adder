@@ -191,6 +191,9 @@ class LiveRevocationTest {
         val expected = LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ADDED, room)
         assertEquals(expected, first.nextNonResync())
         assertEquals(expected, second.nextNonResync(), "every socket of the person")
+        val notice = LiveServerFrame.Event(LiveKind.NOTIFICATION_CREATED, room)
+        assertEquals(notice, first.nextNonResync())
+        assertEquals(notice, second.nextNonResync(), "the bell is also refreshed in every tab")
         assertEquals(null, other.nextFrameOrNull(300), "nobody else")
 
         // The role change is personal too.

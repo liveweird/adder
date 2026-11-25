@@ -29,6 +29,10 @@ import kotlinx.serialization.Serializable
 @Serializable
 @Resource("/api/v1/notifications")
 class NotificationsRoute {
+    @Serializable
+    @Resource("feed")
+    class Feed(val parent: NotificationsRoute = NotificationsRoute())
+
     /** `/api/v1/notifications/{id}`: ONE notice of the caller's; only its `seen` child is a route. */
     @Serializable
     @Resource("{id}")
@@ -48,6 +52,7 @@ fun Application.configureNotificationRoutes() {
     routing {
         authenticate {
             notificationList(notifications)
+            notificationFeed(notifications)
             notificationSeen(notifications)
             notificationSeenAll(notifications)
         }
@@ -67,17 +72,30 @@ private fun Route.notificationList(notifications: NotificationService) {
             val caller = call.caller()
             val paging = call.parsePaging(sortable = NOTIFICATION_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
             val seen = call.request.queryParameters.optionalBoolean("seen")
-            val types = call.request.queryParameters.notificationTypes()
+            val types = call.request.queryParameters.notificationTypes(THREAD_NOTIFICATION_TYPES)
             val result = notifications.list(caller.userId, seen, types, paging)
             call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
         }
     }
 }
 
+private fun Route.notificationFeed(notifications: NotificationService) {
+    rateLimit(RateLimitName(RateLimits.NOTIFICATION_READ)) {
+        get<NotificationsRoute.Feed> {
+            val caller = call.caller()
+            val paging = call.parsePaging(sortable = NOTIFICATION_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
+            val seen = call.request.queryParameters.optionalBoolean("seen")
+            val types = call.request.queryParameters.notificationTypes(NotificationType.entries.toSet())
+            val result = notifications.feed(caller.userId, seen, types, paging)
+            call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+        }
+    }
+}
+
 /** The repeatable `type` filter: every distinct kind named, at most one of each; an unknown name is a `400` (never echoed back). */
-private fun Parameters.notificationTypes(): Set<NotificationType> =
-    repeatedStrings("type", NotificationType.entries.size).map { name ->
-        NotificationType.entries.firstOrNull { it.name == name } ?: throw BadRequestException("Unknown notification type")
+private fun Parameters.notificationTypes(allowed: Set<NotificationType>): Set<NotificationType> =
+    repeatedStrings("type", allowed.size).map { name ->
+        allowed.firstOrNull { it.name == name } ?: throw BadRequestException("Unknown notification type")
     }.toSet()
 
 /**

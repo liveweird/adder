@@ -149,6 +149,14 @@ what the scenario is about.
 8. The author pins the runbook message again; the reader reloads.
    - *Expected*: the strip comes back already expanded ("Pinned in this thread (1)", the open/closed choice is remembered per browser), and it is still expanded after the reload.
 
+## Scenario: a hidden room membership notice arrives live and opens the room
+
+1. An owner creates a hidden room. The future member signs in on Home and has no notification or room link.
+2. The owner adds the member while their browser is open.
+   - *Expected*: The bell shows one unseen notice and the drawer identifies the room.
+3. The member selects **Open room**.
+   - *Expected*: The room opens and the bell count clears.
+
 ## Scenario: a member removed from a room loses its notifications
 
 1. The same setup (the thread is started before the reader joins); the author starts a thread, adds the reader and replies with a `<@reader>` mention through the API. The reader opens Home.

@@ -40,7 +40,14 @@ data class NotificationPreferenceKind(val type: NotificationType, val inApp: Boo
 
 /** Body of `GET /users/{id}/notification-preferences`. [emailAvailable] is false with no mailer (the email switches then do nothing). */
 @Serializable
-data class NotificationPreferencesResponse(val emailAvailable: Boolean, val kinds: List<NotificationPreferenceKind>)
+data class RoomMembershipNotificationPreference(val inApp: Boolean, val email: Boolean)
+
+@Serializable
+data class NotificationPreferencesResponse(
+    val emailAvailable: Boolean,
+    val kinds: List<NotificationPreferenceKind>,
+    val roomMembership: RoomMembershipNotificationPreference,
+)
 
 /**
  * Body of `PUT /users/{id}/notification-preferences`: a wholesale replace. [disabled] lists the pairs that are OFF, [enabled] the pairs
@@ -51,10 +58,11 @@ data class NotificationPreferencesResponse(val emailAvailable: Boolean, val kind
 data class NotificationPreferencesUpdateRequest(
     val disabled: List<NotificationPreferencePair>,
     val enabled: List<NotificationPreferencePair> = emptyList(),
+    val roomMembership: RoomMembershipNotificationPreference? = null,
 )
 
 /** Every `(kind, channel)` pair there is: a longer list than this (the two together) repeats one. The spec's `maxItems` on both lists. */
-internal val MAX_PREFERENCE_PAIRS = NotificationType.entries.size * NotificationChannel.entries.size
+internal val MAX_PREFERENCE_PAIRS = THREAD_NOTIFICATION_TYPES.size * NotificationChannel.entries.size
 
 /** The pair's switch is on for a person who never touched it. */
 internal fun NotificationPreferencePair.defaultOn(): Boolean = type.defaultOn(channel)
@@ -85,13 +93,26 @@ internal class NotificationPreferenceChoice(val disabled: Set<NotificationPrefer
 internal fun validateNotificationPreferences(
     disabled: List<NotificationPreferencePair>,
     enabled: List<NotificationPreferencePair>,
+    roomMembership: RoomMembershipNotificationPreference? = null,
 ): NotificationPreferenceChoice {
     val repeated = "A notification preference is listed more than once"
     if (disabled.size + enabled.size > MAX_PREFERENCE_PAIRS) throw BadRequestException(repeated)
     val off = disabled.toSet()
     val on = enabled.toSet()
     if (off.size != disabled.size || on.size != enabled.size || off.any { it in on }) throw BadRequestException(repeated)
-    return NotificationPreferenceChoice(off, on)
+    val membership = NotificationType.ROOM_ADDED
+    if (off.any { it.type == membership } || on.any { it.type == membership }) {
+        throw BadRequestException("Use roomMembership for room membership notifications")
+    }
+    if (roomMembership == null) return NotificationPreferenceChoice(off, on)
+    val channels = NotificationChannel.entries.map { NotificationPreferencePair(membership, it) }
+    val (membershipOn, membershipOff) = channels.partition { pair ->
+        when (pair.channel) {
+            NotificationChannel.IN_APP -> roomMembership.inApp
+            NotificationChannel.EMAIL -> roomMembership.email
+        }
+    }
+    return NotificationPreferenceChoice(off + membershipOff, on + membershipOn)
 }
 
 /**
@@ -115,9 +136,13 @@ internal class EffectivePreferences(private val stored: Map<NotificationPreferen
 internal fun preferencesResponse(effective: EffectivePreferences, emailAvailable: Boolean): NotificationPreferencesResponse =
     NotificationPreferencesResponse(
         emailAvailable,
-        NotificationType.entries.map {
+        THREAD_NOTIFICATION_TYPES.map {
             NotificationPreferenceKind(it, effective.on(it, NotificationChannel.IN_APP), effective.on(it, NotificationChannel.EMAIL))
         },
+        RoomMembershipNotificationPreference(
+            inApp = effective.on(NotificationType.ROOM_ADDED, NotificationChannel.IN_APP),
+            email = effective.on(NotificationType.ROOM_ADDED, NotificationChannel.EMAIL),
+        ),
     )
 
 /** Audit format of a deviation set: sorted `TYPE:CHANNEL=on|off`, comma-joined, `""` for none. */
@@ -160,8 +185,9 @@ internal class NotificationPreferenceService(private val database: R2dbcDatabase
         userId: UInt,
         disabled: List<NotificationPreferencePair>,
         enabled: List<NotificationPreferencePair>,
+        roomMembership: RoomMembershipNotificationPreference? = null,
     ): EffectivePreferences? {
-        val rows = validateNotificationPreferences(disabled, enabled).rowsToStore()
+        val rows = validateNotificationPreferences(disabled, enabled, roomMembership).rowsToStore()
         return suspendTransaction(database) {
             val users = UserService.Users
             val exists = users.select(users.id).where { (users.id eq userId) and users.active() }
@@ -170,7 +196,7 @@ internal class NotificationPreferenceService(private val database: R2dbcDatabase
             val previous = effectivePreferences(userId)
             Preferences.deleteWhere { Preferences.userId eq userId }
             // A few multi-row statements (`insertRows`' binary split of its statement texts), never one statement per pair; at most
-            // 24 rows.
+            // 26 rows including the room membership switches.
             Preferences.insertRows(rows.entries.toList()) { (pair, value) ->
                 this[Preferences.userId] = userId
                 this[Preferences.notificationType] = pair.type.name

@@ -12,7 +12,10 @@ import ch.nokillswit.notifications.NoticeWriter
 import ch.nokillswit.notifications.NotificationEmailBudget
 import ch.nokillswit.notifications.NotificationService
 import ch.nokillswit.notifications.NotificationServiceKey
+import ch.nokillswit.rooms.RoomEnrollmentService
+import ch.nokillswit.rooms.RoomEnrollmentServiceKey
 import ch.nokillswit.rooms.RoomMemberService
+import ch.nokillswit.rooms.RoomMemberServiceKey
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomWorkflowService
 import ch.nokillswit.rooms.WorkflowUsageKey
@@ -63,7 +66,6 @@ internal val PreviewFetcherKey = AttributeKey<PreviewFetcher>("PreviewFetcher")
 internal fun Application.publishChatServices(
     database: R2dbcDatabase,
     roomService: RoomService,
-    roomMemberService: RoomMemberService,
     roomWorkflowService: RoomWorkflowService,
     teamService: TeamService,
     readMaxConcurrent: Int,
@@ -118,6 +120,9 @@ internal fun Application.publishChatServices(
     // by the sweep, read again here for the writer).
     val digestDelayMillis = requireConfigInt(environment.config, "notifications.email.delaySeconds", min = 0, max = 86_400) * 1_000L
     val noticeWriter = NoticeWriter(emailBudget, mailAvailable = mailer() != null, digestDelayMillis = digestDelayMillis)
+    val roomMemberService = RoomMemberService(database, teamService, noticeWriter)
+    attributes.put(RoomMemberServiceKey, roomMemberService)
+    attributes.put(RoomEnrollmentServiceKey, RoomEnrollmentService(database, noticeWriter))
     attributes.put(NotificationServiceKey, NotificationService(database, roomService, emailBudget, notificationReadLimiter))
     // The watches (V26): the caller's own state, toggled without the room lock; the thread writes add the auto-watches inside themselves,
     // and the mention follower reads the watchers of a thread as the audience of a reply.

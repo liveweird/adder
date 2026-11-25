@@ -6,6 +6,7 @@ import ch.nokillswit.notifications.MAX_COUNTED_NOTICES
 import ch.nokillswit.notifications.NotificationChannel
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.notifications.NotificationType
+import ch.nokillswit.notifications.THREAD_NOTIFICATION_TYPES
 import ch.nokillswit.rooms.RoomMemberRoleRequest
 import ch.nokillswit.rooms.RoomMembersAddRequest
 import ch.nokillswit.threads.MessageRequest
@@ -240,8 +241,8 @@ class NotificationsTest {
 
     @Test
     fun `the persisted kind names are the reasons the chat declares, in the same order`() {
-        assertEquals(NoticeReason.entries.map { it.name }, NotificationType.entries.map { it.name })
-        assertEquals(12, NotificationType.entries.size)
+        assertEquals(NoticeReason.entries.map { it.name }, THREAD_NOTIFICATION_TYPES.map { it.name })
+        assertEquals(13, NotificationType.entries.size)
         assertEquals("MESSAGE_QUOTED", NotificationType.entries[1].name, "right after MENTIONED: the order is the priority")
     }
 
@@ -699,7 +700,7 @@ class NotificationsTest {
         for (bad in listOf("?type=NO_SUCH_KIND", "?type=mentioned", "?type=MENTIONED&type=NO_SUCH_KIND")) {
             assertEquals(HttpStatusCode.BadRequest, cast.bob.client.get("$api$bad").status, bad)
         }
-        val tooMany = NotificationType.entries.joinToString("&") { "type=${it.name}" } + "&type=EXTRA"
+        val tooMany = THREAD_NOTIFICATION_TYPES.joinToString("&") { "type=${it.name}" } + "&type=EXTRA"
         assertEquals(HttpStatusCode.BadRequest, cast.bob.client.get("$api?$tooMany").status, "more distinct values than there are kinds")
     }
 

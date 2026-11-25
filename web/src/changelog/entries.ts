@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.14.0",
+    date: "2026-11-25",
+    en: `**Adder 1.14.0 — room membership notifications**
+
+- The bell tells you when someone adds you to a room or approves your join request. Select **Open room** to go there, including for hidden rooms.
+- Choose in-app and email delivery for these notices under **Notification preferences**. In-app is on by default and email is opt-in.`,
+    pl: `**Adder 1.14.0 — powiadomienia o członkostwie w pokojach**
+
+- Dzwonek powiadomi Cię, gdy ktoś doda Cię do pokoju lub zaakceptuje Twoją prośbę o dołączenie. Wybierz **Otwórz pokój**, aby przejść do pokoju, także ukrytego.
+- W **Ustawieniach powiadomień** wybierz, czy chcesz otrzymywać je w aplikacji i pocztą elektroniczną. Powiadomienia w aplikacji są domyślnie włączone, a e-mail możesz włączyć samodzielnie.`,
+  },
+  {
     version: "1.13.0",
     date: "2026-11-25",
     en: `**Adder 1.13.0 — external links and previews**

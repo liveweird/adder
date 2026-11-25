@@ -4,7 +4,7 @@ import { useLocation } from "react-router-dom";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import NotificationsButton from "./NotificationsButton";
-import type { NotificationItem } from "../api/notifications";
+import type { NotificationFeedItem } from "../api/notifications";
 import { clearSession } from "../api/session";
 import i18n from "../i18n";
 import { jsonResponse } from "../test/http";
@@ -15,7 +15,7 @@ import { bindSessionQueryCache } from "../utils/sessionQueryCache";
 const ZONE = browserTimeZone();
 const AT = 1_795_000_000_000;
 
-const notice = (over: Partial<NotificationItem> = {}): NotificationItem => ({
+const notice = (over: Partial<NotificationFeedItem> = {}): NotificationFeedItem => ({
   id: 77,
   type: "MENTIONED",
   seen: false,
@@ -29,7 +29,7 @@ const notice = (over: Partial<NotificationItem> = {}): NotificationItem => ({
   messageId: 991,
   ...over,
 });
-const page = (items: NotificationItem[], total = items.length, pageNo = 1) => ({ items, page: pageNo, pageSize: 20, total });
+const page = (items: NotificationFeedItem[], total = items.length, pageNo = 1) => ({ items, page: pageNo, pageSize: 20, total });
 
 function Where() {
   const { pathname, search, state } = useLocation();
@@ -56,8 +56,8 @@ function api(url: string, init?: RequestInit): Promise<Response> {
   calls.push(`${method} ${url}`);
   if (method === "POST" && url === "/api/v1/notifications/seen-all") return Promise.resolve(markAllStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(markAllStatus, { title: "Boom", status: markAllStatus }));
   if (method === "POST" && /^\/api\/v1\/notifications\/\d+\/seen$/.test(url)) return Promise.resolve(seenStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(seenStatus, { title: "Boom", status: seenStatus }));
-  if (url.startsWith("/api/v1/notifications?") && url.includes("seen=false")) return Promise.resolve(unseenStatus === 200 ? jsonResponse(200, unseenPage) : jsonResponse(unseenStatus, { title: "Boom", status: unseenStatus }));
-  if (url.startsWith("/api/v1/notifications?")) {
+  if (url.startsWith("/api/v1/notifications/feed?") && url.includes("seen=false")) return Promise.resolve(unseenStatus === 200 ? jsonResponse(200, unseenPage) : jsonResponse(unseenStatus, { title: "Boom", status: unseenStatus }));
+  if (url.startsWith("/api/v1/notifications/feed?") || url.startsWith("/api/v1/notifications?")) {
     if (listStatus !== 200) return Promise.resolve(jsonResponse(listStatus, { title: "Boom", status: listStatus }));
     const pageNo = Number(new URL(url, "http://x").searchParams.get("page"));
     if (serveListPage) return Promise.resolve(jsonResponse(200, serveListPage(pageNo)));
@@ -83,8 +83,7 @@ describe("NotificationsButton", () => {
     unseenPage = page([notice()]);
     listPage = page([notice(), notice({ id: 76, seen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
     listStatus = 200;
-    markAllStatus = 204;
-    seenStatus = 204;
+    markAllStatus = seenStatus = 204;
     unseenStatus = 200;
     serveListPage = null;
     calls.length = 0;
@@ -96,14 +95,13 @@ describe("NotificationsButton", () => {
     localStorage.clear();
     await i18n.changeLanguage("en");
   });
-
   test("the button is labelled with the unseen total, which is also the badge", async () => {
     unseenPage = page([notice()], 3);
     renderBell();
     expect(await screen.findByRole("button", { name: "Notifications (3 unseen)" })).toBeInTheDocument();
     expect(screen.getByText("3").closest("[data-unread-cue=count]")).not.toBeNull();
     // It asks for the unseen ones only, a page of 100, newest first by the server's default.
-    expect(calls).toContain("GET /api/v1/notifications?page=1&pageSize=100&seen=false");
+    expect(calls).toContain("GET /api/v1/notifications/feed?page=1&pageSize=100&seen=false");
   });
 
   test("past the server's cap the badge reads 999+ and the label says more than 999", async () => {
@@ -238,7 +236,7 @@ describe("NotificationsButton", () => {
   });
 
   test("a notice of a kind this build does not know shows its raw name", async () => {
-    listPage = page([{ ...notice(), type: "FROM_THE_FUTURE" as NotificationItem["type"] }]);
+    listPage = page([{ ...notice(), type: "FROM_THE_FUTURE" as NotificationFeedItem["type"] }]);
     const user = userEvent.setup();
     renderBell();
     await user.click(await bell());
@@ -251,10 +249,10 @@ describe("NotificationsButton", () => {
     renderBell();
     await user.click(await bell());
     await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ });
-    expect(calls).toContain("GET /api/v1/notifications?page=1&pageSize=20");
+    expect(calls).toContain("GET /api/v1/notifications/feed?page=1&pageSize=20");
     await user.click(screen.getByRole("button", { name: "3" }));
     expect(await screen.findByRole("link", { name: /Second page/ })).toBeInTheDocument();
-    expect(calls).toContain("GET /api/v1/notifications?page=3&pageSize=20");
+    expect(calls).toContain("GET /api/v1/notifications/feed?page=3&pageSize=20");
   });
 
   test("a small list has no pager", async () => {
@@ -285,7 +283,7 @@ describe("NotificationsButton", () => {
     expect(screen.getByRole("button", { name: "Previous page" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(await screen.findByRole("link", { name: /Second page/ })).toBeInTheDocument();
-    expect(calls).toContain("GET /api/v1/notifications?page=2&pageSize=20");
+    expect(calls).toContain("GET /api/v1/notifications/feed?page=2&pageSize=20");
   });
 
   test("a hand-over carries the focus-the-pane state, a message jump does not", async () => {
@@ -449,17 +447,18 @@ describe("NotificationsButton", () => {
     await user.click(await bell());
     const drawer = await screen.findByRole("dialog", { name: "Notifications" });
     await within(drawer).findByRole("link", { name: /Ada mentioned you/ });
-    const listCalls = () => calls.filter((c) => c.startsWith("GET /api/v1/notifications?") && c.includes("pageSize=20"));
-    expect(listCalls().every((c) => !c.includes("type="))).toBe(true);
+    const feedCalls = () => calls.filter((c) => c.startsWith("GET /api/v1/notifications/feed?") && c.includes("pageSize=20"));
+    const mentionCalls = () => calls.filter((c) => c.startsWith("GET /api/v1/notifications?") && c.includes("pageSize=20"));
+    expect(feedCalls().every((c) => !c.includes("type="))).toBe(true);
 
     await user.click(within(drawer).getByRole("radio", { name: "Mentions" }));
-    await waitFor(() => expect(listCalls().some((c) => c.includes("type=MENTIONED&type=MESSAGE_QUOTED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED"))).toBe(true));
+    await waitFor(() => expect(mentionCalls().some((c) => c.includes("type=MENTIONED&type=MESSAGE_QUOTED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED"))).toBe(true));
     // The badge still counts every unseen notice: its own query never names a type.
     expect(calls.filter((c) => c.includes("pageSize=100")).every((c) => !c.includes("type="))).toBe(true);
 
     listPage = page([]);
     await user.click(within(drawer).getByRole("radio", { name: "All" }));
-    await waitFor(() => expect(listCalls().filter((c) => !c.includes("type=")).length).toBeGreaterThan(1));
+    await waitFor(() => expect(feedCalls().filter((c) => !c.includes("type=")).length).toBeGreaterThan(1));
   });
 
   test("an empty Mentions view says so in its own words", async () => {

@@ -20,8 +20,8 @@ class NotificationEmailTest {
         type: NotificationType = NotificationType.MENTIONED,
         actor: String = "Bob",
         room: String = "Payments outage",
-        number: Int = 42,
-        messageId: UInt? = 991u,
+        number: Int? = if (type == NotificationType.ROOM_ADDED) null else 42,
+        messageId: UInt? = if (number == null) null else 991u,
         roomId: UInt = 12u,
     ) = DigestEntry(type, actor, roomId, room, number, messageId)
 
@@ -70,6 +70,7 @@ class NotificationEmailTest {
             NotificationType.THREAD_STATUS_CHANGED to "Bob moved #42 (Room) to another status",
             NotificationType.THREAD_CLOSED to "Bob closed #42 (Room)",
             NotificationType.THREAD_REOPENED to "Bob reopened #42 (Room)",
+            NotificationType.ROOM_ADDED to "Bob added you to Room",
         )
         val polish = mapOf(
             NotificationType.MENTIONED to "Bob wspomina o Tobie w #42 (Room)",
@@ -84,6 +85,7 @@ class NotificationEmailTest {
             NotificationType.THREAD_STATUS_CHANGED to "Bob zmienia status wątku #42 (Room)",
             NotificationType.THREAD_CLOSED to "Bob zamyka wątek #42 (Room)",
             NotificationType.THREAD_REOPENED to "Bob ponownie otwiera wątek #42 (Room)",
+            NotificationType.ROOM_ADDED to "Bob dodaje Cię do pokoju Room",
         )
         assertEquals(NotificationType.entries.toSet(), english.keys, "the table covers every kind")
         for (type in NotificationType.entries) {

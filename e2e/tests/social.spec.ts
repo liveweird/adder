@@ -78,7 +78,10 @@ const pinStrip = (page: Page) => page.getByRole("region", { name: "Pins in this 
 const pinnedDrawer = (page: Page) => page.getByRole("dialog", { name: "Pinned in this room", exact: true });
 
 /** The admin (signed in on `page`) mints the owner and the teammate; the owner then makes a room and adds the teammate, all through the API. */
-async function scene(page: Page, { addMate = true }: { addMate?: boolean } = {}): Promise<Scene> {
+async function scene(page: Page, {
+  addMate = true,
+  accessType = "RESTRICTED_VISIBLE",
+}: { addMate?: boolean; accessType?: "RESTRICTED_VISIBLE" | "RESTRICTED_HIDDEN" } = {}): Promise<Scene> {
   await admin.login(page);
   const owner = await throwawayUser(page, "E2E Soc Owner", cleanup);
   const mate = await throwawayUser(page, "E2E Soc Mate", cleanup);
@@ -89,7 +92,7 @@ async function scene(page: Page, { addMate = true }: { addMate?: boolean } = {})
   const template = ((await templates.json()) as { items: { id: number; name: string }[] }).items.find((candidate) => candidate.name === "Default");
   expect(template, "the seeded Default template").toBeDefined();
   const roomName = uniqueText("e2e-soc");
-  const created = await api.post("/api/v1/rooms", { data: { name: roomName, templateId: template!.id, accessType: "RESTRICTED_VISIBLE" } });
+  const created = await api.post("/api/v1/rooms", { data: { name: roomName, templateId: template!.id, accessType } });
   expect(created.status(), await created.text()).toBe(201);
   const roomId = ((await created.json()) as { id: number }).id;
   cleanup.unshift(`/api/v1/rooms/${roomId}`);
@@ -98,10 +101,39 @@ async function scene(page: Page, { addMate = true }: { addMate?: boolean } = {})
   return room;
 }
 
-async function addMember(room: Scene): Promise<void> {
+async function addMember(room: Scene, { notify = false } = {}): Promise<void> {
+  if (!notify) {
+    // Existing social journeys start with an empty bell so their counts describe just the event under test.
+    const { api } = await apiAsUser(room.mate.email, room.mate.password);
+    try {
+      const preferences = await api.put(`/api/v1/users/${room.mate.id}/notification-preferences`, {
+        data: { disabled: [], roomMembership: { inApp: false, email: false } },
+      });
+      expect(preferences.status(), await preferences.text()).toBe(204);
+    } finally {
+      await api.dispose();
+    }
+  }
   const added = await room.api.post(`/api/v1/rooms/${room.roomId}/members`, { data: { userIds: [room.mate.id] } });
   expect(added.status(), await added.text()).toBe(200);
 }
+
+test("a hidden room membership notice arrives live and opens the room", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false, accessType: "RESTRICTED_HIDDEN" });
+  const reader = await signedIn(browser, room.mate);
+  await expect.poll(() => reader.frames.some((frame) => frame.type === "ready")).toBe(true);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+  await expect(rail(reader.page).getByRole("link", { name: room.roomName })).toHaveCount(0);
+
+  await addMember(room, { notify: true });
+
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await bell(reader.page).click();
+  await expect(drawer(reader.page).getByText(room.roomName, { exact: true })).toBeVisible();
+  await drawer(reader.page).getByRole("link", { name: /open room/i }).click();
+  await expect(reader.page).toHaveURL(new RegExp(`/rooms/${room.roomId}(?:/threads)?$`));
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+});
 
 /** Start a thread as the owner through the API; returns its number. */
 async function startThread(room: Scene, title: string, body = "Seeded through the API."): Promise<number> {
