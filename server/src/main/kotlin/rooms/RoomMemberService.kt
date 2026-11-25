@@ -48,7 +48,11 @@ val ROOM_MEMBER_SORT_FIELDS: Set<String> = SORTABLE_COLUMNS.keys
  * read and count resolves members through ACTIVE users (a soft-deleted user's row is inert); the cross-feature reads (`users`, the
  * team roster through [TeamService.activeRosterIds]) are listed in `persistence.md`.
  */
-class RoomMemberService(private val database: R2dbcDatabase, private val teams: TeamService) {
+class RoomMemberService(
+    private val database: R2dbcDatabase,
+    private val teams: TeamService,
+    private val notices: RoomNotices = RoomNotices.NONE,
+) {
     private val members = RoomService.RoomMembers
     private val users = UserService.Users
 
@@ -158,7 +162,7 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
         request: RoomMembersAddRequest,
     ): RoomMembersAddOutcome {
         validateRoomMembersAdd(request) // re-checked service-side so direct callers stay guarded
-        return database.withRoomWrite(roomId, caller, guard) { _, _ ->
+        return database.withRoomWrite(roomId, caller, guard) { fresh, _ ->
             val named = request.userIds.orEmpty().distinct()
             val roster = request.teamId?.let { teamId ->
                 teams.activeRosterIds(teamId) ?: throw BadRequestException("Unknown or deleted team id: $teamId")
@@ -190,6 +194,7 @@ class RoomMemberService(private val database: R2dbcDatabase, private val teams: 
                 addedUserIds = toAdd,
                 viaTeamUserIds = viaTeam.filter { it in toAdd }.toSet(),
                 alreadyMembers = wanted.size - toAdd.size,
+                noticesCreated = notices.membersAdded(roomId, fresh.userId, toAdd),
             )
         }
     }

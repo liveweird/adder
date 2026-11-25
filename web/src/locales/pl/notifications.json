@@ -11,6 +11,7 @@
   "unseen_many": "{{count}} nieprzeczytanych",
   "unseen_other": "{{count}} nieprzeczytanego",
   "inRoom": "{{room}} · {{when}}",
+  "openRoom": "Otwórz pokój",
   "toast": {
     "preferencesSaved": "Zapisano ustawienia powiadomień"
   },
@@ -39,6 +40,7 @@
       "EVERYONE_MENTIONED": "Ktoś wspomina o wszystkich w pokoju, do którego należę",
       "THREAD_REPLIED": "Odpowiedź w wątku, który obserwuję",
       "THREAD_CREATED": "Nowy wątek w pokoju, do którego należę",
+      "ROOM_ADDED": "Ktoś dodaje mnie do pokoju",
       "THREAD_ASSIGNED": "Ktoś przekazuje mi wątek",
       "THREAD_OWNER_CHANGED": "Zmienia się właściciel wątku, który obserwuję",
       "THREAD_STATUS_CHANGED": "Wątek, który obserwuję, zmienia status",
@@ -46,7 +48,7 @@
       "THREAD_REOPENED": "Wątek, który obserwuję, zostaje ponownie otwarty"
     },
     "emailOff": "Ten serwer nie wysyła e-maili, więc żadne powiadomienia e-mailem nie wychodzą. Twoje wybory zostają zapisane.",
-    "emailHint": "E-mail jest domyślnie wyłączony. Wysyłamy go tylko o powiadomieniu, którego nie przeczytasz w ciągu kilku minut: jedna wiadomość wymienia, kto, w którym pokoju i w którym wątku.",
+    "emailHint": "E-mail jest domyślnie wyłączony. Wysyłamy go tylko o powiadomieniu, którego nie przeczytasz w ciągu kilku minut: jedna wiadomość mówi, kto i gdzie wykonał działanie.",
     "saveFailedStatus": "Zapis wyborów nie powiódł się ({{status}})",
     "saveFailedNetwork": "Zapis wyborów nie powiódł się. Sprawdź połączenie i spróbuj ponownie."
   },
@@ -62,7 +64,8 @@
     "THREAD_OWNER_CHANGED": "{{actor}} zmienia właściciela wątku #{{number}} {{title}}",
     "THREAD_STATUS_CHANGED": "{{actor}} zmienia status wątku #{{number}} {{title}}",
     "THREAD_CLOSED": "{{actor}} zamyka wątek #{{number}} {{title}}",
-    "THREAD_REOPENED": "{{actor}} ponownie otwiera wątek #{{number}} {{title}}"
+    "THREAD_REOPENED": "{{actor}} ponownie otwiera wątek #{{number}} {{title}}",
+    "ROOM_ADDED": "{{actor}} dodaje Cię do pokoju"
   },
   "emptyMentions": "Nie masz wzmianek.",
   "view": {

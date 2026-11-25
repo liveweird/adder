@@ -3,22 +3,26 @@ import userEvent from "@testing-library/user-event";
 import { screen, waitFor, within } from "@testing-library/react";
 import { notifications } from "@mantine/notifications";
 import NotificationPreferences from "./NotificationPreferences";
-import type { NotificationPreferences as Preferences } from "../api/notifications";
+import type { NotificationPreferences as Preferences, RoomMembershipPreferences } from "../api/notifications";
 import enNotifications from "../locales/en/notifications.json";
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 
 const PATH = "/api/v1/users/5/notification-preferences";
-const KINDS = Object.keys(enNotifications.event) as Preferences["kinds"][number]["type"][];
+const KINDS = Object.keys(enNotifications.event).filter((type) => type !== "ROOM_ADDED") as Preferences["kinds"][number]["type"][];
 
 /** Every kind at its default (the app on, email off) unless `over` says otherwise. */
-function prefs(over: Record<string, { inApp?: boolean; email?: boolean }> = {}, emailAvailable = true): Preferences {
-  return { emailAvailable, kinds: KINDS.map((type) => ({ type, inApp: true, email: false, ...over[type] })) };
+function prefs(
+  over: Record<string, { inApp?: boolean; email?: boolean }> = {},
+  emailAvailable = true,
+  roomMembership: RoomMembershipPreferences = { inApp: true, email: false },
+): Preferences {
+  return { emailAvailable, kinds: KINDS.map((type) => ({ type, inApp: true, email: false, ...over[type] })), roomMembership };
 }
 
 type Pair = { type: string; channel: string };
-type PutBody = { disabled: Pair[]; enabled: Pair[] };
+type PutBody = { disabled: Pair[]; enabled: Pair[]; roomMembership?: RoomMembershipPreferences };
 
 /** GET answers `stored`; a PUT answers `putStatus` and, on a 204, the next GET answers what the PUT stated. */
 function stubApi(stored: Preferences, putStatus = 204) {
@@ -29,7 +33,11 @@ function stubApi(stored: Preferences, putStatus = 204) {
       if (putStatus !== 204) return Promise.resolve(jsonResponse(putStatus, { title: "x", status: putStatus }));
       const body = JSON.parse(init.body as string) as PutBody;
       const on = (type: string, channel: string) => body.enabled.some((p) => p.type === type && p.channel === channel);
-      current = { ...current, kinds: current.kinds.map((k) => ({ ...k, inApp: on(k.type, "IN_APP"), email: on(k.type, "EMAIL") })) };
+      current = {
+        ...current,
+        kinds: current.kinds.map((k) => ({ ...k, inApp: on(k.type, "IN_APP"), email: on(k.type, "EMAIL") })),
+        roomMembership: body.roomMembership ?? current.roomMembership,
+      };
       return Promise.resolve(new Response(null, { status: 204 }));
     }
     return Promise.resolve(jsonResponse(200, current));
@@ -46,6 +54,7 @@ const app = (label: string) => screen.findByRole("switch", { name: `${label}: In
 const email = (label: string) => screen.getByRole("switch", { name: `${label}: Email` });
 const MENTIONED = "Someone mentions me";
 const REPLIED = "A reply in a thread I watch";
+const ROOM_ADDED = "Someone adds me to a room";
 
 describe("NotificationPreferences page", () => {
   beforeEach(() => {
@@ -73,12 +82,37 @@ describe("NotificationPreferences page", () => {
       [3, "Rooms"],
     ]);
     // Every kind of the contract is drawn once per column, in a named table.
-    expect(screen.getAllByRole("switch")).toHaveLength(KINDS.length * 2);
+    expect(screen.getAllByRole("switch")).toHaveLength((KINDS.length + 1) * 2);
     expect(within(screen.getByRole("table", { name: "Rooms" })).getByText("A new thread in a room I am in")).toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Rooms" })).getByText(ROOM_ADDED)).toBeInTheDocument();
     expect(within(screen.getByRole("table", { name: "Mentions" })).getByText("Someone quotes my message")).toBeInTheDocument();
     expect(screen.queryByText(/Email is off on this server/)).not.toBeInTheDocument();
     // Nothing changed: nothing to save.
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  test("room membership switches use their dedicated response property, fall back for an older response, and save outside legacy pairs", async () => {
+    const fetchMock = stubApi(prefs({}, true, { inApp: false, email: true }));
+    const user = userEvent.setup();
+    renderWithProviders(<NotificationPreferences />);
+    expect(await app(ROOM_ADDED)).not.toBeChecked();
+    expect(email(ROOM_ADDED)).toBeChecked();
+    await user.click(await app(ROOM_ADDED));
+    await user.click(email(ROOM_ADDED));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(putBodies(fetchMock)).toHaveLength(1));
+    const [body] = putBodies(fetchMock);
+    expect(body.roomMembership).toEqual({ inApp: true, email: false });
+    expect([...body.disabled, ...body.enabled].some((pair) => pair.type === "ROOM_ADDED")).toBe(false);
+
+    const legacy = prefs();
+    delete legacy.roomMembership;
+    vi.unstubAllGlobals();
+    stubApi(legacy);
+    renderWithProviders(<NotificationPreferences />);
+    const roomSwitches = await screen.findAllByRole("switch", { name: `${ROOM_ADDED}: In-app` });
+    expect(roomSwitches.at(-1)).toBeChecked();
+    expect(screen.getAllByRole("switch", { name: `${ROOM_ADDED}: Email` }).at(-1)).not.toBeChecked();
   });
 
   test("a change saves EVERY pair, the off ones as disabled and the on ones as enabled, toasts and re-reads", async () => {

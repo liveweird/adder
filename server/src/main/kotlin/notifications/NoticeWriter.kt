@@ -5,6 +5,7 @@ import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.notifications.NotificationService.Notifications
+import ch.nokillswit.rooms.RoomNotices
 import ch.nokillswit.threads.MAX_AUDITED_ADDRESSED
 import ch.nokillswit.threads.MessageRef
 import ch.nokillswit.threads.Notice
@@ -51,7 +52,7 @@ internal class NoticeWriter(
     private val mailAvailable: Boolean = true,
     /** The digest's delay (`notifications.email.delaySeconds`): a notice still waiting for it is coalesced into only while younger. */
     private val digestDelayMillis: Long = DEFAULT_DIGEST_DELAY_MILLIS,
-) : ThreadNotices {
+) : ThreadNotices, RoomNotices {
     private val judger = NoticeJudge(mailAvailable)
 
     override suspend fun forMessage(at: MessageRef, byUserId: UInt, notices: List<Notice>): NoticeOutcome =
@@ -60,12 +61,23 @@ internal class NoticeWriter(
     override suspend fun forThread(roomId: UInt, threadId: UInt, threadNumber: Int, byUserId: UInt, notices: List<Notice>): NoticeOutcome =
         make(roomId, threadId, threadNumber, null, byUserId, notices)
 
+    override suspend fun membersAdded(roomId: UInt, actorId: UInt, recipients: List<UInt>): Int {
+        val type = NotificationType.ROOM_ADDED
+        val people = recipients.filterNot { it == actorId }
+        val preferences = effectivePreferencesOf(people, listOf(type))
+        val deliveries = withinEmailBudget(actorId, roomId, people.mapNotNull { judger.judge(it, type, preferences) })
+        if (deliveries.isEmpty()) return 0
+        val made = insert(roomId, null, null, actorId, nowMillis(), deliveries).map { it.first }.toSet()
+        announce(deliveries.filter { it.inApp && it.userId in made }.map { it.userId }, roomId, null, null)
+        return made.size
+    }
+
     override suspend fun ofMessage(messageId: UInt): Map<UInt, NoticeReason> {
         val n = Notifications
         return n.select(n.recipientId, n.type).where { n.messageId eq messageId }
             .map { it[n.recipientId] to it[n.type] }.toList()
             .mapNotNull { (recipient, name) ->
-                NotificationType.entries.firstOrNull { it.name == name }?.let { recipient to it.toNoticeReason() }
+                THREAD_NOTIFICATION_TYPES.firstOrNull { it.name == name }?.toNoticeReason()?.let { recipient to it }
             }.toMap()
     }
 
@@ -230,9 +242,7 @@ internal class NoticeWriter(
         val refreshed = if (messageId == null) refreshThreadNotices(threadId, actorId, now, candidates) else emptyList()
         val refreshedIds = refreshed.map { it.first }.toSet()
         val fresh = candidates.filter { it.userId !in refreshedIds }
-        val over = emailBudget.withheld(actorId, roomId, fresh.filter { it.email }.map { it.userId })
-        // Over the budget the email is withheld; a person the app switch also leaves out is reached by nothing: no row.
-        val deliveries = fresh.map { if (it.userId in over) it.copy(email = false) else it }.filter { it.inApp || it.email }
+        val deliveries = withinEmailBudget(actorId, roomId, fresh)
         val late = beforeInsert(deliveries.map { it.userId }.toSet())
         val made = if (deliveries.isEmpty()) emptyList() else insert(roomId, threadId, messageId, actorId, now, deliveries)
         val madeIds = made.map { it.first }.toSet()
@@ -240,13 +250,19 @@ internal class NoticeWriter(
         val shown = deliveries.filter { it.inApp && it.userId in madeIds }.map { it.userId }.toSet() +
             refreshed.filter { it.third }.map { it.first }
         announce(candidates.map { it.userId }.filter { it in shown } + extraTargets + late, roomId, threadNumber, messageId)
-        val reasons = (made + refreshed.map { it.first to it.second }).map { (user, type) -> user to type.toNoticeReason() }
+        val reasons = (made + refreshed.map { it.first to it.second }).map { (user, type) -> user to checkNotNull(type.toNoticeReason()) }
         if (reasons.isEmpty()) return NoticeOutcome.NONE
         return NoticeOutcome(
             recipients = reasons.size,
             kinds = reasons.groupingBy { it.second }.eachCount(),
             addressed = reasons.filter { it.second in DIRECT }.map { it.first }.take(MAX_AUDITED_ADDRESSED),
         )
+    }
+
+    private suspend fun withinEmailBudget(actorId: UInt, roomId: UInt, deliveries: List<Delivery>): List<Delivery> {
+        val over = emailBudget.withheld(actorId, roomId, deliveries.filter { it.email }.map { it.userId })
+        // Over budget, email-only rows reach nobody; in-app rows still go through.
+        return deliveries.map { if (it.userId in over) it.copy(email = false) else it }.filter { it.inApp || it.email }
     }
 
     /**
@@ -301,7 +317,7 @@ internal class NoticeWriter(
     /** [INSERT_NOTICES] for [deliveries] (a notice that cannot be mailed is settled at insert); answers (person, kind) made. */
     private suspend fun insert(
         roomId: UInt,
-        threadId: UInt,
+        threadId: UInt?,
         messageId: UInt?,
         actorId: UInt,
         now: Long,
@@ -310,7 +326,7 @@ internal class NoticeWriter(
         val arguments = listOf(
             IntegerColumnType() to roomId.toInt(),
             LongColumnType() to actorId.toLong(),
-            IntegerColumnType() to threadId.toInt(),
+            IntegerColumnType() to threadId?.toInt(),
             IntegerColumnType() to messageId?.toInt(),
             LongColumnType() to now,
             LongColumnType() to now,
@@ -327,7 +343,7 @@ internal class NoticeWriter(
     }
 
     /** ONE `notification.created` hint to [recipients] (nothing for nobody), inside the write's own transaction. */
-    private suspend fun announce(recipients: List<UInt>, roomId: UInt, threadNumber: Int, messageId: UInt?) {
+    private suspend fun announce(recipients: List<UInt>, roomId: UInt, threadNumber: Int?, messageId: UInt?) {
         if (recipients.isEmpty()) return
         notifyLive(LiveHint(LiveKind.NOTIFICATION_CREATED, roomId, threadNumber, messageId, targetUserIds = recipients.distinct()))
     }

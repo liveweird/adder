@@ -119,7 +119,7 @@ class NotificationDigestTest {
                 st.setInt(2, room.toInt())
                 st.setString(3, type)
                 st.setLong(4, owner.id.toLong())
-                st.setInt(5, thread.toInt())
+                if (type == NotificationType.ROOM_ADDED.name) st.setNull(5, java.sql.Types.INTEGER) else st.setInt(5, thread.toInt())
                 if (messageId == null) st.setNull(6, java.sql.Types.INTEGER) else st.setInt(6, messageId)
                 st.setLong(7, now - ageMillis)
                 st.executeQuery().use { rs -> rs.next(); rs.getLong(1) }
@@ -293,6 +293,22 @@ class NotificationDigestTest {
         TestNotificationPreferences.set(ann.id, NotificationType.THREAD_ASSIGNED, NotificationChannel.EMAIL, enabled = true)
         digest(mailer, s, now = { s.now + INTERVAL_SECONDS * SECOND }).run()
         assertTrue(mailer.to(ann.email).isEmpty(), "switching the kind on again does not resurrect a settled notice")
+    }
+
+    @Test
+    fun `an opted in room membership digest links to the room`() = runBlocking {
+        val s = setup()
+        val ann = s.member(optedIn = false)
+        TestNotificationPreferences.set(ann.id, NotificationType.ROOM_ADDED, NotificationChannel.EMAIL, enabled = true)
+        val notice = s.notice(ann, type = NotificationType.ROOM_ADDED.name)
+        val mailer = RecordingMailer()
+
+        digest(mailer, s).run()
+
+        val mail = mailer.to(ann.email).single()
+        assertTrue(mail.body.contains("Olga added you to"))
+        assertEquals("  $APP_URL/rooms/${s.room}", mail.body.lines().first { it.startsWith("  $APP_URL") })
+        assertTrue(emailedAt(notice) != null)
     }
 
     @Test

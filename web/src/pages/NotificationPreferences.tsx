@@ -5,9 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getNotificationPreferences,
   setNotificationPreferences,
-  type NotificationPreferenceKind,
   type NotificationPreferencePair,
   type NotificationType,
+  type RoomMembershipPreferences,
 } from "../api/notifications";
 import { getUserId } from "../api/session";
 import ErrorAlert from "../components/ErrorAlert";
@@ -19,6 +19,8 @@ import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 
 type Channel = NotificationPreferencePair["channel"];
+type PreferenceType = NotificationType | "ROOM_ADDED";
+type DisplayPreference = { type: PreferenceType; inApp: boolean; email: boolean };
 
 /** The channels of the grid, in column order; `field` is the kind's flag that holds the stored state. */
 const CHANNELS = [
@@ -34,17 +36,17 @@ const GROUPS = [
   { key: "mentions", types: ["MENTIONED", "MESSAGE_QUOTED", "TEAM_MENTIONED", "WATCHERS_MENTIONED", "EVERYONE_MENTIONED"] },
   { key: "watching", types: ["THREAD_REPLIED", "THREAD_STATUS_CHANGED", "THREAD_CLOSED", "THREAD_REOPENED", "THREAD_OWNER_CHANGED"] },
   { key: "handed", types: ["THREAD_ASSIGNED"] },
-  { key: "rooms", types: ["THREAD_CREATED"] },
-] as const satisfies readonly { key: string; types: readonly NotificationType[] }[];
+  { key: "rooms", types: ["THREAD_CREATED", "ROOM_ADDED"] },
+] as const satisfies readonly { key: string; types: readonly PreferenceType[] }[];
 
 /** The key of one switch in the unsaved `overrides` map (the effective state derives from the loaded kinds plus these, so no seeding effect). */
-const pairKey = (type: NotificationType, channel: Channel) => `${type}|${channel}`;
+const pairKey = (type: PreferenceType, channel: Channel) => `${type}|${channel}`;
 
 /**
  * The caller's own notification preferences (Lettuce's grid, ported): one row per kind of notice, grouped, with an In-app and an Email switch
  * each and "All on / All off" per group and column. There is no master switch and no kind is locked on. Defaults: the app on, email off.
- * Save is a wholesale replace sending EVERY pair, off ones as `disabled` and on ones as `enabled` (`PUT /users/{id}/notification-preferences`):
- * a pair left out of both lists would be reset to its default, so the request always states the whole grid. A deployment with no outbound email says so, and its email column
+ * Save sends every legacy thread pair as `disabled` or `enabled`, plus the room-membership switches in their dedicated property
+ * (`PUT /users/{id}/notification-preferences`). A deployment with no outbound email says so, and its email column
  * is disabled (the choices are kept).
  */
 export default function NotificationPreferences() {
@@ -60,12 +62,15 @@ export default function NotificationPreferences() {
     enabled: userId !== null,
   });
   const kinds = query.data?.kinds ?? [];
+  const membership: RoomMembershipPreferences = query.data?.roomMembership ?? { inApp: true, email: false };
+  const membershipRow: DisplayPreference = { type: "ROOM_ADDED", ...membership };
   const emailAvailable = query.data?.emailAvailable ?? false;
-  const stored = (kind: NotificationPreferenceKind, field: "inApp" | "email") => kind[field];
-  const isOn = (kind: NotificationPreferenceKind, channel: (typeof CHANNELS)[number]) =>
+  const stored = (kind: DisplayPreference, field: "inApp" | "email") => kind[field];
+  const isOn = (kind: DisplayPreference, channel: (typeof CHANNELS)[number]) =>
     overrides[pairKey(kind.type, channel.channel)] ?? stored(kind, channel.field);
-  const dirty = kinds.some((kind) => CHANNELS.some((channel) => isOn(kind, channel) !== stored(kind, channel.field)));
-  const byType = new Map(kinds.map((kind) => [kind.type, kind]));
+  const rows: DisplayPreference[] = [...kinds, membershipRow];
+  const dirty = rows.some((kind) => CHANNELS.some((channel) => isOn(kind, channel) !== stored(kind, channel.field)));
+  const byType = new Map(rows.map((kind) => [kind.type, kind]));
 
   const save = useMutation({
     mutationFn: () => {
@@ -74,6 +79,10 @@ export default function NotificationPreferences() {
         userId as number,
         pairs.filter((p) => !p.on).map((p) => p.pair),
         pairs.filter((p) => p.on).map((p) => p.pair),
+        {
+          inApp: isOn(membershipRow, CHANNELS[0]),
+          email: isOn(membershipRow, CHANNELS[1]),
+        },
       );
     },
     onMutate: () => setError(null),
@@ -92,7 +101,7 @@ export default function NotificationPreferences() {
       ),
   });
 
-  function set(types: readonly NotificationType[], channel: Channel, on: boolean) {
+  function set(types: readonly PreferenceType[], channel: Channel, on: boolean) {
     setOverrides((prev) => ({ ...prev, ...Object.fromEntries(types.map((type) => [pairKey(type, channel), on])) }));
   }
 

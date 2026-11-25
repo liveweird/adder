@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { screen, waitFor, within } from "@testing-library/react";
 import NotificationsButton from "./NotificationsButton";
-import type { NotificationItem } from "../api/notifications";
+import type { NotificationFeedItem } from "../api/notifications";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 
-const notice: NotificationItem = {
+const notice: NotificationFeedItem = {
   id: 77,
   type: "MENTIONED",
   seen: false,
@@ -28,14 +28,14 @@ const calls: string[] = [];
 function api(url: string, init?: RequestInit): Promise<Response> {
   calls.push(`${init?.method ?? "GET"} ${url}`);
   if (init?.method === "POST") return Promise.resolve(new Response(null, { status: 204 }));
-  if (url.startsWith("/api/v1/notifications?") && url.includes("seen=false")) return Promise.resolve(jsonResponse(200, page));
-  if (url.startsWith("/api/v1/notifications?")) {
+  if (url.startsWith("/api/v1/notifications/feed?") && url.includes("seen=false")) return Promise.resolve(jsonResponse(200, page));
+  if (url.startsWith("/api/v1/notifications/feed?")) {
     return Promise.resolve(listStatus === 429 ? jsonResponse(429, { title: "Slow down", status: 429 }, { "Retry-After": "1" }) : jsonResponse(200, page));
   }
   return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
 }
 
-const listReads = () => calls.filter((c) => c.startsWith("GET /api/v1/notifications?") && c.includes("pageSize=20")).length;
+const listReads = () => calls.filter((c) => c.startsWith("GET /api/v1/notifications/feed?") && c.includes("pageSize=20")).length;
 
 describe("NotificationsButton: a 429 on the notice list", () => {
   beforeEach(() => {

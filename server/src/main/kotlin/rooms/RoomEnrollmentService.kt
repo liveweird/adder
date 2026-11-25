@@ -38,7 +38,7 @@ private val JOIN_REQUEST_SORTABLE_COLUMNS: Map<String, Column<*>> = mapOf(
 
 val ROOM_JOIN_REQUEST_SORT_FIELDS: Set<String> = JOIN_REQUEST_SORTABLE_COLUMNS.keys
 
-class RoomEnrollmentService(private val database: R2dbcDatabase) {
+class RoomEnrollmentService(private val database: R2dbcDatabase, private val notices: RoomNotices = RoomNotices.NONE) {
     suspend fun access(roomId: UInt, userId: UInt): RoomAccessResponse? = suspendTransaction(database) {
         val rooms = RoomService.Rooms
         val row = rooms.select(rooms.id, rooms.name, rooms.description, rooms.accessType, rooms.archivedAt)
@@ -118,7 +118,7 @@ class RoomEnrollmentService(private val database: R2dbcDatabase) {
         requestId: UInt,
         caller: CallerPrincipal,
         request: RoomJoinDecisionRequest,
-    ): RoomJoinDecisionOutcome = database.withRoomWrite(roomId, caller, ownerGuard) { _, standing ->
+    ): RoomJoinDecisionOutcome = database.withRoomWrite(roomId, caller, ownerGuard) { fresh, standing ->
         if (standing.accessType != RoomAccessType.RESTRICTED_VISIBLE) throw ForbiddenException()
         val users = UserService.Users
         val requestRow = RoomJoinRequests.innerJoin(users).select(RoomJoinRequests.userId)
@@ -135,8 +135,12 @@ class RoomEnrollmentService(private val database: R2dbcDatabase) {
             }
             return@withRoomWrite RoomJoinDecisionOutcome(request.decision, userId)
         }
-        if (activeRole(roomId, userId) == null) addMember(roomId, userId) else clearRequest(roomId, userId)
-        RoomJoinDecisionOutcome(request.decision, userId)
+        if (activeRole(roomId, userId) != null) {
+            clearRequest(roomId, userId)
+            return@withRoomWrite RoomJoinDecisionOutcome(request.decision, userId)
+        }
+        addMember(roomId, userId)
+        RoomJoinDecisionOutcome(request.decision, userId, notices.membersAdded(roomId, fresh.userId, listOf(userId)))
     }
 
     private suspend fun addMember(roomId: UInt, userId: UInt) {

@@ -5,6 +5,7 @@ import ch.nokillswit.notifications.NotificationPreferencePair
 import ch.nokillswit.notifications.NotificationPreferencesResponse
 import ch.nokillswit.notifications.NotificationPreferencesUpdateRequest
 import ch.nokillswit.notifications.NotificationType
+import ch.nokillswit.notifications.THREAD_NOTIFICATION_TYPES
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
@@ -74,7 +75,7 @@ class NotificationPreferencesTest {
         )
     }.toSet()
 
-    private val defaults = NotificationType.entries.map { pair(it, NotificationChannel.IN_APP) }.toSet()
+    private val defaults = THREAD_NOTIFICATION_TYPES.map { pair(it, NotificationChannel.IN_APP) }.toSet()
 
     @Test
     fun `every kind is on in the app and off by email by default`() = testApplication {
@@ -86,7 +87,7 @@ class NotificationPreferencesTest {
         val response = client.get(path(id))
         assertEquals(HttpStatusCode.OK, response.status)
         val body = response.body<NotificationPreferencesResponse>()
-        assertEquals(NotificationType.entries.toList(), body.kinds.map { it.type })
+        assertEquals(THREAD_NOTIFICATION_TYPES.toList(), body.kinds.map { it.type })
         assertEquals(12, body.kinds.size)
         assertTrue(body.kinds.all { it.inApp }, "the app is on for every kind")
         assertTrue(body.kinds.none { it.email }, "email is off for every kind, the two 1.0 kinds included")
@@ -173,13 +174,13 @@ class NotificationPreferencesTest {
         TestNotificationPreferences.set(id, NotificationType.MENTIONED, NotificationChannel.EMAIL, enabled = false) // what 1.0.0 wrote
 
         // The 1.1 page sends every pair: all the email pairs off, the app pairs on except one.
-        val all = NotificationType.entries.flatMap { type -> NotificationChannel.entries.map { pair(type, it) } }
+        val all = THREAD_NOTIFICATION_TYPES.flatMap { type -> NotificationChannel.entries.map { pair(type, it) } }
         val off = all.filter { it.channel == NotificationChannel.EMAIL || it == mentionApp }
         val request = NotificationPreferencesUpdateRequest(off, all - off.toSet())
         assertEquals(HttpStatusCode.NoContent, client.putJson(path(id), request).status)
 
         assertEquals(listOf(false), storedFlags(id, "MENTIONED", "EMAIL"), "the opt-out is still an explicit row")
-        assertEquals(NotificationType.entries.size + 1, storedRows(id), "every email-off pair plus the one in-app deviation")
+        assertEquals(THREAD_NOTIFICATION_TYPES.size + 1, storedRows(id), "every email-off pair plus the one in-app deviation")
         assertEquals(defaults - mentionApp, client.on(id), "1.1 reads the deviation and ignores the redundant rows")
     }
 

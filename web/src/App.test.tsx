@@ -183,7 +183,7 @@ describe("App shell", () => {
         vi.stubGlobal(
           "fetch",
           vi.fn((url: string) => {
-            if (url.startsWith("/api/v1/notifications?")) return Promise.resolve(jsonResponse(200, { items: [notice(1), notice(2)], page: 1, pageSize: 100, total: 2 }));
+            if (url.startsWith("/api/v1/notifications/feed?") || url.startsWith("/api/v1/notifications?")) return Promise.resolve(jsonResponse(200, { items: [notice(1), notice(2)], page: 1, pageSize: 100, total: 2 }));
             if (url.startsWith("/api/v1/rooms?")) {
               const items = ACTIVE.items.map((room) => ({ ...room, unread: room.id === 12 }));
               return Promise.resolve(jsonResponse(200, { ...ACTIVE, items }));

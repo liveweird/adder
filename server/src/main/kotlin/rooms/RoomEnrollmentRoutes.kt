@@ -98,6 +98,7 @@ private fun Route.roomJoinRequests(rooms: RoomService, enrollment: RoomEnrollmen
                 "requestId" to route.requestId.toLong(),
                 "targetUserId" to outcome.userId.toLong(),
             )
+            auditRoomNotices(caller.userId, roomId, outcome.noticesCreated)
             call.respond(HttpStatusCode.NoContent)
         }
     }

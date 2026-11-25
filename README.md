@@ -72,7 +72,7 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
 0.6.0 made the rooms social:
 
 - **Mentions** — type `@` in the composer and pick a room member (or a team or a group, 1.1.0); the mention shows as the person's current name (`<@id>` in the stored body), and the thread list's "Mentions me" filter shows only the threads that mention you.
-- **Notifications** — a bell in the header counts your unseen notices (someone mentioned you or your team, handed a thread over, or replied in or moved a thread you watch); a click opens the message, "Mark all as seen" clears the count, and new ones arrive live. A notice is ids only
+- **Notifications** — a bell in the header counts your unseen notices (someone mentioned you or your team, handed a thread over, or replied in or moved a thread you watch); a click opens the message, "Mark all as seen" clears the count, and new ones arrive live. The bell also tells you when you are added to a room or your request to join is approved. A notice is ids only
   (`GET /api/v1/notifications`), kept for 90 days. A notice still unseen after five minutes is summed up in **one email digest** (at most one every 15 minutes; who, the room and the thread number with a link, never the message), switched ON per kind (it is off by default) under "Notification preferences" in the
   account menu; it needs `MAIL_TRANSPORT=smtp` and `MAIL_APP_URL`.
 - **Unread** — a dot in the rooms rail, unread counts in the thread list and a "New" line in the conversation where you stopped reading, with a jump to it.

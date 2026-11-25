@@ -547,6 +547,12 @@ and needs no backfill. A 1.7.0 binary can run with the new table present.
 - **Read state across a round trip through 0.5.x (V19).** A 0.5.x binary writes no marker and does not move `seen_at`: after the way back up, a post written under 0.5.x has no marker of its author's, so it shows as unread to its own author (and the room's dot may be set for the actor); the next read marker or "room seen" clears it. Nothing is lost or wrong beyond that; no SQL is needed.
 - **One index, chosen by `EXPLAIN`** on a throwaway postgres:18.6 (900 threads, 87,250 messages): the filter's `EXISTS` is a `Bitmap Index Scan on idx_message_mentions_user_room` semi-joined with the room's threads, 0.09 ms in the generic plan.
 
+### Room membership notices (V38)
+
+`notifications.thread_id` is nullable for `ROOM_ADDED` only. Its message id is null too. A partial unique index keeps one such
+notice per room membership and the existing membership foreign key deletes it on removal. No existing rows are rewritten.
+The v1.13.0 notification list and digest ignore that kind, so they can read the migrated database.
+
 ### Notices (V18)
 
 `V18__create_notifications.sql`: `notifications (id, recipient_id, room_id, notification_type, actor_id, thread_id, message_id?, created_at, seen_at?)`, ids and stamps ONLY (no name, title or body column: `chat-model.md` "Notifications (V18)" owns the rules, `security.md` "Notices" the leak rule). Foreign keys: `actor_id`, `thread_id` and `message_id` `ON DELETE CASCADE`; **`fk_notifications_member (room_id, recipient_id)` references `room_members (room_id, user_id)` `ON DELETE CASCADE`**. Indexes: `idx_notifications_created (created_at)` (the retention purge), `idx_notifications_recipient (recipient_id, id)` (the drawer, newest first, a backward scan), `idx_notifications_unseen (recipient_id, id) WHERE seen_at IS NULL` (the badge; replaced by V27's `idx_notifications_bell`) and the unique `uq_notifications_message (message_id, recipient_id, notification_type) WHERE message_id IS NOT NULL` (replaced by V27's `uq_notifications_message_recipient (message_id, recipient_id)`; the insert is `ON CONFLICT DO NOTHING`; a hand-over has no message, so each is its own row). The header comment states the delete class.

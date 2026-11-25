@@ -6,6 +6,7 @@ import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.notifications.NotificationPreferencesResponse
 import ch.nokillswit.notifications.NotificationType
+import ch.nokillswit.notifications.THREAD_NOTIFICATION_TYPES
 import ch.nokillswit.rooms.RoomPageResponse
 import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.teams.TeamPageResponse
@@ -99,8 +100,8 @@ class PopulatedUpgradeTest {
         assertTrue(info.all().all { it.state == MigrationState.SUCCESS }, info.all().map { it.version to it.state }.toString())
         assertEquals(info.all().last().version, info.current().version)
         val after = info.applied().map { it.version.version }
-        val migrationsAfterRelease = listOf("25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36")
-        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V36 ran on the populated database: $after")
+        val migrationsAfterRelease = (25..38).map { it.toString() }
+        assertTrue(migrationsAfterRelease.all { it in after }, "V25 to V38 ran on the populated database: $after")
         val tagIndexes = query(database, "SELECT indexname FROM pg_indexes WHERE tablename = 'message_tags'") { it.getString(1) }
             .toSet()
         val both = "idx_message_tags_thread" in tagIndexes && "idx_message_tags_room_tag" in tagIndexes
@@ -438,7 +439,7 @@ class PopulatedUpgradeTest {
 
         // A 1.0.0 account that never touched its switches: the app on, email off for every kind (1.1 A28), the old rows no different.
         val preferences = zoe.getBody<NotificationPreferencesResponse>("/api/v1/users/3/notification-preferences")
-        assertEquals(NotificationType.entries.toList(), preferences.kinds.map { it.type })
+        assertEquals(THREAD_NOTIFICATION_TYPES.toList(), preferences.kinds.map { it.type })
         assertTrue(preferences.kinds.all { it.inApp && !it.email }, "no kind is mailed until the person switches it on")
 
         val own = olivia.getBody<NotificationPageResponse>("/api/v1/notifications?pageSize=100")

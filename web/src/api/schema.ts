@@ -2135,6 +2135,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications/feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's notifications, including room membership notices
+         * @description The caller's own in-app notices, while they are a member of the active room. Uses the same visibility, retention,
+         *     `notification-read` rate bucket (240/minute), and read deadline as `GET /api/v1/notifications`. A caller who belongs
+         *     to no room gets an empty page. An administrator sees only their own notices.
+         *
+         *     `ROOM_ADDED` is made when another person adds the caller to a room, including via a team or by approving a join request.
+         *     It has no thread or message. Removal or leaving deletes the notice with the membership. Old clients may continue to
+         *     use `GET /api/v1/notifications` for the thread-only representation. Both lists use the same seen operations.
+         *
+         *     - Sortable fields: `id` and `createdAt`. Default `-id` (newest first; `id` breaks ties).
+         *     - Filters: `seen` (strict boolean) and repeated `type` (any-of, duplicates collapse, unknown names are rejected).
+         *     - `total` is capped at 1000. Pages starting at row 1000 or later are empty.
+         */
+        get: operations["listNotificationFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications/seen-all": {
         parameters: {
             query?: never;
@@ -2193,19 +2223,19 @@ export interface paths {
         };
         /**
          * Read a user's notification switches, in the app and by email (target user or ADMIN)
-         * @description Which kinds of notice reach the user, and how: `kinds` lists every kind, in the order of `NotificationType`, with its `inApp`
+         * @description Which kinds of notice reach the user, and how: `kinds` lists the thread kinds in the order of `NotificationType`, with their `inApp`
          *     switch (the notice shows in the bell; on unless the user switched it off) and its `email` switch (the kind joins the digest below;
          *     **off unless the user switched it on**, for every kind: email is opt-in since 1.1.0). A person who never saved a choice has the
          *     defaults; there is no master switch and no kind is locked on. `emailAvailable` is false on a deployment with no outbound email
          *     (`MAIL_TRANSPORT=disabled`): the email switches are stored but nothing is mailed. Account email (the MFA code, the password-reset
-         *     link) is not a kind: it is sent directly and always goes.
+         *     link) is not a kind: it is sent directly and always goes. `roomMembership` holds the same two switches for `ROOM_ADDED`.
          *
          *     **Changed in 1.1.0 (an accepted exception to API-VER-002, `product.md` 1.1 D7 and A28):** email is off by default for every kind, so
          *     a person who never saved a choice, and a 1.0.0 client's `{"disabled": []}` ("everything on"), now mean every email OFF.
          *
          *     **The digest.** A notice still unseen after 5 minutes by default (`notifications.email.delaySeconds`) is mailed, at most one email
          *     per person per 15 minutes (`notifications.email.minIntervalSeconds`; a person inside it gets everything in one later email),
-         *     in the person's language. The email names WHO did it, the room, the thread number and a link; it never carries a thread title or any
+         *     in the person's language. The email names WHO did it, the room, the applicable thread number and a link; it never carries a thread title or any
          *     message text. A notice is mailed at most once and never when it is older than a day, when the person has left the room or been
          *     deleted, or when its kind's email switch is off at that moment. One actor can make at most 20 distinct people a day
          *     (`notifications.email.maxRecipientsPerActorPerDay`, UTC days) eligible for the digest, whatever the kind:
@@ -2219,7 +2249,8 @@ export interface paths {
          * @description A **wholesale replace** of the user's choices: `disabled` lists the `(type, channel)` pairs that are OFF, `enabled` (optional) the
          *     pairs that are ON, and a pair in neither takes its default (in the app on, by email off, for every kind). So `{"disabled": []}`
          *     resets everything to the defaults and a client that only knows `disabled` can never switch an email on by accident. Channels are
-         *     `IN_APP` and `EMAIL`. **Changed in 1.1.0:** email is off by default for every kind, so a body that lists nothing switches every email
+         *     `IN_APP` and `EMAIL`. The optional `roomMembership` object sets those switches for room additions and approvals. Omitting it restores
+         *     their defaults as part of the replacement. **Changed in 1.1.0:** email is off by default for every kind, so a body that lists nothing switches every email
          *     off; and a client that omits `enabled` and the `IN_APP` pairs (a 1.0.0 page) resets those to the defaults (accepted, `product.md` 1.1 A28
          *     and A31). Order of refusals: `403` (not the target user and not `ADMIN`), then `400` (an unknown kind or channel, a pair
          *     listed twice or in both lists), then `404` (an unknown or deleted user). A same-state PUT is a `204` that changes nothing. Audited as
@@ -3854,11 +3885,19 @@ export interface components {
             /** @description Whether the digest email lists this kind for the user (off by default, for every kind). */
             email: boolean;
         };
+        /** @description Switches for being added to a room or having a join request approved. */
+        RoomMembershipNotificationPreference: {
+            /** @description Whether the notice shows in the app. On by default. */
+            inApp: boolean;
+            /** @description Whether the notice joins the email digest. Off by default. */
+            email: boolean;
+        };
         /** @description The user's in-app and email switches, one pair per kind of notice, in the order of `NotificationType`. */
         NotificationPreferences: {
             /** @description False when the deployment sends no email at all. */
             emailAvailable: boolean;
             kinds: components["schemas"]["NotificationPreferenceKind"][];
+            roomMembership?: components["schemas"]["RoomMembershipNotificationPreference"];
         };
         /**
          * @description The way a notice reaches a person. Every kind has a switch for each; none is locked on.
@@ -3870,6 +3909,8 @@ export interface components {
             channel: components["schemas"]["NotificationChannel"];
         };
         NotificationPreferencesUpdate: {
+            /** @description Room membership delivery switches. If omitted, the default in-app on and email off applies. */
+            roomMembership?: components["schemas"]["RoomMembershipNotificationPreference"];
             /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 24 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
             disabled: components["schemas"]["NotificationPreferencePair"][];
             /** @description The pairs to switch ON (optional: absent is empty). A pair in neither list takes its default (in the app on, by email off), so a client that sends only `disabled` cannot switch an email on. */
@@ -3882,6 +3923,48 @@ export interface components {
             /**
              * Format: int64
              * @description The caller's notices matching the filter, CAPPED at 1000 (the unseen total is the bell's badge).
+             */
+            total: number;
+        };
+        /** @description A thread notice kind or ROOM_ADDED for a room membership notice. */
+        NotificationFeedType: components["schemas"]["NotificationType"] | "ROOM_ADDED";
+        /** @description A notice pointing to a room, thread, or message. Names and titles reflect current data. */
+        NotificationFeedItem: {
+            /** Format: int32 */
+            id: number;
+            type: components["schemas"]["NotificationFeedType"];
+            seen: boolean;
+            /**
+             * Format: int64
+             * @description Epoch millis
+             */
+            createdAt: number;
+            /** Format: int32 */
+            actorId: number;
+            actorName: string;
+            /** Format: int32 */
+            roomId: number;
+            roomName: string;
+            /**
+             * Format: int32
+             * @description Null for ROOM_ADDED.
+             */
+            threadNumber: number | null;
+            /** @description Null for ROOM_ADDED. */
+            threadTitle: string | null;
+            /**
+             * Format: int32
+             * @description Null for a room or thread notice.
+             */
+            messageId: number | null;
+        };
+        NotificationFeedPage: {
+            items: components["schemas"]["NotificationFeedItem"][];
+            page: number;
+            pageSize: number;
+            /**
+             * Format: int64
+             * @description Feed items matching the filters.
              */
             total: number;
         };
@@ -7256,6 +7339,47 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listNotificationFeed: {
+        parameters: {
+            query?: {
+                /** @description `true` = only seen notices, `false` = only unseen ones; omitted = both. */
+                seen?: boolean;
+                /** @description Repeatable. Omitted includes every kind. */
+                type?: components["schemas"]["NotificationFeedType"][];
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's notification feed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationFeedPage"];
                 };
             };
             400: components["responses"]["BadRequest"];

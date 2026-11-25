@@ -159,7 +159,9 @@ class NotifyHintsTest {
             assertEquals(
                 listOf(
                     hint(LiveKind.ROOM_MEMBER_ADDED, room, targets = listOf(ann.id, bob.id)),
+                    hint(LiveKind.NOTIFICATION_CREATED, room, targets = listOf(ann.id, bob.id)),
                     hint(LiveKind.ROOM_MEMBER_ADDED, room, targets = listOf(cid.id)),
+                    hint(LiveKind.NOTIFICATION_CREATED, room, targets = listOf(cid.id)),
                     hint(LiveKind.ROOM_MEMBER_ROLE_CHANGED, room, targets = listOf(ann.id)),
                     hint(LiveKind.ROOM_MEMBER_REMOVED, room, targets = listOf(ann.id)),
                 ),

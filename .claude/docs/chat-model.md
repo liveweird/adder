@@ -436,6 +436,13 @@ assumptions 0.6 A1-0.6 A31 are in `product.md` "0.6.0 Social". Deviations from t
 - **Where it lives:** `threads/Mentions.kt` (the pure parser), `threads/MessageMentionService.kt` (the table, the follower, `mentionsOf`, `threadMentionsAny`), `ThreadListFilter.mentionedIds`. An edit diffs the new body against the message's OWN rows (a follower sees only the new body): a person already indexed stays mentioned while the token stays, even after they left the room; a new mention needs an active member. The post's own answer carries `mentions` too.
 - **Not in 0.6.0** (**[changed] see 1.1:** `@room` is now `<@everyone>`): `@room`; mentioning a non-member; mentions in titles; names in search snippets (a snippet shows the raw token, 0.6 A30); a reindex.
 
+### Room membership notifications (1.14.0)
+
+A direct add, team add or approved join request creates one `ROOM_ADDED` notice per newly added person in the membership
+transaction. Public self-joins, room creation, rejections and repeated adds are quiet. The feed at
+`GET /api/v1/notifications/feed` includes it with no thread or message target. The recipient can open the room and mark it seen with
+the existing seen operation. Removal deletes it through the membership foreign key. The app delivers it by default and email is opt-in.
+
 ### Notifications (V18)
 
 - **[changed] A notice is ids only.** The sketch ported Lettuce's row, which stores `params` (names and titles as text) and a `link`. In Adder a title or a body is content (`security.md` "Log hygiene") and a removed member must stop seeing a room at once. `notifications(id, recipient_id, room_id, notification_type, actor_id, thread_id, message_id?, created_at, seen_at?)` has no text column, so no name, title or body can leak or need scrubbing; the room's name, the thread's title and the actor's name are read at request time (a renamed one shows its current name).

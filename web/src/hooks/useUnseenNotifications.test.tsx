@@ -42,7 +42,7 @@ describe("useUnseenNotifications", () => {
     const both = renderHook(() => ({ all: useUnseenNotifications(), addressed: useAddressedNotifications() }), { wrapper });
     await waitFor(() => expect(both.result.current.addressed.total).toBe(1));
     const urls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url));
-    expect(urls.filter((u) => !u.includes("type="))).toHaveLength(1);
+    expect(urls.filter((u) => !u.includes("type="))).toEqual(["/api/v1/notifications/feed?page=1&pageSize=100&seen=false"]);
     const typed = urls.filter((u) => u.includes("type="));
     expect(typed).toHaveLength(1);
     expect(typed[0]).toContain("seen=false&type=MENTIONED&type=MESSAGE_QUOTED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED");

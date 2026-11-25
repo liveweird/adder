@@ -3,10 +3,12 @@
 // (`chat-model.md` "Notifications"); there is no unseen, no delete. Thin wrappers: transport in ./http, types from ./schema.
 
 import { buildQuery, jsonRequest, voidRequest } from "./http";
-import type { paths } from "./schema";
+import type { components, paths } from "./schema";
 
 export type NotificationPage = paths["/api/v1/notifications"]["get"]["responses"]["200"]["content"]["application/json"];
 export type NotificationItem = NotificationPage["items"][number];
+export type NotificationFeedItem = components["schemas"]["NotificationFeedItem"];
+export type NotificationFeedPage = paths["/api/v1/notifications/feed"]["get"]["responses"]["200"]["content"]["application/json"];
 
 /** The server caps `total` here (`NotificationPage.total`): a count at the cap means "at least this many". */
 export const NOTIFICATION_TOTAL_CAP = 1000;
@@ -27,11 +29,23 @@ export interface NotificationQuery {
   seen?: boolean;
   /** Any-of: only these kinds; omitted or empty = every kind. */
   type?: readonly NotificationType[];
+  /** Server sort expression; omitted uses newest first. */
+  sort?: string;
+}
+
+export interface NotificationFeedQuery extends Omit<NotificationQuery, "type"> {
+  /** Any-of, including room membership notices; omitted or empty = every feed kind. */
+  type?: readonly NotificationFeedItem["type"][];
 }
 
 /** One page of the caller's notices, newest first (the server's default `-id`). */
 export async function listNotifications(query: NotificationQuery): Promise<NotificationPage> {
   return jsonRequest<NotificationPage>(`/api/v1/notifications?${buildQuery({ ...query })}`);
+}
+
+/** The bell feed includes room-level notices alongside the released thread notice shape. */
+export async function listNotificationFeed(query: NotificationFeedQuery): Promise<NotificationFeedPage> {
+  return jsonRequest<NotificationFeedPage>(`/api/v1/notifications/feed?${buildQuery({ ...query })}`);
 }
 
 /** Seen again is a 204; someone else's notice and a missing one are the same 404. */
@@ -44,11 +58,11 @@ export async function markAllNotificationsSeen(): Promise<void> {
 }
 
 export type NotificationPreferences = paths["/api/v1/users/{id}/notification-preferences"]["get"]["responses"]["200"]["content"]["application/json"];
-export type NotificationPreferenceKind = NotificationPreferences["kinds"][number];
+export type RoomMembershipPreferences = components["schemas"]["RoomMembershipNotificationPreference"];
 type PreferencesUpdate = paths["/api/v1/users/{id}/notification-preferences"]["put"]["requestBody"]["content"]["application/json"];
 export type NotificationPreferencePair = PreferencesUpdate["disabled"][number];
 
-/** Every kind with its in-app and email switch (self or ADMIN); `emailAvailable` is false on a deployment with no outbound email. */
+/** Thread-notice switches plus optional room-membership switches (self or ADMIN); `emailAvailable` is false without outbound email. */
 export async function getNotificationPreferences(userId: number): Promise<NotificationPreferences> {
   return jsonRequest<NotificationPreferences>(`/api/v1/users/${userId}/notification-preferences`);
 }
@@ -57,7 +71,12 @@ export async function getNotificationPreferences(userId: number): Promise<Notifi
  * A wholesale replace (204): the pairs that are OFF and the pairs that are ON; a pair in neither takes its default (the app on, email off),
  * so the page sends every pair in one of the two.
  */
-export async function setNotificationPreferences(userId: number, disabled: PreferencesUpdate["disabled"], enabled: PreferencesUpdate["disabled"]): Promise<void> {
-  const body: PreferencesUpdate = { disabled, enabled };
+export async function setNotificationPreferences(
+  userId: number,
+  disabled: PreferencesUpdate["disabled"],
+  enabled: PreferencesUpdate["disabled"],
+  roomMembership?: RoomMembershipPreferences,
+): Promise<void> {
+  const body = { disabled, enabled, ...(roomMembership === undefined ? {} : { roomMembership }) } satisfies PreferencesUpdate;
   return voidRequest(`/api/v1/users/${userId}/notification-preferences`, { method: "PUT", body: JSON.stringify(body) });
 }

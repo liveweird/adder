@@ -5,8 +5,7 @@ import ch.nokillswit.threads.NoticeReason
 /*
  * The two exhaustive maps between the chat's `NoticeReason` and the persisted `NotificationType` (`chat-model.md` "Notice kinds
  * (V27, V28)").
- * No `else` on either side: a new reason or a new kind does not compile until both are mapped, and `NotificationsTest` pins every
- * name equal.
+ * No `else` on either side: a new reason or a new kind does not compile until both are mapped. Room notices have no thread reason.
  */
 
 internal fun NoticeReason.toNotificationType(): NotificationType = when (this) {
@@ -24,7 +23,7 @@ internal fun NoticeReason.toNotificationType(): NotificationType = when (this) {
     NoticeReason.THREAD_REOPENED -> NotificationType.THREAD_REOPENED
 }
 
-internal fun NotificationType.toNoticeReason(): NoticeReason = when (this) {
+internal fun NotificationType.toNoticeReason(): NoticeReason? = when (this) {
     NotificationType.MENTIONED -> NoticeReason.MENTIONED
     NotificationType.MESSAGE_QUOTED -> NoticeReason.MESSAGE_QUOTED
     NotificationType.TEAM_MENTIONED -> NoticeReason.TEAM_MENTIONED
@@ -37,4 +36,5 @@ internal fun NotificationType.toNoticeReason(): NoticeReason = when (this) {
     NotificationType.THREAD_STATUS_CHANGED -> NoticeReason.THREAD_STATUS_CHANGED
     NotificationType.THREAD_CLOSED -> NoticeReason.THREAD_CLOSED
     NotificationType.THREAD_REOPENED -> NoticeReason.THREAD_REOPENED
+    NotificationType.ROOM_ADDED -> null
 }
