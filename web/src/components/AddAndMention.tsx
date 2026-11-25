@@ -10,6 +10,7 @@ import { useKnownNames } from "../utils/knownNames";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { saveErrorMessage } from "../utils/saveError";
+import type { MentionReplacementRequest } from "../utils/mentionText";
 import FormErrorAlert from "./FormErrorAlert";
 import type { PickedOption } from "./SearchPicker";
 import UserDirectorySelect from "./UserDirectorySelect";
@@ -23,22 +24,39 @@ export default function AddAndMention({
   onBusyChange,
   onMention,
   focusAfterAdd,
+  request = null,
+  onRequestClose,
 }: {
   room: RoomResponse;
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
-  onMention: (mention: AddedMention) => void;
+  onMention: (mention: AddedMention, request: MentionReplacementRequest | null) => void;
   focusAfterAdd?: () => void;
+  /** A mention-list action opens the same dialog with its directory term and replacement range. */
+  request?: MentionReplacementRequest | null;
+  onRequestClose?: () => void;
 }) {
   const { t } = useTranslation();
   const admin = useAdmin();
   const knownNames = useKnownNames();
   const queryClient = useQueryClient();
-  const [opened, setOpened] = useState(false);
+  const [explicitlyOpened, setExplicitlyOpened] = useState(false);
   const [person, setPerson] = useState<PickedOption | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [pickerCycle, setPickerCycle] = useState(0);
+  const [seenRequest, setSeenRequest] = useState(request);
   const focusOnExit = useRef(false);
+
+  // A fresh inline action is a fresh picker, even when it repeats the same term; reset during render so the dialog never flashes an old pick.
+  if (request !== seenRequest) {
+    setSeenRequest(request);
+    if (request !== null) {
+      setPerson(null);
+      setError(null);
+      setPickerCycle((cycle) => cycle + 1);
+    }
+  }
 
   if (!canManageRoom(room, admin)) return null;
 
@@ -56,9 +74,10 @@ export default function AddAndMention({
       // A sign-out or replacement login while the request travelled must not modify the next person's draft or known-name store.
       if (!isSameSessionIdentity(session, getSessionSnapshot())) return;
       knownNames.remember([{ userId, name }]);
-      onMention({ userId, name, token: `<@${userId}>` });
+      onMention({ userId, name, token: `<@${userId}>` }, request);
       focusOnExit.current = true;
-      setOpened(false);
+      setExplicitlyOpened(false);
+      onRequestClose?.();
       setPerson(null);
       await refreshQueriesAfterMutation(queryClient, ["rooms"]);
     } catch (failure) {
@@ -78,6 +97,21 @@ export default function AddAndMention({
     }
   }
 
+  function close() {
+    if (adding) return;
+    setExplicitlyOpened(false);
+    onRequestClose?.();
+  }
+
+  function openExplicitly() {
+    focusOnExit.current = false;
+    setPerson(null);
+    setError(null);
+    onRequestClose?.();
+    setPickerCycle((cycle) => cycle + 1);
+    setExplicitlyOpened(true);
+  }
+
   return (
     <>
       <Button
@@ -86,13 +120,13 @@ export default function AddAndMention({
         variant="subtle"
         leftSection={<IconUserPlus size={15} aria-hidden="true" />}
         disabled={disabled || adding}
-        onClick={() => { focusOnExit.current = false; setOpened(true); }}
+        onClick={openExplicitly}
       >
         {t("threads.composer.addAndMention")}
       </Button>
       <Modal
-        opened={opened}
-        onClose={() => !adding && setOpened(false)}
+        opened={explicitlyOpened || request !== null}
+        onClose={close}
         title={t("threads.composer.addAndMentionTitle")}
         closeButtonProps={{ "aria-label": t("common.action.close") }}
         transitionProps={{
@@ -106,10 +140,11 @@ export default function AddAndMention({
       >
         <Stack gap="md">
           <Text size="sm" c="dimmed">{t("threads.composer.addAndMentionDescription")}</Text>
-          <UserDirectorySelect picked={person} onPick={(next) => { setPerson(next); setError(null); }} disabled={adding} />
+          <UserDirectorySelect key={pickerCycle} initialSearch={request?.term} picked={person}
+            onPick={(next) => { setPerson(next); setError(null); }} disabled={adding} />
           {error && <FormErrorAlert>{error}</FormErrorAlert>}
           <Group justify="flex-end">
-            <Button variant="default" onClick={() => setOpened(false)} disabled={adding}>{t("common.action.cancel")}</Button>
+            <Button variant="default" onClick={close} disabled={adding}>{t("common.action.cancel")}</Button>
             <Button onClick={() => void add()} disabled={person === null} loading={adding}>{t("threads.composer.addAndMention")}</Button>
           </Group>
         </Stack>

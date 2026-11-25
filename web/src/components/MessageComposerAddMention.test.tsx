@@ -10,6 +10,7 @@ import { jsonResponse } from "../test/http";
 import { makeRoom, makeThread } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
 import { createKnownNames, KnownNamesContext } from "../utils/knownNames";
+import { MAX_MESSAGE_BODY_LENGTH } from "../utils/threadForm";
 
 describe("MessageComposer add and mention", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -26,12 +27,17 @@ describe("MessageComposer add and mention", () => {
     localStorage.clear();
   });
 
-  const renderComposer = (queryClient?: QueryClient) => renderWithProviders(
-    <ThreadDraftsProvider>
-      <MessageComposer room={makeRoom({ role: "OWNER" })} thread={makeThread()} onPosted={vi.fn()} />
-    </ThreadDraftsProvider>,
-    { queryClient },
-  );
+  const renderComposer = (queryClient?: QueryClient) => {
+    const names = createKnownNames();
+    return renderWithProviders(
+      <KnownNamesContext.Provider value={names}>
+        <ThreadDraftsProvider>
+          <MessageComposer room={makeRoom({ role: "OWNER" })} thread={makeThread()} onPosted={vi.fn()} />
+        </ThreadDraftsProvider>
+      </KnownNamesContext.Provider>,
+      { queryClient },
+    );
+  };
 
   function directory(status: number, body: unknown) {
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
@@ -142,6 +148,43 @@ describe("MessageComposer add and mention", () => {
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms"] }));
     await user.click(screen.getByRole("button", { name: "toggle pane" }));
     expect(box()).toHaveValue("Kept while away @New Person ");
+  });
+
+  test("an unmatched typed name opens the prefilled dialog and replaces only that unfinished term", async () => {
+    directory(200, { added: 1, alreadyMembers: 0 });
+    const user = userEvent.setup();
+    renderComposer();
+    await user.type(box(), "Before @New after");
+    (box() as HTMLTextAreaElement).setSelectionRange(11, 11);
+    fireEvent.select(box());
+    await user.click(await screen.findByRole("option", { name: /Add and mention “New”/ }));
+    const directoryBox = screen.getByRole("combobox", { name: "User" });
+    expect(directoryBox).toHaveValue("New");
+    await user.click(await screen.findByText("New Person (new@example.test)"));
+    await user.click(screen.getAllByRole("button", { name: "Add and mention" }).at(-1)!);
+    await waitFor(() => expect(box()).toHaveValue("Before @New Person after"));
+  });
+
+  test("adding a member never grows a reply beyond the server message limit", async () => {
+    directory(200, { added: 1, alreadyMembers: 0 });
+    const user = userEvent.setup();
+    renderComposer();
+    const fullDraft = "x".repeat(MAX_MESSAGE_BODY_LENGTH);
+    fireEvent.change(box(), { target: { value: fullDraft } });
+    await pick(user);
+    await screen.findByText(`The message must be 1–${MAX_MESSAGE_BODY_LENGTH} characters`);
+    expect(box()).toHaveValue(fullDraft);
+  });
+
+  test("a non-manager never gets the directory action in mention suggestions", async () => {
+    directory(200, { added: 1, alreadyMembers: 0 });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ThreadDraftsProvider><MessageComposer room={makeRoom()} thread={makeThread()} onPosted={vi.fn()} /></ThreadDraftsProvider>,
+    );
+    await user.type(box(), "@New");
+    expect(await screen.findByText("Nothing in this room matches")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Add and mention/ })).not.toBeInTheDocument();
   });
 
   test("a session replacement while the request travels never modifies the next session's draft", async () => {

@@ -71,7 +71,7 @@ describe("MessageEditForm", () => {
   });
 
   test("a room owner can add someone and mention them in an edited message", async () => {
-    let completeAdd: (response: Response) => void = () => undefined;
+    let completeAdd!: (response: Response) => void;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url.startsWith("/api/v1/users/directory?")) return Promise.resolve(jsonResponse(200, {
         items: [{ id: 91, name: "New Person", email: "new@example.test" }], page: 1, pageSize: 20, total: 1,
@@ -99,6 +99,31 @@ describe("MessageEditForm", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(JSON.parse(puts()[0][1].body as string)).toEqual({ body: "first <@91>" });
+  });
+
+  test("an owner can promote an unmatched edit term into an added mention", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/v1/rooms/12/members?")) {
+        return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 8, total: 0 }));
+      }
+      if (url.startsWith("/api/v1/users/directory?")) return Promise.resolve(jsonResponse(200, {
+        items: [{ id: 91, name: "New Person", email: "new@example.test" }], page: 1, pageSize: 20, total: 1,
+      }));
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return Promise.resolve(jsonResponse(200, { added: 1, alreadyMembers: 0 }));
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    const user = userEvent.setup();
+    renderForm(makeMessage({ id: 9, body: "Before @New" }), undefined, makeRoom({ role: "OWNER" }));
+    box().focus();
+    (box() as HTMLTextAreaElement).setSelectionRange(11, 11);
+    fireEvent.select(box());
+    await user.click(await screen.findByRole("option", { name: /Add and mention “New”/ }));
+    expect(screen.getByRole("combobox", { name: "User" })).toHaveValue("New");
+    await user.click(await screen.findByText("New Person (new@example.test)"));
+    await user.click(screen.getAllByRole("button", { name: "Add and mention" }).at(-1)!);
+    await waitFor(() => expect(box()).toHaveValue("Before @New Person "));
   });
 
   test("while a save is in flight the box is read-only, not disabled, and a second Ctrl+Enter does not save again", async () => {

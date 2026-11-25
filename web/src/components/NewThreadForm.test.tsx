@@ -148,7 +148,7 @@ describe("NewThreadForm", () => {
   test("a room owner can add someone and mention them in the opening message", async () => {
     serve();
     const defaults = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
-    let completeAdd: (response: Response) => void = () => undefined;
+    let completeAdd!: (response: Response) => void;
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
       if (url.startsWith("/api/v1/users/directory?")) return Promise.resolve(jsonResponse(200, {
         items: [{ id: 91, name: "New Person", email: "new@example.test" }], page: 1, pageSize: 20, total: 1,
@@ -181,6 +181,32 @@ describe("NewThreadForm", () => {
     await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/rooms/12/threads/7"));
     expect(posts().map(([url]) => url)).toEqual(["/api/v1/rooms/12/members", "/api/v1/rooms/12/threads"]);
     expect(JSON.parse((posts()[1][1] as RequestInit).body as string).body).toBe("db-3 is at 100% <@91>");
+  });
+
+  test("an owner can promote an unmatched opening-message term into an added mention", async () => {
+    serve();
+    const defaults = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/v1/rooms/12/members?")) {
+        return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 8, total: 0 }));
+      }
+      if (url.startsWith("/api/v1/users/directory?")) return Promise.resolve(jsonResponse(200, {
+        items: [{ id: 91, name: "New Person", email: "new@example.test" }], page: 1, pageSize: 20, total: 1,
+      }));
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return Promise.resolve(jsonResponse(200, { added: 1, alreadyMembers: 0 }));
+      }
+      return defaults(url, init);
+    });
+    const user = userEvent.setup();
+    renderForm({ ...ROOM, role: "OWNER" });
+    const draft = await screen.findByRole("textbox", { name: /First message/ });
+    await user.type(draft, "Before @New");
+    await user.click(await screen.findByRole("option", { name: /Add and mention “New”/ }));
+    expect(screen.getByRole("combobox", { name: "User" })).toHaveValue("New");
+    await user.click(await screen.findByText("New Person (new@example.test)"));
+    await user.click(screen.getAllByRole("button", { name: "Add and mention" }).at(-1)!);
+    await waitFor(() => expect(draft).toHaveValue("Before @New Person "));
   });
 
   test("the list's keys of the URL ride along: a started thread opens with them, and a clean Cancel goes back to the list with them", async () => {

@@ -170,6 +170,8 @@
     "hint": "Markdown is supported. Ctrl+Enter or Cmd+Enter sends; Enter adds a line.",
     "send": "Send",
     "addAndMention": "Add and mention",
+    "addAndMentionTerm": "Add and mention “{{term}}”",
+    "addAndMentionTermHint": "Search the directory",
     "addAndMentionTitle": "Add someone to this room",
     "addAndMentionDescription": "Choose anyone from the directory. They are added first, then their mention is inserted into your unchanged draft.",
     "closed": "This thread is closed, so it takes no new messages. Its owner, a room owner or an administrator can reopen it.",

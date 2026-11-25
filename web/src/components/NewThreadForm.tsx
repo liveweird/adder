@@ -5,6 +5,7 @@ import { Alert, Button, Collapse, Group, Stack, TextInput, Title } from "@mantin
 import { useForm } from "@mantine/form";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
+import { useAdmin } from "../auth";
 import { ApiError } from "../api/http";
 import { createThread } from "../api/threads";
 import type { RoomResponse } from "../api/rooms";
@@ -13,15 +14,16 @@ import { useThreadDrafts } from "../hooks/useThreadDrafts";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { charCountDescription } from "../utils/charCount";
 import { isSendShortcut } from "../utils/messageForm";
-import { appendMentionToken } from "../utils/mentionText";
+import { appendMentionToken, replaceMentionRequest, type MentionReplacementRequest } from "../utils/mentionText";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { isAccessRefusal } from "../utils/roomAccess";
+import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { focusThreadPaneState, roomPath, threadPath, withListParams } from "../utils/roomLinks";
 import { threadStartBlock } from "../utils/threadAccess";
 import {
   MAX_MESSAGE_BODY_LENGTH,
   MAX_THREAD_TITLE_LENGTH,
   isThreadDraftEmpty,
+  messageBodyError,
   reconcileThreadDraft,
   threadCreateErrorMessage,
   threadFormValidation,
@@ -47,6 +49,7 @@ import { roomKeys } from "../utils/roomKeys";
  */
 function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly WorkflowField[] }) {
   const { t } = useTranslation();
+  const admin = useAdmin();
   const navigate = useNavigate();
   const { search } = useLocation();
   const queryClient = useQueryClient();
@@ -59,6 +62,8 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
   }, [drafts, room.id, form.values]);
   const [submitting, setSubmitting] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
+  const [mentionRequest, setMentionRequest] = useState<MentionReplacementRequest | null>(null);
+  const canAddMembers = canManageRoom(room, admin);
   const bodyInput = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
@@ -101,9 +106,14 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
     }
   }
 
-  function addMention({ token }: AddedMention) {
+  function addMention({ token }: AddedMention, request: MentionReplacementRequest | null) {
     const values = bodyInput.current ? form.getValues() : drafts.get(room.id) ?? form.getValues();
-    const body = appendMentionToken(values.body, token);
+    const body = request === null ? appendMentionToken(values.body, token) : replaceMentionRequest(values.body, request, token);
+    const invalid = messageBodyError(body, t);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
     if (bodyInput.current) form.setFieldValue("body", body);
     drafts.set(room.id, { ...values, body });
   }
@@ -140,6 +150,7 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
               maxLength={MAX_MESSAGE_BODY_LENGTH}
               inputWrapperOrder={["label", "input", "description", "error"]}
               disabled={submitting}
+              onAddAndMention={canAddMembers ? setMentionRequest : undefined}
               // Ctrl/Cmd+Enter starts the thread, as it posts in the composer; Enter stays a newline (and picks, while the mention list is open).
               onKeyDown={(event) => {
                 if (isSendShortcut(event) && !submitting && !addingMember) {
@@ -172,6 +183,7 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
           {error && <FormErrorAlert>{error}</FormErrorAlert>}
           <Group justify="flex-end">
             <AddAndMention room={room} disabled={submitting} onMention={addMention} onBusyChange={setAddingMember}
+              request={mentionRequest} onRequestClose={() => setMentionRequest(null)}
               focusAfterAdd={() => bodyInput.current?.querySelector("textarea")?.focus()} />
             <Button type="button" variant="default" onClick={guard.requestCancel} disabled={submitting || addingMember}>
               {t("common.action.cancel")}

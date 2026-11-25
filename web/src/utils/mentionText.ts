@@ -177,6 +177,16 @@ export function editCanonical(
 /** The `@term` being typed: `from` is the shown offset of the `@`, `term` what follows it up to the caret. */
 export type MentionQuery = { from: number; term: string };
 
+/** A canonical unfinished `@term`, captured before the directory dialog opens. */
+export type MentionReplacementRequest = { from: number; to: number; source: string; term: string };
+
+/** Capture the canonical range represented by a shown mention query. */
+export function mentionReplacementRequest(shown: Shown, query: MentionQuery): MentionReplacementRequest {
+  const from = toCanonicalOffset(shown, query.from);
+  const to = toCanonicalOffset(shown, query.from + 1 + query.term.length);
+  return { from, to, source: shown.canonical.slice(from, to), term: query.term.trim() };
+}
+
 function insideMention(shown: Shown, offset: number): boolean {
   return shown.pieces.some((piece) => piece.atomic !== undefined && offset >= piece.sStart && offset < shownEnd(piece));
 }
@@ -222,4 +232,12 @@ export function pickToken(shown: Shown, query: MentionQuery, caret: number, toke
 /** Append a canonical mention while retaining the existing draft text. */
 export function appendMentionToken(body: string, token: string): string {
   return `${body}${body !== "" && !/\s$/.test(body) ? " " : ""}${token} `;
+}
+
+/** Replace the still-current directory query, or append without overwriting a draft that changed while the member add travelled. */
+export function replaceMentionRequest(body: string, request: MentionReplacementRequest, token: string): string {
+  if (body.slice(request.from, request.to) !== request.source) return appendMentionToken(body, token);
+  const following = body[request.to];
+  const insert = following === " " || following === "\n" ? token : `${token} `;
+  return body.slice(0, request.from) + insert + body.slice(request.to);
 }

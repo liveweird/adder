@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { appendMentionToken, editCanonical, mentionQuery, pickMention, pickToken, toShown, toShownOffset } from "./mentionText";
+import { appendMentionToken, editCanonical, mentionQuery, pickMention, pickToken, replaceMentionRequest, toShown, toShownOffset } from "./mentionText";
 
 const NAMES = new Map<number, string>([
   [5, "Ann Owner"],
@@ -13,6 +13,12 @@ test("an added member's token preserves existing line breaks and separates ordin
   expect(appendMentionToken("", "<@7>")).toBe("<@7> ");
   expect(appendMentionToken("Draft", "<@7>")).toBe("Draft <@7> ");
   expect(appendMentionToken("A new line\n", "<@7>")).toBe("A new line\n<@7> ");
+});
+
+test("an added member replaces the unfinished query without disturbing either side of the draft", () => {
+  const request = { from: 7, to: 11, source: "@New", term: "New" };
+  expect(replaceMentionRequest("Before @New after", request, "<@91>")).toBe("Before <@91> after");
+  expect(replaceMentionRequest("A changed draft", request, "<@91>")).toBe("A changed draft <@91> ");
 });
 
 /** The box after the user replaced shown `[from, to)` with `typed`, the caret right after it (as a browser reports it). */

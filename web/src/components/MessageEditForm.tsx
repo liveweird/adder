@@ -2,14 +2,15 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Group, Stack } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAdmin } from "../auth";
 import { editMessage, type MessageResponse } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import { useKnownNames } from "../utils/knownNames";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
-import { appendMentionToken } from "../utils/mentionText";
+import { appendMentionToken, replaceMentionRequest, type MentionReplacementRequest } from "../utils/mentionText";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { isAccessRefusal } from "../utils/roomAccess";
+import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { MAX_MESSAGE_BODY_LENGTH, messageBodyError, normalizeBody } from "../utils/threadForm";
 import ConfirmActionModal from "./ConfirmActionModal";
 import AddAndMention from "./AddAndMention";
@@ -39,6 +40,7 @@ export default function MessageEditForm({
   onError: (message: string | null) => void;
 }) {
   const { t } = useTranslation();
+  const admin = useAdmin();
   const queryClient = useQueryClient();
   const original = message.body ?? "";
   const known = useKnownNames();
@@ -51,6 +53,8 @@ export default function MessageEditForm({
   });
   const [saving, setSaving] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
+  const [mentionRequest, setMentionRequest] = useState<MentionReplacementRequest | null>(null);
+  const canAddMembers = room !== undefined && canManageRoom(room, admin);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   // The in-flight guard is a ref: a held Ctrl+Enter fires again before the state of the first press has rendered (the composer's shape).
@@ -95,6 +99,7 @@ export default function MessageEditForm({
           maxLength={MAX_MESSAGE_BODY_LENGTH}
           value={text}
           onChange={setText}
+          onAddAndMention={canAddMembers ? setMentionRequest : undefined}
           readOnly={saving || addingMember}
           inputWrapperOrder={["label", "input", "description", "error"]}
           onKeyDown={(event) => {
@@ -106,8 +111,13 @@ export default function MessageEditForm({
         />
       </div>
       <Group justify="flex-end" gap="xs">
-        {room && <AddAndMention room={room} disabled={saving} onMention={({ token }) => setText((current) => appendMentionToken(current, token))}
-          onBusyChange={setAddingMember} focusAfterAdd={() => box.current?.querySelector("textarea")?.focus()} />}
+        {room && <AddAndMention room={room} disabled={saving} request={mentionRequest} onRequestClose={() => setMentionRequest(null)}
+          onMention={({ token }, request) => setText((current) => {
+            const next = request === null ? appendMentionToken(current, token) : replaceMentionRequest(current, request, token);
+            const invalid = messageBodyError(next, t);
+            onError(invalid);
+            return invalid ? current : next;
+          })} onBusyChange={setAddingMember} focusAfterAdd={() => box.current?.querySelector("textarea")?.focus()} />}
         <Button variant="default" size="compact-sm" onClick={() => (dirty ? setConfirmCancel(true) : onDone())} disabled={saving || addingMember}>
           {t("common.action.cancel")}
         </Button>

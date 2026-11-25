@@ -174,6 +174,8 @@
     "hint": "Możesz używać Markdowna. Ctrl+Enter lub Cmd+Enter wysyła, Enter dodaje wiersz.",
     "send": "Wyślij",
     "addAndMention": "Dodaj i wspomnij",
+    "addAndMentionTerm": "Dodaj i wspomnij „{{term}}”",
+    "addAndMentionTermHint": "Wyszukaj w katalogu",
     "addAndMentionTitle": "Dodaj osobę do tego pokoju",
     "addAndMentionDescription": "Wybierz osobę z katalogu. Najpierw dodamy ją do pokoju, a potem wstawimy wspomnienie do niezmienionej wersji roboczej.",
     "closed": "Ten wątek jest zamknięty, więc nie przyjmuje nowych wiadomości. Może go otworzyć ponownie jego właściciel/ka, właściciel/ka pokoju lub administrator/ka.",

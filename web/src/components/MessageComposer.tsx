@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Alert, Anchor, Button, Group, Stack, Text, VisuallyHidden } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconSend } from "@tabler/icons-react";
+import { useAdmin } from "../auth";
 import { postMessage } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import type { ThreadResponse } from "../api/threads";
@@ -15,9 +16,10 @@ import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from ".
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
 import { blankQuote, quoteDraftExcerpt, reconcileQuote } from "../utils/quoteDraft";
-import { isAccessRefusal } from "../utils/roomAccess";
+import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { roomMembersPath } from "../utils/roomLinks";
 import { MAX_MESSAGE_BODY_LENGTH, messageBodyError, normalizeBody } from "../utils/threadForm";
+import { appendMentionToken, replaceMentionRequest, type MentionReplacementRequest } from "../utils/mentionText";
 import AddAndMention from "./AddAndMention";
 import ComposerQuote from "./ComposerQuote";
 import FormErrorAlert from "./FormErrorAlert";
@@ -77,6 +79,7 @@ const QUOTE_FOCUS_DELAY_MS = 40;
  */
 function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerProps) {
   const { t } = useTranslation();
+  const admin = useAdmin();
   const hintId = useId();
   const queryClient = useQueryClient();
   const drafts = useThreadDrafts();
@@ -93,6 +96,8 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
   if (reconciled !== quote) setQuote(reconciled);
   const [error, setError] = useState<string | null>(null);
   const [addingMember, setAddingMember] = useState(false);
+  const [mentionRequest, setMentionRequest] = useState<MentionReplacementRequest | null>(null);
+  const canAddMembers = canManageRoom(room, admin);
   const form = useRef<HTMLFormElement>(null);
   const focusBox = useCallback(() => form.current?.querySelector("textarea")?.focus(), []);
   useEffect(() => {
@@ -195,6 +200,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
           maxLength={MAX_MESSAGE_BODY_LENGTH}
           value={text}
           onChange={setText}
+          onAddAndMention={canAddMembers ? setMentionRequest : undefined}
           // Read-only, not disabled: a disabled box would drop the caret the reader is writing the next line at.
           readOnly={posting}
           onKeyDown={(event) => {
@@ -205,7 +211,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
           }}
         />
         {error && <FormErrorAlert>{error}</FormErrorAlert>}
-        <Group justify="space-between" align="center" gap="sm" wrap="nowrap" className={classes.footer}>
+        <Group justify="space-between" align="center" gap="sm" wrap="wrap" className={classes.footer}>
           <div className={classes.footerNote}>
             <Text id={hintId} size="xs" c="dimmed" component="span" className={classes.hint}>
               {t("threads.composer.hint")}
@@ -219,11 +225,17 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
               room={room}
               disabled={posting}
               onBusyChange={setAddingMember}
-              onMention={({ token }) => {
+              request={mentionRequest}
+              onRequestClose={() => setMentionRequest(null)}
+              onMention={({ token }, request) => {
                 // The composer may have been unmounted while the member write travelled. The provider outlives room navigation, so write the
                 // latest kept draft directly; returning to this thread must not lose a successfully requested mention.
                 const current = drafts.getReply(room.id, thread.number);
-                const next = `${current}${current.length > 0 && !/\s$/.test(current) ? " " : ""}${token} `;
+                const next = request === null ? appendMentionToken(current, token) : replaceMentionRequest(current, request, token);
+                if (next.length > MAX_MESSAGE_BODY_LENGTH) {
+                  setError(messageBodyError(next, t));
+                  return;
+                }
                 drafts.setReply(room.id, thread.number, next);
                 setText(next);
               }}

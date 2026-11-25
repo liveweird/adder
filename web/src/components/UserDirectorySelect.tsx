@@ -5,7 +5,7 @@ import SearchPicker, { type PickedOption } from "./SearchPicker";
 
 /** The server's page cap for the directory (its own, lower than the shared 100) and the shortest term it accepts. */
 const DIRECTORY_PAGE_SIZE = 20;
-const DIRECTORY_MIN_TERM = 2;
+export const DIRECTORY_MIN_TERM = 2;
 const DIRECTORY_MAX_TERM = 100;
 
 /**
@@ -21,6 +21,7 @@ export default function UserDirectorySelect({
   disabled,
   error,
   exclude,
+  initialSearch,
 }: {
   /** Replaces the default "User" field label where the control means something more specific. */
   label?: string;
@@ -32,6 +33,8 @@ export default function UserDirectorySelect({
   error?: ReactNode;
   /** User ids (as option values) not offered, e.g. the current roster. */
   exclude?: ReadonlySet<string>;
+  /** Prefills a newly opened directory picker without choosing a person. */
+  initialSearch?: string;
 }) {
   const { t } = useTranslation();
   return (
@@ -43,6 +46,7 @@ export default function UserDirectorySelect({
       noMatchLabel={t("common.picker.user.noMatch")}
       minTermLength={DIRECTORY_MIN_TERM}
       maxLength={DIRECTORY_MAX_TERM}
+      initialSearch={initialSearch}
       exclude={exclude}
       minTermHint={t("common.picker.user.minChars", { count: DIRECTORY_MIN_TERM })}
       queryKey={["users", "directory"]}
