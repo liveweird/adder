@@ -17,6 +17,24 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.19.0",
+    date: "2026-11-26",
+    en: `**Adder 1.19.0 — thread workflow and conversation**
+
+- Use **Thread actions** to delete a thread or merge a duplicate in the same room. The original link opens the duplicate's read-only conversation and points to the destination for new replies. Deleting the destination also deletes its merged conversations.
+- Follow status, ownership, and other workflow changes inline between replies. Open **Details** for the full history.
+- Choose **Quote in another thread…** to carry a message to another conversation. Readers can view and open the quote while they have access to its source.
+- Receive a notice when someone reacts to your message. Team mention notices name the team when you still belong to it.
+- Mentions and hashtags in indented code, raw HTML, and image alt text are now ignored.`,
+    pl: `**Adder 1.19.0 — obieg pracy i rozmowy w wątkach**
+
+- Użyj menu **Działania wątku**, aby usunąć wątek lub scalić duplikat z innym wątkiem w tym samym pokoju. Dotychczasowy link otwiera rozmowę tylko do odczytu i prowadzi do wątku, w którym można dalej odpowiadać. Usunięcie wątku docelowego usuwa też scalone z nim rozmowy.
+- Śledź zmiany statusu, właściciela lub właścicielki i inne zdarzenia obiegu pracy między odpowiedziami. W **Szczegółach** znajdziesz pełną historię.
+- Wybierz **Cytuj w innym wątku…**, aby przenieść cytat do innej rozmowy. Osoby z dostępem do wiadomości źródłowej mogą zobaczyć cytat i otworzyć oryginał.
+- Otrzymuj powiadomienia o reakcjach na Twoje wiadomości. Powiadomienie o wzmiance podaje nazwę zespołu, jeśli nadal do niego należysz.
+- Wzmianki i hashtagi we wciętych blokach kodu, surowym HTML-u i tekście alternatywnym obrazów są pomijane.`,
+  },
+  {
     version: "1.18.0",
     date: "2026-11-25",
     en: `**Adder 1.18.0 — chat and notification controls**
