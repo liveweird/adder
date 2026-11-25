@@ -70,13 +70,19 @@ internal const val UNREAD_PREDICATE_ARGUMENTS = 3
  * `idx_messages_thread`, a probe that stops at the first hit, at most [MAX_UNREAD_COUNT] index entries a thread. Three `?` in order: the
  * floor, the member, the floor again. Constant text (an [Op] splices the arguments in), the same plan custom and generic.
  */
-internal const val UNREAD_PREDICATE_SQL = """(threads.last_activity_at > CAST(? AS int8) AND EXISTS (
+private const val UNREAD_PREDICATE_START = """(threads.last_activity_at > """
+private const val UNREAD_PREDICATE_AFTER_FLOOR = """ AND EXISTS (
   SELECT 1 FROM (SELECT m.created_at FROM messages m
                  WHERE m.thread_id = threads.id
                    AND m.id > COALESCE((SELECT r.last_read_message_id FROM thread_reads r
-                                        WHERE r.user_id = CAST(? AS int8) AND r.thread_id = threads.id), 0)
+                                        WHERE r.user_id = """
+private const val UNREAD_PREDICATE_AFTER_USER = """ AND r.thread_id = threads.id), 0)
                  ORDER BY m.id DESC LIMIT $MAX_UNREAD_COUNT) recent
-  WHERE recent.created_at > CAST(? AS int8)))"""
+  WHERE recent.created_at > """
+private const val UNREAD_PREDICATE_END = "))"
+
+internal const val UNREAD_PREDICATE_SQL = UNREAD_PREDICATE_START + "CAST(? AS int8)" +
+    UNREAD_PREDICATE_AFTER_FLOOR + "CAST(? AS int8)" + UNREAD_PREDICATE_AFTER_USER + "CAST(? AS int8)" + UNREAD_PREDICATE_END
 
 /**
  * `unread=true` for the caller [userId] whose floor of unread counting is [floor] (`RoomMemberService.unreadSince`): a predicate on the
@@ -84,6 +90,13 @@ internal const val UNREAD_PREDICATE_SQL = """(threads.last_activity_at > CAST(? 
  * non-null columns), so the complement is exact.
  */
 internal fun threadUnreadFor(userId: UInt, floor: Long): Op<Boolean> = UnreadThreads(userId, floor)
+
+/**
+ * The same unread predicate for a search whose rows may belong to several rooms. Each outer thread resolves the caller's floor from
+ * its own membership through the room/user key. The canonical unread probe is nested in a correlated membership `EXISTS`, so a missing
+ * membership is false and the negated predicate is the exact unread=false complement (the ADMIN-outside-a-room rule).
+ */
+internal fun threadUnreadForMembership(userId: UInt): Op<Boolean> = MembershipUnreadThreads(userId)
 
 private class UnreadThreads(private val userId: UInt, private val floor: Long) : Op<Boolean>() {
     init {
@@ -93,14 +106,37 @@ private class UnreadThreads(private val userId: UInt, private val floor: Long) :
     }
 
     override fun toQueryBuilder(queryBuilder: QueryBuilder) {
-        val arguments = listOf(floor, userId.toLong(), floor)
+        queryBuilder.appendUnreadPredicate(userId) { appendLong(floor) }
+    }
+}
+
+private class MembershipUnreadThreads(private val userId: UInt) : Op<Boolean>() {
+    override fun toQueryBuilder(queryBuilder: QueryBuilder) {
         queryBuilder {
-            UNREAD_PREDICATE_SQL.split('?').forEachIndexed { index, text ->
-                if (index > 0) append(longParam(arguments[index - 1]))
-                append(text)
-            }
+            append("EXISTS (SELECT 1 FROM room_members rm WHERE rm.room_id = threads.room_id AND rm.user_id = ")
+            appendLong(userId.toLong())
+            append(" AND ")
+            appendUnreadPredicate(userId) { append("GREATEST(rm.read_from, rm.added_at)") }
+            append(")")
         }
     }
+}
+
+/** Append the one canonical unread probe with either a fixed floor or the correlated membership floor. */
+private fun QueryBuilder.appendUnreadPredicate(userId: UInt, appendFloor: QueryBuilder.() -> Unit) {
+    append(UNREAD_PREDICATE_START)
+    appendFloor()
+    append(UNREAD_PREDICATE_AFTER_FLOOR)
+    appendLong(userId.toLong())
+    append(UNREAD_PREDICATE_AFTER_USER)
+    appendFloor()
+    append(UNREAD_PREDICATE_END)
+}
+
+private fun QueryBuilder.appendLong(value: Long) {
+    append("CAST(")
+    append(longParam(value))
+    append(" AS int8)")
 }
 
 /** What a member has not read of one thread: [count] (0 to [MAX_UNREAD_COUNT]) and the first of those messages, null for none. */

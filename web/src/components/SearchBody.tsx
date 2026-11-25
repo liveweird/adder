@@ -20,7 +20,8 @@ import SearchResults from "./SearchResults";
 const SEARCH_STALE_MS = 30_000;
 
 /** What an empty answer says: the term alone, the watched list, the tag view, or the pair of them (each says which filter found nothing). */
-function emptyMessage(t: TFunction, { q, watching, tagged }: { q: string; watching: boolean; tagged: boolean }): string {
+function emptyMessage(t: TFunction, { q, watching, unread, tagged }: { q: string; watching: boolean; unread: boolean; tagged: boolean }): string {
+  if (unread) return t("search.unread.empty");
   if (!watching && !tagged) return t("search.empty", { q });
   const base = watching ? (tagged ? "search.watchingTagged" : "search.watching") : "search.tags";
   return q === "" ? t(`${base}.empty`) : t(`${base}.emptyQ`, { q });
@@ -51,14 +52,14 @@ export default function SearchBody({
   roomId?: number;
 }) {
   const { t } = useTranslation();
-  const { state, submit, setScope, setWatching, setThreadTag, setPage, resetPage } = useSearchUrl();
-  const { q, syntax, timeZone, scope, watching, threadTag, page } = state;
+  const { state, submit, setScope, setWatching, setUnread, setThreadTag, setPage, resetPage } = useSearchUrl();
+  const { q, syntax, timeZone, scope, watching, unread, threadTag, page } = state;
   const structured = syntax === "structured";
   // A term the URL holds but the server would refuse (hand-edited, too short) is never sent; the form says why. With the "Threads I watch"
   // toggle on or a tag picked, no term at all is a search too: the threads the caller watches, or the ones that carry a chosen tag.
   const searchable = isSearchable(state);
   const { data, isLoading, isError, error, isPlaceholderData, refetch } = useQuery({
-    queryKey: [...baseKey, q, scope, page, watching, threadTag, syntax, timeZone],
+    queryKey: [...baseKey, q, scope, page, watching, unread, threadTag, syntax, timeZone],
     queryFn: () =>
       fetchPage({
         q: q === "" ? undefined : q,
@@ -66,6 +67,7 @@ export default function SearchBody({
         pageSize: SEARCH_PAGE_SIZE,
         closed: scopeToClosed(scope),
         watching: watching || undefined,
+        unread: unread || undefined,
         threadTag: threadTag.length > 0 ? threadTag : undefined,
         ...(structured ? { syntax, timeZone } : {}),
       }),
@@ -84,7 +86,7 @@ export default function SearchBody({
   }, [emptied, resetPage]);
 
   const answered = searchable && data !== undefined;
-  const emptyLabel = emptyMessage(t, { q, watching, tagged: threadTag.length > 0 });
+  const emptyLabel = emptyMessage(t, { q, watching, unread, tagged: threadTag.length > 0 });
   return (
     <Stack gap="md">
       {/* Submitting the term that is already searched reads it again (the way to retry a failed search, or to refresh a stale one); a new term is a new URL. */}
@@ -93,11 +95,13 @@ export default function SearchBody({
         q={q}
         scope={scope}
         watching={watching}
+        unread={unread}
         threadTag={threadTag}
         structured={structured}
         onSubmit={(next, nextStructured) => (next === q && nextStructured === structured ? void refetch() : submit(next, nextStructured))}
         onScope={setScope}
         onWatching={setWatching}
+        onUnread={setUnread}
         onThreadTag={setThreadTag}
         assistantRoomId={roomId}
         assistantStatuses={statuses}

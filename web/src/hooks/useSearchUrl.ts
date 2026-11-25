@@ -20,9 +20,10 @@ export function useSearchUrl() {
   })), [setSearch]);
   const setScope = useCallback((scope: Scope) => setSearch((prev) => writeSearchParams(prev, { scope }), { replace: true }), [setSearch]);
   const setWatching = useCallback((watching: boolean) => setSearch((prev) => writeSearchParams(prev, { watching }), { replace: true }), [setSearch]);
+  const setUnread = useCallback((unread: boolean) => setSearch((prev) => writeSearchParams(prev, { unread }), { replace: true }), [setSearch]);
   const setThreadTag = useCallback((threadTag: string[]) => setSearch((prev) => writeSearchParams(prev, { threadTag }), { replace: true }), [setSearch]);
   const setPage = useCallback((page: number) => setSearch((prev) => writeSearchParams(prev, { page })), [setSearch]);
   /** The page was emptied under the reader (the results shrank, or a hand-edited `page=99`): back to the first, by `replace`. */
   const resetPage = useCallback(() => setSearch((prev) => writeSearchParams(prev, { page: 1 }), { replace: true }), [setSearch]);
-  return { state, submit, setScope, setWatching, setThreadTag, setPage, resetPage };
+  return { state, submit, setScope, setWatching, setUnread, setThreadTag, setPage, resetPage };
 }

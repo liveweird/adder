@@ -101,8 +101,8 @@ fun validateSearchQuery(raw: String?): String {
 }
 
 /**
- * The parameters of a search request, validated: the query ([q] is null ONLY with [watching] `true` (the "Threads I watch" view) or a
- * [threadTags] name (the tag view)), the strict `closed` and `watching` booleans (null = both / no filter), the CURATED tag names
+ * The parameters of a search request, validated: the query ([q] is null ONLY with [watching] `true`, an [unread] filter, or a
+ * [threadTags] name), the strict `closed`, `watching`, and `unread` booleans (null = both / no filter), the CURATED tag names
  * ([threadTags]: normalised, grammar-checked, at most [MAX_FILTER_VALUES] distinct, any-of; empty = no filter) and the page.
  */
 internal class SearchParams(
@@ -110,6 +110,7 @@ internal class SearchParams(
     val structured: StructuredSearch?,
     val closed: Boolean?,
     val watching: Boolean?,
+    val unread: Boolean?,
     val paging: PageRequest,
     val threadTags: List<String> = emptyList(),
 )
@@ -117,14 +118,17 @@ internal class SearchParams(
 /**
  * Reads and validates `q`, `closed`, `watching`, `threadTag`, `page`, `pageSize` (at most [MAX_SEARCH_PAGE_SIZE]) and `sort` of a search;
  * every violation is a `400` and none of them names the term. A repeated scalar key is a `400` (`singleValue`); `threadTag` is the thread
- * list's repeated key, parsed by the same function. `q` is REQUIRED unless `watching` is `true` or a `threadTag` is given (a blank `q`
- * counts as none there, as everywhere); with either, a given `q` is validated as ever.
+ * list's repeated key, parsed by the same function. `q` is REQUIRED unless `watching` is `true`, `unread` is present, or a `threadTag`
+ * is given (a blank `q` counts as none there, as everywhere); with any of them, a given `q` is validated as ever.
  */
 internal fun ApplicationCall.parseSearchParams(): SearchParams {
     val paging = parsePaging(sortable = SEARCH_SORT_FIELDS, defaultSort = SEARCH_DEFAULT_SORT)
     if (paging.pageSize > MAX_SEARCH_PAGE_SIZE) throw BadRequestException("pageSize must be between 1 and $MAX_SEARCH_PAGE_SIZE")
     val params = request.queryParameters
     val watching = params.optionalBoolean("watching")
+    val unread = params.singleValue("unread")?.let { value ->
+        value.toBooleanStrictOrNull() ?: throw BadRequestException("unread must be true or false")
+    }
     val threadTags = params.threadTagFilter()
     val syntax = params.optionalString("syntax")
     if (syntax != null && syntax != "structured") throw BadRequestException("Unsupported search syntax")
@@ -137,7 +141,7 @@ internal fun ApplicationCall.parseSearchParams(): SearchParams {
         null
     }
     return SearchParams(
-        q = if (structured != null) null else if ((watching == true || threadTags.isNotEmpty()) && raw == null) {
+        q = if (structured != null) null else if ((watching == true || unread != null || threadTags.isNotEmpty()) && raw == null) {
             null
         } else {
             validateSearchQuery(raw)
@@ -145,6 +149,7 @@ internal fun ApplicationCall.parseSearchParams(): SearchParams {
         structured = structured,
         closed = params.optionalBoolean("closed"),
         watching = watching,
+        unread = unread,
         paging = paging,
         threadTags = threadTags,
     )

@@ -47,3 +47,13 @@ the action that caused it. Threads the scenario is not about are seeded through 
 4. The teammate reloads the page, then turns the switch off.
    - *Expected*: after the reload both watched threads are still listed; after the switch is turned off the address no longer holds `watching` and no results are shown
      (a search needs a term when the switch is off).
+
+## Scenario: the unread filter lists unread threads in the room and across rooms
+
+1. The creator makes two rooms, adds the teammate, and creates one read control plus two threads that will receive unread replies. The teammate marks both rooms read, then the creator posts `#urgent` replies to one thread in each room.
+2. The teammate opens the first room's Search tab and turns on **Unread** with an empty query.
+   - *Expected*: the address holds `unread=me`; only the thread with the reply is listed, with no text-match requirement.
+3. The teammate searches for `status:open hashtag:urgent` while **Unread** stays on.
+   - *Expected*: the same unread thread remains and the URL retains `unread=me`; the structured clauses and unread state are combined with AND.
+4. The teammate opens `/search?unread=me`.
+   - *Expected*: **Unread** is on and exactly the two unread threads are listed, one from each room; the read control is absent.

@@ -53,6 +53,8 @@ export interface SearchState {
   scope: Scope;
   /** The "Threads I watch" toggle (`watching=1`): only the threads the caller watches; with no term it lists them all. */
   watching: boolean;
+  /** The caller's unread threads (`unread=me`); with no term it lists them all. */
+  unread: boolean;
   /**
    * Any-of these CURATED tags (`threadTag`, repeated; the thread list's key and grammar, lower-cased; empty = no filter). A tag alone is a search
    * (1.2 D3): like the toggle above, it makes the term optional. A retired tag still finds the threads that kept it.
@@ -76,6 +78,7 @@ export function parseSearchParams(search: URLSearchParams): SearchState {
     ...(structured ? { syntax: "structured", ...(timeZone ? { timeZone } : {}) } : {}),
     scope: SCOPES.find((value) => value === scope) ?? DEFAULT_SEARCH_SCOPE,
     watching: search.get("watching") === "1",
+    unread: search.get("unread") === "me",
     threadTag: threadTagValues(search),
     page: page !== null && PAGE.test(page) ? Number(page) : 1,
   };
@@ -89,7 +92,7 @@ export function writeSearchParams(base: URLSearchParams, patch: Partial<SearchSt
   const next = { ...parseSearchParams(base), ...patch };
   if (patch.page === undefined) next.page = 1;
   const out = new URLSearchParams(base);
-  for (const key of ["q", "syntax", "timeZone", "scope", "watching", "threadTag", "page"]) out.delete(key);
+  for (const key of ["q", "syntax", "timeZone", "scope", "watching", "unread", "threadTag", "page"]) out.delete(key);
   if (next.q !== "") out.set("q", next.q);
   if (next.q !== "" && next.syntax === "structured") {
     out.set("syntax", next.syntax);
@@ -97,6 +100,7 @@ export function writeSearchParams(base: URLSearchParams, patch: Partial<SearchSt
   }
   if (next.scope !== DEFAULT_SEARCH_SCOPE) out.set("scope", next.scope);
   if (next.watching) out.set("watching", "1");
+  if (next.unread) out.set("unread", "me");
   for (const tag of next.threadTag) out.append("threadTag", tag);
   if (next.page !== 1) out.set("page", String(next.page));
   return out;
@@ -112,11 +116,11 @@ export const searchResultsPath = (path: string, q: string) => `${path}?${writeSe
 export const watchedThreadsPath = (path: string) => `${path}?${writeSearchParams(new URLSearchParams(), { watching: true })}`;
 
 /**
- * Whether the state can be sent: a term the server accepts, or, with the "Threads I watch" toggle on or a tag picked, no term at all (the
- * server makes `q` optional ONLY with `watching=true` or a `threadTag`; a term that is given is validated as ever).
+ * Whether the state can be sent: a term the server accepts, or, with a personal toggle on or a tag picked, no term at all (the server
+ * makes `q` optional ONLY with `watching=true`, `unread=true`, or a `threadTag`; a term that is given is validated as ever).
  */
-export const isSearchable = ({ q, syntax, watching, threadTag }: Pick<SearchState, "q" | "syntax" | "watching" | "threadTag">): boolean =>
-  q === "" ? watching || threadTag.length > 0 : queryProblem(q, syntax === "structured") === null;
+export const isSearchable = ({ q, syntax, watching, unread, threadTag }: Pick<SearchState, "q" | "syntax" | "watching" | "unread" | "threadTag">): boolean =>
+  q === "" ? watching || unread || threadTag.length > 0 : queryProblem(q, syntax === "structured") === null;
 
 /**
  * The words for a failed search: three different 429s each say what to do (the bucket: wait; `search-timeout`: narrow the search;

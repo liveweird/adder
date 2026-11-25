@@ -70,6 +70,11 @@
     "empty": "Nie obserwujesz żadnych wątków.",
     "emptyQ": "Żaden z obserwowanych przez Ciebie wątków nie pasuje do „{{q}}”."
   },
+  "unread": {
+    "label": "Nieprzeczytane",
+    "hintOn": "Tylko wątki z nieprzeczytanymi wiadomościami — wpisz frazę, aby je zawęzić.",
+    "empty": "Żadne nieprzeczytane wątki nie pasują do tych filtrów."
+  },
   "watchingTagged": {
     "empty": "Żaden z obserwowanych przez Ciebie wątków nie ma tych tagów.",
     "emptyQ": "Żaden z obserwowanych przez Ciebie wątków z tymi tagami nie pasuje do „{{q}}”."
