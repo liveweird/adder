@@ -39,6 +39,7 @@ export default function SearchBody({
   showRoom,
   onGone,
   initialLabel,
+  roomId,
 }: {
   label: string;
   baseKey: readonly unknown[];
@@ -47,6 +48,7 @@ export default function SearchBody({
   showRoom: boolean;
   onGone?: () => void;
   initialLabel?: string;
+  roomId?: number;
 }) {
   const { t } = useTranslation();
   const { state, submit, setScope, setWatching, setThreadTag, setPage, resetPage } = useSearchUrl();
@@ -97,6 +99,8 @@ export default function SearchBody({
         onScope={setScope}
         onWatching={setWatching}
         onThreadTag={setThreadTag}
+        assistantRoomId={roomId}
+        assistantStatuses={statuses}
       />
       {!searchable && initialLabel && <EmptyState icon={IconSearch} label={initialLabel} />}
       {searchable && isError && <FormErrorAlert>{searchErrorMessage(error, t, structured)}</FormErrorAlert>}

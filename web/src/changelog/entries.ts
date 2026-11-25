@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.11.0",
+    date: "2026-11-25",
+    en: `**Adder 1.11.0 — search by status and hashtag**
+
+- Use **status:investigating** to filter by a thread's current workflow status and **hashtag:incident** to find messages tagged #incident.
+- Combine the new filters in global, room or in-thread search. In global search, select a room to get suggestions from its workflow and hashtags.`,
+    pl: `**Adder 1.11.0 — wyszukiwanie według statusu i hashtagu**
+
+- Użyj **status:investigating**, aby filtrować wątki według bieżącego statusu, oraz **hashtag:incident**, aby znaleźć wiadomości oznaczone #incident.
+- Łącz nowe filtry podczas wyszukiwania globalnego, w pokoju lub w wątku. W wyszukiwaniu globalnym wybierz pokój, aby zobaczyć podpowiedzi jego statusów i hashtagów.`,
+  },
+  {
     version: "1.10.0",
     date: "2026-11-25",
     en: `**Adder 1.10.0 — find in thread**

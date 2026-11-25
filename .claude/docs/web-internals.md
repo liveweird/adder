@@ -248,6 +248,10 @@ A watch is the caller's own state (`chat-model.md` "Watching (V26)"): `ThreadRes
 
 ### Search
 
+**Status and hashtag suggestions (1.11.0).** The query assistant offers `status:` and `hashtag:`, with room-specific values on the room
+and thread views. In global search, select a joined room with `in:` to see its values. The status suggestion shows its workflow label
+and inserts the stable key. Hashtag suggestions use the existing room index.
+
 **Find in thread (1.10.0).** The thread header opens a keyboard-accessible in-thread search panel. The submitted query uses the same syntax
 and suggestions as room and global search. Results are a page of matching messages, including author, date and a highlighted excerpt.
 Selecting one closes the panel and follows the regular message anchor. The panel retains its draft and result page while the reader stays in

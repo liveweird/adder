@@ -386,6 +386,13 @@ whole-word matching for queries without operators. Sharing the URL retains the m
 
 Example: `"disk alert" -test in:"On Call" from:"Alex Kim" during:2026-11 has:link`.
 
+### Status and hashtag filters (1.11.0)
+
+Use `status:investigating` for a thread's current workflow key. A valid key the thread does not use produces no match. Existing thread
+state and other filters still narrow the results. Use `hashtag:incident` or `hashtag:#incident` to require the indexed hashtag on the same live message that
+satisfies the other message clauses. Hashtags match exactly after the existing normalization. An edit or deletion that removes a tag
+removes the match. Other query limits and authorization apply in global, room and thread search.
+
 ### The SPA's half of Find
 
 - **The list's state is the URL** (0.5 A13): `scope`, `order`, `status`, `owner` (an id or `me`), `tag`, `field`, `page`, `focus`, `message`; junk is dropped and defaults are omitted; a filter change deletes `page` and uses `replace`; every in-room link keeps the list keys. The last non-default query per room is remembered (`roomThreads.<id>.query`) and restored once on a bare Threads view; "Clear filters" forgets it. The old per-room `scope` and `order` localStorage keys are dropped.

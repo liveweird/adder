@@ -7,6 +7,8 @@ const SEARCH_OPERATORS = [
   "before",
   "after",
   "during",
+  "status",
+  "hashtag",
   "has",
 ] as const;
 
@@ -24,7 +26,7 @@ export type SearchTokenContext = {
 };
 
 export type SearchOperatorSuggestion = {
-  id: "in" | "from" | "with" | "owner" | "on" | "before" | "after" | "during" | "pin" | "link" | "reactionAny" | "reaction" | "emoji";
+  id: "in" | "from" | "with" | "owner" | "on" | "before" | "after" | "during" | "status" | "hashtag" | "pin" | "link" | "reactionAny" | "reaction" | "emoji";
   insert: string;
 };
 
@@ -37,6 +39,8 @@ const OPERATOR_SUGGESTIONS: readonly SearchOperatorSuggestion[] = [
   { id: "before", insert: "before:" },
   { id: "after", insert: "after:" },
   { id: "during", insert: "during:" },
+  { id: "status", insert: "status:" },
+  { id: "hashtag", insert: "hashtag:" },
   { id: "pin", insert: "has:pin" },
   { id: "link", insert: "has:link" },
   { id: "reactionAny", insert: "has:reaction" },
@@ -92,6 +96,25 @@ export function contextualSearchToken(query: string, caret: number): SearchToken
     operator,
     value: separator === -1 ? "" : text.slice(separator + 1),
   };
+}
+
+/** The one `in:` operand that can scope room-specific value suggestions, decoded but otherwise unchanged. */
+export function roomSelectionOperand(query: string): string | null {
+  const operands: string[] = [];
+  let cursor = 0;
+  while (cursor < query.length) {
+    while (/\s/u.test(query[cursor] ?? "")) cursor += 1;
+    if (cursor >= query.length) break;
+    const { end } = tokenBounds(query, cursor);
+    const token = query.slice(cursor, end);
+    if (/^in:/iu.test(token) && token.length > 3) operands.push(token.slice(3));
+    cursor = Math.max(end, cursor + 1);
+  }
+  if (operands.length !== 1) return null;
+  const value = operands[0];
+  return value.startsWith('"') && value.endsWith('"')
+    ? value.slice(1, -1).replace(/\\(["\\])/gu, "$1")
+    : value;
 }
 
 export function insertSearchToken(query: string, start: number, end: number, replacement: string): { query: string; caret: number } {

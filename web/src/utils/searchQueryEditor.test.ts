@@ -3,6 +3,7 @@ import {
   contextualSearchToken,
   insertSearchToken,
   operatorCorrection,
+  roomSelectionOperand,
   searchLookupTerm,
   searchOperatorSuggestions,
 } from "./searchQueryEditor";
@@ -54,6 +55,8 @@ describe("structured search query editor", () => {
       "has:emoji:",
     ]);
     expect(searchOperatorSuggestions("ordinary")).toEqual([]);
+    expect(searchOperatorSuggestions("sta").map((item) => item.insert)).toEqual(["status:"]);
+    expect(searchOperatorSuggestions("hash").map((item) => item.insert)).toEqual(["hashtag:"]);
   });
 
   test("bounds directory lookups and skips stable ids", () => {
@@ -73,5 +76,15 @@ describe("structured search query editor", () => {
     expect(operatorCorrection("disk befor:2026-01-01", 15)?.replacement).toBe("before:2026-01-01");
     expect(operatorCorrection("disk from:ada", 13)).toBeNull();
     expect(operatorCorrection("disk nonsense:ada", 13)).toBeNull();
+    expect(operatorCorrection("statsu:investigating", 20)?.replacement).toBe("status:investigating");
+    expect(operatorCorrection("hashtg:incident", 15)?.replacement).toBe("hashtag:incident");
+  });
+
+  test("finds one room operand for contextual status and hashtag suggestions", () => {
+    expect(roomSelectionOperand('outage in:"Night Shift" status:inv')).toBe("Night Shift");
+    expect(roomSelectionOperand("in:#12 hashtag:inc")).toBe("#12");
+    expect(roomSelectionOperand("in:#12 in:#13 status:inv")).toBeNull();
+    expect(roomSelectionOperand("status:inv")).toBeNull();
+    expect(roomSelectionOperand('"words in:#12" status:inv')).toBeNull();
   });
 });

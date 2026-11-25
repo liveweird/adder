@@ -35,12 +35,13 @@ internal data class ResolvedStructuredSearch(
     val textQueries: Map<SearchTextClause, String>,
 ) {
     val impossible: Boolean
-        get() = roomIds.isEmpty() || (authorIds + participantIds + ownerIds).any(Set<Long>::isEmpty)
+        get() = roomIds.isEmpty() || query.statuses.distinct().size > 1 ||
+            (authorIds + participantIds + ownerIds).any(Set<Long>::isEmpty)
 
     val hasPositiveText: Boolean get() = query.text.any { !it.excluded }
     val hasMessageSpecificExceptPin: Boolean
         get() = query.authors.isNotEmpty() || query.startMillis != null || query.endMillis != null || query.link ||
-            query.reactions.isNotEmpty() || query.emojis.isNotEmpty()
+            query.reactions.isNotEmpty() || query.emojis.isNotEmpty() || query.hashtags.isNotEmpty()
 
     fun headlineQuery(): String? = query.text.asSequence()
         .filter { !it.excluded && it.kind != SearchTextKind.PHRASE }
@@ -70,6 +71,7 @@ internal data class ResolvedStructuredSearch(
         var result = roomIdsSql(threadAlias)
         ownerIds.forEach { result = result.and(anyLong("$threadAlias.owner_id", it)) }
         participantIds.forEach { ids -> result = result.and(participantSql(threadAlias, ids)) }
+        query.statuses.forEach { result = result.and(SearchSql("$threadAlias.status_key = ?", listOf(TEXT_TYPE to it))) }
         return result
     }
 
@@ -93,6 +95,7 @@ internal data class ResolvedStructuredSearch(
         }
         query.emojis.forEach { add(SearchSql("strpos($messageAlias.body, ?) > 0", listOf(TEXT_TYPE to it))) }
         query.reactions.forEach { emoji -> add(reactionSql(messageAlias, emoji)) }
+        query.hashtags.forEach { tag -> add(hashtagSql(messageAlias, tag)) }
         if (query.pinned) {
             val otherMessageClauses = query.text.isNotEmpty() || hasMessageSpecificExceptPin
             add(if (otherMessageClauses) messageOrThreadPinSql(messageAlias, threadAlias) else messagePinSql(messageAlias))
@@ -251,6 +254,12 @@ private fun reactionSql(messageAlias: String, emoji: String?): SearchSql {
         specific.arguments,
     )
 }
+
+private fun hashtagSql(messageAlias: String, tag: String): SearchSql = SearchSql(
+    "(SELECT mt.message_id FROM message_tags mt WHERE mt.message_id = $messageAlias.id " +
+        "AND mt.tag = btrim(left(lower(public.unaccent(?)), $MAX_STORED_TAG_LENGTH)) LIMIT 1) IS NOT NULL",
+    listOf(TEXT_TYPE to tag),
+)
 
 private fun messageOrThreadPinSql(messageAlias: String, threadAlias: String): SearchSql = SearchSql(
     """(SELECT p.id FROM room_pins p

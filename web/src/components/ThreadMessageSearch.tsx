@@ -5,6 +5,7 @@ import { Anchor, Button, Group, Loader, Paper, Stack, Text, TextInput, UnstyledB
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { IconSearch, IconX } from "@tabler/icons-react";
 import { searchThreadMessages } from "../api/search";
+import type { RoomWorkflow } from "../api/rooms";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { messageJumpPath } from "../utils/roomLinks";
 import { roomKeys } from "../utils/roomKeys";
@@ -25,6 +26,7 @@ type Props = {
   focusView: boolean;
   onClose: () => void;
   onSelect: (messageId: number) => void;
+  statuses?: RoomWorkflow["statuses"];
 };
 
 type Submitted = { q: string; structured: boolean; zone?: string; page: number };
@@ -41,6 +43,7 @@ export default function ThreadMessageSearch({
   focusView,
   onClose,
   onSelect,
+  statuses,
 }: Props) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -178,6 +181,8 @@ export default function ThreadMessageSearch({
             structured={structuredDraft}
             onModeChange={setModeOverride}
             onInsert={insert}
+            roomId={roomId}
+            statuses={statuses}
           />
         </Stack>
       </form>

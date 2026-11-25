@@ -28,7 +28,11 @@
     "applyCorrection": "Use suggestion",
     "suggestions": {
       "label": "Search suggestions",
-      "room": "Room"
+      "room": "Room",
+      "status": "Status · {{key}}",
+      "hashtag_one": "Hashtag · {{count}} thread",
+      "hashtag_other": "Hashtag · {{count}} threads",
+      "chooseRoom": "Choose one room with in: to see its statuses and hashtags."
     },
     "emoji": {
       "title": "Emoji filters",
@@ -44,6 +48,8 @@
       "from": "Messages written by this person",
       "with": "Threads this person participates in",
       "owner": "Threads currently owned by this person",
+      "status": "Threads in a workflow status",
+      "hashtag": "Threads containing a hashtag",
       "on": "Messages sent on a date",
       "before": "Messages sent before a date",
       "after": "Messages sent after a date",
