@@ -140,7 +140,8 @@ class RoomEnrollmentService(private val database: R2dbcDatabase, private val not
             return@withRoomWrite RoomJoinDecisionOutcome(request.decision, userId)
         }
         addMember(roomId, userId)
-        RoomJoinDecisionOutcome(request.decision, userId, notices.membersAdded(roomId, fresh.userId, listOf(userId)))
+        val created = notices.membersAdded(roomId, fresh.userId, listOf(userId), setOf(userId))
+        RoomJoinDecisionOutcome(request.decision, userId, created)
     }
 
     private suspend fun addMember(roomId: UInt, userId: UInt) {

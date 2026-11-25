@@ -4,10 +4,10 @@ import ch.nokillswit.audit.audit
 
 /** Writes notices for new memberships inside the transaction that added them. */
 fun interface RoomNotices {
-    suspend fun membersAdded(roomId: UInt, actorId: UInt, recipients: List<UInt>): Int
+    suspend fun membersAdded(roomId: UInt, actorId: UInt, recipients: List<UInt>, named: Set<UInt>): Int
 
     companion object {
-        internal val NONE = RoomNotices { _, _, _ -> 0 }
+        internal val NONE = RoomNotices { _, _, _, _ -> 0 }
     }
 }
 

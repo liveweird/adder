@@ -30,10 +30,12 @@ class RoomMembershipNoticesTest {
     private val users = mutableListOf<UInt>()
     private val rooms = mutableListOf<UInt>()
     private val templates = mutableListOf<UInt>()
+    private val teams = mutableListOf<UInt>()
 
     @AfterTest
     fun cleanUp() = runBlocking {
         TestRooms.purge(rooms)
+        teams.forEach { TestTeams.service.delete(it) }
         TestRooms.softDeleteUsers(users)
         templates.forEach { TestTemplates.delete(it) }
     }
@@ -125,5 +127,31 @@ class RoomMembershipNoticesTest {
             RoomMembershipNotificationPreference(inApp = true, email = false),
             member.client.get(endpoint).body<NotificationPreferencesResponse>().roomMembership,
         )
+    }
+
+    @Test
+    fun `the wide event budget bounds team notices and never stops an owner from adding members`() = testApplication {
+        configureApp("notifications.maxBroadcastsPerActorPerDay" to "1")
+        startApplication()
+        val owner = actor("notice-wide-owner")
+        val named = actor("notice-wide-named")
+        val teammate = actor("notice-wide-teammate")
+        val first = room(owner, RoomAccessType.RESTRICTED_HIDDEN)
+        val second = room(owner, RoomAccessType.RESTRICTED_HIDDEN)
+        val team = TestTeams.seed(uniqueEmail("notice-wide-team")).also { teams += it }
+        TestTeams.service.addMember(team, teammate.id) { }
+        repeat(20) {
+            val id = TestUsers.seed(uniqueEmail("notice-wide-roster"), "pw", role = UserRole.USER).also { users += it }
+            TestTeams.service.addMember(team, id) { }
+        }
+
+        val request = RoomMembersAddRequest(userIds = listOf(named.id), teamId = team)
+        for (room in listOf(first, second)) {
+            val added = owner.client.postJson("/api/v1/rooms/$room/members", request)
+            assertEquals(HttpStatusCode.OK, added.status)
+            assertEquals(HttpStatusCode.OK, teammate.client.get("/api/v1/rooms/$room").status)
+        }
+        assertEquals(setOf(first, second), named.feed().map { it.getValue("roomId").jsonPrimitive.content.toUInt() }.toSet())
+        assertEquals(first.toString(), teammate.feed().single().getValue("roomId").jsonPrimitive.content)
     }
 }

@@ -2906,6 +2906,8 @@ paths:
         `ROOM_ADDED` is made when another person adds the caller to a room, including via a team or by approving a join request.
         It has no thread or message. Removal or leaving deletes the notice with the membership. Old clients may continue to
         use `GET /api/v1/notifications` for the thread-only representation. Both lists use the same seen operations.
+        An add of more than 20 people uses the actor's daily wide-event budget. After exhaustion only the first 20 named
+        recipients are considered for a notice. Membership changes still succeed for the whole audience.
 
         - Sortable fields: `id` and `createdAt`. Default `-id` (newest first; `id` breaks ties).
         - Filters: `seen` (strict boolean) and repeated `type` (any-of, duplicates collapse, unknown names are rejected).

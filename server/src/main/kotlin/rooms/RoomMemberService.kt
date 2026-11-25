@@ -194,7 +194,7 @@ class RoomMemberService(
                 addedUserIds = toAdd,
                 viaTeamUserIds = viaTeam.filter { it in toAdd }.toSet(),
                 alreadyMembers = wanted.size - toAdd.size,
-                noticesCreated = notices.membersAdded(roomId, fresh.userId, toAdd),
+                noticesCreated = notices.membersAdded(roomId, fresh.userId, toAdd, namedSet),
             )
         }
     }

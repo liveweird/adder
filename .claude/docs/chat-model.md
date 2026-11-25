@@ -442,6 +442,8 @@ A direct add, team add or approved join request creates one `ROOM_ADDED` notice 
 transaction. Public self-joins, room creation, rejections and repeated adds are quiet. The feed at
 `GET /api/v1/notifications/feed` includes it with no thread or message target. The recipient can open the room and mark it seen with
 the existing seen operation. Removal deletes it through the membership foreign key. The app delivers it by default and email is opt-in.
+Adds of more than 20 people use the actor's daily wide-event budget. After exhaustion, up to 20 directly named additions can
+still receive a notice. Membership changes succeed independently of notification budgets.
 
 ### Notifications (V18)
 

@@ -61,15 +61,22 @@ internal class NoticeWriter(
     override suspend fun forThread(roomId: UInt, threadId: UInt, threadNumber: Int, byUserId: UInt, notices: List<Notice>): NoticeOutcome =
         make(roomId, threadId, threadNumber, null, byUserId, notices)
 
-    override suspend fun membersAdded(roomId: UInt, actorId: UInt, recipients: List<UInt>): Int {
+    override suspend fun membersAdded(roomId: UInt, actorId: UInt, recipients: List<UInt>, named: Set<UInt>): Int {
         val type = NotificationType.ROOM_ADDED
         val people = recipients.filterNot { it == actorId }
-        val preferences = effectivePreferencesOf(people, listOf(type))
-        val deliveries = withinEmailBudget(actorId, roomId, people.mapNotNull { judger.judge(it, type, preferences) })
+        val audience = roomNoticeAudience(roomId, actorId, people, named)
+        val preferences = effectivePreferencesOf(audience, listOf(type))
+        val deliveries = withinEmailBudget(actorId, roomId, audience.mapNotNull { judger.judge(it, type, preferences) })
         if (deliveries.isEmpty()) return 0
         val made = insert(roomId, null, null, actorId, nowMillis(), deliveries).map { it.first }.toSet()
         announce(deliveries.filter { it.inApp && it.userId in made }.map { it.userId }, roomId, null, null)
         return made.size
+    }
+
+    private suspend fun roomNoticeAudience(roomId: UInt, actorId: UInt, people: List<UInt>, named: Set<UInt>): List<UInt> {
+        if (people.size <= WIDE_EVENT_RECIPIENTS) return people
+        val direct = people.filter { it in named }.take(WIDE_EVENT_RECIPIENTS)
+        return if (emailBudget.admitBroadcast(actorId, roomId, withheld = people.size - direct.size)) people else direct
     }
 
     override suspend fun ofMessage(messageId: UInt): Map<UInt, NoticeReason> {
