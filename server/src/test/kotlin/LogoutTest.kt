@@ -1,6 +1,8 @@
 package ch.nokillswit
 
 import ch.nokillswit.auth.LoginResponse
+import ch.nokillswit.infra.outbound.PushSubscriptionRevoker
+import ch.nokillswit.infra.outbound.PushSubscriptionRevokerKey
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.Logger
 import io.ktor.client.call.body
@@ -68,6 +70,32 @@ class LogoutTest {
         usePostgresTestcontainer()
         val response = jsonClient().post("/api/v1/logout")
         assertEquals(HttpStatusCode.Unauthorized, response.status)
+    }
+
+    @Test
+    fun `logout ignores malformed browser ids and still revokes the session if push cleanup fails`() = testApplication {
+        usePostgresTestcontainer()
+        val email = uniqueEmail("logout-push")
+        val userId = TestUsers.seed(email = email, password = "pw")
+        try {
+            startApplication()
+            val attempts = mutableListOf<Pair<UInt, UInt>>()
+            application.attributes.remove(PushSubscriptionRevokerKey)
+            application.attributes.put(PushSubscriptionRevokerKey, PushSubscriptionRevoker { ownerId, browserId ->
+                attempts += ownerId to browserId
+                error("browser subscription unavailable")
+            })
+            for (id in listOf("malformed", "0", "-1", "2147483648", "13")) {
+                val client = authedClient(email, "pw")
+                assertEquals(HttpStatusCode.NoContent, client.post("/api/v1/logout") {
+                    header("X-Adder-Push-Subscription", id)
+                }.status)
+                assertEquals(HttpStatusCode.Unauthorized, client.post("/api/v1/logout").status)
+            }
+            assertEquals(listOf(userId to 13u), attempts)
+        } finally {
+            TestUsers.softDelete(userId)
+        }
     }
 
     @Test

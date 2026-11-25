@@ -31,7 +31,7 @@ ktor:
       # — infrastructure
       - ch.nokillswit.infra.mail.MailKt.configureMail
       # Crypto before Database: the composition root hands the FieldCipher to any service
-      # owning encrypted columns (none yet - the cipher is published for the first one).
+      # owning encrypted columns, including browser push subscriptions.
       - ch.nokillswit.infra.crypto.CryptoKt.configureCrypto
       - ch.nokillswit.infra.db.FlywayKt.configureFlyway
       - ch.nokillswit.infra.db.DatabaseKt.configureDatabase
@@ -63,6 +63,7 @@ ktor:
       - ch.nokillswit.threads.ThreadReadRoutesKt.configureThreadReadRoutes
       # Watching (V26): the caller's own watch of a thread, beside the read marker (own state, no room lock, no live hint).
       - ch.nokillswit.threads.ThreadWatchRoutesKt.configureThreadWatchRoutes
+      - ch.nokillswit.threads.ThreadMuteRoutesKt.configureThreadMuteRoutes
       # A thread's curated tags (V33, 1.2.0): a whole-set PUT under the room lock, after the watch routes (copied from them).
       - ch.nokillswit.threads.ThreadTagRoutesKt.configureThreadTagRoutes
       # The room's pins (V21): the list and the two pin PUTs, after the message routes whose path family they extend.
@@ -70,6 +71,7 @@ ktor:
       # Notices (V18): the caller's own notifications and the two "seen" writes, then the retention sweep (on ApplicationStarted, own scope;
       # `notifications.sweepEnabled` below). After the thread routes (the notices are made inside their writes), before the catch-all.
       - ch.nokillswit.notifications.NotificationRoutesKt.configureNotificationRoutes
+      - ch.nokillswit.notifications.BrowserPushRoutesKt.configureBrowserPushRoutes
       # The per-user switches of the notices' digest email (V22): `/users/{id}/notification-preferences`, one table, so its routes live here.
       - ch.nokillswit.notifications.NotificationPreferenceRoutesKt.configureNotificationPreferenceRoutes
       - ch.nokillswit.notifications.NotificationSweepKt.configureNotificationSweep
@@ -154,14 +156,14 @@ security:
     maxAttempts: "$MFA_MAX_ATTEMPTS:5"
     maxTracked: "$MFA_MAX_TRACKED:10000"
   # Application-level encryption at rest (infra/crypto/): an AES-256-GCM key (64 hex chars,
-  # `openssl rand -hex 32`) for credentials a future feature stores (nothing is encrypted at rest yet). The
+  # `openssl rand -hex 32`) for browser push endpoints. The
   # default is a committed dev-only key (infra/crypto/Crypto.kt — it is on the burned list,
   # so production startup refuses it).
   # LOSING THIS KEY MEANS LOSING EVERY STORED ENCRYPTED VALUE — back it up apart from the DB.
   encryption:
     key: "$DATA_ENCRYPTION_KEY:ef9b766b3b3dc805220826e796b1b907d7b7fb55048940e1b730af61b7f17aa4"
-    # Decrypt-only fallback for key rotation: set the OLD key here and the new one above while
-    # re-encrypting stored values, then remove it.
+    # Decrypt-only fallback for key rotation. Keep the OLD key here until subscriptions using
+    # it have been re-registered, removed, or expired. See .claude/docs/security.md.
     previousKey: "$DATA_ENCRYPTION_KEY_PREVIOUS:"
   csrf:
     # TEMPLATE PLACEHOLDER — CSRF protection is off by default because this API
@@ -308,6 +310,14 @@ notifications:
   # only the people named directly (`<@id>` mentions, a hand-over) are told, with one `notification.broadcast_budget_exceeded` audit line
   # per actor and day. Without it 120 posts a minute to 499 people is about 86 million notice rows a day for one account. 1..10000.
   maxBroadcastsPerActorPerDay: "$NOTIFICATIONS_MAX_BROADCASTS_PER_ACTOR_PER_DAY:500"
+  push:
+    # Web Push is unavailable unless all three values are present. Public key: unpadded base64url raw uncompressed P-256 point
+    # (65 bytes, 0x04 prefix). Private key: unpadded base64url PKCS#8 DER P-256 key. Subject: mailto: or https: operator contact.
+    publicKey: "$NOTIFICATIONS_PUSH_PUBLIC_KEY:"
+    privateKey: "$NOTIFICATIONS_PUSH_PRIVATE_KEY:"
+    subject: "$NOTIFICATIONS_PUSH_SUBJECT:"
+    # Queue rows claimed and removed per sweep tick; sends run afterwards, outside every database transaction. 1..500.
+    maxPerRun: "$NOTIFICATIONS_PUSH_MAX_PER_RUN:100"
   email:
     # The email digest of unseen notices (`notifications/NotificationDigest.kt`, run by the sweep's tick when a mailer exists; with
     # `mail.transport=disabled` it does nothing). A notice still unseen after this many seconds is mailed: 0..86400 (0 = at the next tick).

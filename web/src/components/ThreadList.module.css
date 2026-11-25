@@ -15,7 +15,7 @@
 }
 
 .row {
-  display: block;
+  position: relative;
   padding: 0.625rem 0.75rem;
   border-block-end: 1px solid var(--mantine-color-default-border);
   border-inline-start: 3px solid transparent;
@@ -28,14 +28,30 @@
   background: light-dark(var(--mantine-color-white), var(--adder-surface-tint));
 }
 
-.row[aria-current="page"] {
+.row[data-current] {
   background: light-dark(var(--mantine-color-white), var(--adder-surface-tint));
   border-inline-start-color: var(--adder-accent-ink);
 }
 
-.row:focus-visible {
+.row:focus-within {
   outline: 2px solid var(--adder-accent-ink);
   outline-offset: -2px;
+}
+
+.rowTarget {
+  color: inherit;
+  text-decoration: none;
+}
+
+.rowTarget::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.personTarget {
+  position: relative;
+  z-index: 1;
 }
 
 .title {

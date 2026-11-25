@@ -13,6 +13,7 @@ import ch.nokillswit.plugins.scrubbedSummary
 import ch.nokillswit.rooms.RoomServiceKey
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStarted
+import io.ktor.server.application.ApplicationStopping
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
@@ -50,6 +51,8 @@ internal class NotificationSweep(
     private val purge: suspend (cutoffMillis: Long) -> Int,
     /** The email digest's run ([NotificationDigest.run]), every tick; a no-op where nothing mails (a test, mail disabled). */
     private val digest: suspend () -> Unit = {},
+    /** Browser push claims and sends; a no-op when VAPID is not configured. */
+    private val push: suspend () -> Unit = {},
 ) {
     /** When the last purge ran, or null before the first; touched by the sweep's own coroutine alone. */
     private var lastPurgeAt: Long? = null
@@ -61,6 +64,7 @@ internal class NotificationSweep(
      */
     suspend fun tick(): Int? {
         catchingFailures(block = { digest() }, onFailure = { e -> log.warn("notification email digest failed: {}", e.scrubbedSummary()) })
+        catchingFailures(block = { push() }, onFailure = { e -> log.warn("browser push delivery failed: {}", e.scrubbedSummary()) })
         val now = clock()
         val last = lastPurgeAt
         if (last != null && now - last < PURGE_EVERY_MILLIS) return null
@@ -94,6 +98,7 @@ fun Application.configureNotificationSweep() {
     val minIntervalSeconds = requireConfigLong(config, "notifications.email.minIntervalSeconds", min = 0, max = MAX_EMAIL_SECONDS)
     // The most mails one run sends: the digest shares the Mailer with MFA codes and password resets, and this budget is what protects them.
     val maxPerRun = requireConfigInt(config, "notifications.email.maxPerRun", min = 1, max = MAX_EMAIL_PER_RUN)
+    val pushMaxPerRun = requireConfigInt(config, "notifications.push.maxPerRun", min = 1, max = MAX_PUSH_PER_RUN)
     // A notice is mailed only inside [delay, a day): a delay or a spacing that, with one tick, reaches a day makes every notice either
     // too young or too old, and the digest would silently mail nothing.
     check(maxOf(delaySeconds, minIntervalSeconds) + intervalSeconds < MAX_EMAIL_SECONDS) {
@@ -113,10 +118,20 @@ fun Application.configureNotificationSweep() {
             minIntervalMillis = minIntervalSeconds * 1000,
             maxPerRun = maxPerRun,
         )
+        val pushService = app.attributes[BrowserPushServiceKey]
+        val pushTransport = pushService.config?.let(::WebPushTransport)
+        if (pushTransport != null) app.monitor.subscribe(ApplicationStopping) { pushTransport.close() }
+        val pushSender = pushTransport?.let {
+            BrowserPushSender(pushService, it, pushMaxPerRun, clock = ::nowMillis)
+        }
         val sweep = NotificationSweep(
             retentionDays * MILLIS_PER_DAY,
             purge = { app.attributes[NotificationServiceKey].purgeOlderThan(it) },
             digest = { digest.run() },
+            push = {
+                if (pushSender != null) pushSender.run()
+                else pushService.purgeStale(nowMillis() - PUSH_SUBSCRIPTION_RETENTION_MILLIS)
+            },
         )
         val scope = app.backgroundScope("adder-notification-sweep")
         val first = CompletableDeferred<Int?>()

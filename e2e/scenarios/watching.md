@@ -1,4 +1,4 @@
-# Watching: the toggle, the row mark, the filter, the creator's own watch and the search's watched list
+# Watching: the toggle, watcher roster, automatic reply watch, row mark, filters and search
 
 - **Spec**: [tests/watching.spec.ts](../tests/watching.spec.ts)
 - **Actors**: its own throwaway administrator (`e2e-watch-admin-*`, `specAdmins`, who only mints the throwaway users); two throwaway regular users per scenario (a
@@ -17,22 +17,29 @@ the action that caused it. Threads the scenario is not about are seeded through 
 
 1. The administrator mints a creator and a teammate; the creator makes a room through the API, adds the teammate and starts two threads, "Watched" and "Other". The
    teammate signs in and opens the thread "Watched".
-   - *Expected*: the button "Watch this thread" is not pressed; "Watchers: 1" is shown (the creator watches their own thread); the thread's row in the list has no
+   - *Expected*: the button "Watch this thread" is not pressed; the "Show 1 watcher" button is shown (the creator watches their own thread); the thread's row in the list has no
      "You are watching this thread" description.
 2. The teammate presses "Watch this thread".
-   - *Expected*: the PUT answers 204; the button is pressed; the count reads "Watchers: 2"; the row of "Watched" is described as "You are watching this thread" and
-     the row of "Other" is not.
+   - *Expected*: the PUT answers 204; the button is pressed; the count button says "Show 2 watchers"; the row of "Watched" is described as "You are watching this thread" and
+     the row of "Other" is not. Opening the count shows a labelled dialog whose two names link to the creator's and teammate's profile pages.
 3. The teammate opens the room's thread list, opens the **Filters** panel and presses **Watching**.
    - *Expected*: the button is pressed; the address holds `watching=me`; only "Watched" is listed.
 4. The teammate reloads the page.
    - *Expected*: the address still holds `watching=me`; only "Watched" is listed and the button is still pressed.
 5. The teammate opens the thread "Watched" again (the remembered "Watching" filter still narrows the list) and presses "Watch this thread".
-   - *Expected*: the button is released, the count reads "Watchers: 1" and the row leaves the filtered list.
+   - *Expected*: the button is released, the count button says "Show 1 watcher" and the row leaves the filtered list.
 
 ## Scenario: the creator watches a new thread
 
 1. The administrator mints a creator and a teammate; the creator makes a room through the API, adds the teammate and starts a thread. The creator signs in and opens it.
-   - *Expected*: the button "Watch this thread" is already pressed; "Watchers: 1" is shown; the thread's row is described as "You are watching this thread".
+   - *Expected*: the button "Watch this thread" is already pressed; "Show 1 watcher" is shown; the thread's row is described as "You are watching this thread".
+
+## Scenario: a reply starts watching unless the member explicitly unwatched
+
+1. The creator starts a thread. The teammate signs in, opens it and is not watching, then posts a successful reply through their API session.
+   - *Expected*: after a reload the watch button is pressed and the roster count is two.
+2. The teammate explicitly stops watching, posts another successful reply and reloads.
+   - *Expected*: the watch button stays released and only the creator remains in the effective watcher count; the stored inactive preference prevented implicit re-watch.
 
 ## Scenario: the watching filter lists watched threads in the room and across rooms
 

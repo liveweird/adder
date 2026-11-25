@@ -34,11 +34,11 @@ import classes from "./MarkdownView.module.css";
 //   not exist". Hashtags and thread numbers never overlap (a hashtag holds a letter), and both skip code and links.
 //   A message variant given a non-empty `mentions` also reads each `<@id>` token (`remarkMentions`): an id the list names reads `@Name` (marked
 //   when it is the reader), any other id stays the raw token, because the server's list is the verdict. The name is a React text child, never Markdown or HTML.
-//   `groupMentions` does the same for `<@team:id>` (read as `@handle` when the list names the team), `<@watchers>` and `<@everyone>` (read as
+//   `groupMentions` does the same for `<@team:id>` (read as `@handle` when the list names the team), `<@watchers>`, `<@here>` and `<@everyone>` (read as
 //   themselves when the list holds the keyword); an unlisted group token stays the raw token.
 //   A listed person's and team's mention is a router link to their page (1.2 D6: `/people/:id`, `/teams/:id`; the "mention" chip, underlined like
 //   every link in a body and in the text colour), except inside a link's own text (`remarkMentions` flags it `data-in-link`: a link may not hold
-//   a link), and `@everyone` and `@watchers` are never links. The variant therefore needs a router wherever it shows a mention.
+//   a link), and group keywords are never links. The variant therefore needs a router wherever it shows a mention.
 export type MarkdownVariant = "document" | "message";
 
 type WithNode<T extends keyof React.JSX.IntrinsicElements> = ComponentProps<T> & ExtraProps;
@@ -98,7 +98,7 @@ function MessageImage({ src, alt }: WithNode<"img">) {
 }
 
 /** One group mention the server listed (`MessageResponse.groupMentions`). */
-export type GroupMentionItem = { kind: "TEAM" | "WATCHERS" | "EVERYONE"; teamId: number | null; teamHandle: string | null };
+export type GroupMentionItem = { kind: "TEAM" | "WATCHERS" | "HERE" | "EVERYONE"; teamId: number | null; teamHandle: string | null };
 
 /**
  * The message variant's mention names (by id), the listed teams' handles (by team id), the listed keywords and the reader's own id, handed to
@@ -124,7 +124,7 @@ function MessageSpan({ node: _node, ...props }: WithNode<"span">) {
     const label = team !== undefined ? teams.get(Number(team)) : group !== undefined && keywords.has(group) ? group : undefined;
     // A group token the server did not list stays the raw token it was written as.
     if (label === undefined) return <>{props.children}</>;
-    // `@everyone` and `@watchers` name no page: only a team is a link.
+    // Group keywords name no page: only a team is a link.
     return team !== undefined && linked ? (
       <RouterLink to={teamPath(Number(team))} className={classes.mention} data-mention-group="team" data-mention-team={team}>
         {`@${label}`}
@@ -183,7 +183,7 @@ export default function MarkdownView({
   threadHref?: (number: number) => string;
   /** The message variant's mentioned people (`MessageResponse.mentions`): only an id listed here reads as a name. */
   mentions?: readonly { userId: number; name: string }[];
-  /** The message variant's group mentions (`MessageResponse.groupMentions`): only a team, `@watchers` or `@everyone` listed here reads as one. */
+  /** The message variant's group mentions (`MessageResponse.groupMentions`): only a team or group keyword listed here reads as one. */
   groupMentions?: readonly GroupMentionItem[];
   linkSource?: MessageLinkSource;
 }) {

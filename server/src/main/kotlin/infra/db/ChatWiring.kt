@@ -3,15 +3,25 @@ package ch.nokillswit.infra.db
 import ch.nokillswit.home.HomeService
 import ch.nokillswit.home.HomeServiceKey
 import ch.nokillswit.infra.config.requireConfigInt
+import ch.nokillswit.infra.crypto.FieldCipherKey
 import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.infra.outbound.PreviewFetcher
 import ch.nokillswit.infra.outbound.PublicLinkPreviewFetcher
+import ch.nokillswit.infra.outbound.PushSubscriptionRevoker
+import ch.nokillswit.infra.outbound.PushSubscriptionRevokerKey
+import ch.nokillswit.infra.presence.ForegroundPresence
+import ch.nokillswit.infra.presence.ForegroundPresenceKey
+import ch.nokillswit.notifications.BrowserPushService
+import ch.nokillswit.notifications.BrowserPushServiceKey
 import ch.nokillswit.notifications.MAX_BROADCASTS_PER_ACTOR
 import ch.nokillswit.notifications.MAX_EMAIL_BUDGET_PER_ACTOR
 import ch.nokillswit.notifications.NoticeWriter
 import ch.nokillswit.notifications.NotificationEmailBudget
 import ch.nokillswit.notifications.NotificationService
 import ch.nokillswit.notifications.NotificationServiceKey
+import ch.nokillswit.notifications.browserPushConfig
+import ch.nokillswit.threads.ThreadMuteService
+import ch.nokillswit.threads.ThreadMuteServiceKey
 import ch.nokillswit.rooms.RoomEnrollmentService
 import ch.nokillswit.rooms.RoomEnrollmentServiceKey
 import ch.nokillswit.rooms.RoomMemberService
@@ -119,25 +129,38 @@ internal fun Application.publishChatServices(
     // A thread-level notice still waiting for the digest is coalesced into only while it is younger than the digest delay (boot-validated
     // by the sweep, read again here for the writer).
     val digestDelayMillis = requireConfigInt(environment.config, "notifications.email.delaySeconds", min = 0, max = 86_400) * 1_000L
-    val noticeWriter = NoticeWriter(emailBudget, mailAvailable = mailer() != null, digestDelayMillis = digestDelayMillis)
+    val browserPushConfig = environment.config.browserPushConfig()
+    val noticeWriter = NoticeWriter(
+        emailBudget,
+        mailAvailable = mailer() != null,
+        digestDelayMillis = digestDelayMillis,
+        pushAvailable = browserPushConfig != null,
+    )
     val roomMemberService = RoomMemberService(database, teamService, noticeWriter)
+    attributes.put(ThreadMuteServiceKey, ThreadMuteService(database, roomMemberService))
     attributes.put(RoomMemberServiceKey, roomMemberService)
     attributes.put(RoomEnrollmentServiceKey, RoomEnrollmentService(database, noticeWriter))
     attributes.put(NotificationServiceKey, NotificationService(database, roomService, emailBudget, notificationReadLimiter))
+    val browserPush = BrowserPushService(database, attributes[FieldCipherKey], browserPushConfig)
+    attributes.put(BrowserPushServiceKey, browserPush)
+    attributes.put(PushSubscriptionRevokerKey, PushSubscriptionRevoker(browserPush::unsubscribe))
     // The watches (V26): the caller's own state, toggled without the room lock; the thread writes add the auto-watches inside themselves,
     // and the mention follower reads the watchers of a thread as the audience of a reply.
     val threadWatchService = ThreadWatchService(database, roomMemberService)
     attributes.put(ThreadWatchServiceKey, threadWatchService)
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
-    val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService, teamService)
+    val foregroundPresence = ForegroundPresence()
+    attributes.put(ForegroundPresenceKey, foregroundPresence)
+    val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService, teamService, foregroundPresence)
     // Home is a read-only top-layer projection over rooms and threads. It shares the bounded, chat-read-bucketed list limiter.
     attributes.put(HomeServiceKey, HomeService(database, messageMentionService, readLimiter))
     // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.
     val reactionService = MessageReactionService(database)
     attributes.put(MessageReactionServiceKey, reactionService)
     val messageService = MessageService(
-        database, roomService, messageTagService, messageMentionService, listOf(PinCleanup()), reactionService, threadReadLimiter,
+        database, roomService, messageTagService, messageMentionService,
+        listOf(threadWatchService.replyFollower, PinCleanup()), reactionService, threadReadLimiter,
     )
     attributes.put(MessageServiceKey, messageService)
     attributes.put(MessageLinkPreviewServiceKey, MessageLinkPreviewService(roomService, messageService))

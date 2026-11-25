@@ -36,7 +36,13 @@ export const WATCH_SEARCH_KEYS = [searchAllKey, homeKey] as const;
  * the new state. The paths that watch automatically (starting a thread, taking one over) name them too (`WATCH_SEARCH_KEYS`).
  */
 export function refreshAfterWatchWrite(queryClient: QueryClient, roomId: number, threadNumber: number): Promise<void> {
-  return refreshQueriesAfterMutation(queryClient, roomKeys.threadDetail(roomId, threadNumber), roomKeys.threadList(roomId), ...WATCH_SEARCH_KEYS);
+  return refreshQueriesAfterMutation(
+    queryClient,
+    roomKeys.threadDetail(roomId, threadNumber),
+    roomKeys.threadList(roomId),
+    roomKeys.threadWatchers(roomId, threadNumber),
+    ...WATCH_SEARCH_KEYS,
+  );
 }
 
 

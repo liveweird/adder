@@ -45,7 +45,7 @@ describe("useUnseenNotifications", () => {
     expect(urls.filter((u) => !u.includes("type="))).toEqual(["/api/v1/notifications/feed?page=1&pageSize=100&seen=false&groupReplies=true"]);
     const typed = urls.filter((u) => u.includes("type="));
     expect(typed).toHaveLength(1);
-    expect(typed[0]).toContain("seen=false&type=MENTIONED&type=MESSAGE_QUOTED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED");
+    expect(typed[0]).toContain("seen=false&type=MENTIONED&type=MESSAGE_QUOTED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=HERE_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED");
     expect(queryClient.getQueryData(["notifications", "unseen"])).toBeDefined();
     expect(queryClient.getQueryData(["notifications", "addressed"])).toBeDefined();
   });

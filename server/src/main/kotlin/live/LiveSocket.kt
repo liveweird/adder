@@ -239,6 +239,7 @@ private suspend fun DefaultWebSocketSession.handle(deps: LiveSessionDeps, socket
             return false
         }
         LiveClientFrame.Ping -> deps.hub.pong(socket)
+        is LiveClientFrame.Foreground -> deps.hub.foreground(socket, frame.visible)
         is LiveClientFrame.Subscribe -> {
             val ids = validIds(frame.roomIds)
             if (ids == null) {

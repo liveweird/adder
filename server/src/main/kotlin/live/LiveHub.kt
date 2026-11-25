@@ -6,6 +6,7 @@ import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.notify.NotifyListener
 import ch.nokillswit.infra.notify.NotifyListenerTimings
+import ch.nokillswit.infra.presence.ForegroundPresence
 import io.ktor.websocket.CloseReason
 import io.r2dbc.spi.ConnectionFactory
 import kotlinx.coroutines.CompletableDeferred
@@ -35,6 +36,7 @@ private sealed interface Command {
     class Unsubscribe(val socket: HubSocket, val ids: List<UInt>) : Command
     class Deliver(val hint: LiveHint) : Command
     class Pong(val socket: HubSocket) : Command
+    class Foreground(val socket: HubSocket, val visible: Boolean) : Command
     class Snapshot(val reply: CompletableDeferred<List<SocketView>>) : Command
     class RevokeRoom(val socket: HubSocket, val roomId: UInt) : Command
     data object Gap : Command
@@ -65,6 +67,7 @@ class LiveHub internal constructor(
     connectionFactory: ConnectionFactory,
     listenerTimings: NotifyListenerTimings = NotifyListenerTimings(),
     private val maxQueuedHints: Int = MAX_QUEUED_HINTS,
+    internal val presence: ForegroundPresence = ForegroundPresence(),
 ) {
     private val inbox = Channel<Command>(Channel.UNLIMITED)
     private val gapPending = AtomicBoolean(false)
@@ -74,6 +77,7 @@ class LiveHub internal constructor(
     private val queuedHints = AtomicInteger()
     private val subscribersByRoom = HashMap<UInt, MutableSet<HubSocket>>()
     private val perUser = ConcurrentHashMap<UInt, AtomicInteger>()
+    private val presenceSessions = HashMap<HubSocket, ForegroundPresence.Session>()
     private val total = AtomicInteger()
     private val hintJson = Json { ignoreUnknownKeys = true }
 
@@ -193,9 +197,9 @@ class LiveHub internal constructor(
     }
 
     /** Answers a `ping` through the socket's queue rule (so a full queue turns it into the `resync`, never an unordered extra frame). */
-    internal fun pong(socket: HubSocket) {
-        inbox.trySend(Command.Pong(socket))
-    }
+    internal fun pong(socket: HubSocket) { inbox.trySend(Command.Pong(socket)) }
+
+    internal fun foreground(socket: HubSocket, visible: Boolean) { inbox.trySend(Command.Foreground(socket, visible)) }
 
     /**
      * The authenticated sockets as the actor sees them now, each with a COPY of its ACTIVE rooms (the sweep's input; the actor owns the
@@ -210,6 +214,7 @@ class LiveHub internal constructor(
     /** Refuses further admissions and mints, closes every socket 1001 and waits (bounded) for them to leave. */
     suspend fun shutdown(graceMillis: Long = SHUTDOWN_GRACE_MILLIS) {
         isStopping = true
+        presence.stop()
         inbox.trySend(Command.CloseAll(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping")))
         withTimeoutOrNull(graceMillis) {
             while (total.get() > 0) delay(SHUTDOWN_POLL_MILLIS)
@@ -219,6 +224,7 @@ class LiveHub internal constructor(
     /** Ends the actor and the listener (`backgroundScope`'s `beforeCancel`, on `ApplicationStopping`); the scope is joined after. */
     suspend fun stop() {
         isStopping = true
+        presence.stop()
         inbox.close()
         listener.stop()
     }
@@ -249,6 +255,7 @@ class LiveHub internal constructor(
                 fanOut(command.hint)
             }
             is Command.Pong -> queueFrame(command.socket, LiveServerFrame.Pong)
+            is Command.Foreground -> presenceSessions[command.socket]?.let { presence.update(it, command.visible) }
             is Command.Snapshot -> command.reply.complete(
                 sockets.map { s -> SocketView(s, s.rooms.filterValues { it == RoomState.ACTIVE }.keys.toList()) },
             )
@@ -273,6 +280,7 @@ class LiveHub internal constructor(
         total.get() >= maxSockets -> RegisterResult.FULL
         else -> {
             sockets.add(socket)
+            presenceSessions[socket] = presence.open(socket.userId)
             socketsByUser.getOrPut(socket.userId) { HashSet() }.add(socket)
             total.incrementAndGet()
             perUser.computeIfAbsent(socket.userId) { AtomicInteger() }.incrementAndGet()
@@ -284,6 +292,7 @@ class LiveHub internal constructor(
 
     private fun remove(socket: HubSocket) {
         if (!sockets.remove(socket)) return
+        presenceSessions.remove(socket)?.let(presence::close)
         socket.rooms.keys.toList().forEach { drop(socket, it) }
         socketsByUser[socket.userId]?.let {
             it.remove(socket)

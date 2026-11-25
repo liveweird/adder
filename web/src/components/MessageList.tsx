@@ -378,6 +378,7 @@ export default function MessageList({
             <MessageItem
               key={message.id}
               roomId={room.id}
+              mentionRoom={room}
               message={message}
               actions={messageActions({ room, thread, message, userId, admin })}
               zone={zone}

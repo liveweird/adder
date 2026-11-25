@@ -27,6 +27,13 @@ package ch.nokillswit.threads
  * What makes NO notice is also here, by absence: a title or field edit, a message edit as such, a delete, a reaction, a pin and the
  * workflow PUT's `moveThreads` have no function.
  */
+internal data class MentionGroupAudience(
+    val teams: Collection<UInt> = emptyList(),
+    val watchers: Boolean = false,
+    val everyone: Boolean = false,
+    val here: Collection<UInt> = emptyList(),
+)
+
 internal object NoticeAudience {
     /**
      * The reasons that name a person for what the message SAYS (a mention); the base reasons below are for what the thread IS.
@@ -36,6 +43,7 @@ internal object NoticeAudience {
         NoticeReason.MENTIONED,
         NoticeReason.TEAM_MENTIONED,
         NoticeReason.WATCHERS_MENTIONED,
+        NoticeReason.HERE_MENTIONED,
         NoticeReason.EVERYONE_MENTIONED,
     )
 
@@ -64,18 +72,20 @@ internal object NoticeAudience {
         watchersMentioned: Boolean = false,
         everyoneMentioned: Boolean = false,
         quoted: UInt? = null,
+        hereMentioned: Collection<UInt> = emptyList(),
     ): List<Notice> {
         val direct = mentioned.map { Notice(it, NoticeReason.MENTIONED) }
         val quote = listOfNotNull(quoted).map { Notice(it, NoticeReason.MESSAGE_QUOTED) }
         val teams = teamMentioned.map { Notice(it, NoticeReason.TEAM_MENTIONED) }
         val watching = if (watchersMentioned && !opening) watchers.map { Notice(it, NoticeReason.WATCHERS_MENTIONED) } else emptyList()
+        val here = hereMentioned.map { Notice(it, NoticeReason.HERE_MENTIONED) }
         val room = if (everyoneMentioned) members.map { Notice(it, NoticeReason.EVERYONE_MENTIONED) } else emptyList()
         val base = if (opening) {
             members.map { Notice(it, NoticeReason.THREAD_CREATED) }
         } else {
             watchers.map { Notice(it, NoticeReason.THREAD_REPLIED) }
         }
-        return resolved(authorId, direct + quote + teams + watching + room + base)
+        return resolved(authorId, direct + quote + teams + watching + here + room + base)
     }
 
     /** A status move by [actorId]: the watchers (the actor never), the reason by the move. */
@@ -133,13 +143,11 @@ internal object NoticeAudience {
         before: Map<UInt, NoticeReason>,
         watchers: Collection<UInt>,
         members: Collection<UInt>,
-        teamMentioned: Collection<UInt> = emptyList(),
-        watchersMentioned: Boolean = false,
-        everyoneMentioned: Boolean = false,
+        groups: MentionGroupAudience = MentionGroupAudience(),
         quoted: UInt? = null,
     ): NoticeRevision {
         val now = ofMessage(
-            opening, authorId, mentioned, watchers, members, teamMentioned, watchersMentioned, everyoneMentioned, quoted,
+            opening, authorId, mentioned, watchers, members, groups.teams, groups.watchers, groups.everyone, quoted, groups.here,
         ).associateBy { it.userId }
         // Newly addressed: by the person's most specific MENTION reason among all that apply now, addressed at it and not at it, nor at
         // anything more specific, BEFORE (1.1 A34, A39). No mention reason applies: nothing is newly said to them.

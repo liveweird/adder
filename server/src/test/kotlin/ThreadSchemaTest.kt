@@ -328,6 +328,37 @@ class ThreadSchemaTest {
     }
 
     @Test
+    fun `here snapshots key on message and user, cascade with either, and keep the recipient lookup index`() =
+        withThread("here-snapshot") { c, user, thread ->
+            val room = c.scalar("SELECT room_id FROM threads WHERE id = ?", thread)
+            val other = c.scalar(
+                "INSERT INTO users (\"name\", email, password_hash) VALUES ('Here', ?, 'x') RETURNING id",
+                "schema-here-${UUID.randomUUID()}@test",
+            )
+            try {
+                val first = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "one", false, null)
+                val second = c.scalar(INSERT_MESSAGE + " RETURNING id", thread, user, "two", false, null)
+                val insert = "INSERT INTO message_here_mentions (message_id, user_id, thread_id, room_id) VALUES (?, ?, ?, ?)"
+                assertEquals(1, c.exec(insert, first, user, thread, room))
+                assertEquals(1, c.exec(insert, first, other, thread, room), "one snapshot can hold several recipients")
+                assertEquals(1, c.exec(insert, second, user, thread, room), "one recipient can occur in several snapshots")
+                assertState(UNIQUE_VIOLATION, "a snapshot contains a recipient once") { c.exec(insert, first, user, thread, room) }
+                assertEquals(
+                    "CREATE INDEX idx_message_here_mentions_user_room ON public.message_here_mentions USING btree " +
+                        "(user_id, room_id, thread_id)",
+                    c.text("SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_message_here_mentions_user_room'"),
+                )
+
+                assertEquals(1, c.exec("DELETE FROM messages WHERE id = ?", second))
+                assertEquals(0, c.scalar("SELECT count(*) FROM message_here_mentions WHERE message_id = ?", second))
+                assertEquals(1, c.exec("DELETE FROM users WHERE id = ?", other))
+                assertEquals(1, c.scalar("SELECT count(*) FROM message_here_mentions WHERE message_id = ?", first))
+            } finally {
+                c.exec("DELETE FROM users WHERE id = ?", other)
+            }
+        }
+
+    @Test
     fun `room pins are unique per thread and per message, a thread and its message may both be pinned, and the rows cascade`() {
         withThread("pins") { c, user, thread ->
             val room = c.scalar("SELECT room_id FROM threads WHERE id = ?", thread)
@@ -568,6 +599,9 @@ class ThreadSchemaTest {
             assertEquals(1, c.exec(join, room, user))
             assertState(FK_VIOLATION, "the key names the room the member belongs to") { c.exec(insert, thread, user, room + 1) }
             assertEquals(1, c.exec(insert, thread, user, room))
+            assertEquals(1L, c.scalar("SELECT watching::int FROM thread_watches WHERE thread_id = ? AND user_id = ?", thread, user))
+            assertEquals(1, c.exec("UPDATE thread_watches SET watching = FALSE WHERE thread_id = ? AND user_id = ?", thread, user))
+            assertEquals(0L, c.scalar("SELECT watching::int FROM thread_watches WHERE thread_id = ? AND user_id = ?", thread, user))
             assertState(UNIQUE_VIOLATION, "one watch per member and thread") { c.exec(insert, thread, user, room) }
 
             assertEquals(1, c.exec("DELETE FROM room_members WHERE room_id = ? AND user_id = ?", room, user))

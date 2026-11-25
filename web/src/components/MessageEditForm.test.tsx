@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import MessageEditForm from "./MessageEditForm";
 import type { MessageResponse } from "../api/messages";
+import type { RoomResponse } from "../api/rooms";
 import { jsonResponse } from "../test/http";
-import { makeMessage } from "../test/messageFixtures";
+import { makeMessage, makeRoom } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
 import { createKnownNames, KnownNamesContext } from "../utils/knownNames";
 
@@ -25,14 +26,14 @@ describe("MessageEditForm", () => {
 
   const box = () => screen.getByRole("textbox", { name: "Edit message" });
 
-  function renderForm(message: MessageResponse, queryClient?: QueryClient) {
+  function renderForm(message: MessageResponse, queryClient?: QueryClient, room?: RoomResponse) {
     const onDone = vi.fn();
     const onError = vi.fn();
     // The shell's names store, as in the app: the editor and the box share it.
     const names = createKnownNames();
     renderWithProviders(
       <KnownNamesContext.Provider value={names}>
-        <MessageEditForm roomId={12} message={message} onDone={onDone} onError={onError} />
+        <MessageEditForm roomId={12} room={room} message={message} onDone={onDone} onError={onError} />
       </KnownNamesContext.Provider>,
       { queryClient },
     );
@@ -67,6 +68,62 @@ describe("MessageEditForm", () => {
     await user.keyboard("{Control>}{Enter}{/Control}");
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(JSON.parse(puts()[0][1].body as string)).toEqual({ body: "first?" });
+  });
+
+  test("a room owner can add someone and mention them in an edited message", async () => {
+    let completeAdd!: (response: Response) => void;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/v1/users/directory?")) return Promise.resolve(jsonResponse(200, {
+        items: [{ id: 91, name: "New Person", email: "new@example.test" }], page: 1, pageSize: 20, total: 1,
+      }));
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return new Promise<Response>((resolve) => { completeAdd = resolve; });
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    const user = userEvent.setup();
+    const { onDone } = renderForm(makeMessage({ id: 9, body: "first" }), undefined, makeRoom({ role: "OWNER" }));
+    const editor = box();
+    const save = screen.getByRole("button", { name: "Save" });
+    await user.click(screen.getByRole("button", { name: "Add and mention" }));
+    const modal = await screen.findByRole("dialog");
+    await user.type(within(modal).getByRole("combobox", { name: "User" }), "New");
+    await user.click(await within(modal).findByText("New Person (new@example.test)"));
+    await user.click(within(modal).getByRole("button", { name: "Add and mention" }));
+    expect(editor).toHaveAttribute("readonly");
+    expect(save).toBeDisabled();
+    fireEvent.keyDown(editor, { key: "Enter", ctrlKey: true });
+    expect(puts()).toEqual([]);
+    completeAdd(jsonResponse(200, { added: 1, alreadyMembers: 0 }));
+    await waitFor(() => expect(box()).toHaveValue("first @New Person "));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(JSON.parse(puts()[0][1].body as string)).toEqual({ body: "first <@91>" });
+  });
+
+  test("an owner can promote an unmatched edit term into an added mention", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/v1/rooms/12/members?")) {
+        return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 8, total: 0 }));
+      }
+      if (url.startsWith("/api/v1/users/directory?")) return Promise.resolve(jsonResponse(200, {
+        items: [{ id: 91, name: "New Person", email: "new@example.test" }], page: 1, pageSize: 20, total: 1,
+      }));
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return Promise.resolve(jsonResponse(200, { added: 1, alreadyMembers: 0 }));
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+    const user = userEvent.setup();
+    renderForm(makeMessage({ id: 9, body: "Before @New" }), undefined, makeRoom({ role: "OWNER" }));
+    box().focus();
+    (box() as HTMLTextAreaElement).setSelectionRange(11, 11);
+    fireEvent.select(box());
+    await user.click(await screen.findByRole("option", { name: /Add and mention “New”/ }));
+    expect(screen.getByRole("combobox", { name: "User" })).toHaveValue("New");
+    await user.click(await screen.findByText("New Person (new@example.test)"));
+    await user.click(screen.getAllByRole("button", { name: "Add and mention" }).at(-1)!);
+    await waitFor(() => expect(box()).toHaveValue("Before @New Person "));
   });
 
   test("while a save is in flight the box is read-only, not disabled, and a second Ctrl+Enter does not save again", async () => {

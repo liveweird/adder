@@ -1,4 +1,5 @@
-// Social (0.6.0): mentions picked in the composer reach the mentioned member's bell live and open the message; the "Mentions me" filter; a
+// Social (0.6.0): mentions picked in the composer reach the mentioned member's bell live and open the message; an owner can add a directory
+// user and mention them without losing the draft; @here reaches foreground room members; the "Mentions me" filter; a
 // hand-over notifies the new owner; the rail's and the thread list's unread marks and the conversation's "New" line; a reaction from the emoji
 // picker (no content-security-policy violation) seen live by another member, who toggles theirs; the pinned panel and a pin's removal seen live; a pin's
 // mark in the conversation, on the thread's header and list row, and the open thread's pin strip (1.2.0);
@@ -10,9 +11,9 @@
 // Owns: its throwaway `e2e-soc-*` rooms and users, removed through the API in an `afterEach` (contexts first, then rooms, then the users). Every room
 // is created by a throwaway user and only copies the seeded Default template. Threads and messages are never deleted: a room's removal hides them.
 // The per-user `live-ticket`, `chat-post`, `chat-write` and `read-state` buckets are only ever spent by throwaway users, far below their limits.
-import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, rail, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, rail, specAdmins, test, threadList, threadListRow, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-social-admin");
@@ -20,9 +21,11 @@ const admin = specAdmins("e2e-social-admin");
 const cleanup: string[] = [];
 const apis: APIRequestContext[] = [];
 const contexts: BrowserContext[] = [];
+const isolatedBrowsers: Browser[] = [];
 test.afterEach(async () => {
   // Contexts first: a closed browser stops reconnecting, so no socket outlives the room it watched.
   for (const context of contexts.splice(0)) await context.close();
+  for (const browser of isolatedBrowsers.splice(0)) await browser.close();
   for (const api of apis.splice(0)) await api.dispose();
   await deleteViaApi(cleanup.splice(0));
 });
@@ -102,20 +105,22 @@ async function scene(page: Page, {
 }
 
 async function addMember(room: Scene, { notify = false } = {}): Promise<void> {
-  if (!notify) {
-    // Existing social journeys start with an empty bell so their counts describe just the event under test.
-    const { api } = await apiAsUser(room.mate.email, room.mate.password);
-    try {
-      const preferences = await api.put(`/api/v1/users/${room.mate.id}/notification-preferences`, {
-        data: { disabled: [], roomMembership: { inApp: false, email: false } },
-      });
-      expect(preferences.status(), await preferences.text()).toBe(204);
-    } finally {
-      await api.dispose();
-    }
-  }
+  if (!notify) await disableRoomAddedNotification(room.mate);
   const added = await room.api.post(`/api/v1/rooms/${room.roomId}/members`, { data: { userIds: [room.mate.id] } });
   expect(added.status(), await added.text()).toBe(200);
+}
+
+/** Keep scenarios about another notice at an empty bell while still adding the member through the UI under test. */
+async function disableRoomAddedNotification(person: Person): Promise<void> {
+  const { api } = await apiAsUser(person.email, person.password);
+  try {
+    const preferences = await api.put(`/api/v1/users/${person.id}/notification-preferences`, {
+      data: { disabled: [], roomMembership: { inApp: false, email: false } },
+    });
+    expect(preferences.status(), await preferences.text()).toBe(204);
+  } finally {
+    await api.dispose();
+  }
 }
 
 test("a hidden room membership notice arrives live and opens the room", async ({ page, browser }) => {
@@ -247,6 +252,79 @@ test("a mention picked in the composer reaches the mentioned member's bell witho
   await expectNoReload(reader);
 });
 
+test("an owner can add a directory user and mention them without losing the draft", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Add and mention thread");
+  await startThread(room, title);
+  await disableRoomAddedNotification(room.mate);
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, `/rooms/${room.roomId}/threads/1`, room.roomId);
+  await expect.poll(() => reader.frames.some((frame) => frame.type === "ready")).toBe(true);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  const box = author.page.getByRole("textbox", { name: "Reply", exact: true });
+  await author.page.getByRole("button", { name: "Add and mention" }).click();
+  const dialog = author.page.getByRole("dialog", { name: "Add someone to this room" });
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  const term = uniquePart(room.mate);
+  await box.pressSequentially(`Please review this draft @${term}`);
+  await expect(author.page.getByRole("option", { name: /Add and mention.*Search the directory/ })).toBeVisible();
+  await box.press("Enter");
+  const userPicker = dialog.getByRole("combobox", { name: "User" });
+  await expect(userPicker).toHaveValue(term);
+  await userPicker.click();
+  await author.page.getByRole("option", { name: `${room.mate.name} (${room.mate.email})`, exact: true }).click();
+  await Promise.all([
+    author.page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith(`/rooms/${room.roomId}/members`) && response.status() === 200),
+    dialog.getByRole("button", { name: "Add and mention" }).click(),
+  ]);
+  await expect(dialog).toHaveCount(0);
+  await expect(box).toHaveValue(`Please review this draft @${room.mate.name} `);
+
+  const [posted] = await Promise.all([
+    author.page.waitForResponse((response) => response.request().method() === "POST" && MESSAGES_API.test(response.url()) && response.status() === 201),
+    box.press("Control+Enter"),
+  ]);
+  const message = (await posted.json()) as { mentions: { userId: number; name: string }[] };
+  expect(message.mentions).toContainEqual({ userId: room.mate.id, name: room.mate.name });
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await bell(reader.page).click();
+  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned you in #1 ${title}`) })).toBeVisible();
+});
+
+test("here mentions only the room members who are online now", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Here thread");
+  await startThread(room, title);
+  await addMember(room);
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, `/rooms/${room.roomId}/threads/1`, room.roomId);
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  const box = author.page.getByRole("textbox", { name: "Reply", exact: true });
+  await box.pressSequentially("Are you around @onl");
+  const groups = author.page.getByRole("group", { name: "Groups", exact: true });
+  const here = groups.getByRole("option", { name: /@here.*Online members of this room/i });
+  await expect(here).toBeVisible();
+  await here.click();
+  await expect(box).toHaveValue("Are you around @here ");
+  const [posted] = await Promise.all([
+    author.page.waitForResponse((response) => response.request().method() === "POST" && MESSAGES_API.test(response.url()) && response.status() === 201),
+    box.press("Control+Enter"),
+  ]);
+  const message = (await posted.json()) as { groupMentions: { kind: string }[] };
+  expect(message.groupMentions.map((group) => group.kind)).toEqual(["HERE"]);
+
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expectNoReload(reader);
+  await bell(reader.page).click();
+  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned people here in #1 ${title}`) })).toBeVisible();
+  await expect(bell(author.page)).toHaveAccessibleName(unseenBell(0));
+});
+
 test("the Mentions me filter shows the thread and survives a reload", async ({ page }) => {
   const room = await scene(page);
   const plain = uniqueText("Plain");
@@ -312,6 +390,7 @@ test("handing a thread over notifies its new owner", async ({ page, browser }) =
   await bell(receiver.page).click();
   const notice = drawer(receiver.page).getByRole("link", { name: new RegExp(`${room.owner.name} made you the owner of #1 ${title}`) });
   await expect(notice).toBeVisible();
+  await expect(notice).toContainText(`${room.owner.name} → ${room.mate.name}`);
 
   // Following it opens the thread, whose pane names the new owner, and the badge clears.
   await notice.click();
@@ -479,6 +558,13 @@ test("a reaction from the picker appears for another member without a reload, an
   await expect(readerChip).toHaveAccessibleDescription(room.owner.name);
   await expectNoReload(reader);
 
+  // The separate roster action works by keyboard or touch and keeps the person's profile link out of the reaction toggle.
+  await readerMessage.getByRole("button", { name: "See everyone who reacted with 👍" }).click();
+  const roster = reader.page.getByRole("dialog", { name: "👍 reactions" });
+  await expect(roster.getByRole("link", { name: room.owner.name })).toHaveAttribute("href", `/people/${room.owner.id}`);
+  await roster.getByRole("button", { name: "Close" }).click();
+  await expect(roster).toBeHidden();
+
   // The teammate presses it: theirs joins (two reactions, pressed), and the author's chip follows live.
   await readerChip.click();
   await expect(readerChip).toHaveAccessibleName("👍, 2 reactions");
@@ -620,7 +706,7 @@ test("a pinned message is marked in the conversation and listed in the thread's 
   await author.page.getByRole("button", { name: "Pin this thread", exact: true }).click();
   await expect(header.locator("[data-pin-mark]")).toHaveText("Pinned");
   const row = threadLink(reader.page, title);
-  await expect(row.locator("[data-pin-mark]")).toBeVisible();
+  await expect(threadListRow(reader.page, title).locator("[data-pin-mark]")).toBeVisible();
   await expect(row).toHaveAccessibleDescription(/Pinned/);
 
   // The reader unpins one from the strip: its mark goes at once in both pages and the focus lands on the strip's button; the last unpin takes the strip
@@ -669,6 +755,93 @@ test("a member removed from a room loses its notifications", async ({ page, brow
   await expectNoReload(leaver);
   await bell(leaver.page).click();
   await expect(drawer(leaver.page).getByText("You have no notifications.")).toBeVisible();
+});
+
+test("browser notification opt-in registers the current browser and can be reversed", async ({ page }) => {
+  const room = await scene(page);
+  // Full Chromium supports native notifications in headless mode, unlike its minimal headless shell on this platform.
+  const browser = await chromium.launch({ channel: "chromium" });
+  isolatedBrowsers.push(browser);
+  const path = "/api/v1/notifications/push/subscriptions";
+  const endpoint = "https://fcm.googleapis.com/fcm/send/adder-test-browser";
+  let registered = false;
+  const reader = await signedIn(browser, room.mate, async (context) => {
+    await context.grantPermissions(["notifications"], { origin: new URL(BASE_URL).origin });
+    await context.addInitScript((browserEndpoint) => {
+      const key = "e2e.push-subscription";
+      const subscription = {
+        endpoint: browserEndpoint,
+        options: { applicationServerKey: Uint8Array.of(4).buffer, userVisibleOnly: true },
+        unsubscribe: () => {
+          localStorage.removeItem(key);
+          return Promise.resolve(true);
+        },
+      };
+      PushManager.prototype.subscribe = () => {
+        localStorage.setItem(key, "enabled");
+        return Promise.resolve(subscription as PushSubscription);
+      };
+      PushManager.prototype.getSubscription = () => Promise.resolve(localStorage.getItem(key) ? subscription as PushSubscription : null);
+    }, endpoint);
+    await context.route("**/api/v1/notifications/push/config*", (route) => {
+      const id = new URL(route.request().url()).searchParams.get("subscriptionId");
+      return route.fulfill({ json: { available: true, publicKey: "BA", ...(id === null ? {} : { registered: registered && id === "99" }) } });
+    });
+    await context.route(`**${path}`, (route) => {
+      registered = true;
+      return route.fulfill({ status: 200, json: { id: 99 } });
+    });
+    await context.route(`**${path}/99`, (route) => {
+      registered = false;
+      return route.fulfill({ status: 204 });
+    });
+  });
+
+  const cdp = await reader.context.newCDPSession(reader.page);
+  const scope = new URL("/", BASE_URL);
+  const { targetInfo } = await cdp.send("Target.getTargetInfo");
+  await cdp.send("Browser.setPermission", {
+    origin: scope.origin,
+    browserContextId: targetInfo.browserContextId,
+    permission: { name: "notifications" },
+    setting: "granted",
+  });
+  await reader.page.goto("/notification-preferences");
+  const enable = reader.page.getByRole("button", { name: "Enable on this browser" });
+  const [request] = await Promise.all([
+    reader.page.waitForRequest((outgoing) => outgoing.method() === "POST" && outgoing.url().endsWith(path), { timeout: 10_000 }),
+    enable.click(),
+  ]);
+  expect(request.postDataJSON()).toEqual({ endpoint });
+  await expect(reader.page.evaluate(async () => (await navigator.serviceWorker.ready).active?.scriptURL)).resolves.toContain("/adder-push.js");
+
+  let registrationId: string | undefined;
+  cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+    registrationId = registrations.find((registration) => registration.scopeURL === scope.href && !registration.isDeleted)?.registrationId;
+  });
+  await cdp.send("ServiceWorker.enable");
+  await expect.poll(() => registrationId).toBeDefined();
+  if (!registrationId) throw new Error("Expected Adder's push worker to be registered");
+  await cdp.send("ServiceWorker.deliverPushMessage", { origin: scope.origin, registrationId, data: "" });
+  await expect.poll(() => reader.page.evaluate(async () => {
+    const worker = await navigator.serviceWorker.ready;
+    return (await worker.getNotifications({ tag: "adder-notifications" })).map(({ title, body }) => ({ title, body }));
+  })).toEqual([{ title: "Adder", body: "You have new notifications" }]);
+  await reader.page.reload();
+  const disable = reader.page.getByRole("button", { name: "Disable on this browser" });
+  await Promise.all([
+    reader.page.waitForResponse((response) => response.request().method() === "DELETE" && response.url().endsWith(`${path}/99`)),
+    disable.click(),
+  ]);
+  await expect(enable).toBeVisible();
+  await expect.poll(() => reader.page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    return registration.pushManager.getSubscription();
+  })).toBeNull();
+  await cdp.detach();
+
+  await reader.page.goto("/?notifications=1");
+  await expect(drawer(reader.page)).toBeVisible();
 });
 
 test("the Notification preferences page saves a switch and keeps it after a reload", async ({ page }) => {
@@ -827,6 +1000,38 @@ test("a watched thread groups plain replies and keeps an addressed quote separat
   expect((await seen).status()).toBe(204);
   await expect(reader.page).toHaveURL(new RegExp(`/threads/${number}\\?.*message=${oldest}`));
   await expect(messageNamed(reader.page, "First checkout follow-up")).toBeFocused();
+});
+
+test("muting a thread silences its mentions and keeps the watch", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  await startThread(room, uniqueText("Muted checkout"));
+  await addMember(room);
+  const reader = await signedIn(browser, room.mate);
+  const thread = `/rooms/${room.roomId}/threads/1`;
+  await reader.page.goto(thread);
+  const watch = reader.page.getByRole("button", { name: "Watch this thread", exact: true });
+  const mute = reader.page.getByRole("button", { name: "Mute thread notifications", exact: true });
+  await watch.click();
+  await expect(watch).toHaveAttribute("aria-pressed", "true");
+  await mute.click();
+  await expect(mute).toHaveAttribute("aria-pressed", "true");
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await postMessage(room, 1, `<@${room.mate.id}> quiet update`);
+
+  const { api } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(api);
+  const feed = await api.get("/api/v1/notifications/feed?seen=false");
+  expect(feed.ok()).toBe(true);
+  expect(((await feed.json()) as { total: number }).total).toBe(0);
+
+  await reader.page.goto(thread);
+  await expect(watch).toHaveAttribute("aria-pressed", "true");
+  await expect(mute).toHaveAttribute("aria-pressed", "true");
+  await mute.click();
+  await expect(mute).toHaveAttribute("aria-pressed", "false");
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await postMessage(room, 1, "A new reply after unmuting");
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
 });
 
 test("everyone in the room hears about a new thread", async ({ page, browser }) => {

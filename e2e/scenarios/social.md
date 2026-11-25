@@ -34,6 +34,29 @@ what the scenario is about.
    - *Expected*: the address holds `message=<id>` of the author's message; the drawer closes; the message is shown, with `@<reader>` in it; the
      bell says "0 unseen" and the rail's description is gone; the document was still not reloaded.
 
+## Scenario: an owner can add a directory user and mention them without losing the draft
+
+1. The author creates a room and thread, but the reader is not a room member. Both sign in; the author opens the thread and the reader's bell is empty.
+2. The author checks the **Add and mention** toolbar action, closes it, then writes `Please review this draft @` followed by the reader's name fragment.
+   - *Expected*: the mention suggestions offer **Add and mention** because the reader is outside the room.
+3. The author presses **Enter** to open the directory and selects the reader.
+   - *Expected*: the directory search contains the typed fragment and the result includes the reader's name and email.
+4. The author confirms **Add and mention**.
+   - *Expected*: adding the member answers 200, the dialog closes, and the name fragment becomes the reader's visible `@<name>` mention.
+5. The author presses **Ctrl+Enter**.
+   - *Expected*: the created message identifies the reader in `mentions`; their bell says "1 unseen" and its drawer says the author mentioned them.
+
+## Scenario: here mentions only the room members who are online now
+
+1. The author creates a room and thread, adds the reader, and both open the room in separate browser contexts so their foreground presence is live.
+   - *Expected*: the reader's bell is empty.
+2. The author types `Are you around @onl` in the reply box.
+   - *Expected*: the "Groups" list offers `@here`, described as "Online members of this room"; it does not expose a presence roster.
+3. The author picks `@here` and presses **Ctrl+Enter**.
+   - *Expected*: the box showed `Are you around @here`; the created message has one `HERE` group mention.
+4. The reader does nothing.
+   - *Expected*: without a reload their bell says "1 unseen" and its drawer says the author "mentioned people here"; the author's own bell stays empty.
+
 ## Scenario: the Mentions me filter shows the thread and survives a reload
 
 1. The same setup, without browsers on the room: the author starts two threads, "Plain" and "Mentioning", and replies in the second with a
@@ -53,7 +76,7 @@ what the scenario is about.
    - *Expected*: the owner PUT answers 204.
 3. The reader does nothing.
    - *Expected*: the bell says "1 unseen" and the reader's document was not reloaded; the drawer holds "`<author>` made you the owner of #1
-     `<title>`".
+     `<title>`" and shows the change from the author’s name to the reader’s.
 4. The reader clicks the notice.
    - *Expected*: the thread opens, its pane reads "Owner: `<reader>`", and the bell says "0 unseen".
 
@@ -107,11 +130,13 @@ what the scenario is about.
    - *Expected*: the reaction PUT succeeds; the author's chip is named "👍, 1 reaction" and is pressed.
 3. The reader does nothing.
    - *Expected*: a chip "👍, 1 reaction" appears, not pressed, described by the author's name; the document was not reloaded.
-4. The reader presses the chip.
+4. The reader opens **See everyone who reacted with 👍**.
+   - *Expected*: the paged roster dialog names the reaction and links the author to their profile; closing returns to the conversation.
+5. The reader presses the chip.
    - *Expected*: it reads "👍, 2 reactions" and is pressed; the author's chip follows to "👍, 2 reactions".
-5. The reader presses it again.
+6. The reader presses it again.
    - *Expected*: it reads "👍, 1 reaction" and is not pressed; the author's chip follows to "👍, 1 reaction".
-6. Both pages are asked what they recorded.
+7. Both pages are asked what they recorded.
    - *Expected*: no policy violation in either (the lazy emoji chunk and its shadow-root picker run under the strict policy).
 
 ## Scenario: a pinned thread and a pinned message show in the pinned panel for another member, and unpinning removes them
@@ -166,6 +191,18 @@ what the scenario is about.
 3. The reader opens the bell.
    - *Expected*: the drawer says "You have no notifications."
 
+## Scenario: browser notification opt-in registers the current browser and can be reversed
+
+1. Open Notification preferences with a configured push service and browser notification permission.
+2. Enable notifications for this browser.
+   - *Expected*: the service worker registers, and the application enrolls the browser's subscription endpoint after the explicit action.
+3. Deliver an empty push event to the real service worker through Chromium's DevTools protocol.
+   - *Expected*: the worker shows a generic Adder notification. The test substitutes a browser push provider.
+4. Reload the page and disable browser alerts.
+   - *Expected*: the control remembers this browser and removes its server registration.
+5. Open the fixed URL used by a notification click.
+   - *Expected*: the signed-in notifications drawer opens.
+
 ## Scenario: the Notification preferences page saves a switch and keeps it after a reload
 
 1. The administrator mints a user (the only actor here, no room); the user signs in and opens `/notification-preferences` from the address bar.
@@ -197,6 +234,14 @@ what the scenario is about.
   message size; covered by the `MessageListUnread` component tests.
 - **Reactions or pins refused** (a closed thread, an archived room, the 50-pin and the reaction limits) — covered by the server tests and the
   component tests; E2E asserts only the visible consequences above.
+
+## Scenario: muting a thread silences its mentions and keeps the watch
+
+1. Watch a thread and mute its notifications using the header controls.
+2. Leave the thread while another member posts a direct mention.
+   - *Expected*: the feed has no new notice from the mention.
+3. Return to the thread and unmute it.
+   - *Expected*: the watch is still active and a later reply reaches the bell when the reader is elsewhere.
 
 ## Scenario: a watcher hears a reply
 

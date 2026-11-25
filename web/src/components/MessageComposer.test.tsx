@@ -49,6 +49,8 @@ describe("MessageComposer", () => {
     // Per plan 4.5: the room's thread queries and the rail, not the whole prefix.
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "rail"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["search"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["home"] });
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["rooms"] });
   });
 
@@ -56,10 +58,11 @@ describe("MessageComposer", () => {
     let answer!: (response: Response) => void;
     mockFetch.mockImplementation(() => new Promise<Response>((resolve) => (answer = resolve)));
     const user = userEvent.setup();
-    renderComposer();
+    renderComposer({ room: makeRoom({ role: "OWNER" }) });
     await user.type(box(), "once");
     await user.keyboard("{Control>}{Enter}{Enter}{Enter}{/Control}");
     expect(posts()).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Add and mention" })).toBeDisabled();
     answer(jsonResponse(201, makeMessage({ id: 77 })));
     await waitFor(() => expect(box()).toHaveValue(""));
     expect(posts()).toHaveLength(1);
@@ -143,16 +146,19 @@ describe("MessageComposer", () => {
   });
 
   /** One provider that outlives the composer, and buttons that move between threads, hide the composer (leaving the pane) and close the thread. */
-  function Harness() {
+  function Harness({ room = makeRoom() }: { room?: ReturnType<typeof makeRoom> }) {
     const [number, setNumber] = useState(42);
     const [shown, setShown] = useState(true);
     const [closed, setClosed] = useState(false);
+    const [names] = useState(createKnownNames);
     return (
       <ThreadDraftsProvider>
-        <button onClick={() => setNumber(number === 42 ? 43 : 42)}>switch thread</button>
-        <button onClick={() => setShown(!shown)}>toggle pane</button>
-        <button onClick={() => setClosed(!closed)}>toggle closed</button>
-        {shown && <MessageComposer room={makeRoom()} thread={makeThread({ number, closed })} onPosted={vi.fn()} />}
+        <KnownNamesContext.Provider value={names}>
+          <button onClick={() => setNumber(number === 42 ? 43 : 42)}>switch thread</button>
+          <button onClick={() => setShown(!shown)}>toggle pane</button>
+          <button onClick={() => setClosed(!closed)}>toggle closed</button>
+          {shown && <MessageComposer room={room} thread={makeThread({ number, closed })} onPosted={vi.fn()} />}
+        </KnownNamesContext.Provider>
       </ThreadDraftsProvider>
     );
   }
@@ -215,6 +221,45 @@ describe("MessageComposer", () => {
     await user.click(screen.getByRole("button", { name: "toggle pane" }));
     await user.click(screen.getByRole("button", { name: "toggle pane" }));
     expect(box()).toHaveValue("");
+  });
+
+  test("an owner adds a directory user before inserting their mention and keeps the draft", async () => {
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/v1/users/directory?")) {
+        return Promise.resolve(jsonResponse(200, {
+          items: [{ id: 91, name: "New Person", email: "new@example.test" }], page: 1, pageSize: 20, total: 1,
+        }));
+      }
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return Promise.resolve(jsonResponse(200, { added: 1, alreadyMembers: 0 }));
+      }
+      if (url === "/api/v1/rooms/12/threads/42/messages" && init?.method === "POST") {
+        return Promise.resolve(jsonResponse(201, makeMessage({ id: 77 })));
+      }
+      return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 8, total: 0 }));
+    });
+    const names = createKnownNames();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ThreadDraftsProvider>
+        <KnownNamesContext.Provider value={names}>
+          <MessageComposer room={makeRoom({ role: "OWNER" })} thread={makeThread()} onPosted={vi.fn()} />
+        </KnownNamesContext.Provider>
+      </ThreadDraftsProvider>,
+    );
+    await user.type(box(), "Please review");
+    await user.click(screen.getAllByRole("button", { name: "Add and mention" }).at(-1)!);
+    const directory = screen.getByRole("combobox", { name: "User" });
+    await user.type(directory, "New");
+    await user.click(await screen.findByText("New Person (new@example.test)"));
+    await user.click(screen.getAllByRole("button", { name: "Add and mention" }).at(-1)!);
+    await waitFor(() => expect(box()).toHaveValue("Please review @New Person "));
+    await waitFor(() => expect(box()).toHaveFocus());
+    const add = mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/members" && (init as RequestInit).method === "POST");
+    expect(JSON.parse((add?.[1] as RequestInit).body as string)).toEqual({ userIds: [91] });
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    const message = await waitFor(() => mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/threads/42/messages" && (init as RequestInit).method === "POST"));
+    expect(JSON.parse((message?.[1] as RequestInit).body as string)).toEqual({ body: "Please review <@91>" });
   });
 
   test("a draft survives the thread being closed and reopened", async () => {

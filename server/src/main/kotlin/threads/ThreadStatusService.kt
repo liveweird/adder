@@ -62,7 +62,7 @@ class ThreadStatusService internal constructor(
                 it[lastActivityAt] = stamp
                 it[updatedAt] = stamp
             }
-            events.record(
+            val eventId = events.record(
                 thread.id,
                 caller.userId,
                 threadStatusEvent(transition, current.key, current.label, target.key, target.label),
@@ -72,7 +72,7 @@ class ThreadStatusService internal constructor(
             notifyLive(LiveHint(LiveKind.THREAD_STATUS_CHANGED, roomId, threadNumber = number))
             // The watchers hear of it (1.1 D3; the actor never); the hint above comes first on the wire, the notice's own follows it.
             val audience = NoticeAudience.ofStatusMove(transition, caller.userId, watches.recipientIds(thread.id))
-            val told = notices.forThread(roomId, thread.id, number, caller.userId, audience)
+            val told = notices.forThread(roomId, thread.id, number, caller.userId, audience, eventId)
             StatusMove(thread.id, current.key, target.key, transition, told)
         }
 
@@ -104,19 +104,19 @@ class ThreadStatusService internal constructor(
                 it[lastActivityAt] = stamp
                 it[updatedAt] = stamp
             }
-            events.record(
+            val eventId = events.record(
                 thread.id,
                 caller.userId,
                 threadOwnerChangedEvent(thread.ownerId, newOwnerId, names.getValue(thread.ownerId), names.getValue(newOwnerId)),
                 stamp,
             )
-            // The new owner watches the thread they receive (1.1 D1; again on a later hand-over after an unwatch), whoever passes it on.
+            // Handing over the thread can start a watch, while an explicit off survives this implicit change.
             watches.addInTransaction(thread.id, newOwnerId, stamp)
             rooms.touchActivity(roomId, stamp, caller.userId)
             notifyLive(LiveHint(LiveKind.THREAD_OWNER_CHANGED, roomId, threadNumber = number))
             // The new owner hears `THREAD_ASSIGNED` (not when they took it themself), the other watchers `THREAD_OWNER_CHANGED`.
             val audience = NoticeAudience.ofHandOver(caller.userId, newOwnerId, watches.recipientIds(thread.id))
-            val told = notices.forThread(roomId, thread.id, number, caller.userId, audience)
+            val told = notices.forThread(roomId, thread.id, number, caller.userId, audience, eventId)
             OwnerMove(thread.id, thread.ownerId, newOwnerId, told)
         }
 }

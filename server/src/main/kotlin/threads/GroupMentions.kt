@@ -19,17 +19,18 @@ import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
 
-// The group mentions of a message (`chat-model.md` "Group mentions (V25, V30)"): `<@team:id>`, `<@watchers>`, `<@everyone>`. This file is
+// The group mentions of a message (`chat-model.md` "Group mentions (V25, V30, V43)"): `<@team:id>`, `<@watchers>`, `<@here>`,
+// `<@everyone>`. This file is
 // the derived index (V30 `message_group_mentions`), what a message's `groupMentions` reads and the `mentionsMe` predicate; the people a
 // group addresses are NEVER read from the index but from the live roster, watchers and members at the moment of the write.
 
-/** The three kinds of group mention (the persisted `group_kind`; the enum is the whitelist, no CHECK). */
-enum class MentionGroupKind { TEAM, WATCHERS, EVERYONE }
+/** The four kinds of group mention (the persisted `group_kind`; the enum is the whitelist, no CHECK). */
+enum class MentionGroupKind { TEAM, WATCHERS, HERE, EVERYONE }
 
 /**
  * One group mention of a message on the wire. A TEAM mention carries the team's id and its CURRENT [teamHandle] and [teamName] (a renamed
- * handle shows on old messages); the two keywords carry only the kind. The SPA shows a token as `@handle`, `@watchers` or `@everyone`
- * only when it is listed here (the SPA follows the server).
+ * handle shows on old messages); the three keywords carry only the kind. The SPA shows a token as `@handle`, `@watchers`, `@here` or
+ * `@everyone` only when it is listed here (the SPA follows the server).
  */
 @Serializable
 data class GroupMention(
@@ -41,24 +42,25 @@ data class GroupMention(
 
 /**
  * What a body's group tokens resolved to: the [teams] it names that are MENTIONABLE (an active team with a handle; any other `<@team:id>`
- * is plain text) in order of appearance, and the two keywords. [rosters] holds the ACTIVE rosters of the teams read so far (a set built
+ * is plain text) in order of appearance, and the three keywords. [rosters] holds the ACTIVE rosters of the teams read so far (a set built
  * from a parsed body carries them; one read back from the index does not, and asks for them only when it needs the people).
  */
 internal class GroupSet(
     val teams: List<UInt> = emptyList(),
     val watchers: Boolean = false,
     val everyone: Boolean = false,
+    val here: Boolean = false,
     val rosters: Map<UInt, List<UInt>> = emptyMap(),
 ) {
-    val isEmpty: Boolean get() = teams.isEmpty() && !watchers && !everyone
+    val isEmpty: Boolean get() = teams.isEmpty() && !watchers && !everyone && !here
 
     /** The same tokens, ignoring the rosters: the question "did the body's group tokens change". */
     fun sameTokens(other: GroupSet): Boolean =
-        teams.toSet() == other.teams.toSet() && watchers == other.watchers && everyone == other.everyone
+        teams.toSet() == other.teams.toSet() && watchers == other.watchers && everyone == other.everyone && here == other.here
 
     /** The held tokens are exactly what [parsed] names (the teams as a SET: their order is no change), before any team is resolved. */
     fun matches(parsed: ParsedMentions): Boolean =
-        teams.toSet() == parsed.teams.toSet() && watchers == parsed.watchers && everyone == parsed.everyone
+        teams.toSet() == parsed.teams.toSet() && watchers == parsed.watchers && everyone == parsed.everyone && here == parsed.here
 
     companion object {
         val NONE = GroupSet()
@@ -89,7 +91,7 @@ internal class MessageGroupMentionIndex(private val teams: TeamService) {
      */
     suspend fun resolve(parsed: ParsedMentions): GroupSet {
         val rosters = teams.mentionableRosters(parsed.teams)
-        return GroupSet(parsed.teams.filter { it in rosters }, parsed.watchers, parsed.everyone, rosters)
+        return GroupSet(parsed.teams.filter { it in rosters }, parsed.watchers, parsed.everyone, parsed.here, rosters)
     }
 
     /** Indexes the groups of a NEW message [ref] (no row exists yet). */
@@ -104,6 +106,7 @@ internal class MessageGroupMentionIndex(private val teams: TeamService) {
             teams = rows.mapNotNull { (kind, team) -> team.takeIf { kind == MentionGroupKind.TEAM.name } }.sorted(),
             watchers = rows.any { it.first == MentionGroupKind.WATCHERS.name },
             everyone = rows.any { it.first == MentionGroupKind.EVERYONE.name },
+            here = rows.any { it.first == MentionGroupKind.HERE.name },
         )
     }
 
@@ -135,7 +138,8 @@ internal class MessageGroupMentionIndex(private val teams: TeamService) {
 
     /**
      * The group mentions of the messages [messageIds] as they read now, ONE query for the page: a team shows its CURRENT handle and name,
-     * and only a mentionable team does (a deleted or handle-less team's token is plain text). Teams by id, then `WATCHERS`, `EVERYONE`.
+     * and only a mentionable team does (a deleted or handle-less team's token is plain text). Teams by id, then `WATCHERS`, `HERE`,
+     * `EVERYONE`.
      */
     suspend fun groupsOf(messageIds: Collection<UInt>): Map<UInt, List<GroupMention>> {
         if (messageIds.isEmpty()) return emptyMap()
@@ -171,6 +175,7 @@ internal class MessageGroupMentionIndex(private val teams: TeamService) {
             listOfNotNull(
                 (MentionGroupKind.WATCHERS to null).takeIf { watchers },
                 (MentionGroupKind.EVERYONE to null).takeIf { everyone },
+                (MentionGroupKind.HERE to null).takeIf { here },
             )
 }
 
@@ -227,5 +232,5 @@ internal fun threadMentionsMe(
     val group = exists(
         index.select(index.messageId).where { (index.roomId eq roomId) and (index.threadId eq threadId) and addressed },
     )
-    return direct or group
+    return direct or group or threadHereMentionsUser(roomId, userId, threadId)
 }

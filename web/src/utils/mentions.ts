@@ -16,11 +16,11 @@
  */
 
 // `\d` is ASCII 0-9 only in a JS regex (never the other scripts' digits), the same set as the server's `[0-9]`.
-const MENTION = /<@(?:([1-9]\d{0,9})|team:([1-9]\d{0,9})|(watchers|everyone))>/g;
+const MENTION = /<@(?:([1-9]\d{0,9})|team:([1-9]\d{0,9})|(watchers|everyone|here))>/g;
 const MAX_ID = 2_147_483_647;
 
 /** The two keywords a group mention can be. */
-type MentionKeyword = "watchers" | "everyone";
+type MentionKeyword = "watchers" | "everyone" | "here";
 
 /**
  * A run of text: plain, or a mention (`text` is the whole token as written; `id` the number inside a person's or a team's token, the keyword

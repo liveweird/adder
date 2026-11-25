@@ -12,21 +12,21 @@ import { FILTER_DEBOUNCE_MS } from "./usePagedSort";
 const PEOPLE_LIST_SIZE = 8;
 const TEAMS_LIST_SIZE = 5;
 
-/** The composer's three groups, in the order the list shows them. */
+/** The composer's three result groups, in the order the list shows them. */
 export type CandidateGroup = "people" | "teams" | "groups";
 
 /** One row of the mention list: the token a pick inserts, what the row says, and what the session learns from the pick. */
 export type Candidate = {
   key: string;
   group: CandidateGroup;
-  /** The canonical token a pick inserts (`<@42>`, `<@team:5>`, `<@everyone>`, `<@watchers>`). */
+  /** The canonical token a pick inserts (`<@42>`, `<@team:5>`, `<@everyone>`, `<@here>`, `<@watchers>`). */
   token: string;
-  /** `Name` of a person, `@handle` of a team, `@everyone` / `@watchers`. */
+  /** `Name` of a person, `@handle` of a team, or a group keyword such as `@here`. */
   name: string;
   /** A person's email, a team's name; a keyword says whom it reaches in the list itself (`detailKey`). */
   detail?: string;
   /** The i18n key of a keyword row's description. */
-  detailKey?: "threads.mention.everyone" | "threads.mention.watchers";
+  detailKey?: "threads.mention.everyone" | "threads.mention.watchers" | "threads.mention.here";
   remember: (known: KnownNames) => void;
 };
 
@@ -36,12 +36,13 @@ const TEAM_TERM = /^[a-z0-9-]{1,30}$/;
 /** The words that reach each keyword: typed from the start (`@wat` finds the watchers, so does `@obs`). */
 const KEYWORDS = [
   { word: "everyone", words: ["everyone"], detailKey: "threads.mention.everyone" as const },
+  { word: "here", words: ["here", "active", "online"], detailKey: "threads.mention.here" as const },
   { word: "watchers", words: ["watchers", "observers"], detailKey: "threads.mention.watchers" as const },
 ];
 
 /**
  * What the `@term` being typed can mention, read through the server and filtered by the term: the room's members (`GET /rooms/{id}/members?name=`),
- * the teams with a handle that match the term (`GET /teams?handle=`, only once a letter is typed) and the keywords (`@everyone`, `@watchers`;
+ * the teams with a handle that match the term (`GET /teams?handle=`, only once a letter is typed) and the keywords (`@everyone`, `@here`, `@watchers`;
  * the latter only when [offerWatchers], since a thread that does not exist yet has none). `settled` is true when the reads match the term as it
  * stands, so a quick Enter never picks a row the typed letters no longer match: until then each list is the previous read narrowed by the term.
  */

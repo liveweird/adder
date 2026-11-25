@@ -104,6 +104,7 @@ export class LiveClient {
   private started = false;
   private over = false;
   private visible = true;
+  private presenceSupported = false;
   private online = true;
   /** Hidden for 8 hours: the socket was closed on purpose. */
   private suspended = false;
@@ -169,6 +170,7 @@ export class LiveClient {
   setVisible(visible: boolean): void {
     if (this.over || visible === this.visible) return;
     this.visible = visible;
+    if (this.connected && this.presenceSupported) this.send({ type: "foreground", visible });
     if (!visible) {
       this.hiddenAt = this.deps.clock.now();
       this.setTimer("quiet", HIDDEN_QUIET_MS, () => this.goQuiet());
@@ -314,6 +316,7 @@ export class LiveClient {
   private becomeLive(frame: Extract<LiveServerFrame, { type: "ready" }>): void {
     this.clearTimer("ready");
     this.maxSubscriptions = frame.maxSubscriptions;
+    this.presenceSupported = frame.presenceSupported === true;
     this.requested.clear();
     this.silentSincePing = false;
     // A tab that went quiet while it was reconnecting comes up quiet: no rooms, personal frames only.
@@ -322,6 +325,7 @@ export class LiveClient {
       this.attempt = 0;
     });
     this.schedulePing(this.generation);
+    if (this.presenceSupported) this.send({ type: "foreground", visible: this.visible });
     // Subscribe first: a consumer that throws on `ready` must not leave the socket without its rooms.
     this.syncSubscriptions();
     this.deps.onFrame(frame);
@@ -345,6 +349,7 @@ export class LiveClient {
       } else if (this.visible) {
         // A hidden tab's timers are throttled and nobody is looking: ping only while visible (or quiet, above).
         this.send({ type: "ping" });
+        if (this.presenceSupported) this.send({ type: "foreground", visible: true });
         this.setTimer("pong", PONG_WITHIN_MS, () => this.fail(generation, CLOSE_PONG_TIMEOUT));
       }
       this.schedulePing(generation);

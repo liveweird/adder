@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { editCanonical, mentionQuery, pickMention, pickToken, toShown, toShownOffset } from "./mentionText";
+import { appendMentionToken, editCanonical, mentionQuery, pickMention, pickToken, replaceMentionRequest, toShown, toShownOffset } from "./mentionText";
 
 const NAMES = new Map<number, string>([
   [5, "Ann Owner"],
@@ -8,6 +8,18 @@ const NAMES = new Map<number, string>([
   [8, "<b>*x* @team"],
 ]);
 const nameOf = (id: number) => NAMES.get(id);
+
+test("an added member's token preserves existing line breaks and separates ordinary text", () => {
+  expect(appendMentionToken("", "<@7>")).toBe("<@7> ");
+  expect(appendMentionToken("Draft", "<@7>")).toBe("Draft <@7> ");
+  expect(appendMentionToken("A new line\n", "<@7>")).toBe("A new line\n<@7> ");
+});
+
+test("an added member replaces the unfinished query without disturbing either side of the draft", () => {
+  const request = { from: 7, to: 11, source: "@New", term: "New" };
+  expect(replaceMentionRequest("Before @New after", request, "<@91>")).toBe("Before <@91> after");
+  expect(replaceMentionRequest("A changed draft", request, "<@91>")).toBe("A changed draft <@91> ");
+});
 
 /** The box after the user replaced shown `[from, to)` with `typed`, the caret right after it (as a browser reports it). */
 function edit(canonical: string, from: number, to: number, typed: string, maxLength?: number) {
@@ -38,6 +50,7 @@ describe("toShown", () => {
     const handles = new Map([[3, "oncall"]]);
     const shown = toShown("<@team:3> <@team:4> <@everyone> <@watchers> <@5>", nameOf, (id) => handles.get(id));
     expect(shown.text).toBe("@oncall <@team:4> @everyone @watchers @Ann Owner");
+    expect(toShown("<@here>", nameOf, (id) => handles.get(id)).text).toBe("@here");
     // A keyword and a team are as atomic as a name: one edit inside them removes the whole token.
     expect(editCanonical(shown, shown.text.replace("@everyone", "@everyne"), 14).canonical).toBe("<@team:3> <@team:4>  <@watchers> <@5>");
     expect(editCanonical(shown, shown.text.replace("@oncall", "@onall"), 4).canonical).toBe("a <@team:4> <@everyone> <@watchers> <@5>");

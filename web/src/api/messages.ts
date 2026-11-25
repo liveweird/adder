@@ -41,6 +41,7 @@ export async function postMessage(roomId: number, threadNumber: number, body: st
 }
 
 export type ReactionSummary = MessageResponse["reactions"][number];
+export type ReactorPage = paths["/api/v1/rooms/{id}/messages/{messageId}/reactors"]["get"]["responses"]["200"]["content"]["application/json"];
 type ReactionBody = paths["/api/v1/rooms/{id}/messages/{messageId}/reaction"]["put"]["requestBody"]["content"]["application/json"];
 
 /**
@@ -50,6 +51,12 @@ type ReactionBody = paths["/api/v1/rooms/{id}/messages/{messageId}/reaction"]["p
 export async function setMessageReaction(roomId: number, messageId: number, emoji: string, reacted: boolean): Promise<void> {
   const payload: ReactionBody = { emoji, reacted };
   return voidRequest(`/api/v1/rooms/${roomId}/messages/${messageId}/reaction`, { method: "PUT", body: JSON.stringify(payload) });
+}
+
+/** Full reactor roster behind one message summary. The opaque key keeps the chosen emoji out of the URL. */
+export async function listMessageReactors(roomId: number, messageId: number, reactionKey: string, page: number, pageSize: number): Promise<ReactorPage> {
+  const params = buildQuery({ reactionKey, page, pageSize, sort: "createdAt" });
+  return jsonRequest<ReactorPage>(`/api/v1/rooms/${roomId}/messages/${messageId}/reactors?${params}`);
 }
 
 /** The author's own message, while a member; an unchanged body is a server-side no-op (204). */

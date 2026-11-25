@@ -1,14 +1,16 @@
 import { useId, useLayoutEffect, useRef, useState, type ComponentProps, type KeyboardEvent, type SyntheticEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Combobox, Group, Text, VisuallyHidden, useCombobox } from "@mantine/core";
+import { IconUserPlus } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { getRoom } from "../api/rooms";
 import { useMentionCandidates, type CandidateGroup } from "../hooks/useMentionCandidates";
 import { useKnownNames } from "../utils/knownNames";
 import { mentionsEveryone } from "../utils/mentions";
-import { editCanonical, mentionQuery, pickToken, toCanonicalOffset, toShown, toShownOffset, type MentionQuery, type Selection, type Shown } from "../utils/mentionText";
+import { editCanonical, mentionQuery, mentionReplacementRequest, pickToken, toCanonicalOffset, toShown, toShownOffset, type MentionQuery, type MentionReplacementRequest, type Selection, type Shown } from "../utils/mentionText";
 import { roomKeys } from "../utils/roomKeys";
 import EmojiTextarea from "./EmojiTextarea";
+import { DIRECTORY_MIN_TERM } from "./UserDirectorySelect";
 
 type MentionTextareaProps = Omit<ComponentProps<typeof EmojiTextarea>, "value" | "onChange" | "ref" | "measuredLength"> & {
   roomId: number;
@@ -17,6 +19,8 @@ type MentionTextareaProps = Omit<ComponentProps<typeof EmojiTextarea>, "value" |
   onChange: (value: string) => void;
   /** Whether the list offers `@watchers` (default yes): a thread that is not started yet has no watchers but its author. */
   offerWatchers?: boolean;
+  /** Offered as a listbox action after a directory-sized term has no room-member match. */
+  onAddAndMention?: (request: MentionReplacementRequest) => void;
 };
 
 const GROUP_LABELS = {
@@ -39,7 +43,7 @@ const GROUP_LABELS = {
  * (`aria-controls`) and the highlighted option (`aria-activedescendant`); the list is a labelled `listbox` of labelled `group`s (People, Teams,
  * Groups), and a visually hidden status line says how many rows match. The limit counts the stored text, not the shown one.
  */
-export default function MentionTextarea({ roomId, value, onChange, maxLength, onKeyDown, onBlur, onSelect, offerWatchers = true, ...rest }: MentionTextareaProps) {
+export default function MentionTextarea({ roomId, value, onChange, maxLength, onKeyDown, onBlur, onSelect, offerWatchers = true, onAddAndMention, ...rest }: MentionTextareaProps) {
   const { t } = useTranslation();
   const known = useKnownNames();
   const canonical = value ?? "";
@@ -60,9 +64,13 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
 
   const { candidates, settled } = useMentionCandidates(roomId, query, offerWatchers);
   const items = candidates;
-  const open = query !== null && dismissedAt !== toCanonicalOffset(shown, query.from) && items.length > 0;
+  const directoryTerm = query?.term.trim() ?? "";
+  const offerAdd = onAddAndMention !== undefined && query !== null && settled && [...directoryTerm].length >= DIRECTORY_MIN_TERM &&
+    !items.some((item) => item.group === "people");
+  const optionCount = items.length + (offerAdd ? 1 : 0);
+  const open = query !== null && dismissedAt !== toCanonicalOffset(shown, query.from) && optionCount > 0;
   // A refetch can shrink the list under the highlighted row.
-  const current = Math.min(active, items.length - 1);
+  const current = Math.min(active, optionCount - 1);
   const store = useCombobox({ opened: open });
 
   useLayoutEffect(() => {
@@ -107,6 +115,13 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
   }
 
   function pick(index: number) {
+    if (offerAdd && index === items.length && query !== null) {
+      onAddAndMention?.(mentionReplacementRequest(shown, query));
+      selection.current = null;
+      setQuery(null);
+      setDismissedAt(null);
+      return;
+    }
     const item = items[index];
     if (item === undefined || query === null) return;
     const result = pickToken(shown, query, query.from + 1 + query.term.length, item.token, maxLength);
@@ -129,7 +144,7 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
     if (open && query !== null && !event.nativeEvent.isComposing && event.keyCode !== 229) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
-        setActive((index) => (Math.min(index, items.length - 1) + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length);
+        setActive((index) => (Math.min(index, optionCount - 1) + (event.key === "ArrowDown" ? 1 : optionCount - 1)) % optionCount);
         return;
       }
       if (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) {
@@ -155,7 +170,7 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
     if (el.value === shown.text) followCaret(shown, el.selectionStart === el.selectionEnd ? el.selectionEnd : null);
   }
 
-  const status = !settled ? "" : items.length > 0 ? t("threads.mention.matches", { count: items.length }) : t("threads.mention.none");
+  const status = !settled ? "" : optionCount > 0 ? t("threads.mention.matches", { count: optionCount }) : t("threads.mention.none");
   // The room's size, read only while the draft names everyone (the room page's own read: the same cache entry).
   const everyone = mentionsEveryone(canonical);
   const room = useQuery({ queryKey: roomKeys.detail(roomId), queryFn: () => getRoom(roomId), enabled: everyone });
@@ -163,7 +178,8 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
 
   return (
     <>
-      <Combobox store={store} keepMounted={false} position="bottom-start" onOptionSubmit={(id) => pick(items.findIndex((item) => item.key === id))}>
+      <Combobox store={store} keepMounted={false} position="bottom-start"
+        onOptionSubmit={(id) => pick(id === "add-and-mention" ? items.length : items.findIndex((item) => item.key === id))}>
         <Combobox.Target withKeyboardNavigation={false} withAriaAttributes={false}>
           <EmojiTextarea
             {...rest}
@@ -223,6 +239,26 @@ export default function MentionTextarea({ roomId, value, onChange, maxLength, on
                 )}
               </Combobox.Group>
             ))}
+            {offerAdd && (
+              <Combobox.Option
+                id={`${listId}-${items.length}`}
+                value="add-and-mention"
+                selected={current === items.length}
+                aria-selected={current === items.length}
+                onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setActive(items.length)}
+              >
+                <Group justify="space-between" gap="sm" wrap="nowrap">
+                  <Group gap="xs" wrap="nowrap">
+                    <IconUserPlus size={16} aria-hidden="true" />
+                    <Text size="sm" fw={600} truncate>{t("threads.composer.addAndMentionTerm", { term: directoryTerm })}</Text>
+                  </Group>
+                  <Text size="xs" c={current === items.length ? "inherit" : "dimmed"} truncate>
+                    {t("threads.composer.addAndMentionTermHint")}
+                  </Text>
+                </Group>
+              </Combobox.Option>
+            )}
           </Combobox.Options>
         </Combobox.Dropdown>
       </Combobox>

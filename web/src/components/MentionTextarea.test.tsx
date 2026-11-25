@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import MentionTextarea from "./MentionTextarea";
+import type { MentionReplacementRequest } from "../utils/mentionText";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 import { isSendShortcut } from "../utils/messageForm";
@@ -26,11 +27,13 @@ function Harness({
   initial = "",
   maxLength = 8000,
   offerWatchers,
+  onAddAndMention,
 }: {
   onSend?: () => void;
   initial?: string;
   maxLength?: number;
   offerWatchers?: boolean;
+  onAddAndMention?: (request: MentionReplacementRequest) => void;
 }) {
   const [text, setText] = useState(initial);
   return (
@@ -42,6 +45,7 @@ function Harness({
         value={text}
         onChange={setText}
         offerWatchers={offerWatchers}
+        onAddAndMention={onAddAndMention}
         onKeyDown={(event) => {
           if (isSendShortcut(event)) {
             event.preventDefault();
@@ -200,6 +204,31 @@ describe("MentionTextarea", () => {
     await user.type(box(), "@zzz");
     expect(await screen.findByText("Nothing in this room matches")).toBeInTheDocument();
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  test("a settled non-member term offers a keyboard-pickable add-and-mention request with canonical offsets", async () => {
+    const user = userEvent.setup();
+    const onAddAndMention = vi.fn();
+    renderWithProviders(<Harness initial="Before " onAddAndMention={onAddAndMention} />);
+    await user.type(box(), "@New");
+    const action = await screen.findByRole("option", { name: /Add and mention “New”/ });
+    expect(action).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(onAddAndMention).toHaveBeenCalledWith({ from: 7, to: 11, source: "@New", term: "New" });
+    expect(stored()).toBe("Before @New");
+  });
+
+  test("a manager can still pick a matching keyword or an existing member without opening the directory", async () => {
+    const user = userEvent.setup();
+    const onAddAndMention = vi.fn();
+    renderWithProviders(<Harness onAddAndMention={onAddAndMention} />);
+    await user.type(box(), "@everyone");
+    expect(await screen.findByRole("option", { name: /Add and mention “everyone”/ })).toBeVisible();
+    await user.keyboard("{Enter}");
+    await user.type(box(), "@bo");
+    await user.click(await screen.findByRole("option", { name: /Bob/ }));
+    expect(stored()).toBe("<@everyone> <@7> ");
+    expect(onAddAndMention).not.toHaveBeenCalled();
   });
 
   test("a stored token shows as the name of a person the session knows, and as the token otherwise", async () => {

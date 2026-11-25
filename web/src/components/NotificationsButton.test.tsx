@@ -79,23 +79,24 @@ function renderBell(route = "/rooms/3", queryClient?: QueryClient) {
 
 const bell = () => screen.findByRole("button", { name: /^Notifications/ });
 
+beforeEach(() => {
+  unseenPage = page([notice()]);
+  listPage = page([notice(), notice({ id: 76, seen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
+  listStatus = 200;
+  markAllStatus = seenStatus = 204;
+  unseenStatus = 200;
+  serveListPage = null;
+  calls.length = 0;
+  localStorage.setItem("adder.auth.token", "fake-token");
+  vi.stubGlobal("fetch", vi.fn(api));
+});
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  localStorage.clear();
+  await i18n.changeLanguage("en");
+});
+
 describe("NotificationsButton", () => {
-  beforeEach(() => {
-    unseenPage = page([notice()]);
-    listPage = page([notice(), notice({ id: 76, seen: true, type: "THREAD_ASSIGNED", messageId: null, actorName: "Bob", threadNumber: 5, threadTitle: "Runbook", roomName: "Ops" })]);
-    listStatus = 200;
-    markAllStatus = seenStatus = 204;
-    unseenStatus = 200;
-    serveListPage = null;
-    calls.length = 0;
-    localStorage.setItem("adder.auth.token", "fake-token");
-    vi.stubGlobal("fetch", vi.fn(api));
-  });
-  afterEach(async () => {
-    vi.unstubAllGlobals();
-    localStorage.clear();
-    await i18n.changeLanguage("en");
-  });
   test("the button is labelled with the unseen total, which is also the badge", async () => {
     unseenPage = page([notice()], 3);
     renderBell();
@@ -103,6 +104,12 @@ describe("NotificationsButton", () => {
     expect(screen.getByText("3").closest("[data-unread-cue=count]")).not.toBeNull();
     // It asks for the unseen ones only, a page of 100, newest first by the server's default.
     expect(calls).toContain("GET /api/v1/notifications/feed?page=1&pageSize=100&seen=false&groupReplies=true");
+  });
+
+  test("a browser notification opens the bell when it brings the user back to Adder", async () => {
+    renderBell("/?notifications=1");
+    expect(await screen.findByRole("dialog", { name: "Notifications" })).toBeVisible();
+    expect(await screen.findByRole("link", { name: /Ada mentioned you/ })).toBeVisible();
   });
 
   test("past the server's cap the badge reads 999+ and the label says more than 999", async () => {
@@ -412,7 +419,7 @@ describe("NotificationsButton", () => {
   test.each([
     ["MENTIONED", "Ada mentioned you in #42 Awaria bazy"], ["MESSAGE_QUOTED", "Ada quoted your message in #42 Awaria bazy"],
     ["TEAM_MENTIONED", "Ada mentioned your team in #42 Awaria bazy"],
-    ["WATCHERS_MENTIONED", "Ada mentioned the watchers of #42 Awaria bazy"],
+    ["WATCHERS_MENTIONED", "Ada mentioned the watchers of #42 Awaria bazy"], ["HERE_MENTIONED", "Ada mentioned people here in #42 Awaria bazy"],
     ["EVERYONE_MENTIONED", "Ada mentioned everyone in #42 Awaria bazy"],
     ["THREAD_REPLIED", "Ada replied in #42 Awaria bazy"],
     ["THREAD_CREATED", "Ada started #42 Awaria bazy"],
@@ -453,7 +460,7 @@ describe("NotificationsButton", () => {
     expect(feedCalls().every((c) => !c.includes("type="))).toBe(true);
 
     await user.click(within(drawer).getByRole("radio", { name: "Mentions" }));
-    await waitFor(() => expect(mentionCalls().some((c) => c.includes("type=MENTIONED&type=MESSAGE_QUOTED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED"))).toBe(true));
+    await waitFor(() => expect(mentionCalls().some((c) => c.includes("type=MENTIONED&type=MESSAGE_QUOTED&type=TEAM_MENTIONED&type=WATCHERS_MENTIONED&type=HERE_MENTIONED&type=EVERYONE_MENTIONED&type=THREAD_ASSIGNED"))).toBe(true));
     // The badge still counts every unseen notice: its own query never names a type.
     expect(calls.filter((c) => c.includes("pageSize=100")).every((c) => !c.includes("type="))).toBe(true);
 

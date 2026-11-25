@@ -101,7 +101,7 @@ describe("ThreadPane: the side panel opens on demand", () => {
     expect(await screen.findByRole("button", { name: "Focus on this thread" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Pin this thread" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Watch this thread" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByText("Watchers: 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show 2 watchers" })).toHaveTextContent("2");
     expect(screen.getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "false");
     // Icon-only: no visible text, the name is the label.
     for (const name of ["Focus on this thread", "Pin this thread", "Watch this thread", "Details"]) expect(screen.getByRole("button", { name })).toHaveTextContent("");

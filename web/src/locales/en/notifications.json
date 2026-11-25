@@ -12,6 +12,17 @@
   "unseen_other": "{{count}} unseen",
   "inRoom": "{{room}} · {{when}}",
   "openRoom": "Open room",
+  "change": "{{from}} → {{to}}",
+  "browserPush": {
+    "title": "Browser notifications",
+    "description": "Get alerts for new bell notifications even when Adder is closed. Enable them again when this browser’s 90-day registration expires.",
+    "enable": "Enable on this browser",
+    "disable": "Disable on this browser",
+    "unsupported": "This browser cannot receive background notifications here.",
+    "unavailable": "Browser notifications are unavailable on this server.",
+    "denied": "Allow notifications in this browser’s site settings to use this feature.",
+    "failed": "Could not update browser notifications. Try again."
+  },
   "toast": {
     "preferencesSaved": "Notification preferences saved"
   },
@@ -37,6 +48,7 @@
       "MESSAGE_QUOTED": "Someone quotes my message",
       "TEAM_MENTIONED": "Someone mentions my team",
       "WATCHERS_MENTIONED": "Someone mentions the watchers of a thread I watch",
+      "HERE_MENTIONED": "Someone mentions the people currently here",
       "EVERYONE_MENTIONED": "Someone mentions everyone in a room I am in",
       "THREAD_REPLIED": "A reply in a thread I watch",
       "THREAD_CREATED": "A new thread in a room I am in",
@@ -58,6 +70,7 @@
     "THREAD_ASSIGNED": "{{actor}} made you the owner of #{{number}} {{title}}",
     "TEAM_MENTIONED": "{{actor}} mentioned your team in #{{number}} {{title}}",
     "WATCHERS_MENTIONED": "{{actor}} mentioned the watchers of #{{number}} {{title}}",
+    "HERE_MENTIONED": "{{actor}} mentioned people here in #{{number}} {{title}}",
     "EVERYONE_MENTIONED": "{{actor}} mentioned everyone in #{{number}} {{title}}",
     "THREAD_REPLIED": "{{actor}} replied in #{{number}} {{title}}",
     "THREAD_CREATED": "{{actor}} started #{{number}} {{title}}",

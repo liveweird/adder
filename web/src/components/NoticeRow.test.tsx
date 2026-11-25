@@ -73,6 +73,15 @@ describe("NoticeRow", () => {
     );
   });
 
+  test("a workflow notice shows the recorded previous and next values", () => {
+    const item = {
+      ...notice({ type: "THREAD_STATUS_CHANGED", messageId: null }),
+      change: { from: "Open", to: "Monitoring" },
+    };
+    renderRow(item);
+    expect(screen.getByRole("link", { name: /Open → Monitoring$/ })).toHaveTextContent("Open → Monitoring");
+  });
+
   test("a name with markup in it is text, in the sentence and in the link's name", () => {
     renderRow(notice({ actorName: "<b>Ada</b>", threadTitle: "<strong>x</strong>", seen: true }));
     expect(document.querySelector("b, strong")).toBeNull();
@@ -93,7 +102,7 @@ describe("NoticeRow", () => {
   test.each(["en", "pl"] as const)("every notifications.event key in %s holds the actor once, with words after it", (lng) => {
     const t = i18n.getFixedT(lng);
     const kinds = Object.keys(enNotifications.event);
-    expect(kinds).toHaveLength(13);
+    expect(kinds).toHaveLength(14);
     for (const kind of kinds) {
       const sentence = t(`notifications.event.${kind as keyof typeof enNotifications.event}`, { actor: slot("actor"), number: 42, title: "T" });
       const parts = sentence.split(slot("actor"));

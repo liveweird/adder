@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { Box, Button, Text, Tooltip, VisuallyHidden } from "@mantine/core";
+import { ActionIcon, Box, Button, Group, Text, Tooltip, VisuallyHidden } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
+import { IconUsers } from "@tabler/icons-react";
 import { setMessageReaction, type MessageResponse, type ReactionSummary } from "../api/messages";
 import { messageErrorMessage } from "../utils/messageForm";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
@@ -10,6 +11,7 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
 import { roomKeys } from "../utils/roomKeys";
 import EmojiButton from "./EmojiButton";
+import MessageReactionRoster from "./MessageReactionRoster";
 
 /** "Ada, Bob and Cy", or "Ada, Bob, Cy and 2 more" when the server's first three are not everyone. The names are text, never Markdown. */
 function reactorNames(reaction: ReactionSummary, t: TFunction, language: string): string {
@@ -52,6 +54,7 @@ export default function MessageReactions({
   const pressedEmoji = useRef<string | null>(null);
   const addRef = useRef<HTMLSpanElement>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [rosterReaction, setRosterReaction] = useState<ReactionSummary | null>(null);
   const { reactions } = message;
 
   // The chip the reader pressed has gone (its count reached 0): its focus went with it, so the add button takes it.
@@ -62,7 +65,7 @@ export default function MessageReactions({
     if (document.activeElement === null || document.activeElement === document.body) addRef.current?.querySelector("button")?.focus();
   }, [reactions]);
 
-  if (message.deleted || (reactions.length === 0 && !canReact)) return null;
+  if (message.deleted || (reactions.length === 0 && !canReact && rosterReaction === null)) return null;
 
   const rereadConversation = () => refreshQueriesAfterMutation(queryClient, roomKeys.messages(roomId, message.threadNumber));
 
@@ -122,7 +125,7 @@ export default function MessageReactions({
           );
           const nameId = `${idBase}-names-${index}`;
           return (
-            <Box component="li" key={reaction.emoji}>
+            <Group component="li" key={reaction.emoji} gap={2} wrap="nowrap">
               {canReact ? (
                 <>
                   <Tooltip label={names} withinPortal>
@@ -159,7 +162,16 @@ export default function MessageReactions({
                   <VisuallyHidden>{[label, reaction.reacted ? t("threads.reaction.youReacted") : "", names].filter(Boolean).join(". ")}</VisuallyHidden>
                 </>
               )}
-            </Box>
+              <ActionIcon
+                variant="subtle"
+                size="sm"
+                aria-label={t("threads.reaction.viewPeople", { emoji: reaction.emoji })}
+                aria-haspopup="dialog"
+                onClick={() => setRosterReaction(reaction)}
+              >
+                <IconUsers size={14} aria-hidden="true" />
+              </ActionIcon>
+            </Group>
           );
         })}
       </Box>
@@ -171,6 +183,16 @@ export default function MessageReactions({
       )}
       {/* Mounted with its text (never a standing empty region per message: the conversation has a status of its own, and a long thread has hundreds of messages). */}
       {announcement !== "" && <VisuallyHidden role="status">{announcement}</VisuallyHidden>}
+      {rosterReaction && (
+        <MessageReactionRoster
+          key={rosterReaction.key}
+          roomId={roomId}
+          threadNumber={message.threadNumber}
+          messageId={message.id}
+          reaction={rosterReaction}
+          onClose={() => setRosterReaction(null)}
+        />
+      )}
     </Box>
   );
 }

@@ -27,8 +27,9 @@ class MentionsTest {
         val teams: List<UInt> = emptyList(),
         val everyone: Boolean = false,
         val watchers: Boolean = false,
+        val here: Boolean = false,
     ) {
-        val expected: ParsedMentions get() = ParsedMentions(ids, teams, watchers, everyone)
+        val expected: ParsedMentions get() = ParsedMentions(ids, teams, watchers, everyone, here)
     }
 
     private val cases: List<Case> by lazy {

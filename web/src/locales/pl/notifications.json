@@ -16,6 +16,17 @@
   "unseen_other": "{{count}} nieprzeczytanego",
   "inRoom": "{{room}} · {{when}}",
   "openRoom": "Otwórz pokój",
+  "change": "{{from}} → {{to}}",
+  "browserPush": {
+    "title": "Powiadomienia w przeglądarce",
+    "description": "Otrzymuj alerty o nowych powiadomieniach z dzwonka nawet po zamknięciu Addera. Włącz je ponownie po wygaśnięciu 90-dniowej rejestracji tej przeglądarki.",
+    "enable": "Włącz w tej przeglądarce",
+    "disable": "Wyłącz w tej przeglądarce",
+    "unsupported": "Ta przeglądarka nie obsługuje tutaj powiadomień w tle.",
+    "unavailable": "Ten serwer nie udostępnia powiadomień w przeglądarce.",
+    "denied": "Aby użyć tej funkcji, zezwól na powiadomienia w ustawieniach witryny w przeglądarce.",
+    "failed": "Nie udało się zmienić powiadomień w przeglądarce. Spróbuj ponownie."
+  },
   "toast": {
     "preferencesSaved": "Zapisano ustawienia powiadomień"
   },
@@ -41,6 +52,7 @@
       "MESSAGE_QUOTED": "Ktoś cytuje moją wiadomość",
       "TEAM_MENTIONED": "Ktoś wspomina o moim zespole",
       "WATCHERS_MENTIONED": "Ktoś wspomina o obserwujących wątek, który obserwuję",
+      "HERE_MENTIONED": "Ktoś wspomina o obecnych osobach",
       "EVERYONE_MENTIONED": "Ktoś wspomina o wszystkich w pokoju, do którego należę",
       "THREAD_REPLIED": "Odpowiedź w wątku, który obserwuję",
       "THREAD_CREATED": "Nowy wątek w pokoju, do którego należę",
@@ -62,6 +74,7 @@
     "THREAD_ASSIGNED": "{{actor}} przekazuje Ci wątek #{{number}} {{title}}",
     "TEAM_MENTIONED": "{{actor}} wspomina o Twoim zespole w #{{number}} {{title}}",
     "WATCHERS_MENTIONED": "{{actor}} wspomina o obserwujących wątek #{{number}} {{title}}",
+    "HERE_MENTIONED": "{{actor}} wspomina o obecnych osobach w #{{number}} {{title}}",
     "EVERYONE_MENTIONED": "{{actor}} wspomina o wszystkich w #{{number}} {{title}}",
     "THREAD_REPLIED": "{{actor}} odpowiada w #{{number}} {{title}}",
     "THREAD_CREATED": "{{actor}} zakłada wątek #{{number}} {{title}}",

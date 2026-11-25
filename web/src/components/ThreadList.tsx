@@ -24,15 +24,16 @@ import PinMark from "./PinMark";
 import TagPills from "./TagPills";
 import ThreadStatusPill from "./ThreadStatusPill";
 import UnreadCue from "./UnreadCue";
+import PersonLink from "./PersonLink";
 import { roomKeys } from "../utils/roomKeys";
 import { activeFilterCount, ORDERS, pruneFieldEntries, SCOPES, toApiQuery, type Order, type Scope } from "../utils/threadListParams";
 import { getUserId } from "../api/session";
 import ThreadFilters from "./ThreadFilters";
 
-/** A row shows this many of the thread's hashtags, as dimmed text, and "+N" for the rest (the row is one link: they cannot be links here). */
+/** A row shows this many of the thread's hashtags, as dimmed text, and "+N" for the rest. */
 const ROW_HASHTAGS = 3;
 
-/** A row shows this many of the thread's curated tags, as pills (non-interactive: the row is one link), and "+N" for the rest. */
+/** A row shows this many of the thread's curated tags, as non-interactive pills, and "+N" for the rest. */
 const ROW_TAGS = 3;
 
 /** The rail shows 50 threads a page (the server's cap is 100); the page-size picker is left out, the rail is too narrow for it. */
@@ -44,7 +45,8 @@ const THREAD_PAGE_SIZE = 50;
  * member of a live room, "New thread". The open thread is marked with `aria-current`. The state (scope, order, page) lives in the URL
  * (`useThreadListParams`), so a change is one write that also resets the page: a changed filter reads page 1 from its very first request.
  * Every link out of the list keeps the list's keys, so opening a thread never loses the reader's place. A row shows up to three of the thread's
- * hashtags and "+N" as dimmed TEXT (1.2 A8) and up to three curated tags as pills (1.2 D3): a row is one link, so neither can be a link inside it (the pane's header and side panel have the hashtags as links).
+ * hashtags and "+N" as dimmed TEXT (1.2 A8) and up to three curated tags as pills (1.2 D3). The thread target covers the card while the
+ * owner's profile link sits above that target, following the same multi-link card pattern as notifications without nesting interactives.
  */
 export default function ThreadList({ room, activeNumber }: { room: RoomResponse; activeNumber: number | null }) {
   const { t } = useTranslation();
@@ -158,23 +160,29 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
               const describedBy = note === "" ? undefined : `${noteId}-${thread.number}`;
               return (
                 <li key={thread.id}>
-                  <RouterLink
-                    to={withListParams(threadPath(room.id, thread.number), search)}
-                    state={focusThreadPaneState}
+                  <div
                     className={classes.row}
-                    aria-current={thread.number === activeNumber ? "page" : undefined}
-                    aria-describedby={describedBy}
+                    data-thread-row=""
+                    data-current={thread.number === activeNumber || undefined}
                   >
                     <Stack gap={4}>
                       <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
                         <Text size="sm" fw={unread ? 700 : 500} lh={1.4} className={classes.title}>
-                          <Text span c="dimmed" size="xs" fw={500} className={classes.number}>{`#${thread.number}`}</Text> {thread.title}
-                          {watching && (
-                            <>
-                              {" "}
-                              <IconEyeFilled size={12} aria-hidden="true" />
-                            </>
-                          )}
+                          <RouterLink
+                            to={withListParams(threadPath(room.id, thread.number), search)}
+                            state={focusThreadPaneState}
+                            className={classes.rowTarget}
+                            aria-current={thread.number === activeNumber ? "page" : undefined}
+                            aria-describedby={describedBy}
+                          >
+                            <Text span c="dimmed" size="xs" fw={500} className={classes.number}>{`#${thread.number}`}</Text> {thread.title}
+                            {watching && (
+                              <>
+                                {" "}
+                                <IconEyeFilled size={12} aria-hidden="true" />
+                              </>
+                            )}
+                          </RouterLink>
                         </Text>
                         {(unread || notice) && (
                           <Group gap={4} wrap="nowrap" aria-hidden="true">
@@ -187,7 +195,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                         <ThreadStatusPill statuses={workflow.data?.statuses} statusKey={thread.status} size="sm" />
                         {pinned && <PinMark size="sm" hidden />}
                         <Text size="xs" c="dimmed">
-                          {thread.ownerName}
+                          <PersonLink id={thread.ownerId} name={thread.ownerName} inherit className={classes.personTarget} />
                         </Text>
                       </Group>
                       <Text size="xs" c="dimmed">
@@ -205,7 +213,7 @@ export default function ThreadList({ room, activeNumber }: { room: RoomResponse;
                         </Text>
                       )}
                     </Stack>
-                  </RouterLink>
+                  </div>
                   {describedBy !== undefined && <VisuallyHidden id={describedBy}>{note}</VisuallyHidden>}
                 </li>
               );

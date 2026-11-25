@@ -13,6 +13,7 @@ import { getUserId } from "../api/session";
 import ErrorAlert from "../components/ErrorAlert";
 import FormErrorAlert from "../components/FormErrorAlert";
 import LoadingBlock from "../components/LoadingBlock";
+import BrowserPushCard from "../components/BrowserPushCard";
 import PageHeader from "../components/PageHeader";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { saveErrorMessage } from "../utils/saveError";
@@ -33,7 +34,7 @@ const CHANNELS = [
  * group is not drawn, and a test pins that every kind of the contract is in a group). The groups follow who is being told and why.
  */
 const GROUPS = [
-  { key: "mentions", types: ["MENTIONED", "MESSAGE_QUOTED", "TEAM_MENTIONED", "WATCHERS_MENTIONED", "EVERYONE_MENTIONED"] },
+  { key: "mentions", types: ["MENTIONED", "MESSAGE_QUOTED", "TEAM_MENTIONED", "WATCHERS_MENTIONED", "HERE_MENTIONED", "EVERYONE_MENTIONED"] },
   { key: "watching", types: ["THREAD_REPLIED", "THREAD_STATUS_CHANGED", "THREAD_CLOSED", "THREAD_REOPENED", "THREAD_OWNER_CHANGED"] },
   { key: "handed", types: ["THREAD_ASSIGNED"] },
   { key: "rooms", types: ["THREAD_CREATED", "ROOM_ADDED"] },
@@ -108,6 +109,7 @@ export default function NotificationPreferences() {
   return (
     <Stack gap="md">
       <PageHeader title={t("notifications.preferences.title")} description={t("notifications.preferences.description")} />
+      <BrowserPushCard />
       <Paper withBorder p="xl" maw={CONTENT_MAX_WIDTH}>
         {query.isLoading ? (
           <LoadingBlock />

@@ -5,7 +5,16 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.13.0 — external links and previews)
+## What's here today
+
+### Chat and notification controls (1.18.0)
+
+- Open the watcher count in a thread header or the people list for a reaction to see the full roster and open profiles. Names in history, search results, and thread lists also lead to profiles.
+- Replying starts a watch. Use **Watch this thread** to change that choice. If you stop watching, later replies respect your choice. Use **Mute thread** to silence future notifications for that thread while keeping its watch.
+- Pick `@here` to notify room members with a recently visible Adder tab. Room managers can use **Add and mention** to search the directory and add someone while keeping the draft.
+- The bell shows what changed in a status or ownership update. A configured deployment offers **Browser notifications** in account notification preferences. Each browser opts in separately and receives generic alerts for unseen in-app notifications. Registrations expire after 90 days and can be enabled again there.
+
+### External links and previews (1.13.0)
 
 Select an external link or image in a message to review its destination. Choose **Open link** to open it in a new tab, or **Preview**
 to see a page title or a supported PNG or JPEG image in a compact popover. Adder fetches a preview after you request it. In the
@@ -133,7 +142,7 @@ The scope of each version and the decisions behind it: `.claude/docs/product.md`
   server-side revocation blocklist, PostgreSQL with [Flyway](https://flywaydb.org) migrations and
   [Exposed](https://github.com/JetBrains/Exposed) (R2DBC), OpenTelemetry, RFC 7807 problem-detail
   errors, Swagger UI at `/openapi` (development mode). Application-level encryption at rest
-  (`infra/crypto/FieldCipher`, AES-256-GCM) is in place for the first stored credential. One process serves everything.
+  (`infra/crypto/FieldCipher`, AES-256-GCM) protects stored browser push endpoints. One process serves everything.
 - **Frontend**: [Vite](https://vite.dev) + React 19 + TypeScript + [Mantine](https://mantine.dev),
   react-i18next (English + Polish), a typed API client generated from the OpenAPI contract.
 - **Quality gates**: detekt (zero findings), Kover coverage floors, dependency-family alignment,
@@ -262,6 +271,14 @@ JVM options are not in the table: the image bakes its heap/GC flags (`server/bui
 `JAVA_OPTS` (the baked heap is `-Xmx256m`). Leave `SERVER_OPTS` unset — the image uses it to switch on its
 class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-time identity for the telemetry panel: the image build args `ADDER_BUILD_VERSION` and `ADDER_BUILD_COMMIT`.
 
+To create the optional Web Push key pair, keep `vapid.pem` out of the repository and deployment image:
+`openssl ecparam -name prime256v1 -genkey -noout -out vapid.pem`. Encode the private key with
+`openssl pkcs8 -topk8 -nocrypt -in vapid.pem -outform DER | openssl base64 -A | tr '+/' '-_' | tr -d '='` and the browser public key with
+`openssl ec -in vapid.pem -pubout -conv_form uncompressed -outform DER | tail -c 65 | openssl base64 -A | tr '+/' '-_' | tr -d '='`.
+Store those outputs in the two `NOTIFICATIONS_PUSH_*_KEY` secrets and securely remove the temporary PEM.
+The local Compose stack forwards those settings and `NOTIFICATIONS_PUSH_SUBJECT` from its environment.
+For a hosted deployment, supply the settings through the app's environment and serve Adder over HTTPS.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `KTOR_DEVELOPMENT` | `true` | Development mode (`true`) vs production mode — HSTS/HTTPS redirect and the fail-closed startup checks. The image ships `false`. |
@@ -289,8 +306,8 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `LIVE_MAX_PENDING_PER_ADDRESS` | `8` | Of those, how many one client address may hold (1–10000; an IPv6 address counts by its /64). |
 | `LIVE_AUTH_TIMEOUT_MILLIS` | `2000` | How long an unauthenticated socket lives before it is closed 4401 (100–30000 ms; the first frame must carry the ticket). |
 | `LIVE_CONNECT_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP bucket on the WebSocket upgrade `GET /api/v1/live`; blank = 600 in every mode. |
-| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored credentials (none stored yet; reserved for the first stored credential) — the dev default is burned, production refuses it. Back it up apart from the database. |
-| `DATA_ENCRYPTION_KEY_PREVIOUS` | *(blank)* | Decrypt-only fallback during a key rotation (boot once, then remove). |
+| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored browser-push endpoints — the dev default is burned, production refuses it. Back it up apart from the database. |
+| `DATA_ENCRYPTION_KEY_PREVIOUS` | *(blank)* | Decrypt-only fallback during rotation. Keep it until every browser subscription encrypted with the old key has been re-registered, removed, or expired. |
 | `SECURITY_CSRF_ENABLED` | `false` | CSRF plugin gate — off (bearer JWT, no cookies). |
 | `JWT_SECRET` | `secret` | HMAC key for the access/refresh pair — production requires a private 64-hex key (`openssl rand -hex 32`); the placeholders and compose demo key are burned. |
 | `JWT_ISSUER` | `http://0.0.0.0:8087/` | The `iss` claim the verifier requires. |
@@ -322,6 +339,10 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `NOTIFICATIONS_EMAIL_MAX_PER_RUN` | `100` | The most digest emails one sweep tick sends (1..1000). The digest shares the mailer with MFA codes and password resets, so this budget protects them; the people beyond it wait for the next tick. |
 | `NOTIFICATIONS_EMAIL_MAX_RECIPIENTS_PER_ACTOR_PER_DAY` | `20` | The most distinct people one person's @mentions and hand-overs can make eligible for the digest in a UTC day (1..1000). Over it the bell notice is still made and only its email is withheld. An ADMIN is not exempt. |
 | `NOTIFICATIONS_MAX_BROADCASTS_PER_ACTOR_PER_DAY` | `500` | The most WIDE events (more than 20 people notified: a new thread in a big room, a reply in a heavily watched thread, a status move or a hand-over) one person causes in a UTC day (1..10000). Over it the write still succeeds and only the people named directly (`<@id>` mentions, the author of a quoted message, a hand-over's new owner) are told; one `notification.broadcast_budget_exceeded` audit line per person and day. |
+| `NOTIFICATIONS_PUSH_PUBLIC_KEY` | *(blank)* | Unpadded base64url raw uncompressed P-256 public point (65 bytes, `04` prefix). Browser push is unavailable unless this, the private key and subject are all set. |
+| `NOTIFICATIONS_PUSH_PRIVATE_KEY` | *(blank)* | Unpadded base64url PKCS#8 DER P-256 private key. Keep it in the deployment secret, never the repository. |
+| `NOTIFICATIONS_PUSH_SUBJECT` | *(blank)* | VAPID operator contact, an absolute `mailto:` or `https:` URI. |
+| `NOTIFICATIONS_PUSH_MAX_PER_RUN` | `100` | Queue rows claimed per sweep tick (1..500); at most four provider requests run concurrently. |
 | `NOTIFICATIONS_RETENTION_DAYS` | `90` | How long a notice is kept before the sweep deletes it, at most once an hour (1..3650). |
 | `NOTIFICATIONS_SWEEP_INTERVAL_SECONDS` | `60` | How often the notification sweep wakes (10..3600); the email digest rides the same tick. |
 | `NOTIFICATIONS_SWEEP_ENABLED` | `true` | `false` keeps the sweep (purge and digest) from starting; the test harness turns it off. |

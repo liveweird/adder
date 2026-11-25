@@ -49,6 +49,9 @@ describe("parseServerFrame", () => {
 
   test("reads each frame of the protocol", () => {
     expect(parse({ type: "ready", protocol: 1, maxSubscriptions: 128 })).toEqual({ type: "ready", protocol: 1, maxSubscriptions: 128 });
+    expect(parse({ type: "ready", protocol: 1, maxSubscriptions: 128, presenceSupported: true })).toEqual({
+      type: "ready", protocol: 1, maxSubscriptions: 128, presenceSupported: true,
+    });
     expect(parse({ type: "subscribed", roomIds: [12], refused: [40], capped: [] })).toEqual({ type: "subscribed", roomIds: [12], refused: [40], capped: [] });
     expect(parse({ type: "event", kind: "message.posted", roomId: 12, threadNumber: 7, messageId: 991 })).toEqual({
       type: "event",

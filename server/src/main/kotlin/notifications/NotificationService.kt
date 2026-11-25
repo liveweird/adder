@@ -184,6 +184,11 @@ internal class NotificationService(
             .map { it[threads.id].value to (it[threads.number] to it[threads.title]) }.toList().toMap()
         budget.arm(transaction)
         val actors = userNames(pointers.map { it.actorId })
+        val workflowIds = workflowNoticeIds(pointers)
+        val changes = if (workflowIds.isEmpty()) emptyMap() else {
+            budget.arm(transaction)
+            transaction.workflowNoticeChanges(workflowIds)
+        }
         val roomById = memberRooms.associateBy { it.id }
         return NotificationFeedResult(
             pointers.map { pointer ->
@@ -203,6 +208,7 @@ internal class NotificationService(
                     replyCount = pointer.replyCount,
                     replyFloorId = pointer.replyFloorId,
                     replyCeilingId = pointer.replyCeilingId,
+                    change = changes[pointer.id],
                 )
             },
             total,

@@ -172,7 +172,9 @@ export interface paths {
         /**
          * Revoke the bearer token (server-side denylist)
          * @description Revokes the access token carried in the `Authorization` header. If a `refreshToken` is
-         *     supplied in the body, it is revoked too. The body is optional.
+         *     supplied in the body, it is revoked too. The body is optional. A browser that opted in to
+         *     Web Push may send its opaque subscription id in `X-Adder-Push-Subscription`; cleanup is
+         *     best-effort and caller-scoped, and never changes the logout response.
          */
         post: operations["logout"];
         delete?: never;
@@ -1359,7 +1361,8 @@ export interface paths {
          *     as is a value that breaks its type's rule. The thread, its opening message, its `CREATED` history entry and the activity bump of the thread and the room commit
          *     together, and so do the notifications (`listNotifications`): every other ACTIVE member of the room gets `THREAD_CREATED`, or the most
          *     specific of `MENTIONED` (named with `<@id>`), `TEAM_MENTIONED` (a member of a team the body names with `<@team:id>`) and
-         *     `EVERYONE_MENTIONED` (`<@everyone>`); `<@watchers>` in an opening message reaches nobody. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
+         *     `HERE_MENTIONED` (an active member with a fresh visible-tab lease when `<@here>` is introduced) and `EVERYONE_MENTIONED`
+         *     (`<@everyone>`); `<@watchers>` in an opening message reaches nobody. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
          *     beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The request body is at most 192 KiB (`413` beyond it)
          *     and `fields` holds at most 20 keys whose values are primitives, `null` or a list of at most 50 option keys (anything else, a
          *     nested object included, is a `400` before any lock); the stored values may not exceed 439,001 characters of JSON (`400`). The write
@@ -1515,16 +1518,85 @@ export interface paths {
          *     `403`: they have no state of their own in the room). A single-value set with a body: the CALLER's own watch, nobody else's.
          *     Checked in this order: authentication (`401`), the per-USER `thread-watch` bucket of 30 per minute (its own, apart from the read
          *     marker's; `429` beyond it; spent before any guard, so a refused write costs a token), visibility (`404`), the member rule (`403`) before the body, the body (`400`: `watching` must be a boolean), then the
-         *     caller's own membership (`404` when they were removed meanwhile) and the thread (`404`). The state the thread already has is a
-         *     `204` with nothing written and no audit line; a change is audited (`thread.watch_changed`).
+         *     caller's own membership (`404` when they were removed meanwhile) and the thread (`404`). Repeating the stored choice gives
+         *     `204` with nothing written and no audit line; a change is audited (`thread.watch_changed`). The first explicit off is stored
+         *     even before the caller has watched, so a later reply respects it.
          *
          *     A closed thread and an ARCHIVED room can be watched and unwatched: a watch is the member's own state, not a write to the room.
          *     It takes NO room lock (it holds only the caller's own membership row for the commit), emits no live event and moves no activity
-         *     order; the caller's other tabs catch up on focus. The creator of a thread and each new owner of one watch it automatically, and may
-         *     stop. Leaving or being removed from the room drops the person's watches. What a watch does is read through `watching` and
+         *     order; the caller's other tabs catch up on focus. The creator and a member who replies watch automatically. A new owner watches
+         *     automatically unless they explicitly stopped watching before; an explicit stop also survives later replies. Setting `watching=true`
+         *     opts back in. Leaving or being removed from the room drops the preference. What a watch does is read through `watching` and
          *     `watcherCount` of the thread and `watching` of the thread list and its filter.
          */
         put: operations["setThreadWatch"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/watchers": {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the people watching a thread
+         * @description Members of the room can page through the active users who currently watch the thread. An inaccessible room is the uniform
+         *     `404`; an `ADMIN` who is not a member gets `403`. Inactive watch preferences and soft-deleted users are omitted. Sortable by
+         *     `id` or `name`; default `id`, with `id` as the stable tiebreaker.
+         */
+        get: operations["listThreadWatchers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/mute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mute or unmute a thread for the caller
+         * @description A room member sets their own mute independently of watching. A mute suppresses new notices for this thread and
+         *     skips pending email while muted. The preference is visible as `muted` in the caller's thread detail.
+         *     Closed threads and archived rooms are allowed. Leaving or being removed drops the preference.
+         *     The user's thread settings bucket is shared with the watch write (30 per minute). A non-member receives the uniform
+         *     `404`, an administrator outside the room receives `403`. The membership guard runs before the request body is decoded.
+         */
+        put: operations["setThreadMute"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1688,7 +1760,8 @@ export interface paths {
          *     never the poster; a person who left the room or whose account was deleted is not told and the post still succeeds),
          *     `TEAM_MENTIONED` for each member of the room on the roster of a team it names with
          *     `<@team:id>` (a team member who is not in the room is never told; a team that is deleted, unknown or has no handle is plain text),
-         *     `WATCHERS_MENTIONED` for each WATCHER of the thread when it names `<@watchers>`, `EVERYONE_MENTIONED` for every member of the room when
+         *     `WATCHERS_MENTIONED` for each WATCHER of the thread when it names `<@watchers>`, `HERE_MENTIONED` for each active room member whose
+         *     visible-tab lease is fresh when `<@here>` is introduced, `EVERYONE_MENTIONED` for every member of the room when
          *     it names `<@everyone>` (any member may), and a `THREAD_REPLIED` one for each other WATCHER of the thread (one notice per person, the most
          *     specific reason in that order; never the author). At most 20 distinct people, 5 distinct teams and each keyword once count; the rest are
          *     plain text. A group mention reaching more than 20 people is a wide event (the daily budget below). Rides the per-USER `chat-post` bucket of 120 per minute shared with
@@ -1795,9 +1868,11 @@ export interface paths {
          *     The body rules are those of the post. The message's quote (`quote`) is set when it is posted and cannot be added, changed or
          *     removed by an edit: the request has no `quotedMessageId`, so naming one is a `400`; the quote stays through the edit. Sending the body the message already has (after normalising) is `204` with no write and
          *     no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
-         *     order are untouched. Only the people the edit NEWLY addresses are notified (addressed by the new body, by name or through a team, the
-         *     watchers or everyone, and not by the old one, the old body's groups read as of the edit; a group token the edit KEPT addresses
-         *     nobody again; a person who held a less specific notice of the message gets a fresh one in its place), and the notification of a
+         *     order are untouched. Only the people the edit NEWLY addresses are notified: addressed by the new body, by name or through a team,
+         *     the watchers, here or everyone, and not by the old one; team, watcher and everyone recipients are read as of the edit. A kept
+         *     `<@here>` token preserves the recipient snapshot taken when it was introduced and addresses nobody again; removing it deletes that
+         *     snapshot, and adding it in a later edit takes a new snapshot of recently active visible tabs. A person who held a less specific
+         *     notice of the message gets a fresh one in its place, and the notification of a
          *     mention the edit removed or made less specific is relabelled in place to the next reason that applies (`THREAD_REPLIED` when the person
          *     watches the thread, `THREAD_CREATED` for an opening message) or, for anybody else, is deleted; an edit as such notifies nobody. An
          *     edit that newly addresses more than 20 people counts as a wide event; a relabel alone does not. Last writer wins: the author alone writes it and the room lock serialises their own requests.
@@ -1995,6 +2070,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/messages/{messageId}/reactors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List every person who chose one reaction
+         * @description Returns the full paged roster behind one reaction summary, ordered by reaction time and then user id. `reactionKey` is the opaque
+         *     key from `ReactionSummary`; the emoji itself never enters the URL. A reader who cannot see the room or message receives the same
+         *     `404` as the message read. A key that is well formed but does not name a current reaction of the message is `404`.
+         *
+         *     Standard list rules apply. Sortable field: `createdAt`; default `createdAt` ascending, with user id as the stable tie-breaker.
+         */
+        get: operations["listMessageReactors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/home": {
         parameters: {
             query?: never;
@@ -2100,15 +2203,15 @@ export interface paths {
          *     removed, takes its notice with it. A caller who belongs to no room gets an empty page.
          *
          *     A notice is made INSIDE the write that caused it, one per person and event, labelled with the most specific reason
-         *     (`NotificationType`, twelve kinds). The writes make these: `MENTIONED` (a post, a thread's opening message or an edit that
+         *     (`NotificationType`, thirteen thread kinds). The writes make these: `MENTIONED` (a post, a thread's opening message or an edit that
          *     newly mentions the caller with `<@id>`; never for a mention of oneself), `MESSAGE_QUOTED` (a post that quotes a message of the caller's;
          *     never for quoting one's own message, and not for a caller who is no longer an active member of the room; an edit of that post can
          *     also make it, when it newly names a group the caller is in and they hold no notice of it, or turn the caller's `MENTIONED` notice
          *     into it when the edit drops the `<@id>` mention), `THREAD_REPLIED` (a reply in a thread the caller watches),
          *     `THREAD_CREATED` (a new thread in a room the caller is a member of), `THREAD_ASSIGNED` and `THREAD_OWNER_CHANGED` (a hand-over: the
          *     new owner, and the thread's other watchers; nothing for a steward who takes the thread themself), and `THREAD_STATUS_CHANGED`,
-         *     `THREAD_CLOSED` and `THREAD_REOPENED` (a status move of a thread the caller watches); the three group-mention kinds (a team, the
-         *     watchers or everyone) are named so a client can show them as the writes that make them arrive. An actor is never notified of their
+         *     `THREAD_CLOSED` and `THREAD_REOPENED` (a status move of a thread the caller watches); the four group-mention kinds (a team, the
+         *     watchers, here or everyone) are named so a client can show them as the writes that make them arrive. An actor is never notified of their
          *     own write. An event that would notify more than 20 people counts against the actor's daily wide-event budget
          *     (`notifications.maxBroadcastsPerActorPerDay`); over it the write still succeeds and only the people named directly are notified. Each
          *     notice reaches the caller's open tabs as the live `notification.created` event, on every socket the caller has, subscribed to the
@@ -2167,6 +2270,9 @@ export interface paths {
          *     and quotes, seen history, and every other kind remain individual. A group points to its oldest included message and carries
          *     the inclusive oldest/newest raw notice ids (`replyFloorId`/`replyCeilingId`) used by the group-seen action.
          *
+         *     Workflow notices linked to history include `change` with the previous and next status labels or owner names.
+         *     An unseen notice refreshed by another change of the same kind describes that latest change.
+         *
          *     - Sortable fields: `id` and `createdAt`. Default `-id` (newest first; `id` breaks ties).
          *     - Filters: `seen` (strict boolean) and repeated `type` (any-of, duplicates collapse, unknown names are rejected).
          *     - `total` is capped at 1000. Pages starting at row 1000 or later are empty.
@@ -2175,6 +2281,73 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/push/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover whether this deployment supports browser push
+         * @description Any authenticated caller. The public VAPID key is returned only when all server-side push settings are valid. When
+         *     `subscriptionId` is supplied, `registered` reconciles that opaque browser id against the caller, current credential revision,
+         *     active account, and 90-day subscription lifetime. Unknown, expired, disabled, stale-revision, and other-caller ids all return
+         *     `registered: false` without disclosing which condition applied.
+         */
+        get: operations["getBrowserPushConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/push/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Opt this browser in to generic push notifications
+         * @description Registers or refreshes one HTTPS endpoint from an allowlisted browser push provider. The endpoint is encrypted at rest;
+         *     only its SHA-256 digest is used for uniqueness. A caller may hold at most five browser subscriptions. Registration starts
+         *     with notices created afterwards and never replays notification history. Uses the notification-preferences rate bucket.
+         */
+        post: operations["subscribeBrowserPush"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/push/subscriptions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop browser push for one caller-owned subscription
+         * @description Idempotent and caller-scoped. Another user's id is indistinguishable from an absent id. Uses the notification-preferences rate bucket.
+         */
+        delete: operations["unsubscribeBrowserPush"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2593,8 +2766,17 @@ export interface components {
              */
             type: "ping";
         };
+        /** @description Renew or clear this authenticated tab's short foreground-presence lease. */
+        LiveForegroundFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "foreground";
+            visible: boolean;
+        };
         /** @description A frame the client sends (JSON text, at most 8 KiB, parsed strictly). */
-        LiveClientFrame: components["schemas"]["LiveAuthFrame"] | components["schemas"]["LiveSubscribeFrame"] | components["schemas"]["LiveUnsubscribeFrame"] | components["schemas"]["LivePingFrame"];
+        LiveClientFrame: components["schemas"]["LiveAuthFrame"] | components["schemas"]["LiveSubscribeFrame"] | components["schemas"]["LiveUnsubscribeFrame"] | components["schemas"]["LivePingFrame"] | components["schemas"]["LiveForegroundFrame"];
         /** @description The ticket was good; the socket is authenticated. */
         LiveReadyFrame: {
             /**
@@ -2612,6 +2794,8 @@ export interface components {
              * @description Subscriptions allowed per socket (128).
              */
             maxSubscriptions: number;
+            /** @description Whether the server accepts foreground lease frames. */
+            presenceSupported?: boolean;
         };
         /** @description The answer to ONE `subscribe` frame, about that frame's ids only: `roomIds` are subscribed now, `refused` are rooms that do not exist or the caller cannot read (deliberately indistinguishable) and `capped` are ids over the per-socket subscription limit. */
         LiveSubscribedFrame: {
@@ -2684,6 +2868,21 @@ export interface components {
         LogoutRequest: {
             /** @description Optional refresh token to revoke together with the access token. */
             refreshToken?: string;
+        };
+        BrowserPushConfig: {
+            available: boolean;
+            /** @description Unpadded base64url raw uncompressed P-256 public point; absent when unavailable. */
+            publicKey?: string;
+            /** @description Present only when `subscriptionId` was requested; true only for the caller's current, unexpired subscription. */
+            registered?: boolean;
+        };
+        BrowserPushSubscriptionRequest: {
+            /** Format: uri */
+            endpoint: string;
+        };
+        BrowserPushSubscription: {
+            /** Format: int32 */
+            id: number;
         };
         UserCreateRequest: {
             name: string;
@@ -3435,6 +3634,8 @@ export interface components {
              * @description How many active members watch the thread; who they are is not on the wire.
              */
             watcherCount: number;
+            /** @description The caller muted notices for this thread. Omitted when unmuted. */
+            muted?: boolean;
             hashtags: components["schemas"]["ThreadHashtags"];
             tags: components["schemas"]["ThreadTags"];
         };
@@ -3727,7 +3928,7 @@ export interface components {
             createdAt: number;
             /** @description The room members the body mentions with `<@id>` (an active member when the message was written or edited), by their CURRENT display name, ordered by user id; empty on a tombstone and on a message written before mentions were indexed. A token whose id is not listed here is plain text. */
             mentions: components["schemas"]["MentionedUser"][];
-            /** @description The group mentions of the body that took effect: `<@team:id>` of a team that is active and has a handle (at most 5), `<@watchers>` and `<@everyone>` (once each), teams by id and then the keywords; empty on a tombstone and on a message written before group mentions were indexed. A team shows its CURRENT handle and name. A token that is not listed here is plain text. */
+            /** @description The group mentions of the body that took effect: `<@team:id>` of a team that is active and has a handle (at most 5), `<@watchers>`, `<@here>` and `<@everyone>` (once each), teams by id and then the keywords; empty on a tombstone and on a message written before group mentions were indexed. A team shows its CURRENT handle and name. A token that is not listed here is plain text. */
             groupMentions: components["schemas"]["GroupMention"][];
             /** @description The emoji on the message, in the order each first appeared; empty when there are none and on a tombstone. At most 20 distinct. */
             reactions: components["schemas"]["ReactionSummary"][];
@@ -3770,27 +3971,29 @@ export interface components {
             /** @description The person's current display name (a soft-deleted account keeps its last one). */
             name: string;
         };
-        /** @description One group mention of a message. A client shows `<@team:id>` as `@handle`, `<@watchers>` as `@watchers` and `<@everyone>` as `@everyone`, and only when the token is listed here. */
+        /** @description One group mention of a message. A client shows `<@team:id>` as `@handle` and each keyword (`<@watchers>`, `<@here>`, `<@everyone>`) as its `@name`, and only when the token is listed here. */
         GroupMention: {
             /**
-             * @description Which token: `<@team:id>`, `<@watchers>` or `<@everyone>`. A client treats a value it does not know as plain text.
+             * @description Which token: `<@team:id>`, `<@watchers>`, `<@here>` or `<@everyone>`. A client treats a value it does not know as plain text.
              * @enum {string}
              */
-            kind: "TEAM" | "WATCHERS" | "EVERYONE";
+            kind: "TEAM" | "WATCHERS" | "HERE" | "EVERYONE";
             /**
              * Format: int32
-             * @description The id inside the `<@team:id>` token; `null` for the two keywords.
+             * @description The id inside the `<@team:id>` token; `null` for the three keywords.
              */
             teamId: number | null;
-            /** @description The team's CURRENT mention handle (what follows `@`); `null` for the two keywords. */
+            /** @description The team's CURRENT mention handle (what follows `@`); `null` for the three keywords. */
             teamHandle: string | null;
-            /** @description The team's CURRENT display name; `null` for the two keywords. */
+            /** @description The team's CURRENT display name; `null` for the three keywords. */
             teamName: string | null;
         };
-        /** @description One emoji on a message. The full list of reactors is not part of the contract. */
+        /** @description One emoji on a message. Use `key` to page through every reactor without putting the emoji in a URL. */
         ReactionSummary: {
             /** @description The emoji as it was sent (one emoji, `setMessageReaction`). */
             emoji: string;
+            /** @description Opaque stable key for `listMessageReactors`; it carries no chosen text. */
+            key: string;
             /**
              * Format: int32
              * @description How many people chose it.
@@ -3800,6 +4003,19 @@ export interface components {
             reacted: boolean;
             /** @description The display names of the first three reactors by time (a soft-deleted account keeps its recorded name). */
             names: string[];
+        };
+        Reactor: {
+            /** Format: int32 */
+            userId: number;
+            /** @description The person's current display name; a soft-deleted account keeps its recorded name. */
+            name: string;
+        };
+        ReactorPage: {
+            items: components["schemas"]["Reactor"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
         };
         ReadMarkerRequest: {
             /**
@@ -3811,6 +4027,19 @@ export interface components {
         WatchRequest: {
             /** @description Whether the caller watches the thread after the call. */
             watching: boolean;
+        };
+        ThreadWatcher: {
+            /** Format: int64 */
+            userId: number;
+            /** @description The active user's current display name. */
+            name: string;
+        };
+        ThreadWatcherPage: {
+            items: components["schemas"]["ThreadWatcher"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
         };
         ReactionRequest: {
             /** @description ONE emoji when adding, any other text is `400`; when removing, the stored value within the length bounds. */
@@ -3871,7 +4100,8 @@ export interface components {
         /**
          * @description The kind of a notice, which is also its reason (persisted, never renamed): `MENTIONED` (named with `<@id>`), `MESSAGE_QUOTED` (a reply
          *     quoted a message of the caller's, `quotedMessageId` of `postThreadMessage`), `TEAM_MENTIONED` (the
-         *     caller's team was named), `WATCHERS_MENTIONED` (the caller watches the thread and its watchers were named), `EVERYONE_MENTIONED`,
+         *     caller's team was named), `WATCHERS_MENTIONED` (the caller watches the thread and its watchers were named), `HERE_MENTIONED`
+         *     (the caller was active when `<@here>` was introduced), `EVERYONE_MENTIONED`,
          *     `THREAD_REPLIED` (a reply in a thread the caller watches), `THREAD_CREATED` (a new thread in a room the caller is in),
          *     `THREAD_ASSIGNED` (someone else made the caller the owner of a thread), `THREAD_OWNER_CHANGED` (a watched thread changed owner),
          *     `THREAD_STATUS_CHANGED` (a watched thread moved within a status category), `THREAD_CLOSED` and `THREAD_REOPENED` (a watched thread
@@ -3879,7 +4109,7 @@ export interface components {
          *     mentions, then `THREAD_REPLIED`). A client treats a value it does not know as plain text.
          * @enum {string}
          */
-        NotificationType: "MENTIONED" | "MESSAGE_QUOTED" | "TEAM_MENTIONED" | "WATCHERS_MENTIONED" | "EVERYONE_MENTIONED" | "THREAD_REPLIED" | "THREAD_CREATED" | "THREAD_ASSIGNED" | "THREAD_OWNER_CHANGED" | "THREAD_STATUS_CHANGED" | "THREAD_CLOSED" | "THREAD_REOPENED";
+        NotificationType: "MENTIONED" | "MESSAGE_QUOTED" | "TEAM_MENTIONED" | "WATCHERS_MENTIONED" | "HERE_MENTIONED" | "EVERYONE_MENTIONED" | "THREAD_REPLIED" | "THREAD_CREATED" | "THREAD_ASSIGNED" | "THREAD_OWNER_CHANGED" | "THREAD_STATUS_CHANGED" | "THREAD_CLOSED" | "THREAD_REOPENED";
         /** @description One notice of the caller. The row holds ids only; the names and the title are read when the list is read. */
         Notification: {
             /**
@@ -3951,7 +4181,7 @@ export interface components {
         NotificationPreferencesUpdate: {
             /** @description Room membership delivery switches. If omitted, the default in-app on and email off applies. */
             roomMembership?: components["schemas"]["RoomMembershipNotificationPreference"];
-            /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 24 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
+            /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 26 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
             disabled: components["schemas"]["NotificationPreferencePair"][];
             /** @description The pairs to switch ON (optional: absent is empty). A pair in neither list takes its default (in the app on, by email off), so a client that sends only `disabled` cannot switch an email on. */
             enabled?: components["schemas"]["NotificationPreferencePair"][];
@@ -4012,6 +4242,13 @@ export interface components {
              * @description Newest raw notice id represented by the group; null otherwise.
              */
             replyCeilingId?: number | null;
+            /** @description The labels or names as recorded in the linked workflow event. Omitted for older notices and unrelated kinds. */
+            change?: {
+                /** @description Previous status label or owner name. */
+                from: string;
+                /** @description Next status label or owner name. */
+                to: string;
+            } | null;
         };
         NotificationFeedPage: {
             items: components["schemas"]["NotificationFeedItem"][];
@@ -4642,7 +4879,10 @@ export interface operations {
     logout: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description This browser's server subscription id, detached on logout when it belongs to the caller. */
+                "X-Adder-Push-Subscription"?: number;
+            };
             path?: never;
             cookie?: never;
         };
@@ -6689,6 +6929,84 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    listThreadWatchers: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of watchers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadWatcherPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    setThreadMute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    muted: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The requested mute state is in effect. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     setThreadTags: {
         parameters: {
             query?: never;
@@ -7266,6 +7584,49 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    listMessageReactors: {
+        parameters: {
+            query: {
+                /** @description The opaque key of the reaction summary whose people are requested. */
+                reactionKey: string;
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of reactors */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactorPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     getHome: {
         parameters: {
             query?: never;
@@ -7370,7 +7731,7 @@ export interface operations {
             query?: {
                 /** @description `true` = only seen notices, `false` = only unseen ones; omitted = both. */
                 seen?: boolean;
-                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted = every kind; at most 12 distinct. */
+                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted = every kind; at most 13 distinct. */
                 type?: components["schemas"]["NotificationType"][];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];
@@ -7442,6 +7803,94 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["NotificationFeedPage"];
                 };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getBrowserPushConfig: {
+        parameters: {
+            query?: {
+                /** @description Optional caller-held browser subscription id to reconcile; when omitted, `registered` is absent. */
+                subscriptionId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Browser push capability */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserPushConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    subscribeBrowserPush: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserPushSubscriptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Registered, or the caller's same endpoint refreshed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserPushSubscription"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+            /** @description Browser push is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    unsubscribeBrowserPush: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed, not owned by the caller, or already absent */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];

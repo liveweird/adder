@@ -76,6 +76,7 @@ describe("NotificationPreferences page", () => {
     expect(screen.getByRole("switch", { name: `${REPLIED}: In-app` })).toBeChecked();
     expect(headingOutline()).toEqual([
       [2, "Notification preferences"],
+      [3, "Browser notifications"],
       [3, "Mentions"],
       [3, "Threads you watch"],
       [3, "Threads handed to you"],

@@ -33,7 +33,8 @@ describe("ThreadHistory", () => {
     renderWithProviders(<ThreadHistory roomId={12} number={42} />);
     expect(await screen.findByText("Changed Severity")).toBeInTheDocument();
     expect(screen.getByText("Severity: S3 → S1")).toBeInTheDocument();
-    expect(screen.getByText("Passed the thread from Ann Owner to Bob")).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Ann Owner" }).some((link) => link.getAttribute("href") === "/people/5")).toBe(true);
+    expect(screen.getAllByRole("link", { name: "Bob" }).some((link) => link.getAttribute("href") === "/people/6")).toBe(true);
     expect(screen.getByText("Started the thread in Triage")).toBeInTheDocument();
     expect(urls()).toEqual(["/api/v1/rooms/12/threads/42/events?page=1&pageSize=10"]);
   });

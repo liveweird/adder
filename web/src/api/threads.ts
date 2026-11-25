@@ -12,6 +12,7 @@ export type ThreadFieldValues = NonNullable<ThreadCreateBody["fields"]>;
 export type ThreadUpdateBody = paths["/api/v1/rooms/{id}/threads/{number}"]["put"]["requestBody"]["content"]["application/json"];
 export type ThreadEventPage = paths["/api/v1/rooms/{id}/threads/{number}/events"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ThreadEvent = ThreadEventPage["items"][number];
+export type ThreadWatcherPage = paths["/api/v1/rooms/{id}/threads/{number}/watchers"]["get"]["responses"]["200"]["content"]["application/json"];
 /** One curated tag on a thread (1.2): the registry name and whether the registry has since retired it. */
 export type ThreadTag = ThreadResponse["tags"][number];
 export type RoomHashtagPage = paths["/api/v1/rooms/{id}/tags"]["get"]["responses"]["200"]["content"]["application/json"];
@@ -114,8 +115,18 @@ export async function setThreadWatch(roomId: number, number: number, watching: b
   await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/watch`, { method: "PUT", body: JSON.stringify({ watching }) });
 }
 
+/** One page of active people watching this thread. Members of the room only. */
+export async function listThreadWatchers(roomId: number, number: number, q: { page: number; pageSize: number; sort?: string }): Promise<ThreadWatcherPage> {
+  const params = buildQuery({ page: q.page, pageSize: q.pageSize, sort: q.sort });
+  return jsonRequest<ThreadWatcherPage>(`/api/v1/rooms/${roomId}/threads/${number}/watchers?${params}`);
+}
+
 /** One page of the thread's history, newest first (the server's default order). */
 export async function listThreadEvents(roomId: number, number: number, q: { page: number; pageSize: number }): Promise<ThreadEventPage> {
   const params = buildQuery({ page: q.page, pageSize: q.pageSize });
   return jsonRequest<ThreadEventPage>(`/api/v1/rooms/${roomId}/threads/${number}/events?${params}`);
+}
+
+export async function setThreadMute(roomId: number, number: number, muted: boolean): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/mute`, { method: "PUT", body: JSON.stringify({ muted }) });
 }

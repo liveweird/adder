@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Select } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -35,6 +35,7 @@ export default function SearchPicker({
   minTermHint,
   exclude,
   maxLength,
+  initialSearch,
 }: {
   label: string;
   description?: string;
@@ -73,8 +74,15 @@ export default function SearchPicker({
   exclude?: ReadonlySet<string>;
   /** The longest term the box accepts (the server's own limit on the search term). */
   maxLength?: number;
+  /** Initial search text for a newly mounted picker, such as an unfinished mention handed to a directory dialog. */
+  initialSearch?: string;
 }) {
-  const [searchValue, setSearchValue] = useState(picked?.label ?? "");
+  const [searchValue, setSearchValue] = useState(picked?.label ?? initialSearch ?? "");
+  // Mantine synchronizes an empty nullable value from its mount effect. Ignore only that initial callback, not a later user clear.
+  const mountingWithInitialSearch = useRef(initialSearch !== undefined);
+  useEffect(() => {
+    mountingWithInitialSearch.current = false;
+  }, []);
   // The caller may change the pick without a choice here (clearing a row's own owner hands it back the dialog's): the box follows the
   // pick's label, the derived-state pattern (set during render, no effect), else it would show the old label for a value it no longer holds.
   const [seenLabel, setSeenLabel] = useState(picked?.label ?? "");
@@ -120,7 +128,10 @@ export default function SearchPicker({
         clearable={clearable}
         clearButtonProps={{ "aria-label": clearLabel }}
         searchValue={searchValue}
-        onSearchChange={setSearchValue}
+        onSearchChange={(next) => {
+          if (mountingWithInitialSearch.current && next === "") return;
+          setSearchValue(next);
+        }}
         value={picked?.value ?? null}
         onChange={(value, option) => onPick(value !== null && option ? { value: option.value, label: option.label } : null)}
         nothingFoundMessage={nothingFound}

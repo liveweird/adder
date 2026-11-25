@@ -32,7 +32,7 @@ const val MAX_REQUEST_BODY_BYTES: Long = 512L * 1024
  * The tight ceiling of the routes whose bodies are a handful of short fields: the anonymous auth routes (an unauthenticated caller can
  * reach them, so they must not buffer half a megabyte per request), the room member add (up to 200 ids, ~2 KiB) and the thread status
  * and owner PUTs (one status key or one user id), the thread and message pin PUTs (one boolean), and the message link-preview POST (one
- * URL of at most 2,048 characters). Same 413.
+ * URL of at most 2,048 characters), and browser push registration (one endpoint of at most 2,048 characters). Same 413.
  */
 const val MAX_SMALL_REQUEST_BODY_BYTES: Long = 16L * 1024
 
@@ -71,7 +71,7 @@ private val SMALL_BODY_PATHS = setOf(
 // ceiling to the global one (BodyLimitIdSpellingTest). A segment that is no id never routes, and a tighter ceiling there costs nothing.
 private val ROOM_MEMBERS_PATH = Regex("^/api/v1/rooms/[^/]+/members$")
 private val ROOM_SMALL_PUT_PATH =
-    Regex("^/api/v1/rooms/[^/]+/(threads/[^/]+/(status|owner|read-marker|watch|tags)|join-requests/[^/]+)$")
+    Regex("^/api/v1/rooms/[^/]+/(threads/[^/]+/(status|owner|read-marker|watch|mute|tags)|join-requests/[^/]+)$")
 private val THREAD_CREATE_PATH = Regex("^/api/v1/rooms/[^/]+/threads$")
 private val THREAD_DETAILS_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+$")
 private val NOTIFICATION_PREFERENCES_PATH = Regex("^/api/v1/users/[^/]+/notification-preferences$")
@@ -79,7 +79,8 @@ private val PIN_PATH = Regex("^/api/v1/rooms/[^/]+/(threads|messages)/[^/]+/pin$
 private val MESSAGE_POST_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+/messages$")
 private val MESSAGE_REACTION_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+/reaction$")
 private val MESSAGE_LINK_PREVIEW_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+/link-preview$")
-private val SMALL_POST_PATHS = listOf(ROOM_MEMBERS_PATH, MESSAGE_LINK_PREVIEW_PATH)
+private val PUSH_SUBSCRIPTIONS_PATH = Regex("^/api/v1/notifications/push/subscriptions$")
+private val SMALL_POST_PATHS = listOf(ROOM_MEMBERS_PATH, MESSAGE_LINK_PREVIEW_PATH, PUSH_SUBSCRIPTIONS_PATH)
 private val MESSAGE_EDIT_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+$")
 
 /**
@@ -95,7 +96,7 @@ internal fun routedPath(rawPath: String): String = try {
 }
 
 /**
- * The body ceiling of this call: [MAX_SMALL_REQUEST_BODY_BYTES] for the small-body POSTs and the status, owner, read-marker, watch, tags,
+ * The body ceiling of this call: [MAX_SMALL_REQUEST_BODY_BYTES] for small-body POSTs and status, owner, read-marker, watch, mute, tags,
  * pin, reaction and notification-preference PUTs, [MAX_MESSAGE_REQUEST_BODY_BYTES] for a message write, [MAX_THREAD_REQUEST_BODY_BYTES] for
  * a thread create or details write, else [MAX_REQUEST_BODY_BYTES]. Matched against the [routedPath], so an encoded spelling of the same
  * route gets the same ceiling.

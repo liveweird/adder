@@ -1,5 +1,5 @@
 // Watching (1.1.0): a member watches a thread and stops (the toggle in the thread pane, the eye mark on the thread's row, the "Watching" filter,
-// the watcher count), the creator of a thread watches it from the start, and the searches' "Threads I watch" switch (and the palette's action)
+// the watcher roster), reply auto-watching with sticky explicit unwatch, the creator's initial watch, and the searches' "Threads I watch" switch
 // lists the watched threads of a room and across rooms with no search term. The same search forms list the caller's unread threads in each
 // room and combine that state with structured clauses. The caller's own state: nothing is pushed, so every check reads
 // the page after its own action.
@@ -39,6 +39,8 @@ interface Scene {
 const WATCH_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/watch$/;
 const threadLink = (page: Page, title: string) => threadList(page).getByRole("link", { name: new RegExp(title) });
 const watchButton = (page: Page) => page.getByRole("button", { name: "Watch this thread", exact: true });
+const watcherCountButton = (page: Page, count: number) =>
+  page.getByRole("button", { name: count === 1 ? "Show 1 watcher" : `Show ${count} watchers`, exact: true });
 const WATCHING_MARK = /You are watching this thread/;
 
 /** The administrator (signed in on `page`) mints an owner and a teammate; the owner makes a room and adds the teammate, all through the API. */
@@ -85,7 +87,7 @@ test("a member watches a thread and stops", async ({ page }) => {
   // The teammate did not start the thread: it is not watched, and only the creator is counted.
   await page.goto(`/rooms/${room.roomId}/threads/${number}`);
   await expect(watchButton(page)).toHaveAttribute("aria-pressed", "false");
-  await expect(page.getByText("Watchers: 1")).toBeVisible();
+  await expect(watcherCountButton(page, 1)).toBeVisible();
   await expect(threadLink(page, watched)).not.toHaveAccessibleDescription(WATCHING_MARK);
 
   // Watching: the toggle presses, the count follows, the row is marked in words.
@@ -95,7 +97,12 @@ test("a member watches a thread and stops", async ({ page }) => {
   ]);
   expect(watch.status()).toBe(204);
   await expect(watchButton(page)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("Watchers: 2")).toBeVisible();
+  await expect(watcherCountButton(page, 2)).toBeVisible();
+  await watcherCountButton(page, 2).click();
+  const roster = page.getByRole("dialog", { name: "People watching" });
+  await expect(roster.getByRole("link", { name: room.owner.name, exact: true })).toHaveAttribute("href", `/people/${room.owner.id}`);
+  await expect(roster.getByRole("link", { name: room.mate.name, exact: true })).toHaveAttribute("href", `/people/${room.mate.id}`);
+  await roster.getByRole("button", { name: "Close" }).click();
   await expect(threadLink(page, watched)).toHaveAccessibleDescription(WATCHING_MARK);
   await expect(threadLink(page, other)).not.toHaveAccessibleDescription(WATCHING_MARK);
 
@@ -124,7 +131,7 @@ test("a member watches a thread and stops", async ({ page }) => {
   await expect(threadLink(page, watched)).toBeVisible();
   await watchButton(page).click();
   await expect(watchButton(page)).toHaveAttribute("aria-pressed", "false");
-  await expect(page.getByText("Watchers: 1")).toBeVisible();
+  await expect(watcherCountButton(page, 1)).toBeVisible();
   await expect(threadLink(page, watched)).toHaveCount(0);
 });
 
@@ -136,8 +143,33 @@ test("the creator watches a new thread", async ({ page }) => {
 
   await page.goto(`/rooms/${room.roomId}/threads/${number}`);
   await expect(watchButton(page)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("Watchers: 1")).toBeVisible();
+  await expect(watcherCountButton(page, 1)).toBeVisible();
   await expect(threadLink(page, title)).toHaveAccessibleDescription(WATCHING_MARK);
+});
+
+test("a reply starts watching unless the member explicitly unwatched", async ({ page }) => {
+  const room = await scene(page);
+  const title = uniqueText("ReplyWatch");
+  const number = await startThread(room, title);
+  const { api: mateApi } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(mateApi);
+  await login(page, room.mate.email, room.mate.password);
+  await page.goto(`/rooms/${room.roomId}/threads/${number}`);
+  await expect(watchButton(page)).toHaveAttribute("aria-pressed", "false");
+
+  const reply = await mateApi.post(`/api/v1/rooms/${room.roomId}/threads/${number}/messages`, { data: { body: "I will follow up." } });
+  expect(reply.status(), await reply.text()).toBe(201);
+  await page.reload();
+  await expect(watchButton(page)).toHaveAttribute("aria-pressed", "true");
+  await expect(watcherCountButton(page, 2)).toBeVisible();
+
+  await watchButton(page).click();
+  await expect(watchButton(page)).toHaveAttribute("aria-pressed", "false");
+  const later = await mateApi.post(`/api/v1/rooms/${room.roomId}/threads/${number}/messages`, { data: { body: "Still following up." } });
+  expect(later.status(), await later.text()).toBe(201);
+  await page.reload();
+  await expect(watchButton(page)).toHaveAttribute("aria-pressed", "false");
+  await expect(watcherCountButton(page, 1)).toBeVisible();
 });
 
 test("the unread filter lists unread threads in the room and across rooms", async ({ page }) => {

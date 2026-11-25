@@ -203,6 +203,8 @@ class ThreadService(
         budget?.arm(this)
         val watcherCount = watches.count(threadId)
         budget?.arm(this)
+        val muted = floor != null && isThreadMuted(threadId, callerUserId)
+        budget?.arm(this)
         val hashtags = tags.hashtagsOf(listOf(threadId))[threadId].orEmpty()
         budget?.arm(this)
         val curated = threadTags.forThreads(listOf(threadId))[threadId].orEmpty()
@@ -228,6 +230,7 @@ class ThreadService(
             firstUnreadMessageId = unread?.firstMessageId,
             watching = threadId in watching,
             watcherCount = watcherCount,
+            muted = muted,
             hashtags = hashtags,
             tags = curated,
         )

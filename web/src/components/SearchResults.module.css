@@ -53,7 +53,6 @@
 }
 
 .message {
-  display: block;
   padding: 0.5rem 0.625rem;
   border-radius: var(--mantine-radius-sm);
   color: inherit;
@@ -61,13 +60,18 @@
 }
 
 .message:hover,
-.message:focus-visible {
+.message:focus-within {
   background: light-dark(var(--mantine-color-gray-0), var(--adder-surface-tint));
 }
 
-.message:focus-visible {
+.message:focus-within {
   outline: 2px solid var(--adder-accent-ink);
   outline-offset: -2px;
+}
+
+.messageTarget {
+  display: block;
+  color: inherit;
 }
 
 @container (max-width: 35rem) {

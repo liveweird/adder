@@ -83,7 +83,7 @@ describe("ThreadList", () => {
     localStorage.clear();
   });
 
-  test("lists the open threads, most recently active first, as whole-row links with number, title, status, owner, count and time", async () => {
+  test("lists the open threads with separate thread and owner links, most recently active first", async () => {
     serve();
     renderList();
     const nav = await screen.findByRole("navigation", { name: "Threads" });
@@ -92,15 +92,15 @@ describe("ThreadList", () => {
     expect(first).toHaveAttribute("href", "/rooms/12/threads/2");
     expect(first).not.toHaveAttribute("aria-current");
     expect(first).toHaveTextContent("#2");
-    expect(first).toHaveTextContent("Ann Owner");
-    expect(first).toHaveTextContent("4 messages");
-    expect(first).toHaveTextContent(formatDateTime(AT, browserTimeZone()));
-    await waitFor(() => expect(first).toHaveTextContent("Triage"));
+    expect(within(nav).getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
+    expect(first.closest("[data-thread-row]")).toHaveTextContent("4 messages");
+    expect(first.closest("[data-thread-row]")).toHaveTextContent(formatDateTime(AT, browserTimeZone()));
+    await waitFor(() => expect(first.closest("[data-thread-row]")).toHaveTextContent("Triage"));
     // A status the workflow does not list shows its key; a single message is singular.
     const second = within(nav).getByRole("link", { name: /Old alert/ });
-    expect(second).toHaveTextContent("mystery");
-    expect(second).toHaveTextContent("1 message");
-    expect(second).not.toHaveTextContent("1 messages");
+    expect(second.closest("[data-thread-row]")).toHaveTextContent("mystery");
+    expect(second.closest("[data-thread-row]")).toHaveTextContent("1 message");
+    expect(second.closest("[data-thread-row]")).not.toHaveTextContent("1 messages");
   });
 
   test("the open thread is marked with aria-current", async () => {
@@ -389,10 +389,11 @@ describe("ThreadList", () => {
     expect(screen.getByRole("link", { name: /Old alert/ })).not.toHaveAccessibleDescription("Pinned");
     // The visible mark (1.2 D5): a "Pinned" badge with the pin shape beside the status pill, hidden from the accessibility tree (the description
     // above says it once), on the pinned row only.
-    const badge = within(pinned).getByText("Pinned");
+    const row = pinned.closest("[data-thread-row]")!;
+    const badge = within(row as HTMLElement).getByText("Pinned");
     expect(badge.closest("[data-pin-mark]")).toHaveAttribute("aria-hidden", "true");
     expect(document.querySelectorAll("[data-pin-mark]")).toHaveLength(1);
-    expect(within(screen.getByRole("link", { name: /Old alert/ })).queryByText("Pinned")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("link", { name: /Old alert/ }).closest("[data-thread-row]") as HTMLElement).queryByText("Pinned")).not.toBeInTheDocument();
   });
 
   test("a watched thread's row carries a mark, described in words, and a thread the caller does not watch carries none", async () => {

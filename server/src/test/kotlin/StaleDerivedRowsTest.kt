@@ -17,7 +17,7 @@ import kotlinx.coroutines.withTimeout
 
 /**
  * The boot purge of the derived rows of DELETED messages (`StaleDerivedRows`, `persistence.md` "Mentions (V17)" "Rollback below 0.6.0"):
- * a 0.5.x binary run against V17+ deletes a message without clearing its mention, reaction, pin and notice rows. The rollback is
+ * an older binary deletes a message without clearing its mention, group, here-snapshot, reaction, pin and notice rows. The rollback is
  * simulated by raw SQL (a tombstone written the way 0.5.x writes it, the rows inserted straight into the tables). Rooms and users are
  * shared suite state: unique rows, removed afterwards.
  */
@@ -59,6 +59,10 @@ class StaleDerivedRowsTest {
             "INSERT INTO message_group_mentions (message_id, group_kind, thread_id, room_id) VALUES (?, 'EVERYONE', ?, ?)",
             message, f.threadId, f.room,
         )
+        exec(
+            "INSERT INTO message_here_mentions (message_id, user_id, thread_id, room_id) VALUES (?, ?, ?, ?)",
+            message, f.author, f.threadId, f.room,
+        )
         exec("INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, 'x', 1)", message, f.author)
         exec(
             "INSERT INTO room_pins (room_id, thread_id, message_id, pinned_by, pinned_at) VALUES (?, ?, ?, ?, 1)",
@@ -74,11 +78,12 @@ class StaleDerivedRowsTest {
     private fun derivedCount(message: UInt): Int = PostgresTestSupport.connect().use { c ->
         val sql = "SELECT (SELECT count(*) FROM message_mentions WHERE message_id = ?)" +
             " + (SELECT count(*) FROM message_group_mentions WHERE message_id = ?)" +
+            " + (SELECT count(*) FROM message_here_mentions WHERE message_id = ?)" +
             " + (SELECT count(*) FROM message_reactions WHERE message_id = ?)" +
             " + (SELECT count(*) FROM room_pins WHERE message_id = ?)" +
             " + (SELECT count(*) FROM notifications WHERE message_id = ?)"
         c.prepareStatement(sql).use { st ->
-            (1..5).forEach { st.setInt(it, message.toInt()) }
+            (1..6).forEach { st.setInt(it, message.toInt()) }
             st.executeQuery().use { rs -> rs.next(); rs.getInt(1) }
         }
     }
@@ -94,7 +99,7 @@ class StaleDerivedRowsTest {
         withTimeout(60_000) { application.attributes[MessageTagReindexKey].await() }
 
     @Test
-    fun `the purge removes the mention, group, reaction, pin and notice rows of a deleted message and nothing else`() = testApplication {
+    fun `the purge removes every derived row including a here snapshot and nothing else`() = testApplication {
         usePostgresTestcontainer()
         awaitBootRun()
         val f = fixture("stale-purge")
@@ -106,9 +111,9 @@ class StaleDerivedRowsTest {
 
         // Database-wide on purpose: the purge has no scope. It is safe here because every test that leaves a tombstone with derived rows
         // (this class) cleans its own up, the forks have containers of their own, and the classes of one fork run one after another.
-        assertEquals(5, purge.purge())
+        assertEquals(6, purge.purge())
         assertEquals(0, derivedCount(gone))
-        assertEquals(5, derivedCount(live), "a live message keeps every derived row")
+        assertEquals(6, derivedCount(live), "a live message keeps every derived row")
         assertEquals(0, purge.purge(), "a second run finds nothing")
     }
 
@@ -139,7 +144,7 @@ class StaleDerivedRowsTest {
         val gone = TestThreads.post(f.room, 1, f.author, "going")
         derivedRows(f, gone)
         tombstone(gone, f.author)
-        assertEquals(5, derivedCount(gone))
+        assertEquals(6, derivedCount(gone))
 
         usePostgresTestcontainer()
         awaitBootRun()
@@ -163,10 +168,10 @@ class StaleDerivedRowsTest {
             }
             // A purge that waited for the lock would hit the timeout; it answers at once and the message keeps its rows.
             assertEquals(0, withTimeout(20_000) { purge.purge() }, "a locked message is skipped")
-            assertEquals(5, derivedCount(gone), "the locked message keeps its rows")
+            assertEquals(6, derivedCount(gone), "the locked message keeps its rows")
             holder.rollback()
         }
-        assertEquals(5, purge.purge(), "the next run takes the message the lock held back")
+        assertEquals(6, purge.purge(), "the next run takes the message the lock held back")
         assertEquals(0, derivedCount(gone))
     }
 
@@ -188,7 +193,7 @@ class StaleDerivedRowsTest {
             f.author, f.room, f.author, f.threadId,
         )
 
-        assertEquals(5, purge.purge())
+        assertEquals(6, purge.purge())
         assertEquals(2, messageLessRows(f.threadId), "the thread's pin and its hand-over notice are still there")
     }
 

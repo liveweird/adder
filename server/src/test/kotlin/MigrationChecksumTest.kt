@@ -60,6 +60,11 @@ class MigrationChecksumTest {
         "V37__create_user_room_organizations.sql" to -848673763,
         "V38__room_membership_notices.sql" to 1292978383,
         "V39__index_grouped_reply_notifications.sql" to 1972208925,
+        "V40__remember_thread_unwatch.sql" to 1233017481,
+        "V41__link_workflow_notices_to_events.sql" to -2093159295,
+        "V42__create_thread_mutes.sql" to 944899791,
+        "V43__create_message_here_mentions.sql" to 1864521402,
+        "V44__browser_push_subscriptions.sql" to 1840861196,
     )
 
     @Test

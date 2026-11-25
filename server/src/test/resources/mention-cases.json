@@ -344,7 +344,8 @@
  {
   "name": "the plural or another word is no mention",
   "body": "<@teams:4> <@here> <@all> <@channel> <@room> <@everyones> <@watcher> <@observers>",
-  "ids": []
+  "ids": [],
+  "here": true
  },
  {
   "name": "a keyword is lowercase and exact",
@@ -448,5 +449,11 @@
   ],
   "everyone": true,
   "watchers": true
+ },
+ {
+  "name": "here addresses the current foreground audience",
+  "body": "Hello <@here>",
+  "ids": [],
+  "here": true
  }
 ]

@@ -16,7 +16,7 @@ export type HandleOf = (teamId: number) => string | undefined;
 
 /**
  * One run: plain text (equal in both texts) or one known mention (`atomic`; its shown form is `@Name`, `@handle`, `@watchers` or
- * `@everyone`). Offsets are where the run starts.
+ * `@here` or `@everyone`). Offsets are where the run starts.
  */
 type Piece = { canonical: string; shown: string; atomic?: true; id?: number; cStart: number; sStart: number };
 
@@ -25,7 +25,7 @@ export type Shown = { canonical: string; text: string; pieces: readonly Piece[] 
 /** The longest `@term` the list searches for (the server's cap on the member name filter is 100). */
 const MAX_MENTION_TERM = 50;
 
-/** What follows the `@` of a token the session can name: a known person or team, and the two keywords always; undefined for anything else. */
+/** What follows the `@` of a token the session can name, including each group keyword. */
 function shownLabel(segment: MentionSegment, nameOf: NameOf, handleOf: HandleOf): string | undefined {
   switch (segment.kind) {
     case "user":
@@ -34,6 +34,7 @@ function shownLabel(segment: MentionSegment, nameOf: NameOf, handleOf: HandleOf)
       return handleOf(segment.id);
     case "watchers":
     case "everyone":
+    case "here":
       return segment.kind;
     default:
       return undefined;
@@ -176,6 +177,16 @@ export function editCanonical(
 /** The `@term` being typed: `from` is the shown offset of the `@`, `term` what follows it up to the caret. */
 export type MentionQuery = { from: number; term: string };
 
+/** A canonical unfinished `@term`, captured before the directory dialog opens. */
+export type MentionReplacementRequest = { from: number; to: number; source: string; term: string };
+
+/** Capture the canonical range represented by a shown mention query. */
+export function mentionReplacementRequest(shown: Shown, query: MentionQuery): MentionReplacementRequest {
+  const from = toCanonicalOffset(shown, query.from);
+  const to = toCanonicalOffset(shown, query.from + 1 + query.term.length);
+  return { from, to, source: shown.canonical.slice(from, to), term: query.term.trim() };
+}
+
 function insideMention(shown: Shown, offset: number): boolean {
   return shown.pieces.some((piece) => piece.atomic !== undefined && offset >= piece.sStart && offset < shownEnd(piece));
 }
@@ -216,4 +227,17 @@ export function pickToken(shown: Shown, query: MentionQuery, caret: number, toke
   const canonical = shown.canonical.slice(0, cFrom) + insert + shown.canonical.slice(cTo);
   if (maxLength !== undefined && canonical.length > maxLength) return null;
   return { canonical, caret: cFrom + token.length + (following === " " ? 1 : insert.length - token.length) };
+}
+
+/** Append a canonical mention while retaining the existing draft text. */
+export function appendMentionToken(body: string, token: string): string {
+  return `${body}${body !== "" && !/\s$/.test(body) ? " " : ""}${token} `;
+}
+
+/** Replace the still-current directory query, or append without overwriting a draft that changed while the member add travelled. */
+export function replaceMentionRequest(body: string, request: MentionReplacementRequest, token: string): string {
+  if (body.slice(request.from, request.to) !== request.source) return appendMentionToken(body, token);
+  const following = body[request.to];
+  const insert = following === " " || following === "\n" ? token : `${token} `;
+  return body.slice(0, request.from) + insert + body.slice(request.to);
 }

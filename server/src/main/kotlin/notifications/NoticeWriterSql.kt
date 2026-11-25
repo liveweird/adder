@@ -11,9 +11,9 @@ package ch.nokillswit.notifications
  * budget). Every parameter is cast, so a null message id (a hand-over, a status move) has a type.
  */
 internal const val INSERT_NOTICES = """
-INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, message_id, created_at, in_app, emailed_at)
+INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, message_id, created_at, in_app, emailed_at, event_id)
 SELECT u.r, CAST(? AS int4), u.t, CAST(? AS int8), CAST(? AS int4), CAST(? AS int4), CAST(? AS int8), u.a,
-       CASE WHEN u.s THEN CAST(? AS int8) END
+       CASE WHEN u.s THEN CAST(? AS int8) END, CAST(? AS int4)
 FROM unnest(CAST(? AS int8[]), CAST(? AS varchar[]), CAST(? AS bool[]), CAST(? AS bool[])) AS u(r, t, a, s)
 ON CONFLICT DO NOTHING
 RETURNING recipient_id, id, notification_type"""
@@ -29,8 +29,8 @@ RETURNING recipient_id, id, notification_type"""
  * event, so a thread that churns is never postponed; and a waiting row already older than the delay (due now) is not coalesced into at all
  * (the cutoff argument): the event makes a fresh row. A dead row (not shown, mail settled) is left alone. The lookup is the person and the
  * thread, the two leading keys of the partial index `idx_notifications_unseen_thread` (V19: `seen_at IS NULL`). Arguments: the
- * recipients, their kinds, their in-app verdicts, the thread, the cutoff (now minus the delay), the actor, the thread, the instant; the
- * rows made come back.
+ * recipients, their kinds, their in-app verdicts, the thread, the cutoff (now minus the delay), the actor, the thread, the instant
+ * and the event id. The rows made come back.
  */
 internal const val REFRESH_THREAD_NOTICES = """
 WITH gone AS (
@@ -40,11 +40,11 @@ WITH gone AS (
     AND (n.emailed_at IS NOT NULL OR n.created_at > CAST(? AS int8))
   RETURNING n.id, n.recipient_id, n.room_id, n.notification_type, n.emailed_at, n.created_at, u.a AS a),
 kept AS (SELECT DISTINCT ON (recipient_id, notification_type) * FROM gone ORDER BY recipient_id, notification_type, id)
-INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, message_id, created_at, in_app, emailed_at)
+INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, message_id, created_at, in_app, emailed_at, event_id)
 SELECT k.recipient_id, k.room_id, k.notification_type, CAST(? AS int8), CAST(? AS int4), CAST(NULL AS int4),
-       CASE WHEN k.emailed_at IS NULL THEN k.created_at ELSE CAST(? AS int8) END, k.a, k.emailed_at
+       CASE WHEN k.emailed_at IS NULL THEN k.created_at ELSE CAST(? AS int8) END, k.a, k.emailed_at, CAST(? AS int4)
 FROM kept k
-RETURNING recipient_id, notification_type, in_app"""
+RETURNING recipient_id, notification_type, in_app, id"""
 
 /** The rows an edit may relabel: what they are now, whether they show, whether their mail is still to come. Arguments: message, people. */
 internal const val READ_RELABEL_ROWS = """

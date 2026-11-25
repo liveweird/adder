@@ -33,6 +33,7 @@ import io.ktor.util.AttributeKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
+import ch.nokillswit.infra.presence.ForegroundPresenceKey
 
 @Serializable
 @Resource("/api/v1/live/tickets")
@@ -76,7 +77,10 @@ fun Application.configureLive() {
     // is cancelled AND joined (bounded), after the hub closed the LISTEN connection and before the pool is disposed on ApplicationStopped.
     var hubToStop: LiveHub? = null
     val scope = backgroundScope("adder-live", Dispatchers.Default) { hubToStop?.stop() }
-    val hub = LiveHub(scope, config.maxSockets, config.maxSocketsPerUser, attributes[NotifyConnectionFactoryKey]).also { hubToStop = it }
+    val hub = LiveHub(
+        scope, config.maxSockets, config.maxSocketsPerUser, attributes[NotifyConnectionFactoryKey],
+        presence = attributes[ForegroundPresenceKey],
+    ).also { hubToStop = it }
     attributes.put(LiveHubKey, hub)
     attributes.put(LiveStatsKey) { LiveStats(hub.socketCount, hub.listener.let { if (it.isStarted) it.isUp else null }) }
     monitor.subscribe(ApplicationStopPreparing) { runBlocking { hub.shutdown() } }

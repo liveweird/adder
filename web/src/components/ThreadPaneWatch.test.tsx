@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import ThreadPane from "./ThreadPane";
 import { jsonResponse } from "../test/http";
 import { SOME_TIME, makeMessage, makeRoom, makeThread, messagePage } from "../test/messageFixtures";
@@ -32,6 +32,9 @@ describe("ThreadPane: watching the thread", () => {
       }
       if (init?.method === "PUT") return Promise.resolve(new Response(null, { status: 204 }));
       if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, thread));
+      if (url.startsWith("/api/v1/rooms/12/threads/42/watchers?")) {
+        return Promise.resolve(jsonResponse(200, { items: [{ userId: 5, name: "Ann Owner" }], page: 1, pageSize: 20, total: 1 }));
+      }
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
       if (url.startsWith("/api/v1/rooms/12/pins?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
       if (url.startsWith("/api/v1/rooms/12/threads/42/messages?")) return Promise.resolve(jsonResponse(200, messagePage([makeMessage({ id: 1 })])));
@@ -57,15 +60,15 @@ describe("ThreadPane: watching the thread", () => {
     renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
     await screen.findByRole("button", { name: "Watch this thread" });
     expect(button()).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByText("Watchers: 1")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show 1 watcher" })).toHaveTextContent("1");
     await user.click(button());
     await waitFor(() => expect(button()).toHaveAttribute("aria-pressed", "true"));
     expect([watchCalls()[0][0], JSON.parse(watchCalls()[0][1].body as string)]).toEqual(["/api/v1/rooms/12/threads/42/watch", { watching: true }]);
-    expect(await screen.findByText("Watchers: 2")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Show 2 watchers" })).toHaveTextContent("2");
     await user.click(button());
     await waitFor(() => expect(button()).toHaveAttribute("aria-pressed", "false"));
     expect(JSON.parse(watchCalls()[1][1].body as string)).toEqual({ watching: false });
-    expect(await screen.findByText("Watchers: 1")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Show 1 watcher" })).toHaveTextContent("1");
   });
 
   test("a thread the caller already watches (its creator, a new owner) reads as pressed on arrival", async () => {
@@ -74,7 +77,16 @@ describe("ThreadPane: watching the thread", () => {
     renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
     await screen.findByRole("button", { name: "Watch this thread" });
     expect(button()).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("Watchers: 3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show 3 watchers" })).toHaveTextContent("3");
+  });
+
+  test("the watcher count opens a member roster whose names link to profiles", async () => {
+    const user = userEvent.setup();
+    serve();
+    renderWithProviders(<ThreadPane room={makeRoom()} numberParam="42" />);
+    await user.click(await screen.findByRole("button", { name: "Show 1 watcher" }));
+    const dialog = await screen.findByRole("dialog", { name: "People watching" });
+    expect(within(dialog).getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
   });
 
   test("a closed thread and an archived room keep the control: a watch is the member's own state", async () => {
@@ -92,7 +104,7 @@ describe("ThreadPane: watching the thread", () => {
     renderWithProviders(<ThreadPane room={makeRoom({ role: null })} numberParam="42" />);
     await screen.findByRole("region", { name: "#42 Disk full on db-3" });
     expect(screen.queryByRole("button", { name: "Watch this thread" })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Watchers:/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show .* watcher/ })).not.toBeInTheDocument();
   });
 
   test("a refused write says why beside the button and leaves the state as it was", async () => {

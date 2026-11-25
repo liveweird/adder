@@ -381,6 +381,9 @@ export const rail = (page: Page) => page.getByRole("group", { name: "Rooms", exa
 export const conversation = (page: Page) => page.getByRole("region", { name: "Messages", exact: true });
 /** A room's thread list (the navigation beside the conversation). */
 export const threadList = (page: Page) => page.getByRole("navigation", { name: "Threads", exact: true });
+/** The title and owner are independent links in the same list item. */
+export const threadListRow = (page: Page, title: string) => threadList(page).getByRole("listitem")
+  .filter({ has: page.getByRole("link", { name: new RegExp(title) }) });
 
 const ROOM_CREATE_API = /\/api\/v1\/rooms$/;
 

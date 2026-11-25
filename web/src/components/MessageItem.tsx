@@ -4,6 +4,7 @@ import { ActionIcon, Avatar, Box, Divider, Group, Menu, Stack, Text, Tooltip } f
 import { useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconPinFilled, IconQuote, IconTrash } from "@tabler/icons-react";
 import { deleteMessage, type MessageResponse } from "../api/messages";
+import type { RoomResponse } from "../api/rooms";
 import { useThreadRefHref } from "../hooks/useThreadRefHref";
 import { formatDateTime } from "../utils/formatDate";
 import type { MessageActions } from "../utils/messageAccess";
@@ -48,6 +49,7 @@ import classes from "./MessageItem.module.css";
  */
 export default function MessageItem({
   roomId,
+  mentionRoom,
   message,
   actions,
   zone,
@@ -58,6 +60,7 @@ export default function MessageItem({
   onShowQuoted,
 }: {
   roomId: number;
+  mentionRoom?: RoomResponse;
   message: MessageResponse;
   actions: MessageActions;
   zone: string;
@@ -212,6 +215,7 @@ export default function MessageItem({
             ) : editing && actions.edit ? (
               <MessageEditForm
                 roomId={roomId}
+                room={mentionRoom}
                 message={message}
                 onDone={() => {
                   refocusAfterEdit.current = true;

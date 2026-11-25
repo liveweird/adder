@@ -6,7 +6,7 @@
 // administrator (`specAdmins`) spends its own bucket, never the seed administrator's.
 import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { apiAsUser, conversation, deleteViaApi, expect, login, rail, rowOperation, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsUser, conversation, deleteViaApi, expect, login, rail, rowOperation, specAdmins, test, threadList, threadListRow, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-live-admin");
@@ -199,7 +199,7 @@ test("a status change made by one member shows in another member's open thread",
   const watcher = await signedIn(browser, room.mate);
   await openLive(mover, thread, room.roomId);
   await openLive(watcher, thread, room.roomId);
-  const row = threadList(watcher.page).getByRole("link", { name: new RegExp(title) });
+  const row = threadListRow(watcher.page, title);
   await expect(row).toContainText("Open");
   await expect(currentStatus(watcher.page)).toContainText("Open");
 

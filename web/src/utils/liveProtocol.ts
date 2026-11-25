@@ -127,7 +127,14 @@ export function parseServerFrame(raw: unknown): LiveServerFrame | null {
     case "ready": {
       // An older server may not announce the cap; the protocol's default is 128.
       const maxSubscriptions = frame.maxSubscriptions === undefined ? DEFAULT_MAX_SUBSCRIPTIONS : frame.maxSubscriptions;
-      return typeof frame.protocol === "number" && isId(maxSubscriptions) ? { type: "ready", protocol: frame.protocol, maxSubscriptions } : null;
+      return typeof frame.protocol === "number" && isId(maxSubscriptions)
+        ? {
+            type: "ready",
+            protocol: frame.protocol,
+            maxSubscriptions,
+            ...(frame.presenceSupported === true ? { presenceSupported: true } : {}),
+          }
+        : null;
     }
     case "subscribed":
       return parseSubscribed(frame);

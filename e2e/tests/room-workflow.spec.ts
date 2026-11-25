@@ -7,7 +7,7 @@
 // (the thread POSTs share a per-user `chat-post` bucket of 120 a minute, far from reached).
 import { type Page, request as playwrightRequest } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
-import { accountMenu, apiAsAdmin, createRoomViaUi, deleteViaApi, expect, login, loginViaForm, signOut, specAdmins, test, throwawayUser, uniqueText } from "./helpers";
+import { accountMenu, apiAsAdmin, createRoomViaUi, deleteViaApi, expect, login, loginViaForm, signOut, specAdmins, test, threadListRow, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-room-workflow-admin");
@@ -239,9 +239,8 @@ test("retiring a status that threads use asks for a replacement and moves the th
   // The thread list shows the replacement on both threads.
   await page.getByRole("link", { name: "Threads", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}$`));
-  const list = page.getByRole("navigation", { name: "Threads", exact: true });
   for (const title of titles) {
-    const row = list.getByRole("link", { name: new RegExp(title) });
+    const row = threadListRow(page, title);
     await expect(row).toContainText("In progress");
     await expect(row).not.toContainText("Waiting");
   }

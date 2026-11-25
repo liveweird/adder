@@ -9,7 +9,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 /**
  * One batch's statement budget, whole seconds (the transaction's `queryTimeout`: the only way a statement timeout is set,
  * `persistence.md`).
- * The candidate SQL is a UNION of the message ids of the five derived tables (each read in full: the statement is only as cheap as
+ * The candidate SQL is a UNION of the message ids of the six derived tables (each read in full: the statement is only as cheap as
  * those tables are small) joined to `messages` and filtered on its deleted flag (no index on that flag, so `messages` is probed by
  * primary key per candidate, or scanned if the planner prefers it). That is milliseconds at today's sizes; a statement past this is
  * cancelled and the boot task logs it scrubbed ([bootRun]: class names and the SQLSTATE) and leaves the rows to the next boot.
@@ -24,12 +24,12 @@ private const val STALE_BATCH = 1_000
  * `messages`), so a table a later migration adds fails there until it is purged here or named as handled elsewhere.
  */
 val STALE_DERIVED_TABLES: Set<String> =
-    setOf("message_mentions", "message_group_mentions", "message_reactions", "room_pins", "notifications")
+    setOf("message_mentions", "message_group_mentions", "message_here_mentions", "message_reactions", "room_pins", "notifications")
 
 /**
  * ONE batch: up to [batch] (an Int, never input) DELETED messages that still carry a derived row, locked `FOR NO KEY UPDATE OF m SKIP
  * LOCKED` (a writer holding a message is skipped and found by the next boot), and every mention, group-mention, reaction, pin and notice
- * row of them removed by data-modifying CTEs; the answer is the number of rows removed. The candidates are a UNION over the five derived
+ * row of them removed by data-modifying CTEs; the answer is the number of rows removed. The candidates are a UNION over the six derived
  * tables, then checked against `messages` for the deleted flag (which has no index; see the budget above). Constant text per batch size.
  */
 private fun purgeStaleSql(batch: Int) = """
@@ -38,6 +38,7 @@ WITH stale AS (
     WHERE m.marked_as_deleted AND m.id IN (
         SELECT message_id FROM message_mentions
         UNION SELECT message_id FROM message_group_mentions
+        UNION SELECT message_id FROM message_here_mentions
         UNION SELECT message_id FROM message_reactions
         UNION SELECT message_id FROM room_pins WHERE message_id IS NOT NULL
         UNION SELECT message_id FROM notifications WHERE message_id IS NOT NULL
@@ -46,10 +47,11 @@ WITH stale AS (
 ),
 mentions AS (DELETE FROM message_mentions WHERE message_id IN (SELECT id FROM stale) RETURNING 1),
 groups AS (DELETE FROM message_group_mentions WHERE message_id IN (SELECT id FROM stale) RETURNING 1),
+here_mentions AS (DELETE FROM message_here_mentions WHERE message_id IN (SELECT id FROM stale) RETURNING 1),
 reactions AS (DELETE FROM message_reactions WHERE message_id IN (SELECT id FROM stale) RETURNING 1),
 pins AS (DELETE FROM room_pins WHERE message_id IN (SELECT id FROM stale) RETURNING 1),
 notices AS (DELETE FROM notifications WHERE message_id IN (SELECT id FROM stale) RETURNING 1)
-SELECT (SELECT count(*) FROM mentions) + (SELECT count(*) FROM groups) + (SELECT count(*) FROM reactions)
+SELECT (SELECT count(*) FROM mentions) + (SELECT count(*) FROM groups) + (SELECT count(*) FROM here_mentions) + (SELECT count(*) FROM reactions)
     + (SELECT count(*) FROM pins) + (SELECT count(*) FROM notices)
 """
 

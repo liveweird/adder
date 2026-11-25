@@ -96,6 +96,8 @@ data class ThreadResponse(
     val watching: Boolean,
     /** How many active members watch the thread (the list of them is not on the wire). */
     val watcherCount: Int,
+    /** The caller's per-thread notification mute. */
+    val muted: Boolean = false,
     /** The thread's hashtags, as on a list row ([ThreadListItem.hashtags]): the SPA's header and side panel show them as filter links. */
     val hashtags: List<String>,
     /** The thread's curated tags, as on a list row ([ThreadListItem.tags]); a save of them rides this response's [revision]. */

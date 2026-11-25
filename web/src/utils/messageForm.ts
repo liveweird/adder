@@ -5,6 +5,7 @@ import { PROBLEM_TYPES, isProblem } from "./problems";
 import { refreshQueriesAfterMutation } from "./queryRefresh";
 import { saveErrorMessage } from "./saveError";
 import { roomKeys } from "./roomKeys";
+import { WATCH_SEARCH_KEYS } from "./watch";
 
 /**
  * The failure vocabulary of every message write (post, edit, delete, react). The 409s are told apart by their problem type (a closed thread and
@@ -41,9 +42,15 @@ export function isSendShortcut(event: KeyboardEvent): boolean {
  * After the caller's own message write (post, edit, delete): the room's thread queries (the list's order, the thread's count and times, the
  * conversation) and the rail, per plan 4.5. A message changes no workflow count and no room header, so those stay as they are; an access
  * refusal re-reads the whole `["rooms"]` prefix instead (`isAccessRefusal`). An edit or a delete of a message that exists passes `pins`: the
- * pinned panel shows the body, so a redacted one must not linger there (a post changes no pin, so it skips the read).
+ * pinned panel shows the body, so a redacted one must not linger there. A new reply can start watching, so it also refreshes Home
+ * and watched searches.
  */
-export function refreshAfterMessageWrite(queryClient: QueryClient, roomId: number, { pins = false }: { pins?: boolean } = {}): Promise<void> {
+export function refreshAfterMessageWrite(queryClient: QueryClient, roomId: number, { pins = false, newReply = false }: { pins?: boolean; newReply?: boolean } = {}): Promise<void> {
   const keys = [roomKeys.threads(roomId), roomKeys.rail];
-  return refreshQueriesAfterMutation(queryClient, ...(pins ? [...keys, roomKeys.pins(roomId)] : keys));
+  return refreshQueriesAfterMutation(
+    queryClient,
+    ...keys,
+    ...(pins ? [roomKeys.pins(roomId)] : []),
+    ...(newReply ? WATCH_SEARCH_KEYS : []),
+  );
 }

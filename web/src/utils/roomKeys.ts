@@ -54,6 +54,8 @@ export const roomKeys = {
   threadHistories: (room: number) => ["rooms", "threads", room, "events"] as const,
   /** (`null` thread: a route that names no thread, which is never fetched.) */
   threadDetail: (room: number, thread: number | null) => ["rooms", "threads", room, "detail", thread] as const,
+  /** The member-visible watcher roster; a page number is appended by its dialog. */
+  threadWatchers: (room: number, thread: number) => ["rooms", "threads", room, "watchers", thread] as const,
   threadEvents: (room: number, thread: number) => ["rooms", "threads", room, "events", thread] as const,
   messages: (room: number, thread: number) => ["rooms", "threads", room, "messages", thread] as const,
   messageContext: (room: number, thread: number, messageId: number | null) => [...roomKeys.messages(room, thread), "context", messageId] as const,

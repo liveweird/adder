@@ -108,7 +108,7 @@ Watching, group mentions and per-kind notices. The user took eight decisions (D1
 - **1.1 D7. A grid of in-app and email switches per notice kind (Lettuce's model), no master switch. In-app is on by default for every kind; email is OFF by default for EVERY kind,** the existing `MENTIONED` and `THREAD_ASSIGNED` included. This reverses 0.6 A15 (in-app cannot be switched off) and 0.6 D2 (email on by default). As first decided, email stayed on for the mention kinds; the user amended it the same day. Account email (the MFA code, the password-reset link) is not a notice kind and always goes.
 - **1.1 D8. The V24 email budget stays for group mentions** (20 distinct recipients per actor per UTC day, one pool): the in-app notice is made as usual (subject to the recipient's in-app switch: off means no row, or a row with `in_app = false` when email is on) and the budget withholds only the email.
 - **1.1 D9 (plan Q1). A safety net on wide fan-out.** An event that would notify more than 20 people is a "wide event"; each actor gets 500 a UTC day (config). Over it the write still succeeds and only direct mentions and the hand-over notify, with one audit line per actor per day. This qualifies D4 and the in-app notice rule (made as usual, subject to the in-app switch) in the over-budget case only. The alternatives were the same budget refusing the write with a typed 429, and no bound beyond `chat-post` (about 86M rows a day per account in the worst case, against 3.4M today).
-- **1.1 D10 (plan Q2). Replying or being mentioned does not make you a watcher.** Only the two triggers of D1; `thread_watches` stays a plain hard-delete join. The alternative was watching on reply with a sticky unwatch (a `state` column, about a day more); "auto-watch on reply" is a `BACKLOG.md` item.
+- **1.1 D10 (plan Q2; changed 2026-11-25).** The original decision said replying or being mentioned does not make a watcher. The user later chose the alternative for replies: a successful reply starts watching, while explicit Unwatch is sticky until explicit Watch; being mentioned still does not watch. V40 stores the inactive preference.
 - **1.1 D11 (plan Q3). Three status kinds:** `THREAD_STATUS_CHANGED`, `THREAD_CLOSED`, `THREAD_REOPENED`. It mirrors `thread_events`, lets a person keep "closed" on and "moved" off, and the sentence can say "closed" without an extra column. The alternative was one kind with a generic label.
 
 ### 1.2.0 Room view (the user's, 2026-11-21)
@@ -121,6 +121,7 @@ Room-view polish: pins, room-view space, names as links, tags, hashtags, the unr
 - **1.2 D4 (Q4). The side panel is collapsed by default at every width** and a "Details" button opens it; the choice is remembered per person per browser, the same for every room and thread (`adder.viewSettings.threadPane.detailsOpen`). The alternatives were per room, nothing remembered, and the URL.
 - **1.2 D5 (Q5). The pins of an open thread** show as a strip under the thread header, present only when the thread has pinned messages: one line "Pinned (2)" with the first line of the newest pin, expanding in place to the list (author, time, a two-line excerpt, "Show in thread", "Unpin"); expanded or not is remembered per person. The room header's "Pinned (n)" drawer stays for the whole room. The alternatives were always expanded (three rows and "+N more"), a sticky cycling banner, and a section of the side panel.
 - **1.2 D6 (Q6). Names stand as links wherever a name stands on its own:** a message's author, a mention in a message, the owner and the starter in the thread header, the owner in the side panel, a USER field's value, the history's actor, "pinned by", the members and team tables, a search hit's owner and room. In the bell the actor and the room become links INSIDE the row and the rest of the row still opens the thread. In a thread-list row the owner stays text (two targets in a 20rem row invite mis-clicks; the same link is one click away in the header). The alternatives were the owner in list rows too, and the bell left as one link.
+- **[changed] Names in remaining chat surfaces:** thread-list owners and search-message authors now use the bell's sibling-link card pattern, ownership-history old/new names are links, and the full reaction roster carries ids for profile links. Compact reaction tooltips remain text because their summary intentionally carries only the first names.
 - **1.2 D7 (Q7). What a non-ADMIN sees on a profile:** name and email (what the directory already gives every signed-in user, 0.2 D2), the person's teams and the rooms the viewer shares with them; never the role, feature flags, language, MFA or sign-in times. A removed account and an unknown id are the same "not available" page. An ADMIN sees the same page with every room the person is in and an "Edit user" link. The alternatives were name and email only, and an ADMIN badge (which would reverse "roles are never exposed" of 0.2 D2).
 - **1.2 D8 (Q8). The tab title counts the bell's number,** every unseen in-app notice: `(3) Incident 42 · Adder`. It follows each person's per-kind switches, so the tab never disagrees with the bell. The alternatives were only what is addressed to me, that number plus a dot, and unread threads or messages across rooms (a new cross-room count; 0.6 D1 decided against exact unread counts).
 - **1.2 D9 (Q9). The hidden tab goes quiet instead of closing (changes 0.4 D3).** After 5 minutes hidden the tab leaves every room and keeps the socket for personal frames only (one small re-read of the bell, its count and its addressed list, per notice, at most one a minute); after 8 hours hidden it closes as before and the title drops its number, never showing a stale one. Tabs of one browser tell each other when notices were seen (`BroadcastChannel`, no server change), or a hidden tab would keep saying `(3)` after the notices were read elsewhere. The cost, accepted: a forgotten hidden tab stays signed in up to 8 h + 1 h instead of 5 min + 1 h (the 5-minute close was the only thing that let an open browser's session idle out) and holds one of the person's 16 sockets meanwhile. The alternatives were quiet with no limit, keeping the 5-minute close (the title loses its number after 5 minutes), and polling once a minute while hidden.
@@ -247,7 +248,7 @@ Taken without asking, in the 0.6.0 plan. Detail and the rules they became: `chat
 - **0.6 A22. Read state is not pushed and not audited.** Another tab or device catches up on focus and with the room's next hint. *Changed by 1.2 D9: the bell count only.*
 - **0.6 A23. A reaction is one emoji by the rule in `chat-model.md`,** at most 10 code points; 20 distinct per message (the roadmap), 5 per person per message.
 - **0.6 A24. A reaction is speech:** members only, refused in a closed thread and an archived room. It is not activity: no rail bump, no unread, no notice.
-- **0.6 A25. A message shows each reaction's count,** whether the reader reacted, and the first three names. The full list of reactors is a `BACKLOG.md` item.
+- **0.6 A25. A message shows each reaction's count,** whether the reader reacted, and the first three names. **[changed]** The full paged list of reactors is now available from a separate roster action.
 - **0.6 A26. A reaction's audit line carries ids only,** never the emoji.
 - **0.6 A27. A pin is of a thread or of a message; 50 per room.** A closed thread can be pinned (a pin is the room's); an archived room refuses; a deleted message loses its pin; no history event.
 - **0.6 A28. Reactions and pins ride `chat-write`** (they take the room lock); the read-state writes ride a new per-user bucket, `read-state`, 240 a minute.
@@ -261,9 +262,9 @@ Taken without asking, in the 1.1.0 plan. Detail and the rules they became: `chat
 
 - **1.1 A1. The term is "watch"** (PL "obserwuj"); the composer's list also matches the typed word `observers`, and "observe" appears nowhere else.
 - **1.1 A2. Watching is the caller's own state:** no room lock, no live hint, its own `thread-watch` bucket (30 a minute). It is audited (`thread.watch_changed`) because it changes who a write notifies.
-- **1.1 A3. Auto-watch is the creator and each new owner** (again on a later hand-over after an unwatch). Reply and mention do not watch (1.1 D10).
+- **1.1 A3. Auto-watch is the creator, each new owner and each successful reply author.** An explicit inactive preference wins over later reply and owner triggers until explicit Watch; a mention does not watch (changed by V40).
 - **1.1 A4. Existing threads are backfilled:** V26 makes each thread's creator and current owner who are still members a watcher, with no notice.
-- **1.1 A5. `watcherCount` is on the wire; the list of watchers is not** (`BACKLOG.md`).
+- **1.1 A5 (changed 2026-11-25).** `watcherCount` is on the wire and a member-authorized paged watcher roster exposes active watchers with linked names; a non-member ADMIN cannot read it.
 - **1.1 A6. Recipients are active members at write time;** a deleted user's watches are inert.
 - **1.1 A7. What counts as activity** is a reply, a status change and an owner change (1.1 D3); not title or field edits, message edits as such, deletes, reactions, pins or the workflow PUT's `moveThreads`.
 - **1.1 A8. Eleven kinds, in-app on and email off for all** (1.1 D7, 1.1 D11); every kind has both switches and none is locked on (Lettuce's `lockedOn` is not ported). Defaults live in code beside the enum and are frozen with the kind name.
@@ -390,7 +391,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.17.0** (grouped reply notifications), on 1.16.0 (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.18.0** (chat and notification controls), on 1.17.0 (grouped reply notifications), on 1.16.0 (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -419,6 +420,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.15.0 Return to a quoting reply** | Return to the exact reply after following a quote. The bounded context view restores focus to that reply. |
 | **1.16.0 Search unread threads** | The Unread filter works in room and global search using the caller’s read state, alone or with other filters. |
 | **1.17.0 Grouped reply notifications** | The bell and email digest group plain replies by watched thread and keep personally addressed notices visible. |
+| **1.18.0 Chat and notification controls** | Opt-in browser alerts and thread muting, foreground `@here`, add-and-mention from the composer, linked profiles and full reactor and watcher lists, workflow change details, and automatic watching that respects explicit unwatch. |
 
 ## Donors
 
@@ -444,6 +446,10 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v1.18.0 — chat and notification controls (2026-11-25)
+
+Browser alerts mirror unseen bell notices after opt-in. Thread muting preserves watches. People can use `@here`, add room members from the composer, open reactor and watcher rosters, and see the previous and new values for workflow changes. Replies start watching unless the author explicitly unwatched.
 
 ### v1.17.0 — grouped reply notifications (2026-11-25)
 

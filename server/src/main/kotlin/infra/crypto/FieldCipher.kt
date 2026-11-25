@@ -14,11 +14,11 @@ import javax.crypto.spec.SecretKeySpec
  *
  * Envelope format: `enc:v1:<base64(nonce || ciphertext+tag)>` — a fresh random 12-byte nonce per
  * value, 128-bit tag. Values without the prefix are treated as legacy plaintext and returned
- * unchanged by [decrypt]; the startup backfill (see infra/db/Bootstrap.kt) converts them.
+ * unchanged by [decrypt]. Browser push subscriptions are encrypted when written.
  *
  * [previousKeyHex] is a decrypt-only fallback for key rotation: [decrypt] tries the current key
- * first (GCM's auth tag makes a wrong-key attempt fail cleanly), then the previous one. While it
- * is set, the startup backfill re-encrypts every row under the current key.
+ * first (GCM's auth tag makes a wrong-key attempt fail cleanly), then the previous one. Keep the
+ * fallback until subscriptions written with the previous key have been re-registered or removed.
  */
 class FieldCipher(currentKeyHex: String, previousKeyHex: String? = null) {
     private val currentKey = parseKey(currentKeyHex)

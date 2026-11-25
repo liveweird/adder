@@ -13,6 +13,7 @@ internal fun NoticeReason.toNotificationType(): NotificationType = when (this) {
     NoticeReason.MESSAGE_QUOTED -> NotificationType.MESSAGE_QUOTED
     NoticeReason.TEAM_MENTIONED -> NotificationType.TEAM_MENTIONED
     NoticeReason.WATCHERS_MENTIONED -> NotificationType.WATCHERS_MENTIONED
+    NoticeReason.HERE_MENTIONED -> NotificationType.HERE_MENTIONED
     NoticeReason.EVERYONE_MENTIONED -> NotificationType.EVERYONE_MENTIONED
     NoticeReason.THREAD_REPLIED -> NotificationType.THREAD_REPLIED
     NoticeReason.THREAD_CREATED -> NotificationType.THREAD_CREATED
@@ -28,6 +29,7 @@ internal fun NotificationType.toNoticeReason(): NoticeReason? = when (this) {
     NotificationType.MESSAGE_QUOTED -> NoticeReason.MESSAGE_QUOTED
     NotificationType.TEAM_MENTIONED -> NoticeReason.TEAM_MENTIONED
     NotificationType.WATCHERS_MENTIONED -> NoticeReason.WATCHERS_MENTIONED
+    NotificationType.HERE_MENTIONED -> NoticeReason.HERE_MENTIONED
     NotificationType.EVERYONE_MENTIONED -> NoticeReason.EVERYONE_MENTIONED
     NotificationType.THREAD_REPLIED -> NoticeReason.THREAD_REPLIED
     NotificationType.THREAD_CREATED -> NoticeReason.THREAD_CREATED

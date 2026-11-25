@@ -7,7 +7,7 @@
 // Every user runs a handful of searches, far below the per-user `search` bucket (60 a minute) that no other spec's account shares.
 import type { APIRequestContext, Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
+import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, specAdmins, test, threadList, threadListRow, throwawayUser, uniqueText } from "./helpers";
 
 /** This file's own administrator (see `specAdmins`): the page loads of its sign-ins spend this account's live-ticket bucket, not the seed administrator's. */
 const admin = specAdmins("e2e-find-admin");
@@ -264,15 +264,17 @@ test("a thread's hashtags show on its list row and in its header", async ({ page
   const number = await startThread(api, roomId, release, `Shipping, see #${first.toUpperCase()}.`);
   await startThread(api, roomId, lunch, "Where do we eat?");
 
-  // The row says the thread's hashtags in dimmed text (the stored, folded key) and holds no link of its own: the row is the one link.
+  // The row shows the folded hashtags as text and links the owner separately from the thread title.
   await page.goto(`/rooms/${roomId}`);
-  const row = threadLink(page, release);
-  await expect(row).toContainText(`#${first}`);
-  await expect(row.getByRole("link")).toHaveCount(0);
-  await expect(threadLink(page, lunch).locator("[data-row-hashtags]")).toHaveCount(0);
+  const row = threadListRow(page, release);
+  const hashtags = row.locator("[data-row-hashtags]");
+  await expect(hashtags).toContainText(`#${first}`);
+  await expect(hashtags.getByRole("link")).toHaveCount(0);
+  await expect(row.getByRole("link", { name: owner.name, exact: true })).toHaveAttribute("href", `/people/${owner.id}`);
+  await expect(threadListRow(page, lunch).locator("[data-row-hashtags]")).toHaveCount(0);
 
   // The pane header's third row links them; a reply adds one, which both the header and the row pick up with no reload.
-  await row.click();
+  await threadLink(page, release).click();
   const header = page.getByRole("group", { name: "Hashtags", exact: true }).first();
   await expect(header.getByRole("link", { name: `#${first}`, exact: true })).toBeVisible();
   await reply(page, `Held back until #${second} is verified.`);

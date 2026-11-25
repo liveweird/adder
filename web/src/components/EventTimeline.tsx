@@ -13,7 +13,7 @@ const WRAP = { overflowWrap: "anywhere" } as const;
 export type TimelineItem = {
   key: string | number;
   /** The one localized sentence the entry leads with. */
-  title: string;
+  title: ReactNode;
   /** Dimmed body lines under the title (see `utils/eventChanges.ts`). */
   lines: string[];
   /** Who did it: text, or a `PersonLink` (the caller decides; a deleted account stays text). */
