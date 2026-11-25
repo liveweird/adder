@@ -4,6 +4,7 @@ import { screen, waitFor } from "@testing-library/react";
 import RoomAccessPreview from "./RoomAccessPreview";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
+import { TOKEN_KEY } from "../api/session";
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
@@ -11,6 +12,7 @@ describe("RoomAccessPreview", () => {
   let mockFetch: FetchMock;
 
   beforeEach(() => {
+    localStorage.setItem(TOKEN_KEY, "member-token");
     mockFetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
     vi.stubGlobal("fetch", mockFetch);
   });

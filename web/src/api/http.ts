@@ -194,9 +194,10 @@ export async function authedFetch(path: string, init: RequestInit = {}): Promise
 }
 
 function sendWithToken(path: string, init: RequestInit, token: string | null): Promise<Response> {
+  // Mounted queries can briefly run while the signed-out route is taking over.
+  if (token === null) return Promise.resolve(new Response(null, { status: 401 }));
   const headers = new Headers(init.headers);
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  else headers.delete("Authorization");
+  headers.set("Authorization", `Bearer ${token}`);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   return fetch(`${API_BASE}${path}`, { signal: timeoutSignal(), ...init, headers });
 }

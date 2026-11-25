@@ -14,7 +14,7 @@
 2. The admin opens the **Teams** page, then opens the header account menu and clicks **Sign out**
    while the server response is held pending.
    - *Expected*: they are back on the login screen — the **Sign in** button and the
-     "You've been signed out." banner are visible.
+     "You've been signed out." banner are visible. No anonymous protected reads are sent during the transition.
 3. Without reloading the page or clearing browser storage, the admin signs in again through the
    displayed form.
    - *Expected*: the new session starts at the **Home** page. The protected route from

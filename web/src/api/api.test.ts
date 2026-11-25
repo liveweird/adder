@@ -197,6 +197,15 @@ describe("authedFetch", () => {
 
   const fetchMock = () => fetch as unknown as ReturnType<typeof vi.fn>;
 
+  test("a protected request after sign-out returns 401 locally without sending a request", async () => {
+    persistSession(SESSION);
+    clearSession();
+    fetchMock().mockResolvedValueOnce(jsonResponse(401, {}));
+
+    expect((await authedFetch("/api/v1/rooms")).status).toBe(401);
+    expect(fetchMock()).not.toHaveBeenCalled();
+  });
+
   test("sends the bearer and returns the response", async () => {
     persistSession(SESSION);
     fetchMock().mockResolvedValueOnce(jsonResponse(200, { ok: true }));

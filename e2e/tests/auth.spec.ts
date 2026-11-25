@@ -27,12 +27,18 @@ test("signing out from a protected route starts the next login at home", async (
     }
   };
   await page.route("**/api/v1/logout", logoutHandler);
+  const anonymousReads: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === "GET" && path.startsWith("/api/v1/") && !request.headers().authorization) anonymousReads.push(path);
+  });
 
   try {
     await signOut(page);
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
     await expect(page.getByText("You've been signed out.")).toBeVisible();
     await logoutHeld;
+    expect(anonymousReads).toEqual([]);
 
     // Stay on the router-produced login page: a helper reload/clear here would erase the stale
     // `from` state that this regression is meant to catch.

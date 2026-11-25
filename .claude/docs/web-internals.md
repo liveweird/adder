@@ -25,6 +25,8 @@ Mechanism and narrative text kept out of `web/CLAUDE.md` so that file stays a le
   `timeoutSignal()` (30 s, feature-detected for happy-dom) — a hung request rejects with a
   `TimeoutError` DOMException instead of pending forever; new `fetch` call sites in `api/` must
   attach it.
+- A protected call with no access token returns a local 401 response. Queries that briefly remain mounted during sign-out can
+  settle without sending anonymous requests. Login and password reset use their existing public transport calls.
 
 ### `session.ts`
 
