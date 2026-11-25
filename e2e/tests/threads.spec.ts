@@ -692,6 +692,7 @@ test("message links ask before opening and load a preview only on request", asyn
   await confirmation.getByRole("button", { name: "Preview", exact: true }).click();
   expect((await preview).status()).toBe(200);
   await expect(confirmation.getByRole("status")).toHaveText("A preview is unavailable for this link.");
+  await expect(confirmation.getByRole("button", { name: "Preview", exact: true })).toBeFocused();
   expect(previewRequests).toBe(1);
   expect(destinationRequests).toBe(0);
   expect(await axeViolations(page, '[role="dialog"]')).toEqual([]);

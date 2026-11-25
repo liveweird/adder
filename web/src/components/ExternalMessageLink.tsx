@@ -176,7 +176,8 @@ function LinkOverlay({ destination, source, children, title, identity }: Props &
                   <Button
                     size="compact-sm"
                     variant="light"
-                    loading={loading}
+                    aria-disabled={loading}
+                    data-disabled={loading || undefined}
                     aria-expanded={Boolean(available)}
                     data-mantine-stop-propagation="true"
                     onClick={() => { if (available) setPreview(undefined); else void load(); }}
