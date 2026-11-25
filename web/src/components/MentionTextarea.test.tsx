@@ -218,6 +218,19 @@ describe("MentionTextarea", () => {
     expect(stored()).toBe("Before @New");
   });
 
+  test("a manager can still pick a matching keyword or an existing member without opening the directory", async () => {
+    const user = userEvent.setup();
+    const onAddAndMention = vi.fn();
+    renderWithProviders(<Harness onAddAndMention={onAddAndMention} />);
+    await user.type(box(), "@everyone");
+    expect(await screen.findByRole("option", { name: /Add and mention “everyone”/ })).toBeVisible();
+    await user.keyboard("{Enter}");
+    await user.type(box(), "@bo");
+    await user.click(await screen.findByRole("option", { name: /Bob/ }));
+    expect(stored()).toBe("<@everyone> <@7> ");
+    expect(onAddAndMention).not.toHaveBeenCalled();
+  });
+
   test("a stored token shows as the name of a person the session knows, and as the token otherwise", async () => {
     const user = userEvent.setup();
     renderWithProviders(<Harness />);

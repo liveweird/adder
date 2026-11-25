@@ -75,6 +75,14 @@ class HereMentionsTest {
             ).status,
         )
         assertEquals(listOf(cast.owner.id, cast.bob.id).sorted(), recipients(message.id))
+
+        assertEquals(HttpStatusCode.NoContent, cast.ann.client.putJson(
+            "/api/v1/rooms/${cast.room}/messages/${message.id}",
+            MessageRequest("Heads up <@here>, including <@${cast.bob.id}>"),
+        ).status)
+        assertEquals(listOf(cast.owner.id, cast.bob.id).sorted(), recipients(message.id))
+        assertEquals(NotificationType.HERE_MENTIONED, notice(cast.owner.id, message.id))
+        assertEquals(NotificationType.MENTIONED, notice(cast.bob.id, message.id))
     }
 
     @Test
@@ -98,5 +106,18 @@ class HereMentionsTest {
             "/api/v1/rooms/${cast.room}/messages/${posted.id}", MessageRequest("Again <@here>"),
         ).status)
         assertEquals(listOf(cast.bob.id), recipients(posted.id))
+    }
+
+    @Test
+    fun `here has no recipients when there are no foreground tabs`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = seedPairCast("here-empty", "Here", minted, withThread = true)
+        val response = cast.owner.client.postJson(
+            "/api/v1/rooms/${cast.room}/threads/1/messages", MessageRequest("Anyone <@here>?"),
+        )
+        assertEquals(HttpStatusCode.Created, response.status)
+        val message = response.body<MessageResponse>()
+        assertEquals(emptyList(), recipients(message.id))
+        assertEquals(null, notice(cast.ann.id, message.id))
     }
 }

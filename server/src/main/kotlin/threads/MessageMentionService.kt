@@ -85,7 +85,7 @@ internal class MessageMentionService(
         groups.insertInTransaction(ref, named)
         val opening = ref.opening()
         val reach = GroupReach(members, watches, ref.roomId, ref.threadId)
-        val hereMentioned = if (named.here) reach.members().filter { it in presence.activeUserIds() && it != authorId } else emptyList()
+        val hereMentioned = if (named.here) reach.hereRecipients(authorId) else emptyList()
         if (named.here) replaceHereSnapshot(ref, hereMentioned)
         val teamMembers = reach.teamMembers(named.rosters.values)
         val audience = NoticeAudience.ofMessage(
@@ -129,7 +129,7 @@ internal class MessageMentionService(
         val nowHere = when {
             !now.here -> emptyList()
             held.here -> heldHere
-            else -> reach.members().filter { it in presence.activeUserIds() && it != authorId }
+            else -> reach.hereRecipients(authorId)
         }
         if (held.here != now.here) replaceHereSnapshot(ref, nowHere)
         val before = previousReasons(reach, change, held, now, opening, heldHere)
@@ -188,6 +188,11 @@ internal class MessageMentionService(
         if (held.everyone) note(reach.members(), NoticeReason.EVERYONE_MENTIONED)
         if (held.here) note(heldHere, NoticeReason.HERE_MENTIONED)
         return before
+    }
+
+    private suspend fun GroupReach.hereRecipients(authorId: UInt): List<UInt> {
+        val foreground = presence.activeUserIds()
+        return if (foreground.isEmpty()) emptyList() else members().filter { it in foreground && it != authorId }
     }
 
     /** The people among [ids] who are active members of room [roomId]. */
