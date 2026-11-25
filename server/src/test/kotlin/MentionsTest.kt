@@ -72,17 +72,12 @@ class MentionsTest {
     }
 
     @Test
-    fun `group tokens in an indented code block or a raw HTML block are read by the server - the known disagreement with the SPA`() {
-        // The pre-pass blanks fenced and inline code, link destinations and autolinks, not an INDENTED code block nor a raw HTML block (the
-        // same gap as `<@id>`, `chat-model.md` "Mentions (V17)"): the server indexes and notifies, the SPA skips the node and shows the raw
-        // token (`MarkdownView.test.tsx` pins that side). They are pinned here, not in the shared table, because the table is also what the
-        // SPA must be able to show.
+    fun `tokens in indented code raw HTML and image labels are ignored like the SPA`() {
         val indented = parseMentions("para\n\n    <@everyone> <@watchers> <@team:4> indented\n\nafter")
-        assertTrue(indented.everyone && indented.watchers)
-        assertEquals(listOf(4u), indented.teams)
+        assertTrue(indented.isEmpty)
         val html = parseMentions("<div><@everyone> <@team:5> in html</div>\n\nafter")
-        assertTrue(html.everyone)
-        assertEquals(listOf(5u), html.teams)
+        assertTrue(html.isEmpty)
+        assertTrue(parseMentions("![alt <@6> <@everyone>](image.png)").isEmpty)
     }
 
     @Test

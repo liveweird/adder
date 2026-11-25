@@ -112,6 +112,42 @@ class MessageTagReindexTest {
     }
 
     @Test
+    fun `reindex removes stale mention metadata while keeping a real group mention`() = testApplication {
+        usePostgresTestcontainer()
+        val f = fixture("reidx-markdown")
+        val id = f.staleMessage("Please check <@everyone> #keep\n\n    <@${f.author}> <@here> #ignore")
+        exec("UPDATE messages SET tags_version = 1 WHERE id = ?", id)
+        exec(
+            """INSERT INTO message_mentions (message_id, user_id, thread_id, room_id)
+               SELECT m.id, m.author_id, t.id, t.room_id FROM messages m JOIN threads t ON m.thread_id = t.id WHERE m.id = ?""",
+            id,
+        )
+        exec(
+            """INSERT INTO message_group_mentions (message_id, group_kind, thread_id, room_id)
+               SELECT m.id, 'HERE', t.id, t.room_id FROM messages m JOIN threads t ON m.thread_id = t.id WHERE m.id = ?""",
+            id,
+        )
+        exec(
+            """INSERT INTO message_here_mentions (message_id, user_id, thread_id, room_id)
+               SELECT m.id, m.author_id, t.id, t.room_id FROM messages m JOIN threads t ON m.thread_id = t.id WHERE m.id = ?""",
+            id,
+        )
+
+        assertTrue(service.reindexStale() > 0)
+        assertEquals(listOf("keep"), tagsOf(id))
+        assertEquals(0, indexRows("message_mentions", id))
+        assertEquals(0, indexRows("message_here_mentions", id))
+        assertEquals(1, indexRows("message_group_mentions", id))
+    }
+
+    private fun indexRows(table: String, id: UInt): Int = PostgresTestSupport.connect().use { c ->
+        c.prepareStatement("SELECT count(*) FROM $table WHERE message_id = ?").use { statement ->
+            statement.setInt(1, id.toInt())
+            statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+        }
+    }
+
+    @Test
     fun `a second run finds nothing`() = testApplication {
         usePostgresTestcontainer()
         val f = fixture("reidx-twice")

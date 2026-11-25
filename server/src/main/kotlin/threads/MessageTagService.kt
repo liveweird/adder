@@ -96,7 +96,13 @@ CROSS JOIN LATERAL (
 ORDER BY t.id, h.tag"""
 
 /** A message whose body is to be (re)indexed: where it lives and what it says. */
-private class TaggedMessage(val messageId: UInt, val threadId: UInt, val roomId: UInt, val tags: List<String>)
+private class TaggedMessage(
+    val messageId: UInt,
+    val threadId: UInt,
+    val roomId: UInt,
+    val tags: List<String>,
+    val mentions: ParsedMentions? = null,
+)
 
 /**
  * The derived hashtag index (V15 `message_tags`, `chat-model.md` "Hashtags (V15)"): what the thread list's `tag` filter and the room's
@@ -228,7 +234,8 @@ class MessageTagService(
             .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate(ForUpdateOption.PostgreSQL.MODE.SKIP_LOCKED, messages))
             .map {
                 val body = it[messages.body]
-                TaggedMessage(it[messages.id].value, it[messages.threadId].value, it[threads.roomId].value, parseHashtags(body))
+                val mentions = body.takeIf { text -> text.contains("<@") }?.let(::parseMentions)
+                TaggedMessage(it[messages.id].value, it[messages.threadId].value, it[threads.roomId].value, parseHashtags(body), mentions)
             }
             .toList()
         val ids = stale.map { it.messageId }
@@ -236,6 +243,7 @@ class MessageTagService(
             // One delete for the batch (a stale message normally has no row), then ONE insert for every tag the bodies carry.
             MessageTags.deleteWhere { MessageTags.messageId inList ids }
             insertTags(stale)
+            pruneLegacyMentions(stale.mapNotNull { message -> message.mentions?.let { message.messageId to it } }.toMap())
             messages.update({ messages.id inList ids }) { it[tagsVersion] = TAGS_VERSION }
         }
         ids
