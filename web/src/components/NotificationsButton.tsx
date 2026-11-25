@@ -43,7 +43,7 @@ export default function NotificationsButton() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const location = useLocation();
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(() => new URLSearchParams(location.search).get("notifications") === "1");
   const [returnFocus, setReturnFocus] = useState(true);
   const [page, setPage] = useState(1);
   const [view, setView] = useState<NoticeView>("all");

@@ -17,6 +17,16 @@
   "inRoom": "{{room}} · {{when}}",
   "openRoom": "Otwórz pokój",
   "change": "{{from}} → {{to}}",
+  "browserPush": {
+    "title": "Powiadomienia w przeglądarce",
+    "description": "Otrzymuj alerty o nowych powiadomieniach z dzwonka nawet po zamknięciu Addera.",
+    "enable": "Włącz w tej przeglądarce",
+    "disable": "Wyłącz w tej przeglądarce",
+    "unsupported": "Ta przeglądarka nie obsługuje tutaj powiadomień w tle.",
+    "unavailable": "Ten serwer nie udostępnia powiadomień w przeglądarce.",
+    "denied": "Aby użyć tej funkcji, zezwól na powiadomienia w ustawieniach witryny w przeglądarce.",
+    "failed": "Nie udało się zmienić powiadomień w przeglądarce. Spróbuj ponownie."
+  },
   "toast": {
     "preferencesSaved": "Zapisano ustawienia powiadomień"
   },

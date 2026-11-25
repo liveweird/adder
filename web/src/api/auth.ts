@@ -3,6 +3,7 @@
 import { API_BASE, ApiError, refreshPairDetached, safeJson, timeoutSignal } from "./http";
 import type { components, paths } from "./schema";
 import { clearSession, getSessionSnapshot, isSessionCurrent, persistSession } from "./session";
+import { browserPushLogoutRevoked, detachBrowserPushForLogout, takeBrowserPushForLogout } from "./browserPush";
 
 type LoginBody = paths["/api/v1/login"]["post"]["requestBody"]["content"]["application/json"];
 // Tokens, or (MFA-enabled accounts) a second-factor challenge — discriminate via isMfaChallenge.
@@ -89,29 +90,40 @@ export async function confirmPasswordReset(token: string, password: string): Pro
 
 export async function logout(): Promise<void> {
   const { token, refreshToken } = getSessionSnapshot();
+  const browserPush = takeBrowserPushForLogout();
   // Invalidate the captured session before waiting for the best-effort server revocation. A
   // subsequent login owns a new generation and cannot be erased when this delayed call settles.
   clearSession();
-  if (!token) return;
+  const detachPush = detachBrowserPushForLogout(browserPush).catch(() => undefined);
+  if (!token) {
+    await detachPush;
+    return;
+  }
   const sendLogout = (accessToken: string, refreshBody: string | null) =>
     fetch(`${API_BASE}/api/v1/logout`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        ...(browserPush === null ? {} : { "X-Adder-Push-Subscription": String(browserPush.id) }),
+      },
       // Include the refresh token so an explicit logout revokes it too, not just the access token.
       body: JSON.stringify({ refreshToken: refreshBody }),
       signal: timeoutSignal(),
     });
   try {
-    const res = await sendLogout(token, refreshToken);
+    let res = await sendLogout(token, refreshToken);
     // /logout needs a valid access token, and after idle (or a lost refresh response) the stored one has
     // expired: without this the 401 would leave the refresh token alive. Renew the pair - detached from the
     // already-cleared session - and revoke the NEW pair, whose refresh token is the live one.
     if (res.status === 401 && refreshToken) {
       const renewed = await refreshPairDetached(refreshToken);
-      if (renewed) await sendLogout(renewed.token, renewed.refreshToken);
+      if (renewed) res = await sendLogout(renewed.token, renewed.refreshToken);
     }
+    if (res.ok) browserPushLogoutRevoked(browserPush);
   } catch {
     // Best-effort revoke: offline/timeout must not block the LOCAL sign-out — a rejected
     // fetch skipping clearSession would leave the user apparently signed in.
   }
+  await detachPush;
 }

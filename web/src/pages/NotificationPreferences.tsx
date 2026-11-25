@@ -13,6 +13,7 @@ import { getUserId } from "../api/session";
 import ErrorAlert from "../components/ErrorAlert";
 import FormErrorAlert from "../components/FormErrorAlert";
 import LoadingBlock from "../components/LoadingBlock";
+import BrowserPushCard from "../components/BrowserPushCard";
 import PageHeader from "../components/PageHeader";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { saveErrorMessage } from "../utils/saveError";
@@ -108,6 +109,7 @@ export default function NotificationPreferences() {
   return (
     <Stack gap="md">
       <PageHeader title={t("notifications.preferences.title")} description={t("notifications.preferences.description")} />
+      <BrowserPushCard />
       <Paper withBorder p="xl" maw={CONTENT_MAX_WIDTH}>
         {query.isLoading ? (
           <LoadingBlock />

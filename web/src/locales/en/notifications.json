@@ -13,6 +13,16 @@
   "inRoom": "{{room}} · {{when}}",
   "openRoom": "Open room",
   "change": "{{from}} → {{to}}",
+  "browserPush": {
+    "title": "Browser notifications",
+    "description": "Get an alert for new bell notifications, even when Adder is closed.",
+    "enable": "Enable on this browser",
+    "disable": "Disable on this browser",
+    "unsupported": "This browser cannot receive background notifications here.",
+    "unavailable": "Browser notifications are unavailable on this server.",
+    "denied": "Allow notifications in this browser’s site settings to use this feature.",
+    "failed": "Could not update browser notifications. Try again."
+  },
   "toast": {
     "preferencesSaved": "Notification preferences saved"
   },
