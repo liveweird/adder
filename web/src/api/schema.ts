@@ -1515,8 +1515,9 @@ export interface paths {
          *     `403`: they have no state of their own in the room). A single-value set with a body: the CALLER's own watch, nobody else's.
          *     Checked in this order: authentication (`401`), the per-USER `thread-watch` bucket of 30 per minute (its own, apart from the read
          *     marker's; `429` beyond it; spent before any guard, so a refused write costs a token), visibility (`404`), the member rule (`403`) before the body, the body (`400`: `watching` must be a boolean), then the
-         *     caller's own membership (`404` when they were removed meanwhile) and the thread (`404`). The state the thread already has is a
-         *     `204` with nothing written and no audit line; a change is audited (`thread.watch_changed`).
+         *     caller's own membership (`404` when they were removed meanwhile) and the thread (`404`). Repeating the stored choice gives
+         *     `204` with nothing written and no audit line; a change is audited (`thread.watch_changed`). The first explicit off is stored
+         *     even before the caller has watched, so a later reply respects it.
          *
          *     A closed thread and an ARCHIVED room can be watched and unwatched: a watch is the member's own state, not a write to the room.
          *     It takes NO room lock (it holds only the caller's own membership row for the commit), emits no live event and moves no activity

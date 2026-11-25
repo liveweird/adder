@@ -17,14 +17,12 @@ export default function MessageReactionRoster({
   threadNumber,
   messageId,
   reaction,
-  opened,
   onClose,
 }: {
   roomId: number;
   threadNumber: number;
   messageId: number;
   reaction: ReactionSummary;
-  opened: boolean;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -32,13 +30,12 @@ export default function MessageReactionRoster({
   const query = useQuery({
     queryKey: [...roomKeys.messages(roomId, threadNumber), "reactors", messageId, reaction.key, page],
     queryFn: () => listMessageReactors(roomId, messageId, reaction.key, page, PAGE_SIZE),
-    enabled: opened,
     placeholderData: keepPreviousData,
   });
 
   return (
     <Modal
-      opened={opened}
+      opened
       onClose={onClose}
       title={t("threads.reaction.peopleTitle", { emoji: reaction.emoji })}
       closeButtonProps={{ "aria-label": t("common.action.close") }}
@@ -47,7 +44,8 @@ export default function MessageReactionRoster({
     >
       {query.isLoading && <LoadingBlock py="sm" />}
       {query.isError && <ErrorAlert error={query.error} />}
-      {query.data && (
+      {query.data?.total === 0 && <Text size="sm" c="dimmed">{t("threads.reaction.peopleEmpty")}</Text>}
+      {query.data && query.data.total > 0 && (
         <Stack gap="md" aria-busy={query.isPlaceholderData} style={query.isPlaceholderData ? { opacity: 0.6 } : undefined}>
           <Stack component="ul" gap="xs" m={0} p={0} style={{ listStyle: "none" }}>
             {query.data.items.map((person) => (

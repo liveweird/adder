@@ -110,7 +110,7 @@ class ThreadStatusService internal constructor(
                 threadOwnerChangedEvent(thread.ownerId, newOwnerId, names.getValue(thread.ownerId), names.getValue(newOwnerId)),
                 stamp,
             )
-            // The new owner watches the thread they receive (1.1 D1; again on a later hand-over after an unwatch), whoever passes it on.
+            // Handing over the thread can start a watch, while an explicit off survives this implicit change.
             watches.addInTransaction(thread.id, newOwnerId, stamp)
             rooms.touchActivity(roomId, stamp, caller.userId)
             notifyLive(LiveHint(LiveKind.THREAD_OWNER_CHANGED, roomId, threadNumber = number))

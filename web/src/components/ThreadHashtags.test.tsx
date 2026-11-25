@@ -11,7 +11,7 @@ import { makeMessage, makeRoom, makeThread, messagePage } from "../test/messageF
 import { renderWithProviders } from "../test/render";
 import { SIDE_WORKFLOW, eventPage, makeEvent } from "../test/sideFixtures";
 
-// A thread's hashtags (1.2 A8): dimmed text on a list row (the row is one link), filter links in the pane header's third row and in the side
+// A thread's hashtags (1.2 A8): dimmed text on a list card, filter links in the pane header's third row and in the side
 // panel's "Hashtags" section. The wire carries the folded keys, alphabetical, at most 20.
 const AT = Date.UTC(2026, 5, 1, 9, 30);
 const TEN = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa"];
@@ -89,17 +89,20 @@ describe("hashtags in the room view", () => {
     });
   }
 
-  test("a list row shows up to three hashtags as plain dimmed text and \"+N\" for the rest, and stays ONE link with no link inside", async () => {
+  test("a list card shows up to three hashtags as plain text and links its thread and owner separately", async () => {
     serve([], [row(2, "Disk full on db-3", ["a1", "b2", "c3", "d4", "e5"]), row(1, "Old alert", ["outage"]), row(3, "Quiet", [])]);
     renderWithProviders(<ThreadList room={makeRoom()} activeNumber={null} />);
     const many = await screen.findByRole("link", { name: /Disk full on db-3/ });
-    expect(many).toHaveTextContent("#a1 #b2 #c3 +2");
-    expect(many).not.toHaveTextContent("#d4");
-    expect(many.querySelectorAll("a")).toHaveLength(0);
-    expect(screen.getByRole("link", { name: /Old alert/ })).toHaveTextContent("#outage");
-    expect(screen.getByRole("link", { name: /Old alert/ })).not.toHaveTextContent("+");
+    const card = many.closest("[data-thread-row]") as HTMLElement;
+    expect(card).toHaveTextContent("#a1 #b2 #c3 +2");
+    expect(card).not.toHaveTextContent("#d4");
+    expect(within(card).getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
+    expect(many.querySelectorAll("a, button")).toHaveLength(0);
+    const oldAlert = screen.getByRole("link", { name: /Old alert/ }).closest("[data-thread-row]") as HTMLElement;
+    expect(oldAlert).toHaveTextContent("#outage");
+    expect(oldAlert).not.toHaveTextContent("+");
     const quiet = screen.getByRole("link", { name: /Quiet/ });
-    expect(quiet.querySelector("[data-row-hashtags]")).toBeNull();
+    expect(quiet.closest("[data-thread-row]")?.querySelector("[data-row-hashtags]")).toBeNull();
     expect(screen.queryByRole("link", { name: "#outage" })).toBeNull();
   });
 

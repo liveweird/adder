@@ -10,7 +10,7 @@ import classes from "./TagPills.module.css";
  * messages and have their own display (`ThreadHashtags`).
  *
  * With a `limit` the row is ONE line (a thread-list row, the thread header's tag row): the first `limit` pills show, each shrinking to an
- * ellipsis before the "+N", and the rest are that "+N" - dimmed text in a list row (a row is one link) or, with `onShowAll`, a button that
+ * ellipsis before the "+N", and the rest are that "+N" - dimmed text in a list card (the tags stay non-interactive) or, with `onShowAll`, a button that
  * opens the full list (the header opens the details). The "+N" says in words how many tags are hidden.
  */
 export default function TagPills({

@@ -86,8 +86,9 @@ class ThreadWatchTest {
         withAuditCapture { capture ->
             assertFalse(cast.member.client.thread(cast.room).watching)
             assertEquals(1, cast.member.client.thread(cast.room).watcherCount, "the creator watches their own thread")
-            assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, false).status, "already off: nothing written")
-            assertEquals(0, watchRows(cast.room, cast.member.id), "an off no-op is not remembered as an explicit unwatch")
+            assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, false).status)
+            assertEquals(1, watchRows(cast.room, cast.member.id), "the first explicit off is stored")
+            assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, false).status)
             assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, true).status)
             assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, true).status, "again: nothing written")
             val watching = cast.member.client.thread(cast.room)
@@ -104,8 +105,9 @@ class ThreadWatchTest {
             assertFalse(cast.member.client.listed(cast.room).items.single().watching)
 
             val lines = capture.events.filter { it.message == "thread.watch_changed" && it.hasKeyValue("roomId", cast.room.toLong()) }
-            assertEquals(2, lines.size, "one line per CHANGE, none for a repeat")
-            val (on, off) = lines
+            assertEquals(3, lines.size, "one line per preference change, none for a repeat")
+            val (initialOff, on, off) = lines
+            assertTrue(initialOff.hasKeyValue("watching", false))
             assertTrue(on.hasKeyValue("byUserId", cast.member.id.toLong()) && on.hasKeyValue("watching", true))
             assertTrue(on.hasKeyValue("threadId", cast.threadId.toLong()) && on.hasKeyValue("number", 1))
             assertTrue(off.hasKeyValue("watching", false) && off.hasKeyValue("byUserId", cast.member.id.toLong()))
@@ -292,6 +294,17 @@ class ThreadWatchTest {
     }
 
     @Test
+    fun `an explicit off before the first reply is respected`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = seedThreadCast("wt-before-reply", "Watch before reply", minted)
+        val messages = "$rooms/${cast.room}/threads/1/messages"
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, false).status)
+        assertEquals(HttpStatusCode.Created, cast.member.client.postJson(messages, MessageRequest("Staying unsubscribed")).status)
+        assertFalse(cast.member.client.thread(cast.room).watching)
+        assertEquals(setOf(cast.author.id), watchers(cast.threadId))
+    }
+
+    @Test
     fun `members page through active watchers by name while non-member administrators are refused`() = testApplication {
         usePostgresTestcontainer()
         val cast = seedThreadCast("wt-list", "Watch list", minted)
@@ -304,6 +317,8 @@ class ThreadWatchTest {
         assertEquals(2L, second.total)
         assertEquals(setOf(cast.author.id, cast.member.id), (first.items + second.items).map { it.userId }.toSet())
         assertEquals(HttpStatusCode.Forbidden, cast.admin.client.get(path).status)
+        assertEquals(HttpStatusCode.NotFound, cast.outsider.client.get(path).status)
+        assertEquals(HttpStatusCode.NotFound, cast.member.client.get("$rooms/${cast.room}/threads/999/watchers").status)
         assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, false).status)
         val remaining = cast.author.client.get("$rooms/${cast.room}/threads/1/watchers").body<PageResponse<ThreadWatcherResponse>>()
         assertEquals(listOf(cast.author.id), remaining.items.map { it.userId })

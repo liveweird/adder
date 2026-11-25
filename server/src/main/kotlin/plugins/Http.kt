@@ -71,7 +71,7 @@ private val SMALL_BODY_PATHS = setOf(
 // ceiling to the global one (BodyLimitIdSpellingTest). A segment that is no id never routes, and a tighter ceiling there costs nothing.
 private val ROOM_MEMBERS_PATH = Regex("^/api/v1/rooms/[^/]+/members$")
 private val ROOM_SMALL_PUT_PATH =
-    Regex("^/api/v1/rooms/[^/]+/(threads/[^/]+/(status|owner|read-marker|watch|tags)|join-requests/[^/]+)$")
+    Regex("^/api/v1/rooms/[^/]+/(threads/[^/]+/(status|owner|read-marker|watch|mute|tags)|join-requests/[^/]+)$")
 private val THREAD_CREATE_PATH = Regex("^/api/v1/rooms/[^/]+/threads$")
 private val THREAD_DETAILS_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+$")
 private val NOTIFICATION_PREFERENCES_PATH = Regex("^/api/v1/users/[^/]+/notification-preferences$")
@@ -95,7 +95,7 @@ internal fun routedPath(rawPath: String): String = try {
 }
 
 /**
- * The body ceiling of this call: [MAX_SMALL_REQUEST_BODY_BYTES] for the small-body POSTs and the status, owner, read-marker, watch, tags,
+ * The body ceiling of this call: [MAX_SMALL_REQUEST_BODY_BYTES] for small-body POSTs and status, owner, read-marker, watch, mute, tags,
  * pin, reaction and notification-preference PUTs, [MAX_MESSAGE_REQUEST_BODY_BYTES] for a message write, [MAX_THREAD_REQUEST_BODY_BYTES] for
  * a thread create or details write, else [MAX_REQUEST_BODY_BYTES]. Matched against the [routedPath], so an encoded spelling of the same
  * route gets the same ceiling.

@@ -12,6 +12,7 @@ import io.ktor.util.AttributeKey
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.BooleanColumnType
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.JoinType
@@ -61,17 +62,12 @@ SELECT t.id, CAST(? AS int8), t.room_id, CAST(? AS int8), TRUE FROM threads t WH
 ON CONFLICT DO NOTHING
 RETURNING thread_id"""
 
-internal const val ENABLE_WATCH_SQL = """
+internal const val SET_WATCH_SQL = """
 INSERT INTO thread_watches (thread_id, user_id, room_id, created_at, watching)
-SELECT t.id, CAST(? AS int8), t.room_id, CAST(? AS int8), TRUE
+SELECT t.id, CAST(? AS int8), t.room_id, CAST(? AS int8), CAST(? AS bool)
 FROM threads t WHERE t.id = CAST(? AS int4)
-ON CONFLICT (thread_id, user_id) DO UPDATE SET watching = TRUE
-WHERE NOT thread_watches.watching
-RETURNING thread_id"""
-
-internal const val DISABLE_WATCH_SQL = """
-UPDATE thread_watches SET watching = FALSE
-WHERE thread_id = CAST(? AS int4) AND user_id = CAST(? AS int8) AND watching
+ON CONFLICT (thread_id, user_id) DO UPDATE SET watching = EXCLUDED.watching
+WHERE thread_watches.watching IS DISTINCT FROM EXCLUDED.watching
 RETURNING thread_id"""
 
 /**
@@ -120,8 +116,8 @@ class ThreadWatchService internal constructor(
     /**
      * Sets whether [userId] watches thread [number] of room [roomId], in ONE transaction without the room lock: the caller's own
      * membership row is held first (a person who is no longer a member is the `404`, never a `500` from the foreign key), then the
-     * thread (`404`), then enables by insert/upsert or disables only an active preference. A repeated choice (including off with no
-     * preference row) is a `204` with nothing written. A closed thread and an archived room are allowed: a watch is the member's own.
+     * thread (`404`), then sets the explicit preference. An explicit off stored before the first reply prevents an implicit watch.
+     * A repeated choice is a `204` with nothing written. A closed thread and an archived room are allowed: a watch is the member's own.
      * Answers what changed, for the route's audit line.
      */
     suspend fun setWatching(roomId: UInt, number: Int, userId: UInt, watching: Boolean): WatchChange? =
@@ -130,21 +126,14 @@ class ThreadWatchService internal constructor(
             val threads = ThreadService.Threads
             val threadId = threads.select(threads.id).where { (threads.roomId eq roomId) and (threads.number eq number) }
                 .toList().singleOrNull()?.get(threads.id)?.value ?: throw NotFoundException("Thread not found")
-            val (sql, arguments) = if (watching) {
-                ENABLE_WATCH_SQL to listOf(
+            val rows = TransactionManager.current().exec(
+                SET_WATCH_SQL,
+                listOf(
                     LongColumnType() to userId.toLong(),
                     LongColumnType() to nowMillis(),
+                    BooleanColumnType() to watching,
                     IntegerColumnType() to threadId.toInt(),
-                )
-            } else {
-                DISABLE_WATCH_SQL to listOf(
-                    IntegerColumnType() to threadId.toInt(),
-                    LongColumnType() to userId.toLong(),
-                )
-            }
-            val rows = TransactionManager.current().exec(
-                sql,
-                arguments,
+                ),
                 explicitStatementType = StatementType.SELECT,
             ) { row -> row.get(0, Int::class.javaObjectType)!! }
             val changed = rows?.toList().orEmpty().isNotEmpty()

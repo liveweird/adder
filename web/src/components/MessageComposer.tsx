@@ -146,7 +146,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
       setQuote((current) => (current === sent.quote ? null : current));
       sentOk.set(key, sent);
       onPosted(created.id);
-      await refreshAfterMessageWrite(queryClient, room.id);
+      await refreshAfterMessageWrite(queryClient, room.id, { newReply: true });
     } catch (err) {
       setError(messageErrorMessage(err, t));
       // The server says the message is gone: the line keeps the author and loses the text (a pick made since, another object, stays as it is).

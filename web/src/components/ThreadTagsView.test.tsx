@@ -8,7 +8,7 @@ import { makeMessage, makeRoom, makeThread, messagePage } from "../test/messageF
 import { renderWithProviders } from "../test/render";
 import { SIDE_WORKFLOW, eventPage, makeEvent } from "../test/sideFixtures";
 
-// A thread's curated tags (1.2 D3): pills on a list row (the row is one link, so they are not links) and in the pane header's tag row, and the
+// A thread's curated tags (1.2 D3): non-interactive pills on a list card and in the pane header's tag row, and the
 // side panel's "Tags" section; the hashtags keep their own rows.
 const AT = Date.UTC(2026, 5, 1, 9, 30);
 const tag = (name: string, retired = false) => ({ name, retired });
@@ -57,7 +57,7 @@ describe("tags in the room view", () => {
     });
   }
 
-  test("a list row shows up to three tags as pills and \"+N\" in words for the rest, a retired one struck through and said, and stays ONE link with no link inside", async () => {
+  test("a list card shows up to three non-interactive tags and links its thread and owner separately", async () => {
     serve(undefined, [
       row(2, "Disk full on db-3", [tag("data"), tag("old", true), tag("question"), tag("security"), tag("zeta")]),
       row(1, "Old alert", [tag("data")]),
@@ -65,16 +65,19 @@ describe("tags in the room view", () => {
     ]);
     renderWithProviders(<ThreadList room={makeRoom()} activeNumber={null} />);
     const many = await screen.findByRole("link", { name: /Disk full on db-3/ });
-    const pills = many.querySelector("[data-row-tags]") as HTMLElement;
+    const card = many.closest("[data-thread-row]") as HTMLElement;
+    const pills = card.querySelector("[data-row-tags]") as HTMLElement;
     expect(within(pills).getByText("data")).toBeInTheDocument();
     expect(within(pills).getByText("old (retired)")).toBeInTheDocument();
     expect(within(pills).getByText("question")).toBeInTheDocument();
     expect(within(pills).queryByText("security")).toBeNull();
     expect(within(pills).getByText("+2")).toBeInTheDocument();
     expect(within(pills).getByText("2 more tags")).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "Ann Owner" })).toHaveAttribute("href", "/people/5");
     expect(many.querySelectorAll("a, button")).toHaveLength(0);
-    expect(within(screen.getByRole("link", { name: /Old alert/ })).getByText("data")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Quiet/ }).querySelector("[data-row-tags]")).toBeNull();
+    const oldAlert = screen.getByRole("link", { name: /Old alert/ }).closest("[data-thread-row]") as HTMLElement;
+    expect(within(oldAlert).getByText("data")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Quiet/ }).closest("[data-thread-row]")?.querySelector("[data-row-tags]")).toBeNull();
   });
 
   test("the pane header's tag row shows up to three pills in one group, and \"+N\" opens the details with every tag in its Tags section", async () => {

@@ -170,9 +170,8 @@ object RateLimits {
     const val READ_STATE = "read-state"
 
     /**
-     * `PUT /api/v1/rooms/{id}/threads/{number}/watch` (`threads/ThreadWatchRoutes.kt`) rides its OWN per-signed-in-user bucket: 30/min in
-     * every mode. A person watches or stops watching a thread a few times an hour, so 30 a minute is a script. Unlike the read-state
-     * writes it is audited (`thread.watch_changed`, one line per change), so the bound also keeps a toggling client from flooding the
+     * The watch and mute PUTs share a per-signed-in-user thread settings bucket: 30/min in every mode. A person changes these settings
+     * a few times an hour. Unlike read-state writes, changes are audited, so the bound also keeps a toggling client from flooding the
      * audit log, and it keeps the read marker's [READ_STATE] budget to the markers. No room lock and no hint, like [READ_STATE].
      * The bucket sits BEFORE the guards, so a refused write spends a token too.
      */

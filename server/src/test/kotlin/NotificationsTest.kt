@@ -784,7 +784,7 @@ class NotificationsTest {
             assertTrue(event.hasKeyValue("recipientIds", listOf(cast.bob.id.toLong())))
             assertTrue(event.keyValuePairs.none { it.value.toString().contains("secret-body") }, "a body is never in an audit line")
 
-            // A post that mentions nobody leaves no line (nobody watches the thread yet).
+            // The only watcher is now the reply's own author, so a post without a mention leaves no line.
             val before = capture.events.count { it.message == "notification.created" }
             cast.ann.client.post(cast.room, 1, "no mention here")
             assertEquals(before, capture.events.count { it.message == "notification.created" })
@@ -792,9 +792,13 @@ class NotificationsTest {
             val move = cast.owner.client.putJson("$rooms/${cast.room}/threads/1/owner", ThreadOwnerRequest(cast.bob.id))
             assertEquals(HttpStatusCode.NoContent, move.status)
             val handOver = assertNotNull(
-                capture.awaitEvent { it.message == "notification.created" && it.hasKeyValue("kinds", "THREAD_ASSIGNED:1") },
+                capture.awaitEvent {
+                    it.message == "notification.created" && it.hasKeyValue("roomId", cast.room.toLong()) &&
+                        it.hasKeyValue("kinds", "THREAD_ASSIGNED:1,THREAD_OWNER_CHANGED:1")
+                },
             )
             assertTrue(handOver.hasKeyValue("messageId", null))
+            assertTrue(handOver.hasKeyValue("recipients", 2), "the earlier reply made Ann a watcher")
             assertTrue(handOver.hasKeyValue("recipientIds", listOf(cast.bob.id.toLong())))
             assertTrue(handOver.hasKeyValue("byUserId", cast.owner.id.toLong()))
         }

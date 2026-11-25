@@ -49,6 +49,8 @@ describe("MessageComposer", () => {
     // Per plan 4.5: the room's thread queries and the rail, not the whole prefix.
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "rail"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["search"] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["home"] });
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["rooms"] });
   });
 

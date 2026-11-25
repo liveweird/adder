@@ -73,13 +73,14 @@ describe("ThreadList", () => {
       serveUnread(withUnread([4, 0]));
       renderList();
       const unread = await screen.findByRole("link", { name: /Disk full on db-3/ });
+      const unreadCard = unread.closest("[data-thread-row]") as HTMLElement;
       expect(unread).toHaveAccessibleDescription("4 unread messages");
-      expect(within(unread).getByText("4").closest("[aria-hidden='true']")).not.toBeNull();
+      expect(within(unreadCard).getByText("4").closest("[aria-hidden='true']")).not.toBeNull();
       // The count is the shared blue unread cue, and only the unread row has one.
-      expect(within(unread).getByText("4").closest("[data-unread-cue=count]")).not.toBeNull();
-      expect(within(screen.getByRole("link", { name: /Old alert/ })).queryByText("0")).toBeNull();
-      expect(titleOf(unread).closest("p")).toHaveStyle({ fontWeight: "700" });
+      expect(within(unreadCard).getByText("4").closest("[data-unread-cue=count]")).not.toBeNull();
       const read = screen.getByRole("link", { name: /Old alert/ });
+      expect(within(read.closest("[data-thread-row]") as HTMLElement).queryByText("0")).toBeNull();
+      expect(titleOf(unread).closest("p")).toHaveStyle({ fontWeight: "700" });
       expect(read).not.toHaveAttribute("aria-describedby");
       expect(titleOf(read).closest("p")).toHaveStyle({ fontWeight: "500" });
       // The name is still the thread's own.
@@ -92,7 +93,7 @@ describe("ThreadList", () => {
       expect(await screen.findByRole("link", { name: /Disk full on db-3/ })).toHaveAccessibleDescription("1 unread message");
       const capped = screen.getByRole("link", { name: /Old alert/ });
       expect(capped).toHaveAccessibleDescription("100 or more unread messages");
-      expect(within(capped).getByText("99+")).toBeInTheDocument();
+      expect(within(capped.closest("[data-thread-row]") as HTMLElement).getByText("99+")).toBeInTheDocument();
     });
 
     test("a thread with an unseen notice of this room carries an @ mark; a notice of another room does not", async () => {
@@ -100,7 +101,7 @@ describe("ThreadList", () => {
       renderList();
       const marked = await screen.findByRole("link", { name: /Disk full on db-3/ });
       await waitFor(() => expect(marked).toHaveAccessibleDescription("You have an unseen notification in this thread"));
-      expect(marked.querySelector("svg.tabler-icon-at")).not.toBeNull();
+      expect(marked.closest("[data-thread-row]")?.querySelector("svg.tabler-icon-at")).not.toBeNull();
       expect(screen.getByRole("link", { name: /Old alert/ })).not.toHaveAttribute("aria-describedby");
     });
 

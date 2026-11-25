@@ -108,6 +108,28 @@ describe("MessageReactions", () => {
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(await screen.findByRole("link", { name: "Cy" })).toHaveAttribute("href", "/people/9");
     expect(mockFetch.mock.calls[1][0]).toBe(`/api/v1/rooms/12/messages/9/reactors?reactionKey=${THUMBS.key}&page=2&pageSize=20&sort=createdAt`);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog", { name: "👍 reactions" })).toBeNull();
+  });
+
+  test("an emptied reaction roster stays open with an explanation", async () => {
+    const user = userEvent.setup();
+    mockFetch.mockResolvedValue(jsonResponse(200, { items: [], page: 1, pageSize: 20, total: 0 }));
+    const view = renderReactions(makeMessage({ id: 9, reactions: [THUMBS] }), false);
+    await user.click(screen.getByRole("button", { name: "See everyone who reacted with 👍" }));
+    expect(await screen.findByText("Nobody has reacted with this emoji.")).toBeVisible();
+    view.rerender(<MessageReactions roomId={12} message={makeMessage({ id: 9, reactions: [] })} canReact={false} onError={vi.fn()} />);
+    expect(screen.getByRole("dialog", { name: "👍 reactions" })).toBeVisible();
+  });
+
+  test("an inaccessible reaction roster shows its error inside the dialog", async () => {
+    const user = userEvent.setup();
+    mockFetch.mockResolvedValue(jsonResponse(404, { title: "Message not found", status: 404 }));
+    renderReactions(makeMessage({ id: 9, reactions: [THUMBS] }), false);
+    await user.click(screen.getByRole("button", { name: "See everyone who reacted with 👍" }));
+    const dialog = await screen.findByRole("dialog", { name: "👍 reactions" });
+    expect(await within(dialog).findByRole("alert")).toBeVisible();
+    expect(within(dialog).queryByRole("link")).toBeNull();
   });
 
   test("a name is text, never markup", async () => {

@@ -360,10 +360,12 @@ describe("MessageItem", () => {
       expect(screen.getByRole("button", { name: "Add a reaction" })).toBeInTheDocument();
     });
 
-    test("without it the chips are read-only and there is no picker (a closed thread, an archived room, a non-member)", () => {
+    test("without react permission the value is read-only, the roster stays available, and there is no picker", () => {
       renderItem(makeMessage({ reactions: [THUMBS] }), { edit: false, remove: null });
       expect(screen.getByRole("list", { name: "Reactions" })).toHaveTextContent("👍, 2 reactions. Ann Owner and Bob Starter");
-      expect(screen.queryByRole("button")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "👍, 2 reactions" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "See everyone who reacted with 👍" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Add a reaction" })).not.toBeInTheDocument();
     });
 
     test("a message with no reactions and no react action shows nothing of them", () => {

@@ -54,7 +54,7 @@ export default function MessageReactions({
   const pressedEmoji = useRef<string | null>(null);
   const addRef = useRef<HTMLSpanElement>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [rosterKey, setRosterKey] = useState<string | null>(null);
+  const [rosterReaction, setRosterReaction] = useState<ReactionSummary | null>(null);
   const { reactions } = message;
 
   // The chip the reader pressed has gone (its count reached 0): its focus went with it, so the add button takes it.
@@ -65,7 +65,7 @@ export default function MessageReactions({
     if (document.activeElement === null || document.activeElement === document.body) addRef.current?.querySelector("button")?.focus();
   }, [reactions]);
 
-  if (message.deleted || (reactions.length === 0 && !canReact)) return null;
+  if (message.deleted || (reactions.length === 0 && !canReact && rosterReaction === null)) return null;
 
   const rereadConversation = () => refreshQueriesAfterMutation(queryClient, roomKeys.messages(roomId, message.threadNumber));
 
@@ -107,7 +107,6 @@ export default function MessageReactions({
   }
 
   const language = i18n.resolvedLanguage ?? "en";
-  const rosterReaction = reactions.find((reaction) => reaction.key === rosterKey);
   return (
     <Box display="flex" style={{ flexWrap: "wrap", alignItems: "center", gap: 4 }}>
       {/* No list without a reaction, and the picker is no list item: a message's `li` never nests an empty or picker-only list (the conversation is a list of messages). */}
@@ -167,7 +166,8 @@ export default function MessageReactions({
                 variant="subtle"
                 size="sm"
                 aria-label={t("threads.reaction.viewPeople", { emoji: reaction.emoji })}
-                onClick={() => setRosterKey(reaction.key)}
+                aria-haspopup="dialog"
+                onClick={() => setRosterReaction(reaction)}
               >
                 <IconUsers size={14} aria-hidden="true" />
               </ActionIcon>
@@ -190,8 +190,7 @@ export default function MessageReactions({
           threadNumber={message.threadNumber}
           messageId={message.id}
           reaction={rosterReaction}
-          opened
-          onClose={() => setRosterKey(null)}
+          onClose={() => setRosterReaction(null)}
         />
       )}
     </Box>
