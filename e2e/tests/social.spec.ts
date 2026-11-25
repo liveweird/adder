@@ -11,7 +11,7 @@
 // Owns: its throwaway `e2e-soc-*` rooms and users, removed through the API in an `afterEach` (contexts first, then rooms, then the users). Every room
 // is created by a throwaway user and only copies the seeded Default template. Threads and messages are never deleted: a room's removal hides them.
 // The per-user `live-ticket`, `chat-post`, `chat-write` and `read-state` buckets are only ever spent by throwaway users, far below their limits.
-import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { chromium, type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
 import { apiAsAdmin, apiAsUser, conversation, deleteViaApi, expect, login, rail, specAdmins, test, threadList, throwawayUser, uniqueText } from "./helpers";
 
@@ -21,9 +21,11 @@ const admin = specAdmins("e2e-social-admin");
 const cleanup: string[] = [];
 const apis: APIRequestContext[] = [];
 const contexts: BrowserContext[] = [];
+const isolatedBrowsers: Browser[] = [];
 test.afterEach(async () => {
   // Contexts first: a closed browser stops reconnecting, so no socket outlives the room it watched.
   for (const context of contexts.splice(0)) await context.close();
+  for (const browser of isolatedBrowsers.splice(0)) await browser.close();
   for (const api of apis.splice(0)) await api.dispose();
   await deleteViaApi(cleanup.splice(0));
 });
@@ -262,11 +264,17 @@ test("an owner can add a directory user and mention them without losing the draf
   await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
 
   const box = author.page.getByRole("textbox", { name: "Reply", exact: true });
-  await box.fill("Please review this draft");
   await author.page.getByRole("button", { name: "Add and mention" }).click();
   const dialog = author.page.getByRole("dialog", { name: "Add someone to this room" });
-  await dialog.getByRole("combobox", { name: "User" }).fill(uniquePart(room.mate));
-  await dialog.getByText(`${room.mate.name} (${room.mate.email})`, { exact: true }).click();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  const term = uniquePart(room.mate);
+  await box.pressSequentially(`Please review this draft @${term}`);
+  await expect(author.page.getByRole("option", { name: /Add and mention.*Search the directory/ })).toBeVisible();
+  await box.press("Enter");
+  const userPicker = dialog.getByRole("combobox", { name: "User" });
+  await expect(userPicker).toHaveValue(term);
+  await userPicker.click();
+  await author.page.getByRole("option", { name: `${room.mate.name} (${room.mate.email})`, exact: true }).click();
   await Promise.all([
     author.page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith(`/rooms/${room.roomId}/members`) && response.status() === 200),
     dialog.getByRole("button", { name: "Add and mention" }).click(),
@@ -747,6 +755,93 @@ test("a member removed from a room loses its notifications", async ({ page, brow
   await expectNoReload(leaver);
   await bell(leaver.page).click();
   await expect(drawer(leaver.page).getByText("You have no notifications.")).toBeVisible();
+});
+
+test("browser notification opt-in registers the current browser and can be reversed", async ({ page }) => {
+  const room = await scene(page);
+  // Full Chromium supports native notifications in headless mode, unlike its minimal headless shell on this platform.
+  const browser = await chromium.launch({ channel: "chromium" });
+  isolatedBrowsers.push(browser);
+  const path = "/api/v1/notifications/push/subscriptions";
+  const endpoint = "https://fcm.googleapis.com/fcm/send/adder-test-browser";
+  let registered = false;
+  const reader = await signedIn(browser, room.mate, async (context) => {
+    await context.grantPermissions(["notifications"], { origin: new URL(BASE_URL).origin });
+    await context.addInitScript((browserEndpoint) => {
+      const key = "e2e.push-subscription";
+      const subscription = {
+        endpoint: browserEndpoint,
+        options: { applicationServerKey: Uint8Array.of(4).buffer, userVisibleOnly: true },
+        unsubscribe: () => {
+          localStorage.removeItem(key);
+          return Promise.resolve(true);
+        },
+      };
+      PushManager.prototype.subscribe = () => {
+        localStorage.setItem(key, "enabled");
+        return Promise.resolve(subscription as PushSubscription);
+      };
+      PushManager.prototype.getSubscription = () => Promise.resolve(localStorage.getItem(key) ? subscription as PushSubscription : null);
+    }, endpoint);
+    await context.route("**/api/v1/notifications/push/config*", (route) => {
+      const id = new URL(route.request().url()).searchParams.get("subscriptionId");
+      return route.fulfill({ json: { available: true, publicKey: "BA", ...(id === null ? {} : { registered: registered && id === "99" }) } });
+    });
+    await context.route(`**${path}`, (route) => {
+      registered = true;
+      return route.fulfill({ status: 200, json: { id: 99 } });
+    });
+    await context.route(`**${path}/99`, (route) => {
+      registered = false;
+      return route.fulfill({ status: 204 });
+    });
+  });
+
+  const cdp = await reader.context.newCDPSession(reader.page);
+  const scope = new URL("/", BASE_URL);
+  const { targetInfo } = await cdp.send("Target.getTargetInfo");
+  await cdp.send("Browser.setPermission", {
+    origin: scope.origin,
+    browserContextId: targetInfo.browserContextId,
+    permission: { name: "notifications" },
+    setting: "granted",
+  });
+  await reader.page.goto("/notification-preferences");
+  const enable = reader.page.getByRole("button", { name: "Enable on this browser" });
+  const [request] = await Promise.all([
+    reader.page.waitForRequest((outgoing) => outgoing.method() === "POST" && outgoing.url().endsWith(path), { timeout: 10_000 }),
+    enable.click(),
+  ]);
+  expect(request.postDataJSON()).toEqual({ endpoint });
+  await expect(reader.page.evaluate(async () => (await navigator.serviceWorker.ready).active?.scriptURL)).resolves.toContain("/adder-push.js");
+
+  let registrationId: string | undefined;
+  cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+    registrationId = registrations.find((registration) => registration.scopeURL === scope.href && !registration.isDeleted)?.registrationId;
+  });
+  await cdp.send("ServiceWorker.enable");
+  await expect.poll(() => registrationId).toBeDefined();
+  if (!registrationId) throw new Error("Expected Adder's push worker to be registered");
+  await cdp.send("ServiceWorker.deliverPushMessage", { origin: scope.origin, registrationId, data: "" });
+  await expect.poll(() => reader.page.evaluate(async () => {
+    const worker = await navigator.serviceWorker.ready;
+    return (await worker.getNotifications({ tag: "adder-notifications" })).map(({ title, body }) => ({ title, body }));
+  })).toEqual([{ title: "Adder", body: "You have new notifications" }]);
+  await reader.page.reload();
+  const disable = reader.page.getByRole("button", { name: "Disable on this browser" });
+  await Promise.all([
+    reader.page.waitForResponse((response) => response.request().method() === "DELETE" && response.url().endsWith(`${path}/99`)),
+    disable.click(),
+  ]);
+  await expect(enable).toBeVisible();
+  await expect.poll(() => reader.page.evaluate(async () => {
+    const registration = await navigator.serviceWorker.ready;
+    return registration.pushManager.getSubscription();
+  })).toBeNull();
+  await cdp.detach();
+
+  await reader.page.goto("/?notifications=1");
+  await expect(drawer(reader.page)).toBeVisible();
 });
 
 test("the Notification preferences page saves a switch and keeps it after a reload", async ({ page }) => {

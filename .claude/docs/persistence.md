@@ -701,8 +701,10 @@ digest, owning user, credential revision and last registration stamp) and `notif
 made in-app notice and the subscriptions active at that instant). The active user row serializes the five-device cap. The notice writer
 adds queue rows inside the chat write; the sweep atomically deletes a bounded claim and commits before network I/O. A send-time read
 rechecks account/revision, room, membership, unseen state and mute. The queue cascades with either side, claims older than 15 minutes are
-settled without sending, endpoints older than 90 days are deleted, and provider 404/410 removes one subscription. Both tables are HARD:
-they are opt-in delivery state, not records; user deletion, explicit unsubscribe/logout and notice retention must remove them.
+settled without sending, endpoints older than 90 days are deleted, and provider 404/410 removes one subscription. Both tables are HARD
+delivery state. Explicit unsubscribe removes the browser registration. Logout attempts the same removal before revoking the session.
+Physical account deletion cascades. Soft deletion or a credential revision change makes existing registrations ineligible until
+retention or re-registration removes them.
 
 ### Reactions (V20)
 

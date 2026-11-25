@@ -37,11 +37,13 @@ what the scenario is about.
 ## Scenario: an owner can add a directory user and mention them without losing the draft
 
 1. The author creates a room and thread, but the reader is not a room member. Both sign in; the author opens the thread and the reader's bell is empty.
-2. The author writes `Please review this draft`, presses **Add and mention**, searches the directory for the reader and selects them.
-   - *Expected*: the directory result includes the reader's name and email, so namesakes can be distinguished.
-3. The author confirms **Add and mention**.
-   - *Expected*: adding the member answers 200, the dialog closes, and the unchanged draft now ends with the reader's visible `@<name>` mention.
-4. The author presses **Ctrl+Enter**.
+2. The author checks the **Add and mention** toolbar action, closes it, then writes `Please review this draft @` followed by the reader's name fragment.
+   - *Expected*: the mention suggestions offer **Add and mention** because the reader is outside the room.
+3. The author presses **Enter** to open the directory and selects the reader.
+   - *Expected*: the directory search contains the typed fragment and the result includes the reader's name and email.
+4. The author confirms **Add and mention**.
+   - *Expected*: adding the member answers 200, the dialog closes, and the name fragment becomes the reader's visible `@<name>` mention.
+5. The author presses **Ctrl+Enter**.
    - *Expected*: the created message identifies the reader in `mentions`; their bell says "1 unseen" and its drawer says the author mentioned them.
 
 ## Scenario: here mentions only the room members who are online now
@@ -188,6 +190,18 @@ what the scenario is about.
    - *Expected*: with no reload, the room leaves the reader's rail and the bell says "0 unseen".
 3. The reader opens the bell.
    - *Expected*: the drawer says "You have no notifications."
+
+## Scenario: browser notification opt-in registers the current browser and can be reversed
+
+1. Open Notification preferences with a configured push service and browser notification permission.
+2. Enable notifications for this browser.
+   - *Expected*: the service worker registers, and the application enrolls the browser's subscription endpoint after the explicit action.
+3. Deliver an empty push event to the real service worker through Chromium's DevTools protocol.
+   - *Expected*: the worker shows a generic Adder notification. The test substitutes a browser push provider.
+4. Reload the page and disable browser alerts.
+   - *Expected*: the control remembers this browser and removes its server registration.
+5. Open the fixed URL used by a notification click.
+   - *Expected*: the signed-in notifications drawer opens.
 
 ## Scenario: the Notification preferences page saves a switch and keeps it after a reload
 
