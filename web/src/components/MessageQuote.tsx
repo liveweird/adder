@@ -4,7 +4,7 @@ import { Group, Text, UnstyledButton, VisuallyHidden } from "@mantine/core";
 import { IconQuote } from "@tabler/icons-react";
 import type { MessageQuoteSummary } from "../api/messages";
 import { quoteExcerpt } from "../utils/messageExcerpt";
-import { listRouteSearch, messageJumpPath } from "../utils/roomLinks";
+import { listRouteSearch, messageJumpPath, quoteReturnState } from "../utils/roomLinks";
 import { parseFocus } from "../utils/threadListParams";
 import classes from "./MessageQuote.module.css";
 
@@ -25,11 +25,14 @@ import classes from "./MessageQuote.module.css";
 export default function MessageQuote({
   roomId,
   threadNumber,
+  sourceMessageId,
   quote,
   onShow,
 }: {
   roomId: number;
   threadNumber: number;
+  /** The reply holding this quote, kept only in this in-app navigation entry so the reader can return to it. */
+  sourceMessageId: number;
   quote: MessageQuoteSummary;
   onShow?: (messageId: number) => void;
 }) {
@@ -40,7 +43,11 @@ export default function MessageQuote({
     <UnstyledButton
       component={RouterLink}
       to={messageJumpPath(roomId, threadNumber, quote.messageId, listRouteSearch(pathname, search), parseFocus(new URLSearchParams(search)))}
-      onClick={() => onShow?.(quote.messageId)}
+      state={quoteReturnState(sourceMessageId)}
+      onClick={(event) => {
+        if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        onShow?.(quote.messageId);
+      }}
       className={`${classes.rule} ${classes.link}`}
     >
       <Group gap={6} wrap="nowrap" align="center">

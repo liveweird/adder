@@ -20,7 +20,7 @@ import { isBoolean, useStoredState } from "../hooks/useStoredState";
 import { useRoomPins } from "../hooks/useRoomPins";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { fillSlots, slot } from "../utils/slots";
-import { parseThreadNumber, wantsThreadPaneFocus } from "../utils/roomLinks";
+import { parseThreadNumber, quoteReturnMessageId, wantsThreadPaneFocus } from "../utils/roomLinks";
 import { parseFocus, parseMessageAnchor, writeFocus } from "../utils/threadListParams";
 import EmptyState from "./EmptyState";
 import ErrorAlert from "./ErrorAlert";
@@ -74,6 +74,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   const [search, setSearch, liveUrl] = useLiveSearchParams();
   const focusView = parseFocus(search);
   const anchorId = parseMessageAnchor(search);
+  const returnMessageId = anchorId === null ? null : quoteReturnMessageId(location.state);
   const paneRef = useRef<HTMLDivElement>(null);
   const findTriggerRef = useRef<HTMLSpanElement>(null);
   const number = parseThreadNumber(numberParam);
@@ -141,11 +142,21 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
   const notFound = number === null || (error instanceof ApiError && error.status === 404);
   const returnToLatest = useCallback(() => {
     if (!liveUrl.params().has("message")) return;
+    const state = liveUrl.state();
     setSearch((previous) => {
       const next = new URLSearchParams(previous);
       next.delete("message");
       return next;
-    }, { replace: true, state: liveUrl.state() });
+    }, { replace: true, state: quoteReturnMessageId(state) === null ? state : null });
+  }, [liveUrl, setSearch]);
+  const returnToReply = useCallback(() => {
+    const messageId = quoteReturnMessageId(liveUrl.state());
+    if (messageId === null) return;
+    setSearch((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set("message", String(messageId));
+      return next;
+    }, { replace: true, state: null });
   }, [liveUrl, setSearch]);
   // In the focus view the list is hidden: a pane with no thread to show carries its own way back.
   const showList = focusView ? (
@@ -280,6 +291,8 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
           readingPaused={findOpen}
           onQuote={quoteMessage}
           onShowQuoted={requestJump}
+          returnMessageId={returnMessageId}
+          onReturnToReply={returnToReply}
           onReturnToLatest={returnToLatest}
         />
         <MessageComposer

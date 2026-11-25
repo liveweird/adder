@@ -57,7 +57,7 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **Tags: a per-room subset of the registry.** The registry is global (1.2 D1 to 1.2 D3, 1.2 A19): every room offers every live tag. A room could pick the categories or tags it uses, which would also let the picker stay short in a big registry.
 - [new] **Tags: facet counts in the filter panel.** The `threadTag` filter lists the registry without counts (1.2 A19); counts per tag in the room (and across rooms) belong with the Covenant facet pattern in "Find: facet counts" above.
 - [new] **Tags: a `hashtag` alias for the `tag` filter and the room's hashtag list.** `tag` and `GET /rooms/{id}/tags` mean hashtags and keep doing so (1.2 A18) while curated tags answer to `threadTag`; a `hashtag` alias on the wire (the filter, the list path) would end the clash in words. Needs a deprecation of `tag`, so the user's call.
-- [todo] **Find: the unread filter on the searches.** The "Unread" filter is on the room's thread list only (1.2 A12); the room search and the cross-room search could take `unread` the way they take `watching` and `threadTag`.
+- [next] **Find: the unread filter on the searches.** The "Unread" filter is on the room's thread list only (1.2 A12); the room search and the cross-room search could take `unread` the way they take `watching` and `threadTag`.
 - [new] **Pins: a pinned-first order.** A pinned thread is marked in its row (1.2 D5) but sorts like any other; add a `pinned` sort or a pinned-first default, and decide how it meets the user's own sort.
 - [new] **Quotes: a message of another thread or room.** 1.3.0 quotes an earlier message of the SAME thread; another thread or room needs a reader check per quoted message (a quote must never show what the reader cannot read) and an invalidation across threads when a room closes or a member leaves.
 - [new] **Quotes: the replies to a message.** A count ("3 replies") and a list of the messages that quote one, over `idx_messages_quoted` (V35); the count would ride the message list like `reactions`.
@@ -65,7 +65,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **Quotes: a keyboard shortcut for quoting.** 1.3.0 ships the kebab-menu item and the one-click icon on every message (1.3 D3); a shortcut (focus a message, press a key) is not built.
 - [new] **Quotes: add, change or drop the quote in an edit.** The edit's `MessageRequest` keeps its shape (`chat-model.md` "Quotes (1.3)"): the quote is set when the message is posted and never changes.
 - [new] **Quotes: what a pinned message and a search hit quote.** A pinned message (the pin card and the pin strip) and a search hit show the message itself and say nothing of the message it quotes.
-- [next] **Quotes: a way back after a jump.** A quote's jump takes the reader to the quoted message; there is no "back to where I was".
 
 ## 1.0.0 checkup (2026-11-20)
 

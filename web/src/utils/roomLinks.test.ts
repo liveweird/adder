@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isThreadListRoute, listRouteSearch, newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSearchPath, roomSettingsPath, roomWorkflowPath, roomsPath, searchPath, messageJumpPath, threadMessagePath, threadPath, focusThreadPaneState, tagFilterPath, wantsThreadPaneFocus, withListParams } from "./roomLinks";
+import { isThreadListRoute, listRouteSearch, newRoomPath, newThreadPath, parseRoomId, parseThreadNumber, roomMembersPath, roomPath, roomSearchPath, roomSettingsPath, roomWorkflowPath, roomsPath, searchPath, messageJumpPath, threadMessagePath, threadPath, focusThreadPaneState, quoteReturnMessageId, quoteReturnState, tagFilterPath, wantsThreadPaneFocus, withListParams } from "./roomLinks";
 
 describe("roomLinks", () => {
   test("builds the list, create, room, members, workflow and settings paths", () => {
@@ -34,6 +34,13 @@ describe("roomLinks", () => {
   test("the pane-focus state is recognised, and nothing else is", () => {
     expect(wantsThreadPaneFocus(focusThreadPaneState)).toBe(true);
     for (const other of [null, undefined, "focusPane", {}, { focusPane: false }, { focusPane: "yes" }]) expect(wantsThreadPaneFocus(other)).toBe(false);
+  });
+
+  test("the quote-return state names one valid source message and rejects malformed router state", () => {
+    expect(quoteReturnMessageId(quoteReturnState(31))).toBe(31);
+    for (const other of [null, undefined, "31", {}, { quoteReturnMessageId: 0 }, { quoteReturnMessageId: "31" }, { quoteReturnMessageId: 2_147_483_648 }]) {
+      expect(quoteReturnMessageId(other)).toBeNull();
+    }
   });
 
   test("withListParams carries the list's keys (normalized, page included) and nothing else", () => {

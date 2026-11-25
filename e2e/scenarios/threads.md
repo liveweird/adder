@@ -65,16 +65,17 @@
 4. They open the menu of "Lag is under a second.", look at its first item, choose it, and then press **Remove the quote**.
    - *Expected*: the first item is **Quote**; choosing it shows "Quoting <the teammate>" and the Reply box has the focus (the menu does not
      take it back); the remove button takes the line away and the box keeps the focus.
-5. They click the quote of their reply.
+5. They click the quote of their reply and reload that history entry before returning.
    - *Expected*: the address names the opening message (`message=<id>`), which is focused and highlighted (`data-anchor`), and the status
-     line says "Found the message by <the owner>.".
+     line says "Found the message by <the owner>.". **Back to reply** restores focus to "Yes, caught up.", changes the message target to
+     that reply and disappears; **Back to latest** remains a separate action.
 6. The owner (through the API) edits the opening message; the teammate opens the thread again.
    - *Expected*: the edit answers 204; the quote's link is named "Quoted message by <the owner> (edited) …" and reads "(edited)" beside the owner's name, with the new text and
      none of the old.
 7. The owner (through the API) deletes the opening message; the teammate opens the thread again.
    - *Expected*: the delete answers 204; the quote's link is named "Quoted message by <the owner> The quoted message was deleted." and reads so, with no text of
      the message anywhere in the conversation; the reply keeps its own text; following the quote focuses the opening message, now a tombstone
-     ("This message was deleted.").
+     ("This message was deleted."); **Back to reply** restores the quoting reply again.
 
 ## Scenario: a member moves a thread between open statuses but cannot close it, its owner closes it, and the closed thread refuses replies until the room owner reopens it
 

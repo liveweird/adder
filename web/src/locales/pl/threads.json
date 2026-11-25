@@ -144,6 +144,7 @@
     "navigation": "Kontekst wiadomości",
     "earlier": "Starsze wiadomości",
     "later": "Nowsze wiadomości",
+    "reply": "Wróć do odpowiedzi",
     "latest": "Wróć do najnowszych",
     "found": "Znaleziono wiadomość autora: {{author}}."
   },

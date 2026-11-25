@@ -93,3 +93,15 @@ export const focusThreadPaneState = { focusPane: true } as const;
 export function wantsThreadPaneFocus(state: unknown): boolean {
   return typeof state === "object" && state !== null && "focusPane" in state && state.focusPane === true;
 }
+
+/**
+ * Transient router state for an in-app quote jump. The URL keeps only the durable target message, while this source id lets the same
+ * history entry offer a return to the reply that contained the quote, including a reload of that entry. A copied URL or new tab carries no return.
+ */
+export const quoteReturnState = (messageId: number) => ({ quoteReturnMessageId: messageId }) as const;
+
+export function quoteReturnMessageId(state: unknown): number | null {
+  if (typeof state !== "object" || state === null || !("quoteReturnMessageId" in state)) return null;
+  const messageId = state.quoteReturnMessageId;
+  return typeof messageId === "number" ? parseRoomId(String(messageId)) : null;
+}

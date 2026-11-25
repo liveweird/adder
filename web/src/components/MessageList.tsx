@@ -35,9 +35,11 @@ function centreInScroller(scroller: HTMLElement, item: HTMLElement) {
   scroller.scrollTop = Math.max(0, scroller.scrollTop + offset);
 }
 
-function ContextControls({ context, onSelect, onLatest }: {
+function ContextControls({ context, returnMessageId, onSelect, onReturn, onLatest }: {
   context: MessageContext | undefined;
+  returnMessageId: number | null;
   onSelect: (messageId: number) => void;
+  onReturn?: () => void;
   onLatest: () => void;
 }) {
   const { t } = useTranslation();
@@ -48,6 +50,9 @@ function ContextControls({ context, onSelect, onLatest }: {
       )}
       {context?.newer && (
         <Button variant="default" size="compact-sm" onClick={() => onSelect(context.items.at(-1)!.id)}>{t("threads.anchor.later")}</Button>
+      )}
+      {returnMessageId !== null && onReturn && (
+        <Button variant="default" size="compact-sm" onClick={onReturn}>{t("threads.anchor.reply")}</Button>
       )}
       <Button variant="light" size="compact-sm" className={classes.backToLatest} onClick={onLatest}>{t("threads.anchor.latest")}</Button>
     </Group>
@@ -70,6 +75,8 @@ export default function MessageList({
   readingPaused = false,
   onQuote,
   onShowQuoted,
+  returnMessageId = null,
+  onReturnToReply,
   onReturnToLatest,
 }: {
   room: RoomResponse;
@@ -89,6 +96,9 @@ export default function MessageList({
   onQuote?: (message: MessageResponse) => void;
   /** The reader followed a quote block (1.3): the quoted message's id; the pane runs the jump again when the URL already names it (the same `jumpSeq`). */
   onShowQuoted?: (messageId: number) => void;
+  /** The reply that contained the quote which opened this context, present only for that in-app navigation entry. */
+  returnMessageId?: number | null;
+  onReturnToReply?: () => void;
   onReturnToLatest?: () => void;
 }) {
   const { t } = useTranslation();
@@ -311,7 +321,9 @@ export default function MessageList({
       {inContext && (
         <ContextControls
           context={messageWindow}
+          returnMessageId={returnMessageId}
           onSelect={selectContext}
+          onReturn={onReturnToReply}
           onLatest={() => {
             focusLatest.current = true;
             returnToLatest();

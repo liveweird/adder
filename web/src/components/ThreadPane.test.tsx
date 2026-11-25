@@ -12,7 +12,7 @@ import { SIDE_WORKFLOW } from "../test/sideFixtures";
 import userEvent from "@testing-library/user-event";
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
-import { focusThreadPaneState } from "../utils/roomLinks";
+import { focusThreadPaneState, quoteReturnState } from "../utils/roomLinks";
 
 const ROOM: RoomResponse = {
   id: 12,
@@ -69,8 +69,9 @@ describe("ThreadPane", () => {
       if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(typeof thread === "function" ? thread() : thread);
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
       if (url.startsWith("/api/v1/rooms/12/threads/42/messages?")) return Promise.resolve(jsonResponse(200, messagePage(MESSAGES)));
-      if (url.endsWith("/threads/42/messages/context?messageId=1")) {
-        return Promise.resolve(jsonResponse(200, { messageId: 1, items: [...MESSAGES].reverse(), older: false, newer: false }));
+      if (url.includes("/threads/42/messages/context?messageId=")) {
+        const messageId = Number(new URL(url, "http://local").searchParams.get("messageId"));
+        return Promise.resolve(jsonResponse(200, { messageId, items: [...MESSAGES].reverse(), older: false, newer: false }));
       }
       if (url.startsWith("/api/v1/rooms/12/threads/42/events?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 }));
       return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
@@ -274,9 +275,9 @@ describe("ThreadPane", () => {
 
   describe("the focus view and the message to jump to live in the URL", () => {
     function Probe() {
-      const { pathname, search } = useLocation();
+      const { pathname, search, state } = useLocation();
       const navigationType = useNavigationType();
-      return <output aria-label="location" data-navigation={navigationType}>{`${pathname}${search}`}</output>;
+      return <output aria-label="location" data-navigation={navigationType} data-state={JSON.stringify(state)}>{`${pathname}${search}`}</output>;
     }
     const renderPane = (route: string, options: { state?: unknown; queryClient?: QueryClient; numberParam?: string } = {}) =>
       renderWithProviders(
@@ -371,6 +372,30 @@ describe("ThreadPane", () => {
       const first = await screen.findByText("the opening message");
       await waitFor(() => expect(first.closest("li")).toHaveFocus());
       expect(first.closest("li")).toHaveAttribute("data-anchor", "true");
+      expect(screen.queryByRole("button", { name: "Back to reply" })).not.toBeInTheDocument();
+    });
+
+    test("a quote jump returns to its containing reply, focuses it, and clears the transient return", async () => {
+      serve(jsonResponse(200, THREAD));
+      renderPane("/rooms/12/threads/42?message=1&scope=all", { state: quoteReturnState(2) });
+      const first = (await screen.findByText("the opening message")).closest("li")!;
+      await waitFor(() => expect(first).toHaveFocus());
+      await userEvent.setup().click(screen.getByRole("button", { name: "Back to reply" }));
+      const reply = screen.getByText("second").closest("li")!;
+      await waitFor(() => expect(reply).toHaveFocus());
+      expect(screen.getByLabelText("location")).toHaveTextContent("/rooms/12/threads/42?message=2&scope=all");
+      expect(screen.queryByRole("button", { name: "Back to reply" })).not.toBeInTheDocument();
+    });
+
+    test("Back to latest clears the quote origin while retaining the conversation filters", async () => {
+      serve(jsonResponse(200, THREAD));
+      renderPane("/rooms/12/threads/42?message=1&scope=all&focus=1", { state: quoteReturnState(2) });
+      expect(await screen.findByRole("button", { name: "Back to reply" })).toBeVisible();
+      await userEvent.setup().click(screen.getByRole("button", { name: "Back to latest" }));
+      const location = screen.getByLabelText("location");
+      expect(location).toHaveTextContent("/rooms/12/threads/42?scope=all&focus=1");
+      expect(location).toHaveAttribute("data-state", "null");
+      expect(location).toHaveAttribute("data-navigation", "REPLACE");
     });
 
     test("a malformed message key jumps nowhere", async () => {
