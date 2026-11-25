@@ -38,6 +38,7 @@ function LinkOverlay({ destination, source, children, title, identity }: Props &
   const [portalTarget, setPortalTarget] = useState<HTMLElement>();
   const overlayId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   const restoringFocus = useRef(false);
   const closeTimer = useRef<number | undefined>(undefined);
   const href = destination.href;
@@ -123,11 +124,14 @@ function LinkOverlay({ destination, source, children, title, identity }: Props &
       width="min(24rem, calc(100vw - 2rem))"
       shadow="md"
       radius="md"
+      middlewares={{ size: true }}
+      preventPositionChangeWhenVisible={false}
       trapFocus={confirmation}
       closeOnEscape={false}
       withRoles={false}
       portalProps={{ target: portalTarget }}
       floatingStrategy={portalTarget ? "fixed" : "absolute"}
+      onEnterTransitionEnd={() => cancelButton.current?.focus({ preventScroll: true })}
     >
       <Popover.Target>
         <button
@@ -152,6 +156,7 @@ function LinkOverlay({ destination, source, children, title, identity }: Props &
       </Popover.Target>
       <Popover.Dropdown
         id={overlayId}
+        className={classes.dropdown}
         role={confirmation ? "dialog" : "tooltip"}
         aria-label={t(confirmation ? "threads.linkPreview.confirm" : "threads.linkPreview.preview")}
         onKeyDownCapture={dismissOnEscape}
@@ -186,7 +191,7 @@ function LinkOverlay({ destination, source, children, title, identity }: Props &
                     {t(available ? "threads.linkPreview.hide" : "threads.linkPreview.preview")}
                   </Button>
                 )}
-                <Button data-autofocus data-mantine-stop-propagation="true" size="compact-sm" variant="default" onClick={() => close(true)}>
+                <Button ref={cancelButton} data-autofocus data-mantine-stop-propagation="true" size="compact-sm" variant="default" onClick={() => close(true)}>
                   {t("common.action.cancel")}
                 </Button>
                 <Button

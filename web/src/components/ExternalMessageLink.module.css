@@ -20,6 +20,10 @@
   outline-offset: 0.125rem;
 }
 
+.dropdown {
+  overflow: auto;
+}
+
 .destination {
   overflow-wrap: anywhere;
   overflow: auto;

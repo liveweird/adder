@@ -716,8 +716,8 @@ test("message links ask before opening and load a preview only on request", asyn
   const message = messageNamed(page, "Replica handbook");
   await kebab(message).click();
   await Promise.all([
-    page.waitForResponse((res) => res.url().endsWith("/pin") && res.request().method() === "PUT" && res.status() === 204),
-    page.getByRole("menuitem", { name: "Pin message", exact: true }).click(),
+    page.waitForResponse((res) => res.url().endsWith("/pin") && res.request().method() === "PUT" && res.ok()),
+    page.getByRole("menuitem", { name: "Pin", exact: true }).click(),
   ]);
   await page.goto(`/rooms/${roomId}`);
   await page.getByRole("button", { name: "Pinned (1)", exact: true }).click();

@@ -68,3 +68,23 @@ test("removing a revoked room aborts an outstanding preview", async () => {
   expect(signal?.aborted).toBe(true);
   expect(cachedLinkPreview(client, source, url, "alice")).toBeUndefined();
 });
+
+test("loads previews when the runtime has no AbortSignal timeout helper", async () => {
+  const timeout = AbortSignal.timeout;
+  Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: undefined });
+  try {
+    const client = new QueryClient();
+    await expect(loadLinkPreview(client, source, url, "alice")).resolves.toMatchObject(response);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  } finally {
+    Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: timeout });
+  }
+});
+
+test("fails a rejected preview request safely when Web Locks are unavailable", async () => {
+  fetchMock.mockResolvedValueOnce(jsonResponse(401, { title: "Unauthorized", status: 401 }));
+  vi.stubGlobal("navigator", undefined);
+  const client = new QueryClient();
+  await expect(loadLinkPreview(client, source, url, "alice")).rejects.toMatchObject({ status: 401 });
+  expect(cachedLinkPreview(client, source, url, "alice")).toBeUndefined();
+});

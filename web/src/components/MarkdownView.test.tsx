@@ -114,6 +114,29 @@ describe("MarkdownView (message)", () => {
     expect(gallery.querySelector("button, a, img")).toBeNull();
   });
 
+  test("keeps an absolute same-origin destination as a direct app link", () => {
+    renderView(`[room](${window.location.origin}/rooms/7?scope=all#latest)`, "message");
+    expect(screen.getByRole("link", { name: "room" })).toHaveAttribute("href", "/rooms/7?scope=all#latest");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  test("uses an external destination as the label when Markdown supplies an empty label", () => {
+    renderView("[](https://example.com/empty-label)", "message");
+    expect(screen.getByRole("button", { name: "https://example.com/empty-label" })).toBeInTheDocument();
+  });
+
+  test("uses an external destination as the label when Markdown supplies only whitespace", () => {
+    renderView("[ ](https://example.com/whitespace-label)", "message");
+    expect(screen.getByRole("button", { name: "https://example.com/whitespace-label" })).toBeInTheDocument();
+  });
+
+  test("leaves a malformed Markdown destination non-interactive", () => {
+    renderView("[broken](https://[)", "message");
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(document.body).toHaveTextContent("broken");
+  });
+
   test("a linked image with empty alt text uses the actual parent destination as its label", () => {
     renderView("[![](https://example.com/cat.png)](https://example.com/gallery) [![](https://example.com/cat.png)](/rooms/7)", "message");
     expect(screen.getByRole("button", { name: "https://example.com/gallery" })).not.toHaveAttribute("href");
@@ -246,12 +269,15 @@ describe("MarkdownView (message): mentions", () => {
   });
 
   test("a mention in a link's text is shown inside the link, and code is left alone", () => {
-    renderView("[see <@5>](https://example.com) `<@9>`", "message", undefined, people);
-    const link = screen.getByRole("button", { name: "see @Ada Lovelace" });
+    localStorage.setItem("adder.auth.userId", "5");
+    renderView("[see <@5> and <@9>](https://example.com) `<@9>`", "message", undefined, people);
+    const link = screen.getByRole("button", { name: "see @Ada Lovelace and @Bob" });
     // The mention is a span inside the link label, so there is only one interactive control.
     expect(link.querySelector("a")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("@Ada Lovelace")).toHaveAttribute("data-self", "true");
     expect(screen.getByText("@Ada Lovelace").tagName).toBe("SPAN");
+    expect(screen.getByText("@Bob")).not.toHaveAttribute("data-self");
     expect(screen.getByText("<@9>").tagName).toBe("CODE");
   });
 

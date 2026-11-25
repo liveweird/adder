@@ -32,6 +32,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   localStorage.clear();
   vi.unstubAllGlobals();
   fetchMock.mockReset();
@@ -86,6 +87,66 @@ describe("ExternalMessageLink", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  test("renders text-only page previews and keeps touch hover explicit even when cached", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ...content, image: null }));
+    renderLink();
+    const user = userEvent.setup();
+    const trigger = screen.getByRole("button", { name: "Replica notes" });
+    await user.click(trigger);
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(await screen.findByText("Replica transfer diagram")).toBeVisible();
+    expect(screen.queryByRole("img")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.pointerEnter(trigger, { pointerType: "touch" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    await user.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Open external link" })).toHaveTextContent("Replica transfer diagram");
+    expect(screen.getByRole("button", { name: "Hide preview" })).toBeVisible();
+  });
+
+  test("renders raster-only image previews without inventing a title", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ...content, kind: "IMAGE", title: null }));
+    renderLink();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Replica notes" }));
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(await screen.findByRole("img", { name: "Preview of the linked image" })).toHaveAttribute("src", "data:image/png;base64,ZmFrZQ==");
+    expect(screen.queryByText("Replica transfer diagram")).toBeNull();
+  });
+
+  test("keeps a cached unavailable result passive on later hover", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { kind: "UNAVAILABLE", url: destination.href, finalUrl: null, title: null, image: null }));
+    renderLink();
+    const user = userEvent.setup();
+    const trigger = screen.getByRole("button", { name: "Replica notes" });
+    await user.click(trigger);
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(await screen.findByText("A preview is unavailable for this link.")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.hover(trigger);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("confirms without offering a preview when source or session identity is missing", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(
+      <ExternalMessageLink destination={destination}>Without source</ExternalMessageLink>,
+    );
+    await user.click(screen.getByRole("button", { name: "Without source" }));
+    expect(screen.getByRole("dialog", { name: "Open external link" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    unmount();
+
+    localStorage.clear();
+    renderLink();
+    await user.click(screen.getByRole("button", { name: "Replica notes" }));
+    expect(screen.getByRole("dialog", { name: "Open external link" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test("confirms non-HTTPS links but leaves them out of the preview request", async () => {
     renderLink(new URL("http://example.com/guide"));
     await userEvent.click(screen.getByRole("button", { name: "Replica notes" }));
@@ -121,6 +182,17 @@ describe("ExternalMessageLink", () => {
     await user.click(document.body);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("a delayed pointer leave cannot dismiss an explicit confirmation", () => {
+    renderLink();
+    const trigger = screen.getByRole("button", { name: "Replica notes" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Open external link" })).toBeVisible();
+    vi.useFakeTimers();
+    fireEvent.pointerLeave(trigger, { pointerType: "mouse" });
+    act(() => vi.advanceTimersByTime(151));
+    expect(screen.getByRole("dialog", { name: "Open external link" })).toBeVisible();
   });
 
   test("Escape closes the top confirmation and returns focus before a separate Escape closes the containing drawer", async () => {
