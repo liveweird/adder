@@ -30,7 +30,7 @@ conversation, hovering can show a preview you already loaded.
 
 ### Room organizer (1.12.0)
 
-Open **Organize rooms** to group and order the rooms in your sidebar. Drag a room into a group or drag a group to change its position.
+Open **Organize rooms** on **All rooms** to group and order the rooms in your sidebar. Drag a room into a group or drag a group to change its position.
 The row menus offer the same moves by keyboard or tap. Choose **Save organization** to apply the layout to your account.
 
 ### Search by status and hashtag (1.11.0)
@@ -46,7 +46,7 @@ notifications use the same view. Use **Earlier messages** or **Later messages** 
 
 ### Personal room groups (1.8.0)
 
-Use **Organize rooms** in the sidebar or Rooms page to create private groups for rooms you have joined. Move rooms between groups, reorder
+Use **Organize rooms** on **All rooms** to create private groups for rooms you have joined. Move rooms between groups, reorder
 groups and rooms, and save to update your sidebar. Your setup follows your account across devices.
 
 ### Personal Home (1.7.0)

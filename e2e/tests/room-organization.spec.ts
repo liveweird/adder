@@ -132,7 +132,7 @@ test("private room groups and room order follow the account", async ({ page, bro
     const ordered = nav.getByRole("group", { name: operations, exact: true });
     await expect(ordered.getByRole("link")).toHaveText([alerts, intake]);
     const roomNavigation = nav.getByRole("group", { name: "Rooms", exact: true });
-    await expect(roomNavigation.getByRole("link")).toHaveText(["All rooms", "Organize rooms", alerts, intake, releases]);
+    await expect(roomNavigation.getByRole("link")).toHaveText(["All rooms", alerts, intake, releases]);
   } finally {
     await freshDevice.close();
   }

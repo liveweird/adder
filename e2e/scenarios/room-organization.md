@@ -12,6 +12,6 @@
 3. They reorder the rooms through a keyboard menu and drag a group above and below the other with a mouse, then save.
    - *Expected*: DOM order reflects both moves, Ungrouped stays last and the editor passes an axe scan.
 4. The same person signs in from a fresh browser context.
-   - *Expected*: The sidebar shows the saved groups and rooms in their new order.
+   - *Expected*: The sidebar shows All rooms followed by the saved groups and rooms in their new order.
 5. The other person signs in from a separate context and opens the organizer.
    - *Expected*: Their rooms appear under Ungrouped. The other person's groups are absent.

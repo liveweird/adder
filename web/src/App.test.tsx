@@ -67,7 +67,7 @@ describe("App shell", () => {
       // Rooms: the static "All rooms" leaf (the caller's own rooms hang under it, see "the rooms rail").
       const rooms = screen.getByRole("group", { name: "Rooms" });
       expect(within(rooms).getByRole("link", { name: "All rooms" })).toHaveAttribute("href", "/rooms");
-      expect(within(rooms).getByRole("link", { name: "Organize rooms" })).toHaveAttribute("href", "/rooms/organize");
+      expect(within(rooms).queryByRole("link", { name: "Organize rooms" })).not.toBeInTheDocument();
       // A non-admin session still sees Administration — Teams are everyone's, only Users and
       // Feature flags are admin-only and drop out.
       const admin = screen.getByRole("group", { name: "Administration" });
