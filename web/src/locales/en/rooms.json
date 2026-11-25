@@ -28,6 +28,7 @@
     "groupName": "Group name",
     "rename": "Rename {{name}}",
     "renameItem": "Rename",
+    "applyName": "Apply group name",
     "deleteItem": "Delete",
     "actions": "Actions for {{name}}",
     "drag": "Drag {{name}}",
@@ -51,7 +52,10 @@
     "reload": "Reload organization",
     "reloaded": "Current organization loaded",
     "changed": "Room order changed",
-    "moved": "Moved {{name}}"
+    "movedBefore": "Moved {{name}} before {{target}}",
+    "movedAfter": "Moved {{name}} after {{target}}",
+    "movedToGroup": "Moved {{name}} to {{group}}",
+    "movedToEnd": "Moved {{name}} to the end"
   },
   "access": {
     "label": "Who can find and join this room?",

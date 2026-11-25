@@ -9,7 +9,7 @@
 1. Both people join the same three rooms. One opens Organize rooms from the directory at phone width.
 2. They create two named groups, collapse one and use touch to drag a room onto its header. They move the other rooms through the action menu.
    - *Expected*: The collapsed destination opens and focus follows moved rooms.
-3. They reorder the rooms through a keyboard menu and drag a group above the other with a mouse, then save.
+3. They reorder the rooms through a keyboard menu and drag a group above and below the other with a mouse, then save.
    - *Expected*: DOM order reflects both moves, Ungrouped stays last and the editor passes an axe scan.
 4. The same person signs in from a fresh browser context.
    - *Expected*: The sidebar shows the saved groups and rooms in their new order.

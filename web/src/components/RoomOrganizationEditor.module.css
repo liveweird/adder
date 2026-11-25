@@ -26,9 +26,29 @@
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.group[data-drop-target="true"] {
+.group[data-drop-target="end"] {
   border-color: var(--mantine-primary-color-filled);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--mantine-primary-color-filled) 24%, transparent);
+}
+
+.group[data-drop-target="before"]::before,
+.group[data-drop-target="after"]::after {
+  position: absolute;
+  z-index: 3;
+  inset-inline: var(--mantine-spacing-xs);
+  block-size: 3px;
+  border-radius: 999px;
+  background: var(--mantine-primary-color-filled);
+  content: "";
+  pointer-events: none;
+}
+
+.group[data-drop-target="before"]::before {
+  inset-block-start: calc(-1 * var(--mantine-spacing-xs) / 2 - 2px);
+}
+
+.group[data-drop-target="after"]::after {
+  inset-block-end: calc(-1 * var(--mantine-spacing-xs) / 2 - 2px);
 }
 
 .group[data-drag-source="true"],
@@ -93,16 +113,24 @@
   border-top: 1px solid var(--mantine-color-default-border);
 }
 
-.roomItem[data-drop-target="true"]::before {
+.roomItem[data-drop-target="before"]::before,
+.roomItem[data-drop-target="after"]::after {
   position: absolute;
   z-index: 3;
-  inset-block-start: -2px;
   inset-inline: var(--mantine-spacing-xs);
   block-size: 3px;
   border-radius: 999px;
   background: var(--mantine-primary-color-filled);
   content: "";
   pointer-events: none;
+}
+
+.roomItem[data-drop-target="before"]::before {
+  inset-block-start: -2px;
+}
+
+.roomItem[data-drop-target="after"]::after {
+  inset-block-end: -2px;
 }
 
 .roomRow {
@@ -130,8 +158,13 @@
   border-top: 1px solid var(--mantine-color-default-border);
 }
 
+.renameEditor,
 .renameInput {
   min-inline-size: 0;
+}
+
+.renameInput {
+  flex: 1;
 }
 
 .newGroupForm {
@@ -170,8 +203,11 @@
 }
 
 @media (forced-colors: active) {
-  .group[data-drop-target="true"],
-  .roomItem[data-drop-target="true"]::before {
+  .group[data-drop-target="end"],
+  .group[data-drop-target="before"]::before,
+  .group[data-drop-target="after"]::after,
+  .roomItem[data-drop-target="before"]::before,
+  .roomItem[data-drop-target="after"]::after {
     border-color: Highlight;
     background: Highlight;
   }

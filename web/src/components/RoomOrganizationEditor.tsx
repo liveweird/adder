@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ActionIcon, Badge, Button, Group, Menu, Stack, Text, TextInput, Title, VisuallyHidden } from "@mantine/core";
 import {
-  IconArchive, IconArrowDown, IconArrowUp, IconChevronDown, IconChevronRight, IconDotsVertical,
+  IconArchive, IconArrowDown, IconArrowUp, IconCheck, IconChevronDown, IconChevronRight, IconDotsVertical,
   IconGripVertical, IconPencil, IconPlus, IconTrash, IconX,
 } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
@@ -19,15 +19,16 @@ const UNGROUPED_DATA_VALUE = "ungrouped";
 
 type Change = (draft: RoomOrganizationDraft) => void;
 
-function ItemMenu({ name, disabled, triggerRef, children }: {
+function ItemMenu({ name, disabled, returnFocus = true, triggerRef, children }: {
   name: string;
   disabled: boolean;
+  returnFocus?: boolean;
   triggerRef?: (node: HTMLButtonElement | null) => void;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
   return (
-    <Menu position="bottom-end">
+    <Menu position="bottom-end" returnFocus={returnFocus}>
       <Menu.Target>
         <ActionIcon ref={triggerRef} size="sm" variant="subtle" disabled={disabled} aria-label={t("rooms.organization.actions", { name })}>
           <IconDotsVertical size={17} aria-hidden="true" />
@@ -68,7 +69,7 @@ function MoveToGroupMenu({ roomId, roomName, draft, visibleUngroupedIds, onChang
               onClick={() => {
               onChange(next);
               onMoved(id);
-              announce(t("rooms.organization.moved", { name: roomName }));
+              announce(t("rooms.organization.movedToGroup", { name: roomName, group: name }));
               window.requestAnimationFrame(restoreFocus);
             }}
           >
@@ -99,10 +100,13 @@ function RoomRow({ room, index, peers, draft, disabled, visibleUngroupedIds, onC
   const source: OrganizationDragSource = { kind: "room", id: room.id, name: room.name };
   const movedUp = moveOrganizationRoom(draft, room.id, -1, roomIds);
   const movedDown = moveOrganizationRoom(draft, room.id, 1, roomIds);
-  const move = (next: RoomOrganizationDraft) => {
+  const move = (next: RoomOrganizationDraft, delta: -1 | 1) => {
     if (next === draft) return;
     onChange(next);
-    announce(t("rooms.organization.moved", { name: room.name }));
+    announce(t(delta === -1 ? "rooms.organization.movedBefore" : "rooms.organization.movedAfter", {
+      name: room.name,
+      target: peers[index + delta]?.name ?? "",
+    }));
     window.requestAnimationFrame(() => actionRefs.current.get(room.id)?.focus());
   };
   return (
@@ -135,10 +139,10 @@ function RoomRow({ room, index, peers, draft, disabled, visibleUngroupedIds, onC
             else actionRefs.current.delete(room.id);
           }}
         >
-          <Menu.Item leftSection={<IconArrowUp size={14} />} disabled={index === 0 || movedUp === draft} onClick={() => move(movedUp)}>
+          <Menu.Item leftSection={<IconArrowUp size={14} />} disabled={index === 0 || movedUp === draft} onClick={() => move(movedUp, -1)}>
             {t("rooms.organization.moveUpItem")}
           </Menu.Item>
-          <Menu.Item leftSection={<IconArrowDown size={14} />} disabled={index === peers.length - 1 || movedDown === draft} onClick={() => move(movedDown)}>
+          <Menu.Item leftSection={<IconArrowDown size={14} />} disabled={index === peers.length - 1 || movedDown === draft} onClick={() => move(movedDown, 1)}>
             {t("rooms.organization.moveDownItem")}
           </Menu.Item>
           <Menu.Divider />
@@ -211,24 +215,32 @@ function GroupNameEditor({ groupId, originalName, value, duplicate, disabled, on
   const { t } = useTranslation();
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => ref.current?.focus(), []);
+  const canCommit = !disabled && !duplicate && value.trim() !== "";
   return (
-    <TextInput
-      ref={ref}
-      className={classes.renameInput}
-      size="xs"
-      value={value}
-      maxLength={MAX_ROOM_GROUP_NAME_LENGTH}
-      disabled={disabled}
-      error={duplicate ? t("rooms.organization.duplicateName") : undefined}
-      aria-label={t("rooms.organization.rename", { name: originalName })}
-      onChange={(event) => onValue(event.currentTarget.value)}
-      onBlur={() => !duplicate && value.trim() !== "" && onCommit()}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" && !duplicate && value.trim() !== "") onCommit();
-        if (event.key === "Escape") onCancel();
-      }}
-      data-group-edit={groupId}
-    />
+    <Group wrap="nowrap" gap={4} className={classes.renameEditor}>
+      <TextInput
+        ref={ref}
+        className={classes.renameInput}
+        size="xs"
+        value={value}
+        maxLength={MAX_ROOM_GROUP_NAME_LENGTH}
+        disabled={disabled}
+        error={duplicate ? t("rooms.organization.duplicateName") : undefined}
+        aria-label={t("rooms.organization.rename", { name: originalName })}
+        onChange={(event) => onValue(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing && canCommit) onCommit();
+          if (event.key === "Escape") onCancel();
+        }}
+        data-group-edit={groupId}
+      />
+      <ActionIcon variant="subtle" disabled={!canCommit} aria-label={t("rooms.organization.applyName")} onClick={onCommit}>
+        <IconCheck size={16} aria-hidden="true" />
+      </ActionIcon>
+      <ActionIcon variant="subtle" disabled={disabled} aria-label={t("common.action.cancel")} onClick={onCancel}>
+        <IconX size={16} aria-hidden="true" />
+      </ActionIcon>
+    </Group>
   );
 }
 
@@ -252,6 +264,7 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
   const [announcement, setAnnouncement] = useState("");
   const previousDirty = useRef(dirty);
   const newNameRef = useRef<HTMLInputElement>(null);
+  const newGroupButtonRef = useRef<HTMLButtonElement>(null);
   const actionRefs = useRef(new Map<number, HTMLButtonElement>());
   const groupActionRefs = useRef(new Map<string, HTMLButtonElement>());
   const roomById = useMemo(() => new Map(rooms.map((room) => [room.id, room])), [rooms]);
@@ -265,7 +278,7 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
   const duplicateName = useCallback((name: string, ownId?: string) => draft.groups.some((group) => (
     group.id !== ownId && group.name.trim().localeCompare(name.trim(), undefined, { sensitivity: "accent" }) === 0
   )), [draft.groups]);
-  const renameInvalid = renaming !== null && (renaming.value.trim() === "" || duplicateName(renaming.value, renaming.id));
+  const duplicateRename = renaming !== null && duplicateName(renaming.value, renaming.id);
   const invalidNames = draft.groups.some((group) => group.name.trim() === "" || duplicateName(group.name, group.id));
   const announce = useCallback((message: string) => {
     setAnnouncement("");
@@ -285,18 +298,37 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
     const next = moveOrganizationGroupTo(draft, groupId, beforeGroupId);
     if (next === draft) return;
     onChange(next);
-    announce(t("rooms.organization.moved", { name: draft.groups.find(({ id }) => id === groupId)?.name ?? "" }));
+    const name = draft.groups.find(({ id }) => id === groupId)?.name ?? "";
+    const target = draft.groups.find(({ id }) => id === beforeGroupId)?.name;
+    announce(target
+      ? t("rooms.organization.movedBefore", { name, target })
+      : t("rooms.organization.movedToEnd", { name }));
   }, [announce, draft, onChange, t]);
   const onRoomDrop = useCallback((roomId: number, destination: RoomOrganizationDestination) => {
     const next = placeOrganizationRoom(draft, roomId, destination, visibleUngroupedIds);
     if (next === draft) return;
     onChange(next);
     revealGroup(destination.groupId);
-    announce(t("rooms.organization.moved", { name: roomById.get(roomId)?.name ?? "" }));
+    const name = roomById.get(roomId)?.name ?? "";
+    if (destination.position.kind === "end") {
+      const group = draft.groups.find(({ id }) => id === destination.groupId)?.name ?? t("rooms.organization.ungrouped");
+      announce(t("rooms.organization.movedToGroup", { name, group }));
+    } else {
+      const target = roomById.get(destination.position.roomId)?.name ?? "";
+      announce(t(destination.position.kind === "before" ? "rooms.organization.movedBefore" : "rooms.organization.movedAfter", { name, target }));
+    }
     window.requestAnimationFrame(() => actionRefs.current.get(roomId)?.focus());
   }, [announce, draft, onChange, revealGroup, roomById, t, visibleUngroupedIds]);
   const onDragCancel = useCallback(() => announce(t("rooms.organization.dragCancelled")), [announce, t]);
-  const drag = useOrganizationDrag({ disabled, resetKey, onGroupDrop, onRoomDrop, onCancel: onDragCancel });
+  const canDropGroup = useCallback((groupId: string, beforeGroupId: string | null) => (
+    moveOrganizationGroupTo(draft, groupId, beforeGroupId) !== draft
+  ), [draft]);
+  const canDropRoom = useCallback((roomId: number, destination: RoomOrganizationDestination) => (
+    placeOrganizationRoom(draft, roomId, destination, visibleUngroupedIds) !== draft
+  ), [draft, visibleUngroupedIds]);
+  const drag = useOrganizationDrag({
+    disabled, resetKey, canDropGroup, canDropRoom, onGroupDrop, onRoomDrop, onCancel: onDragCancel,
+  });
 
   useEffect(() => {
     if (adding) newNameRef.current?.focus();
@@ -313,11 +345,15 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [dirty, draft.groups, reloading, renaming]);
-  const commitRename = () => {
-    if (!renaming || renameInvalid) return;
-    const name = renaming.value.trim();
-    onChange({ ...draft, groups: draft.groups.map((group) => group.id === renaming.id ? { ...group, name } : group) });
+  const finishRename = (apply: boolean) => {
+    if (!renaming) return;
+    const { id, value, original } = renaming;
+    const name = value.trim();
+    if (apply && name !== original) {
+      onChange({ ...draft, groups: draft.groups.map((group) => group.id === id ? { ...group, name } : group) });
+    }
     setRenaming(null);
+    window.requestAnimationFrame(() => groupActionRefs.current.get(id)?.focus());
   };
   const createGroup = () => {
     const name = newName.trim();
@@ -326,11 +362,17 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
     setNewName("");
     setAdding(false);
   };
+  const cancelAdding = () => {
+    setNewName("");
+    setAdding(false);
+    window.requestAnimationFrame(() => newGroupButtonRef.current?.focus());
+  };
   const moveGroup = (groupId: string, name: string, delta: -1 | 1) => {
     const next = moveOrganizationGroup(draft, groupId, delta);
     if (next === draft) return;
     onChange(next);
-    announce(t("rooms.organization.moved", { name }));
+    const target = draft.groups[draft.groups.findIndex(({ id }) => id === groupId) + delta]?.name ?? "";
+    announce(t(delta === -1 ? "rooms.organization.movedBefore" : "rooms.organization.movedAfter", { name, target }));
     window.requestAnimationFrame(() => groupActionRefs.current.get(groupId)?.focus());
   };
 
@@ -340,6 +382,7 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
       <Group justify="space-between" align="center" className={classes.toolbar}>
         <Text size="sm" c="dimmed">{t("rooms.organization.dragHint")}</Text>
         <Button
+          ref={newGroupButtonRef}
           size="xs"
           variant="default"
           leftSection={<IconPlus size={15} aria-hidden="true" />}
@@ -358,18 +401,19 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
             label={t("rooms.organization.groupName")}
             placeholder={t("rooms.organization.newGroupPlaceholder")}
             value={newName}
+            disabled={disabled}
             maxLength={MAX_ROOM_GROUP_NAME_LENGTH}
             error={newName.trim() !== "" && duplicateName(newName) ? t("rooms.organization.duplicateName") : undefined}
             onChange={(event) => setNewName(event.currentTarget.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter") createGroup();
-              if (event.key === "Escape") setAdding(false);
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) createGroup();
+              if (event.key === "Escape") cancelAdding();
             }}
           />
-          <Button size="sm" className={classes.newGroupAction} disabled={newName.trim() === "" || duplicateName(newName)} onClick={createGroup}>
+          <Button size="sm" className={classes.newGroupAction} disabled={disabled || newName.trim() === "" || duplicateName(newName)} onClick={createGroup}>
             {t("rooms.organization.createGroup")}
           </Button>
-          <ActionIcon size="lg" variant="subtle" className={classes.newGroupAction} aria-label={t("common.action.cancel")} onClick={() => setAdding(false)}>
+          <ActionIcon size="lg" variant="subtle" className={classes.newGroupAction} disabled={disabled} aria-label={t("common.action.cancel")} onClick={cancelAdding}>
             <IconX size={17} aria-hidden="true" />
           </ActionIcon>
         </Group>
@@ -387,7 +431,7 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
           const source: OrganizationDragSource = { kind: "group", id: group.id, name: group.name };
           return (
             <section key={group.id} className={classes.group} data-group-id={group.id} aria-labelledby={titleId}>
-              <div className={classes.groupHeader}>
+              <div className={classes.groupHeader} data-group-header>
                 <ActionIcon
                   size="sm" variant="subtle" className={classes.dragHandle} disabled={disabled}
                   tabIndex={-1}
@@ -413,14 +457,15 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
                     <VisuallyHidden><Title order={3} id={titleId}>{group.name}</Title></VisuallyHidden>
                     <GroupNameEditor
                       groupId={group.id} originalName={renaming.original} value={renaming.value}
-                      duplicate={renameInvalid} disabled={disabled} onValue={(value) => setRenaming({ ...renaming, value })}
-                      onCommit={commitRename} onCancel={() => setRenaming(null)}
+                      duplicate={duplicateRename} disabled={disabled} onValue={(value) => setRenaming({ ...renaming, value })}
+                      onCommit={() => finishRename(true)} onCancel={() => finishRename(false)}
                     />
                   </>
                 ) : <Title order={3} size="h5" id={titleId} className={classes.groupTitle}>{group.name}</Title>}
                 <ItemMenu
                   name={group.name}
                   disabled={disabled}
+                  returnFocus={renaming?.id !== group.id}
                   triggerRef={(node) => {
                     if (node) groupActionRefs.current.set(group.id, node);
                     else groupActionRefs.current.delete(group.id);
@@ -457,7 +502,7 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
         })}
 
         <section className={classes.group} data-group-id={UNGROUPED_DATA_VALUE} aria-labelledby="room-group-ungrouped">
-          <div className={classes.groupHeader}>
+          <div className={classes.groupHeader} data-group-header>
             <span className={classes.handlePlaceholder} aria-hidden="true" />
             <ActionIcon
               size="sm" variant="subtle"
@@ -491,7 +536,7 @@ export default function RoomOrganizationEditor({ rooms, draft, onChange, onSave,
       {dirty && (
         <Group justify="flex-end" className={classes.footer}>
           <Button variant="default" onClick={onDiscard} disabled={disabled}>{t("rooms.organization.discard")}</Button>
-          <Button onClick={onSave} loading={saving} disabled={invalidNames || renameInvalid || saveBlocked || reloading}>
+          <Button onClick={onSave} loading={saving} disabled={invalidNames || adding || renaming !== null || saveBlocked || reloading}>
             {t("rooms.organization.save")}
           </Button>
         </Group>

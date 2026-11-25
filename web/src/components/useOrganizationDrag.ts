@@ -5,16 +5,17 @@ export type OrganizationDragSource =
   | { kind: "group"; id: string; name: string }
   | { kind: "room"; id: number; name: string };
 
-type DropTarget =
-  | { kind: "group"; beforeGroupId: string | null; element: HTMLElement }
-  | { kind: "room"; destination: RoomOrganizationDestination; element: HTMLElement };
+type DropTarget = (
+  | { kind: "group"; beforeGroupId: string | null }
+  | { kind: "room"; destination: RoomOrganizationDestination }
+) & { element: HTMLElement; marker: "before" | "after" | "end" };
 
 const UNGROUPED_DATA_VALUE = "ungrouped";
 const DRAG_THRESHOLD = 6;
 const EDGE_ZONE = 56;
 
 function dataGroupId(element: HTMLElement): string | null {
-  return element.dataset.groupId === UNGROUPED_DATA_VALUE ? null : element.dataset.groupId ?? null;
+  return element.dataset.groupId === UNGROUPED_DATA_VALUE ? null : element.dataset.groupId!;
 }
 
 function targetAt(source: OrganizationDragSource, x: number, y: number): DropTarget | null {
@@ -25,42 +26,44 @@ function targetAt(source: OrganizationDragSource, x: number, y: number): DropTar
   const groupId = dataGroupId(group);
   if (source.kind === "group") {
     if (groupId === source.id) return null;
-    return { kind: "group", beforeGroupId: groupId, element: group };
+    const header = group.querySelector<HTMLElement>("[data-group-header]")!;
+    const bounds = header.getBoundingClientRect();
+    const after = groupId !== null && y >= bounds.top + bounds.height / 2;
+    const neighbor = group.nextElementSibling as HTMLElement | null;
+    return {
+      kind: "group",
+      beforeGroupId: after ? (neighbor ? dataGroupId(neighbor) : null) : groupId,
+      element: group,
+      marker: after ? "after" : "before",
+    };
   }
   const row = hit.closest<HTMLElement>("[data-room-id]");
   if (!row) {
-    return { kind: "room", destination: { groupId, position: { kind: "end" } }, element: group };
+    return { kind: "room", destination: { groupId, position: { kind: "end" } }, element: group, marker: "end" };
   }
   const roomId = Number(row.dataset.roomId);
   if (roomId === source.id) return null;
   const rect = row.getBoundingClientRect();
+  const marker = y < rect.top + rect.height / 2 ? "before" : "after";
   return {
     kind: "room",
-    destination: { groupId, position: { kind: y < rect.top + rect.height / 2 ? "before" : "after", roomId } },
+    destination: { groupId, position: { kind: marker, roomId } },
     element: row,
+    marker,
   };
 }
 
-function sameTarget(left: DropTarget | null, right: DropTarget | null): boolean {
-  if (left?.kind !== right?.kind) return false;
-  if (!left || !right) return left === right;
-  if (left.kind === "group" && right.kind === "group") return left.beforeGroupId === right.beforeGroupId;
-  if (left.kind === "room" && right.kind === "room") {
-    return JSON.stringify(left.destination) === JSON.stringify(right.destination);
-  }
-  return false;
-}
-
-export function useOrganizationDrag({ disabled, resetKey, onGroupDrop, onRoomDrop, onCancel }: {
+export function useOrganizationDrag({ disabled, resetKey, canDropGroup, canDropRoom, onGroupDrop, onRoomDrop, onCancel }: {
   disabled: boolean;
   resetKey: string;
+  canDropGroup: (groupId: string, beforeGroupId: string | null) => boolean;
+  canDropRoom: (roomId: number, destination: RoomOrganizationDestination) => boolean;
   onGroupDrop: (groupId: string, beforeGroupId: string | null) => void;
   onRoomDrop: (roomId: number, destination: RoomOrganizationDestination) => void;
   onCancel: () => void;
 }) {
   const [active, setActive] = useState<OrganizationDragSource | null>(null);
   const targetRef = useRef<DropTarget | null>(null);
-  const scrollFrameRef = useRef<() => void>(() => undefined);
   const state = useRef<{
     source: OrganizationDragSource;
     pointerId: number;
@@ -101,14 +104,15 @@ export function useOrganizationDrag({ disabled, resetKey, onGroupDrop, onRoomDro
   }, [clearTarget, onCancel, onGroupDrop, onRoomDrop]);
 
   const updateTarget = useCallback((source: OrganizationDragSource, x: number, y: number) => {
-    const next = targetAt(source, x, y);
-    if (sameTarget(targetRef.current, next)) return;
+    let next = targetAt(source, x, y);
+    if (next?.kind === "group" && !canDropGroup(source.id as string, next.beforeGroupId)) next = null;
+    if (next?.kind === "room" && !canDropRoom(source.id as number, next.destination)) next = null;
     targetRef.current?.element.removeAttribute("data-drop-target");
-    next?.element.setAttribute("data-drop-target", "true");
+    next?.element.setAttribute("data-drop-target", next.marker);
     targetRef.current = next;
-  }, []);
+  }, [canDropGroup, canDropRoom]);
 
-  const scrollFrame = useCallback(() => {
+  const scrollFrame = useCallback(function nextScrollFrame() {
     const current = state.current;
     if (!current?.dragging) return;
     const speed = current.y < EDGE_ZONE
@@ -120,11 +124,8 @@ export function useOrganizationDrag({ disabled, resetKey, onGroupDrop, onRoomDro
       window.scrollBy({ top: speed });
       updateTarget(current.source, current.x, current.y);
     }
-    current.frame = requestAnimationFrame(scrollFrameRef.current);
+    current.frame = requestAnimationFrame(nextScrollFrame);
   }, [updateTarget]);
-  useEffect(() => {
-    scrollFrameRef.current = scrollFrame;
-  }, [scrollFrame]);
 
   const handlers = useCallback((source: OrganizationDragSource) => ({
     onPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -151,7 +152,10 @@ export function useOrganizationDrag({ disabled, resetKey, onGroupDrop, onRoomDro
       updateTarget(current.source, event.clientX, event.clientY);
     },
     onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (state.current?.pointerId === event.pointerId) finish(true);
+      const current = state.current;
+      if (current?.pointerId !== event.pointerId) return;
+      if (current.dragging) updateTarget(current.source, event.clientX, event.clientY);
+      finish(true);
     },
     onPointerCancel: (event: ReactPointerEvent<HTMLButtonElement>) => {
       if (state.current?.pointerId === event.pointerId) finish(false);
@@ -179,8 +183,8 @@ export function useOrganizationDrag({ disabled, resetKey, onGroupDrop, onRoomDro
     if (current && current.frame !== null) cancelAnimationFrame(current.frame);
     current?.handle.closest<HTMLElement>("[data-room-id], [data-group-id]")?.removeAttribute("data-drag-source");
     if (current?.handle.hasPointerCapture?.(current.pointerId)) current.handle.releasePointerCapture(current.pointerId);
-    current?.handle.removeAttribute("aria-pressed");
-  }, []);
+    clearTarget();
+  }, [clearTarget]);
 
   return { active, handlers };
 }

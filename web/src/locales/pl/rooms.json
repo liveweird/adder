@@ -28,6 +28,7 @@
     "groupName": "Nazwa grupy",
     "rename": "Zmień nazwę grupy {{name}}",
     "renameItem": "Zmień nazwę",
+    "applyName": "Zastosuj nazwę grupy",
     "deleteItem": "Usuń",
     "actions": "Działania dla {{name}}",
     "drag": "Przeciągnij {{name}}",
@@ -51,7 +52,10 @@
     "reload": "Wczytaj organizację ponownie",
     "reloaded": "Wczytano bieżącą organizację",
     "changed": "Zmieniono kolejność pokoi",
-    "moved": "Przeniesiono {{name}}"
+    "movedBefore": "Przeniesiono {{name}} przed {{target}}",
+    "movedAfter": "Przeniesiono {{name}} za {{target}}",
+    "movedToGroup": "Przeniesiono {{name}} do grupy {{group}}",
+    "movedToEnd": "Przeniesiono {{name}} na koniec"
   },
   "access": {
     "label": "Kto może znaleźć ten pokój i do niego dołączyć?",

@@ -59,6 +59,16 @@ async function touchDrag(page: Page, handle: Locator, destination: Locator) {
   }
 }
 
+async function mouseDrag(page: Page, handle: Locator, destination: Locator, height: number) {
+  await handle.scrollIntoViewIfNeeded();
+  const from = await center(handle);
+  const to = await center(destination, height);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+}
+
 test("private room groups and room order follow the account", async ({ page, browser }) => {
   const { api: admin } = await apiAsUser(admins.first.email, admins.first.password);
   const organizer = await createPerson(admin, "e2e Organizer");
@@ -102,15 +112,15 @@ test("private room groups and room order follow the account", async ({ page, bro
   await page.getByRole("menuitem", { name: "Move up", exact: true }).press("Enter");
   await expect(groupRegion.getByRole("listitem")).toHaveText([new RegExp(alerts), new RegExp(intake)]);
 
-  const groupHandle = page.getByRole("button", { name: `Drag ${operations}`, exact: true });
-  await groupHandle.scrollIntoViewIfNeeded();
-  const from = await center(groupHandle);
-  const to = await center(page.getByRole("button", { name: `Collapse ${projects}`, exact: true }), 0.25);
-  await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 8 });
-  await page.mouse.up();
-  await expect(page.getByRole("main").getByRole("heading", { level: 3 })).toHaveText([operations, projects, "Ungrouped"]);
+  const groupHeadings = page.getByRole("main").getByRole("heading", { level: 3 });
+  const operationsHandle = page.getByRole("button", { name: `Drag ${operations}`, exact: true });
+  const projectsHeader = page.getByRole("button", { name: `Collapse ${projects}`, exact: true });
+  await mouseDrag(page, operationsHandle, projectsHeader, 0.25);
+  await expect(groupHeadings).toHaveText([operations, projects, "Ungrouped"]);
+  await mouseDrag(page, operationsHandle, projectsHeader, 0.8);
+  await expect(groupHeadings).toHaveText([projects, operations, "Ungrouped"]);
+  await mouseDrag(page, operationsHandle, projectsHeader, 0.25);
+  await expect(groupHeadings).toHaveText([operations, projects, "Ungrouped"]);
   expect(await axeViolations(page, "main")).toEqual([]);
   await page.getByRole("button", { name: "Save organization" }).click();
   await expect(page.getByText("Room organization saved", { exact: true })).toBeVisible();
