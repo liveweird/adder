@@ -1,8 +1,10 @@
-import type { APIRequestContext } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { apiAsUser, axeViolations, deleteViaApi, expect, login, specAdmins, test, uniqueText } from "./helpers";
 
 const admins = specAdmins("e2e-organization-admin");
 const cleanup: string[] = [];
+
+test.use({ hasTouch: true });
 
 test.afterEach(async () => {
   await deleteViaApi(cleanup.splice(0));
@@ -33,6 +35,40 @@ async function joinedRooms(api: APIRequestContext, names: string[], otherUserId:
   }
 }
 
+async function center(target: Locator, height = 0.5) {
+  const bounds = await target.boundingBox();
+  expect(bounds).not.toBeNull();
+  return { x: bounds!.x + bounds!.width / 2, y: bounds!.y + bounds!.height * height };
+}
+
+async function touchDrag(page: Page, handle: Locator, destination: Locator) {
+  await handle.scrollIntoViewIfNeeded();
+  await expect(destination).toBeInViewport();
+  const from = await center(handle);
+  const to = await center(destination);
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [from] });
+    for (const fraction of [0.25, 0.5, 0.75, 1]) {
+      const point = { x: from.x + (to.x - from.x) * fraction, y: from.y + (to.y - from.y) * fraction };
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [point] });
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  } finally {
+    await cdp.detach();
+  }
+}
+
+async function mouseDrag(page: Page, handle: Locator, destination: Locator, height: number) {
+  await handle.scrollIntoViewIfNeeded();
+  const from = await center(handle);
+  const to = await center(destination, height);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+}
+
 test("private room groups and room order follow the account", async ({ page, browser }) => {
   const { api: admin } = await apiAsUser(admins.first.email, admins.first.password);
   const organizer = await createPerson(admin, "e2e Organizer");
@@ -53,21 +89,38 @@ test("private room groups and room order follow the account", async ({ page, bro
   await page.getByRole("main").getByRole("link", { name: "Organize rooms" }).click();
   await expect(page.getByRole("heading", { name: "Organize rooms" })).toBeVisible();
   for (const name of [projects, operations]) {
+    await page.getByRole("button", { name: "New group", exact: true }).click();
     await page.getByRole("textbox", { name: "Group name", exact: true }).fill(name);
-    await page.getByRole("button", { name: "Add group" }).click();
+    await page.getByRole("button", { name: "Create group" }).click();
     await expect(page.getByRole("region", { name })).toBeVisible();
   }
-  for (const [room, group] of [[intake, operations], [alerts, operations], [releases, projects]]) {
-    const selector = page.getByRole("combobox", { name: `Group for ${room}`, exact: true });
-    await selector.click();
-    await page.getByRole("option", { name: group, exact: true }).click();
-    await expect(selector).toBeFocused();
+  await page.getByRole("button", { name: `Collapse ${projects}`, exact: true }).click();
+  await touchDrag(page, page.getByRole("button", { name: `Drag ${releases}`, exact: true }),
+    page.getByRole("button", { name: `Expand ${projects}`, exact: true }));
+  await expect(page.getByRole("region", { name: projects }).getByText(releases, { exact: true })).toBeVisible();
+
+  for (const room of [intake, alerts]) {
+    const actions = page.getByRole("button", { name: `Actions for ${room}`, exact: true });
+    await actions.click();
+    await page.getByRole("menuitem", { name: "Move to group" }).click();
+    await page.getByRole("menuitem", { name: operations, exact: true }).click();
+    await expect(actions).toBeFocused();
   }
   const groupRegion = page.getByRole("region", { name: operations });
   await expect(groupRegion.getByRole("listitem")).toHaveText([new RegExp(intake), new RegExp(alerts)]);
-  await groupRegion.getByRole("button", { name: `Move ${alerts} up`, exact: true }).press("Enter");
-  await page.getByRole("button", { name: `Move ${operations} up`, exact: true }).press("Enter");
+  await groupRegion.getByRole("button", { name: `Actions for ${alerts}`, exact: true }).press("Enter");
+  await page.getByRole("menuitem", { name: "Move up", exact: true }).press("Enter");
   await expect(groupRegion.getByRole("listitem")).toHaveText([new RegExp(alerts), new RegExp(intake)]);
+
+  const groupHeadings = page.getByRole("main").getByRole("heading", { level: 3 });
+  const operationsHandle = page.getByRole("button", { name: `Drag ${operations}`, exact: true });
+  const projectsHeader = page.getByRole("button", { name: `Collapse ${projects}`, exact: true });
+  await mouseDrag(page, operationsHandle, projectsHeader, 0.25);
+  await expect(groupHeadings).toHaveText([operations, projects, "Ungrouped"]);
+  await mouseDrag(page, operationsHandle, projectsHeader, 0.8);
+  await expect(groupHeadings).toHaveText([projects, operations, "Ungrouped"]);
+  await mouseDrag(page, operationsHandle, projectsHeader, 0.25);
+  await expect(groupHeadings).toHaveText([operations, projects, "Ungrouped"]);
   expect(await axeViolations(page, "main")).toEqual([]);
   await page.getByRole("button", { name: "Save organization" }).click();
   await expect(page.getByText("Room organization saved", { exact: true })).toBeVisible();

@@ -110,6 +110,11 @@ organization and pages through joined rooms. Group order, room order and assignm
 draft on a revision conflict and offers to reload the current layout. The sidebar uses `personalOrder` before its page cap and labels
 the groups from the shared organization query. The archived switch reveals archived rooms in their saved positions.
 
+**Organizer (1.12.0).** Group headers collapse, and each room or group has a drag handle and a menu for keyboard and tap moves.
+The insertion marker shows where a drop will land. Dropping onto a group moves the room to its end and expands the destination.
+`roomOrganizationDraft` preserves stored placements on unloaded pages. It saves the smallest visible Ungrouped prefix needed to
+keep the chosen relative position. Escape cancels a drag. Save and Discard appear while the account layout has pending edits.
+
 ### The room view (the Threads tab)
 
 `pages/RoomHome.tsx` serves THREE routes (`/rooms/:id`, `/rooms/:id/threads/new` through the `isNew` prop, `/rooms/:id/threads/:number`; the static `new` outranks `:number`),

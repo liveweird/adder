@@ -5,7 +5,12 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 **owner**, and a thread in a closed status takes no further activity until it is reopened. Room content is filterable, sortable and searchable; the usual chat affordances apply
 (pins, @mentions, reactions, emoji, #hashtags), and updates reach open browsers live over a WebSocket. The name is the snake: quick, quiet, decisive.
 
-## What's here today (1.11.0 — search by status and hashtag)
+## What's here today (1.12.0 — room organizer)
+
+Open **Organize rooms** to group and order the rooms in your sidebar. Drag a room into a group or drag a group to change its position.
+The row menus offer the same moves by keyboard or tap. Choose **Save organization** to apply the layout to your account.
+
+### Search by status and hashtag (1.11.0)
 
 Use `status:investigating` to find threads currently in that workflow status, or `hashtag:incident` to find messages with `#incident`.
 Combine them with each other and with other clauses in global, room, or in-thread search. Pick a room to see its workflow keys and hashtag suggestions.

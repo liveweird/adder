@@ -39,7 +39,10 @@ export default function RoomOrganizationPage() {
     queryFn: ({ pageParam }) => listRooms({ page: pageParam, pageSize: PAGE_SIZE, member: true, sort: "personalOrder" }),
     getNextPageParam: (last, pages) => pages.length * PAGE_SIZE < last.total ? pages.length + 1 : undefined,
   });
-  const loadedRooms = useMemo(() => rooms.data?.pages.flatMap((page) => page.items) ?? [], [rooms.data]);
+  const loadedRooms = useMemo(() => {
+    const items = rooms.data?.pages.flatMap((page) => page.items) ?? [];
+    return [...new Map(items.map((room) => [room.id, room])).values()];
+  }, [rooms.data]);
   const [editor, setEditor] = useState<{
     source: RoomOrganization | null;
     baseline: RoomOrganizationDraft | null;
@@ -143,6 +146,7 @@ export default function RoomOrganizationPage() {
             save.reset();
           }}
           saving={save.isPending}
+          reloading={reloading}
           saveBlocked={conflict}
           dirty={dirty}
         />

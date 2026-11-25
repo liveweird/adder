@@ -22,6 +22,20 @@ const room = {
   unread: false,
 };
 
+async function addGroup(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(await screen.findByRole("button", { name: "New group" }));
+  await user.type(screen.getByRole("textbox", { name: "Group name" }), name);
+  await user.click(screen.getByRole("button", { name: "Create group" }));
+}
+
+async function renameGroup(user: ReturnType<typeof userEvent.setup>, name: string, newName: string) {
+  await user.click(await screen.findByRole("button", { name: `Actions for ${name}` }));
+  await user.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  const input = await screen.findByRole("textbox", { name: `Rename ${name}` });
+  await user.clear(input);
+  await user.type(input, `${newName}{Enter}`);
+}
+
 describe("RoomOrganizationPage", () => {
   const mockFetch = vi.fn();
 
@@ -71,13 +85,11 @@ describe("RoomOrganizationPage", () => {
     const user = userEvent.setup();
     renderWithProviders(<RoomOrganizationPage />, { route: "/rooms/organize" });
 
-    const name = await screen.findByRole("textbox", { name: "Rename Operations" });
-    await user.clear(name);
-    await user.type(name, "Local response");
+    await renameGroup(user, "Operations", "Local response");
     await user.click(screen.getByRole("button", { name: "Save organization" }));
 
     expect(await screen.findByText("This organization changed elsewhere")).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Rename Local response" })).toHaveValue("Local response");
+    expect(screen.getByRole("region", { name: "Local response" })).toBeInTheDocument();
     expect(sentRevision).toBe("1");
     expect(sentBody).toMatchObject({ groups: [{ id: groupId, name: "Local response" }] });
 
@@ -85,11 +97,11 @@ describe("RoomOrganizationPage", () => {
     failNextReload = true;
     await user.click(screen.getByRole("button", { name: "Reload organization" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Reload organization" })).not.toBeDisabled());
-    expect(screen.getByRole("textbox", { name: "Rename Local response" })).toHaveValue("Local response");
+    expect(screen.getByRole("region", { name: "Local response" })).toBeInTheDocument();
     expect(screen.getByText("This organization changed elsewhere")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Reload organization" }));
-    expect(await screen.findByRole("textbox", { name: "Rename Remote response" })).toHaveValue("Remote response");
+    expect(await screen.findByRole("region", { name: "Remote response" })).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("This organization changed elsewhere")).not.toBeInTheDocument());
   });
 
@@ -111,13 +123,13 @@ describe("RoomOrganizationPage", () => {
     });
     renderWithProviders(<RoomOrganizationPage />, { route: "/rooms/organize", queryClient });
 
-    expect(await screen.findByRole("textbox", { name: "Rename Cached operations" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Cached operations" })).toBeInTheDocument();
     resolveOrganization(jsonResponse(200, {
       revision: 1,
       groups: [{ id: groupId, name: "Remote operations" }],
       rooms: [{ roomId: 10, groupId }],
     }));
-    expect(await screen.findByRole("textbox", { name: "Rename Remote operations" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Remote operations" })).toBeInTheDocument();
   });
 
   test("does not pin loaded ungrouped rooms when only a group is created", async () => {
@@ -139,12 +151,11 @@ describe("RoomOrganizationPage", () => {
     const user = userEvent.setup();
     renderWithProviders(<RoomOrganizationPage />, { route: "/rooms/organize" });
 
-    await user.type(await screen.findByRole("textbox", { name: "Group name" }), "Operations");
-    await user.click(screen.getByRole("button", { name: "Add group" }));
+    await addGroup(user, "Operations");
     await user.click(screen.getByRole("button", { name: "Back to rooms" }));
     expect(await screen.findByRole("dialog", { name: "Discard changes?" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Keep editing" }));
-    expect(screen.getByRole("textbox", { name: "Rename Operations" })).toHaveValue("Operations");
+    expect(screen.getByRole("region", { name: "Operations" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save organization" }));
     await waitFor(() => expect(sentBody).not.toBeNull());
     expect(sentBody).toMatchObject({ rooms: [] });
@@ -180,16 +191,12 @@ describe("RoomOrganizationPage", () => {
     const user = userEvent.setup();
     renderWithProviders(<RoomOrganizationPage />, { route: "/rooms/organize" });
 
-    const name = await screen.findByRole("textbox", { name: "Rename Operations" });
-    await user.clear(name);
-    await user.type(name, "First edit");
+    await renameGroup(user, "Operations", "First edit");
     await user.click(screen.getByRole("button", { name: "Save organization" }));
     await waitFor(() => expect(organizationReads).toBe(2));
 
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
-    const recoveredName = await screen.findByRole("textbox", { name: "Rename Operations" });
-    await user.clear(recoveredName);
-    await user.type(recoveredName, "Second edit");
+    await renameGroup(user, "Operations", "Second edit");
     await user.click(screen.getByRole("button", { name: "Save organization" }));
     await waitFor(() => expect(sentBodies).toHaveLength(2));
     expect(sentBodies[1]).toMatchObject({ groups: [{ name: "Second edit" }], rooms: [] });
@@ -203,7 +210,7 @@ describe("RoomOrganizationPage", () => {
       }
       if (url.includes("/api/v1/rooms?") && url.includes("page=2")) {
         return Promise.resolve(jsonResponse(200, {
-          items: [{ ...room, id: 11, name: "Delivery room" }],
+          items: [room, { ...room, id: 11, name: "Delivery room" }],
           total: 101,
           page: 2,
           pageSize: 100,
@@ -219,10 +226,10 @@ describe("RoomOrganizationPage", () => {
 
     await user.click(await screen.findByRole("button", { name: "Load more rooms" }));
     expect(await screen.findByText("Delivery room")).toBeInTheDocument();
+    expect(screen.getAllByText("Incident room")).toHaveLength(1);
     expect(screen.getByText("Loaded 2 of 101 joined rooms")).toBeInTheDocument();
 
-    await user.type(screen.getByRole("textbox", { name: "Group name" }), "Operations");
-    await user.click(screen.getByRole("button", { name: "Add group" }));
+    await addGroup(user, "Operations");
     const event = new Event("beforeunload", { cancelable: true });
     fireEvent(window, event);
     expect(event.defaultPrevented).toBe(true);
