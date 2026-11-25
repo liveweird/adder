@@ -43,9 +43,19 @@ checks**:
   private `POSTGRES_PASSWORD` (k8s: the `adder-secrets` Secret, `openssl rand -hex 16`) and an existing database whose role
   still has `adder` needs `ALTER ROLE adder PASSWORD '…'` first. The test container's password is deliberately NOT `adder`
   (`PostgresTestSupport`), so production-mode boot tests reach the later checks; `DatabasePasswordBootTest` pins this one.
-- **Deliberate, kept by the owner (2026-11-20 checkup):** `DATA_ENCRYPTION_KEY` stays required in production even though no column
-  is encrypted yet (so the first encrypted column never ships on a burned key), and development mode keeps tolerating every
+- **Browser push endpoints (V44):** `DATA_ENCRYPTION_KEY` encrypts each provider endpoint with AES-GCM; only a SHA-256 digest is used
+  for uniqueness. Endpoint values, VAPID tokens and key material never reach logs or audit fields. Production keeps refusing the
+  burned key, and development mode keeps tolerating every
   burned default above with a warning (the clone-and-run demo). Neither is a gap to close.
+
+**Browser Web Push (V44).** Opt-in is per provider endpoint and per signed-in account, at most five devices under a lock on the active
+user row. Only known HTTPS browser-push provider hosts are accepted; all DNS answers are bounded and public IPv4, pinned into an
+OkHttp client with proxies, redirects, cookies, retries and authentication disabled. The empty RFC 8030 POST carries no chat content:
+the service worker shows generic copy and opens the already-authorized bell. Queue rows are made only with new in-app notices after
+registration (no historical replay), claimed before any network call and expire after 15 minutes. Immediately before each send the server
+rechecks the current subscription, active account and credential revision, room and membership, unseen notice and thread mute. A 404 or
+410 deletes the endpoint; subscriptions untouched for 90 days expire. VAPID uses a matching P-256 key pair and a `mailto:`/`https:`
+subject; partial, malformed or mismatched settings refuse startup, while all three blank make capability discovery answer unavailable.
 
 **JWT model** (`auth/Tokens.kt` + `plugins/Security.kt`): login issues an access/refresh **pair**,
 both carrying `email`, `userId`, a `roles` array, a `typ` claim (`"access"`/`"refresh"`), a

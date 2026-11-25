@@ -172,7 +172,9 @@ export interface paths {
         /**
          * Revoke the bearer token (server-side denylist)
          * @description Revokes the access token carried in the `Authorization` header. If a `refreshToken` is
-         *     supplied in the body, it is revoked too. The body is optional.
+         *     supplied in the body, it is revoked too. The body is optional. A browser that opted in to
+         *     Web Push may send its opaque subscription id in `X-Adder-Push-Subscription`; cleanup is
+         *     best-effort and caller-scoped, and never changes the logout response.
          */
         post: operations["logout"];
         delete?: never;
@@ -2284,6 +2286,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notifications/push/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover whether this deployment supports browser push
+         * @description Any authenticated caller. The public VAPID key is returned only when all server-side push settings are valid. When
+         *     `subscriptionId` is supplied, `registered` reconciles that opaque browser id against the caller, current credential revision,
+         *     active account, and 90-day subscription lifetime. Unknown, expired, disabled, stale-revision, and other-caller ids all return
+         *     `registered: false` without disclosing which condition applied.
+         */
+        get: operations["getBrowserPushConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/push/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Opt this browser in to generic push notifications
+         * @description Registers or refreshes one HTTPS endpoint from an allowlisted browser push provider. The endpoint is encrypted at rest;
+         *     only its SHA-256 digest is used for uniqueness. A caller may hold at most five browser subscriptions. Registration starts
+         *     with notices created afterwards and never replays notification history. Uses the notification-preferences rate bucket.
+         */
+        post: operations["subscribeBrowserPush"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/push/subscriptions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop browser push for one caller-owned subscription
+         * @description Idempotent and caller-scoped. Another user's id is indistinguishable from an absent id. Uses the notification-preferences rate bucket.
+         */
+        delete: operations["unsubscribeBrowserPush"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/notifications/reply-groups/{roomId}/{threadNumber}/seen": {
         parameters: {
             query?: never;
@@ -2799,6 +2868,21 @@ export interface components {
         LogoutRequest: {
             /** @description Optional refresh token to revoke together with the access token. */
             refreshToken?: string;
+        };
+        BrowserPushConfig: {
+            available: boolean;
+            /** @description Unpadded base64url raw uncompressed P-256 public point; absent when unavailable. */
+            publicKey?: string;
+            /** @description Present only when `subscriptionId` was requested; true only for the caller's current, unexpired subscription. */
+            registered?: boolean;
+        };
+        BrowserPushSubscriptionRequest: {
+            /** Format: uri */
+            endpoint: string;
+        };
+        BrowserPushSubscription: {
+            /** Format: int32 */
+            id: number;
         };
         UserCreateRequest: {
             name: string;
@@ -4795,7 +4879,10 @@ export interface operations {
     logout: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description This browser's server subscription id, detached on logout when it belongs to the caller. */
+                "X-Adder-Push-Subscription"?: number;
+            };
             path?: never;
             cookie?: never;
         };
@@ -7716,6 +7803,94 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["NotificationFeedPage"];
                 };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    getBrowserPushConfig: {
+        parameters: {
+            query?: {
+                /** @description Optional caller-held browser subscription id to reconcile; when omitted, `registered` is absent. */
+                subscriptionId?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Browser push capability */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserPushConfig"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    subscribeBrowserPush: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BrowserPushSubscriptionRequest"];
+            };
+        };
+        responses: {
+            /** @description Registered, or the caller's same endpoint refreshed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserPushSubscription"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            413: components["responses"]["PayloadTooLarge"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+            /** @description Browser push is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    unsubscribeBrowserPush: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed, not owned by the caller, or already absent */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];

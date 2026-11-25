@@ -262,6 +262,14 @@ JVM options are not in the table: the image bakes its heap/GC flags (`server/bui
 `JAVA_OPTS` (the baked heap is `-Xmx256m`). Leave `SERVER_OPTS` unset — the image uses it to switch on its
 class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-time identity for the telemetry panel: the image build args `ADDER_BUILD_VERSION` and `ADDER_BUILD_COMMIT`.
 
+To create the optional Web Push key pair, keep `vapid.pem` out of the repository and deployment image:
+`openssl ecparam -name prime256v1 -genkey -noout -out vapid.pem`. Encode the private key with
+`openssl pkcs8 -topk8 -nocrypt -in vapid.pem -outform DER | openssl base64 -A | tr '+/' '-_' | tr -d '='` and the browser public key with
+`openssl ec -in vapid.pem -pubout -conv_form uncompressed -outform DER | tail -c 65 | openssl base64 -A | tr '+/' '-_' | tr -d '='`.
+Store those outputs in the two `NOTIFICATIONS_PUSH_*_KEY` secrets and securely remove the temporary PEM.
+The local Compose stack forwards those settings and `NOTIFICATIONS_PUSH_SUBJECT` from its environment.
+For a hosted deployment, supply the settings through the app's environment and serve Adder over HTTPS.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `KTOR_DEVELOPMENT` | `true` | Development mode (`true`) vs production mode — HSTS/HTTPS redirect and the fail-closed startup checks. The image ships `false`. |
@@ -289,7 +297,7 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `LIVE_MAX_PENDING_PER_ADDRESS` | `8` | Of those, how many one client address may hold (1–10000; an IPv6 address counts by its /64). |
 | `LIVE_AUTH_TIMEOUT_MILLIS` | `2000` | How long an unauthenticated socket lives before it is closed 4401 (100–30000 ms; the first frame must carry the ticket). |
 | `LIVE_CONNECT_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP bucket on the WebSocket upgrade `GET /api/v1/live`; blank = 600 in every mode. |
-| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored credentials (none stored yet; reserved for the first stored credential) — the dev default is burned, production refuses it. Back it up apart from the database. |
+| `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored browser-push endpoints — the dev default is burned, production refuses it. Back it up apart from the database. |
 | `DATA_ENCRYPTION_KEY_PREVIOUS` | *(blank)* | Decrypt-only fallback during a key rotation (boot once, then remove). |
 | `SECURITY_CSRF_ENABLED` | `false` | CSRF plugin gate — off (bearer JWT, no cookies). |
 | `JWT_SECRET` | `secret` | HMAC key for the access/refresh pair — production requires a private 64-hex key (`openssl rand -hex 32`); the placeholders and compose demo key are burned. |
@@ -322,6 +330,10 @@ class-data-sharing (AppCDS) archive, and setting it drops the archive. Build-tim
 | `NOTIFICATIONS_EMAIL_MAX_PER_RUN` | `100` | The most digest emails one sweep tick sends (1..1000). The digest shares the mailer with MFA codes and password resets, so this budget protects them; the people beyond it wait for the next tick. |
 | `NOTIFICATIONS_EMAIL_MAX_RECIPIENTS_PER_ACTOR_PER_DAY` | `20` | The most distinct people one person's @mentions and hand-overs can make eligible for the digest in a UTC day (1..1000). Over it the bell notice is still made and only its email is withheld. An ADMIN is not exempt. |
 | `NOTIFICATIONS_MAX_BROADCASTS_PER_ACTOR_PER_DAY` | `500` | The most WIDE events (more than 20 people notified: a new thread in a big room, a reply in a heavily watched thread, a status move or a hand-over) one person causes in a UTC day (1..10000). Over it the write still succeeds and only the people named directly (`<@id>` mentions, the author of a quoted message, a hand-over's new owner) are told; one `notification.broadcast_budget_exceeded` audit line per person and day. |
+| `NOTIFICATIONS_PUSH_PUBLIC_KEY` | *(blank)* | Unpadded base64url raw uncompressed P-256 public point (65 bytes, `04` prefix). Browser push is unavailable unless this, the private key and subject are all set. |
+| `NOTIFICATIONS_PUSH_PRIVATE_KEY` | *(blank)* | Unpadded base64url PKCS#8 DER P-256 private key. Keep it in the deployment secret, never the repository. |
+| `NOTIFICATIONS_PUSH_SUBJECT` | *(blank)* | VAPID operator contact, an absolute `mailto:` or `https:` URI. |
+| `NOTIFICATIONS_PUSH_MAX_PER_RUN` | `100` | Queue rows claimed per sweep tick (1..500); at most four provider requests run concurrently. |
 | `NOTIFICATIONS_RETENTION_DAYS` | `90` | How long a notice is kept before the sweep deletes it, at most once an hour (1..3650). |
 | `NOTIFICATIONS_SWEEP_INTERVAL_SECONDS` | `60` | How often the notification sweep wakes (10..3600); the email digest rides the same tick. |
 | `NOTIFICATIONS_SWEEP_ENABLED` | `true` | `false` keeps the sweep (purge and digest) from starting; the test harness turns it off. |

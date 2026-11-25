@@ -64,6 +64,7 @@ class MigrationChecksumTest {
         "V41__link_workflow_notices_to_events.sql" to -2093159295,
         "V42__create_thread_mutes.sql" to 944899791,
         "V43__create_message_here_mentions.sql" to 1864521402,
+        "V44__browser_push_subscriptions.sql" to 1840861196,
     )
 
     @Test

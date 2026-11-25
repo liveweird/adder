@@ -44,7 +44,7 @@ INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, t
 SELECT k.recipient_id, k.room_id, k.notification_type, CAST(? AS int8), CAST(? AS int4), CAST(NULL AS int4),
        CASE WHEN k.emailed_at IS NULL THEN k.created_at ELSE CAST(? AS int8) END, k.a, k.emailed_at, CAST(? AS int4)
 FROM kept k
-RETURNING recipient_id, notification_type, in_app"""
+RETURNING recipient_id, notification_type, in_app, id"""
 
 /** The rows an edit may relabel: what they are now, whether they show, whether their mail is still to come. Arguments: message, people. */
 internal const val READ_RELABEL_ROWS = """

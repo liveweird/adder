@@ -32,7 +32,7 @@ const val MAX_REQUEST_BODY_BYTES: Long = 512L * 1024
  * The tight ceiling of the routes whose bodies are a handful of short fields: the anonymous auth routes (an unauthenticated caller can
  * reach them, so they must not buffer half a megabyte per request), the room member add (up to 200 ids, ~2 KiB) and the thread status
  * and owner PUTs (one status key or one user id), the thread and message pin PUTs (one boolean), and the message link-preview POST (one
- * URL of at most 2,048 characters). Same 413.
+ * URL of at most 2,048 characters), and browser push registration (one endpoint of at most 2,048 characters). Same 413.
  */
 const val MAX_SMALL_REQUEST_BODY_BYTES: Long = 16L * 1024
 
@@ -79,7 +79,8 @@ private val PIN_PATH = Regex("^/api/v1/rooms/[^/]+/(threads|messages)/[^/]+/pin$
 private val MESSAGE_POST_PATH = Regex("^/api/v1/rooms/[^/]+/threads/[^/]+/messages$")
 private val MESSAGE_REACTION_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+/reaction$")
 private val MESSAGE_LINK_PREVIEW_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+/link-preview$")
-private val SMALL_POST_PATHS = listOf(ROOM_MEMBERS_PATH, MESSAGE_LINK_PREVIEW_PATH)
+private val PUSH_SUBSCRIPTIONS_PATH = Regex("^/api/v1/notifications/push/subscriptions$")
+private val SMALL_POST_PATHS = listOf(ROOM_MEMBERS_PATH, MESSAGE_LINK_PREVIEW_PATH, PUSH_SUBSCRIPTIONS_PATH)
 private val MESSAGE_EDIT_PATH = Regex("^/api/v1/rooms/[^/]+/messages/[^/]+$")
 
 /**

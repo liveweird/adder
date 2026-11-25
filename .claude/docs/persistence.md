@@ -19,12 +19,11 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   the pin is then re-pinned in the same commit, and a dev database that booted an earlier checksum of such a file is reset (`docker compose down -v`) or repaired (`flyway repair`).
   **The lanes of one release land in any order, so a dev database can apply a later 0.6 migration before an earlier one (V20 before V18, say):** Flyway then refuses the
   lower number (`outOfOrder` is off) and the table it creates is missing, so reset such a database with `docker compose down -v`; a fresh one (a test container, CI) applies them in order.
-  The exception ends with the release that contains the file. The range today is **V1–V40**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
+  The exception ends with the release that contains the file. The range today is **V1–V44**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
   `unaccent` extension, V5 `user_disabled_features` (V1–V5 are Flow's), V6 `teams` (with the optional
   manager), V7 `users.credential_revision`, V8 `password_reset_tokens`, V9 the `ops` telemetry
   schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows, V13 the room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`), V14 the thread aggregate (`threads`, `messages`, `thread_events`), V15 the hashtag index (`message_tags`, `messages.tags_version`), V16 the search columns (`messages.search` and `threads.search`, the `adder_search` configuration; its GIN index was dropped before release), V17 the mention index (`message_mentions`), V18 the notices (`notifications`), V19 the read state (`room_members.seen_at` and `read_from`, `thread_reads`), V20 the reaction table (`message_reactions`), V21 the room pins (`room_pins`), V22 the digest's claim column and the email switches (`notifications.emailed_at`, `user_notification_preferences`), V23 the history scrub (data only: `thread_events.params`), V24 the per-actor digest budget (`notification_email_budget`), V25 the team mention handle (`teams.handle`, 1.1.0), V26 the thread watches (`thread_watches`, 1.1.0), V27 the notice reshape (`notifications.in_app`, one notice per message and recipient, 1.1.0), V28 the preference choices (`user_notification_preferences.enabled`, 1.1.0), V29 the wide-event budget (`notification_email_budget.broadcasts`, `broadcasts_exceeded_at`, 1.1.0), V30 the group-mention index (`message_group_mentions`, 1.1.0), V31 the thread hashtag index (`idx_message_tags_thread`, 1.2.0), V32 the tag registry (`tag_categories`, `tags` and the Kind and Area seed, 1.2.0), V33 the thread tags (`thread_tags`, 1.2.0), V34 the unseen-notice index by room (`idx_notifications_unseen_room`, 1.2.0), V35 the message quote (`messages.quoted_message_id` and `idx_messages_quoted`, 1.3.0), V36 room access (`rooms.access_type` and `room_join_requests`, 1.6.0), V37 personal room organization (`user_room_organizations`, 1.8.0), V38 room membership notices (1.14.0), V39 the grouped-reply index (1.17.0), V40 the sticky watch preference (`thread_watches.watching`). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
-  V43 adds `message_here_mentions`, the stable recipient snapshot for `<@here>`; it is append-only migration history like V10 onward.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root (the chat's services are built by `ChatWiring.kt` beside it, called from `configureDatabase`): it constructs the
   services and publishes them into `Application.attributes` (`UserServiceKey`, `TeamServiceKey`,
   `WorkflowTemplateServiceKey`, `TagCategoryServiceKey`, `RoomServiceKey`, `RoomWorkflowServiceKey`, `TokenBlocklistServiceKey`, `PasswordResetServiceKey` today); each service itself lives next to the feature it serves
@@ -696,6 +695,14 @@ ownership names. Existing notices keep a null pointer, and older binaries ignore
 cascade on deletion. `ThreadMuteService` holds the member row before writing, and toggles use the unique `(thread_id, user_id)` key.
 `NoticeWriter` may read mutes of the current thread before delivery, and `NotificationDigest` may use the member's mute predicate
 when resolving threads in a claim. Older binaries ignore thread mutes.
+
+`V44__browser_push_subscriptions.sql` adds `browser_push_subscriptions` (one encrypted provider endpoint, its SHA-256 uniqueness
+digest, owning user, credential revision and last registration stamp) and `notification_push_queue` (a hard-delete join of a newly
+made in-app notice and the subscriptions active at that instant). The active user row serializes the five-device cap. The notice writer
+adds queue rows inside the chat write; the sweep atomically deletes a bounded claim and commits before network I/O. A send-time read
+rechecks account/revision, room, membership, unseen state and mute. The queue cascades with either side, claims older than 15 minutes are
+settled without sending, endpoints older than 90 days are deleted, and provider 404/410 removes one subscription. Both tables are HARD:
+they are opt-in delivery state, not records; user deletion, explicit unsubscribe/logout and notice retention must remove them.
 
 ### Reactions (V20)
 

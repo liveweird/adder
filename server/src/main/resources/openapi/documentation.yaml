@@ -250,7 +250,15 @@ paths:
       summary: Revoke the bearer token (server-side denylist)
       description: |
         Revokes the access token carried in the `Authorization` header. If a `refreshToken` is
-        supplied in the body, it is revoked too. The body is optional.
+        supplied in the body, it is revoked too. The body is optional. A browser that opted in to
+        Web Push may send its opaque subscription id in `X-Adder-Push-Subscription`; cleanup is
+        best-effort and caller-scoped, and never changes the logout response.
+      parameters:
+        - name: X-Adder-Push-Subscription
+          in: header
+          required: false
+          schema: { type: integer, format: int32, minimum: 1 }
+          description: This browser's server subscription id, detached on logout when it belongs to the caller.
       requestBody:
         required: false
         content:
@@ -3065,6 +3073,75 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/notifications/push/config:
+    get:
+      tags: [notifications]
+      operationId: getBrowserPushConfig
+      summary: Discover whether this deployment supports browser push
+      description: |
+        Any authenticated caller. The public VAPID key is returned only when all server-side push settings are valid. When
+        `subscriptionId` is supplied, `registered` reconciles that opaque browser id against the caller, current credential revision,
+        active account, and 90-day subscription lifetime. Unknown, expired, disabled, stale-revision, and other-caller ids all return
+        `registered: false` without disclosing which condition applied.
+      parameters:
+        - name: subscriptionId
+          in: query
+          required: false
+          schema: { type: integer, format: int32, minimum: 1 }
+          description: Optional caller-held browser subscription id to reconcile; when omitted, `registered` is absent.
+      responses:
+        '200':
+          description: Browser push capability
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BrowserPushConfig' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/notifications/push/subscriptions:
+    post:
+      tags: [notifications]
+      operationId: subscribeBrowserPush
+      summary: Opt this browser in to generic push notifications
+      description: |
+        Registers or refreshes one HTTPS endpoint from an allowlisted browser push provider. The endpoint is encrypted at rest;
+        only its SHA-256 digest is used for uniqueness. A caller may hold at most five browser subscriptions. Registration starts
+        with notices created afterwards and never replays notification history. Uses the notification-preferences rate bucket.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BrowserPushSubscriptionRequest' }
+      responses:
+        '200':
+          description: Registered, or the caller's same endpoint refreshed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BrowserPushSubscription' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503':
+          description: Browser push is not configured
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetail' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/notifications/push/subscriptions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    delete:
+      tags: [notifications]
+      operationId: unsubscribeBrowserPush
+      summary: Stop browser push for one caller-owned subscription
+      description: Idempotent and caller-scoped. Another user's id is indistinguishable from an absent id. Uses the notification-preferences rate bucket.
+      responses:
+        '204': { description: 'Removed, not owned by the caller, or already absent' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/notifications/reply-groups/{roomId}/{threadNumber}/seen:
     parameters:
       - name: roomId
@@ -4053,6 +4130,30 @@ components:
         refreshToken:
           type: string
           description: Optional refresh token to revoke together with the access token.
+
+    BrowserPushConfig:
+      type: object
+      required: [available]
+      properties:
+        available: { type: boolean }
+        publicKey:
+          type: string
+          description: Unpadded base64url raw uncompressed P-256 public point; absent when unavailable.
+        registered:
+          type: boolean
+          description: Present only when `subscriptionId` was requested; true only for the caller's current, unexpired subscription.
+
+    BrowserPushSubscriptionRequest:
+      type: object
+      required: [endpoint]
+      properties:
+        endpoint: { type: string, minLength: 1, maxLength: 2048, format: uri }
+
+    BrowserPushSubscription:
+      type: object
+      required: [id]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
 
     UserCreateRequest:
       type: object

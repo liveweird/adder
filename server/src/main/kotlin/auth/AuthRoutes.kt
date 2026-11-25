@@ -6,6 +6,7 @@ import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.mail.mailer
+import ch.nokillswit.infra.outbound.PushSubscriptionRevokerKey
 import ch.nokillswit.plugins.JwtConfig
 import ch.nokillswit.plugins.JwtConfigKey
 import ch.nokillswit.users.Feature
@@ -33,6 +34,7 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.application
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.CancellationException
 
 /**
  * The upper bound for the lockout/reset/MFA durations configured in SECONDS (before their `* 1000` millis conversion):
@@ -263,9 +265,26 @@ private fun Route.logout(deps: AuthDeps) {
     val refreshVerifier = deps.refreshVerifier
     post("/api/v1/logout") {
         val principal = call.principal<JWTPrincipal>()!!
+        val userId = principal.payload.getClaim("userId").asLong()
+        call.request.headers["X-Adder-Push-Subscription"]?.toUIntOrNull()
+            ?.takeIf { it in 1u..Int.MAX_VALUE.toUInt() }
+            ?.let { subscriptionId ->
+                userId?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }?.toUInt()?.let { ownerId ->
+                    try {
+                        call.application.attributes.getOrNull(PushSubscriptionRevokerKey)?.revoke(ownerId, subscriptionId)
+                    } catch (cause: CancellationException) {
+                        throw cause
+                    } catch (cause: RuntimeException) {
+                        call.application.log.debug(
+                            "Logout push subscription cleanup failed ({})",
+                            cause.javaClass.simpleName,
+                        )
+                    }
+                }
+            }
         // A logout ends the replay grace of this user's recently rotated refresh tokens (a copy of one
         // must not mint after sign-out); the access principal is what logout already trusts.
-        principal.payload.getClaim("userId").asLong()?.let { blocklist.forgetRotations(it) }
+        userId?.let { blocklist.forgetRotations(it) }
         val jti = principal.payload.id
         val exp = principal.payload.expiresAt?.time ?: nowMillis()
         if (jti != null) {

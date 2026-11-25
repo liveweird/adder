@@ -74,6 +74,10 @@ services:
       MAIL_FROM: adder@localhost
       # The password-reset link's origin; the isolated e2e stack points it at its own port.
       MAIL_APP_URL: ${MAIL_APP_URL:-http://localhost:8087}
+      # Optional Web Push. Supply the private key through the local environment or a deployment secret.
+      NOTIFICATIONS_PUSH_PUBLIC_KEY: ${NOTIFICATIONS_PUSH_PUBLIC_KEY:-}
+      NOTIFICATIONS_PUSH_PRIVATE_KEY: ${NOTIFICATIONS_PUSH_PRIVATE_KEY:-}
+      NOTIFICATIONS_PUSH_SUBJECT: ${NOTIFICATIONS_PUSH_SUBJECT:-}
     ports:
       - "127.0.0.1:8087:8087"
     # Mirrors the image's HEALTHCHECK (stated here so `depends_on: service_healthy` and the e2e

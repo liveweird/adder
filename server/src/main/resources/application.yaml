@@ -71,6 +71,7 @@ ktor:
       # Notices (V18): the caller's own notifications and the two "seen" writes, then the retention sweep (on ApplicationStarted, own scope;
       # `notifications.sweepEnabled` below). After the thread routes (the notices are made inside their writes), before the catch-all.
       - ch.nokillswit.notifications.NotificationRoutesKt.configureNotificationRoutes
+      - ch.nokillswit.notifications.BrowserPushRoutesKt.configureBrowserPushRoutes
       # The per-user switches of the notices' digest email (V22): `/users/{id}/notification-preferences`, one table, so its routes live here.
       - ch.nokillswit.notifications.NotificationPreferenceRoutesKt.configureNotificationPreferenceRoutes
       - ch.nokillswit.notifications.NotificationSweepKt.configureNotificationSweep
@@ -309,6 +310,14 @@ notifications:
   # only the people named directly (`<@id>` mentions, a hand-over) are told, with one `notification.broadcast_budget_exceeded` audit line
   # per actor and day. Without it 120 posts a minute to 499 people is about 86 million notice rows a day for one account. 1..10000.
   maxBroadcastsPerActorPerDay: "$NOTIFICATIONS_MAX_BROADCASTS_PER_ACTOR_PER_DAY:500"
+  push:
+    # Web Push is unavailable unless all three values are present. Public key: unpadded base64url raw uncompressed P-256 point
+    # (65 bytes, 0x04 prefix). Private key: unpadded base64url PKCS#8 DER P-256 key. Subject: mailto: or https: operator contact.
+    publicKey: "$NOTIFICATIONS_PUSH_PUBLIC_KEY:"
+    privateKey: "$NOTIFICATIONS_PUSH_PRIVATE_KEY:"
+    subject: "$NOTIFICATIONS_PUSH_SUBJECT:"
+    # Queue rows claimed and removed per sweep tick; sends run afterwards, outside every database transaction. 1..500.
+    maxPerRun: "$NOTIFICATIONS_PUSH_MAX_PER_RUN:100"
   email:
     # The email digest of unseen notices (`notifications/NotificationDigest.kt`, run by the sweep's tick when a mailer exists; with
     # `mail.transport=disabled` it does nothing). A notice still unseen after this many seconds is mailed: 0..86400 (0 = at the next tick).

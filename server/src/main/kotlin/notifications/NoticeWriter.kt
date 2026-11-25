@@ -18,10 +18,8 @@ import ch.nokillswit.threads.mutedInThread
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.ArrayColumnType
-import org.jetbrains.exposed.v1.core.BooleanColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
-import org.jetbrains.exposed.v1.core.TextColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -53,8 +51,11 @@ internal class NoticeWriter(
     private val mailAvailable: Boolean = true,
     /** The digest's delay (`notifications.email.delaySeconds`): a notice still waiting for it is coalesced into only while younger. */
     private val digestDelayMillis: Long = DEFAULT_DIGEST_DELAY_MILLIS,
+    /** False when the deployment has no VAPID configuration; disabled push must not accumulate undeliverable queue rows. */
+    private val pushAvailable: Boolean = false,
 ) : ThreadNotices, RoomNotices {
     private val judger = NoticeJudge(mailAvailable)
+    private val persistence = NoticePersistence(digestDelayMillis, pushAvailable)
 
     override suspend fun forMessage(at: MessageRef, byUserId: UInt, notices: List<Notice>): NoticeOutcome =
         make(at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, notices)
@@ -75,7 +76,7 @@ internal class NoticeWriter(
         val preferences = effectivePreferencesOf(audience, listOf(type))
         val deliveries = withinEmailBudget(actorId, roomId, audience.mapNotNull { judger.judge(it, type, preferences) })
         if (deliveries.isEmpty()) return 0
-        val made = insert(roomId, null, null, actorId, nowMillis(), deliveries).map { it.first }.toSet()
+        val made = persistence.insert(roomId, null, null, actorId, nowMillis(), deliveries).map { it.first }.toSet()
         announce(deliveries.filter { it.inApp && it.userId in made }.map { it.userId }, roomId, null, null)
         return made.size
     }
@@ -257,12 +258,20 @@ internal class NoticeWriter(
         )
         val candidates = eligible.mapNotNull { judger.judge(it, preferences) }
         val now = nowMillis()
-        val refreshed = if (messageId == null) refreshThreadNotices(threadId, actorId, now, candidates, eventId) else emptyList()
+        val refreshed = if (messageId == null) {
+            persistence.refreshThreadNotices(threadId, actorId, now, candidates, eventId)
+        } else {
+            emptyList()
+        }
         val refreshedIds = refreshed.map { it.first }.toSet()
         val fresh = candidates.filter { it.userId !in refreshedIds }
         val deliveries = withinEmailBudget(actorId, roomId, fresh)
         val late = beforeInsert(deliveries.map { it.userId }.toSet())
-        val made = if (deliveries.isEmpty()) emptyList() else insert(roomId, threadId, messageId, actorId, now, deliveries, eventId)
+        val made = if (deliveries.isEmpty()) {
+            emptyList()
+        } else {
+            persistence.insert(roomId, threadId, messageId, actorId, now, deliveries, eventId)
+        }
         val madeIds = made.map { it.first }.toSet()
         // The hint's targets keep the audience's priority order, the rows made and the rows refreshed alike.
         val shown = deliveries.filter { it.inApp && it.userId in madeIds }.map { it.userId }.toSet() +
@@ -285,45 +294,6 @@ internal class NoticeWriter(
     }
 
     /**
-     * Replaces the unseen thread-level notices ([REFRESH_THREAD_NOTICES]) that [deliveries] of a coalescing kind would repeat; answers
-     * (person, kind, shows in the app) of the rows made in their place. One statement, and none when no delivery is of a coalescing kind.
-     */
-    private suspend fun refreshThreadNotices(
-        threadId: UInt,
-        actorId: UInt,
-        now: Long,
-        deliveries: List<Delivery>,
-        eventId: UInt?,
-    ): List<Triple<UInt, NotificationType, Boolean>> {
-        val coalescing = deliveries.filter { it.type in THREAD_LEVEL_KINDS }
-        if (coalescing.isEmpty()) return emptyList()
-        val rows = TransactionManager.current().exec(
-            REFRESH_THREAD_NOTICES,
-            listOf(
-                ArrayColumnType<Long, List<Long>>(LongColumnType()) to coalescing.map { it.userId.toLong() },
-                ArrayColumnType<String, List<String>>(TextColumnType()) to coalescing.map { it.type.name },
-                ArrayColumnType<Boolean, List<Boolean>>(BooleanColumnType()) to coalescing.map { it.inApp },
-                IntegerColumnType() to threadId.toInt(),
-                LongColumnType() to now - digestDelayMillis,
-                LongColumnType() to actorId.toLong(),
-                IntegerColumnType() to threadId.toInt(),
-                LongColumnType() to now,
-                IntegerColumnType() to eventId?.toInt(),
-            ),
-            explicitStatementType = StatementType.SELECT,
-        ) { row ->
-            Triple(
-                row.get(0, Long::class.javaObjectType)!!.toUInt(),
-                row.get(1, String::class.java)!!,
-                row.get(2, Boolean::class.javaObjectType) == true,
-            )
-        }?.toList().orEmpty().filterNotNull()
-        return rows
-            .mapNotNull { (user, name, inApp) -> NotificationType.entries.firstOrNull { it.name == name }?.let { Triple(user, it, inApp) } }
-            .distinctBy { it.first to it.second }
-    }
-
-    /**
      * The wide-event budget (V29): an event reaching more than [WIDE_EVENT_RECIPIENTS] people counts one against the actor's day. Over
      * the budget only the people named directly ([DIRECT]: a `<@id>` mention, the author of a quoted message, a hand-over) stay; the write
      * itself is never refused.
@@ -333,36 +303,6 @@ internal class NoticeWriter(
         // Over the budget a direct notice loses its fallbacks too: only the kinds in DIRECT can be told, never a reply it fell back to.
         val direct = wanted.filter { it.reason in DIRECT }.map { Notice(it.userId, it.reason) }
         return if (emailBudget.admitBroadcast(actorId, roomId, withheld = wanted.size - direct.size)) wanted else direct
-    }
-
-    /** [INSERT_NOTICES] for [deliveries] (a notice that cannot be mailed is settled at insert); answers (person, kind) made. */
-    private suspend fun insert(
-        roomId: UInt,
-        threadId: UInt?,
-        messageId: UInt?,
-        actorId: UInt,
-        now: Long,
-        deliveries: List<Delivery>,
-        eventId: UInt? = null,
-    ): List<Pair<UInt, NotificationType>> {
-        val arguments = listOf(
-            IntegerColumnType() to roomId.toInt(),
-            LongColumnType() to actorId.toLong(),
-            IntegerColumnType() to threadId?.toInt(),
-            IntegerColumnType() to messageId?.toInt(),
-            LongColumnType() to now,
-            LongColumnType() to now,
-            IntegerColumnType() to eventId?.toInt(),
-            ArrayColumnType<Long, List<Long>>(LongColumnType()) to deliveries.map { it.userId.toLong() },
-            ArrayColumnType<String, List<String>>(TextColumnType()) to deliveries.map { it.type.name },
-            ArrayColumnType<Boolean, List<Boolean>>(BooleanColumnType()) to deliveries.map { it.inApp },
-            ArrayColumnType<Boolean, List<Boolean>>(BooleanColumnType()) to deliveries.map { !it.email },
-        )
-        return TransactionManager.current()
-            .exec(INSERT_NOTICES, arguments, explicitStatementType = StatementType.SELECT) { row ->
-                row.get(0, Long::class.javaObjectType)!!.toUInt() to row.get(2, String::class.java)!!
-            }?.toList().orEmpty().filterNotNull()
-            .mapNotNull { (user, name) -> NotificationType.entries.firstOrNull { it.name == name }?.let { user to it } }
     }
 
     /** ONE `notification.created` hint to [recipients] (nothing for nobody), inside the write's own transaction. */
@@ -384,13 +324,5 @@ internal class NoticeWriter(
         /** The default of the digest delay (`notifications.email.delaySeconds`, 300). */
         const val DEFAULT_DIGEST_DELAY_MILLIS = 300_000L
 
-        /** The kinds with no message to be unique by: a repeat is folded into the person's unseen row ([REFRESH_THREAD_NOTICES]). */
-        val THREAD_LEVEL_KINDS = setOf(
-            NotificationType.THREAD_STATUS_CHANGED,
-            NotificationType.THREAD_CLOSED,
-            NotificationType.THREAD_REOPENED,
-            NotificationType.THREAD_OWNER_CHANGED,
-            NotificationType.THREAD_ASSIGNED,
-        )
     }
 }
