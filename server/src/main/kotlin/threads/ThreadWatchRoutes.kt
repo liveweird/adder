@@ -2,7 +2,10 @@ package ch.nokillswit.threads
 
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.caller
+import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.requireRoomMember
+import ch.nokillswit.infra.paging.parsePaging
+import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.rooms.RoomServiceKey
 import ch.nokillswit.rooms.visibleStanding
@@ -14,6 +17,7 @@ import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
 import io.ktor.server.resources.put
+import io.ktor.server.resources.get
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
@@ -23,12 +27,28 @@ import kotlinx.serialization.Serializable
 @Resource("watch")
 class ThreadWatchRoute(val parent: ThreadsRoute.Number)
 
+/** The active watchers of a thread, visible to members of its room. */
+@Serializable
+@Resource("watchers")
+class ThreadWatchersRoute(val parent: ThreadsRoute.Number)
+
 fun Application.configureThreadWatchRoutes() {
     val roomService = attributes[RoomServiceKey]
     val watchService = attributes[ThreadWatchServiceKey]
+    val threadService = attributes[ThreadServiceKey]
 
     routing {
         authenticate {
+            get<ThreadWatchersRoute> { route ->
+                val caller = call.caller()
+                val roomId = route.parent.parent.parent.id
+                requireRoomMember(caller, roomService.visibleStanding(caller, roomId))
+                val number = route.parent.number.toInt()
+                val threadId = threadService.idOf(roomId, number) ?: throw NotFoundException("Thread not found")
+                val paging = call.parsePaging(THREAD_WATCHER_SORT_FIELDS)
+                val result = watchService.list(roomId, threadId, paging)
+                call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+            }
             // The per-USER `thread-watch` bucket (30/min, its own: the write is audited) comes before every guard, then the
             // documented order: 401 from `authenticate`; visibility (`visibleStanding`: 404 for a missing room and a non-member alike,
             // audited `room.access_denied`); the member guard (403: an ADMIN outside the room cannot watch) BEFORE the body; the body

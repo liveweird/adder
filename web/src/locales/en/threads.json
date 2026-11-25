@@ -324,7 +324,11 @@
   },
   "watch": {
     "thread": "Watch this thread",
-    "count": "Watchers: {{count}}",
+    "showPeople_one": "Show {{count}} watcher",
+    "showPeople_other": "Show {{count}} watchers",
+    "peopleTitle": "People watching",
+    "peopleEmpty": "Nobody is watching this thread.",
+    "peopleLoadFailed": "Could not load the watchers",
     "mark": "You are watching this thread",
     "error": {
       "forbidden": "Only members of the room can watch threads.",

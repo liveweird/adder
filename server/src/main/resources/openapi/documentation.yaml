@@ -2148,8 +2148,9 @@ paths:
 
         A closed thread and an ARCHIVED room can be watched and unwatched: a watch is the member's own state, not a write to the room.
         It takes NO room lock (it holds only the caller's own membership row for the commit), emits no live event and moves no activity
-        order; the caller's other tabs catch up on focus. The creator of a thread and each new owner of one watch it automatically, and may
-        stop. Leaving or being removed from the room drops the person's watches. What a watch does is read through `watching` and
+        order; the caller's other tabs catch up on focus. The creator and a member who replies watch automatically. A new owner watches
+        automatically unless they explicitly stopped watching before; an explicit stop also survives later replies. Setting `watching=true`
+        opts back in. Leaving or being removed from the room drops the preference. What a watch does is read through `watching` and
         `watcherCount` of the thread and `watching` of the thread list and its filter.
       requestBody:
         required: true
@@ -2167,6 +2168,32 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/threads/{number}/watchers:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/ThreadNumberPath'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PageSize'
+      - $ref: '#/components/parameters/Sort'
+    get:
+      tags: [threads]
+      operationId: listThreadWatchers
+      summary: List the people watching a thread
+      description: |
+        Members of the room can page through the active users who currently watch the thread. An inaccessible room is the uniform
+        `404`; an `ADMIN` who is not a member gets `403`. Inactive watch preferences and soft-deleted users are omitted. Sortable by
+        `id` or `name`; default `id`, with `id` as the stable tiebreaker.
+      responses:
+        '200':
+          description: One page of watchers
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ThreadWatcherPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/threads/{number}/tags:
     parameters:
@@ -5330,6 +5357,22 @@ components:
       required: [watching]
       properties:
         watching: { type: boolean, description: 'Whether the caller watches the thread after the call.' }
+    ThreadWatcher:
+      type: object
+      required: [userId, name]
+      properties:
+        userId: { type: integer, format: int64, minimum: 1 }
+        name: { type: string, minLength: 1, description: The active user's current display name. }
+    ThreadWatcherPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ThreadWatcher' }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, format: int64, minimum: 0 }
     ReactionRequest:
       type: object
       required: [emoji, reacted]

@@ -137,7 +137,8 @@ internal fun Application.publishChatServices(
     val reactionService = MessageReactionService(database)
     attributes.put(MessageReactionServiceKey, reactionService)
     val messageService = MessageService(
-        database, roomService, messageTagService, messageMentionService, listOf(PinCleanup()), reactionService, threadReadLimiter,
+        database, roomService, messageTagService, messageMentionService,
+        listOf(threadWatchService.replyFollower, PinCleanup()), reactionService, threadReadLimiter,
     )
     attributes.put(MessageServiceKey, messageService)
     attributes.put(MessageLinkPreviewServiceKey, MessageLinkPreviewService(roomService, messageService))

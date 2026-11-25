@@ -2,6 +2,9 @@ package ch.nokillswit
 
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadOwnerRequest
+import ch.nokillswit.threads.MessageRequest
+import ch.nokillswit.threads.ThreadWatcherResponse
+import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.threads.ThreadPageResponse
 import ch.nokillswit.threads.ThreadResponse
 import ch.nokillswit.threads.WatchRequest
@@ -32,9 +35,9 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /**
  * Watching (V26, `chat-model.md` "Watching (V26)"): any member watches or unwatches any thread of the room (a closed one and an archived
- * room included), the guard order, the no-op that writes and audits nothing, the watches that go with the membership, the two
- * auto-watches (the creator and each new owner), the batched `watching` of the list, and the write that takes no room lock. Rooms,
- * templates and users are SHARED suite state: every test mints UNIQUE rows and removes them.
+ * room included), the guard order, the no-op that writes and audits nothing, the watches that go with the membership, the three
+ * auto-watches (the creator, each new owner and a reply author), the batched `watching` of the list, and the write that takes no room lock.
+ * Rooms, templates and users are SHARED suite state: every test mints UNIQUE rows and removes them.
  */
 class ThreadWatchTest {
     private val rooms = "/api/v1/rooms"
@@ -62,7 +65,7 @@ class ThreadWatchTest {
 
     /** The watchers of thread [threadId] straight from the table. */
     private fun watchers(threadId: UInt): Set<UInt> = PostgresTestSupport.connect().use { c ->
-        c.prepareStatement("SELECT user_id FROM thread_watches WHERE thread_id = ?").use { st ->
+        c.prepareStatement("SELECT user_id FROM thread_watches WHERE thread_id = ? AND watching").use { st ->
             st.setInt(1, threadId.toInt())
             st.executeQuery().use { rs -> buildSet { while (rs.next()) add(rs.getLong(1).toUInt()) } }
         }
@@ -83,6 +86,8 @@ class ThreadWatchTest {
         withAuditCapture { capture ->
             assertFalse(cast.member.client.thread(cast.room).watching)
             assertEquals(1, cast.member.client.thread(cast.room).watcherCount, "the creator watches their own thread")
+            assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, false).status, "already off: nothing written")
+            assertEquals(0, watchRows(cast.room, cast.member.id), "an off no-op is not remembered as an explicit unwatch")
             assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, true).status)
             assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, true).status, "again: nothing written")
             val watching = cast.member.client.thread(cast.room)
@@ -251,7 +256,7 @@ class ThreadWatchTest {
     }
 
     @Test
-    fun `a new owner watches the thread, whoever passes it on, and again after a later hand-over`() = testApplication {
+    fun `a new owner watches unless they explicitly unwatched, including on a later hand-over`() = testApplication {
         usePostgresTestcontainer()
         val cast = seedThreadCast("wt-owner", "Watch owner", minted)
         val path = "$rooms/${cast.room}/threads/1/owner"
@@ -259,14 +264,50 @@ class ThreadWatchTest {
         assertEquals(setOf(cast.author.id, cast.member.id), watchers(cast.threadId), "the creator keeps watching")
         assertEquals(2, cast.owner.client.thread(cast.room).watcherCount)
 
-        // The new owner stops, the same person again is a no-op (nothing is re-added), a hand-over elsewhere and back watches again.
+        // The explicit choice survives both the no-op and a hand-over elsewhere and back.
         assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, false).status)
         assertEquals(HttpStatusCode.NoContent, cast.owner.client.putJson(path, ThreadOwnerRequest(cast.member.id)).status)
         assertEquals(setOf(cast.author.id), watchers(cast.threadId), "naming the owner again writes nothing")
         assertEquals(HttpStatusCode.NoContent, cast.owner.client.putJson(path, ThreadOwnerRequest(cast.owner.id)).status)
         assertEquals(setOf(cast.author.id, cast.owner.id), watchers(cast.threadId), "a steward who takes the thread watches it")
         assertEquals(HttpStatusCode.NoContent, cast.owner.client.putJson(path, ThreadOwnerRequest(cast.member.id)).status)
-        assertEquals(setOf(cast.author.id, cast.owner.id, cast.member.id), watchers(cast.threadId), "again on a later hand-over")
+        assertEquals(setOf(cast.author.id, cast.owner.id), watchers(cast.threadId), "a later hand-over respects the sticky unwatch")
+    }
+
+    @Test
+    fun `replying starts a watch, while explicit unwatch is sticky until Watch is chosen again`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = seedThreadCast("wt-reply", "Watch reply", minted)
+        val messages = "$rooms/${cast.room}/threads/1/messages"
+        assertFalse(cast.member.client.thread(cast.room).watching)
+        assertEquals(HttpStatusCode.Created, cast.member.client.postJson(messages, MessageRequest("I can help")).status)
+        assertTrue(cast.member.client.thread(cast.room).watching, "a successful reply starts watching")
+
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, false).status)
+        assertEquals(HttpStatusCode.Created, cast.member.client.postJson(messages, MessageRequest("Still helping")).status)
+        assertFalse(cast.member.client.thread(cast.room).watching, "another reply respects explicit Unwatch")
+
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, true).status)
+        assertTrue(cast.member.client.thread(cast.room).watching)
+    }
+
+    @Test
+    fun `members page through active watchers by name while non-member administrators are refused`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = seedThreadCast("wt-list", "Watch list", minted)
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, true).status)
+        val path = "$rooms/${cast.room}/threads/1/watchers?pageSize=1&sort=name"
+        val first = cast.member.client.get(path).body<PageResponse<ThreadWatcherResponse>>()
+        assertEquals(2L, first.total)
+        assertEquals(1, first.items.size)
+        val second = cast.member.client.get("$path&page=2").body<PageResponse<ThreadWatcherResponse>>()
+        assertEquals(2L, second.total)
+        assertEquals(setOf(cast.author.id, cast.member.id), (first.items + second.items).map { it.userId }.toSet())
+        assertEquals(HttpStatusCode.Forbidden, cast.admin.client.get(path).status)
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.watch(cast.room, 1, false).status)
+        val remaining = cast.author.client.get("$rooms/${cast.room}/threads/1/watchers").body<PageResponse<ThreadWatcherResponse>>()
+        assertEquals(listOf(cast.author.id), remaining.items.map { it.userId })
+        assertEquals(1L, remaining.total)
     }
 
     @Test
@@ -306,6 +347,9 @@ class ThreadWatchTest {
         assertEquals(2 to listOf(cast.author.id, cast.member.id).sorted(), counted())
         TestUsers.softDelete(cast.member.id)
         assertEquals(1 to listOf(cast.author.id), counted(), "a deleted account's row stays but never counts")
+        val listed = cast.author.client.get("$rooms/${cast.room}/threads/1/watchers").body<PageResponse<ThreadWatcherResponse>>()
+        assertEquals(listOf(cast.author.id), listed.items.map { it.userId })
+        assertEquals(1L, listed.total)
         val among = suspendTransaction(sharedDatabaseForTests()) {
             service.watchingAmong(cast.room, cast.author.id, listOf(cast.threadId, 2_000_000_000u)) to
                 service.watchingAmong(cast.room, cast.author.id, emptyList())

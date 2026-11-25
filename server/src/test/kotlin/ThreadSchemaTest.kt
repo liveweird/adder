@@ -568,6 +568,9 @@ class ThreadSchemaTest {
             assertEquals(1, c.exec(join, room, user))
             assertState(FK_VIOLATION, "the key names the room the member belongs to") { c.exec(insert, thread, user, room + 1) }
             assertEquals(1, c.exec(insert, thread, user, room))
+            assertEquals(1L, c.scalar("SELECT watching::int FROM thread_watches WHERE thread_id = ? AND user_id = ?", thread, user))
+            assertEquals(1, c.exec("UPDATE thread_watches SET watching = FALSE WHERE thread_id = ? AND user_id = ?", thread, user))
+            assertEquals(0L, c.scalar("SELECT watching::int FROM thread_watches WHERE thread_id = ? AND user_id = ?", thread, user))
             assertState(UNIQUE_VIOLATION, "one watch per member and thread") { c.exec(insert, thread, user, room) }
 
             assertEquals(1, c.exec("DELETE FROM room_members WHERE room_id = ? AND user_id = ?", room, user))

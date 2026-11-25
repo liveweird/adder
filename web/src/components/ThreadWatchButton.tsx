@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Group, Text, VisuallyHidden } from "@mantine/core";
+import { Button, Group } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconEye, IconEyeFilled } from "@tabler/icons-react";
 import type { RoomResponse } from "../api/rooms";
 import { setThreadWatch, type ThreadResponse } from "../api/threads";
 import { canWatch, refreshAfterWatchFailure, refreshAfterWatchWrite, watchErrorMessage } from "../utils/watch";
 import HeaderIconButton from "./HeaderIconButton";
+import ThreadWatcherModal from "./ThreadWatcherModal";
 
 /**
  * "Watch this thread" in the thread pane's header, beside the pin button: an icon button (`HeaderIconButton`), a toggle (`aria-pressed`, one constant label) for a member of
@@ -19,10 +20,9 @@ export default function ThreadWatchButton({ room, thread, onError }: { room: Roo
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [rosterOpen, setRosterOpen] = useState(false);
   if (!canWatch(room)) return null;
   const { watching } = thread;
-  const countLabel = t("threads.watch.count", { count: thread.watcherCount });
-
   async function toggle() {
     onError(null);
     setBusy(true);
@@ -46,10 +46,16 @@ export default function ThreadWatchButton({ room, thread, onError }: { room: Roo
         icon={watching ? <IconEyeFilled size={16} /> : <IconEye size={16} />}
         onClick={() => void toggle()}
       />
-      <Text size="xs" c="dimmed" title={countLabel}>
-        <VisuallyHidden>{countLabel}</VisuallyHidden>
-        <span aria-hidden="true">{thread.watcherCount}</span>
-      </Text>
+      <Button
+        variant="subtle"
+        color="gray"
+        size="compact-xs"
+        aria-label={t("threads.watch.showPeople", { count: thread.watcherCount })}
+        onClick={() => setRosterOpen(true)}
+      >
+        {thread.watcherCount}
+      </Button>
+      <ThreadWatcherModal roomId={room.id} number={thread.number} opened={rosterOpen} onClose={() => setRosterOpen(false)} />
     </Group>
   );
 }

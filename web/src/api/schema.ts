@@ -1520,11 +1520,51 @@ export interface paths {
          *
          *     A closed thread and an ARCHIVED room can be watched and unwatched: a watch is the member's own state, not a write to the room.
          *     It takes NO room lock (it holds only the caller's own membership row for the commit), emits no live event and moves no activity
-         *     order; the caller's other tabs catch up on focus. The creator of a thread and each new owner of one watch it automatically, and may
-         *     stop. Leaving or being removed from the room drops the person's watches. What a watch does is read through `watching` and
+         *     order; the caller's other tabs catch up on focus. The creator and a member who replies watch automatically. A new owner watches
+         *     automatically unless they explicitly stopped watching before; an explicit stop also survives later replies. Setting `watching=true`
+         *     opts back in. Leaving or being removed from the room drops the preference. What a watch does is read through `watching` and
          *     `watcherCount` of the thread and `watching` of the thread list and its filter.
          */
         put: operations["setThreadWatch"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/threads/{number}/watchers": {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the people watching a thread
+         * @description Members of the room can page through the active users who currently watch the thread. An inaccessible room is the uniform
+         *     `404`; an `ADMIN` who is not a member gets `403`. Inactive watch preferences and soft-deleted users are omitted. Sortable by
+         *     `id` or `name`; default `id`, with `id` as the stable tiebreaker.
+         */
+        get: operations["listThreadWatchers"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -3854,6 +3894,19 @@ export interface components {
         WatchRequest: {
             /** @description Whether the caller watches the thread after the call. */
             watching: boolean;
+        };
+        ThreadWatcher: {
+            /** Format: int64 */
+            userId: number;
+            /** @description The active user's current display name. */
+            name: string;
+        };
+        ThreadWatcherPage: {
+            items: components["schemas"]["ThreadWatcher"][];
+            page: number;
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
         };
         ReactionRequest: {
             /** @description ONE emoji when adding, any other text is `400`; when removing, the stored value within the length bounds. */
@@ -6729,6 +6782,48 @@ export interface operations {
             413: components["responses"]["PayloadTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listThreadWatchers: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
+                number: components["parameters"]["ThreadNumberPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of watchers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadWatcherPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             500: components["responses"]["InternalServerError"];
         };
     };

@@ -265,8 +265,12 @@ class PopulatedUpgradeTest {
             8 to 3,
             9 to 2, // a soft-deleted room keeps its threads' watches
         )
-        val watches = query(database, "SELECT thread_id, user_id FROM thread_watches ORDER BY 1, 2") { it.getInt(1) to it.getInt(2) }
+        val watches = query(database, "SELECT thread_id, user_id FROM thread_watches WHERE watching ORDER BY 1, 2") {
+            it.getInt(1) to it.getInt(2)
+        }
         assertEquals(expected, watches, "the backfill: creators and owners who still hold a membership row")
+        val inactive = query(database, "SELECT count(*) FROM thread_watches WHERE NOT watching") { it.getLong(1) }.single()
+        assertEquals(0L, inactive, "V40 keeps every pre-change watch active")
         val wrongRoom = query(
             database,
             "SELECT count(*) FROM thread_watches w JOIN threads t ON t.id = w.thread_id " +

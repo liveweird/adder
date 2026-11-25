@@ -170,7 +170,7 @@ WITH candidates AS (
     JOIN rooms r ON r.id = t.room_id AND NOT r.marked_as_deleted
     JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = w.user_id
     JOIN room_statuses s ON s.room_id = t.room_id AND s.key = t.status_key AND NOT s.marked_as_deleted
-    WHERE w.user_id = CAST(? AS int8)
+    WHERE w.user_id = CAST(? AS int8) AND w.watching
 ), selected AS (
     SELECT * FROM candidates
     ORDER BY unread DESC, last_activity_at DESC, id DESC

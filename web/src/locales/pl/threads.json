@@ -336,7 +336,13 @@
   },
   "watch": {
     "thread": "Obserwuj ten wątek",
-    "count": "Obserwujący: {{count}}",
+    "showPeople_one": "Pokaż {{count}} osobę obserwującą",
+    "showPeople_few": "Pokaż {{count}} osoby obserwujące",
+    "showPeople_many": "Pokaż {{count}} osób obserwujących",
+    "showPeople_other": "Pokaż {{count}} osoby obserwującej",
+    "peopleTitle": "Osoby obserwujące",
+    "peopleEmpty": "Nikt nie obserwuje tego wątku.",
+    "peopleLoadFailed": "Nie udało się wczytać osób obserwujących",
     "mark": "Obserwujesz ten wątek",
     "error": {
       "forbidden": "Wątki mogą obserwować tylko członkowie/członkinie pokoju.",
