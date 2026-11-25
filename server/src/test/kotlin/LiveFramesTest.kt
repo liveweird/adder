@@ -17,11 +17,12 @@ import kotlin.test.assertTrue
 /** The wire frames of the live socket (`live/LiveFrames.kt`, `live.md` "Frames and close codes"): strict in, lean out. */
 class LiveFramesTest {
     @Test
-    fun `the four client frames parse`() {
+    fun `the client frames parse`() {
         assertEquals(LiveClientFrame.Auth("t".repeat(43)), parseClientFrame("""{"type":"auth","ticket":"${"t".repeat(43)}"}"""))
         assertEquals(LiveClientFrame.Subscribe(listOf(12, 40)), parseClientFrame("""{"type":"subscribe","roomIds":[12,40]}"""))
         assertEquals(LiveClientFrame.Unsubscribe(listOf(40)), parseClientFrame("""{"type":"unsubscribe","roomIds":[40]}"""))
         assertEquals(LiveClientFrame.Ping, parseClientFrame("""{"type":"ping"}"""))
+        assertEquals(LiveClientFrame.Foreground(true), parseClientFrame("""{"type":"foreground","visible":true}"""))
     }
 
     @Test
@@ -56,7 +57,7 @@ class LiveFramesTest {
 
     @Test
     fun `server frames serialize as the spec says`() {
-        assertEquals("""{"type":"ready","protocol":1,"maxSubscriptions":128}""", LiveServerFrame.Ready().toJson())
+        assertEquals("""{"type":"ready","protocol":1,"maxSubscriptions":128,"presenceSupported":true}""", LiveServerFrame.Ready().toJson())
         assertEquals(
             """{"type":"subscribed","roomIds":[12],"refused":[40],"capped":[]}""",
             LiveServerFrame.Subscribed(listOf(12u), listOf(40u), emptyList()).toJson(),

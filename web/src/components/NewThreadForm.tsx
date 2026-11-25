@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Alert, Button, Collapse, Group, Stack, TextInput, Title } from "@mantine/core";
@@ -13,6 +13,7 @@ import { useThreadDrafts } from "../hooks/useThreadDrafts";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
 import { charCountDescription } from "../utils/charCount";
 import { isSendShortcut } from "../utils/messageForm";
+import { appendMentionToken } from "../utils/mentionText";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
 import { focusThreadPaneState, roomPath, threadPath, withListParams } from "../utils/roomLinks";
@@ -31,6 +32,7 @@ import {
 import { showSuccessToast } from "../utils/toast";
 import { WATCH_SEARCH_KEYS } from "../utils/watch";
 import ConfirmActionModal from "./ConfirmActionModal";
+import AddAndMention, { type AddedMention } from "./AddAndMention";
 import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
 import LoadingBlock from "./LoadingBlock";
@@ -56,6 +58,8 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
     drafts.set(room.id, isThreadDraftEmpty(form.values) ? null : form.values);
   }, [drafts, room.id, form.values]);
   const [submitting, setSubmitting] = useState(false);
+  const [addingMember, setAddingMember] = useState(false);
+  const bodyInput = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
   const guard = useDiscardGuard({ isDirty: () => !isThreadDraftEmpty(form.values), to: withListParams(roomPath(room.id), search) });
@@ -77,6 +81,7 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
   );
 
   async function submit(values: ThreadFormValues) {
+    if (addingMember) return;
     setError(null);
     setSubmitting(true);
     try {
@@ -94,6 +99,13 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
       // A 400 may mean the room's fields moved on (the message says so when it names one): re-read them (the shared workflow key), so the next visit to the form is current.
       if (err instanceof ApiError && err.status === 400) await queryClient.invalidateQueries({ queryKey: roomKeys.workflow(room.id) });
     }
+  }
+
+  function addMention({ token }: AddedMention) {
+    const values = bodyInput.current ? form.getValues() : drafts.get(room.id) ?? form.getValues();
+    const body = appendMentionToken(values.body, token);
+    if (bodyInput.current) form.setFieldValue("body", body);
+    drafts.set(room.id, { ...values, body });
   }
 
   // An error on a field behind the disclosure opens it, or the failure would be invisible.
@@ -114,28 +126,30 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
             disabled={submitting}
             {...form.getInputProps("title")}
           />
-          <MentionTextarea
-            roomId={room.id}
-            // A thread that is not started has no watchers but its author: `@watchers` is not offered here.
-            offerWatchers={false}
-            label={t("threads.new.bodyLabel")}
-            description={t("threads.new.bodyHint")}
-            required
-            autosize
-            minRows={5}
-            maxRows={16}
-            maxLength={MAX_MESSAGE_BODY_LENGTH}
-            inputWrapperOrder={["label", "input", "description", "error"]}
-            disabled={submitting}
-            // Ctrl/Cmd+Enter starts the thread, as it posts in the composer; Enter stays a newline (and picks, while the mention list is open).
-            onKeyDown={(event) => {
-              if (isSendShortcut(event) && !submitting) {
-                event.preventDefault();
-                void form.onSubmit(submit, onInvalid)();
-              }
-            }}
-            {...form.getInputProps("body")}
-          />
+          <div ref={bodyInput}>
+            <MentionTextarea
+              roomId={room.id}
+              // A thread that is not started has no watchers but its author: `@watchers` is not offered here.
+              offerWatchers={false}
+              label={t("threads.new.bodyLabel")}
+              description={t("threads.new.bodyHint")}
+              required
+              autosize
+              minRows={5}
+              maxRows={16}
+              maxLength={MAX_MESSAGE_BODY_LENGTH}
+              inputWrapperOrder={["label", "input", "description", "error"]}
+              disabled={submitting}
+              // Ctrl/Cmd+Enter starts the thread, as it posts in the composer; Enter stays a newline (and picks, while the mention list is open).
+              onKeyDown={(event) => {
+                if (isSendShortcut(event) && !submitting && !addingMember) {
+                  event.preventDefault();
+                  void form.onSubmit(submit, onInvalid)();
+                }
+              }}
+              {...form.getInputProps("body")}
+            />
+          </div>
           {required.map(renderField)}
           {optional.length > 0 && (
             <>
@@ -157,10 +171,12 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
           )}
           {error && <FormErrorAlert>{error}</FormErrorAlert>}
           <Group justify="flex-end">
-            <Button type="button" variant="default" onClick={guard.requestCancel} disabled={submitting}>
+            <AddAndMention room={room} disabled={submitting} onMention={addMention} onBusyChange={setAddingMember}
+              focusAfterAdd={() => bodyInput.current?.querySelector("textarea")?.focus()} />
+            <Button type="button" variant="default" onClick={guard.requestCancel} disabled={submitting || addingMember}>
               {t("common.action.cancel")}
             </Button>
-            <Button type="submit" loading={submitting}>
+            <Button type="submit" loading={submitting} disabled={addingMember}>
               {t("threads.new.submit")}
             </Button>
           </Group>

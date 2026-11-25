@@ -11,7 +11,7 @@ const tagHref = (tag: string) => `/rooms/7/threads/42?scope=all&tag=${encodeURIC
 
 type Mentioned = { userId: number; name: string }[];
 
-type Grouped = { kind: "TEAM" | "WATCHERS" | "EVERYONE"; teamId: number | null; teamHandle: string | null }[];
+type Grouped = { kind: "TEAM" | "WATCHERS" | "HERE" | "EVERYONE"; teamId: number | null; teamHandle: string | null }[];
 
 function renderView(markdown: string, variant?: MarkdownVariant, tags?: (tag: string) => string, mentions?: Mentioned, groups?: Grouped) {
   return render(
@@ -352,13 +352,15 @@ describe("MarkdownView (message): group mentions", () => {
   const groups: Grouped = [
     { kind: "TEAM", teamId: 12, teamHandle: "oncall" },
     { kind: "WATCHERS", teamId: null, teamHandle: null },
+    { kind: "HERE", teamId: null, teamHandle: null },
     { kind: "EVERYONE", teamId: null, teamHandle: null },
   ];
 
   test("a listed team reads @handle, a listed keyword reads itself, anything unlisted stays the raw token", () => {
-    renderView("Hey <@team:12>, <@watchers> and <@everyone>; not <@team:99>.", "message", undefined, undefined, groups);
+    renderView("Hey <@team:12>, <@watchers>, <@here> and <@everyone>; not <@team:99>.", "message", undefined, undefined, groups);
     expect(screen.getByText("@oncall")).toHaveAttribute("data-mention-team", "12");
     expect(screen.getByText("@watchers")).toHaveAttribute("data-mention-group", "watchers");
+    expect(screen.getByText("@here")).toHaveAttribute("data-mention-group", "here");
     expect(screen.getByText("@everyone")).toHaveAttribute("data-mention-group", "everyone");
     expect(screen.getByText(/not <@team:99>\./)).toBeInTheDocument();
     expect(screen.queryByText(/<@team:12>/)).toBeNull();

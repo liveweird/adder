@@ -26,6 +26,7 @@ private val ADDRESSED_KINDS = setOf(
     NotificationType.MESSAGE_QUOTED,
     NotificationType.TEAM_MENTIONED,
     NotificationType.WATCHERS_MENTIONED,
+    NotificationType.HERE_MENTIONED,
     NotificationType.EVERYONE_MENTIONED,
     NotificationType.THREAD_ASSIGNED,
 )

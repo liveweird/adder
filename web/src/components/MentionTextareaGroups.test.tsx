@@ -133,7 +133,7 @@ describe("MentionTextarea: teams and groups", () => {
       expect(teamCalls()).toHaveLength(0);
     });
 
-    test("the groups are offered by their word, and the watchers also by 'observers'", async () => {
+    test("the groups are offered by their word and aliases, and picks preserve canonical tokens", async () => {
       const user = userEvent.setup();
       renderWithProviders(<Harness />);
       await user.type(box(), "@ev");
@@ -147,9 +147,14 @@ describe("MentionTextarea: teams and groups", () => {
       await user.keyboard("{Enter}");
       expect(stored()).toBe("<@everyone> <@watchers> ");
       expect(box()).toHaveValue("@everyone @watchers ");
+      await user.type(box(), "@onl");
+      const here = await screen.findByRole("option", { name: /@here.*Online members of this room/i });
+      await user.click(here);
+      expect(stored()).toBe("<@everyone> <@watchers> <@here> ");
+      expect(box()).toHaveValue("@everyone @watchers @here ");
     });
 
-    test("an empty @ lists the people and then the groups; where there are no watchers only 'everyone' is offered", async () => {
+    test("an empty @ lists people then group keywords; a thread without watchers still offers everyone and here", async () => {
       const user = userEvent.setup();
       const { unmount } = renderWithProviders(<Harness />);
       await user.type(box(), "@");
@@ -159,6 +164,7 @@ describe("MentionTextarea: teams and groups", () => {
         expect.stringContaining("Anna Other"),
         expect.stringContaining("Bob"),
         expect.stringContaining("@everyone"),
+        expect.stringContaining("@here"),
         expect.stringContaining("@watchers"),
       ]);
       unmount();
@@ -166,6 +172,7 @@ describe("MentionTextarea: teams and groups", () => {
       await user.type(box(), "@");
       await screen.findByRole("option", { name: /@everyone/ });
       expect(screen.queryByRole("option", { name: /@watchers/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("option", { name: /@here/ })).toBeInTheDocument();
     });
 
     test("a draft that names everyone says how many people that reaches, without asking", async () => {

@@ -25,6 +25,9 @@ enum class NotificationType {
     /** The recipient watches the thread and a message in it mentions the watchers (`<@watchers>`). */
     WATCHERS_MENTIONED,
 
+    /** The recipient had a visible, recently active tab when a message introduced `<@here>`. */
+    HERE_MENTIONED,
+
     /** The recipient is a member of the room and a message mentions everyone (`<@everyone>`). */
     EVERYONE_MENTIONED,
 
@@ -59,7 +62,7 @@ enum class NotificationType {
      * its defaults here, never inherit one, and the choice is frozen with the name (a stored row only ever says "different from this").
      */
     fun defaultOn(channel: NotificationChannel): Boolean = when (this) {
-        MENTIONED, MESSAGE_QUOTED, TEAM_MENTIONED, WATCHERS_MENTIONED, EVERYONE_MENTIONED, THREAD_REPLIED, THREAD_CREATED,
+        MENTIONED, MESSAGE_QUOTED, TEAM_MENTIONED, WATCHERS_MENTIONED, HERE_MENTIONED, EVERYONE_MENTIONED, THREAD_REPLIED, THREAD_CREATED,
         THREAD_ASSIGNED, THREAD_OWNER_CHANGED, THREAD_STATUS_CHANGED, THREAD_CLOSED, THREAD_REOPENED, ROOM_ADDED,
         -> channel == NotificationChannel.IN_APP
     }

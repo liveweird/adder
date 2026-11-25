@@ -1,6 +1,7 @@
 package ch.nokillswit.threads
 
 import ch.nokillswit.infra.db.insertRows
+import ch.nokillswit.infra.presence.ForegroundPresence
 import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.teams.TeamService
@@ -51,6 +52,7 @@ internal class MessageMentionService(
     private val notices: ThreadNotices,
     private val watches: ThreadWatchService,
     teams: TeamService,
+    private val presence: ForegroundPresence = ForegroundPresence(),
 ) : MessageFollower {
     /** The group mentions (V30): `<@team:id>`, `<@watchers>`, `<@everyone>`, kept in step with the same body by the same write. */
     val groups = MessageGroupMentionIndex(teams)
@@ -83,6 +85,8 @@ internal class MessageMentionService(
         groups.insertInTransaction(ref, named)
         val opening = ref.opening()
         val reach = GroupReach(members, watches, ref.roomId, ref.threadId)
+        val hereMentioned = if (named.here) reach.members().filter { it in presence.activeUserIds() && it != authorId } else emptyList()
+        if (named.here) replaceHereSnapshot(ref, hereMentioned)
         val teamMembers = reach.teamMembers(named.rosters.values)
         val audience = NoticeAudience.ofMessage(
             opening,
@@ -93,6 +97,7 @@ internal class MessageMentionService(
             teamMentioned = teamMembers,
             watchersMentioned = named.watchers,
             everyoneMentioned = named.everyone,
+            hereMentioned = hereMentioned,
             quoted = quoted,
         )
         return notices.forMessage(ref, authorId, audience)
@@ -111,6 +116,7 @@ internal class MessageMentionService(
         val parsed = parseMentions(body)
         val change = replaceInTransaction(ref, body, parsed)
         val held = groups.heldBy(ref.messageId)
+        val heldHere = if (held.here) hereSnapshot(ref.messageId) else emptyList()
         val directSame = change.added.isEmpty() && change.removed.isEmpty()
         // The common edit changes no token: decided from the parsed ids against the held rows, before any team is read.
         if (directSame && held.matches(parsed)) return NoticeOutcome.NONE
@@ -120,7 +126,13 @@ internal class MessageMentionService(
         val existing = notices.ofMessage(ref.messageId)
         val opening = ref.opening()
         val reach = GroupReach(members, watches, ref.roomId, ref.threadId)
-        val before = previousReasons(reach, change, held, now, opening)
+        val nowHere = when {
+            !now.here -> emptyList()
+            held.here -> heldHere
+            else -> reach.members().filter { it in presence.activeUserIds() && it != authorId }
+        }
+        if (held.here != now.here) replaceHereSnapshot(ref, nowHere)
+        val before = previousReasons(reach, change, held, now, opening, heldHere)
         // Whom a dropped mention falls back to: the room's members for an opening message (only the people it dropped, the people it added
         // and the people who hold a mention notice can matter), the thread's watchers for a reply.
         val holders = existing.filterValues { it in NoticeAudience.MENTION_REASONS }.keys
@@ -139,9 +151,12 @@ internal class MessageMentionService(
             before,
             if (opening) emptyList() else reach.watchers(),
             everyone,
-            teamMentioned = reach.teamMembers(now.rosters.values),
-            watchersMentioned = now.watchers,
-            everyoneMentioned = now.everyone,
+            groups = MentionGroupAudience(
+                teams = reach.teamMembers(now.rosters.values),
+                watchers = now.watchers,
+                everyone = now.everyone,
+                here = nowHere,
+            ),
             quoted = quoted,
         )
         return if (revision.isEmpty) NoticeOutcome.NONE else notices.reviseMessage(ref, authorId, revision)
@@ -159,6 +174,7 @@ internal class MessageMentionService(
         held: GroupSet,
         now: GroupSet,
         opening: Boolean,
+        heldHere: Collection<UInt>,
     ): Map<UInt, NoticeReason> {
         val before = HashMap<UInt, NoticeReason>()
         fun note(users: Collection<UInt>, reason: NoticeReason) {
@@ -170,6 +186,7 @@ internal class MessageMentionService(
         // `<@watchers>` in an OPENING message reached nobody (only its author watches): it is no old reason, and costs no read.
         if (held.watchers && !opening) note(reach.watchers(), NoticeReason.WATCHERS_MENTIONED)
         if (held.everyone) note(reach.members(), NoticeReason.EVERYONE_MENTIONED)
+        if (held.here) note(heldHere, NoticeReason.HERE_MENTIONED)
         return before
     }
 
@@ -180,6 +197,7 @@ internal class MessageMentionService(
     override suspend fun deleted(ref: MessageRef) {
         clearInTransaction(ref.messageId)
         groups.clearInTransaction(ref.messageId)
+        replaceHereSnapshot(ref, emptyList())
         notices.messageRemoved(ref.messageId)
     }
 

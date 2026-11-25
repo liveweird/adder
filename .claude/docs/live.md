@@ -62,12 +62,13 @@ Client to server (JSON text frames, parsed strictly):
 {"type":"subscribe","roomIds":[12,40]}            1..128 positive ids
 {"type":"unsubscribe","roomIds":[40]}
 {"type":"ping"}
+{"type":"foreground","visible":true}
 ```
 
 Server to client (the client ignores unknown types and fields):
 
 ```
-{"type":"ready","protocol":1,"maxSubscriptions":128}
+{"type":"ready","protocol":1,"maxSubscriptions":128,"presenceSupported":true}
 {"type":"subscribed","roomIds":[12],"refused":[40],"capped":[]}
 {"type":"event","kind":"message.posted","roomId":12,"threadNumber":7,"messageId":991}
 {"type":"revoked","roomId":12}
@@ -78,6 +79,10 @@ Server to client (the client ignores unknown types and fields):
 `refused` deliberately mixes "no such room" with "not readable" (uniform, like the REST 404); `capped` lists the ids over 128. The frames are typed in the
 OpenAPI spec as components (`LiveClientFrame`, `LiveServerFrame`, `LiveEventKind`) and generated into `schema.ts`; the Kotlin `LiveKind` enum is pinned
 equal to the spec enum and to the audit names.
+
+`foreground` is additive and capability-gated: a client sends it only after a `ready` carrying `presenceSupported: true`. A visible tab renews
+the frame on the normal 25-second ping cadence and sends `visible:false` as soon as it is hidden. The server keeps a 60-second process-local
+lease per authenticated socket; any fresh visible socket makes the user present, and shutdown clears the registry before sockets drain.
 
 | Code | When | Client |
 |---|---|---|

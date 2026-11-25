@@ -1359,7 +1359,8 @@ export interface paths {
          *     as is a value that breaks its type's rule. The thread, its opening message, its `CREATED` history entry and the activity bump of the thread and the room commit
          *     together, and so do the notifications (`listNotifications`): every other ACTIVE member of the room gets `THREAD_CREATED`, or the most
          *     specific of `MENTIONED` (named with `<@id>`), `TEAM_MENTIONED` (a member of a team the body names with `<@team:id>`) and
-         *     `EVERYONE_MENTIONED` (`<@everyone>`); `<@watchers>` in an opening message reaches nobody. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
+         *     `HERE_MENTIONED` (an active member with a fresh visible-tab lease when `<@here>` is introduced) and `EVERYONE_MENTIONED`
+         *     (`<@everyone>`); `<@watchers>` in an opening message reaches nobody. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
          *     beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The request body is at most 192 KiB (`413` beyond it)
          *     and `fields` holds at most 20 keys whose values are primitives, `null` or a list of at most 50 option keys (anything else, a
          *     nested object included, is a `400` before any lock); the stored values may not exceed 439,001 characters of JSON (`400`). The write
@@ -1757,7 +1758,8 @@ export interface paths {
          *     never the poster; a person who left the room or whose account was deleted is not told and the post still succeeds),
          *     `TEAM_MENTIONED` for each member of the room on the roster of a team it names with
          *     `<@team:id>` (a team member who is not in the room is never told; a team that is deleted, unknown or has no handle is plain text),
-         *     `WATCHERS_MENTIONED` for each WATCHER of the thread when it names `<@watchers>`, `EVERYONE_MENTIONED` for every member of the room when
+         *     `WATCHERS_MENTIONED` for each WATCHER of the thread when it names `<@watchers>`, `HERE_MENTIONED` for each active room member whose
+         *     visible-tab lease is fresh when `<@here>` is introduced, `EVERYONE_MENTIONED` for every member of the room when
          *     it names `<@everyone>` (any member may), and a `THREAD_REPLIED` one for each other WATCHER of the thread (one notice per person, the most
          *     specific reason in that order; never the author). At most 20 distinct people, 5 distinct teams and each keyword once count; the rest are
          *     plain text. A group mention reaching more than 20 people is a wide event (the daily budget below). Rides the per-USER `chat-post` bucket of 120 per minute shared with
@@ -1864,9 +1866,11 @@ export interface paths {
          *     The body rules are those of the post. The message's quote (`quote`) is set when it is posted and cannot be added, changed or
          *     removed by an edit: the request has no `quotedMessageId`, so naming one is a `400`; the quote stays through the edit. Sending the body the message already has (after normalising) is `204` with no write and
          *     no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
-         *     order are untouched. Only the people the edit NEWLY addresses are notified (addressed by the new body, by name or through a team, the
-         *     watchers or everyone, and not by the old one, the old body's groups read as of the edit; a group token the edit KEPT addresses
-         *     nobody again; a person who held a less specific notice of the message gets a fresh one in its place), and the notification of a
+         *     order are untouched. Only the people the edit NEWLY addresses are notified: addressed by the new body, by name or through a team,
+         *     the watchers, here or everyone, and not by the old one; team, watcher and everyone recipients are read as of the edit. A kept
+         *     `<@here>` token preserves the recipient snapshot taken when it was introduced and addresses nobody again; removing it deletes that
+         *     snapshot, and adding it in a later edit takes a new snapshot of recently active visible tabs. A person who held a less specific
+         *     notice of the message gets a fresh one in its place, and the notification of a
          *     mention the edit removed or made less specific is relabelled in place to the next reason that applies (`THREAD_REPLIED` when the person
          *     watches the thread, `THREAD_CREATED` for an opening message) or, for anybody else, is deleted; an edit as such notifies nobody. An
          *     edit that newly addresses more than 20 people counts as a wide event; a relabel alone does not. Last writer wins: the author alone writes it and the room lock serialises their own requests.
@@ -2197,15 +2201,15 @@ export interface paths {
          *     removed, takes its notice with it. A caller who belongs to no room gets an empty page.
          *
          *     A notice is made INSIDE the write that caused it, one per person and event, labelled with the most specific reason
-         *     (`NotificationType`, twelve kinds). The writes make these: `MENTIONED` (a post, a thread's opening message or an edit that
+         *     (`NotificationType`, thirteen thread kinds). The writes make these: `MENTIONED` (a post, a thread's opening message or an edit that
          *     newly mentions the caller with `<@id>`; never for a mention of oneself), `MESSAGE_QUOTED` (a post that quotes a message of the caller's;
          *     never for quoting one's own message, and not for a caller who is no longer an active member of the room; an edit of that post can
          *     also make it, when it newly names a group the caller is in and they hold no notice of it, or turn the caller's `MENTIONED` notice
          *     into it when the edit drops the `<@id>` mention), `THREAD_REPLIED` (a reply in a thread the caller watches),
          *     `THREAD_CREATED` (a new thread in a room the caller is a member of), `THREAD_ASSIGNED` and `THREAD_OWNER_CHANGED` (a hand-over: the
          *     new owner, and the thread's other watchers; nothing for a steward who takes the thread themself), and `THREAD_STATUS_CHANGED`,
-         *     `THREAD_CLOSED` and `THREAD_REOPENED` (a status move of a thread the caller watches); the three group-mention kinds (a team, the
-         *     watchers or everyone) are named so a client can show them as the writes that make them arrive. An actor is never notified of their
+         *     `THREAD_CLOSED` and `THREAD_REOPENED` (a status move of a thread the caller watches); the four group-mention kinds (a team, the
+         *     watchers, here or everyone) are named so a client can show them as the writes that make them arrive. An actor is never notified of their
          *     own write. An event that would notify more than 20 people counts against the actor's daily wide-event budget
          *     (`notifications.maxBroadcastsPerActorPerDay`); over it the write still succeeds and only the people named directly are notified. Each
          *     notice reaches the caller's open tabs as the live `notification.created` event, on every socket the caller has, subscribed to the
@@ -2693,8 +2697,17 @@ export interface components {
              */
             type: "ping";
         };
+        /** @description Renew or clear this authenticated tab's short foreground-presence lease. */
+        LiveForegroundFrame: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "foreground";
+            visible: boolean;
+        };
         /** @description A frame the client sends (JSON text, at most 8 KiB, parsed strictly). */
-        LiveClientFrame: components["schemas"]["LiveAuthFrame"] | components["schemas"]["LiveSubscribeFrame"] | components["schemas"]["LiveUnsubscribeFrame"] | components["schemas"]["LivePingFrame"];
+        LiveClientFrame: components["schemas"]["LiveAuthFrame"] | components["schemas"]["LiveSubscribeFrame"] | components["schemas"]["LiveUnsubscribeFrame"] | components["schemas"]["LivePingFrame"] | components["schemas"]["LiveForegroundFrame"];
         /** @description The ticket was good; the socket is authenticated. */
         LiveReadyFrame: {
             /**
@@ -2712,6 +2725,8 @@ export interface components {
              * @description Subscriptions allowed per socket (128).
              */
             maxSubscriptions: number;
+            /** @description Whether the server accepts foreground lease frames. */
+            presenceSupported?: boolean;
         };
         /** @description The answer to ONE `subscribe` frame, about that frame's ids only: `roomIds` are subscribed now, `refused` are rooms that do not exist or the caller cannot read (deliberately indistinguishable) and `capped` are ids over the per-socket subscription limit. */
         LiveSubscribedFrame: {
@@ -3829,7 +3844,7 @@ export interface components {
             createdAt: number;
             /** @description The room members the body mentions with `<@id>` (an active member when the message was written or edited), by their CURRENT display name, ordered by user id; empty on a tombstone and on a message written before mentions were indexed. A token whose id is not listed here is plain text. */
             mentions: components["schemas"]["MentionedUser"][];
-            /** @description The group mentions of the body that took effect: `<@team:id>` of a team that is active and has a handle (at most 5), `<@watchers>` and `<@everyone>` (once each), teams by id and then the keywords; empty on a tombstone and on a message written before group mentions were indexed. A team shows its CURRENT handle and name. A token that is not listed here is plain text. */
+            /** @description The group mentions of the body that took effect: `<@team:id>` of a team that is active and has a handle (at most 5), `<@watchers>`, `<@here>` and `<@everyone>` (once each), teams by id and then the keywords; empty on a tombstone and on a message written before group mentions were indexed. A team shows its CURRENT handle and name. A token that is not listed here is plain text. */
             groupMentions: components["schemas"]["GroupMention"][];
             /** @description The emoji on the message, in the order each first appeared; empty when there are none and on a tombstone. At most 20 distinct. */
             reactions: components["schemas"]["ReactionSummary"][];
@@ -3872,21 +3887,21 @@ export interface components {
             /** @description The person's current display name (a soft-deleted account keeps its last one). */
             name: string;
         };
-        /** @description One group mention of a message. A client shows `<@team:id>` as `@handle`, `<@watchers>` as `@watchers` and `<@everyone>` as `@everyone`, and only when the token is listed here. */
+        /** @description One group mention of a message. A client shows `<@team:id>` as `@handle` and each keyword (`<@watchers>`, `<@here>`, `<@everyone>`) as its `@name`, and only when the token is listed here. */
         GroupMention: {
             /**
-             * @description Which token: `<@team:id>`, `<@watchers>` or `<@everyone>`. A client treats a value it does not know as plain text.
+             * @description Which token: `<@team:id>`, `<@watchers>`, `<@here>` or `<@everyone>`. A client treats a value it does not know as plain text.
              * @enum {string}
              */
-            kind: "TEAM" | "WATCHERS" | "EVERYONE";
+            kind: "TEAM" | "WATCHERS" | "HERE" | "EVERYONE";
             /**
              * Format: int32
-             * @description The id inside the `<@team:id>` token; `null` for the two keywords.
+             * @description The id inside the `<@team:id>` token; `null` for the three keywords.
              */
             teamId: number | null;
-            /** @description The team's CURRENT mention handle (what follows `@`); `null` for the two keywords. */
+            /** @description The team's CURRENT mention handle (what follows `@`); `null` for the three keywords. */
             teamHandle: string | null;
-            /** @description The team's CURRENT display name; `null` for the two keywords. */
+            /** @description The team's CURRENT display name; `null` for the three keywords. */
             teamName: string | null;
         };
         /** @description One emoji on a message. Use `key` to page through every reactor without putting the emoji in a URL. */
@@ -4001,7 +4016,8 @@ export interface components {
         /**
          * @description The kind of a notice, which is also its reason (persisted, never renamed): `MENTIONED` (named with `<@id>`), `MESSAGE_QUOTED` (a reply
          *     quoted a message of the caller's, `quotedMessageId` of `postThreadMessage`), `TEAM_MENTIONED` (the
-         *     caller's team was named), `WATCHERS_MENTIONED` (the caller watches the thread and its watchers were named), `EVERYONE_MENTIONED`,
+         *     caller's team was named), `WATCHERS_MENTIONED` (the caller watches the thread and its watchers were named), `HERE_MENTIONED`
+         *     (the caller was active when `<@here>` was introduced), `EVERYONE_MENTIONED`,
          *     `THREAD_REPLIED` (a reply in a thread the caller watches), `THREAD_CREATED` (a new thread in a room the caller is in),
          *     `THREAD_ASSIGNED` (someone else made the caller the owner of a thread), `THREAD_OWNER_CHANGED` (a watched thread changed owner),
          *     `THREAD_STATUS_CHANGED` (a watched thread moved within a status category), `THREAD_CLOSED` and `THREAD_REOPENED` (a watched thread
@@ -4009,7 +4025,7 @@ export interface components {
          *     mentions, then `THREAD_REPLIED`). A client treats a value it does not know as plain text.
          * @enum {string}
          */
-        NotificationType: "MENTIONED" | "MESSAGE_QUOTED" | "TEAM_MENTIONED" | "WATCHERS_MENTIONED" | "EVERYONE_MENTIONED" | "THREAD_REPLIED" | "THREAD_CREATED" | "THREAD_ASSIGNED" | "THREAD_OWNER_CHANGED" | "THREAD_STATUS_CHANGED" | "THREAD_CLOSED" | "THREAD_REOPENED";
+        NotificationType: "MENTIONED" | "MESSAGE_QUOTED" | "TEAM_MENTIONED" | "WATCHERS_MENTIONED" | "HERE_MENTIONED" | "EVERYONE_MENTIONED" | "THREAD_REPLIED" | "THREAD_CREATED" | "THREAD_ASSIGNED" | "THREAD_OWNER_CHANGED" | "THREAD_STATUS_CHANGED" | "THREAD_CLOSED" | "THREAD_REOPENED";
         /** @description One notice of the caller. The row holds ids only; the names and the title are read when the list is read. */
         Notification: {
             /**
@@ -4081,7 +4097,7 @@ export interface components {
         NotificationPreferencesUpdate: {
             /** @description Room membership delivery switches. If omitted, the default in-app on and email off applies. */
             roomMembership?: components["schemas"]["RoomMembershipNotificationPreference"];
-            /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 24 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
+            /** @description The pairs to switch OFF. A pair listed twice, or also in `enabled`, is a `400`, and so is a list (the two together) longer than the number of pairs there are (notification types x channels, 26 today: the bound the server enforces, `MAX_PREFERENCE_PAIRS`). */
             disabled: components["schemas"]["NotificationPreferencePair"][];
             /** @description The pairs to switch ON (optional: absent is empty). A pair in neither list takes its default (in the app on, by email off), so a client that sends only `disabled` cannot switch an email on. */
             enabled?: components["schemas"]["NotificationPreferencePair"][];
@@ -7628,7 +7644,7 @@ export interface operations {
             query?: {
                 /** @description `true` = only seen notices, `false` = only unseen ones; omitted = both. */
                 seen?: boolean;
-                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted = every kind; at most 12 distinct. */
+                /** @description Repeatable, any-of; duplicates collapse; an unknown name (case-sensitive) is a `400`; omitted = every kind; at most 13 distinct. */
                 type?: components["schemas"]["NotificationType"][];
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];

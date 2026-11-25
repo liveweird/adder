@@ -82,6 +82,8 @@ One line a spec: what it proves. The design (actors, owned state, numbered steps
 - [`watching.spec.ts`](scenarios/watching.md) — watching a thread (1.1.0; sticky reply following in V40), the caller's own state (nothing is pushed): a member presses "Watch this thread" (`aria-pressed`), opens the watcher-count dialog and finds linked people, the thread's row is marked in words, the "Watching" filter keeps only the watched thread and survives a reload (`watching=me`), and stopping releases the toggle and drops the count; the creator watches from the start; a successful reply starts watching while an explicit Unwatch remains sticky across later replies; room and global search list watched threads (`watching=1`) and unread threads (`unread=me`) with no term, and unread combines with structured status and hashtag clauses.
 - [`list-mutation-refresh.spec.ts`](scenarios/list-mutation-refresh.md) — a held first filter-response for Users or Teams cannot restore a deleted row; a held Feature Flags response cannot undo a successful toggle.
 
+The social journey also covers the privileged **Add and mention** directory flow (the draft is preserved and the canonical mention is posted) and `@here`: the composer describes it as online room members without exposing a presence roster, and a foreground member receives its dedicated notice live.
+
 ### Logging in
 
 `createUserViaUi()` waits for the one-time password reveal to render before reading the password. A click on Show password alone is not evidence that the mask has been replaced. Every journey that creates a user through this shared helper inherits that synchronization.

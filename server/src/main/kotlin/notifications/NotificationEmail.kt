@@ -55,6 +55,10 @@ private fun entryText(type: NotificationType): LocalizedText = when (type) {
         en = "%s mentioned the watchers of #%d (%s)",
         pl = "%s wspomina o obserwujących wątek #%d (%s)",
     )
+    NotificationType.HERE_MENTIONED -> LocalizedText(
+        en = "%s mentioned people here in #%d (%s)",
+        pl = "%s wspomina o obecnych osobach w #%d (%s)",
+    )
     NotificationType.EVERYONE_MENTIONED -> LocalizedText(
         en = "%s mentioned everyone in #%d (%s)",
         pl = "%s wspomina o wszystkich w #%d (%s)",

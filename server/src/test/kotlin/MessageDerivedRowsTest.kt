@@ -187,7 +187,8 @@ class MessageDerivedRowsTest {
     // author's own), the
     // pin the test puts on the message and the reaction it seeds on it.
     private val arrangedByTheBody = setOf(
-        "message_tags", "message_mentions", "message_group_mentions", "notifications", "room_pins", "message_reactions",
+        "message_tags", "message_mentions", "message_group_mentions", "message_here_mentions", "notifications", "room_pins",
+        "message_reactions",
     )
 
     @Test
@@ -201,6 +202,14 @@ class MessageDerivedRowsTest {
         val id = TestThreads.messages.post(w.room, seeded.number, w.caller, body).message.id
         TestThreads.pins.setMessagePin(w.room, id, w.caller, true)
         PostgresTestSupport.connect().use { c ->
+            c.prepareStatement(
+                "INSERT INTO message_here_mentions (message_id, user_id, thread_id, room_id) " +
+                    "SELECT m.id, ?, m.thread_id, t.room_id FROM messages m JOIN threads t ON t.id = m.thread_id WHERE m.id = ?",
+            ).use { st ->
+                st.setLong(1, peer.toLong())
+                st.setInt(2, id.toInt())
+                st.executeUpdate()
+            }
             c.prepareStatement("INSERT INTO message_reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, 1)").use { st ->
                 st.setInt(1, id.toInt())
                 st.setLong(2, w.owner.toLong())

@@ -40,6 +40,10 @@ sealed class LiveClientFrame {
     @Serializable
     @SerialName("ping")
     data object Ping : LiveClientFrame()
+
+    @Serializable
+    @SerialName("foreground")
+    data class Foreground(val visible: Boolean) : LiveClientFrame()
 }
 
 /**
@@ -64,6 +68,7 @@ sealed class LiveServerFrame {
     data class Ready(
         @EncodeDefault val protocol: Int = LIVE_PROTOCOL_VERSION,
         @EncodeDefault val maxSubscriptions: Int = MAX_SUBSCRIPTIONS,
+        @EncodeDefault val presenceSupported: Boolean = true,
     ) : LiveServerFrame()
 
     @Serializable

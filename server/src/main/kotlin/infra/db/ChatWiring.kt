@@ -6,6 +6,8 @@ import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.infra.outbound.PreviewFetcher
 import ch.nokillswit.infra.outbound.PublicLinkPreviewFetcher
+import ch.nokillswit.infra.presence.ForegroundPresence
+import ch.nokillswit.infra.presence.ForegroundPresenceKey
 import ch.nokillswit.notifications.MAX_BROADCASTS_PER_ACTOR
 import ch.nokillswit.notifications.MAX_EMAIL_BUDGET_PER_ACTOR
 import ch.nokillswit.notifications.NoticeWriter
@@ -133,7 +135,9 @@ internal fun Application.publishChatServices(
     attributes.put(ThreadWatchServiceKey, threadWatchService)
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
-    val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService, teamService)
+    val foregroundPresence = ForegroundPresence()
+    attributes.put(ForegroundPresenceKey, foregroundPresence)
+    val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService, teamService, foregroundPresence)
     // Home is a read-only top-layer projection over rooms and threads. It shares the bounded, chat-read-bucketed list limiter.
     attributes.put(HomeServiceKey, HomeService(database, messageMentionService, readLimiter))
     // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.

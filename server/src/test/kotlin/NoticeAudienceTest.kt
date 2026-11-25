@@ -2,8 +2,10 @@ package ch.nokillswit
 
 import ch.nokillswit.threads.Notice
 import ch.nokillswit.threads.NoticeAudience
+import ch.nokillswit.threads.MentionGroupAudience
 import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.threads.NoticeReason.EVERYONE_MENTIONED
+import ch.nokillswit.threads.NoticeReason.HERE_MENTIONED
 import ch.nokillswit.threads.NoticeReason.MENTIONED
 import ch.nokillswit.threads.NoticeReason.MESSAGE_QUOTED
 import ch.nokillswit.threads.NoticeReason.TEAM_MENTIONED
@@ -396,7 +398,7 @@ class NoticeAudienceTest {
         for (case in groupEditCases) {
             val revision = NoticeAudience.ofEdit(
                 case.opening, actor, case.existing, case.mentioned, case.before, case.watchers, members,
-                case.teamMembers, case.watchersMentioned, case.everyoneMentioned,
+                MentionGroupAudience(case.teamMembers, case.watchersMentioned, case.everyoneMentioned),
             )
             assertEquals(case.add, told(revision.add), "${case.name}: add")
             assertEquals(case.relabel, told(revision.relabel), "${case.name}: relabel")
@@ -493,7 +495,7 @@ class NoticeAudienceTest {
         for (case in quoteEditCases) {
             val revision = NoticeAudience.ofEdit(
                 false, actor, case.existing, case.mentioned, case.before, case.watchers, members,
-                everyoneMentioned = case.everyoneMentioned, quoted = quotedAuthor,
+                groups = MentionGroupAudience(everyone = case.everyoneMentioned), quoted = quotedAuthor,
             )
             assertEquals(case.add, told(revision.add), "${case.name}: add")
             assertEquals(case.relabel, told(revision.relabel), "${case.name}: relabel")
@@ -507,10 +509,28 @@ class NoticeAudienceTest {
     fun `a quoted author told afresh by an edit keeps the quote and the group reason as fallbacks, in priority order`() {
         val revision = NoticeAudience.ofEdit(
             false, actor, emptyMap(), emptyList(), emptyMap(), listOf(quotedAuthor), members,
-            everyoneMentioned = true, quoted = quotedAuthor,
+            groups = MentionGroupAudience(everyone = true), quoted = quotedAuthor,
         )
         val three = revision.add.single { it.userId == quotedAuthor }
         assertEquals(MESSAGE_QUOTED, three.reason)
         assertEquals(listOf(EVERYONE_MENTIONED, THREAD_REPLIED), three.fallbacks)
+    }
+
+    @Test
+    fun `here reaches only its snapshotted people and sits between watchers and everyone`() {
+        val notices = NoticeAudience.ofMessage(
+            opening = false,
+            authorId = actor,
+            mentioned = emptyList(),
+            watchers = listOf(2u, 3u),
+            members = members,
+            watchersMentioned = true,
+            everyoneMentioned = true,
+            hereMentioned = listOf(3u, 4u),
+        ).associateBy { it.userId }
+        assertEquals(WATCHERS_MENTIONED, notices.getValue(3u).reason)
+        assertEquals(listOf(HERE_MENTIONED, EVERYONE_MENTIONED, THREAD_REPLIED), notices.getValue(3u).fallbacks)
+        assertEquals(HERE_MENTIONED, notices.getValue(4u).reason)
+        assertEquals(EVERYONE_MENTIONED, notices.getValue(5u).reason)
     }
 }

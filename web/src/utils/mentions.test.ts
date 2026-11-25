@@ -9,7 +9,7 @@ import { mentionSegments, mentionsEveryone } from "./mentions";
 import remarkMentions from "./remarkMentions";
 
 /** What the server listed for a body: the people, the teams and the two keywords. */
-type Listed = { ids: number[]; teams?: number[]; everyone?: boolean; watchers?: boolean };
+type Listed = { ids: number[]; teams?: number[]; everyone?: boolean; watchers?: boolean; here?: boolean };
 
 /**
  * What the SPA would show for `body` when the server listed `listed` (the real Markdown pipeline of a message: gfm, gemoji, then the
@@ -19,7 +19,11 @@ type Listed = { ids: number[]; teams?: number[]; everyone?: boolean; watchers?: 
 function shownNames(body: string, listed: Listed): string[] {
   const people = new Set(listed.ids);
   const teams = new Set(listed.teams ?? []);
-  const keywords = new Set([...(listed.everyone === true ? ["everyone"] : []), ...(listed.watchers === true ? ["watchers"] : [])]);
+  const keywords = new Set([
+    ...(listed.everyone === true ? ["everyone"] : []),
+    ...(listed.watchers === true ? ["watchers"] : []),
+    ...(listed.here === true ? ["here"] : []),
+  ]);
   const shown: string[] = [];
   renderToStaticMarkup(
     createElement(ReactMarkdown, {
@@ -40,11 +44,12 @@ function shownNames(body: string, listed: Listed): string[] {
 }
 
 /** The list the server's verdict makes for a case: people, then teams, then the keywords it found. */
-const expectedShown = ({ ids, teams, everyone, watchers }: Listed) => [
+const expectedShown = ({ ids, teams, everyone, watchers, here }: Listed) => [
   ...ids.map((id) => `user-${id}`),
   ...(teams ?? []).map((id) => `team-${id}`),
   ...(everyone === true ? ["everyone"] : []),
   ...(watchers === true ? ["watchers"] : []),
+  ...(here === true ? ["here"] : []),
 ];
 
 describe("the shared mention case table (also read by the server's MentionsTest)", () => {
@@ -108,7 +113,7 @@ describe("mentionSegments", () => {
     ]);
     expect(mentionSegments("<@team:2147483647>")).toEqual([{ text: "<@team:2147483647>", kind: "team", id: 2147483647 }]);
     expect(
-      mentionSegments("<@Everyone> <@here> <@teams:4> <@team: 4> <@team:0> <@team:042> <@team:2147483648> <@team:12345678901> <@everyone > <@team>"),
+      mentionSegments("<@Everyone> <@heres> <@teams:4> <@team: 4> <@team:0> <@team:042> <@team:2147483648> <@team:12345678901> <@everyone > <@team>"),
     ).toBeNull();
   });
 });

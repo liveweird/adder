@@ -34,6 +34,27 @@ what the scenario is about.
    - *Expected*: the address holds `message=<id>` of the author's message; the drawer closes; the message is shown, with `@<reader>` in it; the
      bell says "0 unseen" and the rail's description is gone; the document was still not reloaded.
 
+## Scenario: an owner can add a directory user and mention them without losing the draft
+
+1. The author creates a room and thread, but the reader is not a room member. Both sign in; the author opens the thread and the reader's bell is empty.
+2. The author writes `Please review this draft`, presses **Add and mention**, searches the directory for the reader and selects them.
+   - *Expected*: the directory result includes the reader's name and email, so namesakes can be distinguished.
+3. The author confirms **Add and mention**.
+   - *Expected*: adding the member answers 200, the dialog closes, and the unchanged draft now ends with the reader's visible `@<name>` mention.
+4. The author presses **Ctrl+Enter**.
+   - *Expected*: the created message identifies the reader in `mentions`; their bell says "1 unseen" and its drawer says the author mentioned them.
+
+## Scenario: here mentions only the room members who are online now
+
+1. The author creates a room and thread, adds the reader, and both open the room in separate browser contexts so their foreground presence is live.
+   - *Expected*: the reader's bell is empty.
+2. The author types `Are you around @onl` in the reply box.
+   - *Expected*: the "Groups" list offers `@here`, described as "Online members of this room"; it does not expose a presence roster.
+3. The author picks `@here` and presses **Ctrl+Enter**.
+   - *Expected*: the box showed `Are you around @here`; the created message has one `HERE` group mention.
+4. The reader does nothing.
+   - *Expected*: without a reload their bell says "1 unseen" and its drawer says the author "mentioned people here"; the author's own bell stays empty.
+
 ## Scenario: the Mentions me filter shows the thread and survives a reload
 
 1. The same setup, without browsers on the room: the author starts two threads, "Plain" and "Mentioning", and replies in the second with a

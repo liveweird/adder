@@ -16,7 +16,7 @@ const val MAX_TEAM_MENTIONS_PER_MESSAGE = 5
  * Markdown parsers; `<@...>` is literal text to both): `<@id>` (group 1), `<@team:id>` (group 2), `<@watchers>` or `<@everyone>` (group
  * 3). An id is one to ten digits without a leading zero (the int32 bound is checked on the value); lowercase and exact.
  */
-private val MENTION = Regex("<@(?:([1-9][0-9]{0,9})|team:([1-9][0-9]{0,9})|(watchers|everyone))>")
+private val MENTION = Regex("<@(?:([1-9][0-9]{0,9})|team:([1-9][0-9]{0,9})|(watchers|everyone|here))>")
 
 /**
  * What one body addresses, in the order each thing first appears: the distinct [users] (at most [MAX_MENTIONS_PER_MESSAGE]), the
@@ -28,9 +28,10 @@ data class ParsedMentions(
     val teams: List<UInt> = emptyList(),
     val watchers: Boolean = false,
     val everyone: Boolean = false,
+    val here: Boolean = false,
 ) {
     /** The body names nothing. */
-    val isEmpty: Boolean get() = users.isEmpty() && teams.isEmpty() && !watchers && !everyone
+    val isEmpty: Boolean get() = users.isEmpty() && teams.isEmpty() && !watchers && !everyone && !here
 
     companion object {
         val NONE = ParsedMentions()
@@ -50,6 +51,7 @@ fun parseMentions(body: String): ParsedMentions {
     val teams = LinkedHashSet<UInt>()
     var watchers = false
     var everyone = false
+    var here = false
     for (match in MENTION.findAll(text)) {
         val start = match.range.first
         if (start > 0 && text[start - 1] == '\\') continue
@@ -58,10 +60,11 @@ fun parseMentions(body: String): ParsedMentions {
             person.isNotEmpty() -> users.addInt32(person, MAX_MENTIONS_PER_MESSAGE)
             team.isNotEmpty() -> teams.addInt32(team, MAX_TEAM_MENTIONS_PER_MESSAGE)
             keyword == "watchers" -> watchers = true
-            else -> everyone = true
+            keyword == "everyone" -> everyone = true
+            else -> here = true
         }
     }
-    return ParsedMentions(users.toList(), teams.toList(), watchers, everyone)
+    return ParsedMentions(users.toList(), teams.toList(), watchers, everyone, here)
 }
 
 /** Adds the id [digits] spell to this set while it holds fewer than [limit] (an id past int32 is no id). */

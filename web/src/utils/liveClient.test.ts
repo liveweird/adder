@@ -90,6 +90,76 @@ describe("connecting", () => {
     expect(newest().frames().slice(1)).toEqual([{ type: "subscribe", roomIds: [12, 40] }]);
   });
 
+  test("foreground leases are sent only after the server advertises the capability", async () => {
+    const t = setup();
+    t.client.start();
+    await settle();
+    newest().open();
+    newest().receive({ type: "ready", protocol: 1, maxSubscriptions: 128, presenceSupported: true });
+    expect(newest().frames().slice(1)).toEqual([{ type: "foreground", visible: true }]);
+    t.client.setVisible(false);
+    expect(newest().frames().at(-1)).toEqual({ type: "foreground", visible: false });
+  });
+
+  test("a capable server receives the hidden state at ready and renews the lease after the tab is shown", async () => {
+    const t = setup();
+    t.client.setVisible(false);
+    t.client.start();
+    await settle();
+    newest().open();
+    newest().receive({ type: "ready", protocol: 1, maxSubscriptions: 128, presenceSupported: true });
+    expect(newest().frames().slice(1)).toEqual([{ type: "foreground", visible: false }]);
+
+    t.client.setVisible(true);
+    expect(newest().frames().at(-1)).toEqual({ type: "foreground", visible: true });
+    t.clock.advanceBy(25 * SECOND);
+    expect(newest().frames().slice(-2)).toEqual([{ type: "ping" }, { type: "foreground", visible: true }]);
+    newest().receive({ type: "pong" });
+  });
+
+  test("an older server never receives foreground frames when visibility changes", async () => {
+    const t = setup();
+    await goLive(t);
+    t.client.setVisible(false);
+    t.client.setVisible(true);
+    expect(newest().frames().filter((frame) => frame.type === "foreground")).toEqual([]);
+  });
+
+  test("starting offline mints nothing until connectivity returns", async () => {
+    const t = setup();
+    t.client.setOnline(false);
+    t.client.start();
+    await settle();
+    expect(t.mintTicket).not.toHaveBeenCalled();
+    expect(sockets()).toEqual([]);
+
+    t.clock.randomValue = 0;
+    t.client.setOnline(true);
+    t.clock.advanceBy(0);
+    await settle();
+    expect(t.mintTicket).toHaveBeenCalledTimes(1);
+  });
+
+  test("a stale ticket rejection after stop schedules no retry", async () => {
+    let reject!: (error: unknown) => void;
+    const t = setup(() => new Promise((_, rejected) => (reject = rejected)));
+    t.client.start();
+    t.client.stop();
+    reject(new Error("late rejection"));
+    await settle();
+    expect(t.clock.pendingDelays()).toEqual([]);
+    expect(t.statuses).toEqual(["connecting", "stopped"]);
+  });
+
+  test("a premature capable ready frame cannot send presence before the socket opens", async () => {
+    const t = setup();
+    t.client.start();
+    await settle();
+    newest().receive({ type: "ready", protocol: 1, maxSubscriptions: 128, presenceSupported: true });
+    expect(newest().sent).toEqual([]);
+    expect(t.client.getStatus()).toBe("live");
+  });
+
   test("start is idempotent and stop-then-start does nothing", async () => {
     const t = setup();
     t.client.start();
@@ -305,6 +375,24 @@ describe("subscriptions", () => {
       { type: "subscribe", roomIds: [40] },
       { type: "subscribe", roomIds: [40] },
     ]);
+  });
+
+  test("a member-added hint for a room that was neither requested nor refused changes no subscription", async () => {
+    const t = setup();
+    t.client.setRooms([40]);
+    await goLive(t);
+    newest().receive({ type: "event", kind: "room.member_added", roomId: 99 });
+    t.clock.advanceBy(100);
+    expect(newest().frames().filter((frame) => frame.type === "subscribe")).toEqual([{ type: "subscribe", roomIds: [40] }]);
+  });
+
+  test("a late frame from a socket that has already closed is ignored", async () => {
+    const t = setup();
+    await goLive(t);
+    const old = newest();
+    old.closeWith(1006);
+    old.receive({ type: "event", kind: "message.posted", roomId: 12, threadNumber: 7, messageId: 3 });
+    expect(t.frames.map((frame) => frame.type)).toEqual(["ready"]);
   });
 
   test("a revoked room is dropped from the socket's set; a caller that still wants it asks again at the next diff", async () => {

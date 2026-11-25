@@ -1,4 +1,5 @@
-// Social (0.6.0): mentions picked in the composer reach the mentioned member's bell live and open the message; the "Mentions me" filter; a
+// Social (0.6.0): mentions picked in the composer reach the mentioned member's bell live and open the message; an owner can add a directory
+// user and mention them without losing the draft; @here reaches foreground room members; the "Mentions me" filter; a
 // hand-over notifies the new owner; the rail's and the thread list's unread marks and the conversation's "New" line; a reaction from the emoji
 // picker (no content-security-policy violation) seen live by another member, who toggles theirs; the pinned panel and a pin's removal seen live; a pin's
 // mark in the conversation, on the thread's header and list row, and the open thread's pin strip (1.2.0);
@@ -102,20 +103,22 @@ async function scene(page: Page, {
 }
 
 async function addMember(room: Scene, { notify = false } = {}): Promise<void> {
-  if (!notify) {
-    // Existing social journeys start with an empty bell so their counts describe just the event under test.
-    const { api } = await apiAsUser(room.mate.email, room.mate.password);
-    try {
-      const preferences = await api.put(`/api/v1/users/${room.mate.id}/notification-preferences`, {
-        data: { disabled: [], roomMembership: { inApp: false, email: false } },
-      });
-      expect(preferences.status(), await preferences.text()).toBe(204);
-    } finally {
-      await api.dispose();
-    }
-  }
+  if (!notify) await disableRoomAddedNotification(room.mate);
   const added = await room.api.post(`/api/v1/rooms/${room.roomId}/members`, { data: { userIds: [room.mate.id] } });
   expect(added.status(), await added.text()).toBe(200);
+}
+
+/** Keep scenarios about another notice at an empty bell while still adding the member through the UI under test. */
+async function disableRoomAddedNotification(person: Person): Promise<void> {
+  const { api } = await apiAsUser(person.email, person.password);
+  try {
+    const preferences = await api.put(`/api/v1/users/${person.id}/notification-preferences`, {
+      data: { disabled: [], roomMembership: { inApp: false, email: false } },
+    });
+    expect(preferences.status(), await preferences.text()).toBe(204);
+  } finally {
+    await api.dispose();
+  }
 }
 
 test("a hidden room membership notice arrives live and opens the room", async ({ page, browser }) => {
@@ -245,6 +248,73 @@ test("a mention picked in the composer reaches the mentioned member's bell witho
   await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
   await expect(rail(reader.page).getByRole("link", { name: room.roomName })).not.toHaveAccessibleDescription(/unseen notification/);
   await expectNoReload(reader);
+});
+
+test("an owner can add a directory user and mention them without losing the draft", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Add and mention thread");
+  await startThread(room, title);
+  await disableRoomAddedNotification(room.mate);
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, `/rooms/${room.roomId}/threads/1`, room.roomId);
+  await expect.poll(() => reader.frames.some((frame) => frame.type === "ready")).toBe(true);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  const box = author.page.getByRole("textbox", { name: "Reply", exact: true });
+  await box.fill("Please review this draft");
+  await author.page.getByRole("button", { name: "Add and mention" }).click();
+  const dialog = author.page.getByRole("dialog", { name: "Add someone to this room" });
+  await dialog.getByRole("combobox", { name: "User" }).fill(uniquePart(room.mate));
+  await dialog.getByText(`${room.mate.name} (${room.mate.email})`, { exact: true }).click();
+  await Promise.all([
+    author.page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith(`/rooms/${room.roomId}/members`) && response.status() === 200),
+    dialog.getByRole("button", { name: "Add and mention" }).click(),
+  ]);
+  await expect(dialog).toHaveCount(0);
+  await expect(box).toHaveValue(`Please review this draft @${room.mate.name} `);
+
+  const [posted] = await Promise.all([
+    author.page.waitForResponse((response) => response.request().method() === "POST" && MESSAGES_API.test(response.url()) && response.status() === 201),
+    box.press("Control+Enter"),
+  ]);
+  const message = (await posted.json()) as { mentions: { userId: number; name: string }[] };
+  expect(message.mentions).toContainEqual({ userId: room.mate.id, name: room.mate.name });
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await bell(reader.page).click();
+  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned you in #1 ${title}`) })).toBeVisible();
+});
+
+test("here mentions only the room members who are online now", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  const title = uniqueText("Here thread");
+  await startThread(room, title);
+  await addMember(room);
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, `/rooms/${room.roomId}/threads/1`, room.roomId);
+  await openLive(reader, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(0));
+
+  const box = author.page.getByRole("textbox", { name: "Reply", exact: true });
+  await box.pressSequentially("Are you around @onl");
+  const groups = author.page.getByRole("group", { name: "Groups", exact: true });
+  const here = groups.getByRole("option", { name: /@here.*Online members of this room/i });
+  await expect(here).toBeVisible();
+  await here.click();
+  await expect(box).toHaveValue("Are you around @here ");
+  const [posted] = await Promise.all([
+    author.page.waitForResponse((response) => response.request().method() === "POST" && MESSAGES_API.test(response.url()) && response.status() === 201),
+    box.press("Control+Enter"),
+  ]);
+  const message = (await posted.json()) as { groupMentions: { kind: string }[] };
+  expect(message.groupMentions.map((group) => group.kind)).toEqual(["HERE"]);
+
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
+  await expectNoReload(reader);
+  await bell(reader.page).click();
+  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned people here in #1 ${title}`) })).toBeVisible();
+  await expect(bell(author.page)).toHaveAccessibleName(unseenBell(0));
 });
 
 test("the Mentions me filter shows the thread and survives a reload", async ({ page }) => {

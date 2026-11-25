@@ -27,7 +27,7 @@ class NotificationPreferenceBoundTest {
             assertEquals(MAX_PREFERENCE_PAIRS, property.maxItems, list)
         }
         assertEquals(everyPair.size, MAX_PREFERENCE_PAIRS)
-        assertEquals(24, MAX_PREFERENCE_PAIRS, "twelve kinds, two channels")
+        assertEquals(26, MAX_PREFERENCE_PAIRS, "thirteen thread kinds, two channels")
     }
 
     @Test
@@ -35,7 +35,7 @@ class NotificationPreferenceBoundTest {
         val parameter = OpenApiSpec.parsed.paths["/api/v1/notifications"]?.get?.parameters?.firstOrNull { it.name == "type" }
         assertNotNull(parameter, "the type parameter is missing from the spec")
         assertEquals(THREAD_NOTIFICATION_TYPES.size, parameter.schema.maxItems)
-        assertEquals(12, THREAD_NOTIFICATION_TYPES.size)
+        assertEquals(13, THREAD_NOTIFICATION_TYPES.size)
         val feed = OpenApiSpec.parsed.paths["/api/v1/notifications/feed"]?.get?.parameters?.firstOrNull { it.name == "type" }
         assertEquals(NotificationType.entries.size, assertNotNull(feed).schema.maxItems)
         val roomPair = NotificationPreferencePair(NotificationType.ROOM_ADDED, NotificationChannel.IN_APP)

@@ -33,7 +33,7 @@ const CHANNELS = [
  * group is not drawn, and a test pins that every kind of the contract is in a group). The groups follow who is being told and why.
  */
 const GROUPS = [
-  { key: "mentions", types: ["MENTIONED", "MESSAGE_QUOTED", "TEAM_MENTIONED", "WATCHERS_MENTIONED", "EVERYONE_MENTIONED"] },
+  { key: "mentions", types: ["MENTIONED", "MESSAGE_QUOTED", "TEAM_MENTIONED", "WATCHERS_MENTIONED", "HERE_MENTIONED", "EVERYONE_MENTIONED"] },
   { key: "watching", types: ["THREAD_REPLIED", "THREAD_STATUS_CHANGED", "THREAD_CLOSED", "THREAD_REOPENED", "THREAD_OWNER_CHANGED"] },
   { key: "handed", types: ["THREAD_ASSIGNED"] },
   { key: "rooms", types: ["THREAD_CREATED", "ROOM_ADDED"] },

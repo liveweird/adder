@@ -18,6 +18,7 @@ import { blankQuote, quoteDraftExcerpt, reconcileQuote } from "../utils/quoteDra
 import { isAccessRefusal } from "../utils/roomAccess";
 import { roomMembersPath } from "../utils/roomLinks";
 import { MAX_MESSAGE_BODY_LENGTH, messageBodyError, normalizeBody } from "../utils/threadForm";
+import AddAndMention from "./AddAndMention";
 import ComposerQuote from "./ComposerQuote";
 import FormErrorAlert from "./FormErrorAlert";
 import MentionTextarea from "./MentionTextarea";
@@ -91,6 +92,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
   const reconciled = quote !== null && !posting ? reconcileQuote(quote, loaded) : quote;
   if (reconciled !== quote) setQuote(reconciled);
   const [error, setError] = useState<string | null>(null);
+  const [addingMember, setAddingMember] = useState(false);
   const form = useRef<HTMLFormElement>(null);
   const focusBox = useCallback(() => form.current?.querySelector("textarea")?.focus(), []);
   useEffect(() => {
@@ -129,7 +131,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
   async function send() {
     // Checked on the module-level map, not a state: a held Ctrl+Enter fires again before the first press has rendered, and a remounted box
     // must not post what is already travelling.
-    if (inFlight.has(key)) return;
+    if (inFlight.has(key) || addingMember) return;
     const invalid = messageBodyError(text, t);
     setError(invalid);
     if (invalid) return;
@@ -212,9 +214,25 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
               {t("common.charCount", { current: text.length, max: MAX_MESSAGE_BODY_LENGTH })}
             </Text>
           </div>
-          <Button type="submit" size="sm" loading={posting} leftSection={<IconSend size={15} aria-hidden="true" />} className={classes.send}>
-            {t("threads.composer.send")}
-          </Button>
+          <Group gap="xs" wrap="nowrap">
+            <AddAndMention
+              room={room}
+              disabled={posting}
+              onBusyChange={setAddingMember}
+              onMention={({ token }) => {
+                // The composer may have been unmounted while the member write travelled. The provider outlives room navigation, so write the
+                // latest kept draft directly; returning to this thread must not lose a successfully requested mention.
+                const current = drafts.getReply(room.id, thread.number);
+                const next = `${current}${current.length > 0 && !/\s$/.test(current) ? " " : ""}${token} `;
+                drafts.setReply(room.id, thread.number, next);
+                setText(next);
+              }}
+              focusAfterAdd={focusBox}
+            />
+            <Button type="submit" size="sm" loading={posting} disabled={addingMember} leftSection={<IconSend size={15} aria-hidden="true" />} className={classes.send}>
+              {t("threads.composer.send")}
+            </Button>
+          </Group>
         </Group>
       </Stack>
     </form>

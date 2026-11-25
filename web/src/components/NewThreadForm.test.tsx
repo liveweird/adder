@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Link, Route, Routes, useLocation } from "react-router-dom";
 import NewThreadForm from "./NewThreadForm";
 import ThreadDraftsProvider from "./ThreadDraftsProvider";
 import type { RoomResponse } from "../api/rooms";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
+import { createKnownNames, KnownNamesContext } from "../utils/knownNames";
 
 const ROOM: RoomResponse = {
   id: 12,
@@ -47,12 +48,13 @@ function Where() {
 }
 
 function renderForm(room: RoomResponse = ROOM, route = "/rooms/12/threads/new") {
+  const names = createKnownNames();
   return renderWithProviders(
-    <Routes>
+    <KnownNamesContext.Provider value={names}><Routes>
       <Route path="/rooms/:id/threads/new" element={<NewThreadForm room={room} />} />
       <Route path="/rooms/:id" element={<Where />} />
       <Route path="/rooms/:id/threads/:number" element={<Where />} />
-    </Routes>,
+    </Routes></KnownNamesContext.Provider>,
     { route },
   );
 }
@@ -141,6 +143,44 @@ describe("NewThreadForm", () => {
     await user.click(screen.getByRole("button", { name: "Start thread" }));
     await waitFor(() => expect(posts()).toHaveLength(1));
     expect(JSON.parse((posts()[0][1] as RequestInit).body as string).body).toBe("ping <@7> please look");
+  });
+
+  test("a room owner can add someone and mention them in the opening message", async () => {
+    serve();
+    const defaults = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    let completeAdd: (response: Response) => void = () => undefined;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/v1/users/directory?")) return Promise.resolve(jsonResponse(200, {
+        items: [{ id: 91, name: "New Person", email: "new@example.test" }], page: 1, pageSize: 20, total: 1,
+      }));
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return new Promise<Response>((resolve) => { completeAdd = resolve; });
+      }
+      return defaults(url, init);
+    });
+    const user = userEvent.setup();
+    renderForm({ ...ROOM, role: "OWNER" });
+    await fillRequired(user);
+    await user.click(screen.getByRole("combobox", { name: /Severity/ }));
+    await user.click(await screen.findByRole("option", { name: "S2" }));
+    const submit = screen.getByRole("button", { name: "Start thread" });
+    const draft = screen.getByRole("textbox", { name: /First message/ });
+    await user.click(screen.getByRole("button", { name: "Add and mention" }));
+    const modal = await screen.findByRole("dialog");
+    await user.type(within(modal).getByRole("combobox", { name: "User" }), "New");
+    await user.click(await within(modal).findByText("New Person (new@example.test)"));
+    await user.click(within(modal).getByRole("button", { name: "Add and mention" }));
+    expect(submit).toBeDisabled();
+    fireEvent.keyDown(draft, { key: "Enter", ctrlKey: true });
+    fireEvent.submit(submit.closest("form")!);
+    expect(posts().map(([url]) => url)).toEqual(["/api/v1/rooms/12/members"]);
+    expect(draft).toHaveValue("db-3 is at 100%");
+    completeAdd(jsonResponse(200, { added: 1, alreadyMembers: 0 }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: /First message/ })).toHaveValue("db-3 is at 100% @New Person "));
+    await user.click(screen.getByRole("button", { name: "Start thread" }));
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/rooms/12/threads/7"));
+    expect(posts().map(([url]) => url)).toEqual(["/api/v1/rooms/12/members", "/api/v1/rooms/12/threads"]);
+    expect(JSON.parse((posts()[1][1] as RequestInit).body as string).body).toBe("db-3 is at 100% <@91>");
   });
 
   test("the list's keys of the URL ride along: a started thread opens with them, and a clean Cancel goes back to the list with them", async () => {

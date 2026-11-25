@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.threads.GroupMention
 import ch.nokillswit.threads.MentionGroupKind
 import ch.nokillswit.threads.MessagePageResponse
+import ch.nokillswit.threads.MessagePostRequest
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
 import ch.nokillswit.threads.ThreadCreateRequest
@@ -85,6 +86,31 @@ class GroupMentionsTest {
             assertEquals(emptyList(), listed.first { it.id != posted.id }.groupMentions, "the opening message names nobody")
             assertEquals(emptyList(), posted.mentions, "mentions is unchanged: people only")
         }
+
+    @Test
+    fun `a message can return the full API bound of five teams and all three keywords`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("gmn-bound")
+        val namedTeams = (1..5).map { team("bound-$it", cast.bob) }
+        val posted = cast.ann.client.post(
+            cast.room,
+            namedTeams.joinToString(" ") { it.token } + " <@watchers> <@here> <@everyone>",
+        )
+
+        val expected = namedTeams.sortedBy { it.id }.map(::teamMention) + listOf(
+            GroupMention(MentionGroupKind.WATCHERS),
+            GroupMention(MentionGroupKind.HERE),
+            GroupMention(MentionGroupKind.EVERYONE),
+        )
+        assertEquals(8, posted.groupMentions.size)
+        assertEquals(expected, posted.groupMentions)
+        assertEquals(expected, cast.owner.client.single(cast.room, posted.id).groupMentions)
+        val quoting = cast.ann.client.postJson(
+            "$rooms/${cast.room}/threads/1/messages",
+            MessagePostRequest("quote all eight", posted.id),
+        ).body<MessageResponse>()
+        assertEquals(expected, quoting.quote?.groupMentions, "the quote schema has the same eight-item bound")
+    }
 
     @Test
     fun `a team shows its current handle and name, and stops showing when it is deleted or loses its handle`() = testApplication {
