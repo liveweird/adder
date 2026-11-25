@@ -15,7 +15,7 @@
   "change": "{{from}} → {{to}}",
   "browserPush": {
     "title": "Browser notifications",
-    "description": "Get an alert for new bell notifications, even when Adder is closed.",
+    "description": "Get alerts for new bell notifications even when Adder is closed. Enable them again when this browser’s 90-day registration expires.",
     "enable": "Enable on this browser",
     "disable": "Disable on this browser",
     "unsupported": "This browser cannot receive background notifications here.",

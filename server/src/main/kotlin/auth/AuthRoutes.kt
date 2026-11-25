@@ -2,6 +2,7 @@ package ch.nokillswit.auth
 
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.UnauthorizedException
+import ch.nokillswit.authz.caller
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.db.nowMillis
@@ -266,22 +267,7 @@ private fun Route.logout(deps: AuthDeps) {
     post("/api/v1/logout") {
         val principal = call.principal<JWTPrincipal>()!!
         val userId = principal.payload.getClaim("userId").asLong()
-        call.request.headers["X-Adder-Push-Subscription"]?.toUIntOrNull()
-            ?.takeIf { it in 1u..Int.MAX_VALUE.toUInt() }
-            ?.let { subscriptionId ->
-                userId?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }?.toUInt()?.let { ownerId ->
-                    try {
-                        call.application.attributes.getOrNull(PushSubscriptionRevokerKey)?.revoke(ownerId, subscriptionId)
-                    } catch (cause: CancellationException) {
-                        throw cause
-                    } catch (cause: RuntimeException) {
-                        call.application.log.debug(
-                            "Logout push subscription cleanup failed ({})",
-                            cause.javaClass.simpleName,
-                        )
-                    }
-                }
-            }
+        call.revokeBrowserPushForLogout()
         // A logout ends the replay grace of this user's recently rotated refresh tokens (a copy of one
         // must not mint after sign-out); the access principal is what logout already trusts.
         userId?.let { blocklist.forgetRotations(it) }
@@ -340,5 +326,17 @@ private fun Route.logout(deps: AuthDeps) {
             "email" to principal.payload.getClaim("email").asString(),
         )
         call.respond(HttpStatusCode.NoContent)
+    }
+}
+
+private suspend fun ApplicationCall.revokeBrowserPushForLogout() {
+    val subscriptionId = request.headers["X-Adder-Push-Subscription"]?.toIntOrNull() ?: return
+    if (subscriptionId <= 0) return
+    try {
+        application.attributes[PushSubscriptionRevokerKey].revoke(caller().userId, subscriptionId.toUInt())
+    } catch (cause: CancellationException) {
+        throw cause
+    } catch (cause: RuntimeException) {
+        application.log.debug("Logout push subscription cleanup failed ({})", cause.javaClass.simpleName)
     }
 }

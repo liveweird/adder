@@ -5,14 +5,15 @@ import ch.nokillswit.infra.outbound.ValidatedPreviewTarget
 import ch.nokillswit.infra.outbound.resolvePreviewTarget
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import io.ktor.server.plugins.BadRequestException
 import java.io.IOException
 import java.net.Proxy
 import java.net.UnknownHostException
 import java.time.Duration
 import java.util.Date
 import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Authenticator
 import okhttp3.Call
 import okhttp3.Callback
@@ -45,6 +46,8 @@ internal class WebPushTransport(
     } catch (cause: CancellationException) {
         throw cause
     } catch (_: IOException) {
+        PushResult.FAILED
+    } catch (_: BadRequestException) {
         PushResult.FAILED
     } catch (_: RuntimeException) {
         PushResult.FAILED

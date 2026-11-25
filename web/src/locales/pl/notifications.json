@@ -19,7 +19,7 @@
   "change": "{{from}} → {{to}}",
   "browserPush": {
     "title": "Powiadomienia w przeglądarce",
-    "description": "Otrzymuj alerty o nowych powiadomieniach z dzwonka nawet po zamknięciu Addera.",
+    "description": "Otrzymuj alerty o nowych powiadomieniach z dzwonka nawet po zamknięciu Addera. Włącz je ponownie po wygaśnięciu 90-dniowej rejestracji tej przeglądarki.",
     "enable": "Włącz w tej przeglądarce",
     "disable": "Wyłącz w tej przeglądarce",
     "unsupported": "Ta przeglądarka nie obsługuje tutaj powiadomień w tle.",

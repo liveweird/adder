@@ -3,7 +3,7 @@
 import { API_BASE, ApiError, refreshPairDetached, safeJson, timeoutSignal } from "./http";
 import type { components, paths } from "./schema";
 import { clearSession, getSessionSnapshot, isSessionCurrent, persistSession } from "./session";
-import { browserPushLogoutRevoked, detachBrowserPushForLogout, takeBrowserPushForLogout } from "./browserPush";
+import { detachBrowserPushForLogout, takeBrowserPushForLogout } from "./browserPush";
 
 type LoginBody = paths["/api/v1/login"]["post"]["requestBody"]["content"]["application/json"];
 // Tokens, or (MFA-enabled accounts) a second-factor challenge — discriminate via isMfaChallenge.
@@ -112,15 +112,14 @@ export async function logout(): Promise<void> {
       signal: timeoutSignal(),
     });
   try {
-    let res = await sendLogout(token, refreshToken);
+    const res = await sendLogout(token, refreshToken);
     // /logout needs a valid access token, and after idle (or a lost refresh response) the stored one has
     // expired: without this the 401 would leave the refresh token alive. Renew the pair - detached from the
     // already-cleared session - and revoke the NEW pair, whose refresh token is the live one.
     if (res.status === 401 && refreshToken) {
       const renewed = await refreshPairDetached(refreshToken);
-      if (renewed) res = await sendLogout(renewed.token, renewed.refreshToken);
+      if (renewed) await sendLogout(renewed.token, renewed.refreshToken);
     }
-    if (res.ok) browserPushLogoutRevoked(browserPush);
   } catch {
     // Best-effort revoke: offline/timeout must not block the LOCAL sign-out — a rejected
     // fetch skipping clearSession would leave the user apparently signed in.

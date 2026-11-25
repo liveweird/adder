@@ -9,6 +9,7 @@ import io.ktor.server.config.ApplicationConfig
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
 import java.net.URI
+import java.net.URISyntaxException
 import java.security.AlgorithmParameters
 import java.security.KeyFactory
 import java.security.MessageDigest
@@ -18,12 +19,12 @@ import java.security.interfaces.ECPublicKey
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.ECPoint
 import java.security.spec.ECPublicKeySpec
+import java.security.spec.InvalidKeySpecException
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
 import org.jetbrains.exposed.v1.core.eq
@@ -48,34 +49,32 @@ internal class BrowserPushConfig(
 )
 
 internal fun ApplicationConfig.browserPushConfig(): BrowserPushConfig? {
-    val publicEncoded = propertyOrNull("notifications.push.publicKey")?.getString()?.trim().orEmpty()
-    val privateEncoded = propertyOrNull("notifications.push.privateKey")?.getString()?.trim().orEmpty()
-    val subject = propertyOrNull("notifications.push.subject")?.getString()?.trim().orEmpty()
-    if (publicEncoded.isEmpty() && privateEncoded.isEmpty() && subject.isEmpty()) return null
-    check(publicEncoded.isNotEmpty() && privateEncoded.isNotEmpty() && subject.isNotEmpty()) {
+    val publicEncoded = pushProperty("publicKey")
+    val privateEncoded = pushProperty("privateKey")
+    val subject = pushProperty("subject")
+    val supplied = listOf(publicEncoded, privateEncoded, subject).count(String::isNotEmpty)
+    if (supplied == 0) return null
+    check(supplied == 3) {
         "Browser push requires NOTIFICATIONS_PUSH_PUBLIC_KEY, NOTIFICATIONS_PUSH_PRIVATE_KEY and NOTIFICATIONS_PUSH_SUBJECT together"
     }
-    val subjectUri = runCatching { URI(subject) }.getOrNull()
-    check(subjectUri?.scheme in setOf("mailto", "https") && subjectUri?.isAbsolute == true && subjectUri.fragment == null) {
-        "NOTIFICATIONS_PUSH_SUBJECT must be an absolute mailto: or https: URI without a fragment"
-    }
-    val decoder = Base64.getUrlDecoder()
-    val publicBytes = runCatching { decoder.decode(publicEncoded) }
-        .getOrElse { error("NOTIFICATIONS_PUSH_PUBLIC_KEY must be unpadded base64url") }
+    validatePushSubject(subject)
+    val publicBytes = decodePushKey(publicEncoded, "NOTIFICATIONS_PUSH_PUBLIC_KEY")
     check(publicBytes.size == 65 && publicBytes[0] == 4.toByte()) {
         "NOTIFICATIONS_PUSH_PUBLIC_KEY must encode a 65-byte uncompressed P-256 point"
     }
     val parameters = AlgorithmParameters.getInstance("EC").apply { init(ECGenParameterSpec("secp256r1")) }
         .getParameterSpec(java.security.spec.ECParameterSpec::class.java)
     fun coordinate(offset: Int) = java.math.BigInteger(1, publicBytes.copyOfRange(offset, offset + 32))
-    val publicKey = KeyFactory.getInstance("EC").generatePublic(
+    val factory = KeyFactory.getInstance("EC")
+    val publicKey = factory.generatePublic(
         ECPublicKeySpec(ECPoint(coordinate(1), coordinate(33)), parameters),
     ) as ECPublicKey
-    val privateBytes = runCatching { decoder.decode(privateEncoded) }
-        .getOrElse { error("NOTIFICATIONS_PUSH_PRIVATE_KEY must be unpadded base64url") }
-    val privateKey = runCatching {
-        KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(privateBytes)) as ECPrivateKey
-    }.getOrElse { error("NOTIFICATIONS_PUSH_PRIVATE_KEY must encode a PKCS#8 P-256 EC private key") }
+    val privateBytes = decodePushKey(privateEncoded, "NOTIFICATIONS_PUSH_PRIVATE_KEY")
+    val privateKey = try {
+        factory.generatePrivate(PKCS8EncodedKeySpec(privateBytes)) as ECPrivateKey
+    } catch (_: InvalidKeySpecException) {
+        error("NOTIFICATIONS_PUSH_PRIVATE_KEY must encode a PKCS#8 P-256 EC private key")
+    }
     check(privateKey.params.curve == parameters.curve) { "NOTIFICATIONS_PUSH_PRIVATE_KEY must use P-256" }
     val proof = "adder-vapid-key-pair".toByteArray()
     val signature = Signature.getInstance("SHA256withECDSA").run {
@@ -91,6 +90,34 @@ internal fun ApplicationConfig.browserPushConfig(): BrowserPushConfig? {
     return BrowserPushConfig(publicEncoded, publicKey, privateKey, subject)
 }
 
+private fun ApplicationConfig.pushProperty(name: String): String =
+    propertyOrNull("notifications.push.$name")?.getString().orEmpty().trim()
+
+private fun validatePushSubject(subject: String) {
+    val message = "NOTIFICATIONS_PUSH_SUBJECT must be an absolute mailto: or https: URI without a fragment"
+    val uri = try {
+        URI(subject)
+    } catch (_: URISyntaxException) {
+        error(message)
+    }
+    val contact = when (uri.scheme) {
+        "mailto" -> true
+        "https" -> uri.host != null
+        else -> false
+    }
+    check(contact && uri.fragment == null) { message }
+}
+
+private fun decodePushKey(value: String, property: String): ByteArray {
+    val message = "$property must be unpadded base64url"
+    check('=' !in value) { message }
+    return try {
+        Base64.getUrlDecoder().decode(value)
+    } catch (_: IllegalArgumentException) {
+        error(message)
+    }
+}
+
 internal class ClaimedPush(val subscriptionId: UInt, val notificationIds: List<UInt>)
 
 internal class BrowserPushService(
@@ -99,17 +126,11 @@ internal class BrowserPushService(
     val config: BrowserPushConfig?,
 ) {
     object Subscriptions : UIntIdTable("browser_push_subscriptions") {
-        val userId = uinteger("user_id")
+        val userId = long("user_id")
         val endpointHash = binary("endpoint_hash")
         val endpointEncrypted = text("endpoint_encrypted")
         val credentialRevision = long("credential_revision")
         val createdAt = long("created_at")
-    }
-
-    object Queue : Table("notification_push_queue") {
-        val notificationId = uinteger("notification_id")
-        val subscriptionId = uinteger("subscription_id")
-        override val primaryKey = PrimaryKey(notificationId, subscriptionId)
     }
 
     suspend fun subscribe(userId: UInt, credentialRevision: Long, rawEndpoint: String): UInt {
@@ -133,7 +154,7 @@ internal class BrowserPushService(
                 .forUpdate(ForUpdateOption.PostgreSQL.ForUpdate())
                 .toList().singleOrNull()
             val existingId = existing?.get(Subscriptions.id)?.value
-            if (existingId != null && existing[Subscriptions.userId] == userId) {
+            if (existingId != null && existing[Subscriptions.userId] == userId.toLong()) {
                 Subscriptions.update({ Subscriptions.id eq existingId }) {
                     it[endpointEncrypted] = cipher.encrypt(endpoint)
                     it[Subscriptions.credentialRevision] = credentialRevision
@@ -141,12 +162,12 @@ internal class BrowserPushService(
                 }
                 return@suspendTransaction existingId
             }
-            val count = Subscriptions.select(Subscriptions.id).where { Subscriptions.userId eq userId }
+            val count = Subscriptions.select(Subscriptions.id).where { Subscriptions.userId eq userId.toLong() }
                 .limit(MAX_PUSH_SUBSCRIPTIONS_PER_USER).count()
             if (count >= MAX_PUSH_SUBSCRIPTIONS_PER_USER) throw BadRequestException("At most 5 browsers can receive push notifications")
             if (existingId != null) Subscriptions.deleteWhere { Subscriptions.id eq existingId }
             Subscriptions.insert {
-                it[Subscriptions.userId] = userId
+                it[Subscriptions.userId] = userId.toLong()
                 it[endpointHash] = digest
                 it[endpointEncrypted] = cipher.encrypt(endpoint)
                 it[Subscriptions.credentialRevision] = credentialRevision
@@ -157,7 +178,7 @@ internal class BrowserPushService(
 
     suspend fun unsubscribe(userId: UInt, id: UInt) {
         suspendTransaction(database) {
-            Subscriptions.deleteWhere { (Subscriptions.id eq id) and (Subscriptions.userId eq userId) }
+            Subscriptions.deleteWhere { (Subscriptions.id eq id) and (Subscriptions.userId eq userId.toLong()) }
         }
     }
 
@@ -167,7 +188,7 @@ internal class BrowserPushService(
                 REGISTERED_PUSH_SQL,
                 listOf(
                     org.jetbrains.exposed.v1.core.IntegerColumnType() to id.toInt(),
-                    org.jetbrains.exposed.v1.core.IntegerColumnType() to userId.toInt(),
+                    org.jetbrains.exposed.v1.core.LongColumnType() to userId.toLong(),
                     org.jetbrains.exposed.v1.core.LongColumnType() to credentialRevision,
                     org.jetbrains.exposed.v1.core.LongColumnType() to createdAfter,
                 ),
@@ -217,10 +238,14 @@ private fun ByteArray.advisoryLockKey(): Long = take(8).fold(0L) { value, byte -
 internal fun validatePushEndpoint(raw: String): String {
     val value = raw.trim()
     if (value.isEmpty() || value.length > MAX_PUSH_ENDPOINT_LENGTH) throw BadRequestException("Invalid push endpoint")
-    val uri = runCatching { URI(value) }.getOrNull() ?: throw BadRequestException("Invalid push endpoint")
+    val uri = try {
+        URI(value)
+    } catch (_: URISyntaxException) {
+        throw BadRequestException("Invalid push endpoint")
+    }
     val url = value.toHttpUrlOrNull() ?: throw BadRequestException("Invalid push endpoint")
     val host = url.host.lowercase().trimEnd('.')
-    val validOrigin = uri.isAbsolute && uri.scheme == "https" && uri.port in setOf(-1, 443)
+    val validOrigin = uri.scheme == "https" && url.port == 443
     val validAuthority = uri.rawUserInfo == null && uri.fragment == null
     val knownProvider = PUSH_PROVIDER_HOSTS.any { host == it || host.endsWith(".$it") }
     if (!validOrigin || !validAuthority || !knownProvider) {
@@ -275,7 +300,7 @@ SELECT EXISTS (
   SELECT 1
   FROM browser_push_subscriptions s
   JOIN users u ON u.id = s.user_id
-  WHERE s.id = CAST(? AS int4) AND s.user_id = CAST(? AS int4)
+  WHERE s.id = CAST(? AS int4) AND s.user_id = CAST(? AS int8)
     AND s.credential_revision = CAST(? AS int8) AND s.created_at >= CAST(? AS int8)
     AND u.credential_revision = s.credential_revision AND NOT u.marked_as_deleted
 )

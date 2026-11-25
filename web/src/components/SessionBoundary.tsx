@@ -1,4 +1,5 @@
-import { Fragment, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { reconcileBrowserPushSession } from "../api/browserPush";
 import { getSessionSnapshot } from "../api/session";
 import { subscribeLogicalSession } from "../utils/sessionQueryCache";
 
@@ -13,6 +14,9 @@ export default function SessionBoundary({ children }: { children: ReactNode }) {
   if (identity !== null && identity !== lastAuthenticatedIdentity) {
     setLastAuthenticatedIdentity(identity);
   }
+  useEffect(() => {
+    void reconcileBrowserPushSession().catch(() => undefined);
+  }, [identity]);
   // On sign-out the route guard/navigation already unmounts protected pages. Remounting here
   // would run RequireAuth on the old URL before explicit logout navigates to /login, saving a
   // stale return destination. Keep the key until the next authenticated identity arrives.

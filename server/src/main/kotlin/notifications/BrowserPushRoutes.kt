@@ -20,6 +20,8 @@ import io.ktor.server.resources.get
 import io.ktor.server.resources.post
 import io.ktor.server.response.respond
 import io.ktor.server.routing.routing
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -27,38 +29,23 @@ import kotlinx.serialization.Serializable
 class BrowserPushRoute {
     @Serializable
     @Resource("config")
-    class Config(val parent: BrowserPushRoute = BrowserPushRoute(), val subscriptionId: UInt? = null)
+    class Config(val parent: BrowserPushRoute = BrowserPushRoute(), val subscriptionId: Int? = null)
 
     @Serializable
     @Resource("subscriptions")
     class Subscriptions(val parent: BrowserPushRoute = BrowserPushRoute()) {
         @Serializable
         @Resource("{id}")
-        class Id(val parent: Subscriptions = Subscriptions(), val id: UInt)
+        class Id(val parent: Subscriptions = Subscriptions(), val id: Int)
     }
 }
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class BrowserPushConfigResponse(
     val available: Boolean,
-    val publicKey: String? = null,
-    val registered: Boolean? = null,
-)
-
-@Serializable
-private data class BrowserPushUnavailableResponse(val available: Boolean = false)
-
-@Serializable
-private data class BrowserPushUnavailableRegisteredResponse(val available: Boolean = false, val registered: Boolean = false)
-
-@Serializable
-private data class BrowserPushAvailableResponse(val available: Boolean = true, val publicKey: String)
-
-@Serializable
-private data class BrowserPushAvailableRegisteredResponse(
-    val available: Boolean = true,
-    val publicKey: String,
-    val registered: Boolean,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val publicKey: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val registered: Boolean? = null,
 )
 
 @Serializable
@@ -73,34 +60,16 @@ fun Application.configureBrowserPushRoutes() {
         authenticate {
             get<BrowserPushRoute.Config> { route ->
                 val config = service.config
-                val subscriptionId = route.subscriptionId
-                if (subscriptionId != null && subscriptionId !in 1u..Int.MAX_VALUE.toUInt()) {
-                    throw BadRequestException("subscriptionId must be a positive int32")
+                val registered = route.subscriptionId?.let { id ->
+                    if (id < 1) throw BadRequestException("subscriptionId must be a positive int32")
+                    config != null && service.isRegistered(
+                        call.caller().userId,
+                        call.accessToken().credentialRevision,
+                        id.toUInt(),
+                        nowMillis() - PUSH_SUBSCRIPTION_RETENTION_MILLIS,
+                    )
                 }
-                if (config == null) {
-                    val response = if (subscriptionId == null) {
-                        BrowserPushUnavailableResponse()
-                    } else {
-                        BrowserPushUnavailableRegisteredResponse()
-                    }
-                    call.respond(HttpStatusCode.OK, response)
-                    return@get
-                }
-                if (subscriptionId == null) {
-                    call.respond(HttpStatusCode.OK, BrowserPushAvailableResponse(publicKey = config.publicKey))
-                    return@get
-                }
-                val caller = call.caller()
-                val registered = service.isRegistered(
-                    caller.userId,
-                    call.accessToken().credentialRevision,
-                    subscriptionId,
-                    nowMillis() - PUSH_SUBSCRIPTION_RETENTION_MILLIS,
-                )
-                call.respond(
-                    HttpStatusCode.OK,
-                    BrowserPushAvailableRegisteredResponse(publicKey = config.publicKey, registered = registered),
-                )
+                call.respond(HttpStatusCode.OK, BrowserPushConfigResponse(config != null, config?.publicKey, registered))
             }
             rateLimit(RateLimitName(RateLimits.NOTIFICATION_PREFS)) {
                 post<BrowserPushRoute.Subscriptions> {
@@ -115,9 +84,9 @@ fun Application.configureBrowserPushRoutes() {
                     call.respond(HttpStatusCode.OK, BrowserPushSubscriptionResponse(id))
                 }
                 delete<BrowserPushRoute.Subscriptions.Id> { route ->
-                    if (route.id == 0u || route.id > Int.MAX_VALUE.toUInt()) throw BadRequestException("id must be a positive int32")
+                    if (route.id < 1) throw BadRequestException("id must be a positive int32")
                     val caller = call.caller()
-                    service.unsubscribe(caller.userId, route.id)
+                    service.unsubscribe(caller.userId, route.id.toUInt())
                     audit("notification.push_unsubscribed", "userId" to caller.userId.toLong(), "subscriptionId" to route.id.toLong())
                     call.respond(HttpStatusCode.NoContent)
                 }

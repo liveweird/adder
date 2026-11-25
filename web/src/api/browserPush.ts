@@ -64,6 +64,7 @@ function sameBinding(left: BrowserPushBinding | undefined, right: BrowserPushBin
 
 function addPending(binding: BrowserPushBinding): void {
   const current = state();
+  if (current.pending.some((candidate) => sameBinding(candidate, binding))) return;
   writeState({ ...current, pending: [...current.pending, binding] });
 }
 
@@ -144,8 +145,22 @@ export async function detachBrowserPushForLogout(binding: BrowserPushBinding | n
   });
 }
 
-export function browserPushLogoutRevoked(binding: BrowserPushBinding | null): void {
-  if (binding) removePending(binding);
+/** Retire an active device owned by a session that is no longer current. */
+export async function reconcileBrowserPushSession(): Promise<void> {
+  const active = state().active;
+  if (!active || active.userId === getUserId()) return;
+  await withDeviceLock(async () => {
+    const current = state();
+    const foreign = current.active;
+    if (!foreign || foreign.userId === getUserId()) return;
+    const pending = current.pending.some((candidate) => sameBinding(candidate, foreign))
+      ? current.pending
+      : [...current.pending, foreign];
+    writeState({ pending });
+    if (!browserPushSupported()) return;
+    const subscription = await nativeSubscription();
+    if (subscription) await unsubscribeIfStillCurrent(subscription, foreign);
+  });
 }
 
 async function retryPendingCleanup(session: SessionSnapshot, userId: number): Promise<void> {
@@ -226,15 +241,22 @@ export async function enableBrowserPush({ publicKey, permission }: {
       });
     }
     const bindingId = crypto.randomUUID();
+    let registeredBinding: BrowserPushBinding | null = null;
     try {
       const { id } = await jsonRequest<{ id: number }>(`${API}/subscriptions`, {
         method: "POST",
         body: JSON.stringify({ endpoint: subscription.endpoint }),
       });
       const binding = { userId, id, bindingId };
+      registeredBinding = binding;
+      const stillRegistered = await nativeSubscription();
       if (!isSameSessionIdentity(session, getSessionSnapshot()) || getUserId() !== userId) {
         addPending(binding);
         await cleanupFailedEnrollment(subscription, binding);
+        return null;
+      }
+      if (stillRegistered?.endpoint !== subscription.endpoint) {
+        addPending(binding);
         return null;
       }
       const current = state();
@@ -244,6 +266,7 @@ export async function enableBrowserPush({ publicKey, permission }: {
       });
       return id;
     } catch (error) {
+      if (registeredBinding) addPending(registeredBinding);
       await cleanupFailedEnrollment(subscription, { userId, id: -1, bindingId });
       if (!isSameSessionIdentity(session, getSessionSnapshot())) return null;
       throw error;

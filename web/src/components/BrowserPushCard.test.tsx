@@ -112,6 +112,19 @@ test("server configuration and browser permission both gate the enable control",
   expect(denied.requestPermission).not.toHaveBeenCalled();
 });
 
+test("enabling after browser permission is already granted does not prompt again", async () => {
+  const user = userEvent.setup();
+  const { requestPermission } = browser("granted");
+  const send = api();
+  renderWithProviders(<BrowserPushCard />);
+
+  await user.click(await screen.findByRole("button", { name: "Enable on this browser" }));
+
+  expect(await screen.findByRole("button", { name: "Disable on this browser" })).toBeVisible();
+  expect(requestPermission).not.toHaveBeenCalled();
+  expect(send).toHaveBeenCalledWith(subscriptions, expect.objectContaining({ method: "POST" }));
+});
+
 test("a disabled server detaches a previously enrolled browser and queues server cleanup", async () => {
   const { serviceWorker, unsubscribe } = browser("granted");
   api(false);
@@ -201,6 +214,78 @@ test("device enrollment falls back when Web Locks cannot be acquired", async () 
   expect(locks.request).toHaveBeenCalledOnce();
 });
 
+test("the lock fallback does not publish a subscription removed during registration", async () => {
+  let currentSubscription: PushSubscription | null = null;
+  const unsubscribe = vi.fn(async () => {
+    currentSubscription = null;
+    return true;
+  });
+  const subscription = {
+    endpoint: `${endpoint}/new-account`,
+    unsubscribe,
+    options: { applicationServerKey: Uint8Array.of(4).buffer },
+  } as unknown as PushSubscription;
+  const pushManager = {
+    getSubscription: vi.fn(async () => currentSubscription),
+    subscribe: vi.fn(async () => {
+      currentSubscription = subscription;
+      return subscription;
+    }),
+  };
+  const registration = { pushManager } as unknown as ServiceWorkerRegistration;
+  const serviceWorker = {
+    ready: Promise.resolve(registration),
+    getRegistration: vi.fn(async () => registration),
+  };
+  vi.stubGlobal("navigator", { ...navigator, locks: undefined, serviceWorker });
+  vi.stubGlobal("isSecureContext", true);
+  vi.stubGlobal("PushManager", class {});
+  vi.stubGlobal("Notification", { permission: "granted" });
+  localStorage.setItem("adder.browserPush", JSON.stringify({ userId: 7, id: 7 }));
+  const oldBinding = takeBrowserPushForLogout();
+  persistSession({
+    token: "replacement-token",
+    expiresAt: 2_000_000_000_000,
+    refreshToken: "replacement-refresh",
+    refreshExpiresAt: 2_000_000_000_000,
+    userId: 8,
+    roles: [],
+    disabledFeatures: [],
+    language: "en",
+  });
+  let finishPost: (response: Response) => void = (_response) => undefined;
+  const post = new Promise<Response>((resolve) => { finishPost = resolve; });
+  vi.stubGlobal("fetch", vi.fn((input: string) => input === subscriptions
+    ? post
+    : Promise.resolve(new Response(null, { status: 204 }))));
+  const enrollment = enableBrowserPush({ publicKey: "BA", permission: Promise.resolve("granted") });
+  await vi.waitFor(() => expect(pushManager.subscribe).toHaveBeenCalledOnce());
+
+  await detachBrowserPushForLogout(oldBinding);
+  finishPost(jsonResponse(200, { id: 10 }));
+
+  await expect(enrollment).resolves.toBeNull();
+  expect(currentBrowserPushId()).toBeNull();
+  expect(localStorage.getItem("adder.browserPush")).toContain('"id":10');
+});
+
+test("an account switch during native verification cannot publish the old account’s subscription", async () => {
+  const device = browser("granted");
+  api();
+  device.registration.pushManager.getSubscription
+    .mockResolvedValueOnce(device.subscription)
+    .mockImplementationOnce(async () => {
+      clearSession();
+      return device.subscription;
+    });
+
+  await expect(enableBrowserPush({ publicKey: "BA", permission: Promise.resolve("granted") })).resolves.toBeNull();
+  expect(JSON.parse(localStorage.getItem("adder.browserPush")!)).toEqual({
+    pending: [{ userId: 7, id: 9, bindingId: expect.any(String) }],
+  });
+  expect(device.unsubscribe).toHaveBeenCalledOnce();
+});
+
 test("logout captures the browser subscription before clearing the session", async () => {
   const { unsubscribe } = browser("granted");
   const send = api();
@@ -212,7 +297,35 @@ test("logout captures the browser subscription before clearing the session", asy
     headers: expect.objectContaining({ Authorization: "Bearer fixture-token", "X-Adder-Push-Subscription": "9" }),
   }));
   expect(unsubscribe).toHaveBeenCalledOnce();
+  expect(localStorage.getItem("adder.browserPush")).toContain('"pending"');
+});
+
+test("a logout response never substitutes for authenticated subscription deletion", async () => {
+  const { unsubscribe } = browser("granted");
+  const send = api();
+  localStorage.setItem("adder.browserPush", JSON.stringify({ userId: 7, id: 9 }));
+
+  await logout();
+
+  expect(unsubscribe).toHaveBeenCalledOnce();
+  expect(localStorage.getItem("adder.browserPush")).toContain('"id":9');
+  localStorage.setItem("adder.auth.token", "fixture-token-2");
+  localStorage.setItem("adder.auth.userId", "7");
+  await getBrowserPushConfig();
+  expect(send).toHaveBeenCalledWith(`${subscriptions}/9`, expect.objectContaining({ method: "DELETE" }));
   expect(localStorage.getItem("adder.browserPush")).toBeNull();
+});
+
+test("native unsubscribe failure cannot discard pending authenticated cleanup", async () => {
+  const device = browser("granted");
+  device.unsubscribe.mockRejectedValueOnce(new Error("provider unavailable"));
+  api();
+  localStorage.setItem("adder.browserPush", JSON.stringify({ userId: 7, id: 9 }));
+
+  await expect(logout()).resolves.toBeUndefined();
+
+  expect(localStorage.getItem("adder.browserPush")).toContain('"id":9');
+  expect(currentBrowserPushId()).toBeNull();
 });
 
 test("offline logout detaches the native subscription and retries server cleanup for the same account", async () => {
@@ -387,6 +500,7 @@ test("a late old-account registration is detached before a replacement account c
   device.registration.pushManager.getSubscription
     .mockResolvedValueOnce(null)
     .mockResolvedValueOnce(oldSubscription)
+    .mockResolvedValueOnce(oldSubscription)
     .mockResolvedValue(replacementSubscription);
   device.subscribe.mockResolvedValueOnce(oldSubscription).mockResolvedValueOnce(replacementSubscription);
   let finishOldPost: (response: Response) => void = (_response) => undefined;
@@ -441,6 +555,20 @@ test("a failed enrollment removes the orphan native subscription and leaves the 
   expect(currentBrowserPushId()).toBeNull();
   await expect(disableBrowserPush(99)).resolves.toBeUndefined();
   expect(send).not.toHaveBeenCalledWith(`${subscriptions}/99`, expect.anything());
+});
+
+test("a provider validation failure keeps the registered server id pending", async () => {
+  const device = browser();
+  device.registration.pushManager.getSubscription
+    .mockResolvedValueOnce(null)
+    .mockRejectedValueOnce(new Error("provider unavailable"))
+    .mockResolvedValue(null);
+  api();
+
+  await expect(enableBrowserPush({ publicKey: "BA", permission: Promise.resolve("granted") })).rejects.toThrow("provider unavailable");
+
+  expect(currentBrowserPushId()).toBeNull();
+  expect(localStorage.getItem("adder.browserPush")).toContain('"id":9');
 });
 
 test("a failed old-account registration stays silent after the account changes", async () => {

@@ -37,16 +37,13 @@ internal class NoticePersistence(private val digestDelayMillis: Long, private va
         ) { row ->
             RefreshedNotice(
                 row.get(0, Long::class.javaObjectType)!!.toUInt(),
-                row.get(1, String::class.java)!!,
+                NotificationType.valueOf(row.get(1, String::class.java)!!),
                 row.get(2, Boolean::class.javaObjectType) == true,
                 row.get(3, Int::class.javaObjectType)!!.toUInt(),
             )
         }?.toList().orEmpty().filterNotNull()
-        if (pushAvailable) enqueueBrowserPush(rows.filter { it.inApp }.map { it.notificationId })
-        return rows.mapNotNull { notice ->
-            NotificationType.entries.firstOrNull { it.name == notice.typeName }
-                ?.let { Triple(notice.userId, it, notice.inApp) }
-        }.distinctBy { it.first to it.second }
+        if (pushAvailable) enqueueBrowserPush(rows.map { it.notificationId })
+        return rows.map { Triple(it.userId, it.type, it.inApp) }.distinctBy { it.first to it.second }
     }
 
     suspend fun insert(
@@ -76,20 +73,18 @@ internal class NoticePersistence(private val digestDelayMillis: Long, private va
                 MadeNotice(
                     row.get(0, Long::class.javaObjectType)!!.toUInt(),
                     row.get(1, Int::class.javaObjectType)!!.toUInt(),
-                    row.get(2, String::class.java)!!,
+                    NotificationType.valueOf(row.get(2, String::class.java)!!),
                 )
             }?.toList().orEmpty().filterNotNull()
         if (pushAvailable) enqueueBrowserPush(rows.map { it.notificationId })
-        return rows.mapNotNull { notice ->
-            NotificationType.entries.firstOrNull { it.name == notice.typeName }?.let { notice.userId to it }
-        }
+        return rows.map { it.userId to it.type }
     }
 
-    private class MadeNotice(val userId: UInt, val notificationId: UInt, val typeName: String)
+    private class MadeNotice(val userId: UInt, val notificationId: UInt, val type: NotificationType)
 
     private class RefreshedNotice(
         val userId: UInt,
-        val typeName: String,
+        val type: NotificationType,
         val inApp: Boolean,
         val notificationId: UInt,
     )

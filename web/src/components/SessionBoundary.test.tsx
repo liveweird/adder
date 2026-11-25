@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, renderWithProviders, screen, waitFor } from "../test/render";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { getSessionSnapshot, getUserId, persistRefreshedSession, persistSession } from "../api/session";
 import type { components } from "../api/schema";
 import { bindSessionQueryCache } from "../utils/sessionQueryCache";
@@ -40,6 +40,63 @@ function ResultPanel({ request, published }: { request: () => Promise<string>; p
 }
 
 describe("session boundary", () => {
+  test("switching accounts retires the old account's browser push binding", async () => {
+    persistSession(session(1, "token-a"));
+    const unsubscribe = vi.fn(async () => true);
+    const subscription = { endpoint: "https://push.example/old", unsubscribe };
+    const registration = { pushManager: { getSubscription: vi.fn(async () => subscription) } };
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("PushManager", class {});
+    vi.stubGlobal("Notification", { permission: "granted" });
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      locks: undefined,
+      serviceWorker: { getRegistration: vi.fn(async () => registration) },
+    });
+    localStorage.setItem("adder.browserPush", JSON.stringify({ userId: 1, id: 41 }));
+    renderWithProviders(<SessionBoundary><span>content</span></SessionBoundary>);
+
+    await act(async () => { persistSession(session(2, "token-b")); });
+
+    await waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce());
+    expect(localStorage.getItem("adder.browserPush")).toContain('"userId":1');
+    expect(localStorage.getItem("adder.browserPush")).toContain('"pending"');
+  });
+
+  test("account replacement preserves cleanup when native push is unavailable", async () => {
+    persistSession(session(1, "token-a"));
+    vi.stubGlobal("isSecureContext", false);
+    localStorage.setItem("adder.browserPush", JSON.stringify({ userId: 1, id: 41 }));
+    renderWithProviders(<SessionBoundary><span>content</span></SessionBoundary>);
+
+    await act(async () => { persistSession(session(2, "token-b")); });
+
+    await waitFor(() => expect(localStorage.getItem("adder.browserPush")).toContain('"pending"'));
+    expect(localStorage.getItem("adder.browserPush")).toContain('"userId":1');
+  });
+
+  test("a provider failure while switching accounts preserves the pending cleanup and the new session", async () => {
+    persistSession(session(1, "token-a"));
+    const unsubscribe = vi.fn(async () => { throw new Error("provider offline"); });
+    const subscription = { endpoint: "https://push.example/old", unsubscribe };
+    const registration = { pushManager: { getSubscription: vi.fn(async () => subscription) } };
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("PushManager", class {});
+    vi.stubGlobal("Notification", { permission: "granted" });
+    vi.stubGlobal("navigator", { ...navigator, locks: undefined, serviceWorker: { getRegistration: async () => registration } });
+    const prior = { userId: 1, id: 41, bindingId: "browser-session-a" };
+    localStorage.setItem("adder.browserPush", JSON.stringify({ active: prior, pending: [prior] }));
+    renderWithProviders(<SessionBoundary><span>content</span></SessionBoundary>);
+
+    await act(async () => { persistSession(session(2, "token-b")); });
+
+    await waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce());
+    expect(getUserId()).toBe(2);
+    expect(screen.getByText("content")).toBeVisible();
+    expect(JSON.parse(localStorage.getItem("adder.browserPush")!)).toEqual({ pending: [prior] });
+  });
+
+
   test("a late mutation cannot show the old account's result after a cross-tab switch", async () => {
     persistSession(session(1, "token-a"));
     let release!: (value: string) => void;
@@ -81,6 +138,19 @@ describe("session boundary", () => {
 
   test("a new login remounts local state, while token rotation keeps it", async () => {
     persistSession(session(1, "token-a"));
+    const unsubscribe = vi.fn(async () => true);
+    const subscription = { endpoint: "https://push.example/current", unsubscribe };
+    vi.stubGlobal("isSecureContext", true);
+    vi.stubGlobal("PushManager", class {});
+    vi.stubGlobal("Notification", { permission: "granted" });
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      locks: undefined,
+      serviceWorker: {
+        getRegistration: vi.fn(async () => ({ pushManager: { getSubscription: vi.fn(async () => subscription) } })),
+      },
+    });
+    localStorage.setItem("adder.browserPush", JSON.stringify({ userId: 1, id: 41 }));
     renderWithProviders(
       <SessionBoundary>
         <ResultPanel request={async () => "saved for A"} published={() => undefined} />
@@ -94,6 +164,7 @@ describe("session boundary", () => {
       expect(persistRefreshedSession(session(1, "token-a2"), beforeRefresh)).not.toBeNull();
     });
     expect(screen.getByText("1:saved for A")).toBeInTheDocument();
+    expect(unsubscribe).not.toHaveBeenCalled();
 
     await act(async () => { persistSession(session(2, "token-b")); });
     expect(screen.getByText("2:empty")).toBeInTheDocument();

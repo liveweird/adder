@@ -9,6 +9,9 @@ import ch.nokillswit.notifications.NotificationSweepKey
 import ch.nokillswit.notifications.PushResult
 import ch.nokillswit.notifications.PushTransport
 import ch.nokillswit.authz.UnauthorizedException
+import ch.nokillswit.threads.ThreadMuteRequest
+import ch.nokillswit.threads.ThreadStatusRequest
+import ch.nokillswit.threads.WatchRequest
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -16,10 +19,6 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
-import java.security.KeyPairGenerator
-import java.security.interfaces.ECPublicKey
-import java.security.spec.ECGenParameterSpec
-import java.util.Base64
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -133,13 +132,38 @@ class BrowserPushTest {
     }
 
     @Test
-    fun `the running notification sweep purges old subscriptions with push disabled`() = testApplication {
-        configureApp("notifications.sweepEnabled" to "true")
+    fun `the running notification sweep purges old subscriptions with or without VAPID`() {
+        assertSweepPurges(emptyArray())
+        assertSweepPurges(vapidConfig())
+    }
+
+    private fun assertSweepPurges(keys: Array<Pair<String, String>>) = testApplication {
+        configureApp("notifications.sweepEnabled" to "true", *keys)
         val user = TestUsers.seed(uniqueEmail("push-sweep"), "pw").also { users += it }
         val id = insertSubscription(user, System.currentTimeMillis() - 91L * 86_400_000L)
         startApplication()
         withTimeout(60_000) { application.attributes[NotificationSweepKey].await() }
         assertFalse(subscriptionExists(id))
+    }
+
+    @Test
+    fun `a refreshed status alert replaces the queued alert and muting stops it from sending`() = testApplication {
+        configureApp(*vapidConfig())
+        val cast = seedPairCast("push-workflow", "Push workflow", minted, withThread = true)
+        TestNotices.quietRoom(cast.room)
+        val thread = "/api/v1/rooms/${cast.room}/threads/1"
+        val id = cast.ann.client.postJson("$API/subscriptions", BrowserPushSubscriptionRequest(ENDPOINT))
+            .body<BrowserPushSubscriptionResponse>().id
+        assertEquals(HttpStatusCode.NoContent, cast.ann.client.putJson("$thread/watch", WatchRequest(true)).status)
+        for (status in listOf("monitoring", "open")) {
+            assertEquals(HttpStatusCode.NoContent, cast.owner.client.putJson("$thread/status", ThreadStatusRequest(status)).status)
+            assertEquals(1, queued(id))
+        }
+        assertEquals(HttpStatusCode.NoContent, cast.ann.client.putJson("$thread/mute", ThreadMuteRequest(true)).status)
+        val service = application.attributes[BrowserPushServiceKey]
+        val claim = service.claim(10, System.currentTimeMillis() - 86_400_000L).single()
+        assertEquals(id, claim.subscriptionId)
+        assertNull(service.eligibleEndpoint(claim))
     }
 
     @Test
@@ -358,24 +382,5 @@ class BrowserPushTest {
         const val API = "/api/v1/notifications/push"
         const val ENDPOINT = "https://fcm.googleapis.com/fcm/send/test-browser-endpoint"
 
-        fun vapidConfig(): Array<Pair<String, String>> {
-            val generator = KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }
-            val pair = generator.generateKeyPair()
-            val public = pair.public as ECPublicKey
-            fun coordinate(value: java.math.BigInteger): ByteArray = value.toByteArray().let { bytes ->
-                when {
-                    bytes.size == 32 -> bytes
-                    bytes.size > 32 -> bytes.copyOfRange(bytes.size - 32, bytes.size)
-                    else -> ByteArray(32 - bytes.size) + bytes
-                }
-            }
-            val raw = byteArrayOf(4) + coordinate(public.w.affineX) + coordinate(public.w.affineY)
-            val encoder = Base64.getUrlEncoder().withoutPadding()
-            return arrayOf(
-                "notifications.push.publicKey" to encoder.encodeToString(raw),
-                "notifications.push.privateKey" to encoder.encodeToString(pair.private.encoded),
-                "notifications.push.subject" to "mailto:push-test@adder.local",
-            )
-        }
     }
 }
