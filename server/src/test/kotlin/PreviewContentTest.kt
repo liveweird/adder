@@ -9,6 +9,7 @@ import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.util.Base64
+import java.util.Random
 import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -47,6 +48,13 @@ class PreviewContentTest {
                 "https://docs.example/",
             ).imageUrl,
         )
+        val empty = parsePreviewPage(
+            "<meta property=og:title content=''><meta property=og:image content=''>".toByteArray(),
+            "https://docs.example/",
+        )
+        assertNull(empty.title)
+        assertNull(empty.imageUrl)
+        assertNull(parsePreviewPage(byteArrayOf(), "https://docs.example/").title)
     }
 
     @Test
@@ -114,5 +122,18 @@ class PreviewContentTest {
         assertEquals(20, preview.height)
         assertNull(reencodePreviewImage(byteArrayOf(), "image/png"))
         assertNull(reencodePreviewImage(ByteArray(2 * 1024 * 1024 + 1), "image/png"))
+    }
+
+    @Test
+    fun `rejects a noisy raster whose sanitized output exceeds the preview budget`() {
+        val random = Random(7)
+        val source = BufferedImage(640, 640, BufferedImage.TYPE_INT_ARGB)
+        for (y in 0 until source.height) {
+            for (x in 0 until source.width) source.setRGB(x, y, random.nextInt())
+        }
+        val encoded = ByteArrayOutputStream().also { ImageIO.write(source, "png", it) }.toByteArray()
+
+        assertTrue(encoded.size < 2 * 1024 * 1024)
+        assertNull(reencodePreviewImage(encoded, "image/png"))
     }
 }

@@ -15,6 +15,7 @@ import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.Serializable
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.commonmark.ext.autolink.AutolinkExtension
 import org.commonmark.node.AbstractVisitor
@@ -97,7 +98,8 @@ class MessageLinkPreviewService internal constructor(
             )
         }
         try {
-            val content = if (canonical.toHttpUrlOrNull()?.isHttps == true) {
+            // [canonicalMessageUrl] admits only canonical HTTP(S), so reparsing cannot fail here.
+            val content = if (canonical.toHttpUrl().isHttps) {
                 try {
                     fetcher.fetch(canonical)
                 } catch (_: BlockedPreviewUrlException) {
@@ -177,11 +179,8 @@ private fun PreviewContent?.toResponse(requestUrl: String): LinkPreviewResponse 
     if (this == null || kind == PreviewKind.UNAVAILABLE) {
         return LinkPreviewResponse(LinkPreviewKind.UNAVAILABLE, requestUrl, null, null, null)
     }
-    val responseKind = when (kind) {
-        PreviewKind.PAGE -> LinkPreviewKind.PAGE
-        PreviewKind.IMAGE -> LinkPreviewKind.IMAGE
-        PreviewKind.UNAVAILABLE -> LinkPreviewKind.UNAVAILABLE
-    }
+    // UNAVAILABLE returned above; the only remaining transport kinds are PAGE and IMAGE.
+    val responseKind = if (kind == PreviewKind.PAGE) LinkPreviewKind.PAGE else LinkPreviewKind.IMAGE
     return LinkPreviewResponse(
         kind = responseKind,
         url = requestUrl,

@@ -73,8 +73,10 @@ class MessageLinkPreviewTest {
     @Test
     fun `canonical destinations must remain bounded and obey URI whitespace grammar`() {
         val expanding = "https://example.com/" + "é".repeat(400)
+        val rawTooLong = "https://example.com/" + "x".repeat(2_050)
         assertTrue(expanding.length <= 2_048)
         assertTrue(messageLinkDestinations("[expands]($expanding)").isEmpty(), "percent encoding must not exceed the wire bound")
+        assertTrue(messageLinkDestinations("[too long]($rawTooLong)").isEmpty(), "the stored destination has the same raw bound")
         assertTrue(messageLinkDestinations("[space](<https://example.com/a b>)").isEmpty())
         assertTrue(messageLinkDestinations("[tab](<https://example.com/a\tb>)").isEmpty())
         assertEquals(
@@ -95,6 +97,7 @@ class MessageLinkPreviewTest {
             <a href="https://example.com/raw">raw</a>
             <person@example.com>
             example.com/plain
+            ![relative image](chart.png)
             [![Chart](https://cdn.example.com/chart.jpg)](https://example.com/report)
         """.trimIndent()
 
@@ -249,7 +252,14 @@ class MessageLinkPreviewTest {
         assertEquals(HttpStatusCode.BadRequest, foreign.status)
         assertEquals("url must identify a current link in the message", foreign.body<ProblemDetail>().detail)
         val expanding = "https://example.com/" + "é".repeat(400)
-        for (url in listOf("", "not a URL", " https://example.com/current", expanding, "https://example.com/" + "x".repeat(2_049))) {
+        for (url in listOf(
+            "",
+            "not a URL",
+            " https://example.com/current",
+            "https://example.com/control\u0007",
+            expanding,
+            "https://example.com/" + "x".repeat(2_049),
+        )) {
             val refused = cast.member.client.postJson(previewPath(cast.room, message), LinkPreviewRequest(url))
             assertEquals(
                 HttpStatusCode.BadRequest,

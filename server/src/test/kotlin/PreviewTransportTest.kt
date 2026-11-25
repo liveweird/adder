@@ -15,6 +15,7 @@ import java.net.SocketException
 import java.time.Duration
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
@@ -26,6 +27,12 @@ import kotlin.test.assertNull
 import kotlin.test.assertNotNull
 import kotlinx.coroutines.runBlocking
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody
+import okio.Buffer
+import okio.BufferedSource
 
 class PreviewTransportTest {
     private val publicIpv4 = InetAddress.getByName("8.8.8.8")
@@ -48,7 +55,10 @@ class PreviewTransportTest {
     @Test
     fun `rejects every URL form that can escape the public https boundary`() {
         val invalid = listOf(
+            "   ",
             "not a url",
+            "https://example.com/%",
+            "https://",
             "http://example.com/",
             "https://example.com:8443/",
             "https://user:secret@example.com/",
@@ -236,6 +246,58 @@ class PreviewTransportTest {
     }
 
     @Test
+    fun fetchesAndSanitizesAnOptionalOgRasterFromTheValidatedOrigin() {
+        withServer { server ->
+            val source = BufferedImage(24, 12, BufferedImage.TYPE_INT_RGB)
+            val png = ByteArrayOutputStream().also { ImageIO.write(source, "png", it) }.toByteArray()
+            server.createContext("/page") { exchange ->
+                val body = "<title>With image</title><meta property=og:image content='/image'>".toByteArray()
+                exchange.responseHeaders.add("Content-Type", "text/html")
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }
+            server.createContext("/image") { exchange ->
+                exchange.responseHeaders.add("Content-Type", "image/png")
+                exchange.sendResponseHeaders(200, png.size.toLong())
+                exchange.responseBody.use { it.write(png) }
+            }
+            server.createContext("/missing-thumbnail-page") { exchange ->
+                val body = "<title>No image</title><meta property=og:image content='/missing'>".toByteArray()
+                exchange.responseHeaders.add("Content-Type", "text/html")
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }
+            server.createContext("/html-thumbnail-page") { exchange ->
+                val body = "<title>HTML image</title><meta property=og:image content='/html-thumbnail'>".toByteArray()
+                exchange.responseHeaders.add("Content-Type", "text/html")
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }
+            server.createContext("/html-thumbnail") { exchange ->
+                val body = "<title>Not a raster</title>".toByteArray()
+                exchange.responseHeaders.add("Content-Type", "text/html")
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }
+            server.start()
+            val origin = "https://preview.test"
+            val fetcher = localOriginFetcher(server, origin)
+
+            val page = assertNotNull(runBlocking { fetcher.fetch("$origin/page") })
+            val missing = assertNotNull(runBlocking { fetcher.fetch("$origin/missing-thumbnail-page") })
+            val html = assertNotNull(runBlocking { fetcher.fetch("$origin/html-thumbnail-page") })
+            fetcher.close()
+
+            assertEquals("With image", page.title)
+            assertEquals(24, page.image?.width)
+            assertEquals(12, page.image?.height)
+            assertEquals(false, page.blockedThumbnail)
+            assertNull(missing.image)
+            assertNull(html.image)
+        }
+    }
+
+    @Test
     fun preservesPageWhenOptionalThumbnailIsBlockedOrUnavailable() {
         withServer { server ->
             server.createContext("/blocked-thumbnail") { exchange ->
@@ -355,6 +417,24 @@ class PreviewTransportTest {
                 exchange.sendResponseHeaders(200, body.size.toLong())
                 exchange.responseBody.use { it.write(body) }
             }
+            server.createContext("/bad-image") { exchange ->
+                val body = "not an image".toByteArray()
+                exchange.responseHeaders.add("Content-Type", "image/png")
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }
+            server.createContext("/xhtml") { exchange ->
+                val body = "<title>XHTML</title>".toByteArray()
+                exchange.responseHeaders.add("Content-Type", "application/xhtml+xml")
+                exchange.responseHeaders.add("Content-Encoding", "IDENTITY")
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }
+            server.createContext("/invalid-redirect") { exchange ->
+                exchange.responseHeaders.add("Location", "ftp://files.example/image")
+                exchange.sendResponseHeaders(307, -1)
+                exchange.close()
+            }
             server.createContext("/charset") { exchange ->
                 val body = "<title>Fallback</title>".toByteArray()
                 exchange.responseHeaders.add("Content-Type", "text/html; charset=no-such-charset")
@@ -368,10 +448,89 @@ class PreviewTransportTest {
             assertNull(runBlocking { fetcher.fetch(base(server) + "/not-found") })
             assertNull(runBlocking { fetcher.fetch(base(server) + "/missing-type") })
             assertNull(runBlocking { fetcher.fetch(base(server) + "/unsupported") })
+            assertNull(runBlocking { fetcher.fetch(base(server) + "/bad-image") })
+            assertEquals("XHTML", runBlocking { fetcher.fetch(base(server) + "/xhtml") }?.title)
+            assertNull(runBlocking { fetcher.fetch(base(server) + "/invalid-redirect") })
             assertEquals("Fallback", runBlocking { fetcher.fetch(base(server) + "/charset") }?.title)
             fetcher.close()
             fetcher.close()
         }
+    }
+
+    @Test
+    fun refusesARewrittenHostnameAndARequestCancelledDuringResolution() {
+        withServer { server ->
+            val requests = AtomicInteger()
+            server.createContext("/") { exchange ->
+                requests.incrementAndGet()
+                exchange.sendResponseHeaders(204, -1)
+                exchange.close()
+            }
+            server.start()
+            val origin = "https://preview.test"
+            val wrongHost = PublicLinkPreviewFetcher(
+                targetResolver = { raw ->
+                    ValidatedPreviewTarget(raw.toHttpUrl(), listOf(InetAddress.getLoopbackAddress()))
+                },
+                customizeClient = { builder ->
+                    builder.addInterceptor { chain ->
+                        val rewritten = chain.request().url.newBuilder()
+                            .scheme("http").host("other.test").port(server.address.port).build()
+                        chain.proceed(chain.request().newBuilder().url(rewritten).build())
+                    }
+                },
+            )
+            assertNull(runBlocking { wrongHost.fetch("$origin/") })
+            wrongHost.close()
+
+            val executor = Executors.newSingleThreadExecutor()
+            val cancelled = PublicLinkPreviewFetcher(
+                targetResolver = { raw ->
+                    try {
+                        Thread.sleep(5_000)
+                    } catch (_: InterruptedException) {
+                        // The cancelled operation deliberately continues to the transport boundary.
+                    }
+                    ValidatedPreviewTarget(raw.toHttpUrl(), listOf(InetAddress.getLoopbackAddress()))
+                },
+                timeout = Duration.ofMillis(20),
+                suppliedExecutor = executor,
+            )
+            assertNull(runBlocking { cancelled.fetch(base(server) + "/") })
+            cancelled.close()
+            executor.shutdownNow()
+            assertEquals(true, executor.awaitTermination(1, TimeUnit.SECONDS))
+
+            assertEquals(0, requests.get())
+        }
+    }
+
+    @Test
+    fun rejectsATruncatedBodyWhoseDeclaredLengthDoesNotMatch() {
+        val fetcher = PublicLinkPreviewFetcher(
+            targetResolver = { raw ->
+                ValidatedPreviewTarget(raw.toHttpUrl(), listOf(InetAddress.getLoopbackAddress()))
+            },
+            customizeClient = { builder ->
+                builder.addInterceptor { chain ->
+                    val body = object : ResponseBody() {
+                        override fun contentType() = "text/html".toMediaType()
+                        override fun contentLength() = 10L
+                        override fun source(): BufferedSource = Buffer().writeUtf8("short")
+                    }
+                    Response.Builder()
+                        .request(chain.request())
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(200)
+                        .message("OK")
+                        .body(body)
+                        .build()
+                }
+            },
+        )
+
+        assertNull(runBlocking { fetcher.fetch("https://preview.test/truncated") })
+        fetcher.close()
     }
 
     @Test
@@ -390,6 +549,20 @@ class PreviewTransportTest {
             resolved()
             ValidatedPreviewTarget(raw.toHttpUrl(), listOf(InetAddress.getLoopbackAddress()))
         })
+
+    private fun localOriginFetcher(server: HttpServer, origin: String) = PublicLinkPreviewFetcher(
+        targetResolver = { raw ->
+            check(raw.startsWith(origin))
+            ValidatedPreviewTarget(raw.toHttpUrl(), listOf(InetAddress.getLoopbackAddress()))
+        },
+        customizeClient = { builder ->
+            builder.addInterceptor { chain ->
+                val rewritten = chain.request().url.newBuilder()
+                    .scheme("http").port(server.address.port).build()
+                chain.proceed(chain.request().newBuilder().url(rewritten).build())
+            }
+        },
+    )
 
     private fun base(server: HttpServer) = "http://127.0.0.1:" + server.address.port
 
