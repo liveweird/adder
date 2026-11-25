@@ -55,6 +55,7 @@ function api(url: string, init?: RequestInit): Promise<Response> {
   const method = init?.method ?? "GET";
   calls.push(`${method} ${url}`);
   if (method === "POST" && url === "/api/v1/notifications/seen-all") return Promise.resolve(markAllStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(markAllStatus, { title: "Boom", status: markAllStatus }));
+  if (method === "POST" && /^\/api\/v1\/notifications\/reply-groups\/\d+\/\d+\/seen$/.test(url)) return Promise.resolve(seenStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(seenStatus, { title: "Boom", status: seenStatus }));
   if (method === "POST" && /^\/api\/v1\/notifications\/\d+\/seen$/.test(url)) return Promise.resolve(seenStatus === 204 ? new Response(null, { status: 204 }) : jsonResponse(seenStatus, { title: "Boom", status: seenStatus }));
   if (url.startsWith("/api/v1/notifications/feed?") && url.includes("seen=false")) return Promise.resolve(unseenStatus === 200 ? jsonResponse(200, unseenPage) : jsonResponse(unseenStatus, { title: "Boom", status: unseenStatus }));
   if (url.startsWith("/api/v1/notifications/feed?") || url.startsWith("/api/v1/notifications?")) {
@@ -101,7 +102,7 @@ describe("NotificationsButton", () => {
     expect(await screen.findByRole("button", { name: "Notifications (3 unseen)" })).toBeInTheDocument();
     expect(screen.getByText("3").closest("[data-unread-cue=count]")).not.toBeNull();
     // It asks for the unseen ones only, a page of 100, newest first by the server's default.
-    expect(calls).toContain("GET /api/v1/notifications/feed?page=1&pageSize=100&seen=false");
+    expect(calls).toContain("GET /api/v1/notifications/feed?page=1&pageSize=100&seen=false&groupReplies=true");
   });
 
   test("past the server's cap the badge reads 999+ and the label says more than 999", async () => {
@@ -249,10 +250,10 @@ describe("NotificationsButton", () => {
     renderBell();
     await user.click(await bell());
     await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ });
-    expect(calls).toContain("GET /api/v1/notifications/feed?page=1&pageSize=20");
+    expect(calls).toContain("GET /api/v1/notifications/feed?page=1&pageSize=20&groupReplies=true");
     await user.click(screen.getByRole("button", { name: "3" }));
     expect(await screen.findByRole("link", { name: /Second page/ })).toBeInTheDocument();
-    expect(calls).toContain("GET /api/v1/notifications/feed?page=3&pageSize=20");
+    expect(calls).toContain("GET /api/v1/notifications/feed?page=3&pageSize=20&groupReplies=true");
   });
 
   test("a small list has no pager", async () => {
@@ -283,7 +284,7 @@ describe("NotificationsButton", () => {
     expect(screen.getByRole("button", { name: "Previous page" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(await screen.findByRole("link", { name: /Second page/ })).toBeInTheDocument();
-    expect(calls).toContain("GET /api/v1/notifications/feed?page=2&pageSize=20");
+    expect(calls).toContain("GET /api/v1/notifications/feed?page=2&pageSize=20&groupReplies=true");
   });
 
   test("a hand-over carries the focus-the-pane state, a message jump does not", async () => {

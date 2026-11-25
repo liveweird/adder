@@ -215,6 +215,13 @@ what the scenario is about.
      notice (the badge never went up and down again); the document was not reloaded; and the server lists no unseen notice for the reader (the read marker marked it
      seen, not merely the page's cache).
 
+## Scenario: a watched thread groups plain replies and keeps an addressed quote separate
+
+1. A member watches a thread and opens Home. The owner sends two plain replies and one that quotes the member's message.
+   - *Expected* The bell counts two entries. The drawer shows a group of two plain replies and a separate quote notice.
+2. The member opens the reply group.
+   - *Expected* Adder marks the displayed group as seen and jumps to its oldest reply, giving that message focus.
+
 ## Scenario: everyone in the room hears about a new thread
 
 1. The administrator mints an author and a reader; the author makes a room through the API and adds the reader. Both sign in and open the room's **Threads** view; both

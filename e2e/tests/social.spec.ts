@@ -798,6 +798,37 @@ test("a watcher hears a reply", async ({ page, browser }) => {
     .toBe(0);
 });
 
+test("a watched thread groups plain replies and keeps an addressed quote separate", async ({ page, browser }) => {
+  const room = await scene(page, { addMate: false });
+  const number = await startThread(room, uniqueText("Grouped checkout replies"));
+  await addMember(room);
+  const readerApi = (await apiAsUser(room.mate.email, room.mate.password)).api;
+  apis.push(readerApi);
+  const threadPath = `/api/v1/rooms/${room.roomId}/threads/${number}`;
+  expect((await readerApi.put(`${threadPath}/watch`, { data: { watching: true } })).status()).toBe(204);
+  const original = await readerApi.post(`${threadPath}/messages`, { data: { body: "My checkout observation" } });
+  expect(original.status()).toBe(201);
+  const { id: quotedId } = (await original.json()) as { id: number };
+  const reader = await signedIn(browser, room.mate);
+  await expect.poll(() => reader.frames.some((frame) => frame.type === "ready")).toBe(true);
+
+  const oldest = await postMessage(room, number, "First checkout follow-up");
+  await postMessage(room, number, "Second checkout follow-up");
+  await postMessage(room, number, "This answers your checkout observation", quotedId);
+
+  await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(2));
+  await bell(reader.page).click();
+  const inbox = drawer(reader.page);
+  const group = inbox.getByRole("link", { name: /2 new replies in #1/ });
+  await expect(group).toBeVisible();
+  await expect(inbox.getByRole("link", { name: /quoted your message/ })).toBeVisible();
+  const seen = reader.page.waitForResponse((response) => response.request().method() === "POST" && /reply-groups\/.+\/seen$/.test(response.url()));
+  await group.click();
+  expect((await seen).status()).toBe(204);
+  await expect(reader.page).toHaveURL(new RegExp(`/threads/${number}\\?.*message=${oldest}`));
+  await expect(messageNamed(reader.page, "First checkout follow-up")).toBeFocused();
+});
+
 test("everyone in the room hears about a new thread", async ({ page, browser }) => {
   const room = await scene(page);
   const author = await signedIn(browser, room.owner);

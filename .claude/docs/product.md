@@ -390,7 +390,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.16.0** (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.17.0** (grouped reply notifications), on 1.16.0 (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -418,6 +418,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.14.0 Room membership notifications** | A room add or join approval tells the recipient, with a direct link and delivery preferences. |
 | **1.15.0 Return to a quoting reply** | Return to the exact reply after following a quote. The bounded context view restores focus to that reply. |
 | **1.16.0 Search unread threads** | The Unread filter works in room and global search using the caller’s read state, alone or with other filters. |
+| **1.17.0 Grouped reply notifications** | The bell and email digest group plain replies by watched thread and keep personally addressed notices visible. |
 
 ## Donors
 
@@ -443,6 +444,10 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v1.17.0 — grouped reply notifications (2026-11-25)
+
+The bell and email digest group plain replies by watched thread and keep personally addressed notices visible.
 
 ### v1.16.0 — search unread threads (2026-11-25)
 

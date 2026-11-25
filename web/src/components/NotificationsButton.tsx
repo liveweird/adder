@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ActionIcon, Box, Button, Drawer, Group, SegmentedControl, Stack } from "@mantine/core";
 import { IconBell, IconBellOff, IconChecks } from "@tabler/icons-react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ADDRESSED_TYPES, listNotificationFeed, listNotifications, markAllNotificationsSeen, markNotificationSeen, NOTIFICATION_TOTAL_CAP, type NotificationFeedItem } from "../api/notifications";
+import { ADDRESSED_TYPES, listNotificationFeed, listNotifications, markAllNotificationsSeen, markNotificationSeen, markReplyGroupSeen, NOTIFICATION_TOTAL_CAP, type NotificationFeedItem, type NotificationFeedPage } from "../api/notifications";
 import { getToken } from "../api/session";
 import { useCloseOnPageChange } from "../hooks/useCloseOnPageChange";
 import { useUnseenNotifications } from "../hooks/useUnseenNotifications";
@@ -24,6 +24,14 @@ import Pager from "./Pager";
 import { UnreadAnchor } from "./UnreadCue";
 
 const PAGE_SIZE = 20;
+
+async function listAddressedFeed(page: number): Promise<NotificationFeedPage> {
+  const result = await listNotifications({ page, pageSize: PAGE_SIZE, type: ADDRESSED_TYPES });
+  return {
+    ...result,
+    items: result.items.map((item) => ({ ...item, replyCount: null, replyFloorId: null, replyCeilingId: null })),
+  };
+}
 
 /**
  * The header bell (Covenant's compact NotificationsButton, ported): a labelled button with the unseen count and a right-hand drawer listing the
@@ -54,8 +62,8 @@ export default function NotificationsButton() {
     queryKey: notificationKeys.list(page, view),
     queryFn: () =>
       view === "mentions"
-        ? listNotifications({ page, pageSize: PAGE_SIZE, type: ADDRESSED_TYPES })
-        : listNotificationFeed({ page, pageSize: PAGE_SIZE }),
+        ? listAddressedFeed(page)
+        : listNotificationFeed({ page, pageSize: PAGE_SIZE, groupReplies: true }),
     enabled: drawerOpen,
     placeholderData: keepPreviousData,
   });
@@ -69,7 +77,14 @@ export default function NotificationsButton() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: notificationsKey });
   // Settled, not only succeeded: a 404 (the notice is gone) or a 500 (unknown) re-reads, so the rows show what the server holds.
   // The person's other tabs hear of a write that landed (1.2 D9), so a hidden tab's title count follows.
-  const markSeen = useMutation({ mutationFn: (id: number) => markNotificationSeen(id), onSuccess: announceSeen, onSettled: refresh });
+  const markSeen = useMutation({
+    mutationFn: (notice: NotificationFeedItem) =>
+      notice.replyCount != null && notice.replyFloorId != null && notice.replyCeilingId != null && notice.threadNumber !== null
+        ? markReplyGroupSeen(notice.roomId, notice.threadNumber, notice.replyFloorId, notice.replyCeilingId)
+        : markNotificationSeen(notice.id),
+    onSuccess: announceSeen,
+    onSettled: refresh,
+  });
   const markAll = useMutation({
     mutationFn: () => markAllNotificationsSeen(),
     onSuccess: () => {
@@ -80,7 +95,7 @@ export default function NotificationsButton() {
 
   function open(n: NotificationFeedItem, event: MouseEvent<HTMLAnchorElement>) {
     // Acting on it is "seen"; the navigation does not wait for the write, and a failed write re-reads what the server holds.
-    if (!n.seen) markSeen.mutate(n.id);
+    if (!n.seen) markSeen.mutate(n);
     // Ctrl/Cmd/Shift/Alt-click opens a new tab or window (the router leaves it to the browser): the drawer and the focus stay where they are.
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     // The destination (the message, the thread's pane) takes focus itself; returning it to the bell would pull it back. A link to where the

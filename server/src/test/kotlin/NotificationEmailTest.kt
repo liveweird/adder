@@ -23,7 +23,30 @@ class NotificationEmailTest {
         number: Int? = if (type == NotificationType.ROOM_ADDED) null else 42,
         messageId: UInt? = if (number == null) null else 991u,
         roomId: UInt = 12u,
-    ) = DigestEntry(type, actor, roomId, room, number, messageId)
+        replyCount: Int = 1,
+    ) = DigestEntry(type, actor, roomId, room, number, messageId, replyCount)
+
+    @Test
+    fun `a grouped reply line counts replies without exposing an arbitrary actor`() {
+        val english = notificationEmail(
+            "Ada",
+            listOf(entry(NotificationType.THREAD_REPLIED, actor = "Newest actor", replyCount = 12)),
+            appUrl,
+            "en",
+        )
+        assertEquals("Adder: 1 unseen notification", english.subject, "the subject counts displayed groups")
+        assertTrue(english.body.contains("- 12 new replies in #42 (Payments outage)"))
+        assertFalse(english.body.contains("Newest actor"))
+        assertTrue(english.body.contains("?message=991"), "the link keeps the oldest included message target")
+
+        val polish = notificationEmail(
+            "Ada",
+            listOf(entry(NotificationType.THREAD_REPLIED, replyCount = 3)),
+            null,
+            "pl",
+        )
+        assertTrue(polish.body.contains("- 3 nowe odpowiedzi w #42 (Payments outage)"))
+    }
 
     @Test
     fun `English names who, the room, the number and a link`() {
@@ -53,6 +76,18 @@ class NotificationEmailTest {
         assertEquals("Adder: 5 nieprzeczytanych powiadomień", subject(5))
         assertEquals("Adder: 12 nieprzeczytanych powiadomień", subject(12))
         assertEquals("Adder: 22 nieprzeczytane powiadomienia", subject(22))
+    }
+
+    @Test
+    fun `grouped replies use the Polish plural form for their reply count`() {
+        val cases = mapOf(2 to "nowe odpowiedzi", 5 to "nowych odpowiedzi", 12 to "nowych odpowiedzi", 22 to "nowe odpowiedzi")
+        for ((count, words) in cases) {
+            val reply = entry(NotificationType.THREAD_REPLIED, room = "Room").copy(replyCount = count)
+            val mail = notificationEmail("Ada", listOf(reply), appUrl, "pl")
+            val lines = mail.body.lines()
+            assertTrue("- $count $words w #42 (Room)" in lines)
+            assertTrue("  $appUrl/rooms/12/threads/42?message=991" in lines)
+        }
     }
 
     @Test

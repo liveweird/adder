@@ -36,6 +36,8 @@ export interface NotificationQuery {
 export interface NotificationFeedQuery extends Omit<NotificationQuery, "type"> {
   /** Any-of, including room membership notices; omitted or empty = every feed kind. */
   type?: readonly NotificationFeedItem["type"][];
+  /** Collapse unseen plain reply notices by room/thread before count and pagination. */
+  groupReplies?: boolean;
 }
 
 /** One page of the caller's notices, newest first (the server's default `-id`). */
@@ -51,6 +53,14 @@ export async function listNotificationFeed(query: NotificationFeedQuery): Promis
 /** Seen again is a 204; someone else's notice and a missing one are the same 404. */
 export async function markNotificationSeen(id: number): Promise<void> {
   return voidRequest(`/api/v1/notifications/${id}/seen`, { method: "POST" });
+}
+
+/** Mark exactly the raw replies represented by one grouped feed snapshot seen. */
+export async function markReplyGroupSeen(roomId: number, threadNumber: number, fromId: number, throughId: number): Promise<void> {
+  return voidRequest(`/api/v1/notifications/reply-groups/${roomId}/${threadNumber}/seen`, {
+    method: "POST",
+    body: JSON.stringify({ fromId, throughId }),
+  });
 }
 
 export async function markAllNotificationsSeen(): Promise<void> {

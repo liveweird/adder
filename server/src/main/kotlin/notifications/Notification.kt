@@ -107,6 +107,12 @@ data class NotificationFeedItem(
     val threadNumber: Int?,
     val threadTitle: String?,
     val messageId: UInt?,
+    /** Present only for an unseen THREAD_REPLIED group requested with `groupReplies=true`. */
+    val replyCount: Int? = null,
+    /** The oldest raw notice included in that group; the group-seen write starts here. */
+    val replyFloorId: UInt? = null,
+    /** The newest raw notice included in that group; the group-seen write never crosses it. */
+    val replyCeilingId: UInt? = null,
 ) {
     internal fun asThreadNotice() = NotificationResponse(
         id, type, seen, createdAt, actorId, actorName, roomId, roomName,

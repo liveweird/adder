@@ -21,7 +21,7 @@ const notice: NotificationFeedItem = {
   threadTitle: "Awaria bazy",
   messageId: 991,
 };
-const page = { items: [notice], page: 1, pageSize: 20, total: 2 };
+let page = { items: [notice], page: 1, pageSize: 20, total: 2 };
 
 let writeStatus = 204;
 const calls: string[] = [];
@@ -38,6 +38,7 @@ describe("NotificationsButton: telling the person's other tabs", () => {
   let close: () => void;
   beforeEach(() => {
     writeStatus = 204;
+    page = { items: [notice], page: 1, pageSize: 20, total: 2 };
     calls.length = 0;
     localStorage.setItem("adder.auth.token", "fake-token");
     vi.stubGlobal("fetch", vi.fn(api));
@@ -75,5 +76,21 @@ describe("NotificationsButton: telling the person's other tabs", () => {
     await user.click(await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ }));
     await waitFor(() => expect(calls).toContain("POST /api/v1/notifications/77/seen"));
     expect(announcements()).toEqual([]);
+  });
+
+  test("a grouped reply clears its room-thread snapshot through the returned ceiling", async () => {
+    page = {
+      items: [{ ...notice, id: 90, type: "THREAD_REPLIED", actorName: "Newest actor", messageId: 880, replyCount: 12, replyFloorId: 79, replyCeilingId: 90 }],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    };
+    const user = await openDrawer();
+    const grouped = await screen.findByRole("link", { name: "Unseen 12 new replies in #42 Awaria bazy" });
+    expect(grouped).toHaveAttribute("href", "/rooms/12/threads/42?message=880");
+    expect(grouped.closest("li")).not.toHaveTextContent("Newest actor");
+    await user.click(grouped);
+    await waitFor(() => expect(calls).toContain("POST /api/v1/notifications/reply-groups/12/42/seen"));
+    expect(announcements()).toEqual([{ v: 1, userId: 7 }]);
   });
 });

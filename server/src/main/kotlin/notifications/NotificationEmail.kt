@@ -19,6 +19,8 @@ internal data class DigestEntry(
     val roomName: String,
     val threadNumber: Int?,
     val messageId: UInt?,
+    /** Raw plain replies represented by this line; greater than one uses the actor-free grouped wording. */
+    val replyCount: Int = 1,
 )
 
 /** A composed email: a subject and a plain-text body. */
@@ -29,6 +31,11 @@ private val INTRO = LocalizedText(en = "In Adder, while you were away:", pl = "W
 private val MORE = LocalizedText(en = "...and %d more", pl = "...i jeszcze %d")
 private val PREFERENCES = LocalizedText(en = "Change which emails you get:", pl = "Zmień, jakie wiadomości dostajesz:")
 private val SUBJECT_PREFIX = LocalizedText(en = "Adder: ", pl = "Adder: ")
+private val GROUPED_REPLY_FEW = LocalizedText(en = "%d new replies in #%d (%s)", pl = "%d nowe odpowiedzi w #%d (%s)")
+private val GROUPED_REPLY_MANY = LocalizedText(en = "%d new replies in #%d (%s)", pl = "%d nowych odpowiedzi w #%d (%s)")
+
+private fun groupedReplyPattern(count: Int): LocalizedText =
+    if (count % 10 in 2..4 && count % 100 !in 12..14) GROUPED_REPLY_FEW else GROUPED_REPLY_MANY
 
 /** The sentence of one entry (who, the thread's number, the room's name: never a title): the bell's own wording without the title. */
 private fun entryText(type: NotificationType): LocalizedText = when (type) {
@@ -205,11 +212,15 @@ internal fun notificationEmail(
         appendLine(INTRO.of(language))
         appendLine()
         for (entry in entries.take(DIGEST_MAX_ENTRIES)) {
-            val pattern = entryText(entry.type).of(language)
             val actor = mailSafe(entry.actorName)
             val room = mailSafe(entry.roomName)
             val number = entry.threadNumber
-            val text = if (number == null) fmt(pattern, actor, room) else fmt(pattern, actor, number, room)
+            val text = if (entry.type == NotificationType.THREAD_REPLIED && entry.replyCount > 1) {
+                fmt(groupedReplyPattern(entry.replyCount).of(language), entry.replyCount, checkNotNull(number), room)
+            } else {
+                val pattern = entryText(entry.type).of(language)
+                if (number == null) fmt(pattern, actor, room) else fmt(pattern, actor, number, room)
+            }
             appendLine("- $text")
             if (appUrl != null) {
                 val thread = number?.let { "/threads/$it" }.orEmpty()

@@ -5,6 +5,8 @@
   "markAllFailed": "Could not mark the notifications as seen.",
   "loadFailed": "Could not load the notifications.",
   "unseenRow": "Unseen",
+  "replyGroup_one": "{{count}} new reply in #{{number}} {{title}}",
+  "replyGroup_other": "{{count}} new replies in #{{number}} {{title}}",
   "unseenMany": "999+ unseen",
   "unseen_one": "{{count}} unseen",
   "unseen_other": "{{count}} unseen",

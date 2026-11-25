@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.16.0
+  version: 1.17.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -2918,6 +2918,12 @@ paths:
         An add of more than 20 people uses the actor's daily wide-event budget. After exhaustion only the first 20 named
         recipients are considered for a notice. Membership changes still succeed for the whole audience.
 
+        With `groupReplies=true`, the server takes at most 5,000 candidates from each current active room and groups only the newest
+        5,000 unseen `THREAD_REPLIED` notices across those rooms before counting and pagination. Older eligible replies remain unseen
+        and surface after newer groups are cleared; retained history of an inactive room is excluded. Individually addressed mentions
+        and quotes, seen history, and every other kind remain individual. A group points to its oldest included message and carries
+        the inclusive oldest/newest raw notice ids (`replyFloorId`/`replyCeilingId`) used by the group-seen action.
+
         - Sortable fields: `id` and `createdAt`. Default `-id` (newest first; `id` breaks ties).
         - Filters: `seen` (strict boolean) and repeated `type` (any-of, duplicates collapse, unknown names are rejected).
         - `total` is capped at 1000. Pages starting at row 1000 or later are empty.
@@ -2938,6 +2944,11 @@ paths:
             items: { $ref: '#/components/schemas/NotificationFeedType' }
           style: form
           explode: true
+        - name: groupReplies
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
+          description: Collapse the newest 5,000 eligible unseen plain replies per room/thread; older replies remain unseen for later pages after groups clear.
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/Sort'
@@ -2950,6 +2961,42 @@ paths:
                 $ref: '#/components/schemas/NotificationFeedPage'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/notifications/reply-groups/{roomId}/{threadNumber}/seen:
+    parameters:
+      - name: roomId
+        in: path
+        required: true
+        schema: { type: integer, format: int32, minimum: 1 }
+      - name: threadNumber
+        in: path
+        required: true
+        schema: { type: integer, format: int32, minimum: 1 }
+    post:
+      tags: [notifications]
+      operationId: markNotificationReplyGroupSeen
+      summary: Mark one grouped reply snapshot seen
+      description: |
+        Idempotently marks only the caller's unseen in-app `THREAD_REPLIED` notices in this room/thread from `fromId` through `throughId`.
+        Replies outside that inclusive snapshot range, other threads and addressed notice kinds remain unseen. A missing or already-cleared group
+        is a `204`, so the tuple discloses nothing. Uses the per-user `read-state` rate bucket and emits no audit or live event.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fromId, throughId]
+              properties:
+                fromId: { type: integer, format: int32, minimum: 1 }
+                throughId: { type: integer, format: int32, minimum: 1 }
+      responses:
+        '204': { description: 'Marked, already marked, or no matching caller-owned group' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/notifications/seen-all:
@@ -5423,6 +5470,9 @@ components:
         threadNumber: { type: integer, format: int32, minimum: 1, nullable: true, description: Null for ROOM_ADDED. }
         threadTitle: { type: string, nullable: true, description: Null for ROOM_ADDED. }
         messageId: { type: integer, format: int32, minimum: 1, nullable: true, description: Null for a room or thread notice. }
+        replyCount: { type: integer, format: int32, minimum: 1, nullable: true, description: Raw replies represented by a grouped unseen THREAD_REPLIED item; null otherwise. }
+        replyFloorId: { type: integer, format: int32, minimum: 1, nullable: true, description: Oldest raw notice id represented by the group; null otherwise. }
+        replyCeilingId: { type: integer, format: int32, minimum: 1, nullable: true, description: Newest raw notice id represented by the group; null otherwise. }
     NotificationFeedPage:
       type: object
       required: [items, page, pageSize, total]
