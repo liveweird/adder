@@ -74,8 +74,8 @@ describe("the search URL", () => {
     expect(isSearchable(parseSearchParams(new URLSearchParams({ q: "x".repeat(120), syntax: "structured" })))).toBe(true);
   });
   test("parses the term (trimmed), the scope (default all) and the page (default 1); junk is the default", () => {
-    expect(parseSearchParams(new URLSearchParams("q=%20outage%20&scope=closed&page=3"))).toEqual({ q: "outage", scope: "closed", watching: false, threadTag: [], page: 3 });
-    expect(parseSearchParams(new URLSearchParams(""))).toEqual({ q: "", scope: "all", watching: false, threadTag: [], page: 1 });
+    expect(parseSearchParams(new URLSearchParams("q=%20outage%20&scope=closed&page=3"))).toEqual({ q: "outage", scope: "closed", watching: false, unread: false, threadTag: [], page: 3 });
+    expect(parseSearchParams(new URLSearchParams(""))).toEqual({ q: "", scope: "all", watching: false, unread: false, threadTag: [], page: 1 });
     for (const page of ["0", "-1", "2x", "1e3", "9999999999", ""]) expect(parseSearchParams(new URLSearchParams({ page })).page, page).toBe(1);
     expect(parseSearchParams(new URLSearchParams("scope=nonsense")).scope).toBe("all");
   });
@@ -99,16 +99,28 @@ describe("the search URL", () => {
     expect(writeSearchParams(base, { page: 5 }).toString()).toBe("message=9&q=old&scope=open&watching=1&page=5");
   });
 
-  test("a state is searchable with a term the server accepts, or with no term while watching or tagged; a given bad term never is", () => {
-    expect(isSearchable({ q: "outage", watching: false, threadTag: [] })).toBe(true);
-    expect(isSearchable({ q: "outage", watching: true, threadTag: [] })).toBe(true);
-    expect(isSearchable({ q: "", watching: false, threadTag: [] })).toBe(false);
-    expect(isSearchable({ q: "", watching: true, threadTag: [] })).toBe(true);
-    expect(isSearchable({ q: "", watching: false, threadTag: ["security"] })).toBe(true);
-    expect(isSearchable({ q: "outage", watching: false, threadTag: ["security"] })).toBe(true);
-    expect(isSearchable({ q: "a", watching: true, threadTag: [] })).toBe(false);
-    expect(isSearchable({ q: "a", watching: false, threadTag: ["security"] })).toBe(false);
-    expect(isSearchable({ q: "!!!", watching: false, threadTag: [] })).toBe(false);
+  test("the unread key is `me` and nothing else; a write keeps it, omits it when off, and goes back to page 1", () => {
+    expect(parseSearchParams(new URLSearchParams("unread=me")).unread).toBe(true);
+    for (const junk of ["true", "1", "ME", "", "you"]) expect(parseSearchParams(new URLSearchParams({ unread: junk })).unread, junk).toBe(false);
+    const base = new URLSearchParams("q=old&scope=open&unread=me&page=4&message=9");
+    expect(writeSearchParams(base, { q: "new" }).toString()).toBe("message=9&q=new&scope=open&unread=me");
+    expect(writeSearchParams(base, { unread: false }).toString()).toBe("message=9&q=old&scope=open");
+    expect(writeSearchParams(new URLSearchParams("q=old&page=3"), { unread: true }).toString()).toBe("q=old&unread=me");
+    expect(writeSearchParams(base, { page: 5 }).toString()).toBe("message=9&q=old&scope=open&unread=me&page=5");
+  });
+
+  test("a state is searchable with a term the server accepts, or with no term while watching, unread, or tagged; a given bad term never is", () => {
+    expect(isSearchable({ q: "outage", watching: false, unread: false, threadTag: [] })).toBe(true);
+    expect(isSearchable({ q: "outage", watching: true, unread: false, threadTag: [] })).toBe(true);
+    expect(isSearchable({ q: "", watching: false, unread: false, threadTag: [] })).toBe(false);
+    expect(isSearchable({ q: "", watching: true, unread: false, threadTag: [] })).toBe(true);
+    expect(isSearchable({ q: "", watching: false, unread: true, threadTag: [] })).toBe(true);
+    expect(isSearchable({ q: "", watching: false, unread: false, threadTag: ["security"] })).toBe(true);
+    expect(isSearchable({ q: "outage", watching: false, unread: false, threadTag: ["security"] })).toBe(true);
+    expect(isSearchable({ q: "a", watching: true, unread: false, threadTag: [] })).toBe(false);
+    expect(isSearchable({ q: "a", watching: false, unread: true, threadTag: [] })).toBe(false);
+    expect(isSearchable({ q: "a", watching: false, unread: false, threadTag: ["security"] })).toBe(false);
+    expect(isSearchable({ q: "!!!", watching: false, unread: false, threadTag: [] })).toBe(false);
   });
 
   test("the threadTag key repeats, is lower-cased, distinct and bounded like the thread list's; junk values are dropped", () => {

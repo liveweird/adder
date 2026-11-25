@@ -13,7 +13,9 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.request
 import io.ktor.client.statement.HttpResponse
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
@@ -25,6 +27,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 
 /**
@@ -74,6 +77,10 @@ class ThreadSearchTest {
         assertEquals(HttpStatusCode.NoContent, putJson("$rooms/$room/threads/$number/watch", WatchRequest(watching)).status)
     }
 
+    private suspend fun HttpClient.readAll(room: UInt) {
+        assertEquals(HttpStatusCode.NoContent, request("$rooms/$room/read-all") { method = HttpMethod.Post }.status)
+    }
+
     private fun List<SnippetSegment>.hits(): List<String> = filter { it.hit }.map { it.text }
 
     private fun List<SnippetSegment>.plain(): String = joinToString("") { it.text }
@@ -106,6 +113,34 @@ class ThreadSearchTest {
         assertEquals(listOf("outage"), message.snippet.hits())
         // ts_headline drops a short word at the edge of a fragment ("The"), so the snippet is the fragment, not the whole message.
         assertEquals("outage started yesterday", message.snippet.plain())
+    }
+
+    @Test
+    fun `unread filters room search with or without a query and keeps the administrator complement exact`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("srch-unread")
+        val outsideAdmin = seedActor("srch-unread-admin", UserRole.ADMIN).also { mintedUsers += it.id }
+        TestThreads.seed(cast.room, cast.owner.id, title = "Read outage", body = "outage baseline")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Unread outage", body = "outage baseline")
+        cast.member.client.readAll(cast.room)
+        delay(3)
+        cast.owner.client.post(cast.room, 2, "#outage after the read floor")
+
+        val unreadOnly = cast.member.client.raw(cast.room, "?unread=true").body<ThreadSearchPageResponse>()
+        assertEquals(listOf(2), unreadOnly.items.map { it.threadNumber })
+        assertEquals(listOf(2), cast.member.client.numbers(cast.room, "outage", "&unread=true"))
+        assertEquals(listOf(1), cast.member.client.numbers(cast.room, "outage", "&unread=false"))
+        val structured = cast.member.client.raw(
+            cast.room,
+            "?q=${encoded("status:open hashtag:outage")}&syntax=structured&unread=true",
+        ).body<ThreadSearchPageResponse>()
+        assertEquals(listOf(2), structured.items.map { it.threadNumber })
+        assertEquals(emptyList(), outsideAdmin.client.raw(cast.room, "?unread=true").body<ThreadSearchPageResponse>().items)
+        val adminRead = outsideAdmin.client.raw(cast.room, "?unread=false").body<ThreadSearchPageResponse>()
+        assertEquals(listOf(1, 2), adminRead.items.map { it.threadNumber }.sorted())
+        for (query in listOf("?unread=1", "?unread=yes", "?unread=true&unread=false", "?q=outage&unread=")) {
+            assertEquals(HttpStatusCode.BadRequest, cast.member.client.raw(cast.room, query).status, query)
+        }
     }
 
     @Test

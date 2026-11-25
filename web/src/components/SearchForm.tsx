@@ -26,11 +26,13 @@ export default function SearchForm({
   q,
   scope,
   watching,
+  unread,
   threadTag,
   structured = false,
   onSubmit,
   onScope,
   onWatching,
+  onUnread,
   onThreadTag,
   assistantRoomId,
   assistantStatuses,
@@ -39,11 +41,13 @@ export default function SearchForm({
   q: string;
   scope: Scope;
   watching: boolean;
+  unread: boolean;
   threadTag: readonly string[];
   structured?: boolean;
   onSubmit: (q: string, structured: boolean) => void;
   onScope: (scope: Scope) => void;
   onWatching: (watching: boolean) => void;
+  onUnread: (unread: boolean) => void;
   onThreadTag: (threadTag: string[]) => void;
   assistantRoomId?: number;
   assistantStatuses?: RoomWorkflow["statuses"];
@@ -52,7 +56,7 @@ export default function SearchForm({
   // The registry is one cached read shared with the thread list's filter and the tag editor; a tag in the URL it no longer lists (retired, or not
   // read yet) keeps its pill under its own name, and a retired tag still finds the threads that kept it.
   const categories = useTagCategories();
-  const listing = watching || threadTag.length > 0;
+  const listing = watching || unread || threadTag.length > 0;
   const [draft, setDraft] = useState(q);
   const [caret, setCaret] = useState(q.length);
   const [modeOverride, setModeOverride] = useState<boolean | null>(null);
@@ -120,7 +124,7 @@ export default function SearchForm({
             onClick={(event) => updateCaret(event.currentTarget)}
             onSelect={(event) => updateCaret(event.currentTarget)}
             onKeyDown={inputKeyDown}
-            description={t(structuredDraft ? "search.syntax.hint" : watching ? "search.watching.hintOn" : threadTag.length > 0 ? "search.tags.hintOn" : "search.hint")}
+            description={t(structuredDraft ? "search.syntax.hint" : watching ? "search.watching.hintOn" : threadTag.length > 0 ? "search.tags.hintOn" : unread ? "search.unread.hintOn" : "search.hint")}
             inputWrapperOrder={["label", "input", "error", "description"]}
             error={problem === null ? undefined : t(`search.error.${problem}`)}
             // Announced when it appears (a submit that was refused), not only found by a reader who goes back to the box.
@@ -171,6 +175,11 @@ export default function SearchForm({
               label={t("search.watching.label")}
               checked={watching}
               onChange={(event) => onWatching(event.currentTarget.checked)}
+            />
+            <Switch
+              label={t("search.unread.label")}
+              checked={unread}
+              onChange={(event) => onUnread(event.currentTarget.checked)}
             />
           </div>
         </fieldset>

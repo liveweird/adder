@@ -24,7 +24,7 @@ export interface ThreadMessageSearchQuery {
 export interface SearchQuery {
   /**
    * Plain text (2 to 100 code points), or up to 512 code points of search clauses with `syntax: "structured"`.
-   * A plain search with `watching: true` or a `threadTag` can omit the query.
+   * A plain search with `watching: true`, `unread: true` or a `threadTag` can omit the query.
    */
   q?: string;
   syntax?: "structured";
@@ -36,6 +36,8 @@ export interface SearchQuery {
   closed?: boolean;
   /** `true` = only the threads the caller watches (and `q` becomes optional), `false` = only the others; omitted = both. */
   watching?: boolean;
+  /** `true` = only threads with something unread for the caller; omitted = both. */
+  unread?: boolean;
   /** Any-of these CURATED tag names (the registry's, `GET /tag-categories`; at most 20; retired ones still match); makes `q` optional. */
   threadTag?: readonly string[];
 }

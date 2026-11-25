@@ -131,6 +131,19 @@ describe("RoomSearch page", () => {
     expect(screen.getByText("Triage")).toBeInTheDocument();
   });
 
+  test("the Unread switch searches without a term and combines with structured clauses", async () => {
+    const { searches } = serve(() => jsonResponse(200, searchPage([threadHit(3, { matchCount: 0, messages: [], status: "triage" })])));
+    const user = userEvent.setup();
+    renderSearch();
+    await user.click(await screen.findByRole("switch", { name: "Unread" }));
+    expect(await screen.findByRole("link", { name: "#3 Database outage" })).toBeInTheDocument();
+    expect(searches).toEqual(["/api/v1/rooms/12/search?page=1&pageSize=20&unread=true"]);
+    expect(screen.getByTestId("search")).toHaveTextContent("?unread=me");
+    await user.type(screen.getByRole("searchbox"), "status:triage hashtag:incident{Enter}");
+    await waitFor(() => expect(searches.at(-1)).toContain("unread=true"));
+    expect(searches.at(-1)).toContain("syntax=structured");
+  });
+
   test("a watching key in the URL searches the room with the scope it names and no term", async () => {
     const { searches } = serve(() => jsonResponse(200, searchPage([])));
     renderSearch("/rooms/12/search?watching=1&scope=open");

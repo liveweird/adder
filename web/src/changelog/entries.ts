@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.16.0",
+    date: "2026-11-25",
+    en: `**Adder 1.16.0 — search unread threads**
+
+- Select **Unread** in room or global search to find threads with new messages for you. Use it on its own or combine it with keywords, status, hashtags and other filters.`,
+    pl: `**Adder 1.16.0 — wyszukiwanie nieprzeczytanych wątków**
+
+- Wybierz **Nieprzeczytane** w wyszukiwarce pokoju lub globalnej, aby znaleźć wątki z nowymi wiadomościami. Użyj tego filtra samodzielnie lub połącz go ze słowami kluczowymi, statusem, hashtagami i innymi filtrami.`,
+  },
+  {
     version: "1.15.0",
     date: "2026-11-25",
     en: `**Adder 1.15.0 — return to a quoting reply**

@@ -12,6 +12,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.post
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
@@ -26,6 +27,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 
@@ -90,6 +92,10 @@ class GlobalSearchTest {
 
     private suspend fun HttpClient.raw(query: String): HttpResponse = get("$search$query")
 
+    private suspend fun HttpClient.readAll(room: UInt) {
+        assertEquals(HttpStatusCode.NoContent, post("$rooms/$room/read-all").status)
+    }
+
     private suspend fun HttpClient.find(q: String, extra: String = ""): ThreadSearchPageResponse {
         val response = raw("?q=${encoded(q)}$extra")
         assertEquals(HttpStatusCode.OK, response.status)
@@ -122,6 +128,26 @@ class GlobalSearchTest {
         val bobs = bob.client.find(term)
         assertEquals(setOf(second, hidden), bobs.items.map { it.roomId }.toSet(), "bob is in two of the three")
         assertEquals(page.items.single { it.roomId == second }.title, bobs.items.single { it.roomId == second }.title)
+    }
+
+    @Test
+    fun `unread uses each room membership floor and combines with the query`() = testApplication {
+        usePostgresTestcontainer()
+        val term = word("unread")
+        val ann = actor("gs-unread-reader")
+        val poster = actor("gs-unread-poster")
+        val read = room(poster, "Read", "$term baseline")
+        val unread = room(poster, "Unread", "$term baseline")
+        TestRooms.addMember(read, ann.id)
+        TestRooms.addMember(unread, ann.id)
+        ann.client.readAll(read)
+        ann.client.readAll(unread)
+        delay(3)
+        TestThreads.post(unread, 1, poster.id, "$term after the room floor")
+
+        assertEquals(listOf(unread), ann.client.raw("?unread=true").body<ThreadSearchPageResponse>().items.map { it.roomId })
+        assertEquals(listOf(unread), ann.client.find(term, "&unread=true").items.map { it.roomId })
+        assertEquals(listOf(read), ann.client.find(term, "&unread=false").items.map { it.roomId })
     }
 
     @Test

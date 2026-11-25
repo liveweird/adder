@@ -44,11 +44,13 @@ function renderForm({ q = "", structured = false, onSubmit = vi.fn(), roomId, st
       q={q}
       scope="all"
       watching={false}
+      unread={false}
       threadTag={[]}
       structured={structured}
       onSubmit={onSubmit}
       onScope={vi.fn()}
       onWatching={vi.fn()}
+      onUnread={vi.fn()}
       onThreadTag={vi.fn()}
       assistantRoomId={roomId}
       assistantStatuses={statuses}

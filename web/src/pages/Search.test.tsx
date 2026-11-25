@@ -166,6 +166,24 @@ describe("Search page (all your rooms)", () => {
     expect(screen.getByText(/Only the threads you watch: type to narrow them/)).toBeInTheDocument();
   });
 
+  test("the Unread switch lists unread threads across rooms with no term", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([threadHit(4, { matchCount: 0, messages: [] })])));
+    const user = userEvent.setup();
+    renderSearch();
+    await user.click(screen.getByRole("switch", { name: "Unread" }));
+    expect(await screen.findByRole("link", { name: "#4 Database outage" })).toBeInTheDocument();
+    expect(searches).toEqual(["/api/v1/search?page=1&pageSize=20&unread=true"]);
+    expect(screen.getByTestId("search")).toHaveTextContent("?unread=me");
+  });
+
+  test("an empty result with Unread and another filter describes the filtered results", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([])));
+    renderSearch("/search?scope=open&unread=me");
+    expect(await screen.findByText("No unread threads match these filters.")).toBeInTheDocument();
+    expect(searches[0]).toContain("closed=false");
+    expect(searches[0]).toContain("unread=true");
+  });
+
   test("the palette link /search?watching=1 opens the list at once, and the switch turns it off again", async () => {
     const searches = serve(() => jsonResponse(200, searchPage([threadHit(4, { matchCount: 0, messages: [] })])));
     const user = userEvent.setup();

@@ -83,8 +83,9 @@ class ThreadSearchService(
         closed: Boolean?,
         paging: PageRequest,
         watching: Boolean? = null,
+        unread: Boolean? = null,
         tagNames: List<String> = emptyList(),
-    ): ThreadSearchResult = searchRoomWith(roomId, callerUserId, q, closed, paging, watching, tagNames, null)
+    ): ThreadSearchResult = searchRoomWith(roomId, callerUserId, q, closed, paging, watching, unread, tagNames, null)
 
     internal suspend fun searchRoomStructured(
         roomId: UInt,
@@ -92,9 +93,10 @@ class ThreadSearchService(
         closed: Boolean?,
         paging: PageRequest,
         watching: Boolean?,
+        unread: Boolean?,
         tagNames: List<String>,
         structured: StructuredSearch,
-    ): ThreadSearchResult = searchRoomWith(roomId, callerUserId, null, closed, paging, watching, tagNames, structured)
+    ): ThreadSearchResult = searchRoomWith(roomId, callerUserId, null, closed, paging, watching, unread, tagNames, structured)
 
     private suspend fun searchRoomWith(
         roomId: UInt,
@@ -103,13 +105,14 @@ class ThreadSearchService(
         closed: Boolean?,
         paging: PageRequest,
         watching: Boolean?,
+        unread: Boolean?,
         tagNames: List<String>,
         structured: StructuredSearch?,
     ): ThreadSearchResult =
         budgeted(callerUserId, roomId) { budget ->
             budget.arm(this)
             val room = rooms.summary(roomId) ?: throw NotFoundException("Room not found")
-            searchIn(listOf(room), callerUserId, q, closed, watching, tagNames, paging, budget, structured)
+            searchIn(listOf(room), callerUserId, q, closed, watching, unread, tagNames, paging, budget, structured)
         }
 
     /**
@@ -128,17 +131,19 @@ class ThreadSearchService(
         closed: Boolean?,
         paging: PageRequest,
         watching: Boolean? = null,
+        unread: Boolean? = null,
         tagNames: List<String> = emptyList(),
-    ): ThreadSearchResult = searchMemberRoomsWith(callerUserId, q, closed, paging, watching, tagNames, null)
+    ): ThreadSearchResult = searchMemberRoomsWith(callerUserId, q, closed, paging, watching, unread, tagNames, null)
 
     internal suspend fun searchMemberRoomsStructured(
         callerUserId: UInt,
         closed: Boolean?,
         paging: PageRequest,
         watching: Boolean?,
+        unread: Boolean?,
         tagNames: List<String>,
         structured: StructuredSearch,
-    ): ThreadSearchResult = searchMemberRoomsWith(callerUserId, null, closed, paging, watching, tagNames, structured)
+    ): ThreadSearchResult = searchMemberRoomsWith(callerUserId, null, closed, paging, watching, unread, tagNames, structured)
 
     private suspend fun searchMemberRoomsWith(
         callerUserId: UInt,
@@ -146,6 +151,7 @@ class ThreadSearchService(
         closed: Boolean?,
         paging: PageRequest,
         watching: Boolean?,
+        unread: Boolean?,
         tagNames: List<String>,
         structured: StructuredSearch?,
     ): ThreadSearchResult =
@@ -155,7 +161,7 @@ class ThreadSearchService(
             if (memberRooms.isEmpty()) {
                 ThreadSearchResult(emptyList(), 0)
             } else {
-                searchIn(memberRooms, callerUserId, q, closed, watching, tagNames, paging, budget, structured)
+                searchIn(memberRooms, callerUserId, q, closed, watching, unread, tagNames, paging, budget, structured)
             }
         }
 
@@ -269,6 +275,7 @@ class ThreadSearchService(
         q: String?,
         closed: Boolean?,
         watching: Boolean?,
+        unread: Boolean?,
         tagNames: List<String>,
         paging: PageRequest,
         budget: SearchBudget,
@@ -291,6 +298,10 @@ class ThreadSearchService(
         watching?.let {
             val watched = threadWatchedByInRoomOf(callerUserId, threads.roomId, threads.id)
             predicate = predicate and (if (it) watched else not(watched))
+        }
+        unread?.let {
+            val unreadThreads = threadUnreadForMembership(callerUserId)
+            predicate = predicate and (if (it) unreadThreads else not(unreadThreads))
         }
         budget.arm(this)
         val total = threads.selectAll().where { predicate }.count()

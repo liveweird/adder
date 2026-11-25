@@ -1,6 +1,7 @@
 // Watching (1.1.0): a member watches a thread and stops (the toggle in the thread pane, the eye mark on the thread's row, the "Watching" filter,
 // the watcher count), the creator of a thread watches it from the start, and the searches' "Threads I watch" switch (and the palette's action)
-// lists the watched threads of a room and across rooms with no search term. The caller's own state: nothing is pushed, so every check reads
+// lists the watched threads of a room and across rooms with no search term. The same search forms list the caller's unread threads in each
+// room and combine that state with structured clauses. The caller's own state: nothing is pushed, so every check reads
 // the page after its own action.
 // Owns: its throwaway `e2e-watch-*` rooms and users (and its own throwaway administrator, which only mints them), removed through the API in an
 // `afterEach` (rooms first, then the users). Every room is created by a throwaway user through the API and only copies the seeded Default
@@ -137,6 +138,52 @@ test("the creator watches a new thread", async ({ page }) => {
   await expect(watchButton(page)).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByText("Watchers: 1")).toBeVisible();
   await expect(threadLink(page, title)).toHaveAccessibleDescription(WATCHING_MARK);
+});
+
+test("the unread filter lists unread threads in the room and across rooms", async ({ page }) => {
+  const room = await scene(page);
+  const roomB = await makeRoom(room.api, room.templateId, room.mate.id);
+  const readA = uniqueText("ReadA");
+  const unreadA = uniqueText("UnreadA");
+  const unreadB = uniqueText("UnreadB");
+  await startThread(room, readA);
+  const unreadANumber = await startThread(room, unreadA);
+  const unreadBNumber = await startThread(room, unreadB, roomB);
+  const { api: mateApi } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(mateApi);
+  for (const roomId of [room.roomId, roomB]) {
+    const marked = await mateApi.post(`/api/v1/rooms/${roomId}/read-all`);
+    expect(marked.status(), await marked.text()).toBe(204);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  for (const [roomId, number] of [[room.roomId, unreadANumber], [roomB, unreadBNumber]] as const) {
+    const posted = await room.api.post(`/api/v1/rooms/${roomId}/threads/${number}/messages`, { data: { body: "#urgent unread reply" } });
+    expect(posted.status(), await posted.text()).toBe(201);
+  }
+  await login(page, room.mate.email, room.mate.password);
+
+  await page.goto(`/rooms/${room.roomId}/search`);
+  await page.getByRole("switch", { name: "Unread" }).click({ force: true });
+  await expect(page).toHaveURL(/[?&]unread=me(&|$)/);
+  let hits = page.getByRole("list", { name: "Search results", exact: true }).getByRole("article");
+  await expect(hits).toHaveCount(1);
+  await expect(hits.first()).toContainText(unreadA);
+  await expect(page.getByText(readA)).toHaveCount(0);
+
+  const query = "status:open hashtag:urgent";
+  await page.getByRole("searchbox", { name: "Keywords" }).fill(query);
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page).toHaveURL(/[?&]unread=me(&|$)/);
+  await expect(hits).toHaveCount(1);
+  await expect(hits.first()).toContainText(unreadA);
+
+  await page.goto("/search?unread=me");
+  hits = page.getByRole("list", { name: "Search results", exact: true }).getByRole("article");
+  await expect(page.getByRole("switch", { name: "Unread" })).toBeChecked();
+  await expect(hits).toHaveCount(2);
+  await expect(hits.filter({ hasText: unreadA })).toBeVisible();
+  await expect(hits.filter({ hasText: unreadB })).toBeVisible();
+  await expect(page.getByText(readA)).toHaveCount(0);
 });
 
 test("the watching filter lists watched threads in the room and across rooms", async ({ page }) => {

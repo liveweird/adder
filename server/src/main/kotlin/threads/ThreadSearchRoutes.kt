@@ -59,10 +59,10 @@ private fun Route.roomSearch(roomService: RoomService, searchService: ThreadSear
             val params = call.parseSearchParams()
             val result = params.structured?.let {
                 searchService.searchRoomStructured(
-                    roomId, caller.userId, params.closed, params.paging, params.watching, params.threadTags, it,
+                    roomId, caller.userId, params.closed, params.paging, params.watching, params.unread, params.threadTags, it,
                 )
             } ?: searchService.searchRoom(
-                roomId, caller.userId, params.q, params.closed, params.paging, params.watching, params.threadTags,
+                roomId, caller.userId, params.q, params.closed, params.paging, params.watching, params.unread, params.threadTags,
             )
             call.respond(HttpStatusCode.OK, params.paging.toPage(result.items, result.total))
         }
@@ -85,10 +85,10 @@ private fun Route.globalSearch(searchService: ThreadSearchService) {
             val params = call.parseSearchParams()
             val result = params.structured?.let {
                 searchService.searchMemberRoomsStructured(
-                    caller.userId, params.closed, params.paging, params.watching, params.threadTags, it,
+                    caller.userId, params.closed, params.paging, params.watching, params.unread, params.threadTags, it,
                 )
             } ?: searchService.searchMemberRooms(
-                caller.userId, params.q, params.closed, params.paging, params.watching, params.threadTags,
+                caller.userId, params.q, params.closed, params.paging, params.watching, params.unread, params.threadTags,
             )
             call.respond(HttpStatusCode.OK, params.paging.toPage(result.items, result.total))
         }

@@ -68,6 +68,11 @@
     "empty": "You are not watching any threads.",
     "emptyQ": "None of the threads you watch matches “{{q}}”."
   },
+  "unread": {
+    "label": "Unread",
+    "hintOn": "Only threads with something unread: type to narrow them.",
+    "empty": "No unread threads match these filters."
+  },
   "watchingTagged": {
     "empty": "None of the threads you watch carries these tags.",
     "emptyQ": "None of the threads you watch with these tags matches “{{q}}”."
