@@ -70,6 +70,73 @@ async function reply(page: Page, text: string): Promise<void> {
   await expect(box).toHaveValue("");
 }
 
+test("a cross-room quote opens its source and stays hidden from destination-only readers", async ({ page }) => {
+  await admin.login(page);
+  const owner = await throwawayUser(page, "E2E Quote Owner", cleanup);
+  const reader = await throwawayUser(page, "E2E Quote Reader", cleanup);
+  await signOut(page);
+  await login(page, owner.email, owner.password);
+  const sourceRoom = await createRoomViaUi(page, uniqueText("e2e-thr-source"), "Default", cleanup);
+  const targetName = uniqueText("e2e-thr-target");
+  const targetRoom = await createRoomViaUi(page, targetName, "Default", cleanup);
+  await addMemberViaUi(page, targetRoom, reader);
+  const targetTitle = uniqueText("Quote destination");
+  const sourceText = "Evidence restricted to the source room";
+  const replyText = "The destination reply stands on its own";
+  await startThreadViaUi(page, targetRoom, targetTitle, "Destination opener");
+  await startThreadViaUi(page, sourceRoom, uniqueText("Quote source"), sourceText);
+
+  await kebab(messageNamed(page, sourceText)).click();
+  await page.getByRole("menuitem", { name: "Quote in another thread…" }).click();
+  const picker = page.getByRole("dialog", { name: "Choose where to quote" });
+  await picker.getByRole("combobox", { name: "Room", exact: true }).click();
+  await page.getByRole("option", { name: targetName, exact: true }).click();
+  await picker.getByRole("combobox", { name: "Thread", exact: true }).click();
+  await page.getByRole("option", { name: `#1 ${targetTitle}` }).click();
+  await picker.getByRole("button", { name: "Continue to thread" }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${targetRoom}/threads/1$`));
+  await expect(page.getByText(`Quoting ${owner.name}`, { exact: true })).toBeVisible();
+  await reply(page, replyText);
+
+  await messageNamed(page, replyText).getByRole("link", { name: /Quoted message by/ }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${sourceRoom}/threads/1\\?.*message=`));
+  await page.getByRole("button", { name: "Back to reply" }).click();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${targetRoom}/threads/1\\?.*message=`));
+  await expect(messageNamed(page, replyText)).toBeFocused();
+
+  await signOut(page);
+  let readerReady = false;
+  page.on("websocket", (socket) => {
+    if (!socket.url().endsWith("/api/v1/live")) return;
+    socket.on("framereceived", ({ payload }) => {
+      if (typeof payload === "string" && (JSON.parse(payload) as { type: string }).type === "ready") readerReady = true;
+    });
+  });
+  await login(page, reader.email, reader.password);
+  await openThread(page, targetRoom, targetTitle);
+  await expect(messageNamed(page, replyText)).toBeVisible();
+  await expect(conversation(page).getByText(sourceText)).toHaveCount(0);
+  await expect(messageNamed(page, replyText).getByRole("link", { name: /Quoted message by/ })).toHaveCount(0);
+
+  const { api } = await apiAsUser(owner.email, owner.password);
+  try {
+    const memberPath = `/api/v1/rooms/${sourceRoom}/members`;
+    const added = await api.post(memberPath, { data: { userIds: [reader.id] } });
+    expect(added.status(), await added.text()).toBe(200);
+    readerReady = false;
+    await page.reload();
+    const quote = messageNamed(page, replyText).getByRole("link", { name: /Quoted message by/ });
+    await expect(quote).toContainText(sourceText);
+    await expect.poll(() => readerReady).toBe(true);
+    const removed = await api.delete(`${memberPath}/${reader.id}`);
+    expect(removed.status(), await removed.text()).toBe(204);
+    await expect(quote).toHaveCount(0);
+    await expect(messageNamed(page, replyText)).toBeVisible();
+  } finally {
+    await api.dispose();
+  }
+});
+
 /**
  * Open a thread from the room's thread list (the labelled `nav`). The list shows OPEN threads by default, so a CLOSED thread is not in it:
  * pass `closed` to open it by its own address instead (every thread here is `#1`).
@@ -170,7 +237,7 @@ test("a member starts a thread from the room view and another member replies to 
   // The owner opens the thread again and sees the teammate's reply under their own opening message.
   await login(page, owner.email, owner.password);
   await openThread(page, roomId, title);
-  await expect(conversation(page).getByRole("listitem")).toHaveCount(2);
+  await expect(conversation(page).locator("[data-message-id]")).toHaveCount(2);
   await expect(conversation(page).getByRole("listitem").last()).toContainText(mate.name);
   await expect(conversation(page).getByRole("listitem").last()).toContainText("Watching the disk.");
 });
@@ -188,14 +255,15 @@ test("an author edits and deletes their own message and a room owner removes ano
   await startThreadViaUi(page, roomId, title, "Opening note from the owner.");
   await signOut(page);
 
-  // The teammate posts three messages; their own have the full menu, the owner's opener only Quote (1.3.0) and Pin (any member quotes and pins, 0.6.0) - never Edit, Delete or Remove.
+  // The teammate can quote or pin the owner's opener. Editing and removal stay restricted.
   await login(page, mate.email, mate.password);
   await openThread(page, roomId, title);
   for (const text of ["first draft", "oops wrong thread", "token is hunter2"]) await reply(page, text);
   await kebab(messageNamed(page, "Opening note")).click();
   await expect(page.getByRole("menuitem", { name: "Quote", exact: true })).toBeVisible();
   await expect(page.getByRole("menuitem", { name: "Pin", exact: true })).toBeVisible();
-  await expect(page.getByRole("menuitem")).toHaveCount(2);
+  await expect(page.getByRole("menuitem", { name: "Quote in another thread…" })).toBeVisible();
+  await expect(page.getByRole("menuitem")).toHaveCount(3);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menuitem")).toHaveCount(0);
   await expect(kebab(messageNamed(page, "first draft"))).toBeVisible();
@@ -285,7 +353,7 @@ test("a member quotes a message in a reply, the quote leads back to it, and a de
   await openThread(page, roomId, title);
   for (const text of ["Checking the lag now.", "Lag is under a second."]) await reply(page, text);
   const box = page.getByRole("textbox", { name: "Reply", exact: true });
-  const opener = conversation(page).getByRole("listitem").first();
+  const opener = conversation(page).locator("[data-message-id]").first();
   await expect(opener).toContainText("Is the replica caught up with the primary?");
   // The icon button is named with its message, like the menu; its tooltip says "Quote".
   await opener.getByRole("button", { name: `Quote the message by ${owner.name}` }).click();

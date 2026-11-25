@@ -23,8 +23,8 @@ export default function ThreadTagsPanel({ room, thread, steward }: { room: RoomR
     if (wasEditing.current && !editing) editRef.current?.focus();
     wasEditing.current = editing;
   }, [editing]);
-  if (editing) return <ThreadTagsEditor room={room} thread={thread} steward={steward} onClose={() => setEditing(false)} />;
   const block = threadTagsBlock(room, thread, steward);
+  if (editing && block !== "merged") return <ThreadTagsEditor room={room} thread={thread} steward={steward} onClose={() => setEditing(false)} />;
   return (
     <Stack gap="xs">
       <TagPills tags={thread.tags} none={t("threads.tags.none")} />
@@ -37,7 +37,7 @@ export default function ThreadTagsPanel({ room, thread, steward }: { room: RoomR
         <Button ref={editRef} variant="default" size="xs" style={{ alignSelf: "flex-start" }} leftSection={<IconTags size={14} />} onClick={() => setEditing(true)}>
           {t("threads.tags.edit")}
         </Button>
-      ) : (
+      ) : block !== "merged" && (
         <Text size="xs" c="dimmed">
           {t(block === "archived" ? "threads.tags.archivedNote" : "threads.tags.closedNote")}
         </Text>

@@ -8,7 +8,11 @@ import type { ThreadFormValues } from "../utils/threadForm";
  * edited refreshes the text, showing it deleted, or a post refused with `quote-unavailable`, BLANKS it (`unavailable`: the author stays, the text
  * goes, so a moderator's delete is effective here too).
  */
-export type QuoteDraft = Pick<MessageResponse, "id" | "authorId" | "authorName" | "body" | "mentions" | "groupMentions"> & { unavailable?: true };
+export type QuoteDraft = Pick<MessageResponse, "id" | "authorId" | "authorName" | "body" | "mentions" | "groupMentions"> & {
+  roomId: number;
+  threadNumber: number;
+  unavailable?: true;
+};
 
 /**
  * Unsent drafts, in memory only: the new-thread form's, one per room, and the reply composer's text and quote, one per thread. Leaving the

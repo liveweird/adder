@@ -293,6 +293,20 @@ describe("createLiveInvalidator", () => {
     return { queryClient, clock, invalidate, reset, fetching, invalidator, flushed, flushedWithoutHome, flushedMessages, holdListBusy };
   }
 
+  test("source changes refresh or reset source reads and cached destinations that expose their quote", () => {
+    const t = setup();
+    const destination = roomKeys.messages(12, 42);
+    t.queryClient.setQueryData(destination, { pages: [{ items: [{ id: 1, quote: { roomId: 5, threadNumber: 7, messageId: 99 } }] }] });
+    t.queryClient.setQueryData(roomKeys.quoteSource(5, 99), { id: 99 });
+    t.invalidator.handle(event("message.edited", 5, 7, 99));
+    expect(t.invalidate).toHaveBeenCalledWith({ queryKey: [...roomKeys.threads(5), "quote-source"] });
+    t.clock.advanceBy(300);
+    expect(t.flushed()).toContainEqual(destination);
+    t.invalidator.handle(event("message.deleted", 5, 7, 99));
+    expect(t.reset).toHaveBeenCalledWith({ queryKey: [...roomKeys.threads(5), "quote-source"] });
+    expect(t.reset).toHaveBeenCalledWith({ queryKey: destination, exact: true });
+  });
+
   test("revocation resets sensitive reads immediately and leaves the rail's normal cadence", () => {
     const t = setup();
     t.invalidator.handle({ type: "revoked", roomId: 5 });

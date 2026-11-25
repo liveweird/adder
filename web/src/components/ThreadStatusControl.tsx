@@ -41,7 +41,7 @@ export default function ThreadStatusControl({
   const available = (statuses ?? []).filter((status) => status.key !== thread.status && statusMoveBlock(room, thread, steward, status) === null);
   const [first] = available;
   const hasMenu = available.length > 1;
-  const readOnlyNote = room.archived ? t("threads.status.archivedNote")
+  const readOnlyNote = thread.mergedIntoThreadNumber != null ? null : room.archived ? t("threads.status.archivedNote")
     : thread.closed && !steward ? t("threads.status.closedNote")
     : statuses && !first ? t("threads.status.noMoves") : null;
 

@@ -145,7 +145,7 @@ test("a message posted in one browser appears in the other without a reload", as
   await openLive(author, thread, room.roomId);
   await openLive(reader, thread, room.roomId);
   await expect(reader.page.getByRole("heading", { level: 3, name: `#1 ${title}` })).toBeVisible();
-  await expect(conversation(reader.page).getByRole("listitem")).toHaveCount(1);
+  await expect(conversation(reader.page).locator("[data-message-id]")).toHaveCount(1);
 
   // The author replies; the reader's open thread gains the message, and its header count follows.
   await reply(author.page, "The replica is catching up.");

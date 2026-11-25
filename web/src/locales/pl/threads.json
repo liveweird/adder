@@ -185,6 +185,14 @@
   },
   "quote": {
     "action": "Cytuj",
+    "elsewhere": "Cytuj w innym wątku…",
+    "destinationTitle": "Wybierz miejsce cytowania",
+    "destinationDescription": "Wybierz otwarty wątek. Szkic odpowiedzi z tym cytatem będzie tam na Ciebie czekać.",
+    "destinationRoom": "Pokój",
+    "destinationThread": "Wątek",
+    "destinationNone": "Brak otwartych wątków w tym pokoju",
+    "destinationContinue": "Przejdź do wątku",
+    "destinationError": "Nie udało się wczytać dostępnych miejsc docelowych.",
     "chip": "Cytujesz: {{author}}",
     "actionAria": "Cytuj wiadomość: {{author}}, {{when}}",
     "announce": "Cytujesz: {{author}}. {{excerpt}}",
@@ -283,6 +291,8 @@
   },
   "history": {
     "empty": "Brak historii.",
+    "more": "Wczytaj więcej zmian w obiegu pracy",
+    "retry": "Ponów wczytywanie zmian w obiegu pracy",
     "userDeleted": "{{name}} (usunięte konto)"
   },
   "event": {
@@ -295,6 +305,8 @@
     "ownerChanged": "Przekazał/a wątek: {{from}} → {{to}}",
     "fieldChanged": "Zmienił/a pole {{field}}",
     "tagsChanged": "Zmienił/a tagi",
+    "mergedInto": "Scalił/a tę rozmowę z wątkiem #{{number}}",
+    "mergedFrom": "Scalił/a rozmowę #{{number}} z tym wątkiem",
     "tagsAdded": "Dodane: {{tags}}",
     "tagsRemoved": "Usunięte: {{tags}}"
   },

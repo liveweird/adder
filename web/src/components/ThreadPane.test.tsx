@@ -377,7 +377,7 @@ describe("ThreadPane", () => {
 
     test("a quote jump returns to its containing reply, focuses it, and clears the transient return", async () => {
       serve(jsonResponse(200, THREAD));
-      renderPane("/rooms/12/threads/42?message=1&scope=all", { state: quoteReturnState(2) });
+      renderPane("/rooms/12/threads/42?message=1&scope=all", { state: quoteReturnState(12, 42, 2) });
       const first = (await screen.findByText("the opening message")).closest("li")!;
       await waitFor(() => expect(first).toHaveFocus());
       await userEvent.setup().click(screen.getByRole("button", { name: "Back to reply" }));
@@ -389,7 +389,7 @@ describe("ThreadPane", () => {
 
     test("Back to latest clears the quote origin while retaining the conversation filters", async () => {
       serve(jsonResponse(200, THREAD));
-      renderPane("/rooms/12/threads/42?message=1&scope=all&focus=1", { state: quoteReturnState(2) });
+      renderPane("/rooms/12/threads/42?message=1&scope=all&focus=1", { state: quoteReturnState(12, 42, 2) });
       expect(await screen.findByRole("button", { name: "Back to reply" })).toBeVisible();
       await userEvent.setup().click(screen.getByRole("button", { name: "Back to latest" }));
       const location = screen.getByLabelText("location");

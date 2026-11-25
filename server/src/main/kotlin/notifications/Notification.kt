@@ -19,6 +19,9 @@ enum class NotificationType {
     /** Somebody quoted a message of the recipient's in a reply of the same thread (1.3: the quoted message's author). */
     MESSAGE_QUOTED,
 
+    /** Somebody added at least one reaction to a message of the recipient's. */
+    REACTION_ADDED,
+
     /** The recipient is on a team a message mentions (`<@team:id>`). */
     TEAM_MENTIONED,
 
@@ -62,7 +65,8 @@ enum class NotificationType {
      * its defaults here, never inherit one, and the choice is frozen with the name (a stored row only ever says "different from this").
      */
     fun defaultOn(channel: NotificationChannel): Boolean = when (this) {
-        MENTIONED, MESSAGE_QUOTED, TEAM_MENTIONED, WATCHERS_MENTIONED, HERE_MENTIONED, EVERYONE_MENTIONED, THREAD_REPLIED, THREAD_CREATED,
+        MENTIONED, MESSAGE_QUOTED, REACTION_ADDED, TEAM_MENTIONED, WATCHERS_MENTIONED, HERE_MENTIONED, EVERYONE_MENTIONED,
+        THREAD_REPLIED, THREAD_CREATED,
         THREAD_ASSIGNED, THREAD_OWNER_CHANGED, THREAD_STATUS_CHANGED, THREAD_CLOSED, THREAD_REOPENED, ROOM_ADDED,
         -> channel == NotificationChannel.IN_APP
     }
@@ -89,6 +93,8 @@ data class NotificationResponse(
     val threadNumber: Int,
     val threadTitle: String,
     val messageId: UInt?,
+    /** The current name of the first still-mentionable team that addressed this recipient; only for TEAM_MENTIONED. */
+    val teamName: String? = null,
 )
 
 typealias NotificationPageResponse = PageResponse<NotificationResponse>
@@ -122,10 +128,12 @@ data class NotificationFeedItem(
     val replyCeilingId: UInt? = null,
     /** Present for workflow notices linked to a recorded transition. */
     val change: NotificationChange? = null,
+    /** The current name of the first still-mentionable team that addressed this recipient; only for TEAM_MENTIONED. */
+    val teamName: String? = null,
 ) {
     internal fun asThreadNotice() = NotificationResponse(
         id, type, seen, createdAt, actorId, actorName, roomId, roomName,
-        checkNotNull(threadNumber), checkNotNull(threadTitle), messageId,
+        checkNotNull(threadNumber), checkNotNull(threadTitle), messageId, teamName,
     )
 }
 

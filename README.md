@@ -7,6 +7,13 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Thread workflow and conversation
+
+- Workflow changes appear between replies. Open **Details** for the full history.
+- Use **Thread actions** to delete a thread or merge a duplicate into another thread in the same room. The destination lists the source under **Merged conversations**. Existing links still open the source history.
+- Choose **Quote in another thread…** from a message menu to carry it to a reply in another thread or room. Readers see the quoted message only while they can access its source.
+- The bell can notify you when someone reacts to your message. Team mentions name the team when you still belong to it.
+
 ### Chat and notification controls (1.18.0)
 
 - Open the watcher count in a thread header or the people list for a reaction to see the full roster and open profiles. Names in history, search results, and thread lists also lead to profiles.

@@ -283,7 +283,7 @@ test.describe("detail pages and overlays", () => {
       before: async (p) => {
         await openSidePanel(p);
         await expect(p.getByRole("heading", { level: 4, name: "History", exact: true })).toBeVisible();
-        await expect(p.getByText("Started the thread in Open")).toBeVisible();
+        await expect(p.getByRole("group", { name: "History", exact: true }).getByText("Started the thread in Open")).toBeVisible();
         await p.getByRole("button", { name: "Change status", exact: true }).click();
         await expect(p.getByRole("menu", { name: "Change status", exact: true })).toHaveCSS("opacity", "1");
       },

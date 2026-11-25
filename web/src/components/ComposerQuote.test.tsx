@@ -5,7 +5,7 @@ import ComposerQuote from "./ComposerQuote";
 import type { QuoteDraft } from "../hooks/useThreadDrafts";
 import { renderWithProviders } from "../test/render";
 
-const quote: QuoteDraft = { id: 31, authorId: 4, authorName: "Ann Author", body: "# Plan\n\nRestart **db-3** and ask <@5>", mentions: [{ userId: 5, name: "Bob Starter" }], groupMentions: [] };
+const quote: QuoteDraft = { id: 31, authorId: 4, authorName: "Ann Author", body: "# Plan\n\nRestart **db-3** and ask <@5>", mentions: [{ userId: 5, name: "Bob Starter" }], groupMentions: [], roomId: 2, threadNumber: 8 };
 
 describe("ComposerQuote", () => {
   test("says who is quoted and shows a plain excerpt of what they said", () => {

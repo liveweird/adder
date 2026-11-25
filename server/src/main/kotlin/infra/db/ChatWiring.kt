@@ -46,6 +46,8 @@ import ch.nokillswit.threads.NOTIFICATION_READS_PER_USER
 import ch.nokillswit.threads.ReadLimiter
 import ch.nokillswit.threads.THREAD_READS_PER_USER
 import ch.nokillswit.threads.ThreadEventService
+import ch.nokillswit.threads.ThreadLifecycleService
+import ch.nokillswit.threads.ThreadLifecycleServiceKey
 import ch.nokillswit.threads.ThreadReadLimiters
 import ch.nokillswit.threads.ThreadReadService
 import ch.nokillswit.threads.ThreadReadServiceKey
@@ -137,6 +139,7 @@ internal fun Application.publishChatServices(
         pushAvailable = browserPushConfig != null,
     )
     val roomMemberService = RoomMemberService(database, teamService, noticeWriter)
+    attributes.put(ThreadLifecycleServiceKey, ThreadLifecycleService(database, threadEventService, noticeWriter))
     attributes.put(ThreadMuteServiceKey, ThreadMuteService(database, roomMemberService))
     attributes.put(RoomMemberServiceKey, roomMemberService)
     attributes.put(RoomEnrollmentServiceKey, RoomEnrollmentService(database, noticeWriter))
@@ -156,7 +159,7 @@ internal fun Application.publishChatServices(
     // Home is a read-only top-layer projection over rooms and threads. It shares the bounded, chat-read-bucketed list limiter.
     attributes.put(HomeServiceKey, HomeService(database, messageMentionService, readLimiter))
     // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.
-    val reactionService = MessageReactionService(database)
+    val reactionService = MessageReactionService(database, noticeWriter)
     attributes.put(MessageReactionServiceKey, reactionService)
     val messageService = MessageService(
         database, roomService, messageTagService, messageMentionService,

@@ -20,6 +20,8 @@ describe("describeEvent", () => {
     expect(describeEvent(event("OWNER_CHANGED", { fromId: "5", toId: "6", fromName: "Ann", toName: "Bob" }), t)).toBe("Passed the thread from Ann to Bob");
     expect(describeEvent(event("FIELD_CHANGED", { field: "sev", fieldLabel: "Severity", from: "S3", to: "S1" }), t)).toBe("Changed Severity");
     expect(describeEvent(event("TAGS_CHANGED", { added: "data" }), t)).toBe("Changed the tags");
+    expect(describeEvent(event("MERGED_INTO", { threadNumber: "42" }), t)).toBe("Merged this conversation into #42");
+    expect(describeEvent(event("MERGED_FROM", { threadNumber: "7" }), t)).toBe("Merged conversation #7 into this thread");
   });
 
   test("a label that was not recorded falls back to the key, and a missing param to a dash", () => {

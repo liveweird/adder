@@ -30,6 +30,7 @@ export default function ThreadOwnerSelect({ room, thread, steward }: { room: Roo
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const block = threadEditBlock(room, thread);
+  if (block === "merged") return <PersonLink id={thread.ownerId} name={thread.ownerName} inherit />;
 
   // The reason, in the words that fit the reader: an archived room refuses everyone; "reopen it first" is advice only a steward can follow, so
   // anyone else just gets the plain rule.

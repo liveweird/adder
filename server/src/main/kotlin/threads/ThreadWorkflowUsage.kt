@@ -27,7 +27,7 @@ class ThreadWorkflowUsage(
         val threads = ThreadService.Threads
         val total = threads.id.count()
         return threads.select(threads.statusKey, total)
-            .where { (threads.roomId eq roomId) and (threads.statusKey inList keys) }
+            .where { (threads.roomId eq roomId) and (threads.statusKey inList keys) and threads.canonical() }
             .groupBy(threads.statusKey)
             .map { it[threads.statusKey] to it[total] }
             .toList()
@@ -44,7 +44,7 @@ class ThreadWorkflowUsage(
      */
     override suspend fun moveThreads(roomId: UInt, from: String, to: String, byUserId: UInt): Long {
         val threads = ThreadService.Threads
-        val moving = (threads.roomId eq roomId) and (threads.statusKey eq from)
+        val moving = (threads.roomId eq roomId) and (threads.statusKey eq from) and threads.canonical()
         val ids = threads.select(threads.id).where { moving }.map { it[threads.id].value }.toList()
         val stamp = nowMillis()
         threads.update({ moving }) {

@@ -1,0 +1,56 @@
+{
+  "actions": {
+    "label": "Działania wątku",
+    "merge": "Połącz duplikat",
+    "delete": "Usuń wątek"
+  },
+  "merged": {
+    "notice": "Ta rozmowa została połączona z wątkiem #{{number}}. Jej historia pozostaje dostępna tutaj.",
+    "openTarget": "Otwórz #{{number}}"
+  },
+  "sources": {
+    "open_one": "Połączone rozmowy ({{count}})",
+    "open_few": "Połączone rozmowy ({{count}})",
+    "open_many": "Połączonych rozmów ({{count}})",
+    "open_other": "Połączone rozmowy ({{count}})",
+    "title": "Połączone rozmowy",
+    "description": "Te zduplikowane rozmowy pozostają dostępne jako historia tylko do odczytu.",
+    "empty": "Nie ma już połączonych rozmów.",
+    "loadFailed": "Nie udało się wczytać połączonych rozmów"
+  },
+  "merge": {
+    "title": "Połącz zduplikowany wątek",
+    "targetLabel": "Numer wątku docelowego",
+    "targetDescription": "Wpisz numer głównego wątku w tym pokoju.",
+    "history": "Historia wątku #{{number}} pozostanie dostępna.",
+    "replies": "Nowe odpowiedzi należy dodawać w wątku docelowym.",
+    "targetKeeps": "Wątek docelowy zachowa status, właściciela lub właścicielkę i ustawienia powiadomień.",
+    "watches": "Obserwowanie wątku #{{number}} nie zostanie przeniesione.",
+    "target": "#{{number}} {{title}}",
+    "same": "Wybierz inny wątek docelowy.",
+    "alreadyMerged": "Ten wątek został już połączony z inną rozmową.",
+    "permission": "Aby połączyć wątki, musisz być właścicielem lub właścicielką obu albo zarządzać pokojem.",
+    "notFound": "W tym pokoju nie ma czytelnego wątku o tym numerze.",
+    "confirm": "Połącz wątki",
+    "confirmTarget": "Połącz z #{{number}}",
+    "success": "Wątki zostały połączone",
+    "failed": "Nie udało się połączyć wątków. Sprawdź połączenie i spróbuj ponownie.",
+    "failedStatus": "Nie udało się połączyć wątków ({{status}}).",
+    "forbidden": "Nie masz już uprawnień do łączenia tych wątków.",
+    "conflict": "Jeden z wątków uległ zmianie. Sprawdź oba wątki i spróbuj ponownie."
+  },
+  "delete": {
+    "title": "Usunąć #{{number}}?",
+    "body": "To trwale usunie wątek #{{number}} i całą historię rozmowy.",
+    "bodyWithChildren_one": "To trwale usunie wątek #{{number}} i jego {{count}} połączoną rozmowę.",
+    "bodyWithChildren_few": "To trwale usunie wątek #{{number}} i jego {{count}} połączone rozmowy.",
+    "bodyWithChildren_many": "To trwale usunie wątek #{{number}} i jego {{count}} połączonych rozmów.",
+    "bodyWithChildren_other": "To trwale usunie wątek #{{number}} i jego {{count}} połączonej rozmowy.",
+    "confirm": "Usuń wątek",
+    "success": "Wątek został usunięty",
+    "failed": "Nie udało się usunąć wątku. Sprawdź połączenie i spróbuj ponownie.",
+    "failedStatus": "Nie udało się usunąć wątku ({{status}}).",
+    "forbidden": "Nie masz już uprawnień do usunięcia tego wątku.",
+    "conflict": "Pokój lub wątek uległ zmianie. Sprawdź go i spróbuj ponownie."
+  }
+}

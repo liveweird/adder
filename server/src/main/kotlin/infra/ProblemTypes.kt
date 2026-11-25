@@ -19,6 +19,7 @@ object ProblemTypes {
 
     /** A closed thread takes no activity until it is reopened (409). */
     const val THREAD_CLOSED = "urn:adder:problem:thread-closed"
+    const val THREAD_MERGED = "urn:adder:problem:thread-merged"
 
     /** A workflow change would retire or re-categorise a status threads still use (409, with `keys`). */
     const val STATUS_IN_USE = "urn:adder:problem:status-in-use"
@@ -63,6 +64,6 @@ object ProblemTypes {
     val ALL: Set<String> = setOf(
         REVISION_CONFLICT, LAST_OWNER, ROOM_ARCHIVED, THREAD_CLOSED, STATUS_IN_USE, FIELD_TYPE_IMMUTABLE, ROOM_BUSY, PIN_LIMIT,
         REACTION_LIMIT, SEARCH_TIMEOUT, SEARCH_BUSY, READ_TIMEOUT, READ_BUSY, LIVE_UNAVAILABLE, LIVE_SOCKET_LIMIT, TEMPLATE_GONE,
-        QUOTE_UNAVAILABLE,
+        QUOTE_UNAVAILABLE, THREAD_MERGED,
     )
 }

@@ -340,6 +340,13 @@ what the scenario is about.
 6. The tab is shown again.
    - *Expected*: the socket reconnects (a socket is open again): the title starts "(1) " again and the bell is named "Notifications (1 unseen)".
 
+## Scenario: a reaction notifies the message author until the last reaction is removed
+
+1. The author opens the room and a teammate adds two emoji to one of the author's messages.
+   - *Expected*: one unseen reaction notice arrives live and names the teammate.
+2. The teammate removes the first emoji, then the second.
+   - *Expected*: the notice stays with one emoji and disappears when the second is removed.
+
 ## Scenario: a quote reaches the quoted author's bell without a reload and opens the reply
 
 1. The administrator mints an author (the room's owner) and a reader; the author makes a room through the API and starts a thread, THEN adds the reader. The reader asks a question in the

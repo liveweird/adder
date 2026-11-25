@@ -1100,7 +1100,7 @@ test("a team mention reaches the team's members in the room", async ({ page, bro
   await expect(bell(reader.page)).toHaveAccessibleName(unseenBell(1));
   await expectNoReload(reader);
   await bell(reader.page).click();
-  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned your team in #1 ${title}`) })).toBeVisible();
+  await expect(drawer(reader.page).getByRole("link", { name: new RegExp(`${room.owner.name} mentioned your team ${handle} in #1 ${title}`) })).toBeVisible();
 
   // The message shows the handle (not the token) to everyone who reads it.
   await expect(messageNamed(author.page, "the replica is lagging.")).toContainText(`@${handle}`);
@@ -1110,6 +1110,37 @@ test("a team mention reaches the team's members in the room", async ({ page, bro
   apis.push(outsiderApi);
   const inbox = await outsiderApi.get("/api/v1/notifications");
   expect(((await inbox.json()) as { total: number }).total, "a team member outside the room is never told").toBe(0);
+});
+
+test("a reaction notifies the message author until the last reaction is removed", async ({ page, browser }) => {
+  const room = await scene(page);
+  const title = uniqueText("Reaction notice");
+  const threadNumber = await startThread(room, title);
+  const messageId = await postMessage(room, threadNumber, "This is the message to react to");
+  const { api } = await apiAsUser(room.mate.email, room.mate.password);
+  apis.push(api);
+  const owner = await signedIn(browser, room.owner);
+  await openLive(owner, `/rooms/${room.roomId}`, room.roomId);
+  await expect(bell(owner.page)).toHaveAccessibleName(unseenBell(0));
+
+  const reactionPath = `/api/v1/rooms/${room.roomId}/messages/${messageId}/reaction`;
+  async function setReaction(emoji: string, reacted: boolean) {
+    const response = await api.put(reactionPath, { data: { emoji, reacted } });
+    expect(response.status(), await response.text()).toBe(204);
+  }
+  await setReaction("👍", true);
+  await setReaction("🎉", true);
+  await expect(bell(owner.page)).toHaveAccessibleName(unseenBell(1));
+  await bell(owner.page).click();
+  const notice = drawer(owner.page).getByRole("link", { name: new RegExp(`${room.mate.name} reacted to your message in #${threadNumber} ${title}`) });
+  await expect(notice).toHaveCount(1);
+
+  await setReaction("👍", false);
+  await expect(notice).toBeVisible();
+  await setReaction("🎉", false);
+  await expect(notice).toHaveCount(0);
+  await expect(bell(owner.page)).toHaveAccessibleName(unseenBell(0));
+  await expectNoReload(owner);
 });
 
 test("everyone is told once, with the most specific reason", async ({ page, browser }) => {

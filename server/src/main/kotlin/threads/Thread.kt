@@ -102,6 +102,8 @@ data class ThreadResponse(
     val hashtags: List<String>,
     /** The thread's curated tags, as on a list row ([ThreadListItem.tags]); a save of them rides this response's [revision]. */
     val tags: List<ThreadTag>,
+    val mergedIntoThreadNumber: Int? = null,
+    val mergedSourceCount: Long = 0,
 )
 
 typealias ThreadPageResponse = PageResponse<ThreadListItem>

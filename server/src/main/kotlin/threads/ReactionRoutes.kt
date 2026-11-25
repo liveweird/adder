@@ -102,6 +102,7 @@ private fun Route.messageReaction(roomService: RoomService, reactionService: Mes
                     "messageId" to change.messageId.toLong(),
                     "reacted" to change.reacted,
                 )
+                auditNoticesCreated(caller.userId, roomId, change.threadId, change.messageId, change.notices)
             }
             call.respond(HttpStatusCode.NoContent)
         }

@@ -152,12 +152,11 @@ class ThreadAuthzMatrixTest {
         Operation("POST message", notFound, created, created, created, forbidden) { client, base, _ ->
             client.postJson("$base/threads/1/messages", MessageRequest("Matrix reply"))
         },
-        // A quote (1.3): the guards are the POST's (an outsider 404, an ADMIN outside the room 403 whatever the id); a member quotes a
-        // message of this thread (`other`), and a message of another room is the typed 400 of the body, never a 404 or a 403.
+        // A quote has the normal POST guards. These member actors can also read the foreign source room.
         Operation("POST message quoting the thread's own message", notFound, created, created, created, forbidden) { client, base, cast ->
             client.postJson("$base/threads/1/messages", MessagePostRequest("Matrix quote", cast.other))
         },
-        Operation("POST message quoting another room's", notFound, badRequest, badRequest, badRequest, forbidden) { client, base, cast ->
+        Operation("POST message quoting another room's", notFound, created, created, created, forbidden) { client, base, cast ->
             client.postJson("$base/threads/1/messages", MessagePostRequest("Matrix quote", cast.foreign))
         },
         // Nobody edits someone else's words, a room owner and an ADMIN included; they may delete (D2).

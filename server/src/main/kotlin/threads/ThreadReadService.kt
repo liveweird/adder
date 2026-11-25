@@ -53,7 +53,7 @@ class ThreadReadService internal constructor(
             val at = nowMillis()
             if (!members.markSeenInTransaction(roomId, userId, at)) throw NotFoundException("Room not found")
             val threads = ThreadService.Threads
-            val threadId = threads.select(threads.id).where { (threads.roomId eq roomId) and (threads.number eq number) }
+            val threadId = threads.select(threads.id).where { threadAddress(roomId, number) }
                 .toList().singleOrNull()?.get(threads.id)?.value ?: throw NotFoundException("Thread not found")
             val messages = MessageService.Messages
             val ofThread = messages.select(messages.id).where { (messages.id eq messageId) and (messages.threadId eq threadId) }

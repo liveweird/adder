@@ -74,9 +74,25 @@
    - *Expected*: the PUT answers 204, the pending-removal group is gone and the form re-seeded with four statuses (Done is third).
 5. They open the **Threads** tab.
    - *Expected*: both threads' rows in the thread list show **In progress** and no longer Waiting.
-6. They open each thread (and its **Details** panel where it is folded) and read its **History**.
-   - *Expected*: three entries each; the newest reads "Waiting was retired; the thread moved to In progress", the one before it
+6. They open each thread, read the workflow changes in **Messages**, then open **Details** to read its full **History**.
+   - *Expected*: the move to Waiting and the replacement appear in the conversation. The History panel shows three entries each.
+     The newest reads "Waiting was retired; the thread moved to In progress", the one before it
      "Moved the thread from Open to Waiting".
+
+## Scenario: an owner merges a duplicate into a canonical thread and deletes the combined conversation
+
+1. A throwaway room owner starts a canonical thread and a duplicate through the API, then opens the duplicate with non-default
+   thread-list parameters in the address.
+   - *Expected*: the duplicate conversation and its history are visible.
+2. They choose **Merge duplicate**, enter the canonical thread's number and review the consequences.
+   - *Expected*: the dialog explains that the duplicate stays readable, new replies belong in the target, target metadata is retained,
+     and watches do not transfer; the merge answers 204 and opens the canonical thread without losing the list parameters.
+3. They open **Merged conversations**, follow the duplicate and inspect its actions.
+   - *Expected*: the duplicate keeps its history and links back to the canonical thread, has no reply action, and offers deletion but no
+     further merge.
+4. They return to the canonical thread and choose **Delete thread**.
+   - *Expected*: the confirmation explicitly says its one merged conversation is also permanently deleted; deletion answers 204,
+     returns to the parameter-preserving thread list, and both canonical and duplicate thread URLs answer 404.
 
 ## Not covered here (and why)
 

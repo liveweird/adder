@@ -148,6 +148,25 @@ class MessageTagReindexTest {
     }
 
     @Test
+    fun `reindex keeps real watcher and here mentions and the stored here audience`() = testApplication {
+        usePostgresTestcontainer()
+        val f = fixture("reidx-groups")
+        val id = f.staleMessage("Heads up <@watchers> <@here> #keep")
+        exec("UPDATE messages SET tags_version = 1 WHERE id = ?", id)
+        exec(
+            """INSERT INTO message_here_mentions (message_id, user_id, thread_id, room_id)
+               SELECT m.id, m.author_id, t.id, t.room_id FROM messages m JOIN threads t ON m.thread_id = t.id WHERE m.id = ?""",
+            id,
+        )
+        assertEquals(2, indexRows("message_group_mentions", id))
+
+        assertTrue(service.reindexStale() > 0)
+        assertEquals(listOf("keep"), tagsOf(id))
+        assertEquals(2, indexRows("message_group_mentions", id))
+        assertEquals(1, indexRows("message_here_mentions", id))
+    }
+
+    @Test
     fun `a second run finds nothing`() = testApplication {
         usePostgresTestcontainer()
         val f = fixture("reidx-twice")

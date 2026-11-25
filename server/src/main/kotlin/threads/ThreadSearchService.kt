@@ -214,8 +214,9 @@ class ThreadSearchService(
         budget.arm(this)
         val queryText = q?.let { ftsQueryText(it) ?: return@budgeted MessageSearchResult(emptyList(), 0) }
         val messages = MessageService.Messages
-        val source = messages.innerJoin(ThreadService.Threads)
-        var predicate: Op<Boolean> = (messages.threadId eq threadId) and messages.active()
+        val threads = ThreadService.Threads
+        val source = messages.innerJoin(threads)
+        var predicate: Op<Boolean> = (messages.threadId eq threadId) and messages.active() and threads.active()
         if (queryText != null) predicate = predicate and messages.ftsRowVector().ftsMatches(queryText)
         resolved?.messagePredicate("messages", "threads")?.let { predicate = predicate and it.asOp() }
         budget.arm(this)
@@ -290,8 +291,8 @@ class ThreadSearchService(
         }
         if (resolved?.impossible == true) return ThreadSearchResult(emptyList(), 0)
         val threads = ThreadService.Threads
-        var predicate: Op<Boolean> = resolved?.threadPredicate()?.asOp()
-            ?: threads.roomId.equalsAnyInt(inRooms.map { it.id.toInt() })
+        var predicate: Op<Boolean> = (resolved?.threadPredicate()?.asOp()
+            ?: threads.roomId.equalsAnyInt(inRooms.map { it.id.toInt() })) and threads.active()
         queryText?.let { predicate = predicate and matchesTitleOrMessage(it) }
         closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
         if (tagNames.isNotEmpty()) predicate = predicate and threadCarriesAnyThreadTag(threads.id, tagIds)

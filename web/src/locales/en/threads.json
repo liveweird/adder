@@ -181,6 +181,14 @@
   },
   "quote": {
     "action": "Quote",
+    "elsewhere": "Quote in another thread…",
+    "destinationTitle": "Choose where to quote",
+    "destinationDescription": "Pick an open thread. Your reply draft will be waiting there with this quote attached.",
+    "destinationRoom": "Room",
+    "destinationThread": "Thread",
+    "destinationNone": "No open threads in this room",
+    "destinationContinue": "Continue to thread",
+    "destinationError": "The available destinations could not be loaded.",
     "chip": "Quoting {{author}}",
     "actionAria": "Quote the message by {{author}} on {{when}}",
     "announce": "Quoting {{author}}: {{excerpt}}",
@@ -275,6 +283,8 @@
   },
   "history": {
     "empty": "No history yet.",
+    "more": "Load more workflow changes",
+    "retry": "Retry loading workflow changes",
     "userDeleted": "{{name}} (deleted account)"
   },
   "event": {
@@ -287,6 +297,8 @@
     "ownerChanged": "Passed the thread from {{from}} to {{to}}",
     "fieldChanged": "Changed {{field}}",
     "tagsChanged": "Changed the tags",
+    "mergedInto": "Merged this conversation into #{{number}}",
+    "mergedFrom": "Merged conversation #{{number}} into this thread",
     "tagsAdded": "Added: {{tags}}",
     "tagsRemoved": "Removed: {{tags}}"
   },

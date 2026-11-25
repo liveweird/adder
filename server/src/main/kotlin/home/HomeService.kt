@@ -81,9 +81,9 @@ private data class QuoteRow(
 )
 
 /**
- * Same-thread is repeated in SQL even though application writes guarantee it: a planted foreign quote must not leak. The quoting reply
- * must still be live; the quoted original may now be a tombstone because none of its text travels. The caller's membership is the scope,
- * and the marker/floor expression is the existing unread definition for this particular message.
+ * The quoting reply and both threads must still be live. A cross-room result is included only while the caller can read the source room
+ * too (membership, or ADMIN access to a non-hidden room), even though none of the original's text travels. Destination membership is the
+ * output scope, and the marker/floor expression is the existing unread definition for this particular message.
  */
 internal const val HOME_QUOTES_SQL = """
 SELECT r.id, r.name, r.archived_at IS NOT NULL, t.number, t.title,
@@ -91,20 +91,27 @@ SELECT r.id, r.name, r.archived_at IS NOT NULL, t.number, t.title,
        reply.id > COALESCE(tr.last_read_message_id, 0)
            AND reply.created_at > GREATEST(rm.read_from, rm.added_at) AS unread
 FROM messages reply
-JOIN messages quoted ON quoted.id = reply.quoted_message_id AND quoted.thread_id = reply.thread_id
-JOIN threads t ON t.id = reply.thread_id
+JOIN messages quoted ON quoted.id = reply.quoted_message_id
+JOIN threads source_t ON source_t.id = quoted.thread_id AND NOT source_t.marked_as_deleted
+JOIN rooms source_r ON source_r.id = source_t.room_id AND NOT source_r.marked_as_deleted
+LEFT JOIN room_members source_rm ON source_rm.room_id = source_r.id AND source_rm.user_id = CAST(? AS int8)
+JOIN threads t ON t.id = reply.thread_id AND NOT t.marked_as_deleted
 JOIN rooms r ON r.id = t.room_id AND NOT r.marked_as_deleted
 JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = CAST(? AS int8)
 JOIN users author ON author.id = reply.author_id
 LEFT JOIN thread_reads tr ON tr.thread_id = t.id AND tr.user_id = rm.user_id
 WHERE NOT reply.marked_as_deleted
   AND quoted.author_id = rm.user_id AND reply.author_id <> rm.user_id
+  AND (source_rm.user_id IS NOT NULL OR (
+      source_r.access_type <> 'RESTRICTED_HIDDEN'
+      AND EXISTS (SELECT 1 FROM users viewer WHERE viewer.id = rm.user_id AND viewer.role = 'ADMIN' AND NOT viewer.marked_as_deleted)
+  ))
 ORDER BY reply.created_at DESC, reply.id DESC
 LIMIT $HOME_SECTION_LIMIT"""
 
 private suspend fun quoteRows(userId: UInt): List<QuoteRow> = TransactionManager.current().exec(
     HOME_QUOTES_SQL,
-    listOf(LongColumnType() to userId.toLong()),
+    listOf(LongColumnType() to userId.toLong(), LongColumnType() to userId.toLong()),
     explicitStatementType = StatementType.SELECT,
 ) { row ->
     QuoteRow(
@@ -134,7 +141,7 @@ WITH selected AS (
     JOIN rooms r ON r.id = t.room_id AND NOT r.marked_as_deleted AND r.archived_at IS NULL
     JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = CAST(? AS int8)
     JOIN room_statuses s ON s.room_id = t.room_id AND s.key = t.status_key AND NOT s.marked_as_deleted
-    WHERE t.owner_id = rm.user_id AND t.closed_at IS NULL
+    WHERE t.owner_id = rm.user_id AND t.closed_at IS NULL AND NOT t.marked_as_deleted AND t.merged_into_thread_number IS NULL
     ORDER BY t.last_activity_at DESC, t.id DESC
     LIMIT $HOME_SECTION_LIMIT
 ), counted AS (
@@ -170,7 +177,7 @@ WITH candidates AS (
     JOIN rooms r ON r.id = t.room_id AND NOT r.marked_as_deleted
     JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = w.user_id
     JOIN room_statuses s ON s.room_id = t.room_id AND s.key = t.status_key AND NOT s.marked_as_deleted
-    WHERE w.user_id = CAST(? AS int8) AND w.watching
+    WHERE w.user_id = CAST(? AS int8) AND w.watching AND NOT t.marked_as_deleted AND t.merged_into_thread_number IS NULL
 ), selected AS (
     SELECT * FROM candidates
     ORDER BY unread DESC, last_activity_at DESC, id DESC

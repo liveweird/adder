@@ -21,6 +21,8 @@ internal data class DigestEntry(
     val messageId: UInt?,
     /** Raw plain replies represented by this line; greater than one uses the actor-free grouped wording. */
     val replyCount: Int = 1,
+    /** Current team name for a TEAM_MENTIONED entry when the recipient still belongs to that mentioned team. */
+    val teamName: String? = null,
 )
 
 /** A composed email: a subject and a plain-text body. */
@@ -46,6 +48,10 @@ private fun entryText(type: NotificationType): LocalizedText = when (type) {
     NotificationType.MESSAGE_QUOTED -> LocalizedText(
         en = "%s quoted your message in #%d (%s)",
         pl = "%s cytuje Twoją wiadomość w #%d (%s)",
+    )
+    NotificationType.REACTION_ADDED -> LocalizedText(
+        en = "%s reacted to your message in #%d (%s)",
+        pl = "%s reaguje na Twoją wiadomość w #%d (%s)",
     )
     NotificationType.TEAM_MENTIONED -> LocalizedText(
         en = "%s mentioned your team in #%d (%s)",
@@ -96,6 +102,11 @@ private fun entryText(type: NotificationType): LocalizedText = when (type) {
         pl = "%s dodaje Cię do pokoju %s",
     )
 }
+
+private val TEAM_MENTIONED_NAMED = LocalizedText(
+    en = "%s mentioned your team %s in #%d (%s)",
+    pl = "%s wspomina o Twoim zespole %s w #%d (%s)",
+)
 
 /** `String.format` in the root locale: a digit is always an ASCII digit, whatever the server's default locale. */
 private fun fmt(pattern: String, vararg args: Any): String = String.format(Locale.ROOT, pattern, *args)
@@ -222,8 +233,17 @@ internal fun notificationEmail(
             val text = if (entry.type == NotificationType.THREAD_REPLIED && entry.replyCount > 1) {
                 fmt(groupedReplyPattern(entry.replyCount).of(language), entry.replyCount, checkNotNull(number), room)
             } else {
-                val pattern = entryText(entry.type).of(language)
-                if (number == null) fmt(pattern, actor, room) else fmt(pattern, actor, number, room)
+                val team = entry.teamName?.let(::mailSafe)
+                val pattern = if (entry.type == NotificationType.TEAM_MENTIONED && team != null) {
+                    TEAM_MENTIONED_NAMED.of(language)
+                } else {
+                    entryText(entry.type).of(language)
+                }
+                when {
+                    number == null -> fmt(pattern, actor, room)
+                    team != null && entry.type == NotificationType.TEAM_MENTIONED -> fmt(pattern, actor, team, number, room)
+                    else -> fmt(pattern, actor, number, room)
+                }
             }
             appendLine("- $text")
             if (appUrl != null) {

@@ -1,6 +1,7 @@
 package ch.nokillswit.threads
 
 import ch.nokillswit.infra.db.jsonbContains
+import ch.nokillswit.infra.paging.optionalPositiveId
 import ch.nokillswit.infra.paging.positiveId
 import ch.nokillswit.infra.paging.repeatedStrings
 import ch.nokillswit.rooms.RoomWorkflowSnapshot
@@ -74,6 +75,7 @@ data class ThreadListFilter(
      * nothing unread; null: all. A caller with no read state (an ADMIN outside the room) has nothing unread: `true` is an empty page.
      */
     val unread: Boolean? = null,
+    val mergedInto: Int? = null,
 )
 
 /** The filters of the thread list; a malformed key, id or pair, or too many values, is a `400` ([BadRequestException]). */
@@ -83,6 +85,7 @@ fun Parameters.threadListFilter(
     mentionsMe: Boolean? = null,
     unread: Boolean? = null,
 ): ThreadListFilter = ThreadListFilter(
+    mergedInto = optionalPositiveId("mergedInto")?.toInt(),
     closed = closed,
     watching = watching,
     mentionsMe = mentionsMe,
@@ -150,7 +153,8 @@ internal fun ThreadListFilter.predicate(
     unreadSince: Long? = null,
 ): Op<Boolean> {
     val threads = ThreadService.Threads
-    var predicate: Op<Boolean> = threads.roomId eq roomId
+    var predicate: Op<Boolean> = mergedInto?.let { mergedSources(roomId, it) }
+        ?: ((threads.roomId eq roomId) and threads.canonical())
     closed?.let { predicate = predicate and (if (it) threads.closedAt.isNotNull() else threads.closedAt.isNull()) }
     if (statuses.isNotEmpty()) predicate = predicate and (threads.statusKey inList statuses)
     if (ownerIds.isNotEmpty()) predicate = predicate and (threads.ownerId inList ownerIds)

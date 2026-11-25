@@ -36,7 +36,7 @@ export function isThreadSteward({
 }
 
 /** Why a status cannot be picked: the room is archived (every content write is refused), or the move needs a steward. */
-export type StatusMoveBlock = "archived" | "needsSteward";
+export type StatusMoveBlock = "archived" | "needsSteward" | "merged";
 
 /**
  * Whether the caller may move the thread to `target`. A move between two OPEN statuses is open to every reader; one that enters or leaves a
@@ -44,32 +44,35 @@ export type StatusMoveBlock = "archived" | "needsSteward";
  */
 export function statusMoveBlock(
   room: Pick<RoomResponse, "archived">,
-  thread: Pick<ThreadResponse, "closed" | "status">,
+  thread: Pick<ThreadResponse, "closed" | "status" | "mergedIntoThreadNumber">,
   steward: boolean,
   target: Pick<WorkflowStatus, "key" | "category">,
 ): StatusMoveBlock | null {
   if (target.key === thread.status) return null;
+  if (thread.mergedIntoThreadNumber != null) return "merged";
   if (room.archived) return "archived";
   return !steward && (thread.closed || target.category === "CLOSED") ? "needsSteward" : null;
 }
 
 /** Why the details and the owner cannot be changed now (both refuse an archived room and a closed thread: 409), or null. The archived notice wins. */
-export type ThreadEditBlock = "archived" | "closed";
+export type ThreadEditBlock = "archived" | "closed" | "merged";
 
-export function threadEditBlock(room: Pick<RoomResponse, "archived">, thread: Pick<ThreadResponse, "closed">): ThreadEditBlock | null {
+export function threadEditBlock(room: Pick<RoomResponse, "archived">, thread: Pick<ThreadResponse, "closed" | "mergedIntoThreadNumber">): ThreadEditBlock | null {
+  if (thread.mergedIntoThreadNumber != null) return "merged";
   if (room.archived) return "archived";
   return thread.closed ? "closed" : null;
 }
 
 /** Why the thread's tags cannot be edited now, or null: the room is archived (409), or the thread is closed and the caller is no steward (403, 1.2 D1). */
-export type ThreadTagsBlock = "archived" | "needsSteward";
+export type ThreadTagsBlock = "archived" | "needsSteward" | "merged";
 
 /**
  * Tags are set by any member of the room and an ADMIN while the thread is OPEN (the title-and-fields rule), and, once it is CLOSED, only by a
  * steward: the thread's owner while a member, the room's OWNER or an ADMIN. An archived room refuses everyone (the archived notice wins). UX only
  * — the server decides (`ThreadTagService.replace`).
  */
-export function threadTagsBlock(room: Pick<RoomResponse, "archived">, thread: Pick<ThreadResponse, "closed">, steward: boolean): ThreadTagsBlock | null {
+export function threadTagsBlock(room: Pick<RoomResponse, "archived">, thread: Pick<ThreadResponse, "closed" | "mergedIntoThreadNumber">, steward: boolean): ThreadTagsBlock | null {
+  if (thread.mergedIntoThreadNumber != null) return "merged";
   if (room.archived) return "archived";
   return thread.closed && !steward ? "needsSteward" : null;
 }

@@ -32,6 +32,7 @@ internal data class ThreadRow(
     val fields: Map<String, JsonElement>,
     val revision: Long,
     val closedAt: Long?,
+    val mergedIntoThreadNumber: Int? = null,
 ) {
     /** `closed_at` mirrors the status category (V14), so it IS the closed flag. */
     val closed: Boolean get() = closedAt != null
@@ -56,14 +57,21 @@ internal suspend fun <T> R2dbcDatabase.withThreadWrite(
     caller: CallerPrincipal,
     roomGuard: RoomGuard,
     actGuard: ThreadGuard? = null,
+    allowMerged: Boolean = false,
     block: suspend (ThreadWrite) -> T,
 ): T = withRoomWrite(roomId, caller, roomGuard) { fresh, standing ->
-    val threads = ThreadService.Threads
-    val row = threads.selectAll().where { (threads.roomId eq roomId) and (threads.number eq number) }.toList().singleOrNull()
-        ?: throw NotFoundException("Thread not found")
-    val thread = row.toThreadRow()
+    val thread = threadRow(roomId, number)
     actGuard?.invoke(fresh, standing, thread)
+    if (!allowMerged) thread.requireUnmerged()
     block(ThreadWrite(fresh, standing, thread))
+}
+
+internal suspend fun threadRow(roomId: UInt, number: Int): ThreadRow =
+    ThreadService.Threads.selectAll().where { threadAddress(roomId, number) }.toList().singleOrNull()?.toThreadRow()
+        ?: throw NotFoundException("Thread not found")
+
+internal fun ThreadRow.requireUnmerged() {
+    if (mergedIntoThreadNumber != null) throw threadMerged()
 }
 
 /**
@@ -92,16 +100,19 @@ internal suspend fun <T> R2dbcDatabase.withMessageWrite(
     caller: CallerPrincipal,
     roomGuard: RoomGuard,
     actGuard: MessageGuard,
+    allowMerged: Boolean = false,
     block: suspend (MessageWrite) -> T,
 ): T = withRoomWrite(roomId, caller, roomGuard) { fresh, standing ->
     val messages = MessageService.Messages
     val threads = ThreadService.Threads
     val row = messages.innerJoin(threads).selectAll()
-        .where { (messages.id eq messageId) and (threads.roomId eq roomId) and messages.active() }
+        .where { (messages.id eq messageId) and (threads.roomId eq roomId) and messages.active() and threads.active() }
         .toList().singleOrNull() ?: throw NotFoundException("Message not found")
     val message = MessageRow(row[messages.authorId].value, row[messages.body], row[messages.tagsVersion])
     actGuard(fresh, standing, message)
-    block(MessageWrite(ThreadWrite(fresh, standing, row.toThreadRow()), message))
+    val thread = row.toThreadRow()
+    if (!allowMerged) thread.requireUnmerged()
+    block(MessageWrite(ThreadWrite(fresh, standing, thread), message))
 }
 
 /** An archived room refuses every content write (`409 room-archived`). */
@@ -136,5 +147,6 @@ private fun ResultRow.toThreadRow(): ThreadRow {
         fields = (Json.parseToJsonElement(this[threads.fieldValues]) as JsonObject),
         revision = this[threads.revision],
         closedAt = this[threads.closedAt],
+        mergedIntoThreadNumber = this[threads.mergedIntoThreadNumber],
     )
 }

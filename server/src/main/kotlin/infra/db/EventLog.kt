@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.between
 import org.jetbrains.exposed.v1.core.dao.id.EntityID
 import org.jetbrains.exposed.v1.core.dao.id.IdTable
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
@@ -132,10 +135,17 @@ class EventLog(private val database: R2dbcDatabase, private val table: EventLogT
     }
 
     /** The record's history page with acting user names; count + rows on one predicate, one transaction. */
-    suspend fun listFor(ownerId: UInt, paging: PageRequest): EventLogPage = suspendTransaction(database) {
-        val total = joined().selectAll().where { table.ownerId eq ownerId }.count()
+    suspend fun listFor(
+        ownerId: UInt,
+        paging: PageRequest,
+        createdAt: LongRange? = null,
+        visibleOwner: Op<Boolean> = Op.TRUE,
+    ): EventLogPage = suspendTransaction(database) {
+        val owner = (table.ownerId eq ownerId) and visibleOwner
+        val filter = if (createdAt == null) owner else owner and table.createdAt.between(createdAt.first, createdAt.last)
+        val total = table.selectAll().where { filter }.count()
         val rows = joined().selectAll()
-            .where { table.ownerId eq ownerId }
+            .where { filter }
             .applyPaging(paging, sortableColumns)
             .map { row ->
                 EventLogRow(

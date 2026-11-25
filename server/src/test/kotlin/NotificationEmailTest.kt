@@ -95,6 +95,7 @@ class NotificationEmailTest {
         val english = mapOf(
             NotificationType.MENTIONED to "Bob mentioned you in #42 (Room)",
             NotificationType.MESSAGE_QUOTED to "Bob quoted your message in #42 (Room)",
+            NotificationType.REACTION_ADDED to "Bob reacted to your message in #42 (Room)",
             NotificationType.TEAM_MENTIONED to "Bob mentioned your team in #42 (Room)",
             NotificationType.WATCHERS_MENTIONED to "Bob mentioned the watchers of #42 (Room)",
             NotificationType.HERE_MENTIONED to "Bob mentioned people here in #42 (Room)",
@@ -111,6 +112,7 @@ class NotificationEmailTest {
         val polish = mapOf(
             NotificationType.MENTIONED to "Bob wspomina o Tobie w #42 (Room)",
             NotificationType.MESSAGE_QUOTED to "Bob cytuje Twoją wiadomość w #42 (Room)",
+            NotificationType.REACTION_ADDED to "Bob reaguje na Twoją wiadomość w #42 (Room)",
             NotificationType.TEAM_MENTIONED to "Bob wspomina o Twoim zespole w #42 (Room)",
             NotificationType.WATCHERS_MENTIONED to "Bob wspomina o obserwujących wątek #42 (Room)",
             NotificationType.HERE_MENTIONED to "Bob wspomina o obecnych osobach w #42 (Room)",
@@ -131,6 +133,15 @@ class NotificationEmailTest {
             assertTrue("- ${english.getValue(type)}" in en, "$type in English: $en")
             assertTrue("- ${polish.getValue(type)}" in pl, "$type in Polish: $pl")
         }
+    }
+
+    @Test
+    fun `a team mention names the team without making it a link`() {
+        val named = entry(NotificationType.TEAM_MENTIONED, room = "Room").copy(teamName = "On.call@example.com")
+        val english = notificationEmail("Ada", listOf(named), null, "en").body
+        val polish = notificationEmail("Ada", listOf(named), null, "pl").body
+        assertTrue(english.contains("Bob mentioned your team On․call＠example․com in #42 (Room)"), english)
+        assertTrue(polish.contains("Bob wspomina o Twoim zespole On․call＠example․com w #42 (Room)"), polish)
     }
 
     @Test

@@ -1,6 +1,7 @@
 package ch.nokillswit.threads
 
 import ch.nokillswit.authz.CallerPrincipal
+import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.jsonb
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.json.canonicalJson
@@ -77,7 +78,7 @@ class ThreadService(
     private val threadTags: ThreadTagService,
     private val readLimiters: ThreadReadLimiters = ThreadReadLimiters(),
 ) {
-    object Threads : UIntIdTable("threads") {
+    object Threads : UIntIdTable("threads"), SoftDeletable {
         val roomId = reference("room_id", RoomService.Rooms)
 
         /** The per-room number (`#42`): `MAX + 1` under the room lock, never reused. */
@@ -97,6 +98,8 @@ class ThreadService(
         val lastActivityAt = long("last_activity_at")
         val createdAt = long("created_at")
         val updatedAt = long("updated_at")
+        override val markedAsDeleted = bool("marked_as_deleted").default(false)
+        val mergedIntoThreadNumber = integer("merged_into_thread_number").nullable()
     }
 
     /**
@@ -184,7 +187,7 @@ class ThreadService(
     /** The statements of [read], INSIDE the caller's transaction, armed with [budget] before each when there is one. */
     private suspend fun R2dbcTransaction.readThread(roomId: UInt, number: Int, callerUserId: UInt, budget: SearchBudget?): ThreadResponse? {
         budget?.arm(this)
-        val row = Threads.selectAll().where { (Threads.roomId eq roomId) and (Threads.number eq number) }.toList().singleOrNull()
+        val row = Threads.selectAll().where { threadAddress(roomId, number) }.toList().singleOrNull()
             ?: return null
         budget?.arm(this)
         val activeTypes = workflows.activeFieldTypes(roomId)
@@ -208,6 +211,8 @@ class ThreadService(
         val hashtags = tags.hashtagsOf(listOf(threadId))[threadId].orEmpty()
         budget?.arm(this)
         val curated = threadTags.forThreads(listOf(threadId))[threadId].orEmpty()
+        budget?.arm(this)
+        val mergedSourceCount = Threads.selectAll().where { mergedSources(roomId, number) }.count()
         return ThreadResponse(
             id = threadId,
             number = number,
@@ -233,12 +238,14 @@ class ThreadService(
             muted = muted,
             hashtags = hashtags,
             tags = curated,
+            mergedIntoThreadNumber = row[Threads.mergedIntoThreadNumber],
+            mergedSourceCount = mergedSourceCount,
         )
     }
 
     /** The row id of thread [number] of room [roomId], or null: the events route resolves its thread with it. */
     suspend fun idOf(roomId: UInt, number: Int): UInt? = suspendTransaction(database) {
-        Threads.select(Threads.id).where { (Threads.roomId eq roomId) and (Threads.number eq number) }
+        Threads.select(Threads.id).where { threadAddress(roomId, number) }
             .toList().singleOrNull()?.get(Threads.id)?.value
     }
 
@@ -247,9 +254,9 @@ class ThreadService(
      * are hidden everywhere, `chat-model.md` "Stored values survive a workflow edit"). The retired keys are read in a short
      * transaction of their own just before the events' (a field revived in between is shown or hidden by the one read or the other).
      */
-    suspend fun history(roomId: UInt, threadId: UInt, paging: PageRequest): ThreadEventListResult {
+    suspend fun history(roomId: UInt, threadId: UInt, paging: PageRequest, createdAt: LongRange? = null): ThreadEventListResult {
         val retired = suspendTransaction(database) { workflows.retiredFieldKeys(roomId) }
-        return events.list(threadId, paging, retired)
+        return events.list(threadId, paging, retired, createdAt)
     }
 
     /**
@@ -257,7 +264,7 @@ class ThreadService(
      * thread is `404` there) that the write repeats on the fresh row under the room lock.
      */
     suspend fun ownerOf(roomId: UInt, number: Int): UInt? = suspendTransaction(database) {
-        Threads.select(Threads.ownerId).where { (Threads.roomId eq roomId) and (Threads.number eq number) }
+        Threads.select(Threads.ownerId).where { threadAddress(roomId, number) }
             .toList().singleOrNull()?.get(Threads.ownerId)?.value
     }
 

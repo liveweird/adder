@@ -100,6 +100,8 @@ class ChatWriteLimitsTest {
         { putJson("$rooms/$room/threads/99/pin", PinRequest(true)) }, // 404
         { putJson("$rooms/$room/messages/2000000000/pin", PinRequest(true)) }, // 404
         { putJson("$rooms/$room/threads/99/tags", ThreadTagsRequest(emptyList())) }, // 404 (1.2: a thread's tags ride chat-write too)
+        { putJson("$rooms/$room/threads/99/merge", mapOf("targetNumber" to 1)) }, // 404
+        { delete("$rooms/$room/threads/99") }, // 404
     )
 
     @Test
@@ -331,6 +333,7 @@ class ChatWriteLimitsTest {
         val big = """{"status":"open",${" ".repeat(20 * 1024)}"x":1}"""
         assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, "$rooms/$room/threads/1/status", big).status)
         assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, "$rooms/$room/threads/1/owner", big).status)
+        assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, "$rooms/$room/threads/1/merge", big).status)
         val message = TestThreads.post(room, 1, owner.id, "to react to")
         val marker = "$rooms/$room/threads/1/read-marker"
         assertEquals(HttpStatusCode.PayloadTooLarge, owner.client.raw(HttpMethod.Put, marker, big).status)

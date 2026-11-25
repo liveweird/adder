@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
+import ch.nokillswit.rooms.ROOM_BUSY_PROBLEM_TYPE
 import ch.nokillswit.threads.GroupMention
 import ch.nokillswit.threads.MAX_QUOTED_BODY
 import ch.nokillswit.threads.MentionGroupKind
@@ -44,10 +45,10 @@ import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 
 /**
- * Quotes (1.3.0 S2, `chat-model.md` "Quotes (1.3)"): a message quotes ONE live message of its own thread, the quote is a live reference
+ * Quotes (`chat-model.md` "Quotes"): a message quotes ONE live message from a readable thread, the quote is a live reference
  * (the quoted message as it reads now, mentions by name, a tombstone says deleted and carries no text), it is set when the message is
  * posted and an edit cannot touch it, ONE typed `400` covers every quote that cannot be made (and writes, hints and audits nothing),
- * the reads are scoped by thread (a reference planted by SQL reads as no quote), and a page's quotes cost at most one statement. Rooms,
+ * every read independently hides a source room the reader cannot currently access, and quote resolution is batched per page. Rooms,
  * templates and users are SHARED suite state: every test mints UNIQUE rows and removes them.
  */
 class MessageQuotesTest {
@@ -103,7 +104,9 @@ class MessageQuotesTest {
         val posted = cast.member.client.postedQuote(cast.room, "Agreed", quotedId)
 
         assertEquals(
-            MessageQuote(quotedId, cast.author.id, "Alina", false, "Original **words**", false, null, emptyList(), emptyList()),
+            MessageQuote(
+                quotedId, cast.author.id, "Alina", false, "Original **words**", false, null, emptyList(), emptyList(), cast.room, 1,
+            ),
             posted.quote,
         )
         assertEquals(cast.member.id, posted.authorId)
@@ -196,7 +199,9 @@ class MessageQuotesTest {
             for (quoting in listOf(first, second)) {
                 val quote = cast.member.client.read(cast.room, quoting.id).quote!!
                 assertEquals(
-                    MessageQuote(quote.messageId, cast.author.id, "Alina", true, null, false, null, emptyList(), emptyList()),
+                    MessageQuote(
+                        quote.messageId, cast.author.id, "Alina", true, null, false, null, emptyList(), emptyList(), cast.room, 1,
+                    ),
                     quote,
                     "deleted, no text, no names",
                 )
@@ -214,17 +219,38 @@ class MessageQuotesTest {
         }
 
     @Test
-    fun `an unknown id, another thread's or room's message and a deleted one are ONE typed 400, and nothing is written or audited`() =
+    fun `another thread and another readable room can be quoted with their source location`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("mq-cross")
+        val otherThread = TestThreads.seed(cast.room, cast.author.id, title = "Another thread")
+        val inOtherThread = TestThreads.post(cast.room, 2, cast.author.id, "In thread two")
+        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
+        val otherRoom = TestRooms.seed(cast.owner.id, template, "Other ${UUID.randomUUID()}").also { mintedRooms += it }
+        TestRooms.addMember(otherRoom, cast.member.id)
+        TestThreads.seed(otherRoom, cast.owner.id)
+        val inOtherRoom = TestThreads.post(otherRoom, 1, cast.owner.id, "In another room")
+
+        val sameRoom = cast.member.client.postedQuote(cast.room, "Cross-thread", inOtherThread).quote!!
+        assertEquals(cast.room, sameRoom.roomId)
+        assertEquals(otherThread.number, sameRoom.threadNumber)
+        assertEquals(inOtherThread, sameRoom.messageId)
+        val crossRoomPost = cast.member.client.postedQuote(cast.room, "Cross-room", inOtherRoom)
+        val crossRoom = crossRoomPost.quote!!
+        assertEquals(otherRoom, crossRoom.roomId)
+        assertEquals(1, crossRoom.threadNumber)
+        assertEquals(inOtherRoom, crossRoom.messageId)
+        assertEquals(crossRoom, cast.member.client.read(cast.room, crossRoomPost.id).quote)
+    }
+
+    @Test
+    fun `an unknown id, an unreadable room message and a deleted one are ONE typed 400, and nothing is written or audited`() =
         testApplication {
             usePostgresTestcontainer()
             val cast = cast("mq-refuse")
-            val otherThread = TestThreads.seed(cast.room, cast.author.id, title = "Another thread")
-            val inOtherThread = TestThreads.post(cast.room, 2, cast.author.id, "In thread two")
             val template = TestThreads.seedTemplate().also { mintedTemplates += it }
             val otherRoom = TestRooms.seed(cast.owner.id, template, "Other ${UUID.randomUUID()}").also { mintedRooms += it }
-            TestRooms.addMember(otherRoom, cast.member.id)
-            TestThreads.seed(otherRoom, cast.member.id)
-            val inOtherRoom = TestThreads.post(otherRoom, 1, cast.member.id, "In another room")
+            TestThreads.seed(otherRoom, cast.owner.id)
+            val inOtherRoom = TestThreads.post(otherRoom, 1, cast.owner.id, "In another room")
             val tombstone = TestThreads.post(cast.room, 1, cast.author.id, "About to go")
             assertEquals(HttpStatusCode.NoContent, cast.author.client.delete("$rooms/${cast.room}/messages/$tombstone").status)
 
@@ -233,7 +259,7 @@ class MessageQuotesTest {
             val problems = mutableListOf<ProblemDetail>()
             withAuditCapture { audit ->
                 val refused = listOf(
-                    "unknown" to 999_999u, "another thread" to inOtherThread, "another room" to inOtherRoom, "tombstone" to tombstone,
+                    "unknown" to 999_999u, "unreadable room" to inOtherRoom, "tombstone" to tombstone,
                 )
                 for ((why, id) in refused) {
                     val response = cast.member.client.quoting(cast.room, "Refused: $why", id)
@@ -245,12 +271,11 @@ class MessageQuotesTest {
             for (problem in problems) {
                 assertEquals(QUOTE_UNAVAILABLE_PROBLEM_TYPE, problem.type)
                 assertEquals(problems.first().copy(instance = null), problem.copy(instance = null), "one answer for every cause")
-                val echoed = listOf("999999", inOtherThread.toString(), inOtherRoom.toString(), tombstone.toString())
+                val echoed = listOf("999999", inOtherRoom.toString(), tombstone.toString())
                 assertTrue(echoed.none { it in problem.detail.orEmpty() }, "the detail echoes no id")
             }
             assertEquals(before, messageCount(cast.threadId), "nothing was written")
             assertEquals(counter, TestThreads.raw(cast.room, 1)!!.messageCount)
-            assertEquals(0, TestThreads.rawMessages(otherThread.id).count { it.body.startsWith("Refused") })
         }
 
     @Test
@@ -310,28 +335,27 @@ class MessageQuotesTest {
         }
 
     @Test
-    fun `a reference planted by SQL to another thread's message reads as no quote in the list, the single read and the pins`() =
+    fun `a reference to another readable thread resolves in the list, the single read and the pins`() =
         testApplication {
             usePostgresTestcontainer()
             val cast = cast("mq-plant")
             val second = TestThreads.seed(cast.room, cast.author.id, title = "Thread two")
             val inOne = TestThreads.post(cast.room, 1, cast.author.id, "Words of thread one")
             val inTwo = TestThreads.post(cast.room, 2, cast.author.id, "Words of thread two")
-            // Rows the application never writes: each message points at a message of the OTHER thread.
+            // Cross-thread references resolve no matter whether the write came from the route or this fixture shortcut.
             sql("UPDATE messages SET quoted_message_id = ? WHERE id = ?", inTwo.toLong(), inOne.toLong())
             sql("UPDATE messages SET quoted_message_id = ? WHERE id = ?", inOne.toLong(), inTwo.toLong())
 
-            assertNull(cast.member.client.read(cast.room, inOne).quote)
-            assertNull(cast.member.client.read(cast.room, inTwo).quote)
-            assertNull(cast.member.client.page(cast.room).items.single { it.id == inOne }.quote)
-            assertNull(cast.member.client.page(cast.room, number = 2).items.single { it.id == inTwo }.quote)
-            // The pins list reads both rows of two threads in ONE read, so each quoted row is ON the page: only the thread pair says no.
+            assertEquals(inTwo, cast.member.client.read(cast.room, inOne).quote?.messageId)
+            assertEquals(inOne, cast.member.client.read(cast.room, inTwo).quote?.messageId)
+            assertEquals(inTwo, cast.member.client.page(cast.room).items.single { it.id == inOne }.quote?.messageId)
+            assertEquals(inOne, cast.member.client.page(cast.room, number = 2).items.single { it.id == inTwo }.quote?.messageId)
             for (id in listOf(inOne, inTwo)) {
                 val pin = cast.member.client.putJson("$rooms/${cast.room}/messages/$id/pin", PinRequest(true))
                 assertEquals(HttpStatusCode.NoContent, pin.status)
             }
             val pinned = cast.owner.client.get("$rooms/${cast.room}/pins").body<PageResponse<RoomPinResponse>>()
-            assertEquals(listOf(null, null), pinned.items.map { it.message!!.quote })
+            assertEquals(setOf(inOne, inTwo), pinned.items.mapNotNull { it.message!!.quote?.messageId }.toSet())
             assertEquals(2, second.number)
         }
 
@@ -397,7 +421,7 @@ class MessageQuotesTest {
     }
 
     @Test
-    fun `the quote check sends the same one statement for an existing, an unknown, a foreign-thread and a deleted id`() = testApplication {
+    fun `a readable source reaches one bounded quote check while an unknown or deleted source stops before it`() = testApplication {
         usePostgresTestcontainer()
         val cast = cast("mq-check")
         val real = TestThreads.post(cast.room, 1, cast.author.id, "Real")
@@ -412,14 +436,15 @@ class MessageQuotesTest {
             driver.level = Level.DEBUG
             fun checks() = capture.events.map { it.formattedMessage }.filter { "SUBSTRING(" in it }
             cast.member.client.postedQuote(cast.room, "Quoting", real)
-            val answered = checks().size
-            assertEquals(1, answered, "the check of a quote that exists is one statement")
-            for ((index, id) in listOf(999_999u, foreign, gone).withIndex()) {
+            assertEquals(1, checks().size, "the locked check of a readable quote is one bounded statement")
+            cast.member.client.postedQuote(cast.room, "Cross-thread", foreign)
+            assertEquals(2, checks().size, "a readable message of another thread uses the same locked check")
+            for (id in listOf(999_999u, gone)) {
                 assertEquals(HttpStatusCode.BadRequest, cast.member.client.quoting(cast.room, "Refused", id).status)
-                assertEquals((index + 2) * answered, checks().size, "a refused id costs the same one statement, whatever the cause")
+                assertEquals(2, checks().size, "an unavailable source is refused by the non-disclosing preflight")
             }
             cast.member.client.postedQuote(cast.room, "Not quoting", null)
-            assertEquals(4 * answered, checks().size, "a post that quotes nothing sends no check")
+            assertEquals(2, checks().size, "a post that quotes nothing sends no check")
         } finally {
             driver.level = saved
             capture.detach()
@@ -469,6 +494,50 @@ class MessageQuotesTest {
     }
 
     @Test
+    fun `a cross-room quote hits the bounded source lock and can be retried after it clears`() = testApplication {
+        configureApp("rooms.lockWaitMillis" to "300")
+        startApplication()
+        val cast = cast("mq-busy")
+        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
+        val source = TestRooms.seed(cast.owner.id, template, "Busy quote ${UUID.randomUUID()}").also { mintedRooms += it }
+        TestRooms.addMember(source, cast.member.id)
+        val quoted = TestThreads.seed(source, cast.owner.id).messageId
+        val before = messageCount(cast.threadId)
+
+        TestThreads.holdingRoomLock(source) {
+            val response = cast.member.client.quoting(cast.room, "Waiting for source", quoted)
+            assertEquals(HttpStatusCode.TooManyRequests, response.status)
+            assertEquals("1", response.headers["Retry-After"])
+            assertEquals(ROOM_BUSY_PROBLEM_TYPE, response.body<ProblemDetail>().type)
+        }
+        assertEquals(before, messageCount(cast.threadId))
+        assertEquals(quoted, cast.member.client.postedQuote(cast.room, "Retried", quoted).quote?.messageId)
+    }
+
+    @Test
+    fun `access revoked while a cross-room quote waits on the source lock refuses the post`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("mq-revoke")
+        val template = TestThreads.seedTemplate().also { mintedTemplates += it }
+        val source = TestRooms.seed(cast.owner.id, template, "Revoked quote ${UUID.randomUUID()}").also { mintedRooms += it }
+        TestRooms.addMember(source, cast.member.id)
+        val quoted = TestThreads.seed(source, cast.owner.id).messageId
+        val before = messageCount(cast.threadId)
+
+        TestThreads.holdingRoomLock(source, "DELETE FROM room_members WHERE room_id = ? AND user_id = ?", source, cast.member.id) { raw ->
+            coroutineScope {
+                val posting = async { cast.member.client.quoting(cast.room, "Lost source access", quoted) }
+                awaitLockWait("FOR NO KEY UPDATE")
+                raw.commit()
+                val response = posting.await()
+                assertEquals(HttpStatusCode.BadRequest, response.status)
+                assertEquals(QUOTE_UNAVAILABLE_PROBLEM_TYPE, response.body<ProblemDetail>().type)
+            }
+        }
+        assertEquals(before, messageCount(cast.threadId))
+    }
+
+    @Test
     fun `a quoted message deleted while the quoting post waits for the room lock is the typed 400`() = testApplication {
         usePostgresTestcontainer()
         val cast = cast("mq-race")
@@ -494,7 +563,7 @@ class MessageQuotesTest {
     }
 
     @Test
-    fun `a reference planted by SQL to a message of another ROOM reads as no quote`() = testApplication {
+    fun `a reference to another readable room resolves and disappears as soon as source access is lost`() = testApplication {
         usePostgresTestcontainer()
         val cast = cast("mq-room")
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
@@ -505,11 +574,17 @@ class MessageQuotesTest {
         val local = TestThreads.post(cast.room, 1, cast.member.id, "Words of this room")
         sql("UPDATE messages SET quoted_message_id = ? WHERE id = ?", foreign.toLong(), local.toLong())
 
-        assertNull(cast.member.client.read(cast.room, local).quote)
-        assertNull(cast.member.client.page(cast.room).items.single { it.id == local }.quote)
+        assertEquals(foreign, cast.member.client.read(cast.room, local).quote?.messageId)
+        assertEquals(foreign, cast.member.client.page(cast.room).items.single { it.id == local }.quote?.messageId)
         val pin = cast.member.client.putJson("$rooms/${cast.room}/messages/$local/pin", PinRequest(true))
         assertEquals(HttpStatusCode.NoContent, pin.status)
         val pinned = cast.owner.client.get("$rooms/${cast.room}/pins").body<PageResponse<RoomPinResponse>>()
-        assertNull(pinned.items.single().message!!.quote)
+        assertEquals(foreign, pinned.items.single().message!!.quote?.messageId)
+
+        sql("DELETE FROM room_members WHERE room_id = ? AND user_id = ?", otherRoom.toLong(), cast.member.id.toLong())
+        assertNull(cast.member.client.read(cast.room, local).quote)
+        assertNull(cast.member.client.page(cast.room).items.single { it.id == local }.quote)
+        val hiddenPin = cast.member.client.get("$rooms/${cast.room}/pins").body<PageResponse<RoomPinResponse>>()
+        assertNull(hiddenPin.items.single().message!!.quote)
     }
 }

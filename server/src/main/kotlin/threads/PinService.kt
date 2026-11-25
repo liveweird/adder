@@ -99,7 +99,7 @@ class PinService internal constructor(
      * closed thread is NOT refused: a pin is the room's. Answers what changed, for the route's audit line.
      */
     suspend fun setThreadPin(roomId: UInt, number: Int, caller: CallerPrincipal, pinned: Boolean): PinChange? =
-        database.withThreadWrite(roomId, number, caller, memberGuard) { write ->
+        database.withThreadWrite(roomId, number, caller, memberGuard, allowMerged = true) { write ->
             write.requireRoomActive()
             if (!change(roomId, write.thread.id, null, write.caller.userId, pinned)) return@withThreadWrite null
             notifyLive(LiveHint(LiveKind.ROOM_PIN_CHANGED, roomId, threadNumber = number))
@@ -111,7 +111,7 @@ class PinService internal constructor(
      * pins any message, so there is no act guard beyond the member guard.
      */
     suspend fun setMessagePin(roomId: UInt, messageId: UInt, caller: CallerPrincipal, pinned: Boolean): PinChange? =
-        database.withMessageWrite(roomId, messageId, caller, memberGuard, actGuard = { _, _, _ -> }) { write ->
+        database.withMessageWrite(roomId, messageId, caller, memberGuard, actGuard = { _, _, _ -> }, allowMerged = true) { write ->
             write.threadWrite.requireRoomActive()
             if (!change(roomId, write.thread.id, messageId, write.caller.userId, pinned)) return@withMessageWrite null
             notifyLive(LiveHint(LiveKind.ROOM_PIN_CHANGED, roomId, threadNumber = write.thread.number, messageId = messageId))

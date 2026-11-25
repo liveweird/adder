@@ -20,6 +20,7 @@ import enSearch from "./locales/en/search.json";
 import enTags from "./locales/en/tags.json";
 import enTeams from "./locales/en/teams.json";
 import enThreads from "./locales/en/threads.json";
+import enThreadLifecycle from "./locales/en/threadLifecycle.json";
 import enTelemetry from "./locales/en/telemetry.json";
 import enWorkflows from "./locales/en/workflows.json";
 
@@ -71,6 +72,7 @@ export const en = {
   tags: enTags,
   teams: enTeams,
   threads: enThreads,
+  threadLifecycle: enThreadLifecycle,
   telemetry: enTelemetry,
   workflows: enWorkflows,
 };

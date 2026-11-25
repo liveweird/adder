@@ -43,7 +43,7 @@ class ThreadEventsTest {
         assertEquals(
             listOf(
                 "CREATED", "TITLE_CHANGED", "STATUS_CHANGED", "CLOSED", "REOPENED", "OWNER_CHANGED", "FIELD_CHANGED", "STATUS_REPLACED",
-                "TAGS_CHANGED",
+                "TAGS_CHANGED", "MERGED_INTO", "MERGED_FROM",
             ),
             ThreadEventType.entries.map { it.name },
         )
@@ -107,7 +107,21 @@ class ThreadEventsTest {
         assertEquals(listOf(ThreadEventType.CREATED), last.items.map { it.type })
         assertEquals(5L, last.total, "the total is before pagination")
         assertEquals(2, last.pageSize)
-        for (bad in listOf("?sort=timestamp", "?sort=userId", "?pageSize=0", "?page=x")) {
+        val at = newestFirst.items.first().createdAt
+        val window = page("?createdAt%5Bgte%5D=$at&createdAt%5Blte%5D=$at&pageSize=1")
+        assertEquals(newestFirst.items.first().id, window.items.single().id)
+        assertEquals(newestFirst.items.count { it.createdAt == at }.toLong(), window.total)
+        val lowerOnly = page("?createdAt%5Bgte%5D=$at")
+        assertEquals(newestFirst.items.filter { it.createdAt >= at }, lowerOnly.items)
+        val upperOnly = page("?createdAt%5Blte%5D=${at - 1}")
+        assertEquals(newestFirst.items.filter { it.createdAt < at }, upperOnly.items)
+        val badQueries = listOf(
+            "?sort=timestamp", "?sort=userId", "?pageSize=0", "?page=x",
+            "?createdAt%5Bgte%5D=-1", "?createdAt%5Bgte%5D=2&createdAt%5Blte%5D=1",
+            "?createdAt%5Blte%5D=1&createdAt%5Blte%5D=2",
+            "?createdAt%5Bgte%5D=tomorrow", "?createdAt%5Blte%5D=",
+        )
+        for (bad in badQueries) {
             assertEquals(HttpStatusCode.BadRequest, owner.client.get("$rooms/$room/threads/1/events$bad").status, bad)
         }
         assertTrue(page().items.all { it.createdAt > 0 })

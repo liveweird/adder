@@ -35,6 +35,7 @@ const CHANNELS = [
  */
 const GROUPS = [
   { key: "mentions", types: ["MENTIONED", "MESSAGE_QUOTED", "TEAM_MENTIONED", "WATCHERS_MENTIONED", "HERE_MENTIONED", "EVERYONE_MENTIONED"] },
+  { key: "reactions", types: ["REACTION_ADDED"] },
   { key: "watching", types: ["THREAD_REPLIED", "THREAD_STATUS_CHANGED", "THREAD_CLOSED", "THREAD_REOPENED", "THREAD_OWNER_CHANGED"] },
   { key: "handed", types: ["THREAD_ASSIGNED"] },
   { key: "rooms", types: ["THREAD_CREATED", "ROOM_ADDED"] },

@@ -149,6 +149,18 @@
    - *Expected*: the panel shows (capped, scrolling inside) and the same three things hold: **Send** in view at the top and at the bottom of
      the page, the conversation at least 256px tall.
 
+## Scenario: a cross-room quote opens its source and stays hidden from destination-only readers
+
+1. The owner creates separate source and destination rooms and starts a thread in each. A second person joins the destination.
+2. From the source message menu the owner chooses **Quote in another thread…**, finds the destination room and thread, then posts a reply.
+   - *Expected*: the composer carries the source quote to the destination.
+3. The owner follows the quote, then selects **Back to reply**.
+   - *Expected*: the links open and focus the correct messages across both rooms.
+4. The second person reads the destination thread.
+   - *Expected*: the reply remains readable and the source excerpt and source link are absent.
+5. The owner grants the reader access to the source. After the reader reloads and sees the quote, the owner revokes access again.
+   - *Expected*: the quote disappears from the open destination conversation without a reload.
+
 ## Not covered here (and why)
 
 - The refusals that need a second actor at the same moment (a stale revision on the details editor, a thread closed under an open

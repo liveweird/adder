@@ -4,12 +4,14 @@ import type { QuoteDraft } from "../hooks/useThreadDrafts";
 import { makeMessage } from "../test/messageFixtures";
 import { blankQuote, quoteDraftExcerpt, reconcileQuote } from "./quoteDraft";
 
-const quote: QuoteDraft = { id: 31, authorId: 4, authorName: "Ann Author", body: "Restart <@5>", mentions: [{ userId: 5, name: "Bob" }], groupMentions: [] };
+const quote: QuoteDraft = { id: 31, authorId: 4, authorName: "Ann Author", body: "Restart <@5>", mentions: [{ userId: 5, name: "Bob" }], groupMentions: [], roomId: 2, threadNumber: 8 };
 const t = ((key: string) => key) as unknown as TFunction;
 
 describe("quoteDraft", () => {
   test("blanking keeps the author and the id and drops every word of the text", () => {
-    expect(blankQuote(quote)).toEqual({ id: 31, authorId: 4, authorName: "Ann Author", body: "", mentions: [], groupMentions: [], unavailable: true });
+    expect(blankQuote(quote)).toEqual({
+      id: 31, authorId: 4, authorName: "Ann Author", body: "", mentions: [], groupMentions: [], roomId: 2, threadNumber: 8, unavailable: true,
+    });
   });
 
   test("a deleted or body-less loaded message blanks the quote; a blank quote never comes back", () => {

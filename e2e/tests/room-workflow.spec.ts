@@ -249,10 +249,85 @@ test("retiring a status that threads use asks for a replacement and moves the th
   for (const [index, title] of titles.entries()) {
     await page.goto(`/rooms/${roomId}/threads/${index + 1}`);
     await expect(page.getByRole("heading", { level: 3, name: `#${index + 1} ${title}` })).toBeVisible();
+    const conversation = page.getByRole("region", { name: "Messages", exact: true });
+    await expect(conversation.getByText("Waiting was retired; the thread moved to In progress")).toBeVisible();
+    await expect(conversation.getByText("Moved the thread from Open to Waiting")).toBeVisible();
     await openDetails(page);
     const entries = page.getByRole("group", { name: "History", exact: true }).locator(".mantine-Timeline-item");
     await expect(entries).toHaveCount(3);
     await expect(entries.nth(0)).toContainText("Waiting was retired; the thread moved to In progress");
     await expect(entries.nth(1)).toContainText("Moved the thread from Open to Waiting");
+  }
+});
+
+test("an owner merges a duplicate into a canonical thread and deletes the combined conversation", async ({ page }) => {
+  const { roomId, owner } = await ownerOnWorkflowTab(page, "Default");
+  const anonymous = await playwrightRequest.newContext({ baseURL: BASE_URL });
+  const signedIn = await anonymous.post("/api/v1/login", { data: { email: owner.email, password: owner.password } });
+  expect(signedIn.ok(), await signedIn.text()).toBeTruthy();
+  const { token } = (await signedIn.json()) as { token: string };
+  await anonymous.dispose();
+  const api = await playwrightRequest.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { Authorization: `Bearer ${token}` } });
+
+  try {
+    const canonicalTitle = uniqueText("e2e-canonical");
+    const duplicateTitle = uniqueText("e2e-duplicate");
+    const canonicalResponse = await api.post(`/api/v1/rooms/${roomId}/threads`, {
+      data: { title: canonicalTitle, body: "Canonical conversation history." },
+    });
+    expect(canonicalResponse.status(), await canonicalResponse.text()).toBe(201);
+    const canonical = (await canonicalResponse.json()) as { number: number };
+    const duplicateResponse = await api.post(`/api/v1/rooms/${roomId}/threads`, {
+      data: { title: duplicateTitle, body: "Duplicate conversation history." },
+    });
+    expect(duplicateResponse.status(), await duplicateResponse.text()).toBe(201);
+    const duplicate = (await duplicateResponse.json()) as { number: number };
+
+    await page.goto(`/rooms/${roomId}/threads/${duplicate.number}?scope=all&order=number`);
+    await expect(page.getByRole("heading", { level: 3, name: `#${duplicate.number} ${duplicateTitle}` })).toBeVisible();
+    await page.getByRole("button", { name: "Thread actions" }).click();
+    await page.getByRole("menuitem", { name: "Merge duplicate" }).click();
+    const mergeDialog = page.getByRole("dialog", { name: "Merge duplicate thread" });
+    await expect(mergeDialog).toContainText(`The history of #${duplicate.number} stays readable`);
+    await expect(mergeDialog).toContainText("New replies belong in the target thread");
+    await expect(mergeDialog).toContainText("The target keeps its status, owner and notification settings");
+    await expect(mergeDialog).toContainText(`Watches from #${duplicate.number} do not transfer`);
+    await mergeDialog.getByRole("textbox", { name: "Target thread number" }).fill(String(canonical.number));
+    await expect(mergeDialog.getByText(`#${canonical.number} ${canonicalTitle}`)).toBeVisible();
+    await Promise.all([
+      page.waitForResponse((r) => r.request().method() === "PUT" && r.url().endsWith(`/api/v1/rooms/${roomId}/threads/${duplicate.number}/merge`) && r.status() === 204),
+      mergeDialog.getByRole("button", { name: `Merge into #${canonical.number}` }).click(),
+    ]);
+
+    await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/${canonical.number}\\?scope=all&order=number$`));
+    await page.getByRole("button", { name: "Merged conversations (1)" }).click();
+    const sourcesDialog = page.getByRole("dialog", { name: "Merged conversations" });
+    await sourcesDialog.getByRole("link", { name: `#${duplicate.number} ${duplicateTitle}` }).click();
+    await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/${duplicate.number}\\?scope=all&order=number$`));
+    await expect(page.getByText(`This conversation was merged into #${canonical.number}. Its history remains available here.`)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Thread actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Merge duplicate" })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "Delete thread" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("link", { name: `Open #${canonical.number}` }).click();
+
+    await page.getByRole("button", { name: "Thread actions" }).click();
+    await page.getByRole("menuitem", { name: "Delete thread" }).click();
+    const deleteDialog = page.getByRole("dialog", { name: `Delete #${canonical.number}?` });
+    await expect(deleteDialog).toContainText("also permanently deletes its 1 merged conversation");
+    await Promise.all([
+      page.waitForResponse((r) => r.request().method() === "DELETE" && r.url().endsWith(`/api/v1/rooms/${roomId}/threads/${canonical.number}`) && r.status() === 204),
+      deleteDialog.getByRole("button", { name: "Delete thread" }).click(),
+    ]);
+    await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}\\?scope=all&order=number$`));
+
+    const canonicalAfterDelete = await api.get(`/api/v1/rooms/${roomId}/threads/${canonical.number}`);
+    expect(canonicalAfterDelete.status()).toBe(404);
+    const duplicateAfterDelete = await api.get(`/api/v1/rooms/${roomId}/threads/${duplicate.number}`);
+    expect(duplicateAfterDelete.status()).toBe(404);
+  } finally {
+    await api.dispose();
   }
 });

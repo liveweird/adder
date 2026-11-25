@@ -461,9 +461,9 @@ class GlobalSearchTest {
                 c.createStatement().use { st ->
                     st.execute("SET LOCAL plan_cache_mode = force_generic_plan")
                     st.execute("SET LOCAL enable_seqscan = off")
-                    st.execute("PREPARE watch_plan(int4[], int8) AS $sql")
+                    st.execute("PREPARE watch_plan(int4[], boolean, int8) AS $sql")
                     val plan = buildString {
-                        st.executeQuery("EXPLAIN EXECUTE watch_plan('{1,2}', 1)").use { rs ->
+                        st.executeQuery("EXPLAIN EXECUTE watch_plan('{1,2}', false, 1)").use { rs ->
                             while (rs.next()) appendLine(rs.getString(1))
                         }
                     }
@@ -585,9 +585,9 @@ class GlobalSearchTest {
                 c.createStatement().use { st ->
                     st.execute("SET LOCAL plan_cache_mode = force_generic_plan")
                     st.execute("SET LOCAL enable_seqscan = off")
-                    st.execute("PREPARE probe_plan(int4[], text, boolean, text) AS $sql")
+                    st.execute("PREPARE probe_plan(int4[], boolean, text, boolean, text) AS $sql")
                     val plan = buildString {
-                        st.executeQuery("EXPLAIN EXECUTE probe_plan('{1,2}', 'word', false, 'word')").use { rs ->
+                        st.executeQuery("EXPLAIN EXECUTE probe_plan('{1,2}', false, 'word', false, 'word')").use { rs ->
                             while (rs.next()) appendLine(rs.getString(1))
                         }
                     }

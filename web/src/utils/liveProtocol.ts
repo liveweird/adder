@@ -17,6 +17,8 @@ export const LIVE_EVENT_KINDS = [
   "room.workflow_updated",
   "thread.created",
   "thread.updated",
+  "thread.deleted",
+  "thread.merged",
   "thread.status_changed",
   "thread.owner_changed",
   "message.posted",

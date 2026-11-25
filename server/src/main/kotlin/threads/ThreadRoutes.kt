@@ -11,6 +11,7 @@ import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoolean
 import ch.nokillswit.infra.paging.optionalBoundedString
 import ch.nokillswit.infra.paging.parsePaging
+import ch.nokillswit.infra.paging.singleValue
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.infra.revision.expectedRevision
 import ch.nokillswit.plugins.RateLimits
@@ -20,13 +21,16 @@ import ch.nokillswit.rooms.RoomsRoute
 import ch.nokillswit.rooms.visibleStanding
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Parameters
 import io.ktor.resources.Resource
 import io.ktor.server.application.*
 import io.ktor.server.auth.authenticate
 import io.ktor.server.plugins.ratelimit.RateLimitName
+import io.ktor.server.plugins.BadRequestException
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
 import io.ktor.server.resources.get
+import io.ktor.server.resources.delete
 import io.ktor.server.resources.href
 import io.ktor.server.resources.post
 import io.ktor.server.resources.put
@@ -54,6 +58,10 @@ class ThreadsRoute(val parent: RoomsRoute.Id) {
         @Serializable
         @Resource("owner")
         class Owner(val parent: Number)
+
+        @Serializable
+        @Resource("merge")
+        class Merge(val parent: Number)
     }
 }
 
@@ -67,6 +75,7 @@ fun Application.configureThreadRoutes() {
     val threadService = attributes[ThreadServiceKey]
     val statusService = attributes[ThreadStatusServiceKey]
     val tagService = attributes[MessageTagServiceKey]
+    val lifecycle = attributes[ThreadLifecycleServiceKey]
 
     routing {
         authenticate {
@@ -81,6 +90,45 @@ fun Application.configureThreadRoutes() {
             threadDetails(roomService, threadService)
             threadStatus(roomService, statusService)
             threadOwner(roomService, threadService, statusService)
+            threadLifecycle(roomService, threadService, lifecycle)
+        }
+    }
+}
+
+@Serializable
+private data class ThreadMergeRequest(val targetNumber: Int)
+
+private fun Route.threadLifecycle(roomService: RoomService, threads: ThreadService, lifecycle: ThreadLifecycleService) {
+    rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
+        delete<ThreadsRoute.Number> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.id
+            val number = route.number.toInt()
+            val standing = roomService.visibleStanding(caller, roomId)
+            requireThreadSteward(caller, standing, threads.ownerOf(roomId, number).orNotFound("Thread"))
+            val threadId = lifecycle.delete(roomId, number, caller)
+            audit("thread.deleted", "byUserId" to caller.userId.toLong(), "roomId" to roomId.toLong(), "threadId" to threadId.toLong())
+            call.respond(HttpStatusCode.NoContent)
+        }
+        put<ThreadsRoute.Number.Merge> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.parent.parent.id
+            val number = route.parent.number.toInt()
+            val standing = roomService.visibleStanding(caller, roomId)
+            requireThreadSteward(caller, standing, threads.ownerOf(roomId, number).orNotFound("Thread"))
+            val request = call.receive<ThreadMergeRequest>()
+            requireDistinctMergeTarget(number, request.targetNumber)
+            val threadId = lifecycle.merge(roomId, number, request.targetNumber, caller)
+            if (threadId != null) {
+                audit(
+                    "thread.merged",
+                    "byUserId" to caller.userId.toLong(),
+                    "roomId" to roomId.toLong(),
+                    "threadId" to threadId.toLong(),
+                    "targetNumber" to request.targetNumber,
+                )
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
     }
 }
@@ -115,9 +163,21 @@ private fun Route.threadReads(roomService: RoomService, threadService: ThreadSer
         roomService.visibleStanding(call.caller(), roomId)
         val threadId = threadService.idOf(roomId, route.parent.number.toInt()).orNotFound("Thread")
         val paging = call.parsePaging(sortable = EVENT_LOG_SORT_FIELDS, defaultSort = EVENT_LOG_DEFAULT_SORT)
-        val result = threadService.history(roomId, threadId, paging)
+        val result = threadService.history(roomId, threadId, paging, call.request.queryParameters.historyWindow())
         call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
     }
+}
+
+private fun Parameters.historyWindow(): LongRange? {
+    fun bound(name: String): Long? = singleValue(name)?.let { raw ->
+        raw.toLongOrNull()?.takeIf { it >= 0 } ?: throw BadRequestException("$name must be a non-negative epoch millisecond")
+    }
+    val from = bound("createdAt[gte]")
+    val to = bound("createdAt[lte]")
+    if (from == null && to == null) return null
+    val window = (from ?: 0)..(to ?: Long.MAX_VALUE)
+    if (window.isEmpty()) throw BadRequestException("createdAt[gte] must not be after createdAt[lte]")
+    return window
 }
 
 /**

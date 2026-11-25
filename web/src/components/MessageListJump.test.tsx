@@ -39,6 +39,7 @@ describe("MessageList: direct message context", () => {
 
   function serve(handler: (url: string) => Response | Promise<Response>) {
     mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/events?")) return Promise.resolve(jsonResponse(200, { items: [], total: 0 }));
       if (url.includes("/pins?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
       if (url.endsWith("/read-marker")) return Promise.resolve(new Response(null, { status: 204 }));
       return Promise.resolve(handler(decodeURIComponent(url)));

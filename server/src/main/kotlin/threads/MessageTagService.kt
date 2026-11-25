@@ -190,13 +190,15 @@ class MessageTagService(
     suspend fun list(callerUserId: UInt, roomId: UInt, filter: RoomTagListFilter, paging: PageRequest): RoomTagListResult =
         readLimiter.run(database, callerUserId, roomId, "tags") { budget ->
             val tags = MessageTags
-            var predicate: Op<Boolean> = tags.roomId eq roomId
+            val threads = ThreadService.Threads
+            val source = tags.innerJoin(threads)
+            var predicate: Op<Boolean> = (tags.roomId eq roomId) and threads.canonical()
             filter.q?.takeIf { it.isNotBlank() }?.let { predicate = predicate and tags.tag.containsNormalized(it) }
             val threadCount = tags.threadId.countDistinct()
             budget.arm(this)
-            val total = tags.select(tags.tag).where { predicate }.groupBy(tags.tag).count()
+            val total = source.select(tags.tag).where { predicate }.groupBy(tags.tag).count()
             budget.arm(this)
-            val rows = tags.select(tags.tag, threadCount).where { predicate }.groupBy(tags.tag)
+            val rows = source.select(tags.tag, threadCount).where { predicate }.groupBy(tags.tag)
                 .applyPaging(paging, TAG_SORT_FIELDS_COLUMNS)
                 .map { RoomTagResponse(it[tags.tag], it[threadCount]) }
                 .toList()
@@ -228,7 +230,7 @@ class MessageTagService(
         val threads = ThreadService.Threads
         val stale = messages.join(threads, JoinType.INNER, messages.threadId, threads.id)
             .select(messages.id, messages.threadId, threads.roomId, messages.body)
-            .where { messages.active() and (messages.tagsVersion less TAGS_VERSION) and (messages.id greater after) }
+            .where { messages.active() and threads.active() and (messages.tagsVersion less TAGS_VERSION) and (messages.id greater after) }
             .orderBy(messages.id)
             .limit(REINDEX_BATCH)
             .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate(ForUpdateOption.PostgreSQL.MODE.SKIP_LOCKED, messages))

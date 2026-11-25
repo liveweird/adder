@@ -355,10 +355,22 @@ internal class NotificationDigest(
         if (grouped.isEmpty()) return@suspendTransaction null
         val listed = grouped.take(DIGEST_MAX_NOTICES_PER_RECIPIENT)
         val actors = userNames(listed.map { it.notice.actorId })
+        val teamNames = teamMentionNames(
+            recipientId,
+            listed.filter { it.notice.type == NotificationType.TEAM_MENTIONED }.mapNotNull { it.notice.messageId },
+        )
         val entries = listed.map { groupedNotice ->
             val notice = groupedNotice.notice
-            DigestEntry(notice.type, actors[notice.actorId].orEmpty(), notice.roomId, roomNames.getValue(notice.roomId),
-                notice.threadId?.let(numbers::getValue), notice.messageId, groupedNotice.replyCount)
+            DigestEntry(
+                notice.type,
+                actors[notice.actorId].orEmpty(),
+                notice.roomId,
+                roomNames.getValue(notice.roomId),
+                notice.threadId?.let(numbers::getValue),
+                notice.messageId,
+                replyCount = groupedNotice.replyCount,
+                teamName = notice.messageId?.let(teamNames::get),
+            )
         }
         val email = notificationEmail(user[users.name], entries, appUrl, user[users.language], grouped.size - listed.size)
         Mail(user[users.email], email.subject, email.body, grouped.size)

@@ -3,12 +3,17 @@ package ch.nokillswit.threads
 import ch.nokillswit.infra.db.EventLog
 import ch.nokillswit.infra.db.EventLogActor
 import ch.nokillswit.infra.db.EventLogTable
+import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.PageRequest
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.users.UserService
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.exists
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.select
 
 /**
  * The kinds of history a thread keeps, PERSISTED and frozen (`thread_events.event_type`; no CHECK, this enum is the whitelist, the V5
@@ -50,6 +55,8 @@ enum class ThreadEventType {
      * "Rollback below 1.2.0").
      */
     TAGS_CHANGED,
+    MERGED_INTO,
+    MERGED_FROM,
 }
 
 /** One event to append: the [type] and its string-map [params]. Built by the pure `thread*Event` functions below. */
@@ -139,8 +146,15 @@ class ThreadEventService(database: R2dbcDatabase) {
      * in [retiredFields] answers without its `from`/`to`: a retired field's values are hidden ("Stored values survive a workflow edit",
      * `chat-model.md`) and come back if the field is revived. The entry itself stays, so the pages and the total do not change.
      */
-    suspend fun list(threadId: UInt, paging: PageRequest, retiredFields: Set<String> = emptySet()): ThreadEventListResult {
-        val page = log.listFor(threadId, paging)
+    suspend fun list(
+        threadId: UInt,
+        paging: PageRequest,
+        retiredFields: Set<String>,
+        createdAt: LongRange?,
+    ): ThreadEventListResult {
+        val threads = ThreadService.Threads
+        val visible = exists(threads.select(threads.id).where { (threads.id eq threadId) and threads.active() })
+        val page = log.listFor(threadId, paging, createdAt, visible)
         return ThreadEventListResult(
             items = page.items.map {
                 ThreadEventResponse(

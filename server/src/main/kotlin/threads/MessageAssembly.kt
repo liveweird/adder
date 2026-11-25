@@ -25,12 +25,13 @@ internal class MessageAssembly(
      */
     suspend fun responses(
         rows: List<ResultRow>,
+        roomId: UInt,
         viewerId: UInt,
         beforeStatement: (() -> Unit)? = null,
         numberOf: (ResultRow) -> Int,
     ): List<MessageResponse> {
         beforeStatement?.invoke()
-        val quoted = quotedMessagesOf(rows)
+        val quoted = quotedMessagesOf(rows, roomId, viewerId, numberOf)
         beforeStatement?.invoke()
         val names = userNames(rows.map { it[Messages.authorId].value } + quoted.values.map { it.authorId })
         val tokenIds = (rows.liveWithTokens() + quoted.values.filter { it.hasTokens }.map { it.id }).distinct()

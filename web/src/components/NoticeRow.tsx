@@ -17,6 +17,7 @@ import classes from "./NoticeRow.module.css";
 const KNOWN_KINDS: readonly string[] = [
   "MENTIONED",
   "MESSAGE_QUOTED",
+  "REACTION_ADDED",
   "TEAM_MENTIONED",
   "WATCHERS_MENTIONED",
   "HERE_MENTIONED",
@@ -37,7 +38,8 @@ function describe(n: NotificationFeedItem, t: TFunction, actor: string): string 
     return t("notifications.replyGroup", { count: n.replyCount, number: n.threadNumber, title: n.threadTitle });
   }
   if (!KNOWN_KINDS.includes(n.type)) return n.type;
-  const event = t(`notifications.event.${n.type}`, { actor, number: n.threadNumber, title: n.threadTitle });
+  const key = n.type === "TEAM_MENTIONED" && n.teamName ? "TEAM_MENTIONED_NAMED" : n.type;
+  const event = t(`notifications.event.${key}`, { actor, number: n.threadNumber, title: n.threadTitle, team: n.teamName });
   return n.change ? `${event} · ${t("notifications.change", n.change)}` : event;
 }
 

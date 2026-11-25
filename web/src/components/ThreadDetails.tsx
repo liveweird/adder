@@ -24,7 +24,7 @@ export default function ThreadDetails({ room, thread, workflow }: { room: RoomRe
   }, [editing]);
   const block = threadEditBlock(room, thread);
 
-  if (editing) {
+  if (editing && block !== "merged") {
     return <ThreadDetailsForm room={room} thread={thread} fields={workflow.fields} workflowRevision={workflow.revision} onDone={() => setEditing(false)} />;
   }
   return (
@@ -51,7 +51,7 @@ export default function ThreadDetails({ room, thread, workflow }: { room: RoomRe
         <Button ref={editRef} variant="default" size="xs" onClick={() => setEditing(true)} style={{ alignSelf: "flex-start" }}>
           {t("threads.details.edit")}
         </Button>
-      ) : (
+      ) : block !== "merged" && (
         <Text size="xs" c="dimmed">
           {t(block === "archived" ? "threads.details.archivedNote" : "threads.details.closedNote")}
         </Text>

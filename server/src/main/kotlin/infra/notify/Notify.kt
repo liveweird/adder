@@ -38,6 +38,8 @@ enum class LiveKind {
     @SerialName("room.workflow_updated") ROOM_WORKFLOW_UPDATED,
     @SerialName("thread.created") THREAD_CREATED,
     @SerialName("thread.updated") THREAD_UPDATED,
+    @SerialName("thread.deleted") THREAD_DELETED,
+    @SerialName("thread.merged") THREAD_MERGED,
     @SerialName("thread.status_changed") THREAD_STATUS_CHANGED,
     @SerialName("thread.owner_changed") THREAD_OWNER_CHANGED,
     @SerialName("message.posted") MESSAGE_POSTED,

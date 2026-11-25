@@ -43,6 +43,7 @@
     "switchAria": "{{label}}: {{column}}",
     "group": {
       "mentions": "Wzmianki",
+      "reactions": "Reakcje",
       "watching": "Wątki, które obserwujesz",
       "handed": "Wątki przekazane Tobie",
       "rooms": "Pokoje"
@@ -50,6 +51,7 @@
     "kind": {
       "MENTIONED": "Ktoś o mnie wspomina",
       "MESSAGE_QUOTED": "Ktoś cytuje moją wiadomość",
+      "REACTION_ADDED": "Ktoś reaguje na moją wiadomość",
       "TEAM_MENTIONED": "Ktoś wspomina o moim zespole",
       "WATCHERS_MENTIONED": "Ktoś wspomina o obserwujących wątek, który obserwuję",
       "HERE_MENTIONED": "Ktoś wspomina o obecnych osobach",
@@ -71,8 +73,10 @@
   "event": {
     "MENTIONED": "{{actor}} wspomina o Tobie w #{{number}} {{title}}",
     "MESSAGE_QUOTED": "{{actor}} cytuje Twoją wiadomość w #{{number}} {{title}}",
+    "REACTION_ADDED": "{{actor}} reaguje na Twoją wiadomość w #{{number}} {{title}}",
     "THREAD_ASSIGNED": "{{actor}} przekazuje Ci wątek #{{number}} {{title}}",
     "TEAM_MENTIONED": "{{actor}} wspomina o Twoim zespole w #{{number}} {{title}}",
+    "TEAM_MENTIONED_NAMED": "{{actor}} wspomina o Twoim zespole {{team}} w #{{number}} {{title}}",
     "WATCHERS_MENTIONED": "{{actor}} wspomina o obserwujących wątek #{{number}} {{title}}",
     "HERE_MENTIONED": "{{actor}} wspomina o obecnych osobach w #{{number}} {{title}}",
     "EVERYONE_MENTIONED": "{{actor}} wspomina o wszystkich w #{{number}} {{title}}",

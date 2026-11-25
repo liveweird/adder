@@ -82,7 +82,7 @@ class ThreadTagService internal constructor(
     /** The owner and the closed flag of thread [number] read WITHOUT a lock, or null when there is none: the route's steward pre-check. */
     suspend fun stewardView(roomId: UInt, number: Int): ThreadStewardView? = suspendTransaction(database) {
         val threads = ThreadService.Threads
-        threads.select(threads.ownerId, threads.closedAt).where { (threads.roomId eq roomId) and (threads.number eq number) }
+        threads.select(threads.ownerId, threads.closedAt).where { threadAddress(roomId, number) }
             .toList().singleOrNull()?.let { ThreadStewardView(it[threads.ownerId].value, it[threads.closedAt] != null) }
     }
 

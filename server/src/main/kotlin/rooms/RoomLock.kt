@@ -75,11 +75,41 @@ internal val memberGuard: RoomGuard = { caller, standing -> requireRoomMember(ca
  * The caller as the database knows them NOW: their roles from the `users` row (an ADMIN demoted since the token was minted is a plain
  * user), or null when the account is soft-deleted. Must run inside a transaction.
  */
-private suspend fun freshCaller(caller: CallerPrincipal): CallerPrincipal? {
+internal suspend fun freshCaller(caller: CallerPrincipal): CallerPrincipal? {
     val users = UserService.Users
     val role = users.select(users.role).where { (users.id eq caller.userId) and users.active() }
         .toList().singleOrNull()?.let { UserRole.valueOf(it[users.role]) } ?: return null
     return caller.copy(roles = setOf(role))
+}
+
+/**
+ * Locks every distinct active room in ascending id order, then re-reads the caller and each standing. The quote write is the first
+ * cross-room consumer. One deterministic order prevents opposite-direction quotes from deadlocking, while the shared bounded lock wait
+ * keeps the connection pool protected like [withRoomWrite]. Guards are applied by the caller because source and destination have
+ * different authorization rules.
+ */
+internal suspend fun <T> R2dbcDatabase.withRoomWrites(
+    roomIds: Collection<UInt>,
+    caller: CallerPrincipal,
+    block: suspend (fresh: CallerPrincipal, standings: Map<UInt, RoomStanding?>) -> T,
+): T = suspendTransaction(this) {
+    val ordered = roomIds.distinct().sorted()
+    exec("SET LOCAL lock_timeout = ${roomLockWaitMillis()}")
+    val standings = linkedMapOf<UInt, RoomStanding?>()
+    var locking = ordered.firstOrNull()
+    try {
+        for (roomId in ordered) {
+            locking = roomId
+            standings[roomId] = readStanding(roomId, caller.userId, lock = true)
+        }
+    } catch (failure: Exception) {
+        if (!failure.isLockNotAvailable()) throw failure
+        audit("room.busy", "byUserId" to caller.userId.toLong(), "roomId" to locking?.toLong())
+        throw roomBusy()
+    }
+    exec("SET LOCAL lock_timeout TO DEFAULT")
+    val fresh = freshCaller(caller) ?: throw NotFoundException("Room not found")
+    block(fresh, standings)
 }
 
 /**
