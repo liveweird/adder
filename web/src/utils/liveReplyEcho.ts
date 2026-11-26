@@ -25,7 +25,7 @@ type MutationTarget =
     }
   | {
       type: "thread";
-      kind: "thread.owner_changed";
+      kind: "thread.status_changed" | "thread.owner_changed";
       roomId: number;
       threadNumber: number;
     };
@@ -103,6 +103,12 @@ export function beginOwnerEcho(queryClient: QueryClient, roomId: number, threadN
   return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
 }
 
+export function beginStatusEcho(queryClient: QueryClient, roomId: number, threadNumber: number) {
+  const echo = beginEcho(queryClient, { type: "thread", kind: "thread.status_changed", roomId, threadNumber });
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
+}
+
 function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { type: "event" }>): boolean {
   const target = mutation.target;
   if (target.kind !== frame.kind || target.roomId !== frame.roomId || target.threadNumber !== frame.threadNumber) return false;
@@ -116,7 +122,7 @@ function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { ty
 export function deferReplyEcho(queryClient: QueryClient, frame: LiveServerFrame, replay: () => void): boolean {
   if (
     frame.type !== "event" ||
-    !["message.posted", "message.reaction_changed", "thread.owner_changed"].includes(frame.kind) ||
+    !["message.posted", "message.reaction_changed", "thread.status_changed", "thread.owner_changed"].includes(frame.kind) ||
     frame.mutationId === undefined
   ) return false;
   const mutation = sessions.get(queryClient)?.get(frame.mutationId);

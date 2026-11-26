@@ -44,7 +44,13 @@ class ThreadStatusService internal constructor(
      * The move sets `closed_at` on the close (kept across a CLOSED to CLOSED move) or clears it on a move into an OPEN status,
      * records `STATUS_CHANGED`, `CLOSED` or `REOPENED` and bumps the thread and the room.
      */
-    suspend fun setStatus(roomId: UInt, number: Int, caller: CallerPrincipal, targetKey: String): StatusMove? =
+    suspend fun setStatus(
+        roomId: UInt,
+        number: Int,
+        caller: CallerPrincipal,
+        targetKey: String,
+        mutationId: String? = null,
+    ): StatusMove? =
         database.withThreadWrite(roomId, number, caller, readerGuard) { write ->
             val thread = write.thread
             val snapshot = workflows.snapshot(roomId)
@@ -69,7 +75,15 @@ class ThreadStatusService internal constructor(
                 stamp,
             )
             rooms.touchActivity(roomId, stamp, caller.userId)
-            notifyLive(LiveHint(LiveKind.THREAD_STATUS_CHANGED, roomId, threadNumber = number))
+            notifyLive(
+                LiveHint(
+                    LiveKind.THREAD_STATUS_CHANGED,
+                    roomId,
+                    threadNumber = number,
+                    mutationId = mutationId,
+                    originUserId = caller.userId.takeIf { mutationId != null },
+                ),
+            )
             // The watchers hear of it (1.1 D3; the actor never); the hint above comes first on the wire, the notice's own follows it.
             val audience = NoticeAudience.ofStatusMove(transition, caller.userId, watches.recipientIds(thread.id))
             val told = notices.forThread(roomId, thread.id, number, caller.userId, audience, eventId)

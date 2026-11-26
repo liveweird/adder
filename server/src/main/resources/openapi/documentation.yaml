@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.34.0
+  version: 1.35.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -2176,7 +2176,8 @@ paths:
         A member of the room or an `ADMIN` (a non-member is the uniform `404`). A move between two OPEN statuses is open to every reader;
         a move that enters or leaves a CLOSED status - closing, reopening, or CLOSED to CLOSED - needs a STEWARD: the thread's owner
         while a member, the room's OWNER or an `ADMIN` (`403` otherwise). Which of the two applies depends on the target's category, so
-        the answer is decided under the room lock after the target resolves: checked in this order visibility (`404`), the body (`400`),
+        the answer is decided under the room lock after the target resolves: checked in this order visibility (`404`), the optional mutation
+        header and the body (`400`),
         then under the lock the guard again, the thread (`404`), the target (`400` for a status key that is unknown or retired - every
         reader can read the workflow, so it discloses nothing), the steward rule (`403`), an archived room (`409` of type
         `urn:adder:problem:room-archived`, the no-op included). A closed thread is NOT refused here: reopening it, or moving it between
@@ -2189,6 +2190,15 @@ paths:
         (`listNotifications`): `THREAD_CLOSED`, `THREAD_REOPENED` or `THREAD_STATUS_CHANGED` by the move. A single-value set: the last writer wins, and the history records
         each change; the thread's `revision` is not moved.
         Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+      parameters:
+        - name: X-Mutation-Id
+          in: header
+          required: false
+          description: |
+            Optional identifier for correlating this request with the writer's live thread.status_changed event. Supply at most one
+            canonical lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events.
+            Sending the same identifier again does not make the request idempotent.
+          schema: { $ref: '#/components/schemas/LiveMutationId' }
       requestBody:
         required: true
         content:
@@ -4289,7 +4299,7 @@ components:
         messageId: { type: integer, format: int64, minimum: 1, maximum: 4294967295, description: Present for the message kinds. }
         mutationId:
           allOf: [{ $ref: '#/components/schemas/LiveMutationId' }]
-          description: On message.posted, message.reaction_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only.
+          description: On message.posted, message.reaction_changed, thread.status_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only.
     LiveRevokedFrame:
       type: object
       required: [type, roomId]

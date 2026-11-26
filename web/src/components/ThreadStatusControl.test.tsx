@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import ThreadStatusControl from "./ThreadStatusControl";
 import { jsonResponse } from "../test/http";
 import { makeRoom, makeThread } from "../test/messageFixtures";
 import { renderWithProviders, screen, waitFor, within } from "../test/render";
 import { SIDE_WORKFLOW } from "../test/sideFixtures";
+import { deferReplyEcho } from "../utils/liveReplyEcho";
+import { roomKeys } from "../utils/roomKeys";
 
 const STATUSES = SIDE_WORKFLOW.statuses;
 
@@ -75,9 +77,38 @@ describe("ThreadStatusControl", () => {
     renderControl({ steward: false, queryClient });
     await user.click(action("Move to In progress"));
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "workflow", 12] }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "workflow-edit", 12] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "rail"] });
+    const statusPut = mockFetch.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")![1] as RequestInit;
+    expect(new Headers(statusPut.headers).get("X-Mutation-Id")).toMatch(/^[0-9a-f-]{36}$/);
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["rooms"] });
+  });
+
+  test("a failed active workflow-editor refresh releases the held status event", async () => {
+    const user = userEvent.setup();
+    const mutationId = "14d7ed05-24c1-4374-b6eb-60b147595822";
+    const uuid = vi.spyOn(crypto, "randomUUID").mockReturnValue(mutationId);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const observer = new QueryObserver(queryClient, {
+      queryKey: roomKeys.workflowEdit(12),
+      queryFn: () => Promise.reject(new Error("workflow refresh failed")),
+      retry: false,
+    });
+    const stop = observer.subscribe(() => undefined);
+    let complete!: (response: Response) => void;
+    mockFetch.mockReturnValue(new Promise<Response>((resolve) => { complete = resolve; }));
+    renderControl({ steward: false, queryClient });
+    await user.click(action("Move to In progress"));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    const replay = vi.fn();
+    expect(deferReplyEcho(queryClient, {
+      type: "event", kind: "thread.status_changed", roomId: 12, threadNumber: 42, mutationId,
+    }, replay)).toBe(true);
+    complete(new Response(null, { status: 204 }));
+    await waitFor(() => expect(replay).toHaveBeenCalledOnce());
+    stop();
+    uuid.mockRestore();
   });
 
   test("a steward closing an open thread is asked first; confirming sends the move, cancelling sends nothing", async () => {

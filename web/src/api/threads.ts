@@ -90,8 +90,12 @@ export async function setThreadTags(roomId: number, number: number, tags: readon
 }
 
 /** Moves the thread to the status with this KEY (204). Not revisioned: the last writer wins. Entering or leaving a CLOSED status needs a steward (403). */
-export async function setThreadStatus(roomId: number, number: number, status: string): Promise<void> {
-  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export async function setThreadStatus(roomId: number, number: number, status: string, mutationId?: string): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/status`, {
+    method: "PUT",
+    headers: mutationId === undefined ? undefined : { "X-Mutation-Id": mutationId },
+    body: JSON.stringify({ status }),
+  });
 }
 
 /** Passes the thread on to an active member of the room (204); stewards only, and a closed thread refuses it (409 `thread-closed`). */

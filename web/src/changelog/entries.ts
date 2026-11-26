@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.35.0",
+    date: "2026-11-26",
+    en: `**Adder 1.35.0 — faster status transitions**
+
+- Moving, closing or reopening a thread reuses the writer's successful thread and workflow refresh. Other tabs still receive the status change live, and interrupted requests retain the normal recovery path.`,
+    pl: `**Adder 1.35.0 — szybsze zmiany statusu**
+
+- Zmiana statusu, zamknięcie lub ponowne otwarcie wątku wykorzystuje udane odświeżenie wątku i przepływu pracy po stronie osoby wykonującej operację. Inne karty nadal otrzymują zmianę na żywo, a przerwane żądania zachowują zwykłą ścieżkę odzyskiwania.`,
+  },
+  {
     version: "1.34.0",
     date: "2026-11-26",
     en: `**Adder 1.34.0 — faster owner hand-overs**

@@ -278,7 +278,8 @@ private fun Route.threadDetails(roomService: RoomService, threadService: ThreadS
 }
 
 /**
- * The status PUT (`chat-write` bucket): visibility (404), the body (400), then everything else under the room lock - the one
+ * The status PUT (`chat-write` bucket): visibility (404), the optional mutation header and the body (400), then everything else under
+ * the room lock - the one
  * body-dependent guard, because whether a steward is needed depends on the target's CATEGORY, so the service resolves the target
  * (400), runs the steward rule (403) and the archived 409 on the fresh rows. Any reader may move a thread between OPEN statuses. The
  * audit line follows the commit, on a change.
@@ -289,9 +290,10 @@ private fun Route.threadStatus(roomService: RoomService, statusService: ThreadSt
             val caller = call.caller()
             val roomId = route.parent.parent.parent.id
             roomService.visibleStanding(caller, roomId)
+            val mutationId = call.mutationId()
             val request = call.receive<ThreadStatusRequest>()
             val number = route.parent.number.toInt()
-            val move = statusService.setStatus(roomId, number, caller, request.status)
+            val move = statusService.setStatus(roomId, number, caller, request.status, mutationId)
             if (move != null) {
                 audit(
                     "thread.status_changed",

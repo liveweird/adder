@@ -108,12 +108,14 @@ describe("threads API wrappers", () => {
     expect(JSON.parse(init.body as string)).toEqual({ title: "T", fields: { severity: null, note: "x" } });
   });
 
-  test("setThreadStatus and setThreadOwner PUT their one value, with correlation only on the owner write", async () => {
+  test("setThreadStatus and setThreadOwner PUT their one value with optional correlation", async () => {
     mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
-    await setThreadStatus(5, 42, "done");
+    await setThreadStatus(5, 42, "done", "14d7ed05-24c1-4374-b6eb-60b147595822");
     let [url, init] = lastCall();
     expect([url, init.method, init.body]).toEqual(["/api/v1/rooms/5/threads/42/status", "PUT", JSON.stringify({ status: "done" })]);
-    expect(new Headers(init.headers).has("X-Expected-Revision")).toBe(false);
+    expect(new Headers(init.headers).get("X-Mutation-Id")).toBe("14d7ed05-24c1-4374-b6eb-60b147595822");
+    await setThreadStatus(5, 42, "open");
+    expect(new Headers(lastCall()[1].headers).has("X-Mutation-Id")).toBe(false);
     await setThreadOwner(5, 42, 9, "14d7ed05-24c1-4374-b6eb-60b147595822");
     [url, init] = lastCall();
     expect([url, init.method, init.body]).toEqual(["/api/v1/rooms/5/threads/42/owner", "PUT", JSON.stringify({ ownerId: 9 })]);

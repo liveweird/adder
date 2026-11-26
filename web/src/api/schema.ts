@@ -1526,7 +1526,8 @@ export interface paths {
          * @description A member of the room or an `ADMIN` (a non-member is the uniform `404`). A move between two OPEN statuses is open to every reader;
          *     a move that enters or leaves a CLOSED status - closing, reopening, or CLOSED to CLOSED - needs a STEWARD: the thread's owner
          *     while a member, the room's OWNER or an `ADMIN` (`403` otherwise). Which of the two applies depends on the target's category, so
-         *     the answer is decided under the room lock after the target resolves: checked in this order visibility (`404`), the body (`400`),
+         *     the answer is decided under the room lock after the target resolves: checked in this order visibility (`404`), the optional mutation
+         *     header and the body (`400`),
          *     then under the lock the guard again, the thread (`404`), the target (`400` for a status key that is unknown or retired - every
          *     reader can read the workflow, so it discloses nothing), the steward rule (`403`), an archived room (`409` of type
          *     `urn:adder:problem:room-archived`, the no-op included). A closed thread is NOT refused here: reopening it, or moving it between
@@ -2957,7 +2958,7 @@ export interface components {
              * @description Present for the message kinds.
              */
             messageId?: number;
-            /** @description On message.posted, message.reaction_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only. */
+            /** @description On message.posted, message.reaction_changed, thread.status_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only. */
             mutationId?: components["schemas"]["LiveMutationId"];
         };
         /** @description The room is no longer readable by the caller (removed, or the room was deleted); the subscription is gone. */
@@ -7133,7 +7134,14 @@ export interface operations {
     setThreadStatus: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional identifier for correlating this request with the writer's live thread.status_changed event. Supply at most one
+                 *     canonical lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events.
+                 *     Sending the same identifier again does not make the request idempotent.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */

@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { beginOwnerEcho, beginReactionEcho, beginReplyEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
+import { beginOwnerEcho, beginReactionEcho, beginReplyEcho, beginStatusEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
 import type { LiveServerFrame } from "./liveProtocol";
 
 const firstId = "14d7ed05-24c1-4374-b6eb-60b147595822";
@@ -15,6 +15,10 @@ function reacted(mutationId: string, messageId = 41, roomId = 7, threadNumber = 
 
 function ownerChanged(mutationId: string, roomId = 7, threadNumber = 3): LiveServerFrame {
   return { type: "event", kind: "thread.owner_changed", roomId, threadNumber, mutationId };
+}
+
+function statusChanged(mutationId: string, roomId = 7, threadNumber = 3): LiveServerFrame {
+  return { type: "event", kind: "thread.status_changed", roomId, threadNumber, mutationId };
 }
 
 describe("reply echo correlation", () => {
@@ -247,6 +251,49 @@ describe("thread owner echo correlation", () => {
   test("an owner hand-over falls back when another operation holds the same correlation ID", () => {
     const reply = beginReplyEcho(client, 7, 3)!;
     expect(beginOwnerEcho(client, 7, 3)).toBeUndefined();
+    reply.cancel();
+  });
+});
+
+describe("thread status echo correlation", () => {
+  let client: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    client = new QueryClient();
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(firstId);
+  });
+
+  afterEach(() => {
+    clearReplyEchoes(client);
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  test("holds only the exact status event and replays it when freshness cannot be confirmed", () => {
+    const operation = beginStatusEcho(client, 7, 3)!;
+    const replay = vi.fn();
+    expect(deferReplyEcho(client, statusChanged(operation.id), replay)).toBe(true);
+    expect(deferReplyEcho(client, statusChanged(operation.id, 8), replay)).toBe(false);
+    expect(deferReplyEcho(client, ownerChanged(operation.id), replay)).toBe(false);
+    operation.cancel();
+    expect(replay).toHaveBeenCalledOnce();
+  });
+
+  test("a confirmed status refresh consumes an early event and its matching late event", () => {
+    const operation = beginStatusEcho(client, 7, 3)!;
+    const replay = vi.fn();
+    expect(deferReplyEcho(client, statusChanged(operation.id), replay)).toBe(true);
+    operation.confirm();
+    expect(replay).not.toHaveBeenCalled();
+    expect(deferReplyEcho(client, statusChanged(operation.id), replay)).toBe(true);
+  });
+
+  test("a status transition falls back when another operation holds the correlation ID", () => {
+    const reply = beginReplyEcho(client, 7, 3)!;
+    const replay = vi.fn();
+    expect(beginStatusEcho(client, 7, 3)).toBeUndefined();
+    expect(deferReplyEcho(client, statusChanged(reply.id), replay)).toBe(false);
     reply.cancel();
   });
 });
