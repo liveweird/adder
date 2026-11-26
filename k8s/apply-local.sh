@@ -52,11 +52,34 @@ if [ "$replicas" -eq 2 ]; then
     fi
     image_environment=$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$running_image")
     build_version=$(printf '%s\n' "$image_environment" | sed -n 's/^ADDER_BUILD_VERSION=//p')
+    build_commit=$(printf '%s\n' "$image_environment" | sed -n 's/^ADDER_BUILD_COMMIT=//p')
     if [ "$(printf '%s\n' "$build_version" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 1 ] || \
         ! version_at_least_1_32 "$build_version"; then
         echo "two replicas require an image with one ADDER_BUILD_VERSION of 1.32.0 or newer" >&2
         exit 1
     fi
+    if [ "$(printf '%s\n' "$build_commit" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 1 ]; then
+        echo "two replicas require an image with one non-empty ADDER_BUILD_COMMIT" >&2
+        exit 1
+    fi
+
+    running_pods=$(kubectl -n adder get pods -l io.kompose.service=app -o \
+        'jsonpath={range .items[?(@.status.containerStatuses[0].ready==true)]}{.metadata.name}{"\n"}{end}')
+    if [ -z "$running_pods" ]; then
+        echo "two replicas require at least one ready app pod" >&2
+        exit 1
+    fi
+    for pod in $running_pods; do
+        runtime_environment=$(kubectl -n adder exec "$pod" -c adder-app -- \
+            printenv ADDER_BUILD_VERSION ADDER_BUILD_COMMIT)
+        runtime_version=$(printf '%s\n' "$runtime_environment" | sed -n '1p')
+        runtime_commit=$(printf '%s\n' "$runtime_environment" | sed -n '2p')
+        if [ "$(printf '%s\n' "$runtime_environment" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 2 ] || \
+            [ "$runtime_version" != "$build_version" ] || [ "$runtime_commit" != "$build_commit" ]; then
+            echo "ready app pod $pod does not match the selected image's build stamps" >&2
+            exit 1
+        fi
+    done
 fi
 
 # The Secret is intentionally excluded: create it out of band using secret.yaml's header.

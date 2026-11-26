@@ -266,8 +266,9 @@ name is a placeholder. An existing installation already has the namespace and Se
 
 For two app replicas, build a supported immutable image with `--build-arg ADDER_BUILD_VERSION=1.32.0` and the exact commit
 in `ADDER_BUILD_COMMIT`. Apply it with the default invocation first. Once its Deployment is ready, apply the same tag again
-with `./k8s/apply-local.sh "$ADDER_IMAGE_TAG" --replicas=2`. Both replicas use the same database, deployment secrets, and
-public origin. The ingress may send a ticket request and the corresponding socket upgrade to different replicas.
+with `./k8s/apply-local.sh "$ADDER_IMAGE_TAG" --replicas=2`. Before scaling, the helper verifies that every ready app pod's
+version and commit stamps match the selected local image. Both replicas use the same database, deployment secrets, and public
+origin. The ingress may send a ticket request and the corresponding socket upgrade to different replicas.
 
 The default connection budget for two apps is 48 steady PostgreSQL connections, including the two dedicated listeners.
 Allow two short-lived Flyway connections during a concurrent start and leave capacity for the administration and monitoring
