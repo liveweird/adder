@@ -7,7 +7,6 @@ import ch.nokillswit.infra.notify.LiveNotification
 import ch.nokillswit.infra.notify.NotifyListener
 import ch.nokillswit.infra.notify.NotifyListenerTimings
 import ch.nokillswit.infra.notify.decodeLiveNotification
-import ch.nokillswit.infra.presence.ForegroundPresence
 import io.ktor.websocket.CloseReason
 import io.r2dbc.spi.ConnectionFactory
 import kotlinx.coroutines.CompletableDeferred
@@ -47,11 +46,9 @@ private const val SHUTDOWN_POLL_MILLIS = 20L
 class LiveHub internal constructor(
     private val scope: CoroutineScope,
     private val maxSockets: Int,
-    private val maxSocketsPerUser: Int,
     connectionFactory: ConnectionFactory,
     listenerTimings: NotifyListenerTimings = NotifyListenerTimings(),
     private val maxQueuedHints: Int = MAX_QUEUED_HINTS,
-    internal val presence: ForegroundPresence = ForegroundPresence(),
 ) {
     private val inbox = Channel<LiveHubCommand>(Channel.UNLIMITED)
     private val gapPending = AtomicBoolean(false)
@@ -61,7 +58,6 @@ class LiveHub internal constructor(
     private val queuedHints = AtomicInteger()
     private val subscribersByRoom = HashMap<UInt, MutableSet<HubSocket>>()
     private val perUser = ConcurrentHashMap<UInt, AtomicInteger>()
-    private val presenceSessions = HashMap<HubSocket, ForegroundPresence.Session>()
     private val total = AtomicInteger()
 
     @Volatile var isStopping = false
@@ -194,8 +190,6 @@ class LiveHub internal constructor(
     /** Answers a `ping` through the socket's queue rule (so a full queue turns it into the `resync`, never an unordered extra frame). */
     internal fun pong(socket: HubSocket) { inbox.trySend(LiveHubCommand.Pong(socket)) }
 
-    internal fun foreground(socket: HubSocket, visible: Boolean) { inbox.trySend(LiveHubCommand.Foreground(socket, visible)) }
-
     /**
      * The authenticated sockets as the actor sees them now, each with a COPY of its ACTIVE rooms (the sweep's input; the actor owns the
      * live sets). A targeted account check uses the user index and omits subscriptions. Empty once the hub is stopped.
@@ -209,7 +203,6 @@ class LiveHub internal constructor(
     /** Refuses further admissions and mints, closes every socket 1001 and waits (bounded) for them to leave. */
     suspend fun shutdown(graceMillis: Long = SHUTDOWN_GRACE_MILLIS) {
         isStopping = true
-        presence.stop()
         inbox.trySend(LiveHubCommand.CloseAll(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping")))
         withTimeoutOrNull(graceMillis) {
             while (total.get() > 0) delay(SHUTDOWN_POLL_MILLIS)
@@ -219,7 +212,6 @@ class LiveHub internal constructor(
     /** Ends the actor and the listener (`backgroundScope`'s `beforeCancel`, on `ApplicationStopping`); the scope is joined after. */
     suspend fun stop() {
         isStopping = true
-        presence.stop()
         inbox.close()
         listener.stop()
     }
@@ -251,7 +243,6 @@ class LiveHub internal constructor(
                 fanOut(command.hint)
             }
             is LiveHubCommand.Pong -> queueFrame(command.socket, LiveServerFrame.Pong)
-            is LiveHubCommand.Foreground -> presenceSessions[command.socket]?.let { presence.update(it, command.visible) }
             is LiveHubCommand.Snapshot -> {
                 val selected = command.userIds?.flatMap { socketsByUser[it].orEmpty() } ?: sockets
                 command.reply.complete(selected.map { socket ->
@@ -277,11 +268,9 @@ class LiveHub internal constructor(
 
     private fun admit(socket: HubSocket): RegisterResult = when {
         isStopping -> RegisterResult.UNAVAILABLE
-        (socketsByUser[socket.userId]?.size ?: 0) >= maxSocketsPerUser -> RegisterResult.USER_CAP
         total.get() >= maxSockets -> RegisterResult.FULL
         else -> {
             sockets.add(socket)
-            presenceSessions[socket] = presence.open(socket.userId)
             socketsByUser.getOrPut(socket.userId) { HashSet() }.add(socket)
             total.incrementAndGet()
             perUser.computeIfAbsent(socket.userId) { AtomicInteger() }.incrementAndGet()
@@ -293,7 +282,6 @@ class LiveHub internal constructor(
 
     private fun remove(socket: HubSocket) {
         if (!sockets.remove(socket)) return
-        presenceSessions.remove(socket)?.let(presence::close)
         socket.rooms.keys.toList().forEach { drop(socket, it) }
         socketsByUser[socket.userId]?.let {
             it.remove(socket)

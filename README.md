@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Shared live socket limits and presence (1.25.0)
+
+The per-user tab limit and foreground presence use shared PostgreSQL leases. `@here` can reach eligible room members whose foreground tabs connect through another application instance. Each process retains its own connection resource limits. The supplied deployments still run a single app.
+
 ### Durable live connection tickets (1.24.0)
 
 - The connection ticket survives an app restart until it expires or is redeemed. The app rechecks session access when the browser reconnects.
@@ -133,8 +137,8 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
 - **Live updates** over a WebSocket (`GET /api/v1/live`; `.claude/docs/live.md`) — the browser trades its bearer for a single-use ticket (`POST /api/v1/live/tickets`) and sends it in the socket's first frame. Every
   chat write emits one PostgreSQL `NOTIFY` hint (ids only) inside its transaction; one `LISTEN` connection per process fans the hints out to the sockets subscribed to a room, and the page refetches what changed. Threads,
   messages, status, owner and detail changes, members and the room workflow update without a reload; the header says **Reconnecting…** while the connection is down, or **Live updates off** when a user's tab cap is hit
-  (16 sockets per user; a tab hidden for five minutes goes quiet, keeping its socket for personal notices, and closes after eight hours), and a removed member's room leaves the rail at once. A logout, deletion, password or role change closes the user's sockets within 60 s. Memory-only and
-  per-process: one replica for now (`BACKLOG.md`). The ADMIN telemetry panel shows the open sockets, the listener and the NOTIFY queue usage.
+  (16 sockets per user; a tab hidden for five minutes goes quiet, keeping its socket for personal notices, and closes after eight hours), and a removed member's room leaves the rail at once. A committed logout rechecks its exact session, and deletion, password and role changes recheck the account's sockets. The periodic sweep remains a fallback.
+  Tickets, per-user admission and foreground leases are shared through PostgreSQL. The supplied deployment currently runs one replica (`BACKLOG.md`). The ADMIN telemetry panel shows the open sockets, the listener and the NOTIFY queue usage.
 - **Behind a reverse proxy** the WebSocket upgrade must pass: `proxy_http_version 1.1`, `Upgrade $http_upgrade`, `Connection $connection_upgrade`, read/send timeouts of 60 s or more (the server pings every 25 s), and the
   original host (`Host $host`, or `X-Forwarded-Host` with `HTTP_BEHIND_PROXY=true`), otherwise the Origin check answers 403 (`.claude/docs/live.md` "Deploy and proxies", `.claude/docs/ci.md`). Behind a TLS-terminating
   proxy the socket also needs `X-Forwarded-Proto: https` with `HTTP_BEHIND_PROXY=true`, and a public port other than 443 inside `X-Forwarded-Host`.
@@ -334,7 +338,7 @@ For a hosted deployment, supply the settings through the app's environment and s
 | `MFA_MAX_TRACKED` | `10000` | Maximum pending email-MFA challenges; new issuance receives 429 at capacity. |
 | `LIVE_MAX_TICKETS` | `10000` | Maximum unexpired live-update socket tickets shared by the deployment (1–100000); a mint receives 429 at capacity (`.claude/docs/live.md`). |
 | `LIVE_MAX_SOCKETS` | `1000` | Authenticated live-update sockets at once, the whole process (1–10000); past it an upgrade and a ticket mint answer 503 `live-unavailable`. |
-| `LIVE_MAX_SOCKETS_PER_USER` | `16` | Sockets one user may hold, one per tab (1–64); past it a mint answers 429 `live-socket-limit` and a redeem closes the socket 4429. |
+| `LIVE_MAX_SOCKETS_PER_USER` | `16` | Sockets one user may hold across instances, one per tab (1–64); past it a mint answers 429 `live-socket-limit` and a redeem closes the socket 4429. |
 | `LIVE_MAX_PENDING_AUTH` | `256` | Sockets that have upgraded but not yet sent a good `auth` frame, the only unauthenticated connections the server holds (1–10000); past it an upgrade answers 503. |
 | `LIVE_MAX_PENDING_PER_ADDRESS` | `8` | Of those, how many one client address may hold (1–10000; an IPv6 address counts by its /64). |
 | `LIVE_AUTH_TIMEOUT_MILLIS` | `2000` | How long an unauthenticated socket lives before it is closed 4401 (100–30000 ms; the first frame must carry the ticket). |

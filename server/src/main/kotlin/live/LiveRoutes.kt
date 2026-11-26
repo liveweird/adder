@@ -32,12 +32,20 @@ import io.ktor.server.routing.routing
 import io.ktor.server.websocket.webSocket
 import io.ktor.util.AttributeKey
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
-import ch.nokillswit.infra.presence.ForegroundPresenceKey
 import org.slf4j.LoggerFactory
+import java.util.UUID
 
 private val routesLog = LoggerFactory.getLogger("ch.nokillswit.live.LiveRoutes")
+
+internal fun interface LiveCapacityCheck {
+    suspend fun hasCapacity(userId: UInt, maxSessions: Int): Boolean
+}
+
+/** Internal operation-boundary seam for the shared-store outage test; production never publishes this attribute. */
+internal val LiveCapacityCheckOverrideKey = AttributeKey<LiveCapacityCheck>("LiveCapacityCheckOverride")
 
 @Serializable
 @Resource("/api/v1/live/tickets")
@@ -89,10 +97,9 @@ fun Application.configureLive() {
     // is cancelled AND joined (bounded), after the hub closed the LISTEN connection and before the pool is disposed on ApplicationStopped.
     var hubToStop: LiveHub? = null
     val scope = backgroundScope("adder-live", Dispatchers.Default) { hubToStop?.stop() }
-    val hub = LiveHub(
-        scope, config.maxSockets, config.maxSocketsPerUser, attributes[NotifyConnectionFactoryKey],
-        presence = attributes[ForegroundPresenceKey],
-    ).also { hubToStop = it }
+    val leaseStore = LiveSessionLeaseStore(attributes[R2dbcDatabaseKey], UUID.randomUUID())
+    val leases = LiveLeaseCoordinator(leaseStore, scope, config.maxSocketsPerUser)
+    val hub = LiveHub(scope, config.maxSockets, attributes[NotifyConnectionFactoryKey]).also { hubToStop = it }
     attributes.put(LiveHubKey, hub)
     attributes.put(LiveStatsKey) { LiveStats(hub.socketCount, hub.listener.let { if (it.isStarted) it.isUp else null }) }
     monitor.subscribe(ApplicationStopPreparing) { runBlocking { hub.shutdown() } }
@@ -105,7 +112,7 @@ fun Application.configureLive() {
     )
     attributes.put(LiveSweepKey, sweep)
     sweep.start(scope)
-    val deps = LiveSessionDeps(config, tickets, hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey], audits)
+    val deps = LiveSessionDeps(config, tickets, hub, leases, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey], audits)
     // `live.ticket_saturated` is coalesced per user (one line a minute with a `suppressed` count): a full store answers every mint, and the
     // per-user bucket alone would still let many accounts write a line each per request.
     val saturationAudit = RateLimitAuditThrottle()
@@ -126,7 +133,16 @@ fun Application.configureLive() {
                         call.respondLiveUnavailable()
                         return@post
                     }
-                    if (hub.socketsOf(caller.userId) >= config.maxSocketsPerUser) {
+                    val capacity = try {
+                        call.application.hasLiveCapacity(leaseStore, caller.userId, config.maxSocketsPerUser)
+                    } catch (failure: CancellationException) {
+                        throw failure
+                    } catch (failure: Exception) {
+                        routesLog.warn("Live lease capacity unavailable ({})", failure.javaClass.simpleName)
+                        call.respondLiveUnavailable()
+                        return@post
+                    }
+                    if (!capacity) {
                         audits.refused("socket-cap", caller.userId, "limit" to config.maxSocketsPerUser)
                         throw TooManyRequestsException(
                             "Too many live-update sockets are open for this account - close a tab",
@@ -179,3 +195,7 @@ fun Application.configureLive() {
         }
     }
 }
+
+private suspend fun Application.hasLiveCapacity(store: LiveLeaseStore, userId: UInt, maxSessions: Int): Boolean =
+    attributes.getOrNull(LiveCapacityCheckOverrideKey)?.hasCapacity(userId, maxSessions)
+        ?: store.hasCapacity(userId, maxSessions)

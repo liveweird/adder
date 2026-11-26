@@ -12,6 +12,7 @@ import ch.nokillswit.live.PendingClaim
 import ch.nokillswit.live.RegisterResult
 import ch.nokillswit.live.SubscribeBegin
 import ch.nokillswit.live.audience
+import ch.nokillswit.live.queueFrame
 import io.ktor.websocket.CloseReason
 import io.r2dbc.spi.Connection
 import io.r2dbc.spi.ConnectionFactory
@@ -44,14 +45,13 @@ class LiveHubTest {
 
     private fun withHub(
         maxSockets: Int = 10,
-        maxPerUser: Int = 2,
         maxQueuedHints: Int = MAX_QUEUED_HINTS,
         block: suspend LiveHub.() -> Unit,
     ) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             runBlocking {
-                withTimeout(30_000) { LiveHub(scope, maxSockets, maxPerUser, neverConnects, maxQueuedHints = maxQueuedHints).block() }
+                withTimeout(30_000) { LiveHub(scope, maxSockets, neverConnects, maxQueuedHints = maxQueuedHints).block() }
             }
         } finally {
             scope.cancel()
@@ -79,25 +79,24 @@ class LiveHubTest {
     private fun event(room: UInt, kind: LiveKind) = LiveServerFrame.Event(kind, room)
 
     @Test
-    fun `register queues ready first and enforces the per-user and the global cap`() = withHub(maxSockets = 3, maxPerUser = 2) {
+    fun `register queues ready first and enforces the process global cap`() = withHub(maxSockets = 3) {
         val a1 = socket(1u)
         val a2 = socket(1u)
         val a3 = socket(1u)
         assertEquals(RegisterResult.OK, register(a1))
         assertEquals(listOf<LiveServerFrame>(LiveServerFrame.Ready()), a1.drain(), "ready is the first frame")
         assertEquals(RegisterResult.OK, register(a2))
-        assertEquals(RegisterResult.USER_CAP, register(a3), "a third socket of one user")
-        assertEquals(2, socketsOf(1u))
-
-        assertEquals(RegisterResult.OK, register(socket(2u)))
-        assertEquals(RegisterResult.FULL, register(socket(3u)), "the third of three slots is taken")
+        assertEquals(RegisterResult.OK, register(a3), "per-user admission is shared through PostgreSQL, not this process actor")
+        assertEquals(3, socketsOf(1u))
+        assertEquals(RegisterResult.FULL, register(socket(2u)), "all three process slots are taken")
         assertEquals(3, socketCount)
 
         unregister(a1)
         barrier(a2)
-        assertEquals(1, socketsOf(1u))
+        assertEquals(2, socketsOf(1u))
         assertEquals(2, socketCount)
         unregister(a2)
+        unregister(a3)
         unregister(a2) // idempotent
         barrier(socket(9u).also { register(it) })
         assertEquals(0, socketsOf(1u))
@@ -376,7 +375,7 @@ class LiveHubTest {
     }
 
     @Test
-    fun `a removed member's sockets drop the room and are told, subscribed or not, and get nothing further`() = withHub(maxPerUser = 4) {
+    fun `a removed member's sockets drop the room and are told, subscribed or not, and get nothing further`() = withHub {
         val subscribed = socket(1u)
         val otherTab = socket(1u) // the same person, never subscribed
         val pendingTab = socket(1u)
@@ -600,5 +599,58 @@ class LiveHubTest {
         deliver(hint(7u))
         barrier(s)
         assertEquals(listOf<LiveServerFrame>(LiveServerFrame.Revoked(7u)), s.drain(), "one frame, and the room is gone")
+    }
+
+    @Test
+    fun `a stopped hub fails closed for every request reply command`() = withHub {
+        stop()
+        val s = socket()
+
+        assertEquals(RegisterResult.UNAVAILABLE, register(s))
+        val begin = beginSubscribe(s, listOf(7u))
+        assertEquals(emptyList(), begin.toCheck)
+        assertEquals(emptyList(), snapshot())
+        deliver(hint(7u))
+    }
+
+    @Test
+    fun `commands for a socket that was never registered are harmless`() = withHub {
+        val ghost = socket()
+        val anchor = socket(2u)
+        register(anchor)
+        anchor.drain()
+
+        val begin = beginSubscribe(ghost, listOf(7u))
+        assertEquals(emptyList(), begin.toCheck)
+        completeSubscribe(ghost, SubscribeBegin(emptyList(), listOf(7u), emptyList()), setOf(7u))
+        abortSubscribe(ghost, listOf(7u))
+        revokeRoom(ghost, 7u)
+        barrier(anchor)
+
+        assertEquals(emptyList(), ghost.drain())
+    }
+
+    @Test
+    fun `a deleted room can target an unsubscribed socket without a subscriber set`() = withHub {
+        val target = socket(1u)
+        register(target)
+        target.drain()
+
+        deliver(hint(7u, LiveKind.ROOM_DELETED, targets = listOf(1u)))
+        barrier(target)
+
+        assertEquals(listOf<LiveServerFrame>(LiveServerFrame.Revoked(7u)), target.drain())
+    }
+
+    @Test
+    fun `closed or zero-capacity socket queues never accept another frame`() = withHub {
+        val closed = socket()
+        closed.closeRequest.complete(CloseReason(CloseReason.Codes.NORMAL, "done"))
+        queueFrame(closed, LiveServerFrame.Ready())
+        assertEquals(emptyList(), closed.drain())
+
+        val blocked = socket(capacity = 0)
+        queueFrame(blocked, LiveServerFrame.Ready())
+        assertEquals(CloseReason.Codes.TRY_AGAIN_LATER.code, blocked.closeRequest.await().code)
     }
 }

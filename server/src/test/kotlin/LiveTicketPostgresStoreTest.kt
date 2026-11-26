@@ -1,5 +1,6 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.db.connectPooledDatabase
 import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.live.LIVE_TICKET_EXPIRY_CLEANUP_BATCH
 import ch.nokillswit.live.LiveTicketCapacityExceededException
@@ -7,6 +8,8 @@ import ch.nokillswit.live.LiveTicketPostgresStore
 import ch.nokillswit.live.LiveTicketStoreUnavailableException
 import ch.nokillswit.live.LiveTickets
 import ch.nokillswit.users.UserRole
+import io.r2dbc.spi.ConnectionFactoryOptions
+import java.time.Duration
 import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -23,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 
 /** PostgreSQL contract for the cross-instance, one-use live ticket store introduced by V53. */
 class LiveTicketPostgresStoreTest {
@@ -41,7 +45,8 @@ class LiveTicketPostgresStoreTest {
         maxTickets: Int = 10_000,
         ttlMillis: Long = 30_000,
         ticket: String = UUID.randomUUID().toString().replace("-", "").padEnd(43, 'x'),
-    ) = LiveTickets(LiveTicketPostgresStore(sharedDatabaseForTests(), maxTickets, ttlMillis), ticketGenerator = { ticket })
+        database: R2dbcDatabase = sharedDatabaseForTests(),
+    ) = LiveTickets(LiveTicketPostgresStore(database, maxTickets, ttlMillis), ticketGenerator = { ticket })
 
     private suspend fun LiveTickets.mint(userId: UInt, tokenExpiresAt: Long = System.currentTimeMillis() + 60_000) =
         issue(userId, isAdmin = true, roles = setOf("ADMIN", "USER"), jti = UUID.randomUUID().toString(),
@@ -64,27 +69,23 @@ class LiveTicketPostgresStoreTest {
     }
 
     @Test
-    fun `an absent capacity guard refuses a mint without creating a ticket`() = runBlocking {
-        val userId = user("missing-guard")
+    fun `an absent capacity guard refuses a mint without creating a ticket`() = withIsolatedStore {
         val raw = "missing-ticket-guard".padEnd(43, 'x')
-        capacityStatement("DELETE FROM live_ticket_capacity_guard")
-        try {
-            assertFailsWith<LiveTicketStoreUnavailableException> { service(ticket = raw).mint(userId) }
-            assertNull(service().redeem(raw))
-        } finally {
-            capacityStatement("INSERT INTO live_ticket_capacity_guard (singleton) VALUES (TRUE)")
+        connect().use { connection ->
+            connection.createStatement().use { assertEquals(1, it.executeUpdate("DELETE FROM live_ticket_capacity_guard")) }
         }
+        assertFailsWith<LiveTicketStoreUnavailableException> { service(ticket = raw, database = database).mint(userId) }
+        assertNull(service(database = database).redeem(raw))
     }
 
     @Test
-    fun `cancellation while waiting for the admission guard leaves no ticket`() = runBlocking {
-        val userId = user("cancelled-mint")
+    fun `cancellation while waiting for the admission guard leaves no ticket`() = withIsolatedStore {
         val raw = "cancelled-ticket-access".padEnd(43, 'x')
-        PostgresTestSupport.connect().use { blocker ->
+        connect().use { blocker ->
             blocker.autoCommit = false
             blocker.createStatement().use { it.execute("SELECT singleton FROM live_ticket_capacity_guard FOR UPDATE") }
             coroutineScope {
-                val mint = async(Dispatchers.Default) { service(ticket = raw).mint(userId) }
+                val mint = async(Dispatchers.Default) { service(ticket = raw, database = database).mint(userId) }
                 try {
                     withTimeout(5_000) { while (!isMintWaiting()) delay(10) }
                 } finally {
@@ -94,19 +95,7 @@ class LiveTicketPostgresStoreTest {
                 mint.join()
             }
         }
-        assertNull(service().redeem(raw))
-    }
-
-    private fun capacityStatement(sql: String) {
-        PostgresTestSupport.connect().use { connection ->
-            connection.createStatement().use { assertEquals(1, it.executeUpdate(sql)) }
-        }
-    }
-
-    private fun isMintWaiting(): Boolean = PostgresTestSupport.connect().use { connection ->
-        val query = "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' " +
-            "AND query LIKE 'SELECT singleton FROM live_ticket_capacity_guard%'"
-        connection.createStatement().use { statement -> statement.executeQuery(query).use { it.next() } }
+        assertNull(service(database = database).redeem(raw))
     }
 
     @Test
@@ -142,10 +131,9 @@ class LiveTicketPostgresStoreTest {
     }
 
     @Test
-    fun `the shared capacity guard serializes mints and redemption has exactly one winner`() = runBlocking {
-        val userId = user("concurrent")
+    fun `the shared capacity guard serializes mints and redemption has exactly one winner`() = withIsolatedStore {
         val attempts = (1..6).map { index ->
-            service(maxTickets = 2, ticket = "concurrent-$index".padEnd(43, 'x'))
+            service(maxTickets = 2, ticket = "concurrent-$index".padEnd(43, 'x'), database = database)
         }
         val outcomes = coroutineScope { attempts.map { candidate -> async { runCatching { candidate.mint(userId) } } }.awaitAll() }
         val issued = outcomes.mapNotNull { it.getOrNull() }
@@ -154,7 +142,7 @@ class LiveTicketPostgresStoreTest {
 
         val ticket = issued.first().ticket
         val redemptions = coroutineScope {
-            List(8) { async { LiveTickets(LiveTicketPostgresStore(sharedDatabaseForTests(), 2)).redeem(ticket) } }.awaitAll()
+            List(8) { async { LiveTickets(LiveTicketPostgresStore(database, 2)).redeem(ticket) } }.awaitAll()
         }
         assertEquals(1, redemptions.count { it != null })
     }
@@ -177,10 +165,9 @@ class LiveTicketPostgresStoreTest {
     }
 
     @Test
-    fun `mint deletes at most one bounded batch of expired tickets`() = runBlocking {
-        val userId = user("cleanup")
+    fun `mint deletes at most one bounded batch of expired tickets`() = withIsolatedStore {
         val expired = LIVE_TICKET_EXPIRY_CLEANUP_BATCH + 3
-        PostgresTestSupport.connect().use { connection ->
+        connect().use { connection ->
             connection.prepareStatement(
                 "INSERT INTO live_tickets (ticket_hash, user_id, is_admin, roles, access_jti, credential_revision, " +
                     "token_expires_at, expires_at) VALUES (?, ?, false, ARRAY[]::text[], ?, 0, 0, 0)",
@@ -195,16 +182,51 @@ class LiveTicketPostgresStoreTest {
             }
         }
 
-        service(ticket = "cleanup-one".padEnd(43, 'x')).mint(userId)
-        assertEquals(4, storedCount(userId), "three expired rows plus the newly active ticket remain")
-        service(ticket = "cleanup-two".padEnd(43, 'x')).mint(userId)
-        assertEquals(2, storedCount(userId), "the next bounded pass removes the remainder")
+        service(ticket = "cleanup-one".padEnd(43, 'x'), database = database).mint(userId)
+        assertEquals(4, storedCount(), "three expired rows plus the newly active ticket remain")
+        service(ticket = "cleanup-two".padEnd(43, 'x'), database = database).mint(userId)
+        assertEquals(2, storedCount(), "the next bounded pass removes the remainder")
     }
 
-    private fun storedCount(userId: UInt): Int = PostgresTestSupport.connect().use { connection ->
-        connection.prepareStatement("SELECT count(*) FROM live_tickets WHERE user_id = ?").use { statement ->
-            statement.setLong(1, userId.toLong())
-            statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+    /** Capacity, guard failure and purge batch bounds depend on the whole database, including other users' tickets. */
+    private fun withIsolatedStore(test: suspend IsolatedStore.() -> Unit): Unit = withIsolatedTestDatabase { fixture ->
+        runBlocking {
+            val options = ConnectionFactoryOptions.parse(fixture.r2dbcUrl)
+                .mutate()
+                .option(ConnectionFactoryOptions.USER, PostgresTestSupport.user)
+                .option(ConnectionFactoryOptions.PASSWORD, PostgresTestSupport.password)
+                .build()
+            val (database, pool) = connectPooledDatabase(options, 2, 0, Duration.ofSeconds(10), Duration.ofMinutes(1))
+            try {
+                IsolatedStore(fixture, database).test()
+            } finally {
+                pool.dispose()
+            }
+        }
+    }
+
+    private class IsolatedStore(private val fixture: IsolatedTestDatabase, val database: R2dbcDatabase) {
+        fun connect() = fixture.connect()
+
+        val userId: UInt = connect().use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT id FROM users ORDER BY id LIMIT 1").use { rows ->
+                    check(rows.next())
+                    rows.getLong(1).toUInt()
+                }
+            }
+        }
+
+        fun isMintWaiting(): Boolean = connect().use { connection ->
+            val query = "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' " +
+                "AND query LIKE 'SELECT singleton FROM live_ticket_capacity_guard%'"
+            connection.createStatement().use { statement -> statement.executeQuery(query).use { it.next() } }
+        }
+
+        fun storedCount(): Int = connect().use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT count(*) FROM live_tickets").use { rows -> rows.next(); rows.getInt(1) }
+            }
         }
     }
 }

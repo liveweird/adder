@@ -3,6 +3,8 @@ package ch.nokillswit
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.live.LIVE_TICKET_TTL_MILLIS
 import ch.nokillswit.live.LIVE_UNAVAILABLE_PROBLEM_TYPE
+import ch.nokillswit.live.LiveCapacityCheck
+import ch.nokillswit.live.LiveCapacityCheckOverrideKey
 import ch.nokillswit.live.LiveTicketBinding
 import ch.nokillswit.live.LiveTicketDraft
 import ch.nokillswit.live.LiveTicketResponse
@@ -11,6 +13,7 @@ import ch.nokillswit.live.LiveTicketStoreOverrideKey
 import ch.nokillswit.live.LiveTicketStoreUnavailableException
 import ch.nokillswit.live.LiveTicketsKey
 import ch.nokillswit.live.LiveServerFrame
+import ch.nokillswit.infra.notify.LiveStatsKey
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.users.UserRole
 import ch.qos.logback.classic.Logger
@@ -32,7 +35,9 @@ import io.ktor.server.testing.testApplication
 import io.ktor.websocket.CloseReason
 import java.util.Date
 import java.util.UUID
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -99,6 +104,7 @@ class LiveTicketTest {
     fun `a signed-in caller mints a single-use ticket bound to their account and access token`() = testApplication {
         usePostgresTestcontainer()
         val store = application.attributes[LiveTicketsKey]
+        assertNull(application.attributes[LiveStatsKey]().listenerUp, "the listener starts lazily on the first mint")
         for (role in listOf(UserRole.USER, UserRole.ADMIN)) {
             val caller = signedIn("live-ticket-$role", role)
             val before = System.currentTimeMillis()
@@ -127,6 +133,9 @@ class LiveTicketTest {
                 "the ticket is bound to the caller and the very token that asked",
             )
             assertNull(store.redeem(body.ticket), "single use")
+        }
+        withTimeout(5_000) {
+            while (application.attributes[LiveStatsKey]().listenerUp == null) delay(10)
         }
     }
 
@@ -277,6 +286,27 @@ class LiveTicketTest {
             assertEquals(1, store.issueCalls)
             assertTrue(capture.events.any { "Live ticket store unavailable" in it.formattedMessage })
             assertTrue(capture.events.none { "SENSITIVE-STORE-MARKER" in it.rendered() }, "the cause message must not reach logs")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    @Test
+    fun `an unavailable shared socket-capacity check fails mint closed without leaking its message`() = testApplication {
+        configureApp()
+        application {
+            attributes.put(LiveCapacityCheckOverrideKey, LiveCapacityCheck { _, _ -> error("SENSITIVE-LEASE-MARKER") })
+        }
+        startApplication()
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            val caller = signedIn("live-capacity-unavailable")
+            val response = caller.mint()
+            assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+            assertEquals("5", response.headers[HttpHeaders.RetryAfter])
+            assertEquals(LIVE_UNAVAILABLE_PROBLEM_TYPE, response.body<ProblemDetail>().type)
+            assertTrue(capture.events.any { "Live lease capacity unavailable" in it.formattedMessage })
+            assertTrue(capture.events.none { "SENSITIVE-LEASE-MARKER" in it.rendered() })
         } finally {
             capture.detach()
         }

@@ -9,8 +9,8 @@ import ch.nokillswit.infra.outbound.PreviewFetcher
 import ch.nokillswit.infra.outbound.PublicLinkPreviewFetcher
 import ch.nokillswit.infra.outbound.PushSubscriptionRevoker
 import ch.nokillswit.infra.outbound.PushSubscriptionRevokerKey
-import ch.nokillswit.infra.presence.ForegroundPresence
 import ch.nokillswit.infra.presence.ForegroundPresenceKey
+import ch.nokillswit.infra.presence.PostgresForegroundPresence
 import ch.nokillswit.notifications.BrowserPushService
 import ch.nokillswit.notifications.BrowserPushServiceKey
 import ch.nokillswit.notifications.MAX_BROADCASTS_PER_ACTOR
@@ -154,7 +154,7 @@ internal fun Application.publishChatServices(
     attributes.put(ThreadWatchServiceKey, threadWatchService)
     // The mention index (V17) is the message write's first follower: it is built here and handed to the service, which runs it. The other
     // followers (V21: a deleted message loses its pin) run after it, inside the same write.
-    val foregroundPresence = ForegroundPresence()
+    val foregroundPresence = PostgresForegroundPresence(database)
     attributes.put(ForegroundPresenceKey, foregroundPresence)
     val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService, teamService, foregroundPresence)
     val messageRevisionService = publishRevisionServices(database, roomService, readLimiter, threadEventService, noticeWriter)

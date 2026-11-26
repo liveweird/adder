@@ -1,6 +1,5 @@
 package ch.nokillswit
 
-import ch.nokillswit.infra.presence.ForegroundPresenceKey
 import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
@@ -13,6 +12,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.runBlocking
+import java.util.UUID
 
 class HereMentionsTest {
     private val minted = MintedIds(mutableListOf(), mutableListOf(), mutableListOf())
@@ -20,8 +20,42 @@ class HereMentionsTest {
     @AfterTest
     fun cleanUp() = runBlocking {
         TestRooms.purge(minted.rooms)
+        if (minted.users.isNotEmpty()) PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement("DELETE FROM live_session_leases WHERE user_id = ANY(?)").use { statement ->
+                statement.setArray(1, connection.createArrayOf("bigint", minted.users.map(UInt::toLong).toTypedArray()))
+                statement.executeUpdate()
+            }
+        }
         minted.users.forEach { TestUsers.softDelete(it) }
         minted.templates.forEach { TestTemplates.delete(it) }
+    }
+
+    private fun foreground(vararg userIds: UInt) {
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement(
+                "INSERT INTO live_session_leases " +
+                    "(session_id, instance_id, user_id, token_expires_at, socket_expires_at, foreground_expires_at) " +
+                    "SELECT ?, ?, ?, deadline, deadline, deadline " +
+                    "FROM (SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint + 60000 AS deadline) clock",
+            ).use { statement ->
+                userIds.forEach { userId ->
+                    statement.setObject(1, UUID.randomUUID())
+                    statement.setObject(2, UUID.randomUUID())
+                    statement.setLong(3, userId.toLong())
+                    statement.addBatch()
+                }
+                statement.executeBatch()
+            }
+        }
+    }
+
+    private fun background(userId: UInt) {
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement("UPDATE live_session_leases SET foreground_expires_at = NULL WHERE user_id = ?").use { statement ->
+                statement.setLong(1, userId.toLong())
+                statement.executeUpdate()
+            }
+        }
     }
 
     private fun recipients(messageId: UInt): List<UInt> = PostgresTestSupport.connect().use { connection ->
@@ -44,13 +78,7 @@ class HereMentionsTest {
     fun `here snapshots visible member tabs and a kept token preserves the snapshot`() = testApplication {
         usePostgresTestcontainer()
         val cast = seedPairCast("here-snapshot", "Here", minted, withThread = true)
-        val presence = application.attributes[ForegroundPresenceKey]
-        val ownerTab = presence.open(cast.owner.id)
-        val bobTab = presence.open(cast.bob.id)
-        val outsiderTab = presence.open(cast.outsider.id)
-        presence.update(ownerTab, true)
-        presence.update(bobTab, true)
-        presence.update(outsiderTab, true)
+        foreground(cast.owner.id, cast.bob.id, cast.outsider.id)
 
         val posted = cast.ann.client.postJson(
             "/api/v1/rooms/${cast.room}/threads/1/messages", MessageRequest("Heads up <@here>"),
@@ -66,8 +94,8 @@ class HereMentionsTest {
                 .body<ThreadPageResponse>().items.map { it.number },
         )
 
-        presence.update(ownerTab, false)
-        presence.close(bobTab)
+        background(cast.owner.id)
+        background(cast.bob.id)
         assertEquals(
             HttpStatusCode.NoContent,
             cast.ann.client.putJson(
@@ -89,11 +117,7 @@ class HereMentionsTest {
     fun `removing and readding here takes a fresh snapshot`() = testApplication {
         usePostgresTestcontainer()
         val cast = seedPairCast("here-fresh", "Here", minted, withThread = true)
-        val presence = application.attributes[ForegroundPresenceKey]
-        val ownerTab = presence.open(cast.owner.id)
-        val bobTab = presence.open(cast.bob.id)
-        presence.update(ownerTab, true)
-        presence.update(bobTab, true)
+        foreground(cast.owner.id, cast.bob.id)
         val posted = cast.ann.client.postJson(
             "/api/v1/rooms/${cast.room}/threads/1/messages", MessageRequest("First <@here>"),
         ).body<MessageResponse>()
@@ -101,7 +125,7 @@ class HereMentionsTest {
         assertEquals(HttpStatusCode.NoContent, cast.ann.client.putJson(
             "/api/v1/rooms/${cast.room}/messages/${posted.id}", MessageRequest("Nobody"),
         ).status)
-        presence.update(ownerTab, false)
+        background(cast.owner.id)
         assertEquals(HttpStatusCode.NoContent, cast.ann.client.putJson(
             "/api/v1/rooms/${cast.room}/messages/${posted.id}", MessageRequest("Again <@here>"),
         ).status)

@@ -235,12 +235,12 @@ monitoring:
   reporterIntervalSeconds: "$METRICS_REPORT_INTERVAL_SECONDS:300"
 
 live:
-  # The live-update channel (live/, `.claude/docs/live.md` "Bounds"): in-memory and per-instance like the MFA challenges (single replica).
+  # The live-update channel (live/, `.claude/docs/live.md` "Bounds") shares tickets and per-user leases through PostgreSQL.
   # Unexpired socket tickets held at once (1..100000); past it a mint is a 429 and an audited `live.ticket_saturated`.
   maxTickets: "$LIVE_MAX_TICKETS:10000"
   # Authenticated sockets at once, the whole process (1..10000); past it an upgrade and a ticket mint are a 503 `live-unavailable`.
   maxSockets: "$LIVE_MAX_SOCKETS:1000"
-  # Sockets one user may hold, one per tab (1..64); past it a mint is a 429 `live-socket-limit` and a redeem closes the socket 4429.
+  # Sockets one user may hold across instances, one per tab (1..64); past it a mint is a 429 `live-socket-limit` and a redeem closes the socket 4429.
   maxSocketsPerUser: "$LIVE_MAX_SOCKETS_PER_USER:16"
   # Sockets that have upgraded but not yet sent a good `auth` frame (1..10000): the WebSocket GET is public at the HTTP layer, so these are
   # the only unauthenticated connections the server holds; past the cap an upgrade is a 503.
