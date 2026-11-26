@@ -51,7 +51,7 @@ r2dbc-pool = "1.0.2.RELEASE"
 # reactor-pool 1.0.8 (a reactor-core 3.5-era pairing, NOT the release train reactor-core actually
 # resolves to). Moving this line moves reactor-netty, so keep it in step with the `netty` pin above
 # (read reactor-netty's Netty version off its published pom).
-reactor-bom = "2025.0.8"
+reactor-bom = "2026.0.0"
 swagger-request-validator = "3.0.0"
 testcontainers = "2.0.5"
 # Runtime security floor (Trivy scan, 2026-09-24): scram-client is a transitive implementation
