@@ -417,6 +417,53 @@ class MfaLoginTest {
         }
     }
 
+    @Test
+    fun `a cleanup failure after rejected MFA delivery keeps transport details out of logs`() = testApplication {
+        val port = ServerSocket(0).use { it.localPort }
+        configureApp(
+            "mail.transport" to "smtp",
+            "mail.smtp.host" to "127.0.0.1",
+            "mail.smtp.port" to port.toString(),
+            "mail.smtp.startTls" to "false",
+        )
+        startApplication()
+        val email = uniqueEmail("mfa-cleanup-log")
+        val userId = seedMfaUser(email, "pw-123456789")
+        val marker = "cleanup-must-not-leak"
+        val everything = LogCapture("ROOT")
+        try {
+            PostgresTestSupport.connect().use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.execute(
+                        "CREATE FUNCTION reject_mfa_cleanup() RETURNS trigger LANGUAGE plpgsql AS " +
+                            "'BEGIN IF OLD.user_id = $userId THEN RAISE EXCEPTION ''$marker''; END IF; RETURN OLD; END'",
+                    )
+                    statement.execute(
+                        "CREATE TRIGGER reject_mfa_cleanup BEFORE DELETE ON mfa_challenges " +
+                            "FOR EACH ROW EXECUTE FUNCTION reject_mfa_cleanup()",
+                    )
+                }
+            }
+
+            assertEquals(HttpStatusCode.OK, jsonClient().login(email, "pw-123456789").status)
+            val warning = assertNotNull(
+                everything.awaitEvent { it.level == Level.WARN && "MFA delivery cleanup failed" in it.formattedMessage },
+                "the rejected cleanup should be logged",
+            )
+            assertEquals("MFA delivery cleanup failed (errorType=ExposedR2dbcException)", warning.formattedMessage)
+            assertNull(warning.throwableProxy, "the database exception must not be attached")
+            assertTrue(marker !in warning.renderedForLeakCheck(), "the database exception message leaked")
+        } finally {
+            everything.detach()
+            PostgresTestSupport.connect().use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.execute("DROP TRIGGER IF EXISTS reject_mfa_cleanup ON mfa_challenges")
+                    statement.execute("DROP FUNCTION IF EXISTS reject_mfa_cleanup()")
+                }
+            }
+        }
+    }
+
     /** Everything a log event can carry, as one string (the live-ticket test's rendering). */
     private fun ILoggingEvent.renderedForLeakCheck(): String = buildString {
         append(formattedMessage).append(' ').append(message)
@@ -482,6 +529,43 @@ class MfaLoginTest {
                 "the consumed challenge cannot create a session on retry",
             )
             assertTrue(auditEvents.events.none { it.message == "login.mfa_success" })
+        } finally {
+            mail.detach()
+            auditEvents.detach()
+        }
+    }
+
+    @Test
+    fun `a wrong code for a deleted account is stale and never advances lockout`() = testApplication {
+        configureApp("security.lockout.threshold" to "1")
+        startApplication()
+        val email = uniqueEmail("mfa-deleted-wrong")
+        val userId = seedMfaUser(email, "pw-123456789")
+        val mail = LogCapture("ch.nokillswit.mail")
+        val auditEvents = LogCapture("ch.nokillswit.audit")
+        try {
+            val client = jsonClient()
+            val challenge = client.login(email, "pw-123456789").body<MfaChallengeResponse>()
+            val code = mail.codeFor(email)
+            TestUsers.softDelete(userId)
+
+            val wrong = if (code == "000000") "000001" else "000000"
+            assertEquals(HttpStatusCode.Unauthorized, client.verify(challenge.challengeId, wrong).status)
+            assertNotNull(
+                auditEvents.awaitEvent {
+                    it.message == "login.mfa_failure" && it.hasKeyValue("reason", "user_gone") &&
+                        it.hasKeyValue("userId", userId.toLong())
+                },
+            )
+            assertTrue(
+                auditEvents.events.none { it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) },
+                "a stale guess must not create or advance lockout state",
+            )
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client.verify(challenge.challengeId, wrong).status,
+                "the stale challenge is discarded immediately",
+            )
         } finally {
             mail.detach()
             auditEvents.detach()
