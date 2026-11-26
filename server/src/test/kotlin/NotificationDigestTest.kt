@@ -8,16 +8,20 @@ import ch.nokillswit.notifications.DIGEST_MAX_NOTICES_PER_RECIPIENT
 import ch.nokillswit.notifications.DIGEST_SCAN_CAP
 import ch.nokillswit.notifications.DigestBounds
 import ch.nokillswit.notifications.DIGEST_STATEMENT_TIMEOUT_SECONDS
+import ch.nokillswit.notifications.ACTOR_RECIPIENT_INTERVAL_MILLIS
 import ch.nokillswit.notifications.peopleToClaim
 import ch.nokillswit.notifications.DIGEST_MAX_PER_RUN
 import ch.nokillswit.notifications.NotificationChannel
 import ch.nokillswit.notifications.NotificationDigest
+import ch.nokillswit.notifications.NotificationDigestStore
 import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.notifications.NotificationSweep
+import ch.nokillswit.notifications.ActorRecipientPair
 import ch.nokillswit.users.UserRole
 import java.sql.Connection
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -47,12 +51,14 @@ class NotificationDigestTest {
     private val mintedRooms = mutableListOf<UInt>()
     private val mintedUsers = mutableListOf<UInt>()
     private val mintedTemplates = mutableListOf<UInt>()
+    private val mintedTeams = mutableListOf<UInt>()
 
     @AfterTest
     fun cleanUp() = runBlocking {
         TestRooms.purge(mintedRooms)
         mintedUsers.forEach { TestUsers.softDelete(it) }
         mintedTemplates.forEach { TestTemplates.delete(it) }
+        mintedTeams.forEach { TestTeams.service.delete(it) }
     }
 
     private class Sent(val to: String, val subject: String, val body: String)
@@ -112,13 +118,14 @@ class NotificationDigestTest {
             ageMillis: Long = (DELAY_SECONDS + 1) * SECOND,
             type: String = "THREAD_ASSIGNED",
             messageId: Int? = null,
+            actorId: UInt = owner.id,
         ): Long =
             sql("INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, message_id, created_at) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id") { st ->
                 st.setLong(1, to.id.toLong())
                 st.setInt(2, room.toInt())
                 st.setString(3, type)
-                st.setLong(4, owner.id.toLong())
+                st.setLong(4, actorId.toLong())
                 if (type == NotificationType.ROOM_ADDED.name) st.setNull(5, java.sql.Types.INTEGER) else st.setInt(5, thread.toInt())
                 if (messageId == null) st.setNull(6, java.sql.Types.INTEGER) else st.setInt(6, messageId)
                 st.setLong(7, now - ageMillis)
@@ -140,16 +147,39 @@ class NotificationDigestTest {
         st.executeQuery().use { rs -> rs.next(); rs.getLong(1).takeUnless { rs.wasNull() } }
     }
 
-    private suspend fun setup(): Setup {
-        val email = uniqueEmail("dg-own")
-        val ownerId = TestUsers.seed(email, "pw", role = UserRole.USER, name = "Olga").also { mintedUsers += it }
+    private fun pacingAt(actorId: UInt, recipientId: UInt): Long? = sql(
+        "SELECT attempted_at FROM notification_email_pacing WHERE actor_id = ? AND recipient_id = ?",
+    ) { st ->
+        st.setLong(1, actorId.toLong())
+        st.setLong(2, recipientId.toLong())
+        st.executeQuery().use { rs -> if (rs.next()) rs.getLong(1) else null }
+    }
+
+    private fun pace(actorId: UInt, recipientId: UInt, at: Long) {
+        sql(
+            "INSERT INTO notification_email_pacing (actor_id, recipient_id, attempted_at) VALUES (?, ?, ?) " +
+                "ON CONFLICT (actor_id, recipient_id) DO UPDATE SET attempted_at = EXCLUDED.attempted_at",
+        ) { st ->
+            st.setLong(1, actorId.toLong())
+            st.setLong(2, recipientId.toLong())
+            st.setLong(3, at)
+            st.executeUpdate()
+        }
+    }
+
+    private suspend fun setup(existingOwner: Person? = null): Setup {
+        val owner = existingOwner ?: run {
+            val email = uniqueEmail("dg-own")
+            val id = TestUsers.seed(email, "pw", role = UserRole.USER, name = "Olga").also { mintedUsers += it }
+            Person(id, email)
+        }
         val template = TestThreads.seedTemplate().also { mintedTemplates += it }
         val roomName = "Digest ${UUID.randomUUID().toString().substring(0, 8)}"
-        val room = TestRooms.seed(ownerId, template, roomName).also { mintedRooms += it }
+        val room = TestRooms.seed(owner.id, template, roomName).also { mintedRooms += it }
         val title = "Title SECRET-${UUID.randomUUID()}"
         val body = "Body SECRET-${UUID.randomUUID()}"
-        val thread = TestThreads.seed(room, ownerId, title = title, body = body)
-        return Setup(Person(ownerId, email), room, roomName, thread.number, thread.id, title, body)
+        val thread = TestThreads.seed(room, owner.id, title = title, body = body)
+        return Setup(owner, room, roomName, thread.number, thread.id, title, body)
     }
 
     private fun digest(
@@ -162,6 +192,8 @@ class NotificationDigestTest {
         afterClaim: suspend () -> Unit = {},
         scanCap: Int = DIGEST_SCAN_CAP,
         statementTimeoutSeconds: Int = DIGEST_STATEMENT_TIMEOUT_SECONDS,
+        actorRecipientIntervalMillis: Long = ACTOR_RECIPIENT_INTERVAL_MILLIS,
+        maxRemembered: Int = ch.nokillswit.notifications.DIGEST_MAX_REMEMBERED,
         failMemberRooms: (suspend (UInt) -> List<ch.nokillswit.rooms.RoomSummary>)? = null,
     ) = NotificationDigest(
         database = sharedDatabaseForTests(),
@@ -174,7 +206,7 @@ class NotificationDigestTest {
         batchSize = batchSize,
         maxPerRun = maxPerRun,
         afterClaim = afterClaim,
-        bounds = DigestBounds(scanCap, statementTimeoutSeconds),
+        bounds = DigestBounds(scanCap, statementTimeoutSeconds, actorRecipientIntervalMillis, maxRemembered),
     )
 
     @Test
@@ -275,7 +307,7 @@ class NotificationDigestTest {
     }
 
     @Test
-    fun `a person mailed within the interval waits, then gets everything in one`() = runBlocking {
+    fun `a person waits through the recipient and actor intervals, then gets everything in one`() = runBlocking {
         val s = setup()
         val ann = s.member()
         val first = s.notice(ann, ageMillis = (DELAY_SECONDS + 5) * SECOND)
@@ -301,10 +333,38 @@ class NotificationDigestTest {
 
         clock = s.now + INTERVAL_SECONDS * SECOND
         digest.run()
+        assertEquals(1, mailer.to(ann.email).size, "the recipient interval ended but this actor's hour did not")
+        assertNull(emailedAt(second))
+
+        clock = s.now + ACTOR_RECIPIENT_INTERVAL_MILLIS
+        digest.run()
         val mails = mailer.to(ann.email)
-        assertEquals(2, mails.size, "the interval is over: one more email")
+        assertEquals(2, mails.size, "both intervals are over: one more email")
         assertEquals("Adder: 1 unseen notification", mails.last().subject)
         assertTrue(emailedAt(second) != null)
+    }
+
+    @Test
+    fun `the remembered-recipient cap pauses claims fail closed`() = runBlocking {
+        val s = setup()
+        val first = s.member()
+        val waiting = s.member()
+        s.notice(first)
+        val waitingNotice = s.notice(waiting)
+        val mailer = RecordingMailer()
+        val capture = LogCapture("ch.nokillswit.notifications.NotificationDigest")
+        try {
+            val runner = digest(mailer, s, batchSize = 1, maxRemembered = 1)
+            assertEquals(1, runner.run().sent)
+
+            val paused = runner.run()
+
+            assertEquals(0, paused.claimed)
+            assertNull(emailedAt(waitingNotice), "the fail-closed cap leaves unclaimed work pending")
+            assertTrue(capture.events.any { it.formattedMessage.contains("digest paused") })
+        } finally {
+            capture.detach()
+        }
     }
 
     @Test
@@ -347,6 +407,29 @@ class NotificationDigestTest {
         assertTrue(mail.body.contains("Olga added you to"))
         assertEquals("  $APP_URL/rooms/${s.room}", mail.body.lines().first { it.startsWith("  $APP_URL") })
         assertTrue(emailedAt(notice) != null)
+    }
+
+    @Test
+    fun `a team mention digest names a team the recipient belongs to`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val team = TestTeams.seedMentionable("digest", listOf(ann.id)).also { mintedTeams += it.id }
+        val messageId = TestThreads.rawMessages(s.thread).first().id
+        sql(
+            "INSERT INTO message_group_mentions (message_id, group_kind, team_id, thread_id, room_id) VALUES (?, 'TEAM', ?, ?, ?)",
+        ) { st ->
+            st.setInt(1, messageId.toInt())
+            st.setInt(2, team.id.toInt())
+            st.setInt(3, s.thread.toInt())
+            st.setInt(4, s.room.toInt())
+            st.executeUpdate()
+        }
+        s.notice(ann, type = NotificationType.TEAM_MENTIONED.name, messageId = messageId.toInt())
+        val mailer = RecordingMailer()
+
+        digest(mailer, s).run()
+
+        assertTrue(mailer.to(ann.email).single().body.contains("mentioned your team ${team.name}"))
     }
 
     @Test
@@ -718,6 +801,63 @@ class NotificationDigestTest {
     }
 
     @Test
+    fun `cancellation during the final access check releases the unattempted claim`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val id = s.notice(ann)
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val runner = digest(
+            RecordingMailer(),
+            s,
+            failMemberRooms = {
+                started.complete(Unit)
+                kotlinx.coroutines.awaitCancellation()
+            },
+        )
+        val job = async(Dispatchers.Default) { runner.run() }
+        started.await()
+
+        job.cancel()
+        runCatching { job.await() }
+
+        assertNull(emailedAt(id), "nothing reached SMTP, so the claim is returned")
+        assertNull(pacingAt(s.owner.id, ann.id), "an access-check cancellation reserves no pacing interval")
+    }
+
+    @Test
+    fun `a failed cancellation release is scrubbed and leaves its claim settled`() = runBlocking<Unit> {
+        val s = setup()
+        val ann = s.member()
+        val id = s.notice(ann)
+        val blocker = PostgresTestSupport.connect()
+        val capture = LogCapture("ch.nokillswit.notifications.NotificationDigest")
+        try {
+            val runner = digest(
+                RecordingMailer(),
+                s,
+                statementTimeoutSeconds = 1,
+                afterClaim = {
+                    blocker.autoCommit = false
+                    blocker.createStatement().use { it.execute("LOCK TABLE notifications IN ACCESS EXCLUSIVE MODE") }
+                    throw kotlinx.coroutines.CancellationException("stop")
+                },
+            )
+
+            val failure = runCatching { runner.run() }.exceptionOrNull()
+
+            assertTrue(failure is kotlinx.coroutines.CancellationException)
+            val line = capture.events.single { it.formattedMessage.contains("could not release") }
+            assertFalse(line.everything().contains(s.roomName), "the release failure log is scrubbed")
+            blocker.rollback()
+            assertNotNull(emailedAt(id), "a timed-out release cannot return the claim")
+        } finally {
+            blocker.rollback()
+            blocker.close()
+            capture.detach()
+        }
+    }
+
+    @Test
     fun `a run cancelled mid-send keeps the claim of that recipient and releases the rest`() = runBlocking {
         val s = setup()
         val first = s.member()
@@ -739,6 +879,8 @@ class NotificationDigestTest {
 
         assertNotNull(emailedAt(firstId), "a send that may have left stays claimed: at most once")
         assertNull(emailedAt(secondId), "the recipient never attempted is released")
+        assertEquals(s.now, pacingAt(s.owner.id, first.id), "an outcome-unknown SMTP attempt keeps the pair paced")
+        assertNull(pacingAt(s.owner.id, second.id))
     }
 
     @Test
@@ -960,5 +1102,198 @@ class NotificationDigestTest {
         clock += INTERVAL_SECONDS * SECOND
         digest.run()
         assertEquals(1, mailer.to(ann.email).size, "after the interval the new notice is mailed")
+    }
+
+    @Test
+    fun `one actor is paced across rooms while another actor can mail after the recipient interval`() = runBlocking {
+        val firstRoom = setup()
+        val secondRoom = setup(firstRoom.owner)
+        val otherActorRoom = setup()
+        val ann = firstRoom.member()
+        TestRooms.addMember(secondRoom.room, ann.id)
+        TestRooms.addMember(otherActorRoom.room, ann.id)
+        var now = maxOf(firstRoom.now, secondRoom.now, otherActorRoom.now)
+        val firstAttemptAt = now
+        val mailer = RecordingMailer()
+        val runner = digest(mailer, firstRoom, now = { now })
+
+        firstRoom.notice(ann)
+        assertEquals(1, runner.run().sent)
+        val paced = secondRoom.notice(ann)
+        val unrelated = otherActorRoom.notice(ann)
+
+        now += INTERVAL_SECONDS * SECOND
+        assertEquals(1, runner.run().sent, "the unrelated actor may mail once the recipient's 15-minute interval ends")
+        assertNull(emailedAt(paced), "the same actor stays pending across rooms")
+        assertNotNull(emailedAt(unrelated))
+
+        now = firstAttemptAt + ACTOR_RECIPIENT_INTERVAL_MILLIS
+        assertEquals(1, runner.run().sent, "the same actor becomes eligible at the exact one-hour boundary")
+        assertNotNull(emailedAt(paced))
+        assertEquals(3, mailer.to(ann.email).size)
+    }
+
+    @Test
+    fun `the pacing hour starts at the actual SMTP attempt rather than the earlier claim`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        var now = s.now
+        var delayFirstAttempt = true
+        val mailer = RecordingMailer()
+        val runner = digest(mailer, s, now = { now }, afterClaim = {
+            if (delayFirstAttempt) {
+                delayFirstAttempt = false
+                now += 10 * 60 * SECOND
+            }
+        })
+        s.notice(ann)
+
+        assertEquals(1, runner.run().sent)
+        val actualAttemptAt = s.now + 10 * 60 * SECOND
+        assertEquals(actualAttemptAt, pacingAt(s.owner.id, ann.id))
+        val later = s.notice(ann)
+
+        now = s.now + ACTOR_RECIPIENT_INTERVAL_MILLIS
+        assertEquals(0, runner.run().claimed, "only fifty minutes passed since SMTP was actually attempted")
+        assertNull(emailedAt(later))
+
+        now = actualAttemptAt + ACTOR_RECIPIENT_INTERVAL_MILLIS
+        assertEquals(1, runner.run().sent, "the pair becomes eligible one hour after the real attempt")
+        assertNotNull(emailedAt(later))
+        Unit
+    }
+
+    @Test
+    fun `a failed SMTP attempt consumes actor-recipient pacing but an opt-out recheck does not`() = runBlocking {
+        val s = setup()
+        val failedRecipient = s.member()
+        val optedOutRecipient = s.member()
+        var now = s.now
+        val failedNotice = s.notice(failedRecipient)
+        val failing = RecordingMailer(IllegalStateException("smtp unavailable"))
+
+        assertEquals(1, digest(failing, s, now = { now }).run().failed)
+        assertEquals(now, pacingAt(s.owner.id, failedRecipient.id))
+        assertNotNull(emailedAt(failedNotice), "the attempted notice keeps at-most-once claim semantics")
+        val later = s.notice(failedRecipient)
+        now += INTERVAL_SECONDS * SECOND
+        val healthy = RecordingMailer()
+        assertEquals(0, digest(healthy, s, now = { now }).run().claimed, "a failed SMTP attempt is still paced")
+        assertNull(emailedAt(later))
+
+        val optedOut = s.notice(optedOutRecipient)
+        val skipped = digest(healthy, s, now = { now }, afterClaim = { switchOff(optedOutRecipient, "THREAD_ASSIGNED") })
+        assertEquals(0, skipped.run().sent)
+        assertNull(pacingAt(s.owner.id, optedOutRecipient.id), "final preference rejection reserves no SMTP pacing")
+        assertNotNull(emailedAt(optedOut), "the now-ineligible notice remains settled as before")
+
+        now = s.now + ACTOR_RECIPIENT_INTERVAL_MILLIS
+        assertEquals(1, digest(healthy, s, now = { now }).run().sent)
+        assertNotNull(emailedAt(later))
+        Unit
+    }
+
+    @Test
+    fun `paced rows do not consume the bounded claim scan ahead of eligible work`() = runBlocking {
+        val s = setup()
+        val recipient = s.member()
+        val otherActor = TestUsers.seed(uniqueEmail("dg-other"), "pw", role = UserRole.USER).also { mintedUsers += it }
+        pace(s.owner.id, recipient.id, s.now)
+        val paced = s.notice(recipient, ageMillis = DAY - SECOND)
+        val eligible = s.notice(recipient, ageMillis = DAY - 2 * SECOND, actorId = otherActor)
+        val mailer = RecordingMailer()
+
+        val run = digest(mailer, s, scanCap = 1).run()
+
+        assertEquals(1, run.claimed, "the LIMIT is applied after persisted pacing is filtered")
+        assertNull(emailedAt(paced))
+        assertNotNull(emailedAt(eligible))
+        assertEquals(1, mailer.attempts)
+    }
+
+    @Test
+    fun `a pair paced after claim loses reservation and its claims return pending until due`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val ids = listOf(s.notice(ann), s.notice(ann))
+        var now = s.now
+        var race = true
+        val mailer = RecordingMailer()
+        val runner = digest(mailer, s, now = { now }, afterClaim = {
+            if (race) {
+                race = false
+                pace(s.owner.id, ann.id, now)
+            }
+        })
+
+        val blocked = runner.run()
+
+        assertEquals(2, blocked.claimed)
+        assertEquals(2, blocked.released, "all racing-blocked claims are released")
+        assertTrue(ids.all { emailedAt(it) == null }, "blocked notices stay pending")
+        assertEquals(0, mailer.attempts)
+
+        now += ACTOR_RECIPIENT_INTERVAL_MILLIS
+        assertEquals(1, runner.run().sent)
+        assertTrue(ids.all { emailedAt(it) != null }, "the pending notices retry at the exact due boundary")
+    }
+
+    @Test
+    fun `waiting for a pair lock does not shorten its email interval`() = runBlocking {
+        val s = setup()
+        val recipient = s.member()
+        val pair = ActorRecipientPair(s.owner.id, recipient.id)
+        val interval = ACTOR_RECIPIENT_INTERVAL_MILLIS
+        val now = AtomicLong(s.now)
+        val store = NotificationDigestStore(sharedDatabaseForTests(), 0, DigestBounds())
+        pace(pair.actorId, pair.recipientId, s.now - interval)
+
+        PostgresTestSupport.connect().use { blocker ->
+            blocker.autoCommit = false
+            blocker.prepareStatement(
+                "SELECT 1 FROM notification_email_pacing WHERE actor_id = ? AND recipient_id = ? FOR UPDATE",
+            ).use { statement ->
+                statement.setLong(1, pair.actorId.toLong())
+                statement.setLong(2, pair.recipientId.toLong())
+                statement.executeQuery().use { assertTrue(it.next()) }
+            }
+            val pending = async(Dispatchers.Default) { store.reservePairs(setOf(pair), interval, now::get) }
+            try {
+                awaitLockWait("FOR UPDATE OF pacing")
+                now.addAndGet(5 * SECOND)
+            } finally {
+                blocker.rollback()
+            }
+            assertEquals(setOf(pair), pending.await())
+        }
+        assertEquals(now.get(), pacingAt(pair.actorId, pair.recipientId))
+        assertTrue(store.reservePairs(setOf(pair), interval) { now.get() + interval - 1 }.isEmpty())
+        assertEquals(setOf(pair), store.reservePairs(setOf(pair), interval) { now.get() + interval })
+    }
+
+    @Test
+    fun `pair reservation is atomic across connections and expiry cleanup is bounded`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val pair = ActorRecipientPair(s.owner.id, ann.id)
+        val stores = List(2) { NotificationDigestStore(sharedDatabaseForTests(), 0, DigestBounds()) }
+
+        val winners = coroutineScope {
+            stores.map { store -> async(Dispatchers.Default) { store.reservePairs(setOf(pair), 1) { s.now } } }.awaitAll()
+        }
+        assertEquals(1, winners.count { pair in it }, "the primary-key upsert admits one racing SMTP attempt")
+        assertEquals(s.now, pacingAt(s.owner.id, ann.id))
+
+        val expiredPeople = List(3) { s.member() }
+        expiredPeople.forEach { pace(s.owner.id, it.id, s.now - ACTOR_RECIPIENT_INTERVAL_MILLIS) }
+        val live = s.member()
+        pace(s.owner.id, live.id, s.now)
+        val digest = digest(RecordingMailer(), s, now = { s.now })
+
+        assertEquals(2, digest.purgeExpiredPacing(batchSize = 2), "one sweep call is bounded")
+        assertEquals(1, expiredPeople.count { pacingAt(s.owner.id, it.id) != null })
+        assertEquals(1, digest.purgeExpiredPacing(batchSize = 2))
+        assertTrue(expiredPeople.all { pacingAt(s.owner.id, it.id) == null })
+        assertEquals(s.now, pacingAt(s.owner.id, live.id), "a live pacing row is retained")
     }
 }

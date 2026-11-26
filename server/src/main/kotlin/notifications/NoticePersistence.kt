@@ -1,26 +1,24 @@
 package ch.nokillswit.notifications
 
-import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.ArrayColumnType
 import org.jetbrains.exposed.v1.core.BooleanColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.TextColumnType
-import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 
 /** Constant-shape inserts and replacements shared by every notice-producing write. */
-internal class NoticePersistence(private val digestDelayMillis: Long, private val pushAvailable: Boolean) {
+internal class NoticePersistence(private val digestDelayMillis: Long) {
     suspend fun refreshThreadNotices(
         threadId: UInt,
         actorId: UInt,
         now: Long,
         deliveries: List<Delivery>,
         eventId: UInt?,
-    ): List<Triple<UInt, NotificationType, Boolean>> {
+    ): List<PersistedNotice> {
         val coalescing = deliveries.filter { it.type in THREAD_LEVEL_KINDS }
         if (coalescing.isEmpty()) return emptyList()
-        val rows = TransactionManager.current().exec(
+        val rows = TransactionManager.current().noticeRows(
             REFRESH_THREAD_NOTICES,
             listOf(
                 ArrayColumnType<Long, List<Long>>(LongColumnType()) to coalescing.map { it.userId.toLong() },
@@ -33,17 +31,16 @@ internal class NoticePersistence(private val digestDelayMillis: Long, private va
                 LongColumnType() to now,
                 IntegerColumnType() to eventId?.toInt(),
             ),
-            explicitStatementType = StatementType.SELECT,
         ) { row ->
-            RefreshedNotice(
-                row.get(0, Long::class.javaObjectType)!!.toUInt(),
-                NotificationType.valueOf(row.get(1, String::class.java)!!),
-                row.get(2, Boolean::class.javaObjectType) == true,
-                row.get(3, Int::class.javaObjectType)!!.toUInt(),
+            PersistedNotice(
+                row.noticeColumn(0, Long::class.javaObjectType).toUInt(),
+                row.noticeColumn(3, Int::class.javaObjectType).toUInt(),
+                NotificationType.valueOf(row.noticeColumn(1, String::class.java)),
+                row.noticeColumn(2, Boolean::class.javaObjectType),
+                row.noticeColumn(4, Boolean::class.javaObjectType),
             )
-        }?.toList().orEmpty().filterNotNull()
-        if (pushAvailable) enqueueBrowserPush(rows.map { it.notificationId })
-        return rows.map { Triple(it.userId, it.type, it.inApp) }.distinctBy { it.first to it.second }
+        }
+        return rows.distinctBy { it.userId to it.type }
     }
 
     suspend fun insert(
@@ -54,7 +51,7 @@ internal class NoticePersistence(private val digestDelayMillis: Long, private va
         now: Long,
         deliveries: List<Delivery>,
         eventId: UInt? = null,
-    ): List<Pair<UInt, NotificationType>> {
+    ): List<PersistedNotice> {
         val arguments = listOf(
             IntegerColumnType() to roomId.toInt(),
             LongColumnType() to actorId.toLong(),
@@ -69,25 +66,16 @@ internal class NoticePersistence(private val digestDelayMillis: Long, private va
             ArrayColumnType<Boolean, List<Boolean>>(BooleanColumnType()) to deliveries.map { !it.email },
         )
         val rows = TransactionManager.current()
-            .exec(INSERT_NOTICES, arguments, explicitStatementType = StatementType.SELECT) { row ->
-                MadeNotice(
-                    row.get(0, Long::class.javaObjectType)!!.toUInt(),
-                    row.get(1, Int::class.javaObjectType)!!.toUInt(),
-                    NotificationType.valueOf(row.get(2, String::class.java)!!),
+            .noticeRows(INSERT_NOTICES, arguments) { row ->
+                PersistedNotice(
+                    row.noticeColumn(0, Long::class.javaObjectType).toUInt(),
+                    row.noticeColumn(1, Int::class.javaObjectType).toUInt(),
+                    NotificationType.valueOf(row.noticeColumn(2, String::class.java)),
+                    row.noticeColumn(3, Boolean::class.javaObjectType),
                 )
-            }?.toList().orEmpty().filterNotNull()
-        if (pushAvailable) enqueueBrowserPush(rows.map { it.notificationId })
-        return rows.map { it.userId to it.type }
+            }
+        return rows
     }
-
-    private class MadeNotice(val userId: UInt, val notificationId: UInt, val type: NotificationType)
-
-    private class RefreshedNotice(
-        val userId: UInt,
-        val type: NotificationType,
-        val inApp: Boolean,
-        val notificationId: UInt,
-    )
 
     private companion object {
         val THREAD_LEVEL_KINDS = setOf(

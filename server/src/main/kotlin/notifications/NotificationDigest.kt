@@ -1,37 +1,15 @@
 package ch.nokillswit.notifications
 
-import ch.nokillswit.audit.audit
-import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.mail.Mailer
-import ch.nokillswit.infra.time.MILLIS_PER_DAY
 import ch.nokillswit.rooms.RoomSummary
-import ch.nokillswit.threads.ThreadService
-import ch.nokillswit.threads.threadNotMutedBy
-import ch.nokillswit.threads.userNames
-import ch.nokillswit.users.UserService
 import ch.nokillswit.plugins.scrubbedSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.jetbrains.exposed.v1.core.ArrayColumnType
-import org.jetbrains.exposed.v1.core.IntegerColumnType
-import org.jetbrains.exposed.v1.core.LongColumnType
-import org.jetbrains.exposed.v1.core.TextColumnType
-import org.jetbrains.exposed.v1.core.and
-import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
-import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.update
-import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
-import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("ch.nokillswit.notifications.NotificationDigest")
@@ -51,9 +29,6 @@ internal const val DIGEST_MAX_NOTICES_PER_RECIPIENT = 50
  * still walked to find those rows; the settle removes the second kind and [DIGEST_STATEMENT_TIMEOUT_SECONDS] bounds the rest.
  */
 internal const val DIGEST_SCAN_CAP = 5_000
-
-/** Ids one re-check statement carries at most (a claim is bounded by [DIGEST_SCAN_CAP]; more are chunked). */
-private const val RECHECK_CHUNK = 1_000
 
 /** The claim's and the settle's statement budget, whole seconds (the transaction's `queryTimeout`, the only way a timeout is set). */
 internal const val DIGEST_STATEMENT_TIMEOUT_SECONDS = 10
@@ -87,6 +62,10 @@ internal const val DIGEST_MAX_CONSECUTIVE_FAILURES = 3
 internal data class DigestBounds(
     val scanCap: Int = DIGEST_SCAN_CAP,
     val statementTimeoutSeconds: Int = DIGEST_STATEMENT_TIMEOUT_SECONDS,
+    /** Fixed production policy; this override lives on the existing test seam rather than widening the digest constructor. */
+    val actorRecipientIntervalMillis: Long = ACTOR_RECIPIENT_INTERVAL_MILLIS,
+    /** Fixed production safety cap; the override lets tests exercise fail-closed behavior without minting 50,000 accounts. */
+    val maxRemembered: Int = DIGEST_MAX_REMEMBERED,
 )
 
 internal data class ClaimedNotice(
@@ -146,6 +125,9 @@ internal data class DigestRun(val claimed: Int, val sent: Int, val failed: Int, 
  *    kind's email switch is on and the thread exists. The survivors are listed (the first [DIGEST_MAX_NOTICES_PER_RECIPIENT]) and
  *    counted (the rest). With none the recipient is skipped silently, stays claimed (never mailed later) and claims no slot at the next
  *    tick. No pooled connection is held across the send.
+ *    After that final check, the eligible `(actor, recipient)` pairs are reserved in their own ordered transaction. A pair attempted
+ *    within the preceding hour is removed from this digest and its notice claims are released; unrelated actors can still be mailed.
+ *    The reservation stays for a failed or cancellation-unknown SMTP attempt, so restarts and races cannot bypass the pacing rule.
  * 3. **Audits** `notification.email_sent` (userId, count) or `notification.email_failed` (userId, errorType: the class name only), for a
  *    failed re-check too: the recipient was attempted and is not retried.
  * 4. **Releases** the claims of recipients that were never ATTEMPTED when the run ends early (cancelled, or
@@ -178,6 +160,8 @@ internal class NotificationDigest(
     private val lock = Mutex()
     private val mailedAt = HashMap<UInt, Long>()
     private var disabledLogged = false
+    private val store = NotificationDigestStore(database, delayMillis, bounds)
+    private val actorRecipientIntervalMillis = bounds.actorRecipientIntervalMillis
 
     /** One run. Answers its counts; an empty run is `DigestRun(0, 0, 0)`. */
     suspend fun run(): DigestRun {
@@ -195,12 +179,12 @@ internal class NotificationDigest(
     private suspend fun runLocked(mailer: Mailer): DigestRun {
         val now = clock()
         mailedAt.values.removeAll { now - it >= minIntervalMillis }
-        if (mailedAt.size >= DIGEST_MAX_REMEMBERED) {
+        if (mailedAt.size >= bounds.maxRemembered) {
             log.warn("notification email digest paused: {} recipients are inside the mail interval", mailedAt.size)
             return DigestRun(0, 0, 0)
         }
-        val claimed = try {
-            claim(now)
+        val claim = try {
+            store.claim(now, mailedAt.keys, batchSize, maxPerRun, actorRecipientIntervalMillis)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -208,6 +192,10 @@ internal class NotificationDigest(
             log.warn("notification email digest could not claim: {}", e.scrubbedSummary())
             return DigestRun(0, 0, 0)
         }
+        if (claim.settled > 0) {
+            log.info("notification email digest: {} notice(s) of a kind off for email or a gone account settled", claim.settled)
+        }
+        val claimed = claim.notices
         if (claimed.isEmpty()) return DigestRun(0, 0, 0)
         // The recipients not yet attempted, in claim order. One leaves the queue as its send starts (before that, a stop releases it).
         val queue = ArrayDeque(claimed.groupBy { it.recipientId }.entries.toList())
@@ -220,15 +208,20 @@ internal class NotificationDigest(
             while (queue.isNotEmpty() && inARow < DIGEST_MAX_CONSECUTIVE_FAILURES && sent + failed < maxPerRun) {
                 val (recipientId, notices) = queue.first()
                 val leave = { if (queue.firstOrNull()?.key == recipientId) queue.removeFirst() else null }
-                val outcome = deliver(mailer, recipientId, notices, now) { leave() }
-                when (outcome) {
-                    Delivery.SENT -> { sent++; inARow = 0 }
-                    Delivery.FAILED -> { failed++; inARow++ }
-                    Delivery.SKIPPED -> Unit
+                val result = delivery(mailer).deliver(recipientId, notices, now) { attemptedAt ->
+                    leave()
+                    mailedAt[recipientId] = attemptedAt
+                }
+                released += result.released
+                when (result.status) {
+                    DigestDeliveryStatus.SENT -> { sent++; inARow = 0 }
+                    DigestDeliveryStatus.FAILED -> { failed++; inARow++ }
+                    DigestDeliveryStatus.SKIPPED -> Unit
+                    DigestDeliveryStatus.PACED -> leave()
                 }
             }
         } finally {
-            if (queue.isNotEmpty()) released = release(queue.flatMap { it.value }.map { it.id }, now)
+            if (queue.isNotEmpty()) released += releaseSafely(queue.flatMap { it.value }.map { it.id }, now)
             log.info(
                 "notification email digest: {} notice(s) claimed, {} email(s) sent, {} failed, {} released",
                 claimed.size, sent, failed, released,
@@ -237,145 +230,34 @@ internal class NotificationDigest(
         return DigestRun(claimed.size, sent, failed, released)
     }
 
-    private enum class Delivery { SENT, FAILED, SKIPPED }
-
-    /**
-     * Re-checks, then sends, one recipient. [attempted] runs right before the send (the recipient stops being releasable). A failure of
-     * either step is audited with the class name only and is not retried; cancellation passes through.
-     */
-    private suspend fun deliver(
-        mailer: Mailer,
-        recipientId: UInt,
-        notices: List<ClaimedNotice>,
-        now: Long,
-        attempted: () -> Unit,
-    ): Delivery {
-        try {
-            val mail = resolve(recipientId, notices)
-            attempted()
-            mailedAt[recipientId] = now // a skipped person too: nothing to mail now, no slot in the next claim for one interval
-            if (mail == null) return Delivery.SKIPPED
-            mailer.send(mail.email, mail.subject, mail.body)
-            audit("notification.email_sent", "userId" to recipientId.toLong(), "count" to mail.count)
-            return Delivery.SENT
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            attempted() // a failed re-check or send is audited and not retried: the recipient leaves the queue
-            // The class name only: a mail provider's exception may embed the message it was sending.
-            audit("notification.email_failed", "userId" to recipientId.toLong(), "errorType" to e.javaClass.simpleName)
-            log.warn("notification email failed ({})", e.javaClass.simpleName)
-            return Delivery.FAILED
-        }
-    }
+    private fun delivery(mailer: Mailer) = NotificationDigestDelivery(
+        database,
+        memberRooms,
+        mailer,
+        appUrl,
+        store,
+        actorRecipientIntervalMillis,
+        clock,
+        log,
+    )
 
     /**
      * Gives back the claims of [ids] (stamped [stamp] by this run) in a `NonCancellable` context, so a cancelled run still releases.
      * Answers how many went back; a failure here is logged (scrubbed) and the rows stay settled (the cost is an unmailed digest).
      */
-    private suspend fun release(ids: List<UInt>, stamp: Long): Int = withContext(NonCancellable) {
+    private suspend fun releaseSafely(ids: List<UInt>, stamp: Long): Int = withContext(NonCancellable) {
         try {
-            suspendTransaction(database) {
-                val n = NotificationService.Notifications
-                queryTimeout = DIGEST_STATEMENT_TIMEOUT_SECONDS
-                n.update({ (n.id inList ids) and (n.emailedAt eq stamp) }) { it[emailedAt] = null }
-            }
+            store.release(ids, stamp)
         } catch (e: Exception) {
             log.warn("notification email digest could not release {} claim(s): {}", ids.size, e.scrubbedSummary())
             0
         }
     }
 
-    private suspend fun claim(now: Long): List<ClaimedNotice> = suspendTransaction(database) {
-        queryTimeout = bounds.statementTimeoutSeconds
-        val cutoff = LongColumnType() to now - delayMillis
-        val floor = LongColumnType() to now - MILLIS_PER_DAY
-        // The kinds whose email is OFF by default (every kind today): a person's stored opt-in is the only way one is due (V28).
-        val offByDefault = ArrayColumnType<String, List<String>>(TextColumnType()) to
-            NotificationType.entries.filter { !it.defaultOn(NotificationChannel.EMAIL) }.map { it.name }
-        val settled = TransactionManager.current().exec(
-            SETTLE,
-            listOf(cutoff, floor, IntegerColumnType() to bounds.scanCap, offByDefault, LongColumnType() to now),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType) }?.toList().orEmpty().size
-        if (settled > 0) log.info("notification email digest: {} notice(s) of a kind off for email or a gone account settled", settled)
-        val arguments = listOf(
-            cutoff,
-            floor,
-            ArrayColumnType<Long, List<Long>>(LongColumnType()) to mailedAt.keys.map { it.toLong() },
-            offByDefault,
-            IntegerColumnType() to bounds.scanCap,
-            IntegerColumnType() to peopleToClaim(batchSize, maxPerRun),
-            LongColumnType() to now,
-        )
-        TransactionManager.current().exec(CLAIM, arguments, explicitStatementType = StatementType.SELECT) { row ->
-            val type = NotificationType.entries.firstOrNull { it.name == row.get(5, String::class.java) }
-            type?.let {
-                ClaimedNotice(
-                    id = row.get(0, Int::class.javaObjectType)!!.toUInt(),
-                    recipientId = row.get(1, Long::class.javaObjectType)!!.toUInt(),
-                    roomId = row.get(2, Int::class.javaObjectType)!!.toUInt(),
-                    threadId = row.get(3, Int::class.javaObjectType)?.toUInt(),
-                    messageId = row.get(4, Int::class.javaObjectType)?.toUInt(),
-                    type = it,
-                    actorId = row.get(6, Long::class.javaObjectType)!!.toUInt(),
-                    rank = row.get(7, Long::class.javaObjectType)!!,
-                )
-            }
-        }?.toList().orEmpty().filterNotNull().sortedBy { it.id }
-    }
-
     /**
-     * The send-time re-check and the current names, in ONE read transaction; null when nothing is left to mail. The re-check (unseen,
-     * an active room of the person, the kind on, the thread there) runs on ALL of the person's [claimed] notices: the first
-     * [DIGEST_MAX_NOTICES_PER_RECIPIENT] survivors by rank become entries, the surviving rest is counted (dead notices neither hide
-     * live ones nor inflate it). The names are read now (a rename shows), for the entries only.
+     * Sweep integration seam. Expiry cleanup is isolated from both notice retention and pair reservation: a failure is scrubbed and
+     * reported as null, while cancellation still stops the sweep. The caller may invoke it on the hourly retention pass.
      */
-    private suspend fun resolve(recipientId: UInt, claimed: List<ClaimedNotice>): Mail? = suspendTransaction(database) {
-        val users = UserService.Users
-        val user = users.select(users.name, users.email, users.language)
-            .where { (users.id eq recipientId) and users.active() }.toList().singleOrNull()
-            ?: return@suspendTransaction null
-        val n = NotificationService.Notifications
-        val pending = claimed.map { it.id }.chunked(RECHECK_CHUNK).flatMap { chunk ->
-            n.select(n.id).where { (n.id inList chunk) and n.seenAt.isNull() }.map { it[n.id].value }.toList()
-        }.toSet()
-        val roomNames = memberRooms(recipientId).associate { it.id to it.name }
-        val switches = effectivePreferences(recipientId)
-        val kept = claimed.filter {
-            it.id in pending && it.roomId in roomNames && switches.on(it.type, NotificationChannel.EMAIL)
-        }
-        val threads = ThreadService.Threads
-        val numbers = kept.mapNotNull { it.threadId }.distinct().chunked(RECHECK_CHUNK).flatMap { chunk ->
-            threads.select(threads.id, threads.number).where { (threads.id inList chunk) and threadNotMutedBy(threads.id, recipientId) }
-                .map { it[threads.id].value to it[threads.number] }.toList()
-        }.toMap()
-        val survivors = kept.filter { it.threadId == null || it.threadId in numbers }.sortedBy { it.rank }
-        val grouped = groupDigestNotices(survivors)
-        if (grouped.isEmpty()) return@suspendTransaction null
-        val listed = grouped.take(DIGEST_MAX_NOTICES_PER_RECIPIENT)
-        val actors = userNames(listed.map { it.notice.actorId })
-        val teamNames = teamMentionNames(
-            recipientId,
-            listed.filter { it.notice.type == NotificationType.TEAM_MENTIONED }.mapNotNull { it.notice.messageId },
-        )
-        val entries = listed.map { groupedNotice ->
-            val notice = groupedNotice.notice
-            DigestEntry(
-                notice.type,
-                actors[notice.actorId].orEmpty(),
-                notice.roomId,
-                roomNames.getValue(notice.roomId),
-                notice.threadId?.let(numbers::getValue),
-                notice.messageId,
-                replyCount = groupedNotice.replyCount,
-                teamName = notice.messageId?.let(teamNames::get),
-            )
-        }
-        val email = notificationEmail(user[users.name], entries, appUrl, user[users.language], grouped.size - listed.size)
-        Mail(user[users.email], email.subject, email.body, grouped.size)
-    }
-
-    /** What one person is mailed, resolved at send time. */
-    private class Mail(val email: String, val subject: String, val body: String, val count: Int)
+    suspend fun purgeExpiredPacing(batchSize: Int = PACING_PURGE_BATCH): Int =
+        store.purgeExpiredPacing(clock() - actorRecipientIntervalMillis, batchSize)
 }

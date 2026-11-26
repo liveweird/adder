@@ -17,6 +17,20 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.21.0",
+    date: "2026-11-26",
+    en: `**Adder 1.21.0 — notification retention and email pacing**
+
+- Adder retains up to 5,000 unseen notifications for each person across rooms and delivery channels. Older unseen notifications expire first. Expiration does not mark the conversation read.
+- Email digests space notifications from the same sender to the same recipient by at least one hour. Other senders can still reach you at the regular digest interval.
+- Reading a busy thread and leaving a room now process notification cleanup in smaller database batches.`,
+    pl: `**Adder 1.21.0 — przechowywanie powiadomień i odstępy między e-mailami**
+
+- Adder zachowuje do 5000 niewidzianych powiadomień na osobę, łącznie ze wszystkich pokoi i kanałów. Starsze powiadomienia wygasają w pierwszej kolejności. Wygaśnięcie nie oznacza rozmowy jako przeczytanej.
+- Podsumowania e-mail uwzględniają powiadomienia od tej samej osoby do tego samego odbiorcy lub odbiorczyni w odstępach co najmniej godziny. Powiadomienia od innych osób nadal mogą trafiać do podsumowań w zwykłych odstępach.
+- Czytanie aktywnego wątku i opuszczanie pokoju porządkuje powiadomienia w mniejszych partiach w bazie danych.`,
+  },
+  {
     version: "1.20.0",
     date: "2026-11-26",
     en: `**Adder 1.20.0 — thread tags and message edit history**

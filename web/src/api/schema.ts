@@ -2297,7 +2297,9 @@ export interface paths {
         /**
          * List the caller's own notifications
          * @description Any authenticated caller, no further guard: the list is the caller's OWN notices, so there is nothing to hide and
-         *     nobody to probe. A notice is listed only while its recipient is an ACTIVE member of its room and the room is active (a deleted
+         *     nobody to probe. Up to 5,000 unseen notices are retained per recipient across rooms and channels. The oldest available
+         *     unseen notices expire first and their pending email or browser delivery is cancelled. Existing backlogs above the limit
+         *     are reduced in batches after supported upgrade or rollback recovery. A notice is listed only while its recipient is an ACTIVE member of its room and the room is active (a deleted
          *     room's notices are hidden; an archived room's are listed, and its link opens it read-only), **an `ADMIN` included**: an `ADMIN`
          *     who is not a member of a room has none of its notices. A member who is removed from a room, or leaves it, loses that room's
          *     notices for good (they are deleted with the membership, so rejoining starts clean), and a deleted message, or a mention an edit
@@ -2490,7 +2492,7 @@ export interface paths {
         put?: never;
         /**
          * Mark every unseen notification of the caller seen
-         * @description Any authenticated caller: every unseen notice of the CALLER, nobody else's. A `204` even when none was unseen. Rides the per-USER
+         * @description Any authenticated caller: every retained unseen notice of the caller. A `204` even when none was unseen. Rides the per-USER
          *     `read-state` bucket of 240 per minute (`429` beyond it; spent before anything else). View state: it is not audited and emits no
          *     live event; the caller's other tabs of the same browser re-read the bell count (a `BroadcastChannel`, no server part), other devices catch up on focus. No request body.
          */
@@ -4331,7 +4333,7 @@ export interface components {
             roomMembership?: components["schemas"]["RoomMembershipNotificationPreference"];
         };
         /**
-         * @description The way a notice reaches a person. Every kind has a switch for each; none is locked on.
+         * @description Delivery channel for room notifications. Enabled notification email is sent in digests. Each actor and recipient pair has at least one hour between recorded delivery attempts across rooms. Tracking begins with attempts made after upgrading. Paced notices remain pending until eligible or expired. A failed delivery attempt also starts the interval. In-app and browser notifications do not depend on digest pacing.
          * @enum {string}
          */
         NotificationChannel: "EMAIL" | "IN_APP";
@@ -8096,7 +8098,7 @@ export interface operations {
                 seen?: boolean;
                 /** @description Repeatable. Omitted includes every kind. */
                 type?: components["schemas"]["NotificationFeedType"][];
-                /** @description Collapse the newest 5,000 eligible unseen plain replies per room/thread; older replies remain unseen for later pages after groups clear. */
+                /** @description Collapse eligible unseen plain replies per room and thread within the shared unseen retention limit. */
                 groupReplies?: boolean;
                 /** @description 1-based page index. Defaults to 1. */
                 page?: components["parameters"]["Page"];

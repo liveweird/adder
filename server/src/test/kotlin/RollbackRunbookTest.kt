@@ -54,6 +54,45 @@ class RollbackRunbookTest {
     }
 
     @Test
+    fun `the notification reflag repairs a backlog made by an old binary and is safe to repeat`() {
+        val reflag = sqlBlockWith("INSERT INTO notification_recipient_guards")
+        val marker = UUID.randomUUID().toString().take(8)
+        PostgresTestSupport.connect().use { c ->
+            c.autoCommit = false
+            try {
+                val recipient = c.user(marker, "recipient")
+                val room = c.scalar(
+                    "INSERT INTO rooms (\"name\", last_activity_at, created_at, updated_at) VALUES (?, 1, 1, 1) RETURNING id",
+                    "Runbook $marker",
+                )
+                c.exec(
+                    "INSERT INTO room_statuses (room_id, \"key\", label, colour, category, is_initial, position) " +
+                        "VALUES ($room, 'open', 'Open', 'BLUE', 'OPEN', TRUE, 0)",
+                )
+                c.exec("INSERT INTO room_members (room_id, user_id, \"role\", added_at) VALUES ($room, $recipient, 'MEMBER', 1)")
+                val thread = c.scalar(
+                    "INSERT INTO threads (room_id, \"number\", title, status_key, owner_id, created_by, last_activity_at, created_at, " +
+                        "updated_at) VALUES ($room, 1, 'T', 'open', $recipient, $recipient, 1, 1, 1) RETURNING id",
+                )
+                c.exec("INSERT INTO notification_recipient_guards (recipient_id) VALUES ($recipient)")
+                c.exec(
+                    "INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, created_at) " +
+                        "SELECT $recipient, $room, 'THREAD_ASSIGNED', $recipient, $thread, n FROM generate_series(1, 5001) AS n",
+                )
+
+                val flags = "SELECT count(*) FROM notification_recipient_guards WHERE recipient_id = $recipient AND needs_normalization"
+                assertEquals(0L, c.scalar(flags), "the old writer never flagged its excess")
+                repeat(2) {
+                    c.exec(reflag)
+                    assertEquals(1L, c.scalar(flags))
+                }
+            } finally {
+                c.rollback()
+            }
+        }
+    }
+
+    @Test
     fun `the email-off seed writes an explicit off row per account and kind, keeps an opt-in, and mails nobody`() {
         val seed = sqlBlockWith("user_notification_preferences")
         val marker = UUID.randomUUID().toString().take(8)

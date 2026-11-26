@@ -18,7 +18,8 @@ private const val EMAIL_ON = """COALESCE(
 
 /**
  * The notices a digest may mail, one fragment for the claim (alias `c`, four parameters: the delay cutoff, the day floor, the people
- * inside the interval, the kinds off for email by default): unseen, unclaimed, older than the delay, younger than a day (nothing older is
+ * inside the interval, the actor-recipient pacing cutoff, the kinds off for email by default): unseen, unclaimed, older than the delay,
+ * younger than a day (nothing older is
  * ever mailed), of an ACTIVE account, of a kind whose email switch is ON for the person ([EMAIL_ON]: an opt-in, since every kind is off by
  * default), and not of a person already mailed within the interval (their notices stay unclaimed and ride one later email). A notice
  * that shows only by email (`in_app = false`) is due like any other.
@@ -26,6 +27,10 @@ private const val EMAIL_ON = """COALESCE(
 private const val DUE = """c.seen_at IS NULL AND c.emailed_at IS NULL
       AND c.created_at <= CAST(? AS int8) AND c.created_at > CAST(? AS int8)
       AND c.recipient_id <> ALL(CAST(? AS int8[]))
+      AND NOT EXISTS (
+          SELECT 1 FROM notification_email_pacing pacing
+          WHERE pacing.actor_id = c.actor_id AND pacing.recipient_id = c.recipient_id
+            AND pacing.attempted_at > CAST(? AS int8))
       AND EXISTS (SELECT 1 FROM users u WHERE u.id = c.recipient_id AND u.marked_as_deleted = false)
       AND $EMAIL_ON"""
 

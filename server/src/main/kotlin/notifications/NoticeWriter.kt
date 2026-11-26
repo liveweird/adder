@@ -17,16 +17,11 @@ import ch.nokillswit.threads.ThreadNotices
 import ch.nokillswit.threads.mutedInThread
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
-import org.jetbrains.exposed.v1.core.ArrayColumnType
-import org.jetbrains.exposed.v1.core.IntegerColumnType
-import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 
 /**
  * The chat's [ThreadNotices] port (`chat-model.md` "Notifications (V18)", "Notice kinds (V27, V28)"): the WRITE side of the notices. A
@@ -53,12 +48,17 @@ internal class NoticeWriter(
     private val digestDelayMillis: Long = DEFAULT_DIGEST_DELAY_MILLIS,
     /** False when the deployment has no VAPID configuration; disabled push must not accumulate undeliverable queue rows. */
     private val pushAvailable: Boolean = false,
+    private val retention: NotificationRetention = NotificationRetention(),
 ) : ThreadNotices, RoomNotices {
     private val judger = NoticeJudge(mailAvailable)
-    private val persistence = NoticePersistence(digestDelayMillis, pushAvailable)
+    private val persistence = NoticePersistence(digestDelayMillis)
+    private val seenWriter = NoticeSeenWriter(retention)
 
-    override suspend fun forMessage(at: MessageRef, byUserId: UInt, notices: List<Notice>): NoticeOutcome =
-        make(at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, notices)
+    override suspend fun forMessage(at: MessageRef, byUserId: UInt, notices: List<Notice>): NoticeOutcome {
+        val recipients = recipientsOf(notices, byUserId)
+        retention.lockRecipients(recipients)
+        return make(at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, notices, lockedRecipients = recipients)
+    }
 
     override suspend fun reactionChanged(
         at: MessageRef,
@@ -68,6 +68,7 @@ internal class NoticeWriter(
     ): NoticeOutcome {
         if (authorId == byUserId) return NoticeOutcome.NONE
         if (reacting) {
+            retention.lockRecipients(listOf(authorId))
             return deliver(
                 at.roomId,
                 at.threadId,
@@ -75,6 +76,7 @@ internal class NoticeWriter(
                 at.messageId,
                 byUserId,
                 listOf(Notice(authorId, NoticeReason.REACTION_ADDED)),
+                retentionRecipients = listOf(authorId),
             )
         }
         val n = Notifications
@@ -102,18 +104,27 @@ internal class NoticeWriter(
         byUserId: UInt,
         notices: List<Notice>,
         eventId: UInt?,
-    ): NoticeOutcome = make(roomId, threadId, threadNumber, null, byUserId, notices, eventId)
+    ): NoticeOutcome {
+        val recipients = recipientsOf(notices, byUserId)
+        retention.lockRecipients(recipients)
+        return make(roomId, threadId, threadNumber, null, byUserId, notices, eventId, recipients)
+    }
 
     override suspend fun membersAdded(roomId: UInt, actorId: UInt, recipients: List<UInt>, named: Set<UInt>): Int {
         val type = NotificationType.ROOM_ADDED
         val people = recipients.filterNot { it == actorId }
+        retention.lockRecipients(people)
         val audience = roomNoticeAudience(roomId, actorId, people, named)
         val preferences = effectivePreferencesOf(audience, listOf(type))
         val deliveries = withinEmailBudget(actorId, roomId, audience.mapNotNull { judger.judge(it, type, preferences) })
         if (deliveries.isEmpty()) return 0
-        val made = persistence.insert(roomId, null, null, actorId, nowMillis(), deliveries).map { it.first }.toSet()
-        announce(deliveries.filter { it.inApp && it.userId in made }.map { it.userId }, roomId, null, null)
-        return made.size
+        val made = persistence.insert(roomId, null, null, actorId, nowMillis(), deliveries)
+        val retained = retention.trimLocked(people, made)
+        if (pushAvailable) enqueueBrowserPush(retained.survivors.map { it.notificationId })
+        val survivors = retained.survivors.map { it.userId }.toSet()
+        val targets = deliveries.filter { it.inApp && it.userId in survivors }.map { it.userId } + retained.bellChanged
+        announce(targets, roomId, null, null)
+        return retained.survivors.size
     }
 
     private suspend fun roomNoticeAudience(roomId: UInt, actorId: UInt, people: List<UInt>, named: Set<UInt>): List<UInt> {
@@ -143,6 +154,9 @@ internal class NoticeWriter(
      * row stays only while its kind is still one of the body's reasons for the person, and is otherwise relabelled in place.
      */
     override suspend fun reviseMessage(at: MessageRef, byUserId: UInt, revision: NoticeRevision): NoticeOutcome {
+        val recipients = (revision.add.map { it.userId } + revision.relabel.map { it.userId } + revision.remove)
+            .filterNot { it == byUserId }.distinct()
+        retention.lockRecipients(recipients)
         val relabelled = judger.relabel(at.messageId, revision.relabel)
         val candidates = distinctOthers(revision.add, byUserId)
         val full = candidates.associateBy { it.userId }
@@ -170,7 +184,9 @@ internal class NoticeWriter(
         deleteNotices(at.messageId, (removing.filter { it !in replacing } + relabelled.deleted + early.deleted).toSet())
         var late = NoticeJudge.Relabelled(emptyList(), emptyList())
         val hints = if (admitted) relabelled.changedBell + early.changedBell else emptyList()
-        val outcome = deliver(at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, add, hints) { delivered ->
+        val outcome = deliver(
+            at.roomId, at.threadId, at.threadNumber, at.messageId, byUserId, add, hints, retentionRecipients = recipients,
+        ) { delivered ->
             deleteNotices(at.messageId, replacing.filter { it in delivered }.toSet())
             late = judger.relabel(at.messageId, replacing.filter { it !in delivered && stale(it) }.map { full.getValue(it) })
             deleteNotices(at.messageId, late.deleted.toSet())
@@ -221,41 +237,15 @@ internal class NoticeWriter(
         announce(recipients, roomId, null, null)
     }
 
-    override suspend fun threadRead(threadId: UInt, userId: UInt, upToMessageId: UInt, at: Long) {
-        val int = IntegerColumnType()
-        val long = LongColumnType()
-        TransactionManager.current().exec(
-            MARK_THREAD_SEEN_SQL,
-            listOf(long to at, long to userId.toLong(), int to threadId.toInt(), int to upToMessageId.toInt()),
-        )
-    }
+    override suspend fun threadRead(threadId: UInt, userId: UInt, upToMessageId: UInt, at: Long) =
+        seenWriter.threadRead(threadId, userId, upToMessageId, at)
 
-    override suspend fun roomUnseenCeiling(roomId: UInt, userId: UInt): UInt? {
-        val rows = TransactionManager.current().exec(
-            ROOM_UNSEEN_CEILING_SQL,
-            listOf(LongColumnType() to userId.toLong(), IntegerColumnType() to roomId.toInt()),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType)?.toUInt() }
-        return rows?.toList().orEmpty().singleOrNull()
-    }
+    override suspend fun prepareMemberRemoval(roomId: UInt, userId: UInt) = seenWriter.prepareMemberRemoval(roomId, userId)
 
-    override suspend fun roomSeenChunk(roomId: UInt, userId: UInt, at: Long, after: UInt, ceiling: UInt, limit: Int): SeenChunk {
-        val int = IntegerColumnType()
-        val long = LongColumnType()
-        val transaction = TransactionManager.current()
-        val ids = transaction.exec(
-            ROOM_SEEN_CHUNK_IDS_SQL,
-            listOf(long to userId.toLong(), int to roomId.toInt(), int to after.toInt(), int to ceiling.toInt(), long to at, int to limit),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType)!! }?.toList().orEmpty().filterNotNull()
-        if (ids.isEmpty()) return SeenChunk(0, 0, null)
-        val moved = transaction.exec(
-            MARK_IDS_SEEN_SQL,
-            listOf(long to at, long to userId.toLong(), ArrayColumnType<Int, List<Int>>(int) to ids),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType)!! }?.toList().orEmpty()
-        return SeenChunk(ids.size, moved.size, ids.last().toUInt())
-    }
+    override suspend fun roomUnseenCeiling(roomId: UInt, userId: UInt): UInt? = seenWriter.roomUnseenCeiling(roomId, userId)
+
+    override suspend fun roomSeenChunk(roomId: UInt, userId: UInt, at: Long, after: UInt, ceiling: UInt, limit: Int): SeenChunk =
+        seenWriter.roomSeenChunk(roomId, userId, at, after, ceiling, limit)
 
     /**
      * The one path every notice takes: filter (never the actor, a person once), the wide-event budget, judge the channels (with the
@@ -270,13 +260,20 @@ internal class NoticeWriter(
         actorId: UInt,
         notices: List<Notice>,
         eventId: UInt? = null,
+        lockedRecipients: Collection<UInt>,
     ): NoticeOutcome {
         val wanted = withinBroadcastBudget(distinctOthers(notices, actorId), roomId, actorId)
-        return deliver(roomId, threadId, threadNumber, messageId, actorId, wanted, eventId = eventId)
+        return deliver(
+            roomId, threadId, threadNumber, messageId, actorId, wanted, eventId = eventId,
+            retentionRecipients = lockedRecipients,
+        )
     }
 
     /** [notices] without the actor and with a person once (the first of a person wins: the most specific reason is listed first). */
     private fun distinctOthers(notices: List<Notice>, actorId: UInt) = notices.filter { it.userId != actorId }.distinctBy { it.userId }
+
+    private fun recipientsOf(notices: List<Notice>, actorId: UInt): List<UInt> =
+        distinctOthers(notices, actorId).map { it.userId }
 
     /**
      * What [make] does once the wide-event budget has chosen the audience [wanted]: judge the channels (with the fallbacks), coalesce a
@@ -294,6 +291,7 @@ internal class NoticeWriter(
         wanted: List<Notice>,
         extraTargets: List<UInt> = emptyList(),
         eventId: UInt? = null,
+        retentionRecipients: Collection<UInt>,
         beforeInsert: suspend (Set<UInt>) -> List<UInt> = { emptyList() },
     ): NoticeOutcome {
         val muted = mutedInThread(threadId)
@@ -309,7 +307,7 @@ internal class NoticeWriter(
         } else {
             emptyList()
         }
-        val refreshedIds = refreshed.map { it.first }.toSet()
+        val refreshedIds = refreshed.map { it.userId }.toSet()
         val fresh = candidates.filter { it.userId !in refreshedIds }
         val deliveries = withinEmailBudget(actorId, roomId, fresh)
         val late = beforeInsert(deliveries.map { it.userId }.toSet())
@@ -318,13 +316,16 @@ internal class NoticeWriter(
         } else {
             persistence.insert(roomId, threadId, messageId, actorId, now, deliveries, eventId)
         }
-        val madeIds = made.map { it.first }.toSet()
+        val retained = retention.trimLocked(retentionRecipients, refreshed + made)
+        if (pushAvailable) enqueueBrowserPush(retained.survivors.map { it.notificationId })
+        val madeIds = retained.survivors.map { it.userId }.toSet()
         // The hint's targets keep the audience's priority order, the rows made and the rows refreshed alike.
         val shown = deliveries.filter { it.inApp && it.userId in madeIds }.map { it.userId }.toSet() +
-            refreshed.filter { it.third }.map { it.first }
-        val targets = candidates.map { it.userId }.filter { it in shown } + extraTargets + late
-        announce(targets.filterNot { it in muted }, roomId, threadNumber, messageId)
-        val reasons = (made + refreshed.map { it.first to it.second }).map { (user, type) -> user to checkNotNull(type.toNoticeReason()) }
+            retained.survivors.filter { it.inApp }.map { it.userId }
+        val visibleChanges = (candidates.map { it.userId }.filter { it in shown } + extraTargets + late).filterNot { it in muted }
+        // Retention can remove an older bell row in another room; that invalidation is required even when this thread is muted.
+        announce(visibleChanges + retained.bellChanged, roomId, threadNumber, messageId)
+        val reasons = retained.survivors.map { it.userId to checkNotNull(it.type.toNoticeReason()) }
         if (reasons.isEmpty()) return NoticeOutcome.NONE
         return NoticeOutcome(
             recipients = reasons.size,

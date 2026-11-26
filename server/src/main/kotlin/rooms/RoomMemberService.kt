@@ -220,8 +220,12 @@ class RoomMemberService(
      */
     suspend fun remove(roomId: UInt, userId: UInt, caller: CallerPrincipal, guard: RoomGuard) {
         database.withRoomWrite(roomId, caller, guard) { _, standing ->
+            // A read marker locks this row before touching notice rows. Match that order before taking the recipient guard so removal
+            // cannot hold the guard (or delete notices) while waiting for the reader's membership lock.
+            if (!lockMembershipForRemoval(roomId, userId)) throw NotFoundException("Member not found")
             val current = activeRole(roomId, userId) ?: throw NotFoundException("Member not found")
             if (current == RoomRole.OWNER) requireOtherActiveOwner(roomId, userId)
+            notices.prepareMemberRemoval(roomId, userId)
             members.deleteWhere { (RoomService.RoomMembers.roomId eq roomId) and (RoomService.RoomMembers.userId eq userId) }
             notifyLive(
                 LiveHint(
@@ -233,6 +237,12 @@ class RoomMemberService(
             )
         }
     }
+
+    private suspend fun lockMembershipForRemoval(roomId: UInt, userId: UInt): Boolean =
+        members.select(members.userId)
+            .where { (members.roomId eq roomId) and (members.userId eq userId) }
+            .forUpdate(ForUpdateOption.PostgreSQL.ForUpdate())
+            .toList().isNotEmpty()
 
     /**
      * The last-OWNER rule: after the write at least one OWNER other than [userId] whose user is active must remain (else `409`).

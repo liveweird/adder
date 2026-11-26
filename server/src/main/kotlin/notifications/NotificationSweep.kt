@@ -53,18 +53,25 @@ internal class NotificationSweep(
     private val digest: suspend () -> Unit = {},
     /** Browser push claims and sends; a no-op when VAPID is not configured. */
     private val push: suspend () -> Unit = {},
+    private val normalizeUnseen: suspend () -> Int = { 0 },
+    private val purgeExpiredPacing: suspend () -> Unit = {},
 ) {
     /** When the last purge ran, or null before the first; touched by the sweep's own coroutine alone. */
     private var lastPurgeAt: Long? = null
 
     /**
-     * One tick: runs the email digest (every tick; a failure is logged, scrubbed, and never stops the purge), then purges when the last
+     * One tick runs bounded inbox and email pacing maintenance before email and push delivery, then purges by age if the last
      * purge is an hour old (or there was none). Answers how many notices went, or null when nothing was due or the purge failed (logged,
      * scrubbed). `internal` for the tests.
      */
     suspend fun tick(): Int? {
-        catchingFailures(block = { digest() }, onFailure = { e -> log.warn("notification email digest failed: {}", e.scrubbedSummary()) })
-        catchingFailures(block = { push() }, onFailure = { e -> log.warn("browser push delivery failed: {}", e.scrubbedSummary()) })
+        runStep("unseen notification normalization") {
+            val removed = normalizeUnseen()
+            if (removed > 0) log.info("unseen notification normalization: {} notice(s) deleted", removed)
+        }
+        runStep("notification email pacing retention", purgeExpiredPacing)
+        runStep("notification email digest", digest)
+        runStep("browser push delivery", push)
         val now = clock()
         val last = lastPurgeAt
         if (last != null && now - last < PURGE_EVERY_MILLIS) return null
@@ -80,6 +87,10 @@ internal class NotificationSweep(
                 null
             },
         )
+    }
+
+    private suspend fun runStep(name: String, action: suspend () -> Unit) {
+        catchingFailures(block = { action() }, onFailure = { e -> log.warn("{} failed: {}", name, e.scrubbedSummary()) })
     }
 }
 
@@ -124,9 +135,12 @@ fun Application.configureNotificationSweep() {
         val pushSender = pushTransport?.let {
             BrowserPushSender(pushService, it, pushMaxPerRun, clock = ::nowMillis)
         }
+        val notifications = app.attributes[NotificationServiceKey]
         val sweep = NotificationSweep(
             retentionDays * MILLIS_PER_DAY,
-            purge = { app.attributes[NotificationServiceKey].purgeOlderThan(it) },
+            purge = { notifications.purgeOlderThan(it) },
+            normalizeUnseen = { notifications.normalizeLegacyUnseen() },
+            purgeExpiredPacing = { digest.purgeExpiredPacing() },
             digest = { digest.run() },
             push = {
                 if (pushSender != null) pushSender.run()
