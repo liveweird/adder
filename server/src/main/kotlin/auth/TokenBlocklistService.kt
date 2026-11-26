@@ -1,7 +1,5 @@
 package ch.nokillswit.auth
 
-import ch.nokillswit.infra.db.nowMillis
-import ch.nokillswit.infra.notify.notifyLiveAccount
 import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService.Users
 import ch.nokillswit.users.asAdditionalRoles
@@ -29,13 +27,13 @@ enum class RefreshClaim {
     /** This call blocklisted the token: mint a pair. */
     CLAIMED,
 
-    /** Rotated less than the grace window ago by this instance, at most [MAX_GRACE_REUSES] times: mint a pair again. */
+    /** Rotated less than the shared grace window ago, at most [MAX_GRACE_REUSES] aggregate times: mint a pair again. */
     GRACE_REPLAY,
 
     /** Rotated longer ago, or the grace's re-mints are used up (and still remembered): a replay. */
     REPLAYED,
 
-    /** Blocklisted by something else, or the rotation is not remembered (logout, restart, full record): revoked. */
+    /** Blocklisted by something else, or the bounded rotation record was not retained: revoked. */
     REVOKED,
 }
 
@@ -62,8 +60,8 @@ enum class AccessVerdict {
 
 class TokenBlocklistService(
     private val database: R2dbcDatabase,
-    private val clock: () -> Long = ::nowMillis,
-    private val replayGraceMillis: Long = REFRESH_REPLAY_GRACE_MS,
+    replayGraceMillis: Long = REFRESH_REPLAY_GRACE_MS,
+    maxRotationRecords: Int = MAX_ROTATION_RECORDS,
 ) {
     object RevokedTokens : Table("revoked_tokens") {
         val jti = varchar("jti", 36)
@@ -71,39 +69,36 @@ class TokenBlocklistService(
         override val primaryKey = PrimaryKey(jti)
     }
 
-    // Which refresh jtis this instance rotated (auth/RefreshRotations.kt): drives the replay grace and
-    // tells a replay from a logout revocation. In memory, per instance, bounded; a restart loses it.
-    private val rotations = RefreshRotations(clock, replayGraceMillis)
+    private val rotations = RefreshRotationStore(database, replayGraceMillis, maxRotationRecords)
 
-    /** True while [jti] was rotated by this instance less than the grace window ago with a re-mint left. */
-    fun inReplayGrace(jti: String): Boolean = rotations.inGrace(jti)
-
-    /** True when this instance remembers rotating [jti] (inside or outside the grace). */
-    fun wasRotated(jti: String): Boolean = rotations.remembers(jti)
-
-    /** Logout ends the grace of every refresh token this instance rotated for [userId]: a later replay is `revoked`. */
-    fun forgetRotations(userId: Long) = rotations.forget(userId)
+    /** Cheap shared standing check before `/refresh` loads the account. It never consumes grace. */
+    internal suspend fun refreshPrecheck(jti: String): RefreshPrecheck = rotations.precheck(jti)
 
     /**
-     * The rotation step of `/refresh`: the atomic claim of [jti] (see [insertRevocation]), then the verdict.
-     * Only the call that inserted the row is [RefreshClaim.CLAIMED]; the rotation is recorded inside the
-     * claim's transaction, before its commit, so a racing loser is deterministically answered by the grace.
+     * The rotation step of `/refresh`: atomically claim [jti], durably record the rotation, then answer the shared verdict.
+     * Only the call that inserted the denylist row is [RefreshClaim.CLAIMED]; a racing loser waits for that transaction and then
+     * consumes one aggregate grace response.
      * A replay is [RefreshClaim.GRACE_REPLAY] inside the grace and [RefreshClaim.REPLAYED]/[RefreshClaim.REVOKED] beyond it.
      */
-    suspend fun claimRefresh(jti: String, expiresAtEpochMillis: Long, userId: Long): RefreshClaim =
-        if (insertRevocation(jti, expiresAtEpochMillis) { rotations.record(jti, userId, expiresAtEpochMillis) }) {
-            RefreshClaim.CLAIMED
-        } else {
-            rotations.replay(jti)
-        }
+    suspend fun claimRefresh(jti: String, expiresAtEpochMillis: Long, userId: UInt): RefreshClaim =
+        rotations.claim(jti, expiresAtEpochMillis, userId)
 
+    /** Quiet generic revocation used outside logout; it creates no account notification. */
     suspend fun revoke(jti: String, expiresAtEpochMillis: Long) {
         revokeIfAbsent(jti, expiresAtEpochMillis)
     }
 
-    /** Logout-only access-token revocation: the row and its prompt commit or roll back together. Refresh revocations stay quiet. */
+    /** Logout-only access-token revocation retained for the account-notify contract test. */
     suspend fun revokeAccess(userId: UInt, jti: String, expiresAtEpochMillis: Long): Boolean =
-        insertRevocation(jti, expiresAtEpochMillis) { notifyLiveAccount(userId) }
+        rotations.logout(userId, jti, expiresAtEpochMillis, refresh = null)
+
+    /** One atomic logout: exact access token, optional verified refresh token, and both accounts' refresh grace. */
+    internal suspend fun logoutSession(
+        accessUserId: UInt,
+        accessJti: String,
+        accessExpiresAtMillis: Long,
+        refresh: RefreshTokenRevocation?,
+    ): Boolean = rotations.logout(accessUserId, accessJti, accessExpiresAtMillis, refresh)
 
     /**
      * Blocklists [jti] and reports whether THIS call inserted the row. The insert is one
@@ -113,21 +108,9 @@ class TokenBlocklistService(
      * is the replay signal: the row exists, whoever wrote it.
      */
     suspend fun revokeIfAbsent(jti: String, expiresAtEpochMillis: Long): Boolean =
-        insertRevocation(jti, expiresAtEpochMillis) {}
+        rotations.revokeStrict(jti, expiresAtEpochMillis)
 
-    // [onInserted] runs inside the transaction, right after this call's insert took the row and before the commit.
-    private suspend fun insertRevocation(jti: String, expiresAtEpochMillis: Long, onInserted: suspend () -> Unit): Boolean =
-        suspendTransaction(database) {
-            RevokedTokens.deleteWhere { expiresAt less nowMillis() }
-            val inserted = RevokedTokens.insertIgnore {
-                it[RevokedTokens.jti] = jti
-                it[RevokedTokens.expiresAt] = expiresAtEpochMillis
-            }.insertedCount > 0
-            if (inserted) onInserted()
-            inserted
-        }
-
-    /** Whether [jti] is on the blocklist: one plain select, never cached (`/refresh`'s fast path; requests use [accessVerdict]). */
+    /** Whether [jti] is on the blocklist: one plain select, never cached (requests use [accessVerdict]). */
     suspend fun isRevoked(jti: String): Boolean = suspendTransaction(database) {
         RevokedTokens.select(RevokedTokens.jti).where { RevokedTokens.jti eq jti }.firstOrNull() != null
     }

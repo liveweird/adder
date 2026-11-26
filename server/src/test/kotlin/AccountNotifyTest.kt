@@ -70,15 +70,25 @@ class AccountNotifyTest {
             }
             assertEquals(listOf(LiveNotification.Account(id)), resetNotifications)
 
-            val blocklist = newTokenBlocklistService(System::currentTimeMillis)
+            val blocklist = newTokenBlocklistService()
             val genericRevocation = capture.duringNotifications {
-                blocklist.revoke(UUID.randomUUID().toString(), System.currentTimeMillis() + 60_000)
+                blocklist.revokeIfAbsent(UUID.randomUUID().toString(), System.currentTimeMillis() + 60_000)
             }
             assertEquals(emptyList(), genericRevocation, "refresh-token revocations stay quiet")
             val accessRevocation = capture.duringNotifications {
                 blocklist.revokeAccess(id, UUID.randomUUID().toString(), System.currentTimeMillis() + 60_000)
             }
             assertEquals(listOf(LiveNotification.Account(id)), accessRevocation)
+            val rolledBackRevocation = capture.duringNotifications {
+                val failure = runCatching {
+                    suspendTransaction(sharedDatabaseForTests()) {
+                        blocklist.revokeAccess(id, UUID.randomUUID().toString(), System.currentTimeMillis() + 60_000)
+                        error("force logout rollback")
+                    }
+                }.exceptionOrNull()
+                assertTrue(failure is IllegalStateException)
+            }
+            assertEquals(emptyList(), rolledBackRevocation, "a rolled-back logout publishes no account prompt")
 
             val deleted = capture.duringNotifications {
                 assertEquals(

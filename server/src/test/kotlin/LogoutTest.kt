@@ -1,6 +1,8 @@
 package ch.nokillswit
 
 import ch.nokillswit.auth.LoginResponse
+import ch.nokillswit.auth.LogoutRequest
+import ch.nokillswit.auth.RefreshRequest
 import ch.nokillswit.infra.outbound.PushSubscriptionRevoker
 import ch.nokillswit.infra.outbound.PushSubscriptionRevokerKey
 import ch.qos.logback.classic.Level
@@ -184,5 +186,29 @@ class LogoutTest {
             logger.level = originalLevel
             appLog.detach()
         }
+    }
+
+    @Test
+    fun `a signed access token in the optional refresh field is not revoked as a refresh credential`() = testApplication {
+        usePostgresTestcontainer()
+        val firstEmail = uniqueEmail("logout-body-access-a")
+        val secondEmail = uniqueEmail("logout-body-access-b")
+        TestUsers.seed(firstEmail, "pw")
+        TestUsers.seed(secondEmail, "pw")
+        val client = jsonClient()
+        val first = client.login(firstEmail, "pw").body<LoginResponse>()
+        val second = client.login(secondEmail, "pw").body<LoginResponse>()
+
+        val response = client.post("/api/v1/logout") {
+            header(HttpHeaders.Authorization, "Bearer ${first.token}")
+            contentType(ContentType.Application.Json)
+            setBody(LogoutRequest(second.token))
+        }
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals(
+            HttpStatusCode.OK,
+            client.postJson("/api/v1/refresh", RefreshRequest(second.refreshToken)).status,
+            "only a verified refresh token in the body is part of logout",
+        )
     }
 }

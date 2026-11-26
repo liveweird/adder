@@ -209,9 +209,12 @@ suspend fun assertStartupFails(messagePart: String, start: suspend () -> Unit) {
     kotlin.test.assertTrue(messagePart in messages, "unexpected startup failure: $messages")
 }
 
-/** A fresh blocklist service (own cache) over the shared container DB, with an injected clock. */
-internal fun newTokenBlocklistService(clock: () -> Long): ch.nokillswit.auth.TokenBlocklistService =
-    ch.nokillswit.auth.TokenBlocklistService(sharedTestDatabase, clock)
+/** A fresh blocklist service over the shared container DB, optionally with smaller test-only grace/cap bounds. */
+internal fun newTokenBlocklistService(
+    replayGraceMillis: Long = ch.nokillswit.auth.REFRESH_REPLAY_GRACE_MS,
+    maxRotationRecords: Int = ch.nokillswit.auth.MAX_ROTATION_RECORDS,
+): ch.nokillswit.auth.TokenBlocklistService =
+    ch.nokillswit.auth.TokenBlocklistService(sharedTestDatabase, replayGraceMillis, maxRotationRecords)
 
 internal fun newPasswordResetService(ttlMillis: Long = 900_000, clock: () -> Long = System::currentTimeMillis) =
     ch.nokillswit.auth.PasswordResetService(sharedTestDatabase, ttlMillis, clock)
