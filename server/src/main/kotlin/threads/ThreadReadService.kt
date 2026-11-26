@@ -3,12 +3,14 @@ package ch.nokillswit.threads
 import ch.nokillswit.infra.JsonUInt
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.NotFoundException
+import ch.nokillswit.infra.db.OperationLease
+import ch.nokillswit.infra.db.OperationLeaseService
+import ch.nokillswit.infra.db.SharedOperation
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.plugins.RateLimitAuditThrottle
 import ch.nokillswit.rooms.RoomMemberService
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.toList
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.v1.core.and
@@ -41,6 +43,7 @@ class ThreadReadService internal constructor(
     private val database: R2dbcDatabase,
     private val members: RoomMemberService,
     private val notices: ThreadNotices,
+    private val operationLeases: OperationLeaseService,
 ) {
     /**
      * Records that [userId] has read thread [number] of room [roomId] up to message [messageId], in ONE transaction without the room lock:
@@ -88,24 +91,26 @@ class ThreadReadService internal constructor(
      * line, COALESCED to one a minute per person (`suppressed` carries the refusals folded since the last line).
      */
     suspend fun markRoomRead(roomId: UInt, userId: UInt, chunk: Int = ROOM_SEEN_CHUNK): Int {
-        if (!inFlight.add(userId)) {
-            busyAudit.admit("read.busy:read-all:$userId")?.let { suppressed ->
-                audit(
-                    "read.busy",
-                    "byUserId" to userId.toLong(),
-                    "roomId" to roomId.toLong(),
-                    "resource" to "read-all",
-                    "limit" to "user",
-                    "suppressed" to suppressed,
-                )
-            }
-            throw readAllBusy()
-        }
+        val lease = operationLeases.tryAcquire(SharedOperation.READ_ALL, userId) ?: refuseBusy(roomId, userId)
         try {
-            return raiseAndSettle(roomId, userId, chunk)
+            return raiseAndSettle(roomId, userId, chunk, lease)
         } finally {
-            inFlight.remove(userId)
+            operationLeases.releaseNonCancellable(lease)
         }
+    }
+
+    private fun refuseBusy(roomId: UInt, userId: UInt): Nothing {
+        busyAudit.admit("read.busy:read-all:$userId")?.let { suppressed ->
+            audit(
+                "read.busy",
+                "byUserId" to userId.toLong(),
+                "roomId" to roomId.toLong(),
+                "resource" to "read-all",
+                "limit" to "user",
+                "suppressed" to suppressed,
+            )
+        }
+        throw readAllBusy()
     }
 
     /**
@@ -113,7 +118,7 @@ class ThreadReadService internal constructor(
      * strikes right after it commits still leaves the one `complete=false` line. `floorRaised` is the last statement of step 1's block,
      * so a `404` (no membership row) and a failure before the raise write nothing; a commit that then fails writes one spurious line.
      */
-    private suspend fun raiseAndSettle(roomId: UInt, userId: UInt, chunk: Int): Int {
+    private suspend fun raiseAndSettle(roomId: UInt, userId: UInt, chunk: Int, lease: OperationLease): Int {
         var settled = 0
         var floorRaised = false
         var finished = false
@@ -126,13 +131,14 @@ class ThreadReadService internal constructor(
         )
         try {
             val (at, ceiling) = suspendTransaction(database) {
+                if (!operationLeases.renewInCurrentTransaction(lease)) refuseBusy(roomId, userId)
                 val at = nowMillis()
                 if (!members.markAllReadInTransaction(roomId, userId, at)) throw NotFoundException("Room not found")
                 val ceiling = notices.roomUnseenCeiling(roomId, userId)
                 floorRaised = true
                 at to ceiling
             }
-            settleChunks(roomId, userId, at, ceiling, chunk) { settled += it }
+            settleChunks(roomId, userId, at, ceiling, chunk, lease) { settled += it }
             finished = true
         } finally {
             // A failure AND a cancellation (the client went away mid-call, also right after step 1 committed) leave the floor raised and
@@ -144,7 +150,15 @@ class ThreadReadService internal constructor(
         return settled
     }
 
-    private suspend fun settleChunks(roomId: UInt, userId: UInt, at: Long, ceiling: UInt?, chunk: Int, onMoved: (Int) -> Unit) {
+    private suspend fun settleChunks(
+        roomId: UInt,
+        userId: UInt,
+        at: Long,
+        ceiling: UInt?,
+        chunk: Int,
+        lease: OperationLease,
+        onMoved: (Int) -> Unit,
+    ) {
         var after = 0u
         do {
             // The loop runs while the chunk SELECTED was full (not while it UPDATED a full one): a row that is not moved
@@ -152,19 +166,15 @@ class ThreadReadService internal constructor(
             val done = if (ceiling == null) {
                 SeenChunk(0, 0)
             } else {
-                suspendTransaction(database) { notices.roomSeenChunk(roomId, userId, at, after, ceiling, chunk) }
+                suspendTransaction(database) {
+                    if (!operationLeases.renewInCurrentTransaction(lease)) refuseBusy(roomId, userId)
+                    notices.roomSeenChunk(roomId, userId, at, after, ceiling, chunk)
+                }
             }
             onMoved(done.moved)
             after = done.lastId ?: after
         } while (done.selected == chunk)
     }
-
-    /**
-     * The people with a [markRoomRead] running (the entry is removed when it ends, so the set never grows past the people in flight).
-     * In-process, so "one per person" holds per replica: it relies on the one-replica rule (`live.md`, `ci.md`); a second replica would
-     * allow one call per person each, still bounded by the `read-state` bucket and the pool.
-     */
-    private val inFlight: MutableSet<UInt> = ConcurrentHashMap.newKeySet()
 
     /** Coalesces the `read.busy` line of a refused second call: one a minute per person (the `rate_limit.exceeded` idiom). */
     private val busyAudit = RateLimitAuditThrottle()

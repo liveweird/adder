@@ -4,6 +4,8 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.TooManyRequestsException
 import ch.nokillswit.authz.orNotFound
+import ch.nokillswit.infra.db.OperationLeaseService
+import ch.nokillswit.infra.db.SharedOperation
 import ch.nokillswit.infra.outbound.BlockedPreviewUrlException
 import ch.nokillswit.infra.outbound.PreviewContent
 import ch.nokillswit.infra.outbound.PreviewFetcher
@@ -13,7 +15,6 @@ import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.visibleStanding
 import io.ktor.server.plugins.BadRequestException
 import io.ktor.util.AttributeKey
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -60,10 +61,9 @@ data class LinkPreviewResponse(
 class MessageLinkPreviewService internal constructor(
     private val rooms: RoomService,
     private val messages: MessageService,
+    private val operationLeases: OperationLeaseService,
     private val blockedAudit: RateLimitAuditThrottle = RateLimitAuditThrottle(),
 ) {
-    private val activeCallers = ConcurrentHashMap.newKeySet<UInt>()
-
     /** Runs before the route consumes JSON, preserving the uniform room/message 404 ahead of malformed-body 400s. */
     internal suspend fun authorize(caller: CallerPrincipal, roomId: UInt, messageId: UInt): LinkPreviewAuthorization {
         rooms.visibleStanding(caller, roomId)
@@ -91,12 +91,7 @@ class MessageLinkPreviewService internal constructor(
         canonical: String,
         fetcher: PreviewFetcher,
     ): LinkPreviewResponse {
-        if (!activeCallers.add(caller.userId)) {
-            throw TooManyRequestsException(
-                "A link preview is already running - retry in a moment",
-                retryAfterSeconds = LINK_PREVIEW_RETRY_AFTER_SECONDS,
-            )
-        }
+        val lease = operationLeases.tryAcquire(SharedOperation.LINK_PREVIEW, caller.userId) ?: throw previewBusy()
         try {
             // [canonicalMessageUrl] admits only canonical HTTP(S), so reparsing cannot fail here.
             val content = if (canonical.toHttpUrl().isHttps) {
@@ -112,10 +107,11 @@ class MessageLinkPreviewService internal constructor(
             rooms.visibleStanding(caller, roomId)
             val currentBody = messages.bodyOf(roomId, messageId).orNotFound("Message")
             requireCurrentLink(currentBody, canonical)
+            if (!operationLeases.renew(lease)) throw previewBusy()
             if (content?.blockedThumbnail == true) auditBlocked(caller, roomId, messageId, "thumbnail")
             return content.toResponse(canonical)
         } finally {
-            activeCallers.remove(caller.userId)
+            operationLeases.releaseNonCancellable(lease)
         }
     }
 
@@ -132,6 +128,11 @@ class MessageLinkPreviewService internal constructor(
         }
     }
 }
+
+private fun previewBusy() = TooManyRequestsException(
+    "A link preview is already running - retry in a moment",
+    retryAfterSeconds = LINK_PREVIEW_RETRY_AFTER_SECONDS,
+)
 
 internal data class LinkPreviewAuthorization(
     val caller: CallerPrincipal,

@@ -684,6 +684,24 @@ Room restrictions are applied before text and filter matching, and only the page
 - **`idx_notifications_unseen_thread (recipient_id, thread_id) WHERE seen_at IS NULL`** (also V19, on V18's table). The marker write marks the person's unseen notices of one thread seen (`NoticeWriter.threadRead`, the constant `MARK_THREAD_SEEN_SQL`); V18's `idx_notifications_unseen (recipient_id, id)` would walk all of that person's unseen notices to find one thread's, and this statement runs at the marker's rate (up to 240 a minute) without the room lock. `ThreadSchemaTest` pins the index in the plan of that statement, auto and generic.
 - **Known limit: a "seen" stamp is taken at request time.** `seen_at` (room seen, a marker write, the actor's own activity) is stamped when the request runs, while a room write takes its stamp at its start under the room lock and commits later. A post whose stamp is earlier than a "seen" that committed before it can therefore be hidden from the rail's dot (`last_activity_at` not past `seen_at`). The window is one room write (milliseconds, bounded by the lock wait), and the thread counts stay right: they compare message ids with the marker, and a message newer than the floor is counted by id, not by time. **"Mark all as read" has the same limit in both of its halves (1.2).** `read_from` is the request's instant: a message stamped before `at` by a room write that commits after the floor is counted READ for good (its `created_at` is not past the floor), and a thread-level notice (a hand-over, a status move) that COALESCES into an unseen row the person already holds keeps that row's OLD `created_at`, so a status move or hand-over made in the same window can still be settled by the chunks (its `created_at + 0 <= at`); a notice or message made after `at` is never touched.
 
+### Shared operation leases (V60)
+
+`operation_leases (operation, user_id, owner_id, expires_at)` replaces the earlier process-local `read-all` and link-preview
+in-flight sets. The earlier read-state paragraph's one-replica qualification is superseded: the limit is deployment-wide. The table
+has one retained operational row per fixed Kotlin operation name and user, references `users ON DELETE CASCADE`, and therefore stays
+bounded by two times the user table. It stores no room, message, URL, filter, or other submitted input. A random UUID is the exact
+owner and fencing token; there is no ordered consumer that needs a second numeric epoch.
+
+Admission first takes `pg_try_advisory_xact_lock(operation namespace, UInt user bits)`, so a competing acquire is refused without
+waiting, then atomically inserts or replaces only an expired row using PostgreSQL time. Every renew, release, and uncertain-commit
+compensation takes the blocking form of the same advisory lock before touching the lease row, preserving the one lock order:
+advisory key, lease row, then the protected member or notice rows. Release expires only the exact owner from `NonCancellable` cleanup.
+A crashed owner is recoverable after 30 seconds. Read-all renews and fences first inside the floor transaction and each chunk
+transaction, holding the lease row through the protected writes; a stale owner cannot mutate after takeover. Link preview commits its
+acquire before outbound work, holds no database resource during the ten-second fetch, rechecks access and the message, then renews the
+lease before returning. Database errors fail closed; there is no in-memory fallback. `OperationLeaseServiceTest`,
+`ThreadReadAllTest`, and `MessageLinkPreviewTest` pin the store and runtime rules.
+
 ### Unseen notices by room (V34)
 
 `V34__index_notifications_unseen_by_room.sql`: `idx_notifications_unseen_room ON notifications (recipient_id, room_id, id) WHERE seen_at IS NULL` (1.2.0), the index behind "Mark all as read"'s notice settle (`persistence.md` "Read state (V19)"): V19's `idx_notifications_unseen_thread (recipient_id, thread_id)` leads with the person and then the thread, so finding ONE room's unseen rows through it walks all of the person's unseen notices of every other room; V34 hands over exactly the room's, in id order, so the ceiling is one probe and a chunk reads its own 1,000 entries. A plain partial index on a derived table: nothing is rewritten, it is inert to a 1.1.0 binary (which keeps maintaining it through the same inserts and "seen" updates), and the delete class of `notifications` is unchanged (HARD). `CREATE INDEX` holds a SHARE lock for the build (a notice write waits; reads do not): the index is partial and the table is bounded by the 90-day retention, a fraction of a second. **Rollback below 1.2.0: nothing to run** (the index is unknown to a 1.1.0 binary and may stay). `MigrationChecksumTest` pins the bytes, `PopulatedUpgradeTest` the index on the populated database, `ThreadSchemaTest` the plans.
