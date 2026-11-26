@@ -6,7 +6,7 @@ import kotlin.test.assertTrue
 
 /**
  * Naming guard for every Kotlin file under `server/src/test/kotlin`. The `test` task selects its candidates by FILE NAME
- * (`scanForTestClasses = false` plus an include of every `*Test.class` in `server/build.gradle.kts`), so a class that holds
+ * (`scanForTestClasses = false` plus an include of every `*Test.class` in `server/test-execution.gradle.kts`), so a class that holds
  * `@Test` methods but is not named `*Test` would silently never run, and a helper `object`, an abstract base or a
  * nested class whose name ends in `Test` would be handed to a fork as a candidate. The rules:
  *

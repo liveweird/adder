@@ -35,7 +35,7 @@ COPY scripts/gradle-retry.sh /usr/local/bin/gradle-retry
 RUN gradle-retry ./gradlew --version --no-daemon
 # Module build files, then sources.
 COPY core/build.gradle.kts core/gradle.lockfile core/buildscript-gradle.lockfile core/
-COPY server/build.gradle.kts server/gradle.lockfile server/buildscript-gradle.lockfile server/
+COPY server/build.gradle.kts server/test-execution.gradle.kts server/gradle.lockfile server/buildscript-gradle.lockfile server/
 COPY core/src/ core/src/
 COPY server/src/ server/src/
 # installDist keeps every dependency as its own JAR, so Flyway's ServiceLoader

@@ -20,7 +20,7 @@ unreliable); `OpenApiSpecTest` pins that the document stays 3.0-compatible (use 
 sibling `gaps.txt` lists every declared (operation, status) pair the suite never produced — minus
 the cross-cutting statuses a shared plugin answers for every route alike and one test pins each
 (`400` malformed id/body, `401`, `413`, `415`, `429`) and `500`/`default`, which the public API
-offers no honest way to force — and `server/build.gradle.kts` fails the `test` task on a
+offers no honest way to force — and `server/test-execution.gradle.kts` fails the `test` task on a
 non-empty file whenever the WHOLE suite ran (a `--tests` filter skips the gate). The gate is
 **fork-safe**: each test JVM writes its own `exercised-<pid>-<uuid>.txt` and re-merges every fork's file
 under a file lock into the ONE `coverage.md` + `gaps.txt` (`OpenApiCoverageMerge`, pinned by
@@ -63,7 +63,7 @@ unavailable, and leaves services and volumes intact. (Flow's shared read-only sy
 
 **Balanced fork order (`-Pforks>=2`).** Gradle's `MaxNParallelTestDefinitionProcessor` deals candidate classes to
 the forks round-robin in visit order (position `p` goes to fork `p % forks`), all up front, with no work stealing;
-the scanner visits each directory in sorted order. `server/build.gradle.kts` therefore replaces `testClassesDirs`
+the scanner visits each directory in sorted order. `server/test-execution.gradle.kts` therefore replaces `testClassesDirs`
 with a composite of one file tree per candidate class (a composite is visited in declaration order and keeps
 package-relative paths) plus a per-directory catch-all for everything that is not `**/*Test.class`, so the candidate
 set equals the plain tree's. The order comes from `balancedCandidateOrder`: classes sorted by weight, descending
@@ -92,7 +92,7 @@ and lacks a needed `ForkWarmup<k>Test.class`, it returns the plain dirs (so `--d
 compile, then fails a run whose class is still missing (naming the file; "run clean" if the source exists). Not covered: a `--tests` run drops every
 warm-up class (no test in it matches), and a failed-first rerun (`RunPreviousFailedFirst`) may open a fork with another
 class; both still open cold, which is fine for a focused run. The **tripwire** (`ForkWarmupLedger`, next to the stall
-watchdog in `server/build.gradle.kts`) records each JVM's first class and the result of every `ForkWarmup*Test`; a FULL run
+watchdog in `server/test-execution.gradle.kts`) records each JVM's first class and the result of every `ForkWarmup*Test`; a FULL run
 (the OpenAPI gate's condition: no `--tests`) fails unless exactly `ForkWarmup1..forksTest` ran SUCCESSFULLY in `forks`
 distinct JVMs, and only warns about a JVM whose first class was not its warm-up. If the previous run's warm-up class failed, Gradle runs failed classes first and can deal two
 warm-ups to one fork, so the distinct-JVM check can fire once on that rerun: rerun. It guards the Gradle-internals assumptions (round-robin dealing, in-order forwarding,
@@ -133,7 +133,7 @@ OrbStack, etc. — with OrbStack and no `/var/run/docker.sock`, export
 migrations, so the V3 seed admin (`admin@adder.local`) is present — tests scope their assertions
 with unique prefixes/filters (`uniqueEmail("marker")`) rather than asserting absolute counts.
 
-**Parallel forks (`-Pforks=N`).** `server/build.gradle.kts` sets `maxParallelForks` from the `forks` Gradle
+**Parallel forks (`-Pforks=N`).** `server/test-execution.gradle.kts` sets `maxParallelForks` from the `forks` Gradle
 property (an integer 1..8, anything else fails any build that runs the `test` task; default 1 = one JVM; CI and `scripts/gates.sh` run `-Pforks=2`; `forkEvery` is deliberately unset). Each fork is its own
 JVM, so it starts its OWN Testcontainers Postgres (`PostgresTestSupport` is a per-JVM `object`) and holds its own
 fixture singletons — every "shared suite" rule in this doc
@@ -147,7 +147,7 @@ merges the forks' coverage.
 
 **Stall watchdog (`-PtestStallMinutes=N`).** Why: on 2026-10-17 (CI run 39062260538) a hung test left the `server` job silent until the
 25-minute timeout cancelled it, and a cancelled job uploads no `server-reports` artifact, so there was no evidence. `TestStallWatchdog` (top of the `test`
-task's section in `server/build.gradle.kts`) is a Test-task listener that tracks, per test JVM (the "Gradle Test Executor N" suite in a descriptor's parent chain),
+task's section in `server/test-execution.gradle.kts`) is a Test-task listener that tracks, per test JVM (the "Gradle Test Executor N" suite in a descriptor's parent chain),
 the time of the last suite/test start or finish. An executor that has started, not finished and been quiet for the threshold gets (1) `jcmd <pid> Thread.print -l`
 (the `jcmd` of the test task's `javaLauncher`; the test JVM's pid is found among Gradle's descendants by its command line, which ends in `'Gradle Test Executor N'`)
 written to `server/build/reports/hung-tests/Gradle-Test-Executor-N-<yyyyMMdd-HHmmss>.txt` and logged at ERROR with the class/test in flight, then (2) its

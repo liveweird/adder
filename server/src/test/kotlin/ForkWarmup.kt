@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
  * The fork-level warm-up: the first class of every test JVM pays the Testcontainers Postgres + Flyway and the first Ktor
  * boot, and when that class runs inside `testApplication` it pays them under Ktor's hard 60 s limit (14-15 s cold in the
  * 2026-10 flake sweep, far more on a slow runner). JUnit 4 does not time a `@BeforeClass`, so [warm] moves the one-time cost
- * there: the `test` task (`server/build.gradle.kts`) pins `ForkWarmup<k>Test` first in fork k for k <= `-Pforks`, and
+ * there: the `test` task (`server/test-execution.gradle.kts`) pins `ForkWarmup<k>Test` first in fork k for k <= `-Pforks`, and
  * whichever class comes next finds a migrated database and a JVM that has already booted the app once.
  *
  * Why eight classes (`ForkWarmup1Test`..`ForkWarmup8Test`, `-Pforks` is 1..8): Gradle deals one class FILE to one fork and

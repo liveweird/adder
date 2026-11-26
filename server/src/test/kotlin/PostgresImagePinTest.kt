@@ -12,7 +12,7 @@ import kotlin.test.assertTrue
  * test asserts the full `image:` reference matches, not just the version.
  */
 class PostgresImagePinTest {
-    // `repo.root` is set by server/build.gradle.kts; the `..` fallback covers an IDE run from `server/`.
+    // `repo.root` is set by server/test-execution.gradle.kts; the `..` fallback covers an IDE run from `server/`.
     private fun repoFile(path: String): File =
         File(System.getProperty("repo.root") ?: "..", path).also { assertTrue(it.exists(), "$path not found (${it.absolutePath})") }
 
