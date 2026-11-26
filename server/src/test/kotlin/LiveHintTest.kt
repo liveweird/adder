@@ -42,6 +42,12 @@ class LiveHintTest {
     }
 
     @Test
+    fun `a room hint tolerates extra fields added by a newer sender`() {
+        val future = """{"kind":"room.updated","roomId":12,"v":1,"futureCounter":3}"""
+        assertEquals(LiveNotification.Room(LiveHint(LiveKind.ROOM_UPDATED, 12u)), decodeLiveNotification(future))
+    }
+
+    @Test
     fun `the roomless account envelope round trips but can never be widened into a room event`() {
         val payload = LiveAccountHint(7u).toPayload()
         assertEquals("""{"accountUserId":7,"v":1}""", payload)

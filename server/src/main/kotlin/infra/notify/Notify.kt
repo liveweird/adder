@@ -71,7 +71,10 @@ data class LiveHint(
     @EncodeDefault val v: Int = LIVE_HINT_VERSION,
 )
 
-private val wire = Json { explicitNulls = false }
+private val wire = Json {
+    explicitNulls = false
+    ignoreUnknownKeys = true
+}
 
 /** An internal, roomless prompt to re-judge every live token of one account. It is never a browser frame. */
 @OptIn(ExperimentalSerializationApi::class)

@@ -194,8 +194,8 @@ Taken without asking, in the 0.4.0 plan. Detail and the rules they became: `live
 - **A10. Frames are typed in the OpenAPI spec as components** and generated into `schema.ts`; the Kotlin `LiveKind` enum is pinned equal to the spec enum and
   to the audit names.
 - **A11. Each socket produces one OTel server span,** and the latency telemetry excludes the live route.
-- **A12. Team, user and auth writes emit no hint.**
-- **A13. An ADMIN may subscribe to any existing room;** a demoted ADMIN keeps those subscriptions until the next sweep (at most 60 s).
+- **A12. Team, user and auth writes emit no room event.** Since 1.22, account changes emit a separate internal recheck hint.
+- **A13. A socket may subscribe to rooms its caller can read.** The 1.22 account recheck closes a demoted administrator’s stale socket after the change commits. The 60-second sweep remains a fallback.
 
 ### 0.5.0 Find
 

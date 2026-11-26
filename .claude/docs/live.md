@@ -134,7 +134,7 @@ subscribed or not (it may not be subscribed yet).
   `revoked`; `room.deleted` does the same for every subscriber and target.
 - **Emitted only on a real change.** A no-op write (the same status, role, owner or details; archiving twice; an unchanged edit; adding an existing
   member) emits nothing. A refused or rolled-back write emits nothing. The opening message is part of `thread.created`. `moveThreads` (covered by
-  `room.workflow_updated`) and `touchActivity` emit nothing. Team, user and auth writes emit no hint, and neither does a watch (`PUT .../threads/{number}/watch`, 1.1.0: the caller's own state, like the read marker; no `LiveKind`), nor "Mark all as read" (`POST /rooms/{id}/read-all`, 1.2: the caller's own floor and notices; the tab that sent it re-reads its own caches, the person's other tabs re-read the bell through the `BroadcastChannel` ("The hidden tab" below), and their rooms and threads catch up on focus).
+  `room.workflow_updated`) and `touchActivity` emit nothing. Team, user and auth writes emit no room event. Relevant account writes emit the internal recheck described below. A watch also emits no room event (`PUT .../threads/{number}/watch`, 1.1.0: the caller's own state, like the read marker; no `LiveKind`), nor "Mark all as read" (`POST /rooms/{id}/read-all`, 1.2: the caller's own floor and notices; the tab that sent it re-reads its own caches, the person's other tabs re-read the bell through the `BroadcastChannel` ("The hidden tab" below), and their rooms and threads catch up on focus).
 - **[changed] No single hook.** The 2026-11-17 text said "every write issues `pg_notify`". There is no common write path (`RoomService.create` is not under
   `withRoomWrite`, and several writes return early on a no-op), so each of the 19 change branches (`notifyLive` call sites) calls `notifyLive` itself, right before returning,
   inside the same transaction.
@@ -142,8 +142,7 @@ subscribed or not (it may not be subscribed yet).
 
 ## The NOTIFY wire and the listener
 
-**[changed] The channel is `adder_live`** (not `adder_events`, which suggests `thread_events` and `infra/db/EventLog.kt`). The payload is the `LiveHint`
-JSON with `v: 1`. `infra/notify/Notify.kt` is infra, so `rooms` and `threads` call it without importing `live`: `notifyLive(hint)` runs
+**[changed] The channel is `adder_live`** (not `adder_events`, which suggests `thread_events` and `infra/db/EventLog.kt`). The room payload is `LiveHint` JSON with `v: 1`. Since 1.22, the same channel also accepts an internal versioned account envelope. `infra/notify/Notify.kt` is infra, so `rooms` and `threads` call it without importing `live`: `notifyLive(hint)` runs
 `SELECT 1 FROM pg_notify('adder_live', ?)` on the current transaction (the `MultiRowInsert.kt` `exec` precedent), consumes the result (an R2DBC statement
 nobody subscribes to never runs) and `check`s the payload is under 8000 bytes. The worst case is a 500-id `room.member_added`, about 5.6 KB, so no
 chunking; a test pins it. The Postgres facts and hazards are in `persistence.md` "NOTIFY".
