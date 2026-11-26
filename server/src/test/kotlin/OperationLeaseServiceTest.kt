@@ -6,21 +6,31 @@ import io.ktor.server.testing.testApplication
 import kotlin.system.measureTimeMillis
 import kotlin.test.Test
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** PostgreSQL contract for V60's cross-instance, per-operation/user leases. */
 class OperationLeaseServiceTest {
+    @Test
+    fun `a nonpositive lease ttl is rejected before database use`() = testApplication {
+        usePostgresTestcontainer()
+
+        assertFailsWith<IllegalArgumentException> { OperationLeaseService(sharedDatabaseForTests(), ttlMillis = 0) }
+    }
+
     @Test
     fun `two stores share a user limit while other users and operations remain independent`() = testApplication {
         usePostgresTestcontainer()
@@ -112,5 +122,81 @@ class OperationLeaseServiceTest {
         }
         val replacement = assertNotNull(second.tryAcquire(SharedOperation.LINK_PREVIEW, user))
         second.releaseNonCancellable(replacement)
+    }
+
+    @Test
+    fun `a foreign key failure is compensated and leaves no candidate lease`() = testApplication {
+        usePostgresTestcontainer()
+        val service = OperationLeaseService(sharedDatabaseForTests())
+        val missingUser = UInt.MAX_VALUE
+
+        assertNotNull(
+            runCatching { service.tryAcquire(SharedOperation.READ_ALL, missingUser) }.exceptionOrNull(),
+            "a lease cannot be stored for a user absent from the referenced users table",
+        )
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement(
+                "SELECT 1 FROM operation_leases WHERE operation = ? AND user_id = ?",
+            ).use { statement ->
+                statement.setString(1, SharedOperation.READ_ALL.storedName)
+                statement.setLong(2, missingUser.toLong())
+                statement.executeQuery().use { rows -> assertFalse(rows.next(), "compensation must leave no candidate row") }
+            }
+        }
+    }
+
+    @Test
+    fun `cancelling an acquire blocked on the lease row compensates without expiring the current owner`() = testApplication {
+        usePostgresTestcontainer()
+        val database = sharedDatabaseForTests()
+        val first = OperationLeaseService(database)
+        val second = OperationLeaseService(database)
+        val user = TestUsers.seed(uniqueEmail("lease-acquire-cancel"), "password")
+        val current = assertNotNull(first.tryAcquire(SharedOperation.READ_ALL, user))
+        val blocker = PostgresTestSupport.connect()
+        blocker.autoCommit = false
+        try {
+            blocker.prepareStatement(
+                "SELECT owner_id FROM operation_leases WHERE operation = ? AND user_id = ? FOR UPDATE",
+            ).use { statement ->
+                statement.setString(1, SharedOperation.READ_ALL.storedName)
+                statement.setLong(2, user.toLong())
+                statement.executeQuery().use { rows -> assertTrue(rows.next()) }
+            }
+
+            coroutineScope {
+                val contender = async(Dispatchers.IO) { second.tryAcquire(SharedOperation.READ_ALL, user) }
+                try {
+                    waitForAcquireRowLock()
+                    contender.cancel()
+                    delay(50)
+                    assertFalse(contender.isCompleted, "non-cancellable compensation still waits behind the row lock")
+                } finally {
+                    blocker.rollback()
+                }
+                contender.join()
+                assertTrue(contender.isCancelled)
+            }
+            assertTrue(first.renew(current), "candidate compensation must match its random owner, not the previous owner")
+        } finally {
+            if (!blocker.isClosed) {
+                blocker.rollback()
+                blocker.close()
+            }
+            first.releaseNonCancellable(current)
+        }
+    }
+
+    private suspend fun waitForAcquireRowLock() = withTimeout(5_000) {
+        while (!acquireWaitsOnRowLock()) delay(10)
+    }
+
+    private fun acquireWaitsOnRowLock(): Boolean = PostgresTestSupport.connect().use { connection ->
+        connection.prepareStatement(
+            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() " +
+                "AND wait_event_type = 'Lock' AND query LIKE '%INSERT INTO operation_leases%')",
+        ).use { statement ->
+            statement.executeQuery().use { rows -> rows.next() && rows.getBoolean(1) }
+        }
     }
 }
