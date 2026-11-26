@@ -124,6 +124,36 @@ class NotificationSweepTest {
     }
 
     @Test
+    fun `normalization and pacing cleanup run every tick without blocking the other work on failure`() = runBlocking {
+        val calls = mutableListOf<String>()
+        var normalizationRuns = 0
+        var pacingRuns = 0
+        val sweep = NotificationSweep(
+            DAY_MILLIS,
+            clock = { 2 * DAY_MILLIS },
+            purge = {
+                calls += "retention"
+                1
+            },
+            digest = { calls += "email" },
+            push = { calls += "push" },
+            normalizeUnseen = {
+                calls += "unseen"
+                check(normalizationRuns++ != 0) { "normalization failed" }
+                1
+            },
+            purgeExpiredPacing = {
+                calls += "pacing"
+                check(pacingRuns++ != 1) { "pacing cleanup failed" }
+            },
+        )
+
+        assertEquals(1, sweep.tick())
+        assertNull(sweep.tick(), "age retention is not due again")
+        assertEquals(listOf("unseen", "pacing", "email", "push", "retention", "unseen", "pacing", "email", "push"), calls)
+    }
+
+    @Test
     fun `boot runs it when enabled`() = testApplication {
         configureApp("notifications.sweepEnabled" to "true")
         val f = fixture("sweep-boot")

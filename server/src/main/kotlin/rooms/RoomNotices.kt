@@ -2,12 +2,17 @@ package ch.nokillswit.rooms
 
 import ch.nokillswit.audit.audit
 
-/** Writes notices for new memberships inside the transaction that added them. */
-fun interface RoomNotices {
+/** Writes notices and coordinates their recipient locks inside membership transactions. */
+interface RoomNotices {
     suspend fun membersAdded(roomId: UInt, actorId: UInt, recipients: List<UInt>, named: Set<UInt>): Int
 
+    /** Locks this membership's notice rows in ascending bounded batches before its cascading delete. */
+    suspend fun prepareMemberRemoval(roomId: UInt, userId: UInt) = Unit
+
     companion object {
-        internal val NONE = RoomNotices { _, _, _, _ -> 0 }
+        internal val NONE = object : RoomNotices {
+            override suspend fun membersAdded(roomId: UInt, actorId: UInt, recipients: List<UInt>, named: Set<UInt>) = 0
+        }
     }
 }
 

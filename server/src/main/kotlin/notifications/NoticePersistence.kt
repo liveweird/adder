@@ -10,14 +10,14 @@ import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 
 /** Constant-shape inserts and replacements shared by every notice-producing write. */
-internal class NoticePersistence(private val digestDelayMillis: Long, private val pushAvailable: Boolean) {
+internal class NoticePersistence(private val digestDelayMillis: Long) {
     suspend fun refreshThreadNotices(
         threadId: UInt,
         actorId: UInt,
         now: Long,
         deliveries: List<Delivery>,
         eventId: UInt?,
-    ): List<Triple<UInt, NotificationType, Boolean>> {
+    ): List<PersistedNotice> {
         val coalescing = deliveries.filter { it.type in THREAD_LEVEL_KINDS }
         if (coalescing.isEmpty()) return emptyList()
         val rows = TransactionManager.current().exec(
@@ -35,15 +35,15 @@ internal class NoticePersistence(private val digestDelayMillis: Long, private va
             ),
             explicitStatementType = StatementType.SELECT,
         ) { row ->
-            RefreshedNotice(
+            PersistedNotice(
                 row.get(0, Long::class.javaObjectType)!!.toUInt(),
+                row.get(3, Int::class.javaObjectType)!!.toUInt(),
                 NotificationType.valueOf(row.get(1, String::class.java)!!),
                 row.get(2, Boolean::class.javaObjectType) == true,
-                row.get(3, Int::class.javaObjectType)!!.toUInt(),
+                row.get(4, Boolean::class.javaObjectType) == true,
             )
         }?.toList().orEmpty().filterNotNull()
-        if (pushAvailable) enqueueBrowserPush(rows.map { it.notificationId })
-        return rows.map { Triple(it.userId, it.type, it.inApp) }.distinctBy { it.first to it.second }
+        return rows.distinctBy { it.userId to it.type }
     }
 
     suspend fun insert(
@@ -54,7 +54,7 @@ internal class NoticePersistence(private val digestDelayMillis: Long, private va
         now: Long,
         deliveries: List<Delivery>,
         eventId: UInt? = null,
-    ): List<Pair<UInt, NotificationType>> {
+    ): List<PersistedNotice> {
         val arguments = listOf(
             IntegerColumnType() to roomId.toInt(),
             LongColumnType() to actorId.toLong(),
@@ -70,24 +70,15 @@ internal class NoticePersistence(private val digestDelayMillis: Long, private va
         )
         val rows = TransactionManager.current()
             .exec(INSERT_NOTICES, arguments, explicitStatementType = StatementType.SELECT) { row ->
-                MadeNotice(
+                PersistedNotice(
                     row.get(0, Long::class.javaObjectType)!!.toUInt(),
                     row.get(1, Int::class.javaObjectType)!!.toUInt(),
                     NotificationType.valueOf(row.get(2, String::class.java)!!),
+                    row.get(3, Boolean::class.javaObjectType) == true,
                 )
             }?.toList().orEmpty().filterNotNull()
-        if (pushAvailable) enqueueBrowserPush(rows.map { it.notificationId })
-        return rows.map { it.userId to it.type }
+        return rows
     }
-
-    private class MadeNotice(val userId: UInt, val notificationId: UInt, val type: NotificationType)
-
-    private class RefreshedNotice(
-        val userId: UInt,
-        val type: NotificationType,
-        val inApp: Boolean,
-        val notificationId: UInt,
-    )
 
     private companion object {
         val THREAD_LEVEL_KINDS = setOf(

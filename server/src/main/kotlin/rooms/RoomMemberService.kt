@@ -222,6 +222,7 @@ class RoomMemberService(
         database.withRoomWrite(roomId, caller, guard) { _, standing ->
             val current = activeRole(roomId, userId) ?: throw NotFoundException("Member not found")
             if (current == RoomRole.OWNER) requireOtherActiveOwner(roomId, userId)
+            notices.prepareMemberRemoval(roomId, userId)
             members.deleteWhere { (RoomService.RoomMembers.roomId eq roomId) and (RoomService.RoomMembers.userId eq userId) }
             notifyLive(
                 LiveHint(

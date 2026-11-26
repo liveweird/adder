@@ -73,6 +73,7 @@ internal class NotificationService(
     private val emailBudget: NotificationEmailBudget = NotificationEmailBudget(DEFAULT_EMAIL_BUDGET_PER_ACTOR, clock = ::nowMillis),
     /** The list's deadline and in-flight caps: the notice list's OWN limiter (`threads.readTimeoutSeconds`, 4 in flight; `ChatWiring`). */
     private val readLimiter: ReadLimiter = ReadLimiter(),
+    private val retention: NotificationRetention = NotificationRetention(),
 ) {
     /** The notices. Ids only: there is no text column and no soft delete. */
     object Notifications : UIntIdTable("notifications") {
@@ -265,6 +266,7 @@ internal class NotificationService(
                         (n.type eq NotificationType.THREAD_REPLIED.name) and
                         n.seenAt.isNull() and n.inApp and (n.id greater after) and (n.id lessEq ceiling)
                 }.orderBy(n.id).limit(batchSize)
+                    .forUpdate(ForUpdateOption.PostgreSQL.ForNoKeyUpdate)
                     .map { it[n.id].value }.toList()
                 ids to if (ids.isEmpty()) 0 else n.update({
                     (n.id inList ids) and
@@ -342,6 +344,32 @@ internal class NotificationService(
         // The digest budget's days before the cutoff's (V24): a few tiny rows per actor and day, one short transaction.
         suspendTransaction(database) { emailBudget.purgeBefore(cutoffMillis) }
         return total
+    }
+
+    /**
+     * Bounded upgrade cleanup for recipients V51 marked as carrying legacy rows. One call visits each of at most [recipientLimit]
+     * recipients once, each in its own short transaction, and deletes at most [prunePerRecipient] unseen rows for that person. A person
+     * still above the limit remains marked for a later sweep. This is separate from age retention so either pass can fail independently.
+     */
+    suspend fun normalizeLegacyUnseen(
+        recipientLimit: Int = LEGACY_RECIPIENT_BATCH,
+        prunePerRecipient: Int = UNSEEN_PRUNE_BATCH,
+    ): Int {
+        require(recipientLimit > 0 && prunePerRecipient > 0)
+        var after = 0u
+        var deleted = 0
+        repeat(recipientLimit) {
+            val result = suspendTransaction(database) {
+                val recipient = retention.nextLegacyRecipient(after) ?: return@suspendTransaction null
+                val trimmed = retention.trimLocked(
+                    listOf(recipient), emptyList(), prunePerRecipient, clearNormalizationForCompliant = true,
+                )
+                recipient to trimmed.deleted
+            } ?: return deleted
+            after = result.first
+            deleted += result.second
+        }
+        return deleted
     }
 
     private suspend fun purgeBatch(cutoffMillis: Long, size: Int): Int = suspendTransaction(database) {

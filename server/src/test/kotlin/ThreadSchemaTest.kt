@@ -3,7 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.notifications.MARK_IDS_SEEN_SQL
 import ch.nokillswit.notifications.ROOM_SEEN_CHUNK_IDS_SQL
 import ch.nokillswit.notifications.ROOM_UNSEEN_CEILING_SQL
-import ch.nokillswit.notifications.MARK_THREAD_SEEN_SQL
+import ch.nokillswit.notifications.THREAD_SEEN_CHUNK_IDS_SQL
 import ch.nokillswit.threads.HASHTAGS_OF_SQL
 import ch.nokillswit.threads.THREAD_UNREAD_SQL
 import ch.nokillswit.threads.UNREAD_COUNTS_SQL
@@ -939,14 +939,14 @@ class ThreadSchemaTest {
     }
 
     @Test
-    fun `the thread-read update finds the unseen notices through idx_notifications_unseen_thread, also as a generic plan`() {
-        // The read marker's `NoticeWriter.threadRead` statement: the person and the thread lead the partial index (V19), so the
-        // write reads only that person's unseen rows of that thread, never the person's whole unseen list nor the table.
+    fun `the thread-read chunk is recipient bounded and never scans notices, also as a generic plan`() {
+        // The read marker needs id order for common lock ordering. V51's all-channel unseen-recipient index supplies that order; filtering
+        // one thread is bounded by the hard 5,000-unseen recipient cap, never by the table or retained seen history.
         for (mode in listOf("auto", "force_generic_plan")) {
             // Nothing is dropped: the index must be CHOSEN against its siblings, on statistics that do not depend on what other tests left
             // in the table (a realistic spread is seeded and analysed inside the rolled-back transaction).
-            val plan = explain(MARK_THREAD_SEEN_SQL, "int8, int8, int4, int4", "", mode, seed = ::seedUnseenSpread)
-            assertTrue("idx_notifications_unseen_thread" in plan, "$mode: the update uses the person-and-thread index:\n$plan")
+            val plan = explain(THREAD_SEEN_CHUNK_IDS_SQL, "int8, int4, int4, int4, int4", "", mode, seed = ::seedUnseenSpread)
+            assertTrue("idx_notifications_unseen_recipient" in plan, "$mode: the chunk uses the bounded recipient index:\n$plan")
             assertTrue("Seq Scan on notifications" !in plan, "$mode: never a scan of the whole table:\n$plan")
         }
     }
@@ -1035,7 +1035,7 @@ class ThreadSchemaTest {
         )
         c.exec("ANALYZE notifications")
         val thread = c.scalar("SELECT min(id) FROM threads WHERE room_id = ?", room)
-        return "5, ${people[1]}, $thread, 1000000000"
+        return "${people[1]}, $thread, 1000000000, 0, 1000"
     }
 
     @Test

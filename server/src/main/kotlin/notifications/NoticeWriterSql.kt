@@ -16,7 +16,7 @@ SELECT u.r, CAST(? AS int4), u.t, CAST(? AS int8), CAST(? AS int4), CAST(? AS in
        CASE WHEN u.s THEN CAST(? AS int8) END, CAST(? AS int4)
 FROM unnest(CAST(? AS int8[]), CAST(? AS varchar[]), CAST(? AS bool[]), CAST(? AS bool[])) AS u(r, t, a, s)
 ON CONFLICT DO NOTHING
-RETURNING recipient_id, id, notification_type"""
+RETURNING recipient_id, id, notification_type, in_app"""
 
 /**
  * COALESCES a repeated thread-level notice (a status move, a hand-over: no message to make it unique, `THREAD_LEVEL_KINDS`): a recipient
@@ -38,13 +38,18 @@ WITH gone AS (
   WHERE n.recipient_id = u.r AND n.thread_id = CAST(? AS int4) AND n.message_id IS NULL AND n.seen_at IS NULL
     AND n.notification_type = u.t AND (n.in_app OR n.emailed_at IS NULL)
     AND (n.emailed_at IS NOT NULL OR n.created_at > CAST(? AS int8))
-  RETURNING n.id, n.recipient_id, n.room_id, n.notification_type, n.emailed_at, n.created_at, u.a AS a),
-kept AS (SELECT DISTINCT ON (recipient_id, notification_type) * FROM gone ORDER BY recipient_id, notification_type, id)
+  RETURNING n.id, n.recipient_id, n.room_id, n.notification_type, n.emailed_at, n.created_at, n.in_app AS old_in_app,
+            u.a AS a),
+kept AS (SELECT DISTINCT ON (recipient_id, notification_type) * FROM gone ORDER BY recipient_id, notification_type, id),
+made AS (
 INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, message_id, created_at, in_app, emailed_at, event_id)
 SELECT k.recipient_id, k.room_id, k.notification_type, CAST(? AS int8), CAST(? AS int4), CAST(NULL AS int4),
        CASE WHEN k.emailed_at IS NULL THEN k.created_at ELSE CAST(? AS int8) END, k.a, k.emailed_at, CAST(? AS int4)
 FROM kept k
-RETURNING recipient_id, notification_type, in_app, id"""
+RETURNING recipient_id, notification_type, in_app, id)
+SELECT m.recipient_id, m.notification_type, m.in_app, m.id, bool_or(k.old_in_app) AS replaced_in_app
+FROM made m JOIN kept k USING (recipient_id, notification_type)
+GROUP BY m.recipient_id, m.notification_type, m.in_app, m.id"""
 
 /** The rows an edit may relabel: what they are now, whether they show, whether their mail is still to come. Arguments: message, people. */
 internal const val READ_RELABEL_ROWS = """
@@ -58,15 +63,16 @@ FROM unnest(CAST(? AS int8[]), CAST(? AS varchar[]), CAST(? AS bool[])) AS u(r, 
 WHERE n.message_id = CAST(? AS int4) AND n.recipient_id = u.r"""
 
 /**
- * The unseen notices of one person in one thread up to a message become seen (the read marker's write, run without the room lock): the
- * person and the thread are the two leading keys of the partial index `idx_notifications_unseen_thread` (V19), so the statement touches
- * only that person's unseen rows of that thread however many notices they hold. A hand-over has no message and is seen with the thread.
- * Arguments: the instant, the person, the thread, the message.
+ * One ordered chunk for a thread read. The recipient guard is already held; row locks are still taken in ascending id order so a member
+ * removal and every seen path meet these rows in the same order. A hand-over has no message and is included. Arguments: person, thread,
+ * message, previous id, limit.
  */
-internal const val MARK_THREAD_SEEN_SQL = """
-UPDATE notifications SET seen_at = CAST(? AS int8)
+internal const val THREAD_SEEN_CHUNK_IDS_SQL = """
+SELECT id FROM notifications
 WHERE recipient_id = CAST(? AS int8) AND thread_id = CAST(? AS int4) AND seen_at IS NULL
-  AND (message_id IS NULL OR message_id <= CAST(? AS int4))"""
+  AND (message_id IS NULL OR message_id <= CAST(? AS int4)) AND id > CAST(? AS int4)
+ORDER BY id LIMIT CAST(? AS int4)
+FOR NO KEY UPDATE"""
 
 /**
  * "Mark all as read" (1.2), step one: the newest id among one person's UNSEEN notices of one room, one probe of
