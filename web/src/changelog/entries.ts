@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.35.0",
+    date: "2026-11-26",
+    en: `**Adder 1.35.0 — fewer duplicate reads after message deletion**
+
+- When you delete a message, your tab refreshes the timeline and pins once after the first confirmation.
+- Other readers still see the deletion live. If the response is lost after the server deletes the message, the live event updates your tab too.`,
+    pl: `**Adder 1.35.0 — mniej powtórnych odświeżeń po usunięciu wiadomości**
+
+- Gdy usuwasz wiadomość, Twoja karta odświeża rozmowę i przypięcia raz, po pierwszym potwierdzeniu.
+- Pozostałe osoby nadal widzą usunięcie na żywo. Jeśli odpowiedź zaginie po usunięciu wiadomości na serwerze, zdarzenie na żywo zaktualizuje także Twoją kartę.`,
+  },
+  {
     version: "1.34.0",
     date: "2026-11-26",
     en: `**Adder 1.34.0 — fewer duplicate reads after message edits**

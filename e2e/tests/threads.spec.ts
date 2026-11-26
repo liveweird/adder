@@ -105,7 +105,15 @@ test("a cross-room quote opens its source and stays hidden from destination-only
   await picker.getByRole("button", { name: "Continue to thread" }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${targetRoom}/threads/1$`));
   await expect(page.getByText(`Quoting ${owner.name}`, { exact: true })).toBeVisible();
-  await reply(page, replyText);
+  // The quote label can render while the source read is still checking permission. Clicking Send waits for that read.
+  const box = page.getByRole("textbox", { name: "Reply", exact: true });
+  await box.fill(replyText);
+  const [sent] = await Promise.all([
+    page.waitForResponse((response) => response.request().method() === "POST" && MESSAGES_API.test(response.url())),
+    page.getByRole("button", { name: "Send", exact: true }).click(),
+  ]);
+  expect(sent.status(), await sent.text()).toBe(201);
+  await expect(box).toHaveValue("");
 
   await messageNamed(page, replyText).getByRole("link", { name: /Quoted message by/ }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${sourceRoom}/threads/1\\?.*message=`));
