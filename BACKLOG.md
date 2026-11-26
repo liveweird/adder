@@ -30,12 +30,11 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [todo] **Live: a second replica.** The ticket store and the hub are in memory, per process (`live.md`), so tickets work on one replica only. Two replicas need
   sticky routing of `/api/v1/live*` (the ticket POST and the socket on the same pod) or a shared ticket table; every replica's LISTEN connection already
   hears every hint.
-- [todo] **Live: push account changes.** 0.4.0 closes a socket for a logout, user deletion, password change or role change by a 60 s sweep (the user's decision D2).
+- [next] **Live: push account changes.** 0.4.0 closes a socket for a logout, user deletion, password change or role change by a 60 s sweep (the user's decision D2).
   Pushing those four events (a NOTIFY the hub acts on at once, about five call sites in `auth/` and `users/`) would close the gap to zero; the sweep stays as the
   safety net. Since 0.6.0 the per-user delivery class exists (a hint's targets reach every socket of those users); what is still missing is a hint without a room.
 - [todo] **Live: skip the writer tab's echo.** The tab that made a write refetches twice, once for its own mutation and once for the hint. Tag the hint with the
   writer's socket (or a client id) so that tab can skip it.
-- [next] **Notifications: bound what one recipient can pile up (more pressing since 1.1.0).** Twelve kinds, watching and group mentions make a busy room fill the bell far faster than 0.6.0 did, and retention stays 90 days (1.1 A25). A per-recipient cap on UNSEEN notices (the list's `total` is capped at 1000, the rows are not), and batching the two writes that still touch every row in one statement: `threadRead` (marks a thread's notices seen) and the removal cascade of a leaving member's notices. `seen-all` is already chunked by 1,000 rows, one short transaction each. "Mark all as read" (1.2, `POST /rooms/{id}/read-all`) settles a pile in chunks of 1,000 (about 5.5 ms each, one call per person at a time), so it never holds a lock for long, but the number of chunks still grows with the pile (`persistence.md` "Read state (V19)").
 - [blocked] **Account reactivation receipt.** Adder now sends password-change email. A reactivation receipt depends on an account reactivation workflow. Adder currently supports soft deletion and has no reactivation transition.
 - [new] **Tags: a per-room subset of the registry.** The registry is global (1.2 D1 to 1.2 D3, 1.2 A19): every room offers every live tag. A room could pick the categories or tags it uses, which would also let the picker stay short in a big registry.
 - [new] **Tags: facet counts in the filter panel.** The `threadTag` filter lists the registry without counts (1.2 A19); counts per tag in the room (and across rooms) belong with the Covenant facet pattern in "Find: facet counts" above.
@@ -45,13 +44,6 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **Quotes: a keyboard shortcut for quoting.** 1.3.0 ships the kebab-menu item and the one-click icon on every message (1.3 D3); a shortcut (focus a message, press a key) is not built.
 - [new] **Quotes: add, change or drop the quote in an edit.** The edit's `MessageRequest` keeps its shape (`chat-model.md` "Quotes (1.3)"): the quote is set when the message is posted and never changes.
 - [new] **Quotes: what a pinned message and a search hit quote.** A pinned message (the pin card and the pin strip) and a search hit show the message itself and say nothing of the message it quotes.
-
-## 1.0.0 checkup (2026-11-20)
-
-The record, with evidence and the proposed fix per id: `.claude/docs/audit-status.md` "1.0.0 checkup". The fix-before-1.0.0 tier, the can-follow tier and every decision are done ("Fixed so far" there); what is left below can follow the tag.
-
-- [todo] **Separate digest scheduling and persistence (C-CPX-1).** Extract database concerns from `NotificationDigest.kt` when adding per-pair pacing.
-- [todo] **A per-(actor, recipient) digest limit.** The V24 budget caps how many distinct people one actor can make email-eligible per day, not how often an admitted recipient is mailed (one digest per 15 minutes while notices keep coming; the remedy today is the per-kind email switch). Add a pair limit if that proves insufficient.
 
 ## Foundation follow-ups
 

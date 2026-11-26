@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.20.0
+  version: 1.21.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -3076,7 +3076,7 @@ paths:
         Any authenticated caller, no further guard: the list is the caller's OWN notices, so there is nothing to hide and
         nobody to probe. Up to 5,000 unseen notices are retained per recipient across rooms and channels. The oldest available
         unseen notices expire first and their pending email or browser delivery is cancelled. Existing backlogs above the limit
-        are reduced in batches. A notice is listed only while its recipient is an ACTIVE member of its room and the room is active (a deleted
+        are reduced in batches after supported upgrade or rollback recovery. A notice is listed only while its recipient is an ACTIVE member of its room and the room is active (a deleted
         room's notices are hidden; an archived room's are listed, and its link opens it read-only), **an `ADMIN` included**: an `ADMIN`
         who is not a member of a room has none of its notices. A member who is removed from a room, or leaves it, loses that room's
         notices for good (they are deleted with the membership, so rejoining starts clean), and a deleted message, or a mention an edit
@@ -5845,7 +5845,8 @@ components:
       type: string
       description: >-
         Delivery channel for room notifications. Enabled notification email is sent in digests. Each actor and recipient pair has
-        at least one hour between delivery attempts across rooms. Paced notices remain pending until eligible or expired.
+        at least one hour between recorded delivery attempts across rooms. Tracking begins with attempts made after upgrading.
+        Paced notices remain pending until eligible or expired.
         A failed delivery attempt also starts the interval. In-app and browser notifications do not depend on digest pacing.
       enum: [EMAIL, IN_APP]
     NotificationPreferencePair:

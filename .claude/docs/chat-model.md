@@ -863,3 +863,9 @@ An authorized reader can see history in closed, archived, or merged conversation
 The author or a moderator who deletes a message removes its current body and every saved body in the same write. A thread
 deletion removes all message revisions for that thread and any merged sources it deletes. The client opens history on demand in
 the message menu and renders saved bodies as plain text. Earlier drafts have no active links, previews, mentions, or reactions.
+
+## Notification retention and email pacing (1.21)
+
+A person retains at most 5,000 unseen notices across rooms and channels. This includes notices delivered only by email. The service evicts the oldest available unseen notices, which also cancels pending delivery. An unseen notice's expiration has no effect on message or thread read state. Seen notices retain the existing age policy. Existing backlogs above the new cap drain in bounded batches.
+
+Room digest email permits one SMTP attempt per sender and recipient per hour, across rooms. Notifications delayed by pacing can join a later digest while still eligible. Existing per-recipient spacing, per-kind preferences, and daily actor audience budgets still apply. Browser push, the in-app bell, and security email use their existing separate delivery paths.

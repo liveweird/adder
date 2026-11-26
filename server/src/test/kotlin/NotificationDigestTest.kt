@@ -21,6 +21,7 @@ import ch.nokillswit.users.UserRole
 import java.sql.Connection
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -1132,6 +1133,39 @@ class NotificationDigestTest {
     }
 
     @Test
+    fun `waiting for a pair lock does not shorten its email interval`() = runBlocking {
+        val s = setup()
+        val recipient = s.member()
+        val pair = ActorRecipientPair(s.owner.id, recipient.id)
+        val interval = ACTOR_RECIPIENT_INTERVAL_MILLIS
+        val now = AtomicLong(s.now)
+        val store = NotificationDigestStore(sharedDatabaseForTests(), 0, DigestBounds())
+        pace(pair.actorId, pair.recipientId, s.now - interval)
+
+        PostgresTestSupport.connect().use { blocker ->
+            blocker.autoCommit = false
+            blocker.prepareStatement(
+                "SELECT 1 FROM notification_email_pacing WHERE actor_id = ? AND recipient_id = ? FOR UPDATE",
+            ).use { statement ->
+                statement.setLong(1, pair.actorId.toLong())
+                statement.setLong(2, pair.recipientId.toLong())
+                statement.executeQuery().use { assertTrue(it.next()) }
+            }
+            val pending = async(Dispatchers.Default) { store.reservePairs(setOf(pair), interval, now::get) }
+            try {
+                awaitLockWait("FOR UPDATE OF pacing")
+                now.addAndGet(5 * SECOND)
+            } finally {
+                blocker.rollback()
+            }
+            assertEquals(setOf(pair), pending.await())
+        }
+        assertEquals(now.get(), pacingAt(pair.actorId, pair.recipientId))
+        assertTrue(store.reservePairs(setOf(pair), interval) { now.get() + interval - 1 }.isEmpty())
+        assertEquals(setOf(pair), store.reservePairs(setOf(pair), interval) { now.get() + interval })
+    }
+
+    @Test
     fun `pair reservation is atomic across connections and expiry cleanup is bounded`() = runBlocking {
         val s = setup()
         val ann = s.member()
@@ -1139,7 +1173,7 @@ class NotificationDigestTest {
         val stores = List(2) { NotificationDigestStore(sharedDatabaseForTests(), 0, DigestBounds()) }
 
         val winners = coroutineScope {
-            stores.map { store -> async(Dispatchers.Default) { store.reservePairs(setOf(pair), s.now, s.now - 1) } }.awaitAll()
+            stores.map { store -> async(Dispatchers.Default) { store.reservePairs(setOf(pair), 1) { s.now } } }.awaitAll()
         }
         assertEquals(1, winners.count { pair in it }, "the primary-key upsert admits one racing SMTP attempt")
         assertEquals(s.now, pacingAt(s.owner.id, ann.id))

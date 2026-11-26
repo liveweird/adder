@@ -7,6 +7,11 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Notification retention and email pacing (1.21.0)
+
+- The service retains up to 5,000 unseen notices per person. Expired notices leave the bell and cancel pending delivery. Read state stays independent.
+- Digest emails space attempts from each actor to each recipient by at least an hour. The ordinary recipient digest interval and notification preferences still apply.
+
 ### Thread tags and message edit history (1.20.0)
 
 - Choose curated **Tags** in the new-thread form. They save together with the opening message.

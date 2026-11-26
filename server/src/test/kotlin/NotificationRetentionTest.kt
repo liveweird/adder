@@ -1,9 +1,15 @@
 package ch.nokillswit
 
+import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.notifications.NoticeWriter
+import ch.nokillswit.notifications.NoticeSeenWriter
+import ch.nokillswit.notifications.PersistedNotice
 import ch.nokillswit.notifications.NotificationRetention
 import ch.nokillswit.notifications.NotificationService
 import ch.nokillswit.notifications.NotificationType
+import ch.nokillswit.rooms.RoomMemberService
+import ch.nokillswit.rooms.RoomNotices
+import ch.nokillswit.teams.TeamService
 import ch.nokillswit.threads.Notice
 import ch.nokillswit.threads.NoticeReason
 import ch.nokillswit.users.UserRole
@@ -15,9 +21,12 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 import org.slf4j.LoggerFactory
 
@@ -179,6 +188,35 @@ class NotificationRetentionTest {
     }
 
     @Test
+    fun `five hundred recipients at the cap are trimmed with a fixed statement count`() = runBlocking {
+        val scene = scene("retain-wide-cap")
+        val recipients = bulkUsers(500, "retain-wide-cap").also { users += it }
+        val made = seedAtCap(scene, recipients, limit = 2)
+        val driver = LoggerFactory.getLogger("io.r2dbc.postgresql.QUERY") as ch.qos.logback.classic.Logger
+        val saved = driver.level
+        val capture = LogCapture(driver.name)
+        try {
+            driver.level = ch.qos.logback.classic.Level.DEBUG
+            val retained = suspendTransaction(sharedDatabaseForTests()) {
+                NotificationRetention(2).run {
+                    lockRecipients(recipients)
+                    trimLocked(recipients, made)
+                }
+            }
+            assertEquals(500, retained.survivors.size)
+            val statements = capture.events.map { it.formattedMessage }
+            assertEquals(2, statements.count { "WHERE EXISTS (" in it }, statements.toString())
+            assertEquals(1, statements.count { "WITH audience AS MATERIALIZED" in it }, statements.toString())
+            assertEquals(1, statements.count { "UPDATE notification_recipient_guards" in it }, statements.toString())
+            assertTrue(statements.size < 20, "the SQL count is independent of the 500-person audience: $statements")
+        } finally {
+            driver.level = saved
+            capture.detach()
+        }
+        assertEquals(0, recipientsWithWrongUnseenCount(recipients, 2))
+    }
+
+    @Test
     fun `a locked oldest row makes trimming take the next oldest available rows`() = runBlocking {
         val scene = scene("retain-skip")
         val old = (1L..4L).map { seedNotice(scene, it, type = NotificationType.entries[it.toInt()]) }
@@ -262,6 +300,116 @@ class NotificationRetentionTest {
     }
 
     @Test
+    fun `member removal waits for a read membership lock before taking the recipient guard or notice rows`() = runBlocking {
+        val scene = scene("retain-read-remove")
+        val notice = seedNotice(scene, 1L)
+        markForNormalization(scene.recipient)
+        val prepareEntered = CompletableDeferred<Unit>()
+        val guardPassed = CompletableDeferred<Unit>()
+        val writer = NoticeWriter()
+        val notices = object : RoomNotices by writer {
+            override suspend fun prepareMemberRemoval(roomId: UInt, userId: UInt) {
+                prepareEntered.complete(Unit)
+                writer.prepareMemberRemoval(roomId, userId)
+            }
+        }
+        val members = RoomMemberService(sharedDatabaseForTests(), TeamService(sharedDatabaseForTests()), notices)
+        val caller = CallerPrincipal(scene.actor, "retain-read-remove@test", setOf(UserRole.USER))
+
+        PostgresTestSupport.connect().use { reader ->
+            reader.autoCommit = false
+            reader.prepareStatement(
+                "UPDATE room_members SET seen_at = GREATEST(seen_at, ?) WHERE room_id = ? AND user_id = ?",
+            ).use { statement ->
+                statement.setLong(1, 10L)
+                statement.setInt(2, scene.room.toInt())
+                statement.setLong(3, scene.recipient.toLong())
+                assertEquals(1, statement.executeUpdate())
+            }
+            val removal = async {
+                members.remove(scene.room, scene.recipient, caller) { _, _ -> guardPassed.complete(Unit) }
+            }
+            var committed = false
+            try {
+                withTimeout(10_000) { guardPassed.await() }
+                assertEquals(
+                    null,
+                    withTimeoutOrNull(250) { prepareEntered.await() },
+                    "removal must wait on membership before entering notice cleanup",
+                )
+
+                // While removal waits, neither the recipient guard nor the notice row may be held by it.
+                PostgresTestSupport.connect().use { probe ->
+                    probe.autoCommit = false
+                    probe.prepareStatement(
+                        "SELECT recipient_id FROM notification_recipient_guards WHERE recipient_id = ? FOR UPDATE NOWAIT",
+                    ).use { statement ->
+                        statement.setLong(1, scene.recipient.toLong())
+                        statement.executeQuery().use { rows -> assertTrue(rows.next()) }
+                    }
+                    probe.prepareStatement("SELECT id FROM notifications WHERE id = ? FOR UPDATE NOWAIT").use { statement ->
+                        statement.setInt(1, notice.toInt())
+                        statement.executeQuery().use { rows -> assertTrue(rows.next()) }
+                    }
+                    probe.rollback()
+                }
+
+                // Complete the read's membership-first sequence by locking and marking its notice rows in id order.
+                reader.prepareStatement(
+                    "SELECT id FROM notifications WHERE recipient_id = ? AND thread_id = ? AND seen_at IS NULL " +
+                        "AND (message_id IS NULL OR message_id <= ?) ORDER BY id FOR NO KEY UPDATE",
+                ).use { statement ->
+                    statement.setLong(1, scene.recipient.toLong())
+                    statement.setInt(2, scene.thread.toInt())
+                    statement.setInt(3, Int.MAX_VALUE)
+                    statement.executeQuery().use { rows ->
+                        while (rows.next()) {
+                            reader.prepareStatement(
+                                "UPDATE notifications SET seen_at = ? WHERE recipient_id = ? AND id = ?",
+                            ).use { update ->
+                                update.setLong(1, 10L)
+                                update.setLong(2, scene.recipient.toLong())
+                                update.setInt(3, rows.getInt(1))
+                                assertEquals(1, update.executeUpdate())
+                            }
+                        }
+                    }
+                }
+                reader.commit()
+                committed = true
+                withTimeout(20_000) { removal.await() }
+            } finally {
+                if (!committed) reader.rollback()
+                if (removal.isActive) removal.cancelAndJoin()
+            }
+        }
+
+        assertEquals(null, TestRooms.rawRole(scene.room, scene.recipient))
+        assertEquals(emptyList(), noticeIds(scene.recipient))
+    }
+
+    @Test
+    fun `thread read chunks do not consume a later thread-level notice`() = runBlocking {
+        val scene = scene("retain-read-ceiling")
+        val old = listOf(
+            seedNotice(scene, 1L, type = NotificationType.MENTIONED),
+            seedNotice(scene, 2L, type = NotificationType.THREAD_REPLIED),
+            seedNotice(scene, 3L, type = NotificationType.THREAD_ASSIGNED),
+        )
+        var inserted: UInt? = null
+        val seen = NoticeSeenWriter(NotificationRetention(), threadChunk = 2) {
+            if (inserted == null) inserted = seedNotice(scene, 4L, type = NotificationType.THREAD_REOPENED)
+        }
+
+        suspendTransaction(sharedDatabaseForTests()) {
+            seen.threadRead(scene.thread, scene.recipient, UInt.MAX_VALUE, 10L)
+        }
+
+        assertTrue(old.none { it in unseen(scene.recipient) })
+        assertEquals(listOf(checkNotNull(inserted)), unseen(scene.recipient))
+    }
+
+    @Test
     fun `a failed producing transaction rolls back its guard and notice changes`() = runBlocking {
         val scene = scene("retain-rollback")
         val writer = NoticeWriter(retention = NotificationRetention(3))
@@ -311,6 +459,79 @@ class NotificationRetentionTest {
             }
         }
     }
+
+    private fun bulkUsers(count: Int, label: String): List<UInt> = PostgresTestSupport.connect().use { connection ->
+        connection.prepareStatement(
+            "INSERT INTO users (\"name\", email, password_hash) " +
+                "SELECT 'Retention recipient ' || n, ? || '-' || n || '@test', 'x' FROM generate_series(1, ?) n RETURNING id",
+        ).use { statement ->
+            statement.setString(1, "$label-${UUID.randomUUID()}")
+            statement.setInt(2, count)
+            statement.executeQuery().use { rows -> buildList { while (rows.next()) add(rows.getLong(1).toUInt()) } }
+        }
+    }
+
+    private fun seedAtCap(scene: Scene, recipients: List<UInt>, limit: Int): List<PersistedNotice> =
+        PostgresTestSupport.connect().use { connection ->
+            val ids = connection.createArrayOf("bigint", recipients.map(UInt::toLong).toTypedArray())
+            connection.prepareStatement(
+                "INSERT INTO room_members (room_id, user_id, \"role\", added_at) " +
+                    "SELECT ?, recipient_id, 'MEMBER', 1 FROM unnest(?::int8[]) recipient_id",
+            ).use { statement ->
+                statement.setInt(1, scene.room.toInt())
+                statement.setArray(2, ids)
+                assertEquals(recipients.size, statement.executeUpdate())
+            }
+            connection.prepareStatement(
+                "INSERT INTO notifications " +
+                    "(recipient_id, room_id, notification_type, actor_id, thread_id, created_at, in_app, emailed_at) " +
+                    "SELECT recipient_id, ?, 'THREAD_REPLIED', ?, ?, ordinal, TRUE, ordinal " +
+                    "FROM unnest(?::int8[]) recipient_id CROSS JOIN generate_series(1, ?) ordinal",
+            ).use { statement ->
+                statement.setInt(1, scene.room.toInt())
+                statement.setLong(2, scene.actor.toLong())
+                statement.setInt(3, scene.thread.toInt())
+                statement.setArray(4, ids)
+                statement.setInt(5, limit)
+                assertEquals(recipients.size * limit, statement.executeUpdate())
+            }
+            connection.prepareStatement(
+                "INSERT INTO notifications " +
+                    "(recipient_id, room_id, notification_type, actor_id, thread_id, created_at, in_app, emailed_at) " +
+                    "SELECT recipient_id, ?, 'THREAD_CLOSED', ?, ?, ?, TRUE, ? FROM unnest(?::int8[]) recipient_id " +
+                    "RETURNING recipient_id, id",
+            ).use { statement ->
+                statement.setInt(1, scene.room.toInt())
+                statement.setLong(2, scene.actor.toLong())
+                statement.setInt(3, scene.thread.toInt())
+                statement.setLong(4, limit.toLong() + 1)
+                statement.setLong(5, limit.toLong() + 1)
+                statement.setArray(6, ids)
+                statement.executeQuery().use { rows ->
+                    buildList {
+                        while (rows.next()) {
+                            add(
+                                PersistedNotice(
+                                    rows.getLong(1).toUInt(), rows.getInt(2).toUInt(), NotificationType.THREAD_CLOSED, inApp = true,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+    private fun recipientsWithWrongUnseenCount(recipients: List<UInt>, expected: Int): Int =
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement(
+                "SELECT count(*) FROM (SELECT recipient_id FROM notifications WHERE recipient_id = ANY(?) AND seen_at IS NULL " +
+                    "GROUP BY recipient_id HAVING count(*) <> ?) wrong",
+            ).use { statement ->
+                statement.setArray(1, connection.createArrayOf("bigint", recipients.map(UInt::toLong).toTypedArray()))
+                statement.setInt(2, expected)
+                statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+            }
+        }
 
     private fun scalar(sql: String, value: UInt): Int = PostgresTestSupport.connect().use { connection ->
         connection.prepareStatement(sql).use { statement ->

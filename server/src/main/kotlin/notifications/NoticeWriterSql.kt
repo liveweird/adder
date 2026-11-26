@@ -63,14 +63,23 @@ FROM unnest(CAST(? AS int8[]), CAST(? AS varchar[]), CAST(? AS bool[])) AS u(r, 
 WHERE n.message_id = CAST(? AS int4) AND n.recipient_id = u.r"""
 
 /**
- * One ordered chunk for a thread read. The recipient guard is already held; row locks are still taken in ascending id order so a member
- * removal and every seen path meet these rows in the same order. A hand-over has no message and is included. Arguments: person, thread,
- * message, previous id, limit.
+ * Captures the last notice eligible when a thread read starts. Later chunks stay below this ceiling, so a status/owner event inserted
+ * after the read began remains unseen. A hand-over has no message and is included. Arguments: person, thread, message.
+ */
+internal const val THREAD_UNSEEN_CEILING_SQL = """
+SELECT max(id) FROM notifications
+WHERE recipient_id = CAST(? AS int8) AND thread_id = CAST(? AS int4) AND seen_at IS NULL
+  AND (message_id IS NULL OR message_id <= CAST(? AS int4))"""
+
+/**
+ * One ordered chunk for a thread read. The membership row is already held by the caller; no recipient guard is needed for this pure
+ * seen write. Row locks remain in ascending id order so removal meets them after the same membership lock. Arguments: person, thread,
+ * message, previous id, initial ceiling, limit.
  */
 internal const val THREAD_SEEN_CHUNK_IDS_SQL = """
 SELECT id FROM notifications
 WHERE recipient_id = CAST(? AS int8) AND thread_id = CAST(? AS int4) AND seen_at IS NULL
-  AND (message_id IS NULL OR message_id <= CAST(? AS int4)) AND id > CAST(? AS int4)
+  AND (message_id IS NULL OR message_id <= CAST(? AS int4)) AND id > CAST(? AS int4) AND id <= CAST(? AS int4)
 ORDER BY id LIMIT CAST(? AS int4)
 FOR NO KEY UPDATE"""
 

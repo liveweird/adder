@@ -864,3 +864,27 @@ This discards saved history. The old binary lacks the purge on message and threa
 - V50 indexes only deleted message ids. The boot sweep advances by id even when a batch has no derived rows. Each delete uses the message ids from that batch to probe its derived table’s index. A tombstone held by another transaction is skipped and can be revisited at the next boot. The batch’s 30-second statement limit still applies. On PostgreSQL 18, a warm synthetic batch with 100,000 messages, 600,000 derived rows and 50 tombstones ran in about 88 ms with the former union and 1.5 ms with the indexed batch.
 
 The Flyway migration role needs permission to install the two trusted PostgreSQL extensions, or the operator must install them before startup. Flyway builds these indexes transactionally; schedule the migration in a deployment window where writes to the affected tables can wait. A rolling application rollback can leave the indexes installed.
+
+### Notification retention and digest pacing (V51–V52)
+
+V51 adds a guard row per notification recipient. A room write locks its complete recipient set in increasing id order before the actor budget and before changing notices. Room locks alone leave room for concurrent arrivals from different rooms. A set-oriented probe finds recipients over 5,000 unseen rows across channels. Trim selects the oldest available rows with `SKIP LOCKED` to avoid waiting behind a read or another delete. If too few rows can be removed, the operation discards its own new notices. Only surviving notices count as creations or enter the browser push queue. Deleting a notice removes its push queue entries by foreign key.
+
+Thread-read settlement and a departing member's cleanup select and change at most 1,000 notice rows per statement in ascending id order. The work stays in the original transaction, so every batch rolls back together. The limit bounds each statement's work. A large removal can still hold locks across batches.
+
+V51 seeds only recipients exceeding the cap. Each sweep tick visits a bounded number of marked recipients and clears up to 1,000 excess unseen rows apiece. An old writer can create more excess during a rolling upgrade. Stop old writers before asserting that every recipient meets the bound. The standard Recreate deployment satisfies this. Use `SELECT recipient_id, count(*) FROM notifications WHERE seen_at IS NULL GROUP BY recipient_id HAVING count(*) > 5000` to check normalization. Leave the additive migration tables installed on rollback. The older app resumes the earlier notice policy.
+
+**Returning from an old writer.** If an older binary wrote to a database that already applied V51, stop those writers and reflag oversized recipients before starting the upgraded app. This also applies after any mixed-version overlap. The repair is idempotent:
+
+```sql
+INSERT INTO notification_recipient_guards (recipient_id, needs_normalization)
+SELECT recipient_id, TRUE
+FROM notifications
+WHERE seen_at IS NULL
+GROUP BY recipient_id
+HAVING count(*) > 5000
+ON CONFLICT (recipient_id) DO UPDATE SET needs_normalization = TRUE;
+```
+
+The next sweeps drain the flagged recipients. Check the excess query above before declaring normalization complete.
+
+V52 stores the last digest SMTP attempt by actor and recipient. Claiming skips currently paced pairs. Just before send, the digest locks pairs in sorted order and timestamps eligible reservations after the locks are acquired. This transaction is separate from claim and delivery. A racing pair's notices stay pending. A failed or interrupted SMTP attempt consumes the interval. Expired pacing rows are cleared in bounded transactions on sweep ticks. Pacing begins with the first reservation made by 1.21 and remains durable across restarts. Stop older digest senders before upgrading. If an older sender runs during a rollback, its attempts are outside the V52 pacing history.

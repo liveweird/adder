@@ -67,9 +67,7 @@ internal class NotificationDigestDelivery(
                 return DigestDeliveryResult(DigestDeliveryStatus.SKIPPED)
             }
             val requested = candidate.notices.map { ActorRecipientPair(it.actorId, recipientId) }.toSet()
-            val freshAttemptAt = clock()
-            attemptAt = freshAttemptAt
-            val admitted = store.reservePairs(requested, freshAttemptAt, freshAttemptAt - actorRecipientIntervalMillis)
+            val admitted = store.reservePairs(requested, actorRecipientIntervalMillis, clock)
             reserved = admitted.isNotEmpty()
             blocked = candidate.notices.filter { ActorRecipientPair(it.actorId, recipientId) !in admitted }.map { it.id }.sorted()
             val allowed = candidate.notices.filter { ActorRecipientPair(it.actorId, recipientId) in admitted }
@@ -78,6 +76,7 @@ internal class NotificationDigestDelivery(
                 return DigestDeliveryResult(DigestDeliveryStatus.PACED, released)
             }
             val mail = candidate.render(allowed)
+            attemptAt = clock()
             markAttempted()
             try {
                 mailer.send(mail.email, mail.subject, mail.body)

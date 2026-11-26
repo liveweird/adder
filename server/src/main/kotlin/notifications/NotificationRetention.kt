@@ -2,7 +2,6 @@ package ch.nokillswit.notifications
 
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.ArrayColumnType
-import org.jetbrains.exposed.v1.core.BooleanColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.statements.StatementType
@@ -11,7 +10,7 @@ import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 /** The hard per-recipient bound over every unseen notice, across rooms and delivery channels. */
 internal const val MAX_UNSEEN_NOTICES = 5_000
 
-/** One foreground or legacy-normalization pass deletes at most this many old rows for one recipient. */
+/** One foreground operation or legacy-normalization pass deletes at most this many old rows across its locked audience. */
 internal const val UNSEEN_PRUNE_BATCH = 1_000
 
 /** One sweep pass visits at most this many legacy recipients. */
@@ -57,39 +56,34 @@ internal class NotificationRetention(private val unseenLimit: Int = MAX_UNSEEN_N
     }
 
     /**
-     * Enforces the bound for already-locked [recipients]. At most [prunePerRecipient] old available rows are removed per person. When a
+     * Enforces the bound for already-locked [recipients]. At most [pruneLimit] old available rows are removed in total. When a
      * legacy excess or locked old rows still leave the person oversized, this operation's new/replacement rows are discarded as well.
      * The returned survivors are re-read from storage and are the only rows callers may count, hint as creations or enqueue for push.
      */
     suspend fun trimLocked(
         recipients: Collection<UInt>,
         created: List<PersistedNotice>,
-        prunePerRecipient: Int = UNSEEN_PRUNE_BATCH,
+        pruneLimit: Int = UNSEEN_PRUNE_BATCH,
         clearNormalizationForCompliant: Boolean = false,
     ): RetainedNotices {
-        require(prunePerRecipient > 0)
+        require(pruneLimit > 0)
         val byRecipient = created.groupBy(PersistedNotice::userId)
         val bellChanged = linkedSetOf<UInt>()
         var deleted = 0
         val checked = recipients.distinct().sorted()
         val oversized = oversizedRecipients(checked)
-        if (clearNormalizationForCompliant) setNormalizationState(checked - oversized, false)
-        oversized.forEach { recipient ->
-            val over = (boundedUnseenCount(recipient, prunePerRecipient) - unseenLimit).coerceAtLeast(0)
-            if (over > 0) {
-                val old = lockOldestAvailable(recipient, minOf(over, prunePerRecipient))
-                val removed = deleteIds(recipient, old.map { it.first })
-                deleted += removed.size
-                if (removed.any { it.second }) bellChanged += recipient
-            }
-            var stillOversized = isOversized(recipient)
-            if (stillOversized && byRecipient[recipient].orEmpty().isNotEmpty()) {
-                val discarded = deleteIds(recipient, byRecipient[recipient].orEmpty().map { it.notificationId })
-                deleted += discarded.size
-                if (discarded.any { it.second }) bellChanged += recipient
-                stillOversized = isOversized(recipient)
-            }
-            setNormalizationState(listOf(recipient), stillOversized)
+        val expired = deleteOldestAvailable(oversized, pruneLimit)
+        deleted += expired.size
+        expired.filter { it.inApp }.forEach { bellChanged += it.recipient }
+        val stillOversized = oversizedRecipients(oversized.toList())
+        val currentIds = stillOversized.flatMap { recipient -> byRecipient[recipient].orEmpty().map(PersistedNotice::notificationId) }
+        val discarded = deleteCreated(currentIds)
+        deleted += discarded.size
+        discarded.filter { it.inApp }.forEach { bellChanged += it.recipient }
+        val finalOversized = oversizedRecipients(stillOversized.toList())
+        val stateRecipients = if (clearNormalizationForCompliant) checked else oversized
+        if (stateRecipients.isNotEmpty()) {
+            setNormalizationState(stateRecipients, finalOversized)
         }
         val survivorIds = existingIds(created.map { it.notificationId })
         val survivors = created.filter { it.notificationId in survivorIds }
@@ -146,26 +140,40 @@ internal class NotificationRetention(private val unseenLimit: Int = MAX_UNSEEN_N
         ) { row -> row.get(0, Long::class.javaObjectType)?.toUInt() }?.toList().orEmpty().filterNotNull().toSet()
     }
 
-    private suspend fun boundedUnseenCount(recipient: UInt, prune: Int): Int = TransactionManager.current().exec(
-        BOUNDED_UNSEEN_COUNT,
-        listOf(LongColumnType() to recipient.toLong(), IntegerColumnType() to (unseenLimit + prune + 1)),
-        explicitStatementType = StatementType.SELECT,
-    ) { row -> row.get(0, Long::class.javaObjectType)?.toInt() }?.toList().orEmpty().singleOrNull() ?: 0
-
-    private suspend fun isOversized(recipient: UInt): Boolean = TransactionManager.current().exec(
-        IS_OVERSIZED,
-        listOf(LongColumnType() to recipient.toLong(), IntegerColumnType() to unseenLimit),
-        explicitStatementType = StatementType.SELECT,
-    ) { row -> row.get(0, Boolean::class.javaObjectType) }?.toList().orEmpty().singleOrNull() == true
-
-    private suspend fun lockOldestAvailable(recipient: UInt, limit: Int): List<Pair<UInt, Boolean>> =
-        TransactionManager.current().exec(
-            LOCK_OLDEST_AVAILABLE,
-            listOf(LongColumnType() to recipient.toLong(), IntegerColumnType() to limit),
+    private suspend fun deleteOldestAvailable(recipients: Set<UInt>, prune: Int): List<DeletedNotice> {
+        if (recipients.isEmpty()) return emptyList()
+        return TransactionManager.current().exec(
+            DELETE_OLDEST_AVAILABLE,
+            listOf(
+                ArrayColumnType<Long, List<Long>>(LongColumnType()) to recipients.sorted().map(UInt::toLong),
+                IntegerColumnType() to (unseenLimit + prune + 1),
+                IntegerColumnType() to unseenLimit,
+                IntegerColumnType() to prune,
+            ),
             explicitStatementType = StatementType.SELECT,
         ) { row ->
-            row.get(0, Int::class.javaObjectType)!!.toUInt() to (row.get(1, Boolean::class.javaObjectType) == true)
+            DeletedNotice(
+                row.get(0, Long::class.javaObjectType)!!.toUInt(),
+                row.get(1, Int::class.javaObjectType)!!.toUInt(),
+                row.get(2, Boolean::class.javaObjectType) == true,
+            )
         }?.toList().orEmpty().filterNotNull()
+    }
+
+    private suspend fun deleteCreated(ids: Collection<UInt>): List<DeletedNotice> {
+        if (ids.isEmpty()) return emptyList()
+        return TransactionManager.current().exec(
+            DELETE_CREATED_NOTICES,
+            listOf(ArrayColumnType<Int, List<Int>>(IntegerColumnType()) to ids.distinct().map(UInt::toInt)),
+            explicitStatementType = StatementType.SELECT,
+        ) { row ->
+            DeletedNotice(
+                row.get(0, Long::class.javaObjectType)!!.toUInt(),
+                row.get(1, Int::class.javaObjectType)!!.toUInt(),
+                row.get(2, Boolean::class.javaObjectType) == true,
+            )
+        }?.toList().orEmpty().filterNotNull()
+    }
 
     private suspend fun deleteIds(recipient: UInt, ids: Collection<UInt>): List<Pair<UInt, Boolean>> {
         if (ids.isEmpty()) return emptyList()
@@ -190,17 +198,19 @@ internal class NotificationRetention(private val unseenLimit: Int = MAX_UNSEEN_N
         ) { row -> row.get(0, Int::class.javaObjectType)?.toUInt() }?.toList().orEmpty().filterNotNull().toSet()
     }
 
-    private suspend fun setNormalizationState(recipients: Collection<UInt>, needed: Boolean) {
+    private suspend fun setNormalizationState(recipients: Collection<UInt>, needed: Collection<UInt>) {
         if (recipients.isEmpty()) return
         TransactionManager.current().exec(
             SET_NORMALIZATION_STATE,
             listOf(
-                BooleanColumnType() to needed,
+                ArrayColumnType<Long, List<Long>>(LongColumnType()) to needed.map(UInt::toLong),
                 ArrayColumnType<Long, List<Long>>(LongColumnType()) to recipients.map(UInt::toLong),
             ),
             explicitStatementType = StatementType.UPDATE,
         )
     }
+
+    private data class DeletedNotice(val recipient: UInt, val id: UInt, val inApp: Boolean)
 }
 
 private const val ENSURE_RECIPIENT_GUARDS = """
@@ -214,11 +224,6 @@ WHERE recipient_id = ANY(CAST(? AS int8[]))
 ORDER BY recipient_id
 FOR UPDATE"""
 
-private const val BOUNDED_UNSEEN_COUNT = """
-SELECT count(*) FROM (
-  SELECT id FROM notifications WHERE recipient_id = CAST(? AS int8) AND seen_at IS NULL LIMIT CAST(? AS int4)
-) bounded"""
-
 private const val OVERSIZED_RECIPIENTS = """
 SELECT r.recipient_id
 FROM unnest(CAST(? AS int8[])) AS r(recipient_id)
@@ -229,17 +234,39 @@ WHERE EXISTS (
 )
 ORDER BY r.recipient_id"""
 
-private const val IS_OVERSIZED = """
-SELECT EXISTS(
-  SELECT 1 FROM notifications WHERE recipient_id = CAST(? AS int8) AND seen_at IS NULL
-  OFFSET CAST(? AS int4) LIMIT 1
-)"""
+private const val DELETE_OLDEST_AVAILABLE = """
+WITH audience AS MATERIALIZED (
+  SELECT recipient_id, count(*) OVER ()::int AS audience_size
+  FROM unnest(CAST(? AS int8[])) AS recipients(recipient_id)
+), targets AS MATERIALIZED (
+  SELECT r.recipient_id, oldest.id
+  FROM audience r
+  CROSS JOIN LATERAL (
+    SELECT count(*)::int AS total FROM (
+      SELECT n.id FROM notifications n
+      WHERE n.recipient_id = r.recipient_id AND n.seen_at IS NULL
+      LIMIT CAST(? AS int4)
+    ) bounded
+  ) counts
+  CROSS JOIN LATERAL (
+    SELECT n.id FROM notifications n
+    WHERE n.recipient_id = r.recipient_id AND n.seen_at IS NULL
+    ORDER BY n.id
+    LIMIT LEAST(GREATEST(counts.total - CAST(? AS int4), 0), CAST(? AS int4) / r.audience_size)
+    FOR UPDATE SKIP LOCKED
+  ) oldest
+  ORDER BY r.recipient_id, oldest.id
+), deleted AS (
+  DELETE FROM notifications n USING targets t
+  WHERE n.recipient_id = t.recipient_id AND n.id = t.id
+  RETURNING n.recipient_id, n.id, n.in_app
+)
+SELECT recipient_id, id, in_app FROM deleted"""
 
-private const val LOCK_OLDEST_AVAILABLE = """
-SELECT id, in_app FROM notifications
-WHERE recipient_id = CAST(? AS int8) AND seen_at IS NULL
-ORDER BY id LIMIT CAST(? AS int4)
-FOR UPDATE SKIP LOCKED"""
+private const val DELETE_CREATED_NOTICES = """
+DELETE FROM notifications
+WHERE id = ANY(CAST(? AS int4[]))
+RETURNING recipient_id, id, in_app"""
 
 private const val DELETE_NOTICE_IDS = """
 DELETE FROM notifications
@@ -250,7 +277,8 @@ private const val EXISTING_NOTICE_IDS = """
 SELECT id FROM notifications WHERE id = ANY(CAST(? AS int4[]))"""
 
 private const val SET_NORMALIZATION_STATE = """
-UPDATE notification_recipient_guards SET needs_normalization = CAST(? AS bool)
+UPDATE notification_recipient_guards
+SET needs_normalization = recipient_id = ANY(CAST(? AS int8[]))
 WHERE recipient_id = ANY(CAST(? AS int8[]))"""
 
 private const val NEXT_LEGACY_RECIPIENT = """

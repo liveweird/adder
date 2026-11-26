@@ -17,16 +17,11 @@ import ch.nokillswit.threads.ThreadNotices
 import ch.nokillswit.threads.mutedInThread
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
-import org.jetbrains.exposed.v1.core.ArrayColumnType
-import org.jetbrains.exposed.v1.core.IntegerColumnType
-import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
-import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.deleteWhere
 import org.jetbrains.exposed.v1.r2dbc.select
-import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 
 /**
  * The chat's [ThreadNotices] port (`chat-model.md` "Notifications (V18)", "Notice kinds (V27, V28)"): the WRITE side of the notices. A
@@ -57,6 +52,7 @@ internal class NoticeWriter(
 ) : ThreadNotices, RoomNotices {
     private val judger = NoticeJudge(mailAvailable)
     private val persistence = NoticePersistence(digestDelayMillis)
+    private val seenWriter = NoticeSeenWriter(retention)
 
     override suspend fun forMessage(at: MessageRef, byUserId: UInt, notices: List<Notice>): NoticeOutcome {
         val recipients = recipientsOf(notices, byUserId)
@@ -241,62 +237,15 @@ internal class NoticeWriter(
         announce(recipients, roomId, null, null)
     }
 
-    override suspend fun threadRead(threadId: UInt, userId: UInt, upToMessageId: UInt, at: Long) {
-        val int = IntegerColumnType()
-        val long = LongColumnType()
-        retention.lockRecipients(listOf(userId))
-        var after = 0u
-        do {
-            val ids = TransactionManager.current().exec(
-                THREAD_SEEN_CHUNK_IDS_SQL,
-                listOf(
-                    long to userId.toLong(), int to threadId.toInt(), int to upToMessageId.toInt(), int to after.toInt(),
-                    int to UNSEEN_PRUNE_BATCH,
-                ),
-                explicitStatementType = StatementType.SELECT,
-            ) { row -> row.get(0, Int::class.javaObjectType)?.toUInt() }?.toList().orEmpty().filterNotNull()
-            if (ids.isNotEmpty()) {
-                TransactionManager.current().exec(
-                    MARK_IDS_SEEN_SQL,
-                    listOf(long to at, long to userId.toLong(), ArrayColumnType<Int, List<Int>>(int) to ids.map(UInt::toInt)),
-                    explicitStatementType = StatementType.SELECT,
-                ) { row -> row.get(0, Int::class.javaObjectType) }?.toList()
-                after = ids.last()
-            }
-        } while (ids.size == UNSEEN_PRUNE_BATCH)
-    }
+    override suspend fun threadRead(threadId: UInt, userId: UInt, upToMessageId: UInt, at: Long) =
+        seenWriter.threadRead(threadId, userId, upToMessageId, at)
 
-    override suspend fun prepareMemberRemoval(roomId: UInt, userId: UInt) {
-        retention.lockRecipients(listOf(userId))
-        retention.deleteMembershipNotices(roomId, userId)
-    }
+    override suspend fun prepareMemberRemoval(roomId: UInt, userId: UInt) = seenWriter.prepareMemberRemoval(roomId, userId)
 
-    override suspend fun roomUnseenCeiling(roomId: UInt, userId: UInt): UInt? {
-        val rows = TransactionManager.current().exec(
-            ROOM_UNSEEN_CEILING_SQL,
-            listOf(LongColumnType() to userId.toLong(), IntegerColumnType() to roomId.toInt()),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType)?.toUInt() }
-        return rows?.toList().orEmpty().singleOrNull()
-    }
+    override suspend fun roomUnseenCeiling(roomId: UInt, userId: UInt): UInt? = seenWriter.roomUnseenCeiling(roomId, userId)
 
-    override suspend fun roomSeenChunk(roomId: UInt, userId: UInt, at: Long, after: UInt, ceiling: UInt, limit: Int): SeenChunk {
-        val int = IntegerColumnType()
-        val long = LongColumnType()
-        val transaction = TransactionManager.current()
-        val ids = transaction.exec(
-            ROOM_SEEN_CHUNK_IDS_SQL,
-            listOf(long to userId.toLong(), int to roomId.toInt(), int to after.toInt(), int to ceiling.toInt(), long to at, int to limit),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType)!! }?.toList().orEmpty().filterNotNull()
-        if (ids.isEmpty()) return SeenChunk(0, 0, null)
-        val moved = transaction.exec(
-            MARK_IDS_SEEN_SQL,
-            listOf(long to at, long to userId.toLong(), ArrayColumnType<Int, List<Int>>(int) to ids),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType)!! }?.toList().orEmpty()
-        return SeenChunk(ids.size, moved.size, ids.last().toUInt())
-    }
+    override suspend fun roomSeenChunk(roomId: UInt, userId: UInt, at: Long, after: UInt, ceiling: UInt, limit: Int): SeenChunk =
+        seenWriter.roomSeenChunk(roomId, userId, at, after, ceiling, limit)
 
     /**
      * The one path every notice takes: filter (never the actor, a person once), the wide-event budget, judge the channels (with the

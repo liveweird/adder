@@ -945,7 +945,7 @@ class ThreadSchemaTest {
         for (mode in listOf("auto", "force_generic_plan")) {
             // Nothing is dropped: the index must be CHOSEN against its siblings, on statistics that do not depend on what other tests left
             // in the table (a realistic spread is seeded and analysed inside the rolled-back transaction).
-            val plan = explain(THREAD_SEEN_CHUNK_IDS_SQL, "int8, int4, int4, int4, int4", "", mode, seed = ::seedUnseenSpread)
+            val plan = explain(THREAD_SEEN_CHUNK_IDS_SQL, "int8, int4, int4, int4, int4, int4", "", mode, seed = ::seedUnseenSpread)
             assertTrue("idx_notifications_unseen_recipient" in plan, "$mode: the chunk uses the bounded recipient index:\n$plan")
             assertTrue("Seq Scan on notifications" !in plan, "$mode: never a scan of the whole table:\n$plan")
         }
@@ -1035,7 +1035,7 @@ class ThreadSchemaTest {
         )
         c.exec("ANALYZE notifications")
         val thread = c.scalar("SELECT min(id) FROM threads WHERE room_id = ?", room)
-        return "${people[1]}, $thread, 1000000000, 0, 1000"
+        return "${people[1]}, $thread, 1000000000, 0, 1000000000, 1000"
     }
 
     @Test

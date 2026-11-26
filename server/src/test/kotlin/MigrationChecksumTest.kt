@@ -71,6 +71,8 @@ class MigrationChecksumTest {
         "V48__index_message_search_by_thread.sql" to -431511298,
         "V49__index_canonical_thread_fields_by_room.sql" to 646060412,
         "V50__index_deleted_messages_for_boot_purge.sql" to -923612618,
+        "V51__bound_unseen_notifications.sql" to -341290409,
+        "V52__notification_email_pacing.sql" to -1756005064,
     )
 
     @Test

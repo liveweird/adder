@@ -21,16 +21,31 @@ internal data class ActorRecipientPair(val actorId: UInt, val recipientId: UInt)
 
 internal data class DigestClaim(val notices: List<ClaimedNotice>, val settled: Int)
 
+private const val REQUESTED_PAIRS = """
+SELECT actor_id, recipient_id
+FROM unnest(CAST(? AS int8[]), CAST(? AS int8[])) AS pair(actor_id, recipient_id)"""
+
+private const val ENSURE_PAIRS = """
+INSERT INTO notification_email_pacing (actor_id, recipient_id, attempted_at)
+SELECT actor_id, recipient_id, -9223372036854775808 FROM ($REQUESTED_PAIRS) AS requested
+ORDER BY actor_id, recipient_id
+ON CONFLICT (actor_id, recipient_id) DO NOTHING"""
+
+private const val LOCK_PAIRS = """
+WITH requested AS ($REQUESTED_PAIRS)
+SELECT pacing.actor_id
+FROM notification_email_pacing AS pacing
+JOIN requested USING (actor_id, recipient_id)
+ORDER BY pacing.actor_id, pacing.recipient_id
+FOR UPDATE OF pacing"""
+
 private const val RESERVE_PAIRS = """
-WITH requested AS MATERIALIZED (
-    SELECT actor_id, recipient_id
-    FROM unnest(CAST(? AS int8[]), CAST(? AS int8[])) AS pair(actor_id, recipient_id)
-    ORDER BY actor_id, recipient_id)
-INSERT INTO notification_email_pacing AS pacing (actor_id, recipient_id, attempted_at)
-SELECT actor_id, recipient_id, CAST(? AS int8) FROM requested
-ON CONFLICT (actor_id, recipient_id) DO UPDATE SET attempted_at = EXCLUDED.attempted_at
-WHERE pacing.attempted_at <= CAST(? AS int8)
-RETURNING actor_id, recipient_id"""
+WITH requested AS ($REQUESTED_PAIRS)
+UPDATE notification_email_pacing AS pacing SET attempted_at = CAST(? AS int8)
+FROM requested
+WHERE pacing.actor_id = requested.actor_id AND pacing.recipient_id = requested.recipient_id
+  AND pacing.attempted_at <= CAST(? AS int8)
+RETURNING pacing.actor_id, pacing.recipient_id"""
 
 private const val RELEASE_CLAIMS = """
 WITH picked AS MATERIALIZED (
@@ -104,20 +119,27 @@ internal class NotificationDigestStore(
         DigestClaim(claimed, settled)
     }
 
-    /** Reserves sorted pairs atomically. A conflict newer than [cutoff] returns no row and therefore loses the race safely. */
-    suspend fun reservePairs(pairs: Set<ActorRecipientPair>, now: Long, cutoff: Long): Set<ActorRecipientPair> {
+    /** Locks the requested pairs in a shared order before starting the pacing interval. */
+    suspend fun reservePairs(
+        pairs: Set<ActorRecipientPair>,
+        intervalMillis: Long,
+        clock: () -> Long,
+    ): Set<ActorRecipientPair> {
         if (pairs.isEmpty()) return emptySet()
         val ordered = pairs.sorted()
         return suspendTransaction(database) {
             queryTimeout = bounds.statementTimeoutSeconds
-            TransactionManager.current().exec(
+            val array = ArrayColumnType<Long, List<Long>>(LongColumnType())
+            val pairArgs = listOf(array to ordered.map { it.actorId.toLong() }, array to ordered.map { it.recipientId.toLong() })
+            val transaction = TransactionManager.current()
+            transaction.exec(ENSURE_PAIRS, pairArgs, explicitStatementType = StatementType.INSERT)
+            transaction.exec(LOCK_PAIRS, pairArgs, explicitStatementType = StatementType.SELECT) { row ->
+                row.get(0, Long::class.javaObjectType)
+            }?.toList()
+            val reservedAt = clock()
+            transaction.exec(
                 RESERVE_PAIRS,
-                listOf(
-                    ArrayColumnType<Long, List<Long>>(LongColumnType()) to ordered.map { it.actorId.toLong() },
-                    ArrayColumnType<Long, List<Long>>(LongColumnType()) to ordered.map { it.recipientId.toLong() },
-                    LongColumnType() to now,
-                    LongColumnType() to cutoff,
-                ),
+                pairArgs + listOf(LongColumnType() to reservedAt, LongColumnType() to reservedAt - intervalMillis),
                 explicitStatementType = StatementType.SELECT,
             ) { row ->
                 ActorRecipientPair(
