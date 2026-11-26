@@ -26,7 +26,10 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.path
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
+import io.ktor.util.cio.ChannelWriteException
+import io.ktor.utils.io.ClosedByteChannelException
 import io.r2dbc.spi.R2dbcException
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.exceptions.ExposedSQLException
@@ -99,17 +102,17 @@ private const val PG_QUERY_CANCELED = "57014"
 private const val PG_LOCK_NOT_AVAILABLE = "55P03"
 
 /** One cause-chain walk for every predicate below (self included). */
-private inline fun Throwable.anyInChain(predicate: (Throwable) -> Boolean): Boolean {
+private inline fun Throwable.findInChain(predicate: (Throwable) -> Boolean): Throwable? {
     var cur: Throwable? = this
     while (cur != null) {
-        if (predicate(cur)) return true
+        if (predicate(cur)) return cur
         cur = cur.cause
     }
-    return false
+    return null
 }
 
 private fun Throwable.hasSqlState(state: String): Boolean =
-    anyInChain { it is R2dbcException && it.sqlState == state }
+    findInChain { it is R2dbcException && it.sqlState == state } != null
 
 // Internal (not private): the user-import loop classifies per-row duplicates with it.
 internal fun Throwable.isUniqueViolation(): Boolean = hasSqlState(PG_UNIQUE_VIOLATION)
@@ -119,6 +122,19 @@ internal fun Throwable.isCharacterNotInRepertoire(): Boolean = hasSqlState(PG_CH
 internal fun Throwable.isLockNotAvailable(): Boolean = hasSqlState(PG_LOCK_NOT_AVAILABLE)
 
 internal fun Throwable.isQueryCanceled(): Boolean = hasSqlState(PG_QUERY_CANCELED)
+
+/** A response transport that the caller closed while the server was still writing it. */
+internal fun Throwable.isClientAbort(): Boolean = findInChain {
+    it is ClosedByteChannelException || it is ChannelWriteException
+} != null
+
+private fun ApplicationCall.logClientAbort(cause: Throwable) {
+    // Keep the throwable out of the line: transport exception messages may contain request data,
+    // and a browser navigating away is routine diagnostic noise rather than an application error.
+    application.log.debug(
+        "Client disconnected while processing ${request.local.method.value} ${request.path()} (${cause::class.qualifiedName})"
+    )
+}
 
 // Per-constraint 409 wording: Postgres names the violated unique index in its error message
 // ('duplicate key value violates unique constraint "uq_…"'), so the detail can say WHAT
@@ -144,8 +160,8 @@ private val GENERIC_UNIQUE_CONFLICT = UniqueConflict("Resource already exists")
 
 private fun Throwable.uniqueViolation(): UniqueConflict {
     var found: UniqueConflict? = null
-    anyInChain { t ->
-        val message = t.message ?: return@anyInChain false
+    findInChain { t ->
+        val message = t.message ?: return@findInChain false
         found = UNIQUE_CONSTRAINT_CONFLICTS.entries.firstOrNull { (name, _) -> name in message }?.value
         found != null
     }
@@ -181,7 +197,7 @@ internal suspend fun ApplicationCall.respondInternalError(cause: Throwable) {
 // with no such cause, so their intentional messages pass through untouched.
 private fun Throwable.hasContentConvertCause(): Boolean =
     // Starts at the CAUSE on purpose: a validator's own BadRequestException has no wrap.
-    cause?.anyInChain { it is ContentConvertException } == true
+    cause?.findInChain { it is ContentConvertException } != null
 
 // The Resources plugin's path/query decode failures arrive as BadRequestException with this
 // exact message (an overflowing id, a non-numeric segment) — equally internal vocabulary.
@@ -307,7 +323,14 @@ fun Application.configureErrorHandling() {
             call.respondDbFailure(cause)
         }
         exception<Throwable> { call, cause ->
-            call.respondInternalError(cause)
+            // Preserve coroutine cancellation, including server-owned deadlines and shutdown.
+            val cancellation = cause.findInChain { it is CancellationException }
+            if (cancellation is CancellationException) throw cancellation
+            if (cause.isClientAbort()) {
+                call.logClientAbort(cause)
+            } else {
+                call.respondInternalError(cause)
+            }
         }
     }
     // The negative-id rejection (MT-005) runs before routing, so no handler ever sees the

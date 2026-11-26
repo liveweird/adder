@@ -78,7 +78,10 @@ class ThreadStatusTest {
 
     private suspend fun HttpClient.thread(room: UInt): ThreadResponse = get("$rooms/$room/threads/1").body()
 
-    private fun eventTypes(threadId: UInt) = runBlocking { TestThreads.rawEvents(threadId).map { it.type } }
+    private fun eventTypes(threadId: UInt) = runBlocking {
+        // Event ids are the stable mint-order tiebreaker when several transitions share one millisecond.
+        TestThreads.rawEvents(threadId).sortedBy { it.id }.map { it.type }
+    }
 
     @Test
     fun `any reader moves a thread between OPEN statuses - the event and the stamps share one instant`() = testApplication {
