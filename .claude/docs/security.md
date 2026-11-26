@@ -365,6 +365,9 @@ Ktor's in-process limiter registry has one constant entry per shared bucket, not
 request-weight hook performs the PostgreSQL decision once and the response hook publishes that decision's real limit, remaining,
 reset and retry headers. The cached limiter is stateless; its process-clock refill is used only for Ktor's registry eviction schedule.
 
+Rotate `JWT_SECRET` across app instances in the same maintenance window. The new key starts new quota identities.
+Old quota rows keep their original deadlines, so a table at capacity may refuse new keys until their remaining windows expire.
+
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
 `login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, `live-connect` (below), and the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `chat-read`, `read-state`, `thread-watch`, `notification-prefs`, `notification-read`, `live-ticket`, `search`, `link-preview` and `password-change` below): blank **follows the mode** — 10/min in production,
