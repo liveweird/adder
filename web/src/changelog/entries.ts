@@ -22,11 +22,13 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     en: `**Adder 1.28.0 — shared email sign-in codes**
 
 - An email sign-in code issued after this update can finish sign-in on another application instance or after an app restart.
-- The code is single-use. Its total number of attempts and expiry are shared, and pending codes are encrypted at rest.`,
+- The code is single-use. Its total number of attempts and expiry are shared, and pending codes are encrypted at rest.
+- Room and thread pickers stay usable when the quote destination dialog refreshes in the background.`,
     pl: `**Adder 1.28.0 — wspólne kody logowania z e-maila**
 
 - Kod wydany po tej aktualizacji pozwala dokończyć logowanie w innej instancji aplikacji lub po jej restarcie.
-- Kod działa jednorazowo. Instancje współdzielą limit prób i termin ważności, a aplikacja zapisuje oczekujące kody w postaci zaszyfrowanej.`,
+- Kod działa jednorazowo. Instancje współdzielą limit prób i termin ważności, a aplikacja zapisuje oczekujące kody w postaci zaszyfrowanej.
+- Pokoje i wątki można wybierać także wtedy, gdy okno wyboru miejsca cytatu odświeża dane w tle.`,
   },
   {
     version: "1.27.0",
