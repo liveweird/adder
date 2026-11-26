@@ -332,7 +332,7 @@ For a hosted deployment, supply the settings through the app's environment and s
 | `MFA_CODE_TTL_SECONDS` | `300` | Lifetime of an emailed MFA code. |
 | `MFA_MAX_ATTEMPTS` | `5` | Wrong-code attempts before a challenge dies. |
 | `MFA_MAX_TRACKED` | `10000` | Maximum pending email-MFA challenges; new issuance receives 429 at capacity. |
-| `LIVE_MAX_TICKETS` | `10000` | Maximum unexpired live-update socket tickets held (1–100000); a mint receives 429 at capacity (`.claude/docs/live.md`). |
+| `LIVE_MAX_TICKETS` | `10000` | Maximum unexpired live-update socket tickets shared by the deployment (1–100000); a mint receives 429 at capacity (`.claude/docs/live.md`). |
 | `LIVE_MAX_SOCKETS` | `1000` | Authenticated live-update sockets at once, the whole process (1–10000); past it an upgrade and a ticket mint answer 503 `live-unavailable`. |
 | `LIVE_MAX_SOCKETS_PER_USER` | `16` | Sockets one user may hold, one per tab (1–64); past it a mint answers 429 `live-socket-limit` and a redeem closes the socket 4429. |
 | `LIVE_MAX_PENDING_AUTH` | `256` | Sockets that have upgraded but not yet sent a good `auth` frame, the only unauthenticated connections the server holds (1–10000); past it an upgrade answers 503. |
