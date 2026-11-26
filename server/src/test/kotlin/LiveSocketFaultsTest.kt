@@ -5,7 +5,6 @@ import ch.nokillswit.live.LiveAudit
 import ch.nokillswit.live.LiveConfig
 import ch.nokillswit.live.LiveHub
 import ch.nokillswit.live.LiveLeaseCoordinator
-import ch.nokillswit.live.LiveForegroundUpdate
 import ch.nokillswit.live.LiveLeaseAdmission
 import ch.nokillswit.live.LiveLeaseRefusal
 import ch.nokillswit.live.LiveLeaseRenewal
@@ -283,9 +282,9 @@ class LiveSocketFaultsTest {
             System.currentTimeMillis(), sessionIds.filter { it in sessions }.associateWith { System.currentTimeMillis() + 60_000 },
         )
 
-        override suspend fun setForeground(sessionIds: Collection<UUID>, visible: Boolean): LiveForegroundUpdate {
-            foreground += visible
-            return LiveForegroundUpdate(System.currentTimeMillis(), sessionIds.filter { it in sessions }.toSet(), null)
+        override suspend fun setForeground(expiresAtBySession: Map<UUID, Long?>): Set<UUID> {
+            foreground.addAll(expiresAtBySession.values.map { it != null }.distinct())
+            return expiresAtBySession.keys.filter { it in sessions }.toSet()
         }
 
         override suspend fun release(sessionIds: Collection<UUID>): Int {

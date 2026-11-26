@@ -12,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -111,30 +112,33 @@ class LiveSessionLeasesTest {
         assertIs<LiveLeaseAdmission.Accepted>(second.admit(outsider, other, tokenExpiry, 16))
 
         assertEquals(emptyMap(), second.renew(listOf(one, two)).deadlines)
-        assertEquals(emptySet(), second.setForeground(listOf(one), visible = true).updatedSessions)
+        assertEquals(emptySet(), second.setForeground(mapOf(one to databaseNow() + LIVE_SESSION_LEASE_MILLIS)))
         assertEquals(0, second.release(listOf(one)))
 
-        val visible = first.setForeground(listOf(one, two), visible = true)
-        assertEquals(setOf(one, two), visible.updatedSessions)
-        assertEquals(visible.serverNowMillis + LIVE_SESSION_LEASE_MILLIS, visible.expiresAtMillis)
-        val foregroundBeforeHeartbeat = foregroundDeadline(one)
+        val now = databaseNow()
+        val foregroundBeforeHeartbeat = now + LIVE_SESSION_LEASE_MILLIS - 500
+        val secondDeadline = now + LIVE_SESSION_LEASE_MILLIS - 3_000
+        assertEquals(setOf(one, two), first.setForeground(mapOf(one to foregroundBeforeHeartbeat, two to secondDeadline)))
+        assertEquals(foregroundBeforeHeartbeat, foregroundDeadline(one))
+        assertEquals(secondDeadline, foregroundDeadline(two))
         assertEquals(setOf(user), presence.eligibleUserIds(listOf(user, user)))
         assertEquals(emptySet(), presence.eligibleUserIds(listOf(outsider)))
-        assertEquals(setOf(other), second.setForeground(listOf(other), visible = true).updatedSessions)
+        assertEquals(setOf(other), second.setForeground(mapOf(other to now + LIVE_SESSION_LEASE_MILLIS)))
         assertEquals(setOf(outsider), presence.eligibleUserIds(listOf(outsider)))
 
         val renewed = first.renew(listOf(one, two))
         assertEquals(setOf(one, two), renewed.deadlines.keys)
         assertTrue(renewed.deadlines.values.all { it == renewed.serverNowMillis + LIVE_SESSION_LEASE_MILLIS })
         assertEquals(foregroundBeforeHeartbeat, foregroundDeadline(one), "socket heartbeat must not renew foreground presence")
-        first.setForeground(listOf(one), visible = false)
+        first.setForeground(mapOf(one to databaseNow() - 1))
+        assertNull(foregroundDeadline(one), "a late write keeps its original expiry")
         assertEquals(setOf(user), presence.eligibleUserIds(listOf(user)), "the second visible tab keeps the user present")
-        first.setForeground(listOf(two), visible = false)
+        first.setForeground(mapOf(two to null))
         assertEquals(emptySet(), presence.eligibleUserIds(listOf(user)))
 
         expire(one)
         assertEquals(setOf(two), first.renew(listOf(one, two)).deadlines.keys, "an expired socket is omitted from the actual renewed set")
-        assertEquals(emptySet(), first.setForeground(listOf(one), visible = true).updatedSessions)
+        assertEquals(emptySet(), first.setForeground(mapOf(one to databaseNow() + LIVE_SESSION_LEASE_MILLIS)))
         assertEquals(1, first.release(listOf(one)))
         assertEquals(1, first.release(listOf(two)))
         assertEquals(0, first.release(listOf(other)), "another instance owns the outsider's session")
@@ -180,7 +184,7 @@ class LiveSessionLeasesTest {
         assertIs<LiveLeaseAdmission.Accepted>(store.admit(user, session, databaseNow() + 300_000, 16))
 
         assertEquals(emptyMap(), store.renew(emptyList()).deadlines)
-        assertEquals(emptySet(), store.setForeground(emptyList(), visible = true).updatedSessions)
+        assertEquals(emptySet(), store.setForeground(emptyMap()))
         assertEquals(emptySet(), presence.eligibleUserIds(emptyList()))
         assertEquals(0, store.release(emptyList()))
         assertEquals(1, store.release(listOf(session, session)))

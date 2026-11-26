@@ -66,8 +66,11 @@ internal class LiveLeaseCoordinator(
         val state = State(
             closeRequest,
             tokenExpiresAtMillis,
-            conservativeDeadline(began, admission.serverNowMillis, admission.expiresAtMillis),
-            conservativeDeadline(began, admission.serverNowMillis, tokenExpiresAtMillis),
+            Deadline(
+                conservativeDeadline(began, admission.serverNowMillis, admission.expiresAtMillis),
+                conservativeDeadline(began, admission.serverNowMillis, tokenExpiresAtMillis),
+                DatabaseClockSample(admission.serverNowMillis, monotonicNanos()),
+            ),
         )
         sessions[id] = state
         return LeaseOpen.Accepted(LeaseHandle(id, state, this))
@@ -75,8 +78,14 @@ internal class LiveLeaseCoordinator(
 
     fun foreground(handle: LeaseHandle, visible: Boolean) {
         if (sessions[handle.id] !== handle.state) return
+        val clock = handle.state.deadline.get().clock
         val receivedAtNanos = monotonicNanos()
-        handle.state.foreground.updateAndGet { Intent(visible, it.version + 1, receivedAtNanos) }
+        val expiresAtMillis = if (visible) {
+            clock.millisAt(receivedAtNanos) + LIVE_SESSION_LEASE_MILLIS
+        } else {
+            null
+        }
+        handle.state.foreground.updateAndGet { Intent(it.version + 1, receivedAtNanos, expiresAtMillis) }
         foregroundSignal.trySend(Unit)
     }
 
@@ -108,6 +117,7 @@ internal class LiveLeaseCoordinator(
     private suspend fun renewBatch(batch: List<Map.Entry<UUID, State>>) {
         val began = monotonicNanos()
         val renewal = safely("renew") { store.renew(batch.map { it.key }) } ?: return
+        val clock = DatabaseClockSample(renewal.serverNowMillis, monotonicNanos())
         batch.forEach { (id, state) ->
             val deadline = renewal.deadlines[id]
             if (deadline == null) {
@@ -116,6 +126,7 @@ internal class LiveLeaseCoordinator(
                 val next = Deadline(
                     conservativeDeadline(began, renewal.serverNowMillis, deadline),
                     conservativeDeadline(began, renewal.serverNowMillis, state.tokenExpiresAtMillis),
+                    clock,
                 )
                 state.deadline.updateAndGet { if (it.expired) it else next }
             }
@@ -143,21 +154,17 @@ internal class LiveLeaseCoordinator(
     private suspend fun flushForeground(now: Long) {
         val snapshot = sessions.mapNotNull { (id, state) ->
             val intent = state.foreground.get()
-            if (intent.version == state.appliedForegroundVersion.get()) return@mapNotNull null
-            // Only a fresh client frame can set presence. A stale retry clears any earlier visible intent.
-            val visible = intent.visible && now - intent.receivedAtNanos < LIVE_SESSION_LEASE_MILLIS * 1_000_000
-            Triple(id, state, intent.copy(visible = visible))
+            if (intent.version == state.appliedForegroundVersion.get()) null else Triple(id, state, intent)
         }
-        for (visible in listOf(false, true)) {
-            snapshot.filter { it.third.visible == visible }.chunked(LIVE_LEASE_BATCH_SIZE)
-                .forEach { applyForegroundBatch(it, visible) }
-        }
+        snapshot.chunked(LIVE_LEASE_BATCH_SIZE).forEach { applyForegroundBatch(it, now) }
     }
 
-    private suspend fun applyForegroundBatch(selected: List<Triple<UUID, State, Intent>>, visible: Boolean) {
-        val changed = safely("foreground") {
-            store.setForeground(selected.map { it.first }, visible).updatedSessions
-        } ?: return
+    private suspend fun applyForegroundBatch(selected: List<Triple<UUID, State, Intent>>, now: Long) {
+        val deadlines = selected.associate { (id, _, intent) ->
+            // An expired retry clears presence. A write in flight carries the original deadline even when PostgreSQL stalls.
+            id to intent.expiresAtMillis.takeIf { now - intent.receivedAtNanos < LIVE_SESSION_LEASE_MILLIS * 1_000_000 }
+        }
+        val changed = safely("foreground") { store.setForeground(deadlines) } ?: return
         selected.filter { it.first in changed }.forEach { (_, state, intent) ->
             if (state.foreground.get().version == intent.version) state.appliedForegroundVersion.set(intent.version)
         }
@@ -207,16 +214,26 @@ internal class LiveLeaseCoordinator(
     internal class State(
         val closeRequest: CompletableDeferred<CloseReason>,
         val tokenExpiresAtMillis: Long,
-        initialDeadlineNanos: Long,
-        initialTokenDeadlineNanos: Long,
+        initialDeadline: Deadline,
     ) {
-        val deadline = AtomicReference(Deadline(initialDeadlineNanos, initialTokenDeadlineNanos))
-        val foreground = AtomicReference(Intent(false, 0, 0))
+        val deadline = AtomicReference(initialDeadline)
+        val foreground = AtomicReference(Intent(0, 0, null))
         val appliedForegroundVersion = AtomicLong(0)
     }
 
-    internal data class Deadline(val leaseNanos: Long, val tokenNanos: Long, val expired: Boolean = false)
-    internal data class Intent(val visible: Boolean, val version: Long, val receivedAtNanos: Long)
+    internal data class Deadline(
+        val leaseNanos: Long,
+        val tokenNanos: Long,
+        val clock: DatabaseClockSample,
+        val expired: Boolean = false,
+    )
+
+    internal data class DatabaseClockSample(val millis: Long, val observedAtNanos: Long) {
+        // Taking the sample at response receipt keeps network and transaction latency on the conservative side.
+        fun millisAt(nowNanos: Long): Long = millis + (nowNanos - observedAtNanos) / 1_000_000
+    }
+
+    internal data class Intent(val version: Long, val receivedAtNanos: Long, val expiresAtMillis: Long?)
 }
 
 internal sealed interface LeaseOpen {

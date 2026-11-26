@@ -40,12 +40,12 @@ class ForegroundPresenceTest {
         val lookup = PostgresForegroundPresence(sharedDatabaseForTests())
         val session = UUID.randomUUID()
         val tokenExpiry = System.currentTimeMillis() + 300_000
-        assertIs<LiveLeaseAdmission.Accepted>(store.admit(user, session, tokenExpiry, 16))
+        val admitted = assertIs<LiveLeaseAdmission.Accepted>(store.admit(user, session, tokenExpiry, 16))
 
         assertEquals(emptySet(), lookup.eligibleUserIds(listOf(user)))
-        store.setForeground(listOf(session), visible = true)
+        store.setForeground(mapOf(session to admitted.expiresAtMillis))
         assertEquals(setOf(user), lookup.eligibleUserIds(listOf(user, user)))
-        store.setForeground(listOf(session), visible = false)
+        store.setForeground(mapOf(session to null))
         assertEquals(emptySet(), lookup.eligibleUserIds(listOf(user)))
     }
 

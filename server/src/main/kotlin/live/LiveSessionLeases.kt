@@ -4,7 +4,6 @@ import java.util.UUID
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.ArrayColumnType
-import org.jetbrains.exposed.v1.core.BooleanColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
@@ -37,17 +36,11 @@ internal data class LiveLeaseRenewal(
     val deadlines: Map<UUID, Long>,
 )
 
-internal data class LiveForegroundUpdate(
-    val serverNowMillis: Long,
-    val updatedSessions: Set<UUID>,
-    val expiresAtMillis: Long?,
-)
-
 internal interface LiveLeaseStore {
     suspend fun admit(userId: UInt, sessionId: UUID, tokenExpiresAtMillis: Long, maxSessions: Int): LiveLeaseAdmission
     suspend fun hasCapacity(userId: UInt, maxSessions: Int): Boolean
     suspend fun renew(sessionIds: Collection<UUID>): LiveLeaseRenewal
-    suspend fun setForeground(sessionIds: Collection<UUID>, visible: Boolean): LiveForegroundUpdate
+    suspend fun setForeground(expiresAtBySession: Map<UUID, Long?>): Set<UUID>
     suspend fun release(sessionIds: Collection<UUID>): Int
     suspend fun pruneExpired(batchSize: Int = LIVE_SESSION_PRUNE_BATCH): Int
 }
@@ -110,20 +103,24 @@ internal class LiveSessionLeaseStore(
 
     /** Renews only this instance's still-live sessions and reports the exact rows and DB-clock deadlines that moved. */
     override suspend fun renew(sessionIds: Collection<UUID>): LiveLeaseRenewal = suspendTransaction(database) {
-        val rows = timedRows(RENEW_LEASES, sessionIds, visible = null)
+        val rows = renewalRows(sessionIds)
         LiveLeaseRenewal(rows.first().serverNow, rows.mapNotNull { row -> row.sessionId?.let { it to checkNotNull(row.deadline) } }.toMap())
     }
 
-    /** Sets or clears foreground state without extending the socket lease. Expired leases are never changed. */
-    override suspend fun setForeground(sessionIds: Collection<UUID>, visible: Boolean): LiveForegroundUpdate =
-        suspendTransaction(database) {
-            val rows = timedRows(SET_FOREGROUND, sessionIds, visible)
-            LiveForegroundUpdate(
-                rows.first().serverNow,
-                rows.mapNotNull(TimedRow::sessionId).toSet(),
-                rows.firstNotNullOfOrNull(TimedRow::deadline),
-            )
-        }
+    /** Persists each client frame's fixed deadline. A null deadline clears presence without extending the socket lease. */
+    override suspend fun setForeground(expiresAtBySession: Map<UUID, Long?>): Set<UUID> = suspendTransaction(database) {
+        checkNotNull(
+            TransactionManager.current().exec(
+                SET_FOREGROUND,
+                listOf(
+                    UUIDColumnType() to instanceId,
+                    ArrayColumnType<UUID, List<UUID>>(UUIDColumnType()) to expiresAtBySession.keys.toList(),
+                    ArrayColumnType<Long, List<Long>>(LongColumnType()) to expiresAtBySession.values.map { it ?: 0L },
+                ),
+                explicitStatementType = StatementType.SELECT,
+            ) { row -> checkNotNull(row.get(0, UUID::class.java)) },
+        ).filterNotNull().toList().toSet()
+    }
 
     /** Releases only session ids owned by this store's instance. */
     override suspend fun release(sessionIds: Collection<UUID>): Int {
@@ -153,24 +150,23 @@ internal class LiveSessionLeaseStore(
         }
     }
 
-    private suspend fun timedRows(sql: String, sessionIds: Collection<UUID>, visible: Boolean?): List<TimedRow> {
-        val ids = sessionIds.distinct()
-        val arguments = buildList {
-            add(UUIDColumnType() to instanceId)
-            add(ArrayColumnType<UUID, List<UUID>>(UUIDColumnType()) to ids)
-            if (visible != null) add(BooleanColumnType() to visible)
-            add(LongColumnType() to LIVE_SESSION_LEASE_MILLIS)
-        }
-        return checkNotNull(
-            TransactionManager.current().exec(sql, arguments, explicitStatementType = StatementType.SELECT) { row ->
-                TimedRow(
-                    checkNotNull(row.get(0, Long::class.javaObjectType)),
-                    row.get(1, UUID::class.java),
-                    row.get(2, Long::class.javaObjectType),
-                )
-            },
-        ).filterNotNull().toList()
-    }
+    private suspend fun renewalRows(sessionIds: Collection<UUID>): List<TimedRow> = checkNotNull(
+        TransactionManager.current().exec(
+            RENEW_LEASES,
+            listOf(
+                UUIDColumnType() to instanceId,
+                ArrayColumnType<UUID, List<UUID>>(UUIDColumnType()) to sessionIds.distinct(),
+                LongColumnType() to LIVE_SESSION_LEASE_MILLIS,
+            ),
+            explicitStatementType = StatementType.SELECT,
+        ) { row ->
+            TimedRow(
+                checkNotNull(row.get(0, Long::class.javaObjectType)),
+                row.get(1, UUID::class.java),
+                row.get(2, Long::class.javaObjectType),
+            )
+        },
+    ).filterNotNull().toList()
 
     private data class AdmissionRow(
         val serverNow: Long,
@@ -238,20 +234,17 @@ FROM clock LEFT JOIN renewed ON TRUE"""
 
 private const val SET_FOREGROUND = """
 WITH input AS MATERIALIZED (
-  SELECT CAST(? AS uuid) AS instance_id, CAST(? AS uuid[]) AS session_ids, CAST(? AS bool) AS visible,
-         CAST(? AS int8) AS lease_millis
+  SELECT CAST(? AS uuid) AS instance_id, deadline.session_id, deadline.expires_at
+  FROM unnest(CAST(? AS uuid[]), CAST(? AS int8[])) AS deadline(session_id, expires_at)
 ), clock AS MATERIALIZED (
   SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
-), changed AS (
-  UPDATE live_session_leases lease
-  SET foreground_expires_at = CASE WHEN input.visible THEN clock.now_millis + input.lease_millis ELSE NULL END
-  FROM clock CROSS JOIN input
-  WHERE lease.instance_id = input.instance_id AND lease.session_id = ANY(input.session_ids)
-    AND lease.socket_expires_at > clock.now_millis AND lease.token_expires_at > clock.now_millis
-  RETURNING lease.session_id, lease.foreground_expires_at
 )
-SELECT clock.now_millis, changed.session_id, changed.foreground_expires_at
-FROM clock LEFT JOIN changed ON TRUE"""
+UPDATE live_session_leases lease
+SET foreground_expires_at = CASE WHEN input.expires_at > clock.now_millis THEN input.expires_at ELSE NULL END
+FROM clock CROSS JOIN input
+WHERE lease.instance_id = input.instance_id AND lease.session_id = input.session_id
+  AND lease.socket_expires_at > clock.now_millis AND lease.token_expires_at > clock.now_millis
+RETURNING lease.session_id"""
 
 private const val RELEASE_LEASES = """
 DELETE FROM live_session_leases

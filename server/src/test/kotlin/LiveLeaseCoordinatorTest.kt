@@ -3,7 +3,6 @@ package ch.nokillswit
 import ch.nokillswit.live.CLOSE_TOKEN_EXPIRED
 import ch.nokillswit.live.LIVE_SESSION_LEASE_MILLIS
 import ch.nokillswit.live.LeaseOpen
-import ch.nokillswit.live.LiveForegroundUpdate
 import ch.nokillswit.live.LiveLeaseAdmission
 import ch.nokillswit.live.LiveLeaseCoordinator
 import ch.nokillswit.live.LiveLeaseRenewal
@@ -271,6 +270,33 @@ class LiveLeaseCoordinatorTest {
     }
 
     @Test
+    fun `a visible write completing late cannot grant a new sixty seconds`() = runBlocking {
+        val firstWrite = CompletableDeferred<Unit>()
+        val finishFirstWrite = CompletableDeferred<Unit>()
+        val now = AtomicLong()
+        val databaseNow = AtomicLong()
+        val store = FakeLeaseStore(databaseTimeMillis = databaseNow::get, afterForeground = {
+            firstWrite.complete(Unit)
+            finishFirstWrite.await()
+        })
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = LiveLeaseCoordinator(store, scope, 1, now::get, heartbeatMillis = 25, watchdogMillis = 30_000)
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, CompletableDeferred())).handle
+            handle.foreground(true)
+            withTimeout(5_000) { firstWrite.await() }
+            databaseNow.set(LIVE_SESSION_LEASE_MILLIS + 1)
+            now.set(databaseNow.get() * 1_000_000)
+            finishFirstWrite.complete(Unit)
+            await { store.storedForegroundDeadlines.isNotEmpty() }
+            val storedDeadline = store.storedForegroundDeadlines.single()
+            assertTrue(storedDeadline == null || storedDeadline <= LIVE_SESSION_LEASE_MILLIS)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `renewal and foreground outages do not cancel the coordinator loops`() = runBlocking {
         val store = FakeLeaseStore(failRenew = true, failForeground = true)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -391,11 +417,13 @@ class LiveLeaseCoordinatorTest {
         private val failForeground: Boolean = false,
         private val failRelease: Boolean = false,
         private val failPrune: Boolean = false,
+        private val databaseTimeMillis: () -> Long = { 0 },
         private val afterForeground: suspend (Boolean) -> Unit = {},
     ) : LiveLeaseStore {
         private val sessions = java.util.concurrent.ConcurrentHashMap.newKeySet<UUID>()
         val renewBatches = CopyOnWriteArrayList<Set<UUID>>()
         val foregroundBatches = CopyOnWriteArrayList<Pair<Set<UUID>, Boolean>>()
+        val storedForegroundDeadlines = CopyOnWriteArrayList<Long?>()
         val released = CopyOnWriteArrayList<UUID>()
         val renewAttempts = AtomicInteger()
         val foregroundAttempts = AtomicInteger()
@@ -423,13 +451,18 @@ class LiveLeaseCoordinatorTest {
             return LiveLeaseRenewal(now, deadlines)
         }
 
-        override suspend fun setForeground(sessionIds: Collection<UUID>, visible: Boolean): LiveForegroundUpdate {
+        override suspend fun setForeground(expiresAtBySession: Map<UUID, Long?>): Set<UUID> {
             foregroundAttempts.incrementAndGet()
             if (failForeground) error("foreground unavailable")
-            foregroundBatches += sessionIds.toSet() to visible
-            afterForeground(visible)
-            val updated = if (dropFirstForeground && firstForeground.compareAndSet(true, false)) emptySet() else sessionIds.toSet()
-            return LiveForegroundUpdate(0, updated, LIVE_SESSION_LEASE_MILLIS.takeIf { visible })
+            expiresAtBySession.entries.groupBy { it.value != null }.forEach { (visible, group) ->
+                foregroundBatches += group.map { it.key }.toSet() to visible
+                afterForeground(visible)
+            }
+            if (dropFirstForeground && firstForeground.compareAndSet(true, false)) return emptySet()
+            expiresAtBySession.values.forEach { expiresAt ->
+                storedForegroundDeadlines += expiresAt?.takeIf { it > databaseTimeMillis() }
+            }
+            return expiresAtBySession.keys
         }
 
         override suspend fun release(sessionIds: Collection<UUID>): Int {
