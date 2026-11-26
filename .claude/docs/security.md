@@ -353,6 +353,21 @@ a completed reset followed by an admin password write: both succeed, the admin's
 bucket, the byte ceiling, MFA, notification failure, the `mail.appUrl` boot contract), `PasswordResetTest` (the request route and
 the full link roundtrip incl. the session revocation), `PasswordResetThrottleTest`, `LocalizedEmailTest`.
 
+**Shared HTTP rate limits (V58).** Application request lanes share their existing per-IP and per-user allowances through PostgreSQL.
+The `ready` bucket stays on each process so local health probes keep separate allowances. A window starts at the first admitted
+request and refills after 60 seconds on the database clock. The existing `X-RateLimit-*` and `Retry-After` headers describe the
+shared window. IP keys use the same canonical IPv4 or IPv6-prefix selection as before and user keys come from a verified token.
+The table stores only domain-separated deployment HMAC digests. It holds at most 100,000 bucket identities across every replica,
+including expired rows awaiting the bounded background sweep. A first-seen identity at that physical cap atomically reclaims at most
+one expired row; if none is available, it receives `429`. Existing identities continue to use their per-key allowance and no active row
+is reclaimed. A database failure, including a missing capacity guard, follows the ordinary server error path.
+Ktor's in-process limiter registry has one constant entry per shared bucket, not one entry per submitted identity: the suspending
+request-weight hook performs the PostgreSQL decision once and the response hook publishes that decision's real limit, remaining,
+reset and retry headers. The cached limiter is stateless; its process-clock refill is used only for Ktor's registry eviction schedule.
+
+Rotate `JWT_SECRET` across app instances in the same maintenance window. The new key starts new quota identities.
+Old quota rows keep their original deadlines, so a table at capacity may refuse new keys until their remaining windows expire.
+
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
 `login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, `live-connect` (below), and the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `chat-read`, `read-state`, `thread-watch`, `notification-prefs`, `notification-read`, `live-ticket`, `search`, `link-preview` and `password-change` below): blank **follows the mode** — 10/min in production,

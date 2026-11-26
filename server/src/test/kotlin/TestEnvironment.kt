@@ -6,6 +6,7 @@ import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.infra.db.SEED_ADMIN_EMAIL
 import ch.nokillswit.infra.db.SEED_PASSWORD_HASH
 import ch.nokillswit.infra.db.connectPooledDatabase
+import ch.nokillswit.plugins.RateLimitNamespaceOverrideKey
 import ch.nokillswit.users.User
 import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService
@@ -73,6 +74,10 @@ fun TestApplicationBuilder.configureApp(vararg overrides: Pair<String, String>) 
             )
         )
     }
+    // Modules are installed before test `application {}` blocks. The shared limiter reads this internal seam lazily from requestKey;
+    // production publishes no value, while independent test applications retain their historical fresh-bucket isolation.
+    val rateLimitNamespace = java.util.UUID.randomUUID().toString()
+    application { attributes.put(RateLimitNamespaceOverrideKey, rateLimitNamespace) }
 }
 
 suspend fun ApplicationTestBuilder.usePostgresTestcontainer() {

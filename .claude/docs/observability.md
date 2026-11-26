@@ -227,6 +227,8 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (Flow's `crypto.reencrypted` boot-backfill event comes back with `EncryptedAtRest`/`Reencrypt`, `security.md` "Encryption at rest"),
 - `authz.denied` (every 403, from the `ForbiddenException` handler in `plugins/ErrorHandling.kt`,
   with method/path/byUserId/detail — `path` is the request path only, never the query string),
+- `rate_limit.saturated` records a V58 shared rate-limit capacity refusal with `bucket`, `limit` and `suppressed`.
+  Each process coalesces by bucket. It carries no IP, raw key or user-supplied identity.
 - `rate_limit.exceeded` (bucket/method/path/suppressed, plus `byUserId` on the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `read-state`, `live-ticket`, `search`, `password-change`, `chat-read`, `thread-watch`, `notification-prefs` and `notification-read` buckets — a token bucket (`plugins/RateLimits.kt`: per-IP login, refresh,
   password-reset, password-reset-confirm, mfa, ready, live-connect; per-user telemetry, directory, room-name, room-members, chat-post, chat-write, chat-read, read-state, live-ticket, search, password-change, thread-watch, notification-prefs and notification-read) rejected the request with a 429, emitted from the 429 status handler in
   `plugins/ErrorHandling.kt`; `bucket` is stamped by the bucket's own `requestKey`. **Coalesced**

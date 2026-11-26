@@ -1,8 +1,9 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.crypto.DeploymentKeyedDigest
+import ch.nokillswit.infra.validation.canonicalEmail
 import ch.nokillswit.auth.PasswordResetService
 import ch.nokillswit.auth.PasswordResetService.IssueOutcome
-import ch.nokillswit.auth.DeploymentKeyedDigest
 import ch.nokillswit.auth.LoginThrottle
 import ch.nokillswit.auth.PostgresAccountThrottle
 import ch.nokillswit.auth.hashPassword
@@ -99,7 +100,7 @@ class PasswordResetServiceTest {
             sharedDatabaseForTests(), secret, threshold = 2, lockoutMillis = 60_000, maxTracked = 10,
             mfaMaxLockoutMillis = 120_000, mfaDecayMillis = 120_000,
         )
-        val identityHash = DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").of(email)
+        val identityHash = DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").ofCanonical(canonicalEmail(email))
         assertEquals(LoginThrottle.FailureResult.RECORDED, throttle.recordFailure(email, id).result)
 
         val failed = runCatching {

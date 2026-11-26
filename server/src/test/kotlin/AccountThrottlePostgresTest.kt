@@ -1,8 +1,9 @@
 package ch.nokillswit
 
+import ch.nokillswit.infra.crypto.DeploymentKeyedDigest
+import ch.nokillswit.infra.validation.canonicalEmail
 import ch.nokillswit.auth.LoginThrottle
 import ch.nokillswit.auth.PasswordResetThrottle
-import ch.nokillswit.auth.DeploymentKeyedDigest
 import ch.nokillswit.auth.PostgresAccountThrottle
 import ch.nokillswit.auth.PostgresPasswordResetThrottle
 import ch.nokillswit.infra.db.connectPooledDatabase
@@ -100,7 +101,7 @@ class AccountThrottlePostgresTest {
     @Test
     fun `clear treats state at its exact database deadline as expired but removes its residue`() = withIsolatedStore {
         val email = "expired-${UUID.randomUUID()}@test"
-        val hash = DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").of(email)
+        val hash = DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").ofCanonical(canonicalEmail(email))
         connect().use { connection ->
             val expiresAt = connection.createStatement().use { statement ->
                 statement.executeQuery(
@@ -183,7 +184,7 @@ class AccountThrottlePostgresTest {
                 statement.executeQuery().use { rows ->
                     assertTrue(rows.next())
                     assertEquals(
-                        DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").of(currentEmail),
+                        DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").ofCanonical(currentEmail),
                         rows.getString(1).trim(),
                     )
                     assertEquals(userId.toLong(), rows.getLong(2))
@@ -244,8 +245,8 @@ class AccountThrottlePostgresTest {
         assertEquals(PasswordResetThrottle.AcquireResult.ACQUIRED, second.tryAcquire(email))
 
         assertFalse(
-            DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").of(email) ==
-                DeploymentKeyedDigest(secret, "adder.password-reset-cooldown.v1").of(email),
+            DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").ofCanonical(canonicalEmail(email)) ==
+                DeploymentKeyedDigest(secret, "adder.password-reset-cooldown.v1").ofCanonical(canonicalEmail(email)),
         )
         connect().use { connection ->
             connection.createStatement().use { statement ->
