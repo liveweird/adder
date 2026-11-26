@@ -758,6 +758,7 @@ the `MultiRowInsert.kt` `exec` precedent), so it needs a current transaction, an
   itself); identical payloads within ONE transaction collapse into one delivery (a write emits one hint, so this never bites); notifying transactions serialize on ONE global lock during commit (a
   cluster-wide cost, accepted at chat-write rates); the cluster's notification queue fills only if a LISTENing connection stops reading, after which EVERY notifying commit fails. That last hazard is why
   the listener (S2) drains with unbounded demand and never stops reading.
+- **Private account hints** use the same channel with a version and account id. They commit with the exact access revocation or account write and ask each replica to re-evaluate affected sockets. Room hints keep their existing shape.
 - **Tests read the channel through a plain JDBC `LISTEN`** (`NotifyCapture`), bracketed by a sentinel hint of its own, so "emits nothing" is proven by commit order, not by sleeping.
 
 ### The LISTEN connection (live, 0.4.0)

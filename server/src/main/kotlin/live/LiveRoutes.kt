@@ -85,7 +85,12 @@ fun Application.configureLive() {
     attributes.put(LiveStatsKey) { LiveStats(hub.socketCount, hub.listener.let { if (it.isStarted) it.isUp else null }) }
     monitor.subscribe(ApplicationStopPreparing) { runBlocking { hub.shutdown() } }
     val audits = LiveAudit()
-    val sweep = LiveSweep(hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey], audits = audits)
+    val accountRechecks = LiveAccountRechecks(hub, attributes[TokenBlocklistServiceKey])
+    hub.accountObserver = accountRechecks::accountChanged
+    accountRechecks.start(scope)
+    val sweep = LiveSweep(
+        hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey], audits = audits, accountRechecks = accountRechecks,
+    )
     attributes.put(LiveSweepKey, sweep)
     sweep.start(scope)
     val deps = LiveSessionDeps(config, tickets, hub, attributes[TokenBlocklistServiceKey], attributes[RoomServiceKey], audits)

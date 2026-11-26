@@ -20,6 +20,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -33,6 +34,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import ch.nokillswit.auth.hashPassword
 
 /**
  * Who stops hearing what, and when (`live.md` "Hints", "Account standing"), through the real application: a removed member or a deleted
@@ -254,7 +256,7 @@ class LiveRevocationTest {
         sockets.getValue(demoted).subscribe(room) // an ADMIN subscribed to a room they are not in
         assertEquals(LiveServerFrame.Subscribed(listOf(room), emptyList(), emptyList()), sockets.getValue(demoted).nextNonResync())
 
-        assertEquals(HttpStatusCode.NoContent, loggedOut.client.post("/api/v1/logout").status)
+        updateUser(loggedOut.id, "credential_revision = credential_revision + 1")
         TestUsers.softDelete(deleted.id)
         updateUser(rotated.id, "credential_revision = credential_revision + 1")
         updateUser(demoted.id, "role = 'USER'")
@@ -264,7 +266,7 @@ class LiveRevocationTest {
             listOf(loggedOut, deleted, rotated, demoted).forEach { sockets.getValue(it).expectClose(4003) }
             loggedOutTwo.expectClose(4003)
             val verdicts = mapOf(
-                loggedOut to "revoked", deleted to "user_gone", rotated to "credential_changed", demoted to "roles_changed",
+                loggedOut to "credential_changed", deleted to "user_gone", rotated to "credential_changed", demoted to "roles_changed",
             )
             verdicts.forEach { (who, verdict) ->
                 val line = assertNotNull(
@@ -294,7 +296,7 @@ class LiveRevocationTest {
         val hub = application.attributes[LiveHubKey]
         val user = actor("sw-loop")
         val socket = openAuthenticatedLive(liveClient(), user)
-        assertEquals(HttpStatusCode.NoContent, user.client.post("/api/v1/logout").status)
+        updateUser(user.id, "credential_revision = credential_revision + 1")
 
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
@@ -305,6 +307,74 @@ class LiveRevocationTest {
         } finally {
             scope.cancel()
         }
+    }
+
+    @Test
+    fun `account prompts close role deleted and revised accounts while an unchanged role stays live`() = testApplication {
+        usePostgresTestcontainer()
+        val roleChanged = actor("prompt-role")
+        val deleted = actor("prompt-delete")
+        val revised = actor("prompt-revision")
+        val unchanged = actor("prompt-same")
+        val sockets = listOf(roleChanged, deleted, revised, unchanged).associateWith { openAuthenticatedLive(liveClient(), it) }
+        awaitListenerUp(application.attributes[LiveHubKey])
+
+        val roleUser = requireNotNull(TestUsers.service.read(roleChanged.id))
+        assertEquals(
+            ch.nokillswit.users.UserService.GuardedMutation.DONE,
+            TestUsers.service.updateGuarded(roleChanged.id, roleUser.name, roleUser.email, UserRole.ADMIN),
+        )
+        assertEquals(ch.nokillswit.users.UserService.GuardedMutation.DONE, TestUsers.service.deleteGuarded(deleted.id))
+        assertEquals(1, TestUsers.service.updatePassword(revised.id, hashPassword("replacement-123", cost = 4)))
+        val same = requireNotNull(TestUsers.service.read(unchanged.id))
+        assertEquals(
+            ch.nokillswit.users.UserService.GuardedMutation.DONE,
+            TestUsers.service.updateGuarded(unchanged.id, same.name, same.email, same.role),
+        )
+
+        listOf(roleChanged, deleted, revised).forEach { sockets.getValue(it).expectClose(4003) }
+        sockets.getValue(unchanged).sendText("""{"type":"ping"}""")
+        assertEquals(LiveServerFrame.Pong, sockets.getValue(unchanged).nextNonResync())
+        sockets.getValue(unchanged).close()
+    }
+
+    @Test
+    fun `logout closes only the access jti used for it`() = testApplication {
+        usePostgresTestcontainer()
+        val email = uniqueEmail("prompt-jti")
+        val id = TestUsers.seed(email, "password-123", role = UserRole.USER).also { users += it }
+        val first = RoomActor(id, authedClient(email, "password-123"))
+        val second = RoomActor(id, authedClient(email, "password-123"))
+        val firstSocket = openAuthenticatedLive(liveClient(), first)
+        val secondSocket = openAuthenticatedLive(liveClient(), second)
+        awaitListenerUp(application.attributes[LiveHubKey])
+
+        assertEquals(HttpStatusCode.NoContent, first.client.post("/api/v1/logout").status)
+        firstSocket.expectClose(4003)
+        secondSocket.sendText("""{"type":"ping"}""")
+        assertEquals(LiveServerFrame.Pong, secondSocket.nextNonResync())
+        secondSocket.close()
+    }
+
+    @Test
+    fun `an account change while registration waits is rechecked before ready is written`() = testApplication {
+        usePostgresTestcontainer()
+        val hub = application.attributes[LiveHubKey]
+        val who = actor("prompt-register")
+        val ticket = who.client.mintLiveTicket()
+        val socket = openLive(liveClient())
+        val gate = CompletableDeferred<Unit>()
+        hub.beforeCommand = { gate.await() }
+        try {
+            socket.auth(ticket.ticket)
+            delay(100)
+            assertEquals(1, TestUsers.service.updatePassword(who.id, hashPassword("replacement-789", cost = 4)))
+        } finally {
+            hub.beforeCommand = null
+            gate.complete(Unit)
+        }
+        socket.expectClose(4003)
+        assertEquals(null, socket.nextFrameOrNull(200), "ready was queued internally but never written")
     }
 
     private fun deleteMembership(room: UInt, userId: UInt) = PostgresTestSupport.connect().use { connection ->
@@ -403,7 +473,7 @@ class LiveRevocationTest {
         val blocklist = application.attributes[TokenBlocklistServiceKey]
         val user = actor("sw-fail")
         val socket = openAuthenticatedLive(liveClient(), user)
-        assertEquals(HttpStatusCode.NoContent, user.client.post("/api/v1/logout").status)
+        updateUser(user.id, "credential_revision = credential_revision + 1")
 
         val runs = java.util.concurrent.atomic.AtomicInteger()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -455,7 +525,7 @@ class LiveRevocationTest {
         val room = room(owner)
         val socket = subscribed(owner, room)
         val outSocket = openAuthenticatedLive(liveClient(), loggedOut)
-        assertEquals(HttpStatusCode.NoContent, loggedOut.client.post("/api/v1/logout").status)
+        updateUser(loggedOut.id, "credential_revision = credential_revision + 1")
 
         val sweep = LiveSweep(
             hub, application.attributes[TokenBlocklistServiceKey], application.attributes[RoomServiceKey],
@@ -473,7 +543,7 @@ class LiveRevocationTest {
         val blocklist = application.attributes[TokenBlocklistServiceKey]
         val user = actor("sw-retry")
         val socket = openAuthenticatedLive(liveClient(), user)
-        assertEquals(HttpStatusCode.NoContent, user.client.post("/api/v1/logout").status)
+        updateUser(user.id, "credential_revision = credential_revision + 1")
 
         val calls = java.util.concurrent.CopyOnWriteArrayList<Long>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

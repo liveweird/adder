@@ -1,11 +1,12 @@
 package ch.nokillswit.live
 
 import ch.nokillswit.infra.catchingFailures
-import ch.nokillswit.infra.notify.LIVE_HINT_VERSION
 import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.LiveNotification
 import ch.nokillswit.infra.notify.NotifyListener
 import ch.nokillswit.infra.notify.NotifyListenerTimings
+import ch.nokillswit.infra.notify.decodeLiveNotification
 import ch.nokillswit.infra.presence.ForegroundPresence
 import io.ktor.websocket.CloseReason
 import io.r2dbc.spi.ConnectionFactory
@@ -17,7 +18,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -26,22 +26,6 @@ import java.util.concurrent.atomic.AtomicInteger
 private val log = LoggerFactory.getLogger("ch.nokillswit.live.LiveHub")
 
 private const val SHUTDOWN_POLL_MILLIS = 20L
-
-private sealed interface Command {
-    class Register(val socket: HubSocket, val reply: CompletableDeferred<RegisterResult>) : Command
-    class Unregister(val socket: HubSocket) : Command
-    class Begin(val socket: HubSocket, val ids: List<UInt>, val reply: CompletableDeferred<SubscribeBegin>) : Command
-    class Complete(val socket: HubSocket, val begin: SubscribeBegin, val readable: Set<UInt>) : Command
-    class Abort(val socket: HubSocket, val ids: List<UInt>) : Command
-    class Unsubscribe(val socket: HubSocket, val ids: List<UInt>) : Command
-    class Deliver(val hint: LiveHint) : Command
-    class Pong(val socket: HubSocket) : Command
-    class Foreground(val socket: HubSocket, val visible: Boolean) : Command
-    class Snapshot(val reply: CompletableDeferred<List<SocketView>>) : Command
-    class RevokeRoom(val socket: HubSocket, val roomId: UInt) : Command
-    data object Gap : Command
-    class CloseAll(val reason: CloseReason) : Command
-}
 
 /**
  * The live channel's fan-out (`live.md` "The hub"): ONE actor coroutine with ONE inbox owns every socket's subscriptions and the room ->
@@ -53,8 +37,8 @@ private sealed interface Command {
  *
  * Delivery (`live.md` "Hints"): a hint goes to the ACTIVE subscribers of its room and, for the kinds that name `targetUserIds`, to every
  * socket of each target (subscribed or not); a socket gets AT MOST ONE frame per hint. A removed member's sockets and every socket of a
- * deleted room drop the room and get `revoked` instead (an ADMIN keeps a room they were merely removed from). The account sweep
- * ([LiveSweep]) and the close at the token's `exp` (the session) are what end a socket whose account changed.
+ * deleted room drop the room and get `revoked` instead (an ADMIN keeps a room they were merely removed from). Account rechecks,
+ * the periodic [LiveSweep] and the token expiration can end a socket whose credentials changed.
  *
  * The hub also owns the [NotifyListener] (started lazily by [ensureStarted] on the first mint): its payloads become hints in
  * the inbox, and its gaps become `resync` to every socket (coalesced through an atomic flag: `onGap` may be called from two threads).
@@ -69,7 +53,7 @@ class LiveHub internal constructor(
     private val maxQueuedHints: Int = MAX_QUEUED_HINTS,
     internal val presence: ForegroundPresence = ForegroundPresence(),
 ) {
-    private val inbox = Channel<Command>(Channel.UNLIMITED)
+    private val inbox = Channel<LiveHubCommand>(Channel.UNLIMITED)
     private val gapPending = AtomicBoolean(false)
     private val consuming = AtomicBoolean(false)
     private val sockets = HashSet<HubSocket>()
@@ -79,7 +63,6 @@ class LiveHub internal constructor(
     private val perUser = ConcurrentHashMap<UInt, AtomicInteger>()
     private val presenceSessions = HashMap<HubSocket, ForegroundPresence.Session>()
     private val total = AtomicInteger()
-    private val hintJson = Json { ignoreUnknownKeys = true }
 
     @Volatile var isStopping = false
         private set
@@ -119,20 +102,29 @@ class LiveHub internal constructor(
         listener.ensureStarted()
         if (consuming.compareAndSet(false, true)) {
             scope.launch(CoroutineName("adder-live-hints")) {
-                for (payload in listener.payloads) decode(payload)?.let { deliver(it) }
+                for (payload in listener.payloads) {
+                    when (val notification = decode(payload)) {
+                        is LiveNotification.Room -> deliver(notification.hint)
+                        is LiveNotification.Account -> accountObserver?.invoke(notification.userId)
+                        null -> Unit
+                    }
+                }
             }
             scope.launch(CoroutineName("adder-live-deaf")) {
                 while (true) {
                     delay(deafCheckMillis)
                     // Every check while deaf: a socket that registered mid-outage is closed within one period too.
-                    if (isDeaf) inbox.trySend(Command.CloseAll(CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Live updates unavailable")))
+                    if (isDeaf) {
+                        val reason = CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Live updates unavailable")
+                        inbox.trySend(LiveHubCommand.CloseAll(reason))
+                    }
                 }
             }
         }
     }
 
-    private fun decode(payload: String): LiveHint? = catchingFailures({
-        hintJson.decodeFromString(LiveHint.serializer(), payload).takeIf { it.v == LIVE_HINT_VERSION }
+    private fun decode(payload: String): LiveNotification? = catchingFailures({
+        decodeLiveNotification(payload)
     }) {
         // Class name only: a payload another writer put on the channel is not ours to log.
         log.debug("ignored a live hint it could not read ({})", it.javaClass.simpleName)
@@ -143,32 +135,35 @@ class LiveHub internal constructor(
      * The listener's `onGap` (every successful LISTEN and every dropped payload): ONE `resync` to every socket, however many arrive.
      */
     internal fun onGap() {
-        if (gapPending.compareAndSet(false, true)) inbox.trySend(Command.Gap)
+        if (gapPending.compareAndSet(false, true)) inbox.trySend(LiveHubCommand.Gap)
         gapObserver?.invoke()
     }
 
     /** Told of every gap (a lost hint may be a removal): the sweep re-checks memberships ([LiveSweep.start]); must not block. */
     @Volatile internal var gapObserver: (() -> Unit)? = null
 
+    /** Receives roomless account prompts from the private channel; it must return immediately. */
+    @Volatile internal var accountObserver: ((UInt) -> Unit)? = null
+
     /** Drops [roomId] from [socket] and tells it `revoked` (a membership the sweep found gone), if the room is still ACTIVE there. */
     internal fun revokeRoom(socket: HubSocket, roomId: UInt) {
-        inbox.trySend(Command.RevokeRoom(socket, roomId))
+        inbox.trySend(LiveHubCommand.RevokeRoom(socket, roomId))
     }
 
     internal suspend fun register(socket: HubSocket): RegisterResult {
         val reply = CompletableDeferred<RegisterResult>()
-        if (inbox.trySend(Command.Register(socket, reply)).isFailure) return RegisterResult.UNAVAILABLE
+        if (inbox.trySend(LiveHubCommand.Register(socket, reply)).isFailure) return RegisterResult.UNAVAILABLE
         return reply.await()
     }
 
     internal fun unregister(socket: HubSocket) {
-        inbox.trySend(Command.Unregister(socket))
+        inbox.trySend(LiveHubCommand.Unregister(socket))
     }
 
     /** Registers the new ids of a subscribe as PENDING (up to the per-socket limit) and says which need the readable check. */
     internal suspend fun beginSubscribe(socket: HubSocket, ids: List<UInt>): SubscribeBegin {
         val reply = CompletableDeferred<SubscribeBegin>()
-        if (inbox.trySend(Command.Begin(socket, ids, reply)).isFailure) return SubscribeBegin(emptyList(), emptyList(), emptyList())
+        if (inbox.trySend(LiveHubCommand.Begin(socket, ids, reply)).isFailure) return SubscribeBegin(emptyList(), emptyList(), emptyList())
         return reply.await()
     }
 
@@ -176,38 +171,38 @@ class LiveHub internal constructor(
      * Activates the checked ids that are still PENDING and queues the `subscribed` ack in one actor step (no hint overtakes the ack).
      */
     internal fun completeSubscribe(socket: HubSocket, begin: SubscribeBegin, readable: Set<UInt>) {
-        inbox.trySend(Command.Complete(socket, begin, readable))
+        inbox.trySend(LiveHubCommand.Complete(socket, begin, readable))
     }
 
     /** Drops the PENDING registrations of a subscribe whose readable check failed. */
     internal fun abortSubscribe(socket: HubSocket, ids: List<UInt>) {
-        inbox.trySend(Command.Abort(socket, ids))
+        inbox.trySend(LiveHubCommand.Abort(socket, ids))
     }
 
     internal fun unsubscribe(socket: HubSocket, ids: List<UInt>) {
-        inbox.trySend(Command.Unsubscribe(socket, ids))
+        inbox.trySend(LiveHubCommand.Unsubscribe(socket, ids))
     }
 
     /** A hint as the listener delivers it: queued while fewer than [maxQueuedHints] wait for the actor, else a gap (bounded inbox). */
     internal fun deliver(hint: LiveHint) {
-        if (queuedHints.incrementAndGet() > maxQueuedHints || inbox.trySend(Command.Deliver(hint)).isFailure) {
+        if (queuedHints.incrementAndGet() > maxQueuedHints || inbox.trySend(LiveHubCommand.Deliver(hint)).isFailure) {
             queuedHints.decrementAndGet()
             onGap()
         }
     }
 
     /** Answers a `ping` through the socket's queue rule (so a full queue turns it into the `resync`, never an unordered extra frame). */
-    internal fun pong(socket: HubSocket) { inbox.trySend(Command.Pong(socket)) }
+    internal fun pong(socket: HubSocket) { inbox.trySend(LiveHubCommand.Pong(socket)) }
 
-    internal fun foreground(socket: HubSocket, visible: Boolean) { inbox.trySend(Command.Foreground(socket, visible)) }
+    internal fun foreground(socket: HubSocket, visible: Boolean) { inbox.trySend(LiveHubCommand.Foreground(socket, visible)) }
 
     /**
      * The authenticated sockets as the actor sees them now, each with a COPY of its ACTIVE rooms (the sweep's input; the actor owns the
-     * live sets); empty once the hub is stopped.
+     * live sets). A targeted account check uses the user index and omits subscriptions. Empty once the hub is stopped.
      */
-    internal suspend fun snapshot(): List<SocketView> {
+    internal suspend fun snapshot(userIds: Set<UInt>? = null): List<SocketView> {
         val reply = CompletableDeferred<List<SocketView>>()
-        if (inbox.trySend(Command.Snapshot(reply)).isFailure) return emptyList()
+        if (inbox.trySend(LiveHubCommand.Snapshot(userIds, reply)).isFailure) return emptyList()
         return reply.await()
     }
 
@@ -215,7 +210,7 @@ class LiveHub internal constructor(
     suspend fun shutdown(graceMillis: Long = SHUTDOWN_GRACE_MILLIS) {
         isStopping = true
         presence.stop()
-        inbox.trySend(Command.CloseAll(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping")))
+        inbox.trySend(LiveHubCommand.CloseAll(CloseReason(CloseReason.Codes.GOING_AWAY, "Server stopping")))
         withTimeoutOrNull(graceMillis) {
             while (total.get() > 0) delay(SHUTDOWN_POLL_MILLIS)
         }
@@ -242,29 +237,35 @@ class LiveHub internal constructor(
         }
     }
 
-    private fun handle(command: Command) {
+    private fun handle(command: LiveHubCommand) {
         when (command) {
-            is Command.Register -> command.reply.complete(admit(command.socket))
-            is Command.Unregister -> remove(command.socket)
-            is Command.Begin -> command.reply.complete(begin(command.socket, command.ids))
-            is Command.Complete -> complete(command.socket, command.begin, command.readable)
-            is Command.Abort -> command.ids.forEach { if (command.socket.rooms[it] == RoomState.PENDING) command.socket.rooms.remove(it) }
-            is Command.Unsubscribe -> command.ids.forEach { drop(command.socket, it) }
-            is Command.Deliver -> {
+            is LiveHubCommand.Register -> command.reply.complete(admit(command.socket))
+            is LiveHubCommand.Unregister -> remove(command.socket)
+            is LiveHubCommand.Begin -> command.reply.complete(begin(command.socket, command.ids))
+            is LiveHubCommand.Complete -> complete(command.socket, command.begin, command.readable)
+            is LiveHubCommand.Abort -> command.ids.filter { command.socket.rooms[it] == RoomState.PENDING }
+                .forEach { command.socket.rooms.remove(it) }
+            is LiveHubCommand.Unsubscribe -> command.ids.forEach { drop(command.socket, it) }
+            is LiveHubCommand.Deliver -> {
                 queuedHints.decrementAndGet()
                 fanOut(command.hint)
             }
-            is Command.Pong -> queueFrame(command.socket, LiveServerFrame.Pong)
-            is Command.Foreground -> presenceSessions[command.socket]?.let { presence.update(it, command.visible) }
-            is Command.Snapshot -> command.reply.complete(
-                sockets.map { s -> SocketView(s, s.rooms.filterValues { it == RoomState.ACTIVE }.keys.toList()) },
-            )
-            is Command.RevokeRoom -> dropRevoked(command.socket, command.roomId)
-            Command.Gap -> {
+            is LiveHubCommand.Pong -> queueFrame(command.socket, LiveServerFrame.Pong)
+            is LiveHubCommand.Foreground -> presenceSessions[command.socket]?.let { presence.update(it, command.visible) }
+            is LiveHubCommand.Snapshot -> {
+                val selected = command.userIds?.flatMap { socketsByUser[it].orEmpty() } ?: sockets
+                command.reply.complete(selected.map { socket ->
+                    val rooms = if (command.userIds == null) socket.rooms.filterValues { it == RoomState.ACTIVE }.keys.toList()
+                    else emptyList()
+                    SocketView(socket, rooms)
+                })
+            }
+            is LiveHubCommand.RevokeRoom -> dropRevoked(command.socket, command.roomId)
+            LiveHubCommand.Gap -> {
                 gapPending.set(false)
                 sockets.forEach { queueFrame(it, LiveServerFrame.Resync) }
             }
-            is Command.CloseAll -> sockets.forEach { it.closeRequest.complete(command.reason) }
+            is LiveHubCommand.CloseAll -> sockets.forEach { it.closeRequest.complete(command.reason) }
         }
     }
 

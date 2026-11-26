@@ -10,6 +10,7 @@ import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
 import io.ktor.client.call.body
+import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -48,16 +49,29 @@ class LiveFanOutTest {
     }
 
     /** A member of a fresh room with a thread: the writer's REST client lives on the first instance, the token for the second is raw. */
-    private class Scene(val writer: RoomActor, val room: UInt, val thread: Int, val email: String, val password: String)
+    private class Scene(val writer: RoomActor, val room: UInt, val thread: Int, val token: String)
+
+    private suspend fun io.ktor.server.testing.ApplicationTestBuilder.signedActor(
+        id: UInt,
+        email: String,
+        password: String,
+    ): Pair<RoomActor, String> {
+        val token = jsonClient().login(email, password).body<LoginResponse>().token
+        val client = createClient {
+            testClientDefaults()
+            install(DefaultRequest) { header(HttpHeaders.Authorization, "Bearer $token") }
+        }
+        return RoomActor(id, client) to token
+    }
 
     private suspend fun io.ktor.server.testing.ApplicationTestBuilder.scene(): Scene {
         val email = uniqueEmail("fanout")
         val id = TestUsers.seed(email = email, password = "pw")
         users += id
-        val writer = RoomActor(id, authedClient(email, "pw"))
+        val (writer, token) = signedActor(id, email, "pw")
         val template = TestThreads.seedTemplate().also { templates += it }
         val room = TestRooms.seed(id, template, "Fan ${UUID.randomUUID().toString().substring(0, 8)}").also { roomIds += it }
-        return Scene(writer, room, TestThreads.seed(room, id).number, email, "pw")
+        return Scene(writer, room, TestThreads.seed(room, id).number, token)
     }
 
     /** Runs [block] with a second application instance over the same database (stopped afterwards). */
@@ -74,8 +88,9 @@ class LiveFanOutTest {
     /** Logs the scene's user in on [other] and opens an authenticated socket there, with the ticket minted by [other] itself. */
     private suspend fun openOn(other: TestApplication, scene: Scene): LiveTestSocket {
         val http = other.createClient { testClientDefaults() }
-        val token = http.login(scene.email, scene.password).body<LoginResponse>().token
-        val ticket = http.post("/api/v1/live/tickets") { header(HttpHeaders.Authorization, "Bearer $token") }.body<LiveTicketResponse>()
+        val ticket = http.post("/api/v1/live/tickets") {
+            header(HttpHeaders.Authorization, "Bearer ${scene.token}")
+        }.body<LiveTicketResponse>()
         val socket = openLive(other.createClient { install(WebSockets) })
         socket.auth(ticket.ticket)
         assertTrue(socket.nextFrame() is LiveServerFrame.Ready)
@@ -120,13 +135,27 @@ class LiveFanOutTest {
     }
 
     @Test
+    fun `logout on one instance closes the exact access session on another before the periodic sweep`() = testApplication {
+        usePostgresTestcontainer()
+        val scene = scene()
+        withSecondInstance { other ->
+            val socket = openOn(other, scene)
+            awaitListenerUp(other.application.attributes[LiveHubKey])
+
+            assertEquals(HttpStatusCode.NoContent, scene.writer.client.post("/api/v1/logout").status)
+            assertEquals(4003, assertNotNull(socket.awaitClose(10_000)).code)
+        }
+    }
+
+    @Test
     fun `a notice reaches the mentioned member's socket on another instance, subscribed or not, and no subscriber`() = testApplication {
         usePostgresTestcontainer()
         val scene = scene()
         val bobEmail = uniqueEmail("fanout-bob")
         val bobId = TestUsers.seed(email = bobEmail, password = "pw").also { users += it }
         TestRooms.addMember(scene.room, bobId)
-        val bob = Scene(RoomActor(bobId, authedClient(bobEmail, "pw")), scene.room, scene.thread, bobEmail, "pw")
+        val (bobActor, bobToken) = signedActor(bobId, bobEmail, "pw")
+        val bob = Scene(bobActor, scene.room, scene.thread, bobToken)
         withSecondInstance { other ->
             val writerSocket = openOn(other, scene)
             writerSocket.subscribe(scene.room)
@@ -161,7 +190,8 @@ class LiveFanOutTest {
                 val email = uniqueEmail(prefix)
                 val id = TestUsers.seed(email = email, password = "pw").also { users += it }
                 TestRooms.addMember(scene.room, id)
-                return Scene(RoomActor(id, authedClient(email, "pw")), scene.room, scene.thread, email, "pw")
+                val (actor, token) = signedActor(id, email, "pw")
+                return Scene(actor, scene.room, scene.thread, token)
             }
             val ann = member("fanout-ann")
             val bob = member("fanout-bob2")

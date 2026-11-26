@@ -1,6 +1,7 @@
 package ch.nokillswit.auth
 
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.notify.notifyLiveAccount
 import ch.nokillswit.users.UserRole
 import ch.nokillswit.users.UserService.Users
 import ch.nokillswit.users.asAdditionalRoles
@@ -100,6 +101,10 @@ class TokenBlocklistService(
         revokeIfAbsent(jti, expiresAtEpochMillis)
     }
 
+    /** Logout-only access-token revocation: the row and its prompt commit or roll back together. Refresh revocations stay quiet. */
+    suspend fun revokeAccess(userId: UInt, jti: String, expiresAtEpochMillis: Long): Boolean =
+        insertRevocation(jti, expiresAtEpochMillis) { notifyLiveAccount(userId) }
+
     /**
      * Blocklists [jti] and reports whether THIS call inserted the row. The insert is one
      * `INSERT .. ON CONFLICT DO NOTHING` on the jti primary key, so of any number of concurrent
@@ -111,7 +116,7 @@ class TokenBlocklistService(
         insertRevocation(jti, expiresAtEpochMillis) {}
 
     // [onInserted] runs inside the transaction, right after this call's insert took the row and before the commit.
-    private suspend fun insertRevocation(jti: String, expiresAtEpochMillis: Long, onInserted: () -> Unit): Boolean =
+    private suspend fun insertRevocation(jti: String, expiresAtEpochMillis: Long, onInserted: suspend () -> Unit): Boolean =
         suspendTransaction(database) {
             RevokedTokens.deleteWhere { expiresAt less nowMillis() }
             val inserted = RevokedTokens.insertIgnore {

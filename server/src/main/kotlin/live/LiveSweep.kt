@@ -6,7 +6,6 @@ import ch.nokillswit.auth.AccessVerdict
 import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.rooms.RoomService
 import io.ktor.util.AttributeKey
-import io.ktor.websocket.CloseReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +54,7 @@ class LiveSweep internal constructor(
     private val intervalMillis: Long = SWEEP_INTERVAL_MILLIS,
     private val retryDelayMillis: Long = SWEEP_RETRY_MILLIS,
     private val audits: LiveAudit? = null,
+    private val accountRechecks: LiveAccountRechecks? = null,
     private val judge: suspend (List<AccessCheck>) -> List<AccessVerdict> = blocklist::accessVerdicts,
     private val lost: suspend (Collection<Pair<UInt, UInt>>) -> Set<Pair<UInt, UInt>> = rooms::lostMemberships,
 ) {
@@ -72,7 +72,10 @@ class LiveSweep internal constructor(
             }
         }
         val gaps = Channel<Unit>(Channel.CONFLATED)
-        hub.gapObserver = { gaps.trySend(Unit) }
+        hub.gapObserver = {
+            gaps.trySend(Unit)
+            accountRechecks?.gap()
+        }
         scope.launch(CoroutineName("adder-live-recheck")) {
             for (ignored in gaps) runWithRetry(setOf(Half.MEMBERSHIPS))
         }
@@ -135,18 +138,7 @@ class LiveSweep internal constructor(
 
     /** Re-judges every socket's token; closes the ones that are no longer LIVE 4003 and audits one line per user. */
     private suspend fun closeRevoked(views: List<SocketView>): Set<SocketView> {
-        val verdicts = judge(views.map { AccessCheck(it.socket.jti, it.socket.userId, it.socket.credentialRevision, it.socket.roles) })
-        val revoked = views.zip(verdicts).filter { (_, verdict) -> verdict != AccessVerdict.LIVE }
-        revoked.forEach { (view, _) ->
-            view.socket.closeRequest.complete(CloseReason(CLOSE_REVOKED, "The session is no longer valid"))
-        }
-        revoked.groupBy({ it.first.socket.userId }, { it.second }).forEach { (userId, found) ->
-            val names = found.map { it.name.lowercase() }.distinct().sorted().joinToString(",")
-            audit(
-                "live.revoked", "byUserId" to userId.toLong(), "reason" to "verdict", "verdict" to names, "sockets" to found.size,
-            )
-        }
-        return revoked.mapTo(HashSet()) { it.first }
+        return closeRevokedSockets(views, judge).revoked
     }
 
     private suspend fun revokeLostMemberships(views: List<SocketView>): Int {

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.toList
 import ch.nokillswit.infra.db.SoftDeletable
 import ch.nokillswit.infra.db.active
 import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.notify.notifyLiveAccount
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.core.dao.id.UIntIdTable
 import org.jetbrains.exposed.v1.r2dbc.*
@@ -247,6 +248,7 @@ class UserService(private val database: R2dbcDatabase) {
                 it[Users.email] = canonicalEmail(email)
                 it[Users.role] = role.name
             }
+            if (rows > 0) notifyLiveAccount(id)
             if (rows == 0) GuardedMutation.NOT_FOUND else GuardedMutation.DONE
         }
 
@@ -262,6 +264,7 @@ class UserService(private val database: R2dbcDatabase) {
         val rows = Users.update({ (Users.id eq id) and Users.active() }) {
             it[markedAsDeleted] = true
         }
+        if (rows > 0) notifyLiveAccount(id)
         if (rows == 0) GuardedMutation.NOT_FOUND else GuardedMutation.DONE
     }
 
@@ -310,11 +313,18 @@ class UserService(private val database: R2dbcDatabase) {
     /** Bootstrap: rotate a user's password only while they still carry [expectedHash]. */
     suspend fun rotatePasswordIfHashMatches(email: String, expectedHash: String, newHash: String): Int =
         suspendTransaction(database) {
-            Users.update({ (Users.email eq email) and (Users.passwordHash eq expectedHash) and Users.active() }) {
+            val predicate = (Users.email eq email) and (Users.passwordHash eq expectedHash) and Users.active()
+            val updated = Users.update({ predicate }) {
                 it[passwordHash] = newHash
                 it[passwordChangedAt] = nowMillis()
                 it[credentialRevision] = Users.credentialRevision + 1
             }
+            if (updated > 0) {
+                val userId = Users.select(Users.id).where { (Users.email eq email) and Users.active() }
+                    .toList().single()[Users.id].value
+                notifyLiveAccount(userId)
+            }
+            updated
         }
 
     /** Bootstrap: how many active accounts still carry [hash] (the well-known seed password). */
@@ -362,7 +372,7 @@ internal suspend fun updatePasswordInTransaction(
     expectedRevision: Long?,
     changedAt: Long = nowMillis(),
 ): Int = with(UserService.Users) {
-    update({
+    val updated = update({
         (UserService.Users.id eq id) and active() and
             (expectedRevision?.let { credentialRevision eq it } ?: Op.TRUE)
     }) {
@@ -370,4 +380,6 @@ internal suspend fun updatePasswordInTransaction(
         it[passwordChangedAt] = changedAt
         it[credentialRevision] = credentialRevision + 1
     }
+    if (updated > 0) notifyLiveAccount(id)
+    updated
 }

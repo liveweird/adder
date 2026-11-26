@@ -3,6 +3,8 @@ package ch.nokillswit
 import ch.nokillswit.infra.notify.LIVE_CHANNEL
 import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.LiveNotification
+import ch.nokillswit.infra.notify.decodeLiveNotification
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -19,11 +21,11 @@ class NotifyCapture : AutoCloseable {
     private val connection = PostgresTestSupport.connect().also { it.createStatement().use { st -> st.execute("LISTEN $LIVE_CHANNEL") } }
     private val pg: PGConnection = connection.unwrap(PGConnection::class.java)
     private val json = Json { ignoreUnknownKeys = true }
-    private val received = mutableListOf<LiveHint>()
+    private val received = mutableListOf<LiveNotification>()
 
     private fun take(timeoutMillis: Int) {
         val batch = if (timeoutMillis > 0) pg.getNotifications(timeoutMillis) else pg.notifications
-        batch?.forEach { received += json.decodeFromString(LiveHint.serializer(), it.parameter) }
+        batch?.forEach { received += checkNotNull(decodeLiveNotification(it.parameter)) }
     }
 
     /** Emits the sentinel (a `room.updated` for room 0 with an impossible message id) outside any app transaction. */
@@ -36,7 +38,12 @@ class NotifyCapture : AutoCloseable {
     }
 
     /** The hints [steps] emitted, in commit order (the backlog before it is dropped, the sentinel is not part of the answer). */
-    suspend fun during(steps: suspend () -> Unit): List<LiveHint> {
+    suspend fun during(steps: suspend () -> Unit): List<LiveHint> = duringNotifications(steps).map {
+        checkNotNull((it as? LiveNotification.Room)?.hint) { "Expected a room hint, got $it" }
+    }
+
+    /** Every internal notification [steps] emitted, including roomless account prompts. */
+    suspend fun duringNotifications(steps: suspend () -> Unit): List<LiveNotification> {
         withContext(Dispatchers.IO) {
             take(0)
             received.clear()
@@ -45,9 +52,9 @@ class NotifyCapture : AutoCloseable {
         return withContext(Dispatchers.IO) {
             sendSentinel()
             val deadline = System.nanoTime() + SENTINEL_WAIT_NANOS
-            while (SENTINEL !in received && System.nanoTime() < deadline) take(POLL_MILLIS)
-            check(SENTINEL in received) { "The sentinel hint never arrived: the LISTEN session is not receiving" }
-            received.takeWhile { it != SENTINEL }.also { received.clear() }
+            while (SENTINEL_NOTIFICATION !in received && System.nanoTime() < deadline) take(POLL_MILLIS)
+            check(SENTINEL_NOTIFICATION in received) { "The sentinel hint never arrived: the LISTEN session is not receiving" }
+            received.takeWhile { it != SENTINEL_NOTIFICATION }.also { received.clear() }
         }
     }
 
@@ -55,6 +62,7 @@ class NotifyCapture : AutoCloseable {
 
     private companion object {
         val SENTINEL = LiveHint(LiveKind.ROOM_UPDATED, 0u, messageId = UInt.MAX_VALUE)
+        val SENTINEL_NOTIFICATION = LiveNotification.Room(SENTINEL)
         const val POLL_MILLIS = 100
         const val SENTINEL_WAIT_NANOS = 10_000_000_000L
     }

@@ -89,6 +89,9 @@ internal suspend fun DefaultWebSocketServerSession.liveSession(deps: LiveSession
         // Register (FIFO, so followed by this Unregister) would leave a slot nobody ever frees. The hub ignores an unknown socket.
         socket = registered
         if (!register(deps, binding, registered)) return
+        // Registration is an asynchronous actor round trip. Re-judge afterwards, before the writer can expose `ready`, so an account
+        // change in that window cannot obtain a serving socket.
+        if (!recheckAfterRegister(deps, binding)) return
         writer = launch { writeFrames(registered) }
         // The socket never outlives its token: at `exp` the hub-independent timer asks the reading loop to close 4001.
         expiry = launch { closeAtExpiry(deps, registered) }
@@ -108,6 +111,14 @@ internal suspend fun DefaultWebSocketServerSession.liveSession(deps: LiveSession
         writer?.cancel()
         expiry?.cancel()
     }
+}
+
+private suspend fun DefaultWebSocketSession.recheckAfterRegister(deps: LiveSessionDeps, binding: LiveTicketBinding): Boolean {
+    val verdict = deps.blocklist.accessVerdict(binding.jti, binding.userId, binding.credentialRevision, binding.roles)
+    if (verdict == AccessVerdict.LIVE) return true
+    deps.audits.refused("auth", binding.userId, "detail" to "registration-verdict", "verdict" to verdict.name.lowercase())
+    closeWith(CLOSE_REVOKED, "The session is no longer valid")
+    return false
 }
 
 /** Closes [socket] 4001 when its minting access token expires (`live.md`: "Each socket closes with 4001 at its token's `exp`"). */
