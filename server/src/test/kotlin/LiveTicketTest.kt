@@ -204,7 +204,8 @@ class LiveTicketTest {
 
     @Test
     fun `a full ticket store answers 429 and audits the saturation, then frees up as tickets are redeemed`() = testApplication {
-        configureApp("live.maxTickets" to "1")
+        configureApp()
+        application { attributes.put(LiveTicketStoreOverrideKey, LiveTicketMemoryStore(1, LIVE_TICKET_TTL_MILLIS)) }
         startApplication()
         val first = signedIn("live-ticket-full-a")
         val second = signedIn("live-ticket-full-b")
@@ -235,13 +236,16 @@ class LiveTicketTest {
 
     @Test
     fun `no log line of any logger carries a minted ticket, even across a saturated mint and a redemption`() = testApplication {
-        configureApp("live.maxTickets" to "1")
+        configureApp()
+        application { attributes.put(LiveTicketStoreOverrideKey, LiveTicketMemoryStore(1, LIVE_TICKET_TTL_MILLIS)) }
         startApplication()
         val caller = signedIn("live-ticket-logs")
         val rejected = signedIn("live-ticket-logs-other")
         val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
         try {
-            val ticket = caller.mint().body<LiveTicketResponse>().ticket
+            val minted = caller.mint()
+            assertEquals(HttpStatusCode.OK, minted.status)
+            val ticket = minted.body<LiveTicketResponse>().ticket
             // The saturated mint is the path that logs (`live.ticket_saturated`), so the capture is not vacuous.
             assertEquals(HttpStatusCode.TooManyRequests, rejected.mint().status)
             application.attributes[LiveTicketsKey].redeem(ticket)

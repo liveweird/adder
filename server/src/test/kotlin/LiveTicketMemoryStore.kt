@@ -5,7 +5,7 @@ import ch.nokillswit.live.LiveTicketCapacityExceededException
 import ch.nokillswit.live.LiveTicketDraft
 import ch.nokillswit.live.LiveTicketStore
 
-/** Deterministic process-local implementation used only by pure live-ticket and socket unit tests. */
+/** Deterministic store for ticket and socket tests that need isolated ticket state. */
 internal class LiveTicketMemoryStore(
     private val maxTickets: Int,
     private val ttlMillis: Long,
