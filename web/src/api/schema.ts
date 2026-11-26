@@ -117,10 +117,10 @@ export interface paths {
          *     once across all instances. It expires on the database clock after a short TTL (default
          *     5 min, `MFA_CODE_TTL_SECONDS`) and allows a few total attempts
          *     (default 5, `MFA_MAX_ATTEMPTS`); every failure mode — unknown challenge, expired,
-         *     wrong code, attempts exhausted, user gone, password changed — answers the uniform `401`. Rate-limited
+         *     wrong code, attempts exhausted, user gone, password or email changed — answers the uniform `401`. Rate-limited
          *     per client IP.
          *
-         *     Every wrong code also counts as a failed sign-in attempt toward the account's login lockout (the same
+         *     A wrong code for a current challenge counts toward the account's login lockout (the same
          *     counter `POST /login` feeds, `LOGIN_LOCKOUT_THRESHOLD`), so the wrong codes across ALL of an account's
          *     challenges add up and a fresh login never resets them (only an accepted code does). The failure that
          *     locks the account answers the uniform `401`; the account's pending challenges are dropped, and from

@@ -514,8 +514,9 @@ every mode) exchanges it for the ordinary `LoginResponse` — one fresh `userSer
 (the `/refresh` precedent: current roles/flags; a user deleted in between → the uniform 401
 `user_gone`); every failure mode (unknown/expired/wrong code/attempt cap) is a **uniform 401**,
 reasons live only in the `login.mfa_failure` audit event (which names the account by `userId` whenever the challenge was found); challenges are single-use and bound to
-the credential revision verified at the password step; a subsequent password change/reset
-invalidates the pending challenge. **Mail-less deployments fail closed**: on
+the credential revision and email verified at the password step. A password change, password reset or change of email invalidates
+an earlier challenge. Counted attempts and successful clearing check the current account under the same row lock used by password
+or email updates before acquiring the account's lockout guard. **Mail-less deployments fail closed**: on
 `MAIL_TRANSPORT=disabled` an MFA-enabled login answers `503` (`login.mfa_unavailable`) — don't
 enable MFA flags on the k8s default `disabled` transport; the features PUT keeps working, so an
 admin can always flip the flag back. SPA: the Login card's second step (`PinInput`, `auth.mfa*`

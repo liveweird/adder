@@ -23,7 +23,7 @@ internal fun Route.mfaVerify(
     jwtConfig: JwtConfig,
     userService: UserService,
     mfaChallenges: MfaChallenges,
-    loginThrottle: AccountThrottle,
+    loginThrottle: PostgresAccountThrottle,
 ) {
     post("/api/v1/login/mfa") {
         val req = call.receive<MfaVerifyRequest>()
@@ -32,17 +32,20 @@ internal fun Route.mfaVerify(
                 val subject = outcome.subject
                 // The account is named whenever the challenge was found; an unknown id names nobody (no userId field at all).
                 val named = subject?.let { arrayOf("userId" to it.userId.toLong()) } ?: emptyArray()
-                val staleReason = if (outcome.wrongCode && subject != null) staleChallengeReason(userService, outcome) else null
-                if (staleReason != null) {
-                    // A password change or a confirmed reset since the challenge was minted ends it ("invalidates any pending MFA
-                    // challenge"): its wrong codes neither count into the lockout nor can ever succeed, so an old challenge cannot be
-                    // used to re-lock the owner right after a reset lifted the lock. The challenge is dropped.
-                    mfaChallenges.discard(req.challengeId)
-                    audit(EVENT_LOGIN_MFA_FAILURE, "reason" to staleReason, *named)
-                    throw UnauthorizedException("Invalid or expired sign-in code")
+                if (outcome.wrongCode && subject != null) {
+                    when (val failure = loginThrottle.recordMfaFailure(subject, checkNotNull(outcome.credentialRevision))) {
+                        is MfaAttempt.Stale -> {
+                            mfaChallenges.discard(req.challengeId)
+                            audit(EVENT_LOGIN_MFA_FAILURE, "reason" to failure.auditReason, *named)
+                        }
+                        is MfaAttempt.Current -> {
+                            audit(EVENT_LOGIN_MFA_FAILURE, "reason" to outcome.reason, *named)
+                            mfaGuess(loginThrottle, mfaChallenges, subject).handleFailure(failure.outcome)
+                        }
+                    }
+                } else {
+                    audit(EVENT_LOGIN_MFA_FAILURE, "reason" to outcome.reason, *named)
                 }
-                audit(EVENT_LOGIN_MFA_FAILURE, "reason" to outcome.reason, *named)
-                if (outcome.wrongCode && subject != null) mfaGuess(loginThrottle, mfaChallenges, subject).recordFailure()
                 // Uniform for every failure mode — a guesser learns nothing about
                 // whether the challenge exists, expired, or the code was wrong.
                 throw UnauthorizedException("Invalid or expired sign-in code")
@@ -56,16 +59,13 @@ internal fun Route.mfaVerify(
                     audit(EVENT_LOGIN_MFA_FAILURE, "reason" to "user_gone", "userId" to userId.toLong())
                     throw UnauthorizedException("Invalid or expired sign-in code")
                 }
-                if (outcome.credentialRevision != user.credentialRevision || outcome.subject.email != user.email) {
-                    audit(
-                        EVENT_LOGIN_MFA_FAILURE,
-                        "reason" to "credential_changed",
-                        "userId" to userId.toLong(),
-                    )
-                    throw UnauthorizedException("Invalid or expired sign-in code")
+                when (val attempt = loginThrottle.recordMfaSuccess(outcome.subject, outcome.credentialRevision)) {
+                    is MfaAttempt.Stale -> {
+                        audit(EVENT_LOGIN_MFA_FAILURE, "reason" to attempt.auditReason, "userId" to userId.toLong())
+                        throw UnauthorizedException("Invalid or expired sign-in code")
+                    }
+                    is MfaAttempt.Current -> mfaGuess(loginThrottle, mfaChallenges, outcome.subject).handleSuccess(attempt.outcome)
                 }
-                // The login success rule: a locked account does not sign in, whatever the code.
-                mfaGuess(loginThrottle, mfaChallenges, outcome.subject).recordSuccess()
                 audit("login.mfa_success", "email" to user.email, "userId" to userId.toLong())
                 call.respond(
                     HttpStatusCode.OK,
@@ -74,17 +74,6 @@ internal fun Route.mfaVerify(
             }
         }
     }
-}
-
-/**
- * Why the failed challenge is dead, or null while the account still exists at the credential revision it was minted at:
- * `user_gone` (deleted since) or `credential_changed` (a password change or reset). One primary-key read, made only for a WRONG code
- * (the per-IP `mfa` bucket and the per-challenge attempt cap bound those), never for a right one.
- */
-private suspend fun staleChallengeReason(userService: UserService, failure: MfaChallenges.Outcome.Failure): String? {
-    val subject = failure.subject ?: return null
-    val user = userService.read(subject.userId) ?: return "user_gone"
-    return if (user.credentialRevision == failure.credentialRevision && user.email == subject.email) null else "credential_changed"
 }
 
 /** The MFA step's guess at [subject]'s account: a lock (now or already) also drops the account's pending challenges. */

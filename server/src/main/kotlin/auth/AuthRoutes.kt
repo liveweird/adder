@@ -82,7 +82,7 @@ internal class AuthDeps(
     val jwtConfig: JwtConfig,
     val userService: ch.nokillswit.users.UserService,
     val blocklist: TokenBlocklistService,
-    val loginThrottle: AccountThrottle,
+    val loginThrottle: PostgresAccountThrottle,
     val mailer: ch.nokillswit.infra.mail.Mailer?,
     val mfaChallenges: MfaChallenges,
     val mfaTtlMinutes: Long,

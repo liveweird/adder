@@ -23,7 +23,7 @@ FROM account_login_attempts WHERE identity_hash = CAST(? AS char(64)) FOR UPDATE
 """
 private const val ORDINARY_STATE_COUNT = "SELECT count(*)::int FROM account_login_attempts WHERE user_id IS NULL"
 private const val LOCK_USER = """
-SELECT email FROM users WHERE id = CAST(? AS int8) AND NOT marked_as_deleted FOR NO KEY UPDATE
+SELECT email, credential_revision FROM users WHERE id = CAST(? AS int8) AND NOT marked_as_deleted FOR NO KEY UPDATE
 """
 private const val READ_BOUND_HASH = """
 SELECT identity_hash FROM account_login_attempts WHERE user_id = CAST(? AS int8)
@@ -96,31 +96,54 @@ internal class PostgresAccountThrottle(
     ): LoginThrottle.FailureOutcome {
         require(knownUserId != null || !mfaCode) { "an MFA code failure belongs to a known account" }
         val stale = LoginThrottle.FailureOutcome(LoginThrottle.FailureResult.ALREADY_LOCKED)
-        return identityTransaction(email, knownUserId, stale) { identity, now ->
-            val (hash, state) = identity
-            if (state.stateExpiresAt == 0L && knownUserId == null) {
-                lockCapacity()
-                prune(now)
-                if (ordinaryCount() >= maxTracked) {
-                    return@identityTransaction LoginThrottle.FailureOutcome(LoginThrottle.FailureResult.CAPACITY_EXCEEDED)
-                }
-            }
-            val transition = policy.failure(state, now, mfaCode)
-            write(hash, knownUserId, transition.state)
-            transition.outcome
+        return identityTransaction(email, knownUserId, stale) { identity, now -> failLocked(identity, now, knownUserId, mfaCode) }
+    }
+
+    suspend fun recordMfaFailure(subject: MfaChallenges.Subject, revision: Long): MfaAttempt<LoginThrottle.FailureOutcome> =
+        withMfaCredential(subject, revision) { identity, now -> failLocked(identity, now, subject.userId, mfaCode = true) }
+
+    suspend fun recordMfaSuccess(subject: MfaChallenges.Subject, revision: Long): MfaAttempt<LoginThrottle.SuccessResult> =
+        withMfaCredential(subject, revision, ::successLocked)
+
+    /** The credential fence and the known-account reservation both use the same locked user row. */
+    private suspend fun <T> withMfaCredential(
+        subject: MfaChallenges.Subject,
+        revision: Long,
+        record: suspend (Pair<String, LoginAttemptState>, Long) -> T,
+    ): MfaAttempt<T> = suspendTransaction(database) {
+        val user = lockUser(subject.userId) ?: return@suspendTransaction MfaAttempt.Stale.USER_GONE
+        if (user.revision != revision) return@suspendTransaction MfaAttempt.Stale.CREDENTIAL_CHANGED
+        val currentEmail = canonicalEmail(user.email)
+        if (canonicalEmail(subject.email) != currentEmail) return@suspendTransaction MfaAttempt.Stale.EMAIL_CHANGED
+        MfaAttempt.Current(boundIdentity(currentEmail, subject.userId, record))
+    }
+
+    private suspend fun failLocked(
+        identity: Pair<String, LoginAttemptState>,
+        now: Long,
+        knownUserId: UInt?,
+        mfaCode: Boolean,
+    ): LoginThrottle.FailureOutcome {
+        val (hash, state) = identity
+        if (state.stateExpiresAt == 0L && knownUserId == null) {
+            lockCapacity()
+            prune(now)
+            if (ordinaryCount() >= maxTracked) return LoginThrottle.FailureOutcome(LoginThrottle.FailureResult.CAPACITY_EXCEEDED)
         }
+        val transition = policy.failure(state, now, mfaCode)
+        write(hash, knownUserId, transition.state)
+        return transition.outcome
     }
 
     override suspend fun recordSuccess(email: String, knownUserId: UInt?): LoginThrottle.SuccessResult =
-        identityTransaction(email, knownUserId, LoginThrottle.SuccessResult.LOCKED) { identity, now ->
-            val (hash, state) = identity
-            if (policy.isLocked(state, now)) {
-                LoginThrottle.SuccessResult.LOCKED
-            } else {
-                delete(hash)
-                LoginThrottle.SuccessResult.CLEARED
-            }
-        }
+        identityTransaction(email, knownUserId, LoginThrottle.SuccessResult.LOCKED, ::successLocked)
+
+    private suspend fun successLocked(identity: Pair<String, LoginAttemptState>, now: Long): LoginThrottle.SuccessResult {
+        val (hash, state) = identity
+        if (policy.isLocked(state, now)) return LoginThrottle.SuccessResult.LOCKED
+        delete(hash)
+        return LoginThrottle.SuccessResult.CLEARED
+    }
 
     override suspend fun clear(email: String, knownUserId: UInt?): Boolean =
         suspendTransaction(database) { clearInCurrentTransaction(email, knownUserId) }
@@ -158,8 +181,17 @@ internal class PostgresAccountThrottle(
         stale: T,
         block: suspend (Pair<String, LoginAttemptState>, Long) -> T,
     ): T {
-        val currentEmail = canonicalEmail(lockUser(userId) ?: return stale)
+        val user = lockUser(userId) ?: return stale
+        val currentEmail = canonicalEmail(user.email)
         if (canonicalEmail(capturedEmail) != currentEmail) return stale
+        return boundIdentity(currentEmail, userId, block)
+    }
+
+    private suspend fun <T> boundIdentity(
+        currentEmail: String,
+        userId: UInt,
+        block: suspend (Pair<String, LoginAttemptState>, Long) -> T,
+    ): T {
         val currentHash = digest.of(currentEmail)
         val oldHash = boundHash(userId)
         listOfNotNull(oldHash, currentHash).distinct().sorted().forEach { lockIdentity(it) }
@@ -183,11 +215,13 @@ internal class PostgresAccountThrottle(
         return block(currentHash to state, now)
     }
 
-    private suspend fun lockUser(userId: UInt): String? = TransactionManager.current().exec(
+    private data class LockedUser(val email: String, val revision: Long)
+
+    private suspend fun lockUser(userId: UInt): LockedUser? = TransactionManager.current().exec(
         LOCK_USER,
         listOf(LongColumnType() to userId.toLong()),
         explicitStatementType = StatementType.SELECT,
-    ) { row -> row.get(0, String::class.java)!! }?.firstOrNull()
+    ) { row -> LockedUser(row.get(0, String::class.java)!!, row.get(1, Long::class.javaObjectType)!!) }?.firstOrNull()
 
     private suspend fun boundHash(userId: UInt): String? = TransactionManager.current().exec(
         READ_BOUND_HASH,
@@ -294,4 +328,14 @@ private fun mergeStates(first: LoginAttemptState, second: LoginAttemptState?): L
         codeGuesses = saturatingAdd(first.codeGuesses, second.codeGuesses),
         codeExpiresAt = maxOf(first.codeExpiresAt, second.codeExpiresAt),
     )
+}
+
+internal sealed interface MfaAttempt<out T> {
+    data class Current<T>(val outcome: T) : MfaAttempt<T>
+
+    enum class Stale(val auditReason: String) : MfaAttempt<Nothing> {
+        USER_GONE("user_gone"),
+        CREDENTIAL_CHANGED("credential_changed"),
+        EMAIL_CHANGED("email_changed"),
+    }
 }
