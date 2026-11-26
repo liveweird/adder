@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.27.0",
+    date: "2026-11-26",
+    en: `**Adder 1.27.0 — shared sign-in protection**
+
+- Failed sign-in and recovery limits now persist across app restarts and application instances using the same database.
+- Completing a password reset replaces the password and clears the sign-in lock in one transaction.`,
+    pl: `**Adder 1.27.0 — wspólna ochrona logowania**
+
+- Limity prób logowania i odzyskiwania hasła obowiązują także po restarcie i w innych instancjach aplikacji korzystających z tej samej bazy danych.
+- Dokończenie resetowania hasła jednocześnie ustawia nowe hasło i usuwa blokadę logowania.`,
+  },
+  {
     version: "1.26.0",
     date: "2026-11-26",
     en: `**Adder 1.26.0 — shared session refresh and logout**

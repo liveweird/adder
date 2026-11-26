@@ -76,6 +76,7 @@ class MigrationChecksumTest {
         "V53__share_live_tickets.sql" to -1388767374,
         "V54__share_live_session_leases.sql" to -894410750,
         "V55__share_refresh_rotation_grace.sql" to -766416629,
+        "V56__share_account_attempt_limits.sql" to -244047785,
     )
 
     @Test

@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Shared sign-in protection (1.27.0)
+
+Account credential attempts and password-reset request cooldowns use PostgreSQL. Limits persist across restarts. Password reset confirmation clears active lockout state in the password change transaction. Stored throttle keys are deployment-keyed digests.
+
 ### Shared session refresh and logout (1.26.0)
 
 An interrupted refresh can retry on another instance using the same database. Logout revokes the current session's credentials and clears refresh grace in one transaction. Other signed-in sessions keep working. Deploy this release with the existing single-instance replacement strategy.
