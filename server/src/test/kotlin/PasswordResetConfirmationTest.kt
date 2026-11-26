@@ -212,6 +212,7 @@ class PasswordResetConfirmationTest {
             )
         } finally {
             mail.detach()
+            discardTestMfaChallenges(listOf(id))
         }
     }
 }

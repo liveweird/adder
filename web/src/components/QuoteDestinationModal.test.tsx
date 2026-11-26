@@ -1,10 +1,12 @@
+import { QueryClient } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { useLocation } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createThreadDraftStore, ThreadDraftsContext } from "../hooks/useThreadDrafts";
 import { jsonResponse } from "../test/http";
 import { makeMessage, makeRoom, makeThread } from "../test/messageFixtures";
-import { renderWithProviders, screen, waitFor, within } from "../test/render";
+import { act, renderWithProviders, screen, waitFor, within } from "../test/render";
+import { roomKeys } from "../utils/roomKeys";
 import QuoteDestinationModal from "./QuoteDestinationModal";
 
 const source = makeMessage({ id: 19, threadNumber: 8, body: "Source excerpt" });
@@ -72,6 +74,34 @@ test("can pick a room and thread from later pages without replacing destination 
   expect(screen.getByLabelText("Location")).toHaveTextContent("/rooms/14/threads/11");
   expect(drafts.getReply(other.id, openThread.number)).toBe("Already writing");
   expect(drafts.getQuote(other.id, openThread.number)).toMatchObject({ id: 19, roomId: 12, threadNumber: 8 });
+});
+
+test("keeps the open room picker usable while its current page refreshes", async () => {
+  const user = userEvent.setup();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const currentRoom = makeRoom();
+  const currentPage = () => jsonResponse(200, { items: [currentRoom, other], total: 2 });
+  let finishRefresh!: (response: Response) => void;
+  const delayedRefresh = new Promise<Response>((resolve) => { finishRefresh = resolve; });
+  const rooms = vi.fn().mockResolvedValueOnce(currentPage()).mockReturnValue(delayedRefresh);
+  vi.stubGlobal("fetch", vi.fn((url: string) => new URL(url, "http://localhost").pathname === "/api/v1/rooms"
+    ? rooms()
+    : Promise.resolve(destinations(url))));
+  renderWithProviders(<QuoteDestinationModal source={source} currentRoom={currentRoom} onClose={vi.fn()} />, { queryClient });
+  const roomPicker = screen.getByRole("combobox", { name: "Room" });
+  await waitFor(() => expect(roomPicker).toBeEnabled());
+  await user.click(roomPicker);
+  const option = await screen.findByRole("option", { name: other.name });
+
+  try {
+    act(() => { void queryClient.invalidateQueries({ queryKey: roomKeys.list }); });
+    await waitFor(() => expect(rooms).toHaveBeenCalledTimes(2));
+    await user.click(option);
+    expect(roomPicker).toBeEnabled();
+    expect(roomPicker).toHaveValue(other.name);
+  } finally {
+    await act(async () => { finishRefresh(currentPage()); });
+  }
 });
 
 test("shows a read failure and offers no destination action from an archived source", async () => {

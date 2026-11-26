@@ -3,6 +3,7 @@ package ch.nokillswit
 import ch.nokillswit.auth.AccountGuess
 import ch.nokillswit.auth.LoginThrottle
 import ch.nokillswit.authz.TooManyRequestsException
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

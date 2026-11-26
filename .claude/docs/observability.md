@@ -102,7 +102,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   and `login.rejected_locked` is unchanged. An `escalationLevel` of 2 or more means someone holding the password is guessing codes,
 - `login.mfa_challenge` (email/userId — correct credentials, second factor pending) /
   `login.mfa_success` / `login.mfa_failure` (with `reason`:
-  unknown_challenge/expired/wrong_code/too_many_attempts/user_gone/credential_changed, and `userId` whenever the challenge was
+  unknown_challenge/expired/wrong_code/too_many_attempts/user_gone/credential_changed/email_changed, and `userId` whenever the challenge was
   found, i.e. every reason but unknown_challenge) /
   `login.mfa_unavailable` (MFA enabled on a mail-less deployment → 503) /
   `login.mfa_capacity_rejected` (the pending challenge store is full → 429, no code sent) /

@@ -78,6 +78,7 @@ class MigrationChecksumTest {
         "V55__share_refresh_rotation_grace.sql" to -766416629,
         "V56__share_account_attempt_limits.sql" to -244047785,
         "V56_1__bind_known_account_attempts.sql" to 583756196,
+        "V57__share_mfa_challenges.sql" to -2062212377,
     )
 
     @Test

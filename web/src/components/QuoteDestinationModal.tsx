@@ -76,7 +76,8 @@ export default function QuoteDestinationModal({
           data={roomOptions}
           value={room ? String(room.id) : null}
           searchable
-          disabled={rooms.isFetching}
+          // Keep a focused picker usable while a live hint refreshes the current page.
+          disabled={rooms.isPending || rooms.isPlaceholderData}
           onChange={(value, option) => {
             setRoom(option === null ? null : { id: Number(value), name: option.label });
             setThread(null);
@@ -90,7 +91,7 @@ export default function QuoteDestinationModal({
           data={threadOptions}
           value={thread ? String(thread.number) : null}
           searchable
-          disabled={threads.isFetching || room === null}
+          disabled={room === null || threads.isPending || threads.isPlaceholderData}
           nothingFoundMessage={t("threads.quote.destinationNone")}
           onChange={(value) => setThread(threads.data?.items.find((item) => String(item.number) === value) ?? null)}
         />

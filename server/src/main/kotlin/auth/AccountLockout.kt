@@ -15,7 +15,7 @@ import io.ktor.util.AttributeKey
  * three lock the account exactly as N failed logins would. Published as an attribute (not built inside `configureAuthRoutes`)
  * because `configureUserRoutes` registers earlier in `application.yaml` than the auth routes and reads it per request.
  */
-internal val LoginThrottleKey = AttributeKey<AccountThrottle>("LoginThrottle")
+internal val LoginThrottleKey = AttributeKey<PostgresAccountThrottle>("LoginThrottle")
 
 /** Module `configureLoginThrottle` (application.yaml, before the feature routes): builds the throttle from `security.lockout.*`. */
 fun Application.configureLoginThrottle() {
@@ -77,7 +77,7 @@ internal class AccountGuess(
     private val knownUserId: UInt? = null,
     /** True where a failure is a wrong emailed code (the MFA step): a lock it trips is progressive, see [AccountThrottle]. */
     private val mfaCode: Boolean = false,
-    private val onLocked: () -> Unit = {},
+    private val onLocked: suspend () -> Unit = {},
 ) {
     constructor(
         throttle: LoginThrottle,
@@ -90,7 +90,7 @@ internal class AccountGuess(
         onLocked: () -> Unit = {},
     ) : this(
         InMemoryAccountThrottle(throttle), email, auditFields, lockedEvent, lockedFields,
-        if (knownAccount) 1u else null, mfaCode, onLocked,
+        if (knownAccount) 1u else null, mfaCode, { onLocked() },
     )
 
     private fun audited(event: String) = audit(event, *auditFields.toTypedArray())
@@ -117,8 +117,9 @@ internal class AccountGuess(
      * then sends its own failure; the locking one also writes `login.lockout`), a 429 on an already-active lock (the race the
      * preflight cannot see) or, for an unknown identity only, a full store.
      */
-    suspend fun recordFailure() {
-        val outcome = throttle.recordFailure(email, knownUserId, mfaCode)
+    suspend fun recordFailure() = handleFailure(throttle.recordFailure(email, knownUserId, mfaCode))
+
+    suspend fun handleFailure(outcome: LoginThrottle.FailureOutcome) {
         when (outcome.result) {
             LoginThrottle.FailureResult.CAPACITY_EXCEEDED -> {
                 audited(EVENT_LOGIN_CAPACITY_REJECTED)
@@ -142,8 +143,10 @@ internal class AccountGuess(
     }
 
     /** A verified credential clears the counter, unless a lock tripped since the preflight: that still refuses, as at login. */
-    suspend fun recordSuccess() {
-        if (throttle.recordSuccess(email, knownUserId) == LoginThrottle.SuccessResult.LOCKED) {
+    suspend fun recordSuccess() = handleSuccess(throttle.recordSuccess(email, knownUserId))
+
+    suspend fun handleSuccess(outcome: LoginThrottle.SuccessResult) {
+        if (outcome == LoginThrottle.SuccessResult.LOCKED) {
             onLocked()
             auditedLocked()
             throw accountLockedException()

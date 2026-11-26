@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Shared email sign-in codes (1.28.0)
+
+Instances using the same database and data encryption keys can verify each other's pending MFA challenges. Each code is single-use and its attempts and expiry are shared. Pending challenges issued by an earlier release need a fresh sign-in after the update.
+
 ### Shared sign-in protection (1.27.0)
 
 Account credential attempts and password-reset request cooldowns use PostgreSQL. Limits persist across restarts. Password reset confirmation clears active lockout state in the password change transaction. Stored throttle keys are deployment-keyed digests.
@@ -187,7 +191,7 @@ The scope of each version and the decisions behind it: `.claude/docs/product.md`
   server-side revocation blocklist, PostgreSQL with [Flyway](https://flywaydb.org) migrations and
   [Exposed](https://github.com/JetBrains/Exposed) (R2DBC), OpenTelemetry, RFC 7807 problem-detail
   errors, Swagger UI at `/openapi` (development mode). Application-level encryption at rest
-  (`infra/crypto/FieldCipher`, AES-256-GCM) protects stored browser push endpoints. One process serves everything.
+  (`infra/crypto/FieldCipher`, AES-256-GCM) protects browser push endpoints and pending email MFA codes and delivery addresses.
 - **Frontend**: [Vite](https://vite.dev) + React 19 + TypeScript + [Mantine](https://mantine.dev),
   react-i18next (English + Polish), a typed API client generated from the OpenAPI contract.
 - **Quality gates**: detekt (zero findings), Kover coverage floors, dependency-family alignment,
@@ -352,7 +356,7 @@ For a hosted deployment, supply the settings through the app's environment and s
 | `LIVE_AUTH_TIMEOUT_MILLIS` | `2000` | How long an unauthenticated socket lives before it is closed 4401 (100–30000 ms; the first frame must carry the ticket). |
 | `LIVE_CONNECT_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP bucket on the WebSocket upgrade `GET /api/v1/live`; blank = 600 in every mode. |
 | `DATA_ENCRYPTION_KEY` | *(dev key, burned)* | AES-256-GCM key (64 hex) for stored browser-push endpoints — the dev default is burned, production refuses it. Back it up apart from the database. |
-| `DATA_ENCRYPTION_KEY_PREVIOUS` | *(blank)* | Decrypt-only fallback during rotation. Keep it until every browser subscription encrypted with the old key has been re-registered, removed, or expired. |
+| `DATA_ENCRYPTION_KEY_PREVIOUS` | *(blank)* | Decrypt-only fallback during rotation. Keep it until browser subscriptions encrypted with the old key have been re-registered, removed, or expired and pending MFA challenges under that key have expired. |
 | `SECURITY_CSRF_ENABLED` | `false` | CSRF plugin gate — off (bearer JWT, no cookies). |
 | `JWT_SECRET` | `secret` | HMAC key for the access/refresh pair — production requires a private 64-hex key (`openssl rand -hex 32`); the placeholders and compose demo key are burned. |
 | `JWT_ISSUER` | `http://0.0.0.0:8087/` | The `iss` claim the verifier requires. |

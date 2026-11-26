@@ -130,7 +130,7 @@ security:
   # (auth/TokenBlocklistService.accessVerdict, plugins/Security.kt) is ONE uncached database
   # statement (revocation, account liveness, credential revision, roles), so a logout, a delete,
   # a demotion or a password change ends the token on its next request on ANY replica. The
-  # login lockout and password-reset cooldown are shared. Email MFA challenges remain process-local.
+  # login lockout, password-reset cooldown, and email MFA challenges share PostgreSQL.
   # The supplied Kubernetes deployment uses one app replica.
   # Refresh-token rotation (auth/TokenBlocklistService.kt): every /refresh blocklists the presented
   # token. The shared database permits up to two retries during `replayGraceSeconds`, including
@@ -149,14 +149,14 @@ security:
     tokenTtlSeconds: "$PASSWORD_RESET_TOKEN_TTL_SECONDS:900"
   # Email MFA (opt-in per user via the MFA feature flag): a login with correct credentials
   # mints a challenge and emails a 6-digit code; the code must come back to
-  # POST /api/v1/login/mfa within the TTL and attempt cap. Challenges are in-memory and
-  # per-instance, unlike the PostgreSQL-shared lockout above (a restart just means signing in again).
+  # POST /api/v1/login/mfa within the TTL and attempt cap. PostgreSQL shares challenges across
+  # instances. The challenge identifier is digested and the code and delivery address are encrypted.
   mfa:
     codeTtlSeconds: "$MFA_CODE_TTL_SECONDS:300"
     maxAttempts: "$MFA_MAX_ATTEMPTS:5"
     maxTracked: "$MFA_MAX_TRACKED:10000"
   # Application-level encryption at rest (infra/crypto/): an AES-256-GCM key (64 hex chars,
-  # `openssl rand -hex 32`) for browser push endpoints. The
+  # `openssl rand -hex 32`) for browser push endpoints and pending email MFA fields. The
   # default is a committed dev-only key (infra/crypto/Crypto.kt — it is on the burned list,
   # so production startup refuses it).
   # LOSING THIS KEY MEANS LOSING EVERY STORED ENCRYPTED VALUE — back it up apart from the DB.
