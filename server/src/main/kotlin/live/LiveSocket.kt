@@ -165,7 +165,13 @@ private suspend fun DefaultWebSocketSession.awaitAuthFrame(deps: LiveSessionDeps
 
 /** The redemption order of `live.md` "Tickets": the ticket, the token's verdict, the token's `exp`. */
 private suspend fun DefaultWebSocketSession.redeem(deps: LiveSessionDeps, auth: LiveClientFrame.Auth): LiveTicketBinding? {
-    val binding = deps.tickets.redeem(auth.ticket)
+    val binding = try {
+        deps.tickets.redeem(auth.ticket)
+    } catch (failure: LiveTicketStoreUnavailableException) {
+        log.warn("live ticket redemption unavailable ({})", failure.cause?.javaClass?.simpleName ?: failure.javaClass.simpleName)
+        closeWith(CloseReason.Codes.TRY_AGAIN_LATER.code, "Live updates unavailable")
+        return null
+    }
     if (binding == null) {
         deps.audits.refused("auth", null, "detail" to "ticket")
         closeWith(CLOSE_NO_TICKET, "Unknown, expired or used ticket")

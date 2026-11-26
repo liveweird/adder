@@ -73,6 +73,7 @@ class MigrationChecksumTest {
         "V50__index_deleted_messages_for_boot_purge.sql" to -923612618,
         "V51__bound_unseen_notifications.sql" to -341290409,
         "V52__notification_email_pacing.sql" to -1756005064,
+        "V53__share_live_tickets.sql" to -1388767374,
     )
 
     @Test

@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.24.0",
+    date: "2026-11-26",
+    en: `**Adder 1.24.0 — durable live connection tickets**
+
+- A live connection ticket stays available during an app restart until it expires or is used. Adder checks your session again when the connection opens.`,
+    pl: `**Adder 1.24.0 — trwałe bilety połączeń na żywo**
+
+- Bilet połączenia na żywo pozostaje dostępny po ponownym uruchomieniu aplikacji, aż wygaśnie lub zostanie wykorzystany. Adder ponownie sprawdza sesję przy otwarciu połączenia.`,
+  },
+  {
     version: "1.23.0",
     date: "2026-11-26",
     en: `**Adder 1.23.0 — fewer repeat reads after replying**

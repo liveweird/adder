@@ -2,9 +2,15 @@ package ch.nokillswit
 
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.live.LIVE_TICKET_TTL_MILLIS
+import ch.nokillswit.live.LIVE_UNAVAILABLE_PROBLEM_TYPE
 import ch.nokillswit.live.LiveTicketBinding
+import ch.nokillswit.live.LiveTicketDraft
 import ch.nokillswit.live.LiveTicketResponse
+import ch.nokillswit.live.LiveTicketStore
+import ch.nokillswit.live.LiveTicketStoreOverrideKey
+import ch.nokillswit.live.LiveTicketStoreUnavailableException
 import ch.nokillswit.live.LiveTicketsKey
+import ch.nokillswit.live.LiveServerFrame
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.users.UserRole
 import ch.qos.logback.classic.Logger
@@ -14,15 +20,20 @@ import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
+import io.ktor.server.testing.TestApplication
 import io.ktor.server.testing.testApplication
+import io.ktor.websocket.CloseReason
 import java.util.Date
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -36,15 +47,49 @@ import kotlin.test.assertTrue
  */
 class LiveTicketTest {
     private val path = "/api/v1/live/tickets"
+    private val users = mutableListOf<UInt>()
+
+    @AfterTest
+    fun cleanUp() = runBlocking {
+        deleteLiveTickets(users)
+        users.forEach { TestUsers.softDelete(it) }
+        users.clear()
+    }
 
     private class Caller(val client: HttpClient, val userId: UInt, val token: String) {
         suspend fun mint(): HttpResponse = client.post("/api/v1/live/tickets") { header(HttpHeaders.Authorization, "Bearer $token") }
+    }
+
+    private class ControllableStore : LiveTicketStore {
+        private val held = HashMap<String, LiveTicketBinding>()
+        var failIssue = false
+        var failRedeem = false
+        var issueCalls = 0
+
+        override suspend fun issue(digest: String, draft: LiveTicketDraft): Long {
+            issueCalls++
+            if (failIssue) unavailable()
+            val expiresAt = minOf(System.currentTimeMillis() + LIVE_TICKET_TTL_MILLIS, draft.tokenExpiresAtMillis)
+            held[digest] = LiveTicketBinding(
+                draft.userId, draft.isAdmin, draft.roles, draft.jti, draft.credentialRevision, draft.tokenExpiresAtMillis, expiresAt,
+            )
+            return expiresAt
+        }
+
+        override suspend fun redeem(digest: String): LiveTicketBinding? {
+            if (failRedeem) unavailable()
+            return held.remove(digest)
+        }
+
+        private fun unavailable(): Nothing =
+            throw LiveTicketStoreUnavailableException(IllegalStateException("SENSITIVE-STORE-MARKER"))
     }
 
     /** Seeds an account, signs it in and keeps the raw bearer (the ticket binds its `jti` and `exp`). */
     private suspend fun ApplicationTestBuilder.signedIn(prefix: String, role: UserRole = UserRole.USER): Caller {
         val email = uniqueEmail(prefix)
         val userId = TestUsers.seed(email = email, password = "pw-123456789", role = role)
+        users += userId
         val client = jsonClient()
         val token = client.login(email, "pw-123456789").body<LoginResponse>().token
         return Caller(client, userId, token)
@@ -86,10 +131,29 @@ class LiveTicketTest {
     }
 
     @Test
+    fun `a ticket minted by one application instance authenticates a socket on another`() = testApplication {
+        usePostgresTestcontainer()
+        val caller = signedIn("live-ticket-other-instance")
+        val ticket = caller.mint().body<LiveTicketResponse>().ticket
+        val other = TestApplication { configureApp() }
+        other.start()
+        try {
+            val socket = openLive(other.createClient { install(WebSockets) })
+            socket.auth(ticket)
+            assertTrue(socket.nextFrame() is LiveServerFrame.Ready)
+            socket.close()
+            assertNull(application.attributes[LiveTicketsKey].redeem(ticket), "the other instance consumed the shared ticket")
+        } finally {
+            other.stop()
+        }
+    }
+
+    @Test
     fun `a signed access token without an exp is refused by the bearer check - 401, no ticket`() = testApplication {
         usePostgresTestcontainer()
         val email = uniqueEmail("live-ticket-noexp")
         val id = TestUsers.seed(email = email, password = "pw-123456789", role = UserRole.USER)
+        users += id
         // The dev secret and the minting shape of Tokens.kt, minus the expiry (the server never mints one;
         // `plugins/Security.kt` refuses it: `StaleAccessTokenTest`).
         fun mint(withExp: Boolean): String = JWT.create()
@@ -140,7 +204,8 @@ class LiveTicketTest {
 
     @Test
     fun `a full ticket store answers 429 and audits the saturation, then frees up as tickets are redeemed`() = testApplication {
-        configureApp("live.maxTickets" to "1")
+        configureApp()
+        application { attributes.put(LiveTicketStoreOverrideKey, LiveTicketMemoryStore(1, LIVE_TICKET_TTL_MILLIS)) }
         startApplication()
         val first = signedIn("live-ticket-full-a")
         val second = signedIn("live-ticket-full-b")
@@ -171,19 +236,69 @@ class LiveTicketTest {
 
     @Test
     fun `no log line of any logger carries a minted ticket, even across a saturated mint and a redemption`() = testApplication {
-        configureApp("live.maxTickets" to "1")
+        configureApp()
+        application { attributes.put(LiveTicketStoreOverrideKey, LiveTicketMemoryStore(1, LIVE_TICKET_TTL_MILLIS)) }
         startApplication()
         val caller = signedIn("live-ticket-logs")
         val rejected = signedIn("live-ticket-logs-other")
         val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
         try {
-            val ticket = caller.mint().body<LiveTicketResponse>().ticket
+            val minted = caller.mint()
+            assertEquals(HttpStatusCode.OK, minted.status)
+            val ticket = minted.body<LiveTicketResponse>().ticket
             // The saturated mint is the path that logs (`live.ticket_saturated`), so the capture is not vacuous.
             assertEquals(HttpStatusCode.TooManyRequests, rejected.mint().status)
             application.attributes[LiveTicketsKey].redeem(ticket)
             val rendered = capture.events.map { it.rendered() }
             assertTrue(rendered.any { "live.ticket_saturated" in it }, "the capture saw the audit line")
             assertTrue(rendered.none { ticket in it }, "the ticket leaked into a log line")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    @Test
+    fun `an unavailable shared store fails mint closed after authentication with the normal live 503`() = testApplication {
+        val store = ControllableStore().also { it.failIssue = true }
+        configureApp()
+        application { attributes.put(LiveTicketStoreOverrideKey, store) }
+        startApplication()
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            val anonymous = jsonClient().post(path)
+            assertEquals(HttpStatusCode.Unauthorized, anonymous.status)
+            assertEquals(0, store.issueCalls, "authentication fails before the unavailable store is consulted")
+
+            val caller = signedIn("live-ticket-unavailable")
+            val response = caller.mint()
+            assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+            assertEquals("5", response.headers[HttpHeaders.RetryAfter])
+            assertEquals(LIVE_UNAVAILABLE_PROBLEM_TYPE, response.body<ProblemDetail>().type)
+            assertEquals(1, store.issueCalls)
+            assertTrue(capture.events.any { "Live ticket store unavailable" in it.formattedMessage })
+            assertTrue(capture.events.none { "SENSITIVE-STORE-MARKER" in it.rendered() }, "the cause message must not reach logs")
+        } finally {
+            capture.detach()
+        }
+    }
+
+    @Test
+    fun `an unavailable shared store closes ticket redemption with retry 1013 and no secret log data`() = testApplication {
+        val store = ControllableStore()
+        configureApp()
+        application { attributes.put(LiveTicketStoreOverrideKey, store) }
+        startApplication()
+        val caller = signedIn("live-ticket-redeem-unavailable")
+        val ticket = caller.mint().body<LiveTicketResponse>().ticket
+        store.failRedeem = true
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            val socket = openLive(liveClient())
+            socket.auth(ticket)
+            assertEquals(CloseReason.Codes.TRY_AGAIN_LATER.code, socket.awaitClose()?.code)
+            val logs = capture.events.map { it.rendered() }
+            assertTrue(logs.any { "live ticket redemption unavailable" in it })
+            assertTrue(logs.none { ticket in it || "SENSITIVE-STORE-MARKER" in it })
         } finally {
             capture.detach()
         }

@@ -16,7 +16,9 @@ import ch.nokillswit.users.PasswordUpdateRequest
 import ch.nokillswit.infra.maskedSecret
 import ch.nokillswit.live.LiveTicketResponse
 import ch.nokillswit.live.LiveTickets
+import ch.nokillswit.live.LIVE_TICKET_TTL_MILLIS
 import ch.nokillswit.plugins.JwtConfig
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -78,8 +80,8 @@ class SecretToStringTest {
     }
 
     @Test
-    fun `a live ticket masks itself in every shape that carries it`() {
-        val tickets = LiveTickets(maxTickets = 5)
+    fun `a live ticket masks itself in every shape that carries it`() = runBlocking {
+        val tickets = LiveTickets(LiveTicketMemoryStore(maxTickets = 5, ttlMillis = LIVE_TICKET_TTL_MILLIS))
         val issued = tickets.issue(
             1u, isAdmin = false, roles = emptySet(), jti = secret, credentialRevision = 0, tokenExpiresAtMillis = Long.MAX_VALUE,
         )
