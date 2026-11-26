@@ -11,12 +11,14 @@ import ch.nokillswit.live.LiveLeaseStore
 import io.ktor.websocket.CloseReason
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -165,6 +167,168 @@ class LiveLeaseCoordinatorTest {
         }
     }
 
+    @Test
+    fun `shared admission refusals create no local lease`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            for (refusal in ch.nokillswit.live.LiveLeaseRefusal.entries) {
+                val store = FakeLeaseStore(admissionRefusal = refusal)
+                val coordinator = LiveLeaseCoordinator(store, scope, maxSessionsPerUser = 1)
+                val opened = assertIs<LeaseOpen.Refused>(coordinator.admit(7u, 300_000, CompletableDeferred()))
+                assertEquals(refusal, opened.refusal.reason)
+                assertTrue(store.released.isEmpty())
+            }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `released handles stay stale and duplicate release does not touch shared storage`() = runBlocking {
+        val store = FakeLeaseStore()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = LiveLeaseCoordinator(store, scope, maxSessionsPerUser = 1)
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, CompletableDeferred())).handle
+            handle.release()
+            handle.foreground(true)
+
+            assertFalse(handle.isLive())
+            assertTrue(handle.expire())
+            handle.release()
+            delay(50)
+            assertEquals(listOf(handle.id), store.released)
+            assertTrue(store.foregroundBatches.isEmpty())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `failed foreground refresh is retried and failed release remains fail closed`() = runBlocking {
+        val store = FakeLeaseStore(dropFirstForeground = true, failRelease = true)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = LiveLeaseCoordinator(store, scope, maxSessionsPerUser = 1, heartbeatMillis = 75)
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, CompletableDeferred())).handle
+            handle.foreground(true)
+
+            await { store.foregroundBatches.count { it.second } >= 2 }
+            handle.foreground(false)
+            await { store.foregroundBatches.any { !it.second } }
+            handle.release()
+            assertEquals(listOf(handle.id), store.released)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `renewal and foreground outages do not cancel the coordinator loops`() = runBlocking {
+        val store = FakeLeaseStore(failRenew = true, failForeground = true)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = LiveLeaseCoordinator(store, scope, maxSessionsPerUser = 1, heartbeatMillis = 50)
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, CompletableDeferred())).handle
+            handle.foreground(true)
+            await { store.renewAttempts.get() >= 2 && store.foregroundAttempts.get() >= 2 }
+
+            assertTrue(handle.isLive())
+            handle.release()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `empty coordinator skips renewal and retries failed bounded pruning`() = runBlocking {
+        val store = FakeLeaseStore(failPrune = true)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            LiveLeaseCoordinator(store, scope, maxSessionsPerUser = 1, heartbeatMillis = 20, pruneMillis = 20)
+            await { store.pruneAttempts.get() >= 2 }
+            assertEquals(0, store.renewAttempts.get())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `expired handle remains expired and cannot be reopened by an in-flight renewal`() = runBlocking {
+        val now = AtomicLong()
+        val renewalStarted = CompletableDeferred<Unit>()
+        val finishRenewal = CompletableDeferred<Unit>()
+        val store = FakeLeaseStore(afterRenew = {
+            renewalStarted.complete(Unit)
+            finishRenewal.await()
+        })
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val closed = CompletableDeferred<CloseReason>()
+            val coordinator = LiveLeaseCoordinator(store, scope, 1, now::get, heartbeatMillis = 20, watchdogMillis = 30_000)
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, closed)).handle
+            withTimeout(2_000) { renewalStarted.await() }
+            now.set(60_000_000_000L)
+
+            assertTrue(handle.expire())
+            assertTrue(handle.expire(), "a repeated expiry observes the terminal state")
+            assertFalse(handle.isLive())
+            finishRenewal.complete(Unit)
+            delay(50)
+            assertFalse(handle.isLive(), "a renewal result cannot reopen an expired handle")
+        } finally {
+            finishRenewal.complete(Unit)
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `watchdog closes a locally elapsed lease before the next database heartbeat`() = runBlocking {
+        val now = AtomicLong()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val closed = CompletableDeferred<CloseReason>()
+            val coordinator = LiveLeaseCoordinator(
+                FakeLeaseStore(), scope, maxSessionsPerUser = 1, monotonicNanos = now::get,
+                heartbeatMillis = 300_000, watchdogMillis = 20,
+            )
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, closed)).handle
+            now.set(60_000_000_000L)
+
+            assertEquals(CloseReason.Codes.TRY_AGAIN_LATER.code, withTimeout(2_000) { closed.await() }.code)
+            assertFalse(handle.isLive())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `foreground intent changed during persistence is not marked as applied`() = runBlocking {
+        val firstWriteStarted = CompletableDeferred<Unit>()
+        val finishFirstWrite = CompletableDeferred<Unit>()
+        val store = FakeLeaseStore(afterForeground = { visible ->
+            if (visible && !firstWriteStarted.isCompleted) {
+                firstWriteStarted.complete(Unit)
+                finishFirstWrite.await()
+            }
+        })
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = LiveLeaseCoordinator(store, scope, maxSessionsPerUser = 1, heartbeatMillis = 250)
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, CompletableDeferred())).handle
+            handle.foreground(true)
+            withTimeout(2_000) { firstWriteStarted.await() }
+            handle.foreground(false)
+            finishFirstWrite.complete(Unit)
+
+            await { store.foregroundBatches.any { !it.second } }
+            assertEquals(listOf(true, false), store.foregroundBatches.map { it.second })
+        } finally {
+            finishFirstWrite.complete(Unit)
+            scope.cancel()
+        }
+    }
+
     private suspend fun await(condition: () -> Boolean) = withTimeout(5_000) {
         while (!condition()) delay(10)
     }
@@ -174,15 +338,27 @@ class LiveLeaseCoordinatorTest {
         private val failAdmission: Boolean = false,
         private val afterAdmit: suspend (UUID) -> Unit = {},
         private val afterRenew: suspend () -> Unit = {},
+        private val admissionRefusal: ch.nokillswit.live.LiveLeaseRefusal? = null,
+        private val dropFirstForeground: Boolean = false,
+        private val failRenew: Boolean = false,
+        private val failForeground: Boolean = false,
+        private val failRelease: Boolean = false,
+        private val failPrune: Boolean = false,
+        private val afterForeground: suspend (Boolean) -> Unit = {},
     ) : LiveLeaseStore {
         private val sessions = java.util.concurrent.ConcurrentHashMap.newKeySet<UUID>()
         val renewBatches = CopyOnWriteArrayList<Set<UUID>>()
         val foregroundBatches = CopyOnWriteArrayList<Pair<Set<UUID>, Boolean>>()
         val released = CopyOnWriteArrayList<UUID>()
+        val renewAttempts = AtomicInteger()
+        val foregroundAttempts = AtomicInteger()
+        val pruneAttempts = AtomicInteger()
+        private val firstForeground = AtomicBoolean(true)
         private val clock = AtomicInteger()
 
         override suspend fun admit(userId: UInt, sessionId: UUID, tokenExpiresAtMillis: Long, maxSessions: Int): LiveLeaseAdmission {
             if (failAdmission) error("store unavailable")
+            admissionRefusal?.let { return LiveLeaseAdmission.Refused(clock.get().toLong(), it) }
             sessions += sessionId
             afterAdmit(sessionId)
             return LiveLeaseAdmission.Accepted(clock.get().toLong(), LIVE_SESSION_LEASE_MILLIS)
@@ -191,6 +367,8 @@ class LiveLeaseCoordinatorTest {
         override suspend fun hasCapacity(userId: UInt, maxSessions: Int): Boolean = true
 
         override suspend fun renew(sessionIds: Collection<UUID>): LiveLeaseRenewal {
+            renewAttempts.incrementAndGet()
+            if (failRenew) error("renew unavailable")
             renewBatches += sessionIds.toSet()
             afterRenew()
             val now = clock.incrementAndGet().toLong()
@@ -199,15 +377,24 @@ class LiveLeaseCoordinatorTest {
         }
 
         override suspend fun setForeground(sessionIds: Collection<UUID>, visible: Boolean): LiveForegroundUpdate {
+            foregroundAttempts.incrementAndGet()
+            if (failForeground) error("foreground unavailable")
             foregroundBatches += sessionIds.toSet() to visible
-            return LiveForegroundUpdate(0, sessionIds.toSet(), LIVE_SESSION_LEASE_MILLIS.takeIf { visible })
+            afterForeground(visible)
+            val updated = if (dropFirstForeground && firstForeground.compareAndSet(true, false)) emptySet() else sessionIds.toSet()
+            return LiveForegroundUpdate(0, updated, LIVE_SESSION_LEASE_MILLIS.takeIf { visible })
         }
 
         override suspend fun release(sessionIds: Collection<UUID>): Int {
             released += sessionIds
+            if (failRelease) error("release unavailable")
             return sessionIds.count { sessions.remove(it) }
         }
 
-        override suspend fun pruneExpired(batchSize: Int): Int = 0
+        override suspend fun pruneExpired(batchSize: Int): Int {
+            pruneAttempts.incrementAndGet()
+            if (failPrune) error("prune unavailable")
+            return 0
+        }
     }
 }

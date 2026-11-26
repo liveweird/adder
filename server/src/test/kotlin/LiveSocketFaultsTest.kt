@@ -5,6 +5,11 @@ import ch.nokillswit.live.LiveAudit
 import ch.nokillswit.live.LiveConfig
 import ch.nokillswit.live.LiveHub
 import ch.nokillswit.live.LiveLeaseCoordinator
+import ch.nokillswit.live.LiveForegroundUpdate
+import ch.nokillswit.live.LiveLeaseAdmission
+import ch.nokillswit.live.LiveLeaseRefusal
+import ch.nokillswit.live.LiveLeaseRenewal
+import ch.nokillswit.live.LiveLeaseStore
 import ch.nokillswit.live.LIVE_TICKET_TTL_MILLIS
 import ch.nokillswit.live.LiveServerFrame
 import ch.nokillswit.live.LiveSessionDeps
@@ -33,6 +38,7 @@ import kotlinx.coroutines.withTimeout
 import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.reactivestreams.Publisher
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -76,6 +82,7 @@ class LiveSocketFaultsTest {
         blocklist: TokenBlocklistService = TokenBlocklistService(sharedDatabaseForTests()),
         rooms: RoomService = TestRooms.service,
         clock: () -> Long = System::currentTimeMillis,
+        leaseStore: LiveLeaseStore? = null,
         block: suspend Rig.() -> Unit,
     ) = testApplication {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -83,7 +90,7 @@ class LiveSocketFaultsTest {
             val tickets = LiveTickets(LiveTicketMemoryStore(config.maxTickets, LIVE_TICKET_TTL_MILLIS))
             val hub = LiveHub(scope, config.maxSockets, neverConnects)
             val leases = LiveLeaseCoordinator(
-                LiveSessionLeaseStore(sharedDatabaseForTests(), UUID.randomUUID()), scope, config.maxSocketsPerUser,
+                leaseStore ?: LiveSessionLeaseStore(sharedDatabaseForTests(), UUID.randomUUID()), scope, config.maxSocketsPerUser,
             )
             val deps = LiveSessionDeps(config, tickets, hub, leases, blocklist, rooms, LiveAudit(), clock)
             application {
@@ -192,5 +199,100 @@ class LiveSocketFaultsTest {
         val (_, unsubscribe) = readySocket()
         unsubscribe.sendText("""{"type":"unsubscribe","roomIds":[0]}""")
         unsubscribe.expectClose(1008)
+
+    }
+
+    @Test
+    fun `shared lease refusals and outages close with their stable client contracts`() {
+        for ((refusal, code) in listOf(LiveLeaseRefusal.CAPACITY to 4429.toShort(), LiveLeaseRefusal.TOKEN_EXPIRED to 4001.toShort())) {
+            rig(leaseStore = ControllableLeaseStore(refusal = refusal)) {
+                val (_, ticket) = userWithTicket()
+                val socket = open()
+                socket.auth(ticket)
+                socket.expectClose(code)
+            }
+        }
+        rig(leaseStore = ControllableLeaseStore(failAdmission = true)) {
+            val (_, ticket) = userWithTicket()
+            val socket = open()
+            socket.auth(ticket)
+            socket.expectClose(CloseReason.Codes.TRY_AGAIN_LATER.code)
+        }
+    }
+
+    @Test
+    fun `a process slot lost after shared admission releases the lease`() {
+        val store = ControllableLeaseStore()
+        rig(config = config().copy(maxSockets = 1), leaseStore = store) {
+            val holder = ch.nokillswit.live.HubSocket(999u, false, Long.MAX_VALUE)
+            assertEquals(ch.nokillswit.live.RegisterResult.OK, hub.register(holder))
+            val (_, ticket) = userWithTicket()
+            val socket = open()
+            socket.auth(ticket)
+            socket.expectClose(CloseReason.Codes.TRY_AGAIN_LATER.code)
+            withTimeout(2_000) { while (store.released.isEmpty()) delay(10) }
+            assertEquals(1, store.released.size)
+            hub.unregister(holder)
+        }
+    }
+
+    @Test
+    fun `foreground frames reach the shared lease and graceful close releases it`() {
+        val store = ControllableLeaseStore()
+        rig(leaseStore = store) {
+            val (_, socket) = readySocket()
+            socket.sendText("""{"type":"foreground","visible":true}""")
+            withTimeout(2_000) { while (store.foreground.none { it }) delay(10) }
+            socket.close()
+            withTimeout(2_000) { while (store.released.isEmpty()) delay(10) }
+        }
+    }
+
+    @Test
+    fun `a lease that expires before the ready frame closes instead of writing stale data`() {
+        val store = ControllableLeaseStore(leaseMillis = 0)
+        rig(leaseStore = store) {
+            val (_, ticket) = userWithTicket()
+            val socket = open()
+            socket.auth(ticket)
+            socket.expectClose(CloseReason.Codes.TRY_AGAIN_LATER.code)
+            withTimeout(2_000) { while (store.released.isEmpty()) delay(10) }
+        }
+    }
+
+    private class ControllableLeaseStore(
+        private val refusal: LiveLeaseRefusal? = null,
+        private val failAdmission: Boolean = false,
+        private val leaseMillis: Long = 60_000,
+    ) : LiveLeaseStore {
+        private val sessions = java.util.concurrent.ConcurrentHashMap.newKeySet<UUID>()
+        val foreground = CopyOnWriteArrayList<Boolean>()
+        val released = CopyOnWriteArrayList<UUID>()
+
+        override suspend fun admit(userId: UInt, sessionId: UUID, tokenExpiresAtMillis: Long, maxSessions: Int): LiveLeaseAdmission {
+            if (failAdmission) error("lease unavailable")
+            val now = System.currentTimeMillis()
+            refusal?.let { return LiveLeaseAdmission.Refused(now, it) }
+            sessions += sessionId
+            return LiveLeaseAdmission.Accepted(now, minOf(tokenExpiresAtMillis, now + leaseMillis))
+        }
+
+        override suspend fun hasCapacity(userId: UInt, maxSessions: Int) = true
+
+        override suspend fun renew(sessionIds: Collection<UUID>) = LiveLeaseRenewal(
+            System.currentTimeMillis(), sessionIds.filter { it in sessions }.associateWith { System.currentTimeMillis() + 60_000 },
+        )
+
+        override suspend fun setForeground(sessionIds: Collection<UUID>, visible: Boolean): LiveForegroundUpdate {
+            foreground += visible
+            return LiveForegroundUpdate(System.currentTimeMillis(), sessionIds.filter { it in sessions }.toSet(), null)
+        }
+
+        override suspend fun release(sessionIds: Collection<UUID>): Int {
+            released += sessionIds
+            return sessionIds.count { sessions.remove(it) }
+        }
+
+        override suspend fun pruneExpired(batchSize: Int) = 0
     }
 }

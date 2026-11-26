@@ -40,6 +40,13 @@ import java.util.UUID
 
 private val routesLog = LoggerFactory.getLogger("ch.nokillswit.live.LiveRoutes")
 
+internal fun interface LiveCapacityCheck {
+    suspend fun hasCapacity(userId: UInt, maxSessions: Int): Boolean
+}
+
+/** Internal operation-boundary seam for the shared-store outage test; production never publishes this attribute. */
+internal val LiveCapacityCheckOverrideKey = AttributeKey<LiveCapacityCheck>("LiveCapacityCheckOverride")
+
 @Serializable
 @Resource("/api/v1/live/tickets")
 class LiveTicketsRoute
@@ -127,7 +134,7 @@ fun Application.configureLive() {
                         return@post
                     }
                     val capacity = try {
-                        leaseStore.hasCapacity(caller.userId, config.maxSocketsPerUser)
+                        call.application.hasLiveCapacity(leaseStore, caller.userId, config.maxSocketsPerUser)
                     } catch (failure: CancellationException) {
                         throw failure
                     } catch (failure: Exception) {
@@ -188,3 +195,7 @@ fun Application.configureLive() {
         }
     }
 }
+
+private suspend fun Application.hasLiveCapacity(store: LiveLeaseStore, userId: UInt, maxSessions: Int): Boolean =
+    attributes.getOrNull(LiveCapacityCheckOverrideKey)?.hasCapacity(userId, maxSessions)
+        ?: store.hasCapacity(userId, maxSessions)

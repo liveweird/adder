@@ -34,6 +34,7 @@ internal class LiveLeaseCoordinator(
     private val monotonicNanos: () -> Long = System::nanoTime,
     private val heartbeatMillis: Long = LIVE_LEASE_HEARTBEAT_MILLIS,
     private val watchdogMillis: Long = LIVE_LEASE_WATCHDOG_MILLIS,
+    private val pruneMillis: Long = LIVE_SESSION_LEASE_MILLIS,
 ) {
     private val sessions = ConcurrentHashMap<UUID, State>()
     private val foregroundSignal = Channel<Unit>(Channel.CONFLATED)
@@ -170,7 +171,7 @@ internal class LiveLeaseCoordinator(
 
     private suspend fun pruneLoop() {
         while (true) {
-            delay(LIVE_SESSION_LEASE_MILLIS)
+            delay(pruneMillis)
             safely("prune") { store.pruneExpired() }
         }
     }

@@ -10,6 +10,7 @@ import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
@@ -168,6 +169,24 @@ class LiveSessionLeasesTest {
         assertEquals(2, store.pruneExpired(batchSize = 2))
         assertEquals(0, store.pruneExpired(batchSize = 2))
         assertEquals(0, leaseCount(user))
+    }
+
+    @Test
+    fun `empty and duplicate batches are harmless and pruning rejects an invalid bound`() = runBlocking {
+        val user = user("live-lease-batches")
+        val store = LiveSessionLeaseStore(sharedDatabaseForTests(), UUID.randomUUID())
+        val presence = PostgresForegroundPresence(sharedDatabaseForTests())
+        val session = UUID.randomUUID()
+        assertIs<LiveLeaseAdmission.Accepted>(store.admit(user, session, databaseNow() + 300_000, 16))
+
+        assertEquals(emptyMap(), store.renew(emptyList()).deadlines)
+        assertEquals(emptySet(), store.setForeground(emptyList(), visible = true).updatedSessions)
+        assertEquals(emptySet(), presence.eligibleUserIds(emptyList()))
+        assertEquals(0, store.release(emptyList()))
+        assertEquals(1, store.release(listOf(session, session)))
+        assertEquals(0, store.release(listOf(session)))
+        assertFailsWith<IllegalArgumentException> { store.pruneExpired(batchSize = 0) }
+        Unit
     }
 
     @Test

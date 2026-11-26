@@ -35,10 +35,8 @@ class HereMentionsTest {
             connection.prepareStatement(
                 "INSERT INTO live_session_leases " +
                     "(session_id, instance_id, user_id, token_expires_at, socket_expires_at, foreground_expires_at) " +
-                    "VALUES (?, ?, ?, " +
-                    "(extract(epoch FROM clock_timestamp()) * 1000)::bigint + 60000, " +
-                    "(extract(epoch FROM clock_timestamp()) * 1000)::bigint + 60000, " +
-                    "(extract(epoch FROM clock_timestamp()) * 1000)::bigint + 60000)",
+                    "SELECT ?, ?, ?, deadline, deadline, deadline " +
+                    "FROM (SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint + 60000 AS deadline) clock",
             ).use { statement ->
                 userIds.forEach { userId ->
                     statement.setObject(1, UUID.randomUUID())
