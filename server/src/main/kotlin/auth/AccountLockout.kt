@@ -56,13 +56,13 @@ internal fun lockoutCapacityException() =
 /**
  * One credential check of one account against the shared [AccountThrottle]: what a route does around its password / code
  * verification. The three callers (`/login`, `/login/mfa`, the self password change) differ only in their audit identity, the
- * event for a refused locked account, whether the account is [knownAccount] and what a lock must also do ([onLocked], e.g. drop
+ * event for a refused locked account, whether [knownUserId] proves the account and what a lock must also do ([onLocked], e.g. drop
  * the account's pending MFA challenges). Every refusal is a THROWN 429, never `respondProblem`: StatusPages' generic 429
  * handler would otherwise replace the specific detail.
  *
- * [knownAccount] is true where the route has ALREADY proven the account exists before the credential is compared (the MFA
+ * [knownUserId] is present where the route has ALREADY proven the account exists before the credential is compared (the MFA
  * challenge's subject, the signed-in caller): its failures are counted even at a full store (the junk identities that fill a
- * store must not buy free guesses), and the capacity refusal never applies. `/login` passes false: its one existence probe
+ * store must not buy free guesses), and the capacity refusal never applies. `/login` passes no user id: its one existence probe
  * (`UserService.accountExists`) only chooses the audit identity and is not trusted for the throttle, and refusing an untracked
  * identity BEFORE any password work (the same 429, after the same one statement, for a known and an unknown email) is what keeps
  * the capacity answer free of an existence signal.
@@ -74,7 +74,7 @@ internal class AccountGuess(
     private val lockedEvent: String = EVENT_LOGIN_REJECTED_LOCKED,
     /** The fields of [lockedEvent], when it is not a `login.*` event and so follows its own naming (`observability.md` "Field-naming"). */
     private val lockedFields: List<Pair<String, Any?>> = auditFields,
-    private val knownAccount: Boolean = false,
+    private val knownUserId: UInt? = null,
     /** True where a failure is a wrong emailed code (the MFA step): a lock it trips is progressive, see [AccountThrottle]. */
     private val mfaCode: Boolean = false,
     private val onLocked: () -> Unit = {},
@@ -88,15 +88,18 @@ internal class AccountGuess(
         knownAccount: Boolean = false,
         mfaCode: Boolean = false,
         onLocked: () -> Unit = {},
-    ) : this(InMemoryAccountThrottle(throttle), email, auditFields, lockedEvent, lockedFields, knownAccount, mfaCode, onLocked)
+    ) : this(
+        InMemoryAccountThrottle(throttle), email, auditFields, lockedEvent, lockedFields,
+        if (knownAccount) 1u else null, mfaCode, onLocked,
+    )
 
     private fun audited(event: String) = audit(event, *auditFields.toTypedArray())
 
     private fun auditedLocked() = audit(lockedEvent, *lockedFields.toTypedArray())
 
-    /** BEFORE any password work: a locked identity (and, unless [knownAccount], an untracked one at a full store) is refused. */
+    /** BEFORE any password work: a locked identity (and, unless [knownUserId] is present, a new one at capacity) is refused. */
     suspend fun requireNotLocked() {
-        when (throttle.preflight(email, knownAccount)) {
+        when (throttle.preflight(email, knownUserId)) {
             LoginThrottle.Preflight.ALLOWED -> Unit
             LoginThrottle.Preflight.LOCKED -> {
                 auditedLocked()
@@ -115,7 +118,7 @@ internal class AccountGuess(
      * preflight cannot see) or, for an unknown identity only, a full store.
      */
     suspend fun recordFailure() {
-        val outcome = throttle.recordFailure(email, knownAccount, mfaCode)
+        val outcome = throttle.recordFailure(email, knownUserId, mfaCode)
         when (outcome.result) {
             LoginThrottle.FailureResult.CAPACITY_EXCEEDED -> {
                 audited(EVENT_LOGIN_CAPACITY_REJECTED)
@@ -140,7 +143,7 @@ internal class AccountGuess(
 
     /** A verified credential clears the counter, unless a lock tripped since the preflight: that still refuses, as at login. */
     suspend fun recordSuccess() {
-        if (throttle.recordSuccess(email) == LoginThrottle.SuccessResult.LOCKED) {
+        if (throttle.recordSuccess(email, knownUserId) == LoginThrottle.SuccessResult.LOCKED) {
             onLocked()
             auditedLocked()
             throw accountLockedException()

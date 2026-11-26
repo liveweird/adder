@@ -96,8 +96,8 @@ fun Application.configurePasswordResetRoutes() {
                 if (!resets.isUsable(req.token)) reject()
                 // A password the rules refuse is a 400 that leaves the grant unconsumed, so the owner can retry on the same link.
                 validatePassword(req.password)
-                val (userId, _, lockoutCleared) = resets.complete(req.token, hashPassword(req.password)) { grantEmail ->
-                    loginThrottle.clearInCurrentTransaction(grantEmail)
+                val (userId, _, lockoutCleared) = resets.complete(req.token, hashPassword(req.password)) { id, grantEmail ->
+                    loginThrottle.clearInCurrentTransaction(grantEmail, id)
                 } ?: reject()
                 // A confirmed reset proves the mailbox (the one that gets the sign-in codes): it lifts the account's lock and its
                 // escalation level. The key is the email `complete` verified under the user-row lock (the one a login folds to),

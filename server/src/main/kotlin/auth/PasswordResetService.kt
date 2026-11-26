@@ -97,7 +97,7 @@ class PasswordResetService(
     suspend fun complete(
         token: String,
         passwordHash: String,
-        clearLockout: suspend (String) -> Boolean = { false },
+        clearLockout: suspend (UInt, String) -> Boolean = { _, _ -> false },
     ): Completion? {
         if (!RESET_TOKEN_PATTERN.matches(token)) return null
         val hash = sha256Hex(token)
@@ -114,7 +114,7 @@ class PasswordResetService(
             }
             check(updatePasswordInTransaction(userId, passwordHash, revision, clock()) == 1)
             Grants.deleteWhere { Grants.userId eq userId }
-            Completion(userId, email, clearLockout(email))
+            Completion(userId, email, clearLockout(userId, email))
         }
     }
 

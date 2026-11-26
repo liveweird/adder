@@ -917,15 +917,27 @@ bounded batches, cascading their rotation rows. The user guard joins refresh and
 Logout orders the account guards and JTIs when two different principals are involved. No scripts should delete revocations to
 reset grace. Existing V54 or older denylist rows have no grace. Keep the old process stopped while upgrading to V55.
 
-### Shared account-attempt limits (V56)
+### Shared account-attempt limits (V56, V56.1)
 
 `account_login_attempts` stores the ordinary credential-failure counter, active lock, MFA escalation and fixed-window code-guess
-budget under a domain-separated HMAC digest of the normalized submitted identity. Per-identity advisory transaction locks serialize
-preflight, failure and success across instances. A fixed guard serializes only the unknown-identity capacity decision. Known-account
-failures may exceed that configured cap because their key space is bounded by `users`. PostgreSQL time supplies all deadlines, and
-each capacity path removes at most 64 wholly expired rows. No submitted identity or credential is stored.
+budget under a domain-separated HMAC digest of the normalized submitted identity. `user_id`, nullable and unique with `ON DELETE
+CASCADE`, binds the above-cap reservation of a proved account: at most one physical reserved row per durable user, even after repeated
+email changes. A known operation locks the current ACTIVE user row first, reads its current canonical email, then locks the old/current
+digest identities in lexical order and moves the reservation without detaching its user binding. Anonymous operations take only their
+identity lock; only a first anonymous row additionally takes the fixed capacity guard. Thus the physical bound is
+`LOGIN_LOCKOUT_MAX_TRACKED` unbound rows plus at most one bound row per durable user. PostgreSQL time supplies all deadlines, and each
+capacity path removes at most 64 wholly expired rows. No submitted identity, current email or credential is stored.
+If a deleted or renamed user's old binding occupies an email later assigned to a different active user, the locked current user row
+and the active-email uniqueness constraint prove the old binding stale; the new owner reclaims it under that digest lock.
+V56.1 upgrades an unreleased/provisional V56 store: existing rows begin unbound and therefore count against the ordinary cap; a
+later proved operation binds the row at the account's current digest, while unrelated provisional rows expire normally.
 Password-reset confirmation clears this row through the reset service's existing transaction, so grant consumption, password change,
 credential revision and lockout clearing commit or roll back together.
+
+The digest key is derived from the deployment JWT secret. Rotate that secret on every instance together. Because old-key operational
+rows cannot be found under the new digest, deliberate maintenance may clear `account_login_attempts` and
+`password_reset_cooldowns` after the old processes stop; those tables contain only lockout/cooldown state. Never clear users,
+credentials, reset grants or token-revocation data as part of that procedure.
 
 `password_reset_cooldowns` uses a different HMAC derivation label and capacity guard. A reset request locks the guard, removes at
 most 64 expired rows and atomically claims the database-clock interval. Both tables are operational hard-delete state. A rollback

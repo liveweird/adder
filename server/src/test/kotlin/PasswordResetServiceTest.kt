@@ -100,11 +100,11 @@ class PasswordResetServiceTest {
             mfaMaxLockoutMillis = 120_000, mfaDecayMillis = 120_000,
         )
         val identityHash = DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").of(email)
-        assertEquals(LoginThrottle.FailureResult.RECORDED, throttle.recordFailure(email, knownAccount = true).result)
+        assertEquals(LoginThrottle.FailureResult.RECORDED, throttle.recordFailure(email, id).result)
 
         val failed = runCatching {
-            resets.complete(token, hashPassword("new-password", cost = 4)) { grantEmail ->
-                assertTrue(throttle.clearInCurrentTransaction(grantEmail), "the live attempt row was deleted")
+            resets.complete(token, hashPassword("new-password", cost = 4)) { grantUserId, grantEmail ->
+                assertTrue(throttle.clearInCurrentTransaction(grantEmail, grantUserId), "the live attempt row was deleted")
                 assertEquals(0, attemptRows(identityHash), "the deletion is visible inside the reset transaction")
                 error("fail after the real clear")
             }
@@ -114,7 +114,7 @@ class PasswordResetServiceTest {
         assertEquals(1, suspendTransaction(sharedDatabaseForTests()) { attemptRows(identityHash) })
         assertEquals(
             LoginThrottle.FailureResult.LOCKED_NOW,
-            throttle.recordFailure(email, knownAccount = true).result,
+            throttle.recordFailure(email, id).result,
             "the pre-reset failure was restored by the rollback",
         )
         val account = assertNotNull(TestUsers.service.read(id))

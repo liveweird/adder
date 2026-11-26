@@ -97,6 +97,7 @@ security:
   lockout:
     threshold: "$LOGIN_LOCKOUT_THRESHOLD:5"
     durationSeconds: "$LOGIN_LOCKOUT_DURATION_SECONDS:900"
+    # Physical cap for ordinary unbound identity rows. Proved accounts use one FK-bound reservation per user above this cap.
     maxTracked: "$LOGIN_LOCKOUT_MAX_TRACKED:10000"
     # Progressive for MFA ONLY: a lock tripped by a wrong emailed code doubles per consecutive such lock (15 min, 30, 60, ...) up to
     # `mfaMaxDurationSeconds` (never below `durationSeconds`); the level is forgotten `mfaDecaySeconds` after the last such lock ends,

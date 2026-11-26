@@ -332,7 +332,7 @@ For a hosted deployment, supply the settings through the app's environment and s
 | `LOGIN_LOCKOUT_DURATION_SECONDS` | `900` | How long a locked account stays locked. |
 | `LOGIN_LOCKOUT_MFA_MAX_DURATION_SECONDS` | `86400` | Ceiling of the progressive lock: a lock tripped by wrong emailed codes doubles per consecutive such lock (15 min, 30, 60, ...) up to this; wrong passwords keep the flat duration. |
 | `LOGIN_LOCKOUT_MFA_DECAY_SECONDS` | `86400` | How long after the last escalated lock ends its level is forgotten, and the period of the per-account wrong-code counter (a fixed window from its first failure: threshold wrong codes inside it trip an escalated lock even when paced). A successful sign-in or a confirmed reset forgets both at once. |
-| `LOGIN_LOCKOUT_MAX_TRACKED` | `10000` | Maximum in-memory login identities; new identities receive 429 at capacity while active counters and locks remain. |
+| `LOGIN_LOCKOUT_MAX_TRACKED` | `10000` | Maximum PostgreSQL rows for ordinary untrusted login identities; new identities receive 429 at capacity. Proved accounts have one additional stable reservation per user. |
 | `LOGIN_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP login bucket; blank follows the mode (10 prod / 1000 dev). |
 | `REFRESH_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP refresh bucket (blank = 30). |
 | `READY_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP bucket on `GET /api/v1/ready` (blank = 60; the kubelet probes 12/min). |

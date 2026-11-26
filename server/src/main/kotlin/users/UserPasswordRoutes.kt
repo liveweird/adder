@@ -51,7 +51,7 @@ internal fun Route.userPassword(userService: UserService, loginThrottle: Account
                 // The sibling `password.change_denied`'s fields: the caller changing their OWN password is both.
                 lockedFields = listOf("targetUserId" to route.parent.id.toLong(), "byUserId" to caller.userId.toLong()),
                 // The caller is signed in, so the account exists: its wrong guesses count even at a full lockout store.
-                knownAccount = true,
+                knownUserId = route.parent.id,
             )
             guess.requireNotLocked()
             // A MISSING current password is no guess (no bcrypt ran, nothing was tried), so it is refused without counting;

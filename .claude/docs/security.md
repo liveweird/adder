@@ -202,11 +202,15 @@ that route always answers (401 at login and the MFA step, 403 on the change); ev
 `429` (thrown, see above), the change BEFORE any bcrypt (preflight), and an unseen identity at a full store the audited capacity
 `429` - **but only where the account is not yet known (the 1.0.0 checkup's M1).** The MFA step (the challenge's subject) and the
 self password change (the signed-in caller) act on an account that EXISTS, so their failures are counted even at a full store
-(`AccountGuess.knownAccount`, `LoginThrottle.preflight/recordFailure(knownAccount = true)`): otherwise a password holder could fill
+(`AccountGuess.knownUserId`, `AccountThrottle.preflight/recordFailure(knownUserId = ...)`): otherwise a password holder could fill
 the store with junk logins (about 670 a minute) and then guess emailed codes without ever locking. **The memory bound stays:** the
-key space of those extra entries is the user table (one digest per EMAIL an account held during a failure window, each expiring after the lock window; an ADMIN email change adds a key, so the bound is per email, not strictly per account), so a full store can
-hold at most `maxTracked` unknown identities plus one entry per such email. The capacity refusal stays for an UNKNOWN identity, and at
-`/login` it stays for every untracked email: the refusal comes BEFORE any password is compared and answers the same `429` for a known
+extra entry has a nullable unique foreign-key binding to the proved user id, so a full store has at most `maxTracked` physical
+unbound identities plus one reserved row per durable user. A known operation locks that current active user row, rejects a stale
+captured email, then takes the old/current digest advisory locks in lexical order and moves the bound row; repeated ADMIN email
+changes cannot add reservations. An active user who later receives a deleted or renamed user's former address reclaims that stale
+binding under the digest lock; the locked current user row plus active-email uniqueness proves the two durable user ids cannot both
+actively own the address. The capacity refusal stays for an UNKNOWN identity, and at `/login` it stays for every untracked email:
+the refusal comes BEFORE any password is compared and answers the same `429` for a known
 and an unknown email, so it leaks nothing and lets no guess through, whereas counting a wrong password for a known account there
 would have to answer differently from an unknown one (an existence oracle). **The accepted cost:** the above-cap entries can only be made for REAL accounts, so while an attacker holds the store full, a `/login` probe of an email flips from the capacity `429` to `401` once that account's owner mistypes an MFA code or their current password. That proves the account exists, and the probe then counts a failure against it. It needs the owner's own mistake inside the lock window plus a sustained fill that already denies sign-in to everyone untracked, so it is accepted. A correct password (non-MFA), a correct code or a correct current password clears the counter; a MISSING `currentPassword`
 is a plain 403 that does not count (nothing was guessed). An admin resetting ANOTHER user's password verifies nothing, so it neither
@@ -215,6 +219,9 @@ password until the window ends. The ways out: the emailed reset link (`POST /pas
 changes the password without `currentPassword`), or an admin resetting the password; with `MAIL_TRANSPORT=disabled` (no reset mail) only
 an admin can. For an MFA account the password step does NOT clear the counter (it is only the first factor: a
 caller holding the password could otherwise log in afresh after every few wrong codes and never lock); an accepted code does.
+The digest key is derived from the validated deployment JWT secret. Rotate it on every instance together. After every old process
+has stopped, deliberate maintenance may clear only the operational `account_login_attempts` and `password_reset_cooldowns` rows
+whose old-key digests are no longer addressable; never clear credentials, reset grants or token-revocation data for this rotation.
 **Pending MFA challenges and a lock:** a lock tripped by the MFA step (or met by a wrong code there) drops the account's pending
 challenges; a lock tripped by wrong passwords at `/login` or on the change does NOT, but no pending code can finish a sign-in
 during it (a correct code answers the lockout's `429`, `AccountGuess.recordSuccess`) and the challenges expire on their own TTL.
@@ -248,9 +255,9 @@ window with one escalates whatever failure then trips it. Otherwise a password h
 with a wrong password at `/login`, staying on the flat 15 minutes forever. This is safe for the owner: a wrong code needs a live
 challenge, so someone who knows only the username cannot START an escalating window. They can CONTINUE one the owner left open with a
 single code typo, but only inside that typo's 15-minute window and for at most one level per owner typo; (5) **memory**: the escalation map and the code
-counter of rule (6) are written only by `recordFailure(mfaCode = true)`, which requires a `knownAccount` (the MFA challenge's
-subject), so their key space is the user table (one digest per email an account held during an escalated lock or a code failure, each
-entry gone `lock + decay` / `decay` later through its own `ExpiringIndex`, like the above-cap entries), and neither counts against
+counter of rule (6) are written only by `recordFailure(mfaCode = true)`, which requires a proved user id (the MFA challenge's
+subject), so their key space is the user table (one FK-bound row per durable user, moved to the current canonical-email digest),
+and neither counts against
 `maxTracked`: the capacity rule for unknown identities is unchanged; (6) **pacing**: the shared counter's window is only the flat
 15 minutes, so a guesser who stays one short of the threshold and waits would never trip a lock. A SEPARATE per-account counter of
 wrong CODES only (`codeGuesses`) closes that: it lives `mfaDecaySeconds` from the FIRST code failure of its period (a fixed window,
@@ -267,8 +274,8 @@ so nothing overflows. **Nothing new is disclosed:** the 429 is the same `account
 repeatedly can sit locked out for up to 24 h; the ways out are the lock's end and **a confirmed
 password reset (the owner's 2026-11-20 decision: it lifts the lock AND the level)**: the reset link goes to the same mailbox as the
 sign-in codes, so completing it proves the very factor a code guesser lacks (`LoginThrottle.clear`, keyed on the account's email,
-called within `PasswordResetService.complete` so it commits or rolls back with the password replacement, keyed on the email verified
-under the user-row lock, `PasswordResetService.Completion`; the audit says so with `lockoutCleared`, below). Only
+called within `PasswordResetService.complete` so it commits or rolls back with the password replacement, keyed on the user id and
+email verified under the user-row lock, `PasswordResetService.Completion`; the audit says so with `lockoutCleared`, below). Only
 the CONFIRM does this: an unconfirmed `POST /password-reset` mails a link and clears nothing, so asking for mail cannot lift a lock;
 `login.lockout` with `escalationLevel >= 2` is the operator's signal that a password
 holder is guessing codes.
