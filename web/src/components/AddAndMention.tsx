@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Group, Modal, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
@@ -46,7 +46,7 @@ export default function AddAndMention({
   const [adding, setAdding] = useState(false);
   const [pickerCycle, setPickerCycle] = useState(0);
   const [seenRequest, setSeenRequest] = useState(request);
-  const focusOnExit = useRef(false);
+  const [focusComposerOnExit, setFocusComposerOnExit] = useState(false);
 
   // A fresh inline action is a fresh picker, even when it repeats the same term; reset during render so the dialog never flashes an old pick.
   if (request !== seenRequest) {
@@ -75,7 +75,7 @@ export default function AddAndMention({
       if (!isSameSessionIdentity(session, getSessionSnapshot())) return;
       knownNames.remember([{ userId, name }]);
       onMention({ userId, name, token: `<@${userId}>` }, request);
-      focusOnExit.current = true;
+      setFocusComposerOnExit(true);
       setExplicitlyOpened(false);
       onRequestClose?.();
       setPerson(null);
@@ -104,7 +104,7 @@ export default function AddAndMention({
   }
 
   function openExplicitly() {
-    focusOnExit.current = false;
+    setFocusComposerOnExit(false);
     setPerson(null);
     setError(null);
     onRequestClose?.();
@@ -127,12 +127,15 @@ export default function AddAndMention({
       <Modal
         opened={explicitlyOpened || request !== null}
         onClose={close}
+        // Cancel returns to the opener through Mantine. A successful add has a different destination:
+        // disabling that automatic return prevents it from racing the textarea focus in onExited.
+        returnFocus={!focusComposerOnExit}
         title={t("threads.composer.addAndMentionTitle")}
         closeButtonProps={{ "aria-label": t("common.action.close") }}
         transitionProps={{
           onExited: () => {
-            if (!focusOnExit.current) return;
-            focusOnExit.current = false;
+            if (!focusComposerOnExit) return;
+            setFocusComposerOnExit(false);
             focusAfterAdd?.();
           },
         }}
