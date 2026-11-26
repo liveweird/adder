@@ -199,8 +199,8 @@ private fun Route.messagePost(roomService: RoomService, messageService: MessageS
 /**
  * The edit (per-USER `chat-write` bucket, 240/min, before every guard), in the documented guard order: visibility (404, audited), the
  * author pre-check on a lock-free read of the author (a missing, deleted or foreign-room message is `404`, a caller who is not the
- * author `403`), the body (400); the service repeats the author guard on the fresh rows under the room lock, then the archived and
- * closed `409`s. The audit line follows the commit, only on a change.
+ * author `403`), the optional mutation id (400), the body (400); the service repeats the author guard on the fresh rows under the room
+ * lock, then the archived and closed `409`s. The audit line follows the commit, only on a change.
  */
 private fun Route.messageEdit(roomService: RoomService, messageService: MessageService) {
     rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
@@ -209,9 +209,10 @@ private fun Route.messageEdit(roomService: RoomService, messageService: MessageS
             val roomId = route.parent.parent.id
             val standing = roomService.visibleStanding(caller, roomId)
             requireMessageAuthor(caller, standing, messageService.authorOf(roomId, route.messageId).orNotFound("Message"))
+            val mutationId = call.mutationId()
             val request = sanitizedMessage(call.receive())
             validateMessage(request)
-            val edit = messageService.edit(roomId, route.messageId, caller, request)
+            val edit = messageService.edit(roomId, route.messageId, caller, request, mutationId)
             if (edit != null) {
                 audit(
                     "message.edited",

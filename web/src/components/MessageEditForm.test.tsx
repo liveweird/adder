@@ -55,11 +55,12 @@ describe("MessageEditForm", () => {
     expect(puts()).toHaveLength(1);
     expect(puts()[0][0]).toBe("/api/v1/rooms/12/messages/9");
     expect(JSON.parse(puts()[0][1].body as string)).toEqual({ body: "first  \n\n!" });
+    expect(new Headers(puts()[0][1].headers).get("X-Mutation-Id")).toMatch(/^[0-9a-f-]{36}$/);
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "rail"] });
     // The pinned panel shows the body, so an edit re-reads the pins too.
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "pins", 12] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12, "message-revisions", 42, 9] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["home"] });
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["rooms"] });
   });
 

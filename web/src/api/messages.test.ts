@@ -45,12 +45,13 @@ describe("messages API wrappers", () => {
     expect(lastCall()[1].body as string).not.toContain("quotedMessageId");
   });
 
-  test("editMessage PUTs the body to the single message", async () => {
+  test.each([undefined, "14d7ed05-24c1-4374-b6eb-60b147595822"])("editMessage PUTs the body with correlation %s", async (mutationId) => {
     mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
-    await expect(editMessage(5, 9, "edited")).resolves.toBeUndefined();
+    await expect(editMessage(5, 9, "edited", mutationId)).resolves.toBeUndefined();
     const [url, init] = lastCall();
     expect([url, init.method]).toEqual(["/api/v1/rooms/5/messages/9", "PUT"]);
     expect(JSON.parse(init.body as string)).toEqual({ body: "edited" });
+    expect(new Headers(init.headers).get("X-Mutation-Id")).toBe(mutationId ?? null);
   });
 
   test("correlates a reply by header without changing its body", async () => {

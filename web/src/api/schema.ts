@@ -1948,13 +1948,14 @@ export interface paths {
          * Edit a message
          * @description The message's AUTHOR while still a member of the room; nobody else edits it, a room owner and an `ADMIN` included (they may
          *     delete, never edit). Checked in this order: visibility (`404`), the message (`404` when it is unknown, deleted or of another
-         *     room) and the author rule (`403`) on a lock-free read of the author, the body (`400`), then under the room lock the guard, the
+         *     room) and the author rule (`403`) on a lock-free read of the author, the optional `X-Mutation-Id` (`400` when it is repeated or
+         *     not a canonical lowercase UUIDv4), the body (`400`), then under the room lock the guard, the
          *     message and the author rule again on the fresh rows, an archived room (`409` of type `urn:adder:problem:room-archived`) and a
          *     closed thread (`409` of type `urn:adder:problem:thread-closed`).
          *
          *     The body rules are those of the post. The message's quote (`quote`) is set when it is posted and cannot be added, changed or
-         *     removed by an edit: the request has no `quotedMessageId`, so naming one is a `400`; the quote stays through the edit. Sending the body the message already has (after normalising) is `204` with no write and
-         *     no audit line. Otherwise a revision preserves the previous body in the same transaction, the body is overwritten, and
+         *     removed by an edit: the request has no `quotedMessageId`, so naming one is a `400`; the quote stays through the edit. Sending the body the message already has (after normalising) is `204` with no write,
+         *     audit line or live hint. Otherwise a revision preserves the previous body in the same transaction, the body is overwritten, and
          *     `editedAt` is set. `messageCount` and the activity order are untouched. Only the people the edit NEWLY addresses are
          *     notified: addressed by the new body, by name or through a team,
          *     the watchers, here or everyone, and not by the old one; team, watcher and everyone recipients are read as of the edit. A kept
@@ -2959,7 +2960,7 @@ export interface components {
              * @description Present for the message kinds.
              */
             messageId?: number;
-            /** @description On message.posted, message.reaction_changed, thread.updated, thread.status_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only. */
+            /** @description On message.posted, message.edited, message.reaction_changed, thread.updated, thread.status_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only. */
             mutationId?: components["schemas"]["LiveMutationId"];
         };
         /** @description The room is no longer readable by the caller (removed, or the room was deleted); the subscription is gone. */
@@ -7686,7 +7687,13 @@ export interface operations {
     editMessage: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional identifier for correlating this request with the writer's live message.edited event. Supply at most one
+                 *     canonical lowercase UUIDv4. A malformed or repeated value returns `400`. Reusing the identifier does not deduplicate a different edit.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A message id (int32; ids start at 1). */

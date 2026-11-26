@@ -1,4 +1,4 @@
-import { beginReplyEcho } from "./liveReplyEcho";
+import { beginMessageEditEcho, beginReplyEcho, clearReplyEchoes } from "./liveReplyEcho";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query";
 import { FakeClock } from "../test/socket";
@@ -270,6 +270,30 @@ describe("the keys and the readers cannot drift apart", () => {
       )
       .map(([file]) => file);
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("correlated edit quote dependencies", () => {
+  test("refreshes destinations in other rooms while its source-room event waits", () => {
+    const queryClient = new QueryClient();
+    const clock = new FakeClock();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    const invalidator = createLiveInvalidator(queryClient, clock);
+    const destination = roomKeys.messages(12, 42);
+    const sameRoomDestination = roomKeys.messages(5, 8);
+    const echo = beginMessageEditEcho(queryClient, 5, 7, 99)!;
+    queryClient.setQueryData(destination, { pages: [{ items: [{ id: 1, quote: { roomId: 5, threadNumber: 7, messageId: 99 } }] }] });
+    queryClient.setQueryData(sameRoomDestination, { pages: [{ items: [{ id: 2, quote: { roomId: 5, threadNumber: 7, messageId: 99 } }] }] });
+    try {
+      invalidator.handle({ type: "event", kind: "message.edited", roomId: 5, threadNumber: 7, messageId: 99, mutationId: echo.id });
+      clock.advanceBy(300);
+      expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([destination]);
+      echo.confirm();
+    } finally {
+      clearReplyEchoes(queryClient);
+      invalidator.dispose();
+      queryClient.clear();
+    }
   });
 });
 

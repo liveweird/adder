@@ -307,10 +307,17 @@ class MessageService internal constructor(
      * Edits message [messageId] in ONE message write: the AUTHOR while a member ([requireMessageAuthor] on the fresh caller and row), an
      * archived room `409`, a closed thread `409`; the same body again (after sanitising) is null, a `204` with no write; otherwise the
      * previous body is snapshotted and the new body plus `edited_at` are written on one stamp. An edit never bumps the activity or
-     * `message_count`. The hashtags follow
-     * the body in the same transaction: rewritten when the folded set changed, or when the message was never indexed under this grammar.
+     * `message_count`. A changed edit carries its optional correlation id and writer id on the live hint; a no-op emits no hint. The
+     * hashtags follow the body in the same transaction: rewritten when the folded set changed, or when the message was never indexed under
+     * this grammar.
      */
-    suspend fun edit(roomId: UInt, messageId: UInt, caller: CallerPrincipal, raw: MessageRequest): MessageEdit? {
+    suspend fun edit(
+        roomId: UInt,
+        messageId: UInt,
+        caller: CallerPrincipal,
+        raw: MessageRequest,
+        mutationId: String? = null,
+    ): MessageEdit? {
         val request = sanitizedMessage(raw)
         validateMessage(request)
         val newTags = parseHashtags(request.body) // the new body is parsed ONCE, before the room lock
@@ -338,7 +345,16 @@ class MessageService internal constructor(
             if (write.message.tagsVersion < TAGS_VERSION || tagKeysDiffer(write.message.body, newTags)) {
                 tags.replaceInTransaction(messageId, write.thread.id, roomId, newTags)
             }
-            notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
+            notifyLive(
+                LiveHint(
+                    LiveKind.MESSAGE_EDITED,
+                    roomId,
+                    threadNumber = write.thread.number,
+                    messageId = messageId,
+                    mutationId = mutationId,
+                    originUserId = caller.userId.takeIf { mutationId != null },
+                ),
+            )
             val ref = MessageRef(
                 roomId, write.thread.id, write.thread.number, messageId,
                 openingOf = { isOpening(write.thread.id, messageId) },

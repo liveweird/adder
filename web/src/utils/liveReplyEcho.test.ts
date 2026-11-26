@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { beginOwnerEcho, beginReactionEcho, beginReplyEcho, beginStatusEcho, beginThreadUpdateEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
+import { beginMessageEditEcho, beginOwnerEcho, beginReactionEcho, beginReplyEcho, beginStatusEcho, beginThreadUpdateEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
 import type { LiveServerFrame } from "./liveProtocol";
 
 const firstId = "14d7ed05-24c1-4374-b6eb-60b147595822";
@@ -11,6 +11,10 @@ function posted(mutationId: string, messageId = 41, roomId = 7, threadNumber = 3
 
 function reacted(mutationId: string, messageId = 41, roomId = 7, threadNumber = 3): LiveServerFrame {
   return { type: "event", kind: "message.reaction_changed", roomId, threadNumber, messageId, mutationId };
+}
+
+function edited(mutationId: string, messageId = 41, roomId = 7, threadNumber = 3): LiveServerFrame {
+  return { type: "event", kind: "message.edited", roomId, threadNumber, messageId, mutationId };
 }
 
 function ownerChanged(mutationId: string, roomId = 7, threadNumber = 3): LiveServerFrame {
@@ -206,6 +210,42 @@ describe("reaction echo correlation", () => {
     expect(deferReplyEcho(client, reacted(reaction.id), replay)).toBe(false);
   });
 
+});
+
+describe("message edit echo correlation", () => {
+  let client: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    client = new QueryClient();
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(firstId);
+  });
+
+  afterEach(() => {
+    clearReplyEchoes(client);
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  test("holds only the exact edited message until its authoritative refresh is confirmed", () => {
+    const operation = beginMessageEditEcho(client, 7, 3, 41)!;
+    const replay = vi.fn();
+    expect(deferReplyEcho(client, edited(operation.id), replay)).toBe(true);
+    expect(deferReplyEcho(client, edited(operation.id, 42), replay)).toBe(false);
+    expect(deferReplyEcho(client, edited(operation.id, 41, 8), replay)).toBe(false);
+    expect(deferReplyEcho(client, reacted(operation.id), replay)).toBe(false);
+    operation.confirm();
+    expect(replay).not.toHaveBeenCalled();
+  });
+
+  test("replays an edited message when its refresh cannot be confirmed", () => {
+    const operation = beginMessageEditEcho(client, 7, 3, 41)!;
+    const replay = vi.fn();
+    deferReplyEcho(client, edited(operation.id), replay);
+    operation.cancel();
+    operation.cancel();
+    expect(replay).toHaveBeenCalledOnce();
+  });
 });
 
 describe("thread owner echo correlation", () => {

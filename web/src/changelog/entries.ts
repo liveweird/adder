@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.34.0",
+    date: "2026-11-26",
+    en: `**Adder 1.34.0 — fewer duplicate reads after message edits**
+
+- After you edit a message, your tab reuses its successful refresh for that edit's live event.
+- Other readers still see the edit live in conversations, pins and quotes. An interrupted save can recover through the live event.`,
+    pl: `**Adder 1.34.0 — mniej powtórnych odświeżeń po edycji wiadomości**
+
+- Po edycji wiadomości Twoja karta korzysta z wyniku udanego odświeżenia, gdy otrzyma zdarzenie dotyczące tej edycji.
+- Pozostałe osoby nadal widzą zmiany na żywo w rozmowie, przypięciach i cytatach. Zdarzenie na żywo pomaga odzyskać stan po przerwanym zapisie.`,
+  },
+  {
     version: "1.33.0",
     date: "2026-11-26",
     en: `**Adder 1.33.0 — fewer duplicate reads after chat updates**

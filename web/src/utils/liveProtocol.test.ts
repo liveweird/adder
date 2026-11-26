@@ -83,6 +83,7 @@ describe("parseServerFrame", () => {
     const mutationId = "14d7ed05-24c1-4374-b6eb-60b147595822";
     expect(parse({ ...event, mutationId })).toEqual({ ...event, mutationId });
     expect(parse({ ...event, kind: "message.reaction_changed", mutationId })).toEqual({ ...event, kind: "message.reaction_changed", mutationId });
+    expect(parse({ ...event, kind: "message.edited", mutationId })).toEqual({ ...event, kind: "message.edited", mutationId });
     expect(parse({ ...event, kind: "thread.owner_changed", messageId: undefined, mutationId }))
       .toEqual({ type: "event", kind: "thread.owner_changed", roomId: 7, threadNumber: 3, mutationId });
     expect(parse({ ...event, kind: "thread.status_changed", messageId: undefined, mutationId }))

@@ -7,12 +7,12 @@ import { editMessage, type MessageResponse } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import { useKnownNames } from "../utils/knownNames";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
-import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
+import { isSendShortcut, messageErrorMessage } from "../utils/messageForm";
+import { beginEditEcho, refreshMessageEditWrite } from "../utils/messageEditEcho";
 import { appendMentionToken, replaceMentionRequest, type MentionReplacementRequest } from "../utils/mentionText";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { MAX_MESSAGE_BODY_LENGTH, messageBodyError, normalizeBody } from "../utils/threadForm";
-import { roomKeys } from "../utils/roomKeys";
 import ConfirmActionModal from "./ConfirmActionModal";
 import AddAndMention from "./AddAndMention";
 import MentionTextarea from "./MentionTextarea";
@@ -74,12 +74,13 @@ export default function MessageEditForm({
     }
     inFlight.current = true;
     setSaving(true);
+    const echo = beginEditEcho(queryClient, roomId, message.threadNumber, message.id);
     try {
-      await editMessage(roomId, message.id, normalizeBody(text));
-      await queryClient.invalidateQueries({ queryKey: roomKeys.messageRevisions(roomId, message.threadNumber, message.id) });
-      await refreshAfterMessageWrite(queryClient, roomId, { pins: true });
+      await editMessage(roomId, message.id, normalizeBody(text), echo?.id);
+      await refreshMessageEditWrite(queryClient, roomId, echo);
       onDone();
     } catch (err) {
+      echo?.cancel();
       onError(messageErrorMessage(err, t));
       inFlight.current = false;
       setSaving(false);
