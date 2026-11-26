@@ -264,8 +264,9 @@ The helper renders the deployment image with the selected build tag and excludes
 template. Use a new tag for each rebuild; do not apply `k8s/` directly, since the checked-in image
 name is a placeholder. An existing installation already has the namespace and Secret.
 
-For two app replicas, build a supported immutable image with `--build-arg ADDER_BUILD_VERSION=1.32.0` and the exact commit
-in `ADDER_BUILD_COMMIT`. Apply it with the default invocation first. Once its Deployment is ready, apply the same tag again
+For two app replicas, build an immutable image from Adder 1.32.0 or later. Pass the checked-out `APP_VERSION` in
+`--build-arg ADDER_BUILD_VERSION` and the full commit SHA in `--build-arg ADDER_BUILD_COMMIT`. Apply it with the default invocation
+first. Once its Deployment is ready, apply the same tag again
 with `./k8s/apply-local.sh "$ADDER_IMAGE_TAG" --replicas=2`. Before scaling, the helper verifies that every ready app pod's
 version and commit stamps match the selected local image. Both replicas use the same database, deployment secrets, and public
 origin. The ingress may send a ticket request and the corresponding socket upgrade to different replicas.
