@@ -51,9 +51,9 @@ internal class LoginAttemptPolicy(
                 state,
             )
         }
-        val failures = state.failures + 1
+        val failures = saturatingAdd(state.failures, 1)
         val codeFailed = mfaCode || state.codeFailed
-        val codeCount = state.codeGuesses + if (mfaCode) 1 else 0
+        val codeCount = saturatingAdd(state.codeGuesses, if (mfaCode) 1 else 0)
         val codeExpiresAt = when {
             !mfaCode -> state.codeExpiresAt
             state.codeExpiresAt > now -> state.codeExpiresAt
@@ -108,3 +108,6 @@ internal class LoginAttemptPolicy(
         const val MAX_ESCALATION_LEVEL = 32
     }
 }
+
+internal fun saturatingAdd(first: Int, second: Int): Int =
+    if (Int.MAX_VALUE - first < second) Int.MAX_VALUE else first + second

@@ -823,8 +823,8 @@ default `adder`/`adder`; the value is word-split on purpose):
   scale to 0). To restore beside the data instead, make a scratch database (`ADDER_DB_NAME=adder_restored` after `createdb`) and compare.
 - **Keys and application secrets** are stored separately from the dump. Keep `DATA_ENCRYPTION_KEY`, `JWT_SECRET`, and the previous
   encryption key when applicable. A restore needs the encryption keys covering the dump's browser push endpoints (`security.md`).
-  It restores password hashes, credential revisions, and revocations from the snapshot. It also restores refresh rotation grace and
-  replay counters with their original deadlines. State held in process memory starts fresh.
+  It restores password hashes, credential revisions, revocations, refresh rotation grace, replay counters, account lockout/MFA
+  escalation state and password-reset cooldowns with their original deadlines. State held only in process memory starts fresh.
 - **A dump restores into the same or a newer app version** (Flyway migrates forward on boot). An OLDER app against a newer database is
   not refused by Flyway (its default ignores `*:future` migrations; the config is unchanged), so never roll the app back past the
   schema without restoring a dump of that older schema, UNLESS that release's own rollback runbook says otherwise (1.2.0 to 1.1.0:
@@ -929,15 +929,19 @@ identity lock; only a first anonymous row additionally takes the fixed capacity 
 capacity path removes at most 64 wholly expired rows. No submitted identity, current email or credential is stored.
 If a deleted or renamed user's old binding occupies an email later assigned to a different active user, the locked current user row
 and the active-email uniqueness constraint prove the old binding stale; the new owner reclaims it under that digest lock.
+An unbound row is the address-level window recorded before any account was proved. When a later proved operation finds that unbound
+row at its current canonical address, it preserves and binds that state; only a row already bound to another durable user is discarded
+on address reuse, so the former account's live lock and MFA escalation are never inherited.
 V56.1 upgrades an unreleased/provisional V56 store: existing rows begin unbound and therefore count against the ordinary cap; a
 later proved operation binds the row at the account's current digest, while unrelated provisional rows expire normally.
 Password-reset confirmation clears this row through the reset service's existing transaction, so grant consumption, password change,
 credential revision and lockout clearing commit or roll back together.
 
-The digest key is derived from the deployment JWT secret. Rotate that secret on every instance together. Because old-key operational
-rows cannot be found under the new digest, deliberate maintenance may clear `account_login_attempts` and
-`password_reset_cooldowns` after the old processes stop; those tables contain only lockout/cooldown state. Never clear users,
-credentials, reset grants or token-revocation data as part of that procedure.
+The digest key is derived from the deployment JWT secret. For a coordinated rotation, stop every old-key app, clear the operational
+`account_login_attempts` and `password_reset_cooldowns` tables, then start every app with the new key. This deliberately resets
+lockout/escalation and reset-cooldown state; it changes no user credential, reset grant or token-revocation row. If an operator instead
+retains the operational rows, proved rows remain discoverable by `user_id` and move on their next known operation, but anonymous
+old-key rows and cooldowns cannot be looked up by a new-key submission and continue occupying capacity until their deadlines expire.
 
 `password_reset_cooldowns` uses a different HMAC derivation label and capacity guard. A reset request locks the guard, removes at
 most 64 expired rows and atomically claims the database-clock interval. Both tables are operational hard-delete state. A rollback

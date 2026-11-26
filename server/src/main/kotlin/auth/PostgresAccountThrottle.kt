@@ -166,7 +166,9 @@ internal class PostgresAccountThrottle(
         val validOldHash = oldHash?.takeIf { boundUser(it) == userId }
         val currentOwner = boundUser(currentHash)
         val now = databaseNow()
-        val currentState = read(currentHash).normalized(now)
+        // A row bound to another durable user belongs to that former owner, not to this address forever. The locked active user row
+        // proves this user owns the canonical address now; discard (rather than inherit) the former owner's lock and MFA ladder.
+        val currentState = if (currentOwner != null && currentOwner != userId) LoginAttemptState() else read(currentHash).normalized(now)
         val oldState = validOldHash?.takeIf { it != currentHash }?.let { read(it).normalized(now) }
         val state = mergeStates(currentState, oldState)
         if (validOldHash != null && validOldHash != currentHash) delete(validOldHash)
@@ -282,16 +284,14 @@ private fun mergeStates(first: LoginAttemptState, second: LoginAttemptState?): L
     if (second == null) return first
     val escalation = maxOf(first, second, compareBy<LoginAttemptState> { it.escalationLevel }.thenBy { it.escalationExpiresAt })
     return LoginAttemptState(
-        failures = saturatedSum(first.failures, second.failures),
+        failures = saturatingAdd(first.failures, second.failures),
         lockedUntil = maxOf(first.lockedUntil, second.lockedUntil),
         stateExpiresAt = maxOf(first.stateExpiresAt, second.stateExpiresAt),
         codeFailed = first.codeFailed || second.codeFailed,
         escalationLevel = escalation.escalationLevel,
         escalationAnchor = escalation.escalationAnchor,
         escalationExpiresAt = escalation.escalationExpiresAt,
-        codeGuesses = saturatedSum(first.codeGuesses, second.codeGuesses),
+        codeGuesses = saturatingAdd(first.codeGuesses, second.codeGuesses),
         codeExpiresAt = maxOf(first.codeExpiresAt, second.codeExpiresAt),
     )
 }
-
-private fun saturatedSum(first: Int, second: Int): Int = if (Int.MAX_VALUE - first < second) Int.MAX_VALUE else first + second

@@ -209,7 +209,9 @@ unbound identities plus one reserved row per durable user. A known operation loc
 captured email, then takes the old/current digest advisory locks in lexical order and moves the bound row; repeated ADMIN email
 changes cannot add reservations. An active user who later receives a deleted or renamed user's former address reclaims that stale
 binding under the digest lock; the locked current user row plus active-email uniqueness proves the two durable user ids cannot both
-actively own the address. The capacity refusal stays for an UNKNOWN identity, and at `/login` it stays for every untracked email:
+actively own the address. An unbound row is the address-level failure window accumulated before an account was proved, so a later
+proved operation at that same current address preserves and binds it; foreign bound state is discarded on address reuse. The capacity
+refusal stays for an UNKNOWN identity, and at `/login` it stays for every untracked email:
 the refusal comes BEFORE any password is compared and answers the same `429` for a known
 and an unknown email, so it leaks nothing and lets no guess through, whereas counting a wrong password for a known account there
 would have to answer differently from an unknown one (an existence oracle). **The accepted cost:** the above-cap entries can only be made for REAL accounts, so while an attacker holds the store full, a `/login` probe of an email flips from the capacity `429` to `401` once that account's owner mistypes an MFA code or their current password. That proves the account exists, and the probe then counts a failure against it. It needs the owner's own mistake inside the lock window plus a sustained fill that already denies sign-in to everyone untracked, so it is accepted. A correct password (non-MFA), a correct code or a correct current password clears the counter; a MISSING `currentPassword`
@@ -219,9 +221,11 @@ password until the window ends. The ways out: the emailed reset link (`POST /pas
 changes the password without `currentPassword`), or an admin resetting the password; with `MAIL_TRANSPORT=disabled` (no reset mail) only
 an admin can. For an MFA account the password step does NOT clear the counter (it is only the first factor: a
 caller holding the password could otherwise log in afresh after every few wrong codes and never lock); an accepted code does.
-The digest key is derived from the validated deployment JWT secret. Rotate it on every instance together. After every old process
-has stopped, deliberate maintenance may clear only the operational `account_login_attempts` and `password_reset_cooldowns` rows
-whose old-key digests are no longer addressable; never clear credentials, reset grants or token-revocation data for this rotation.
+The digest key is derived from the validated deployment JWT secret. A coordinated rotation stops every old-key process, clears only
+the operational `account_login_attempts` and `password_reset_cooldowns` tables, then starts every process with the new key. This
+resets lockout/escalation and cooldown state, never credentials, reset grants or token-revocation data. Intentionally retained proved
+rows can still be found by user id and moved, but anonymous old-key rows and cooldowns are unaddressable by new-key submissions and
+occupy capacity until their deadlines expire.
 **Pending MFA challenges and a lock:** a lock tripped by the MFA step (or met by a wrong code there) drops the account's pending
 challenges; a lock tripped by wrong passwords at `/login` or on the change does NOT, but no pending code can finish a sign-in
 during it (a correct code answers the lockout's `429`, `AccountGuess.recordSuccess`) and the challenges expire on their own TTL.

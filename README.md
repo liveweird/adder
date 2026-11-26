@@ -339,7 +339,7 @@ For a hosted deployment, supply the settings through the app's environment and s
 | `PASSWORD_RESET_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP reset bucket; blank follows the mode (5 prod / 100 dev). |
 | `REFRESH_REPLAY_GRACE_SECONDS` | `60` | How long a rotated refresh token may be replayed (a lost `/refresh` response, two racing tabs) before the replay is a 401; `0` = strict one-time use. Shared in PostgreSQL, with at most two retries per token (`.claude/docs/security.md` "Token storage"). |
 | `PASSWORD_RESET_MIN_INTERVAL_SECONDS` | `60` | One reset request per submitted email per interval. |
-| `PASSWORD_RESET_MAX_TRACKED` | `10000` | Maximum in-memory reset cooldowns; new identities receive 429 at capacity. |
+| `PASSWORD_RESET_MAX_TRACKED` | `10000` | Maximum PostgreSQL reset-cooldown rows; new identities receive 429 at capacity. |
 | `PASSWORD_RESET_TOKEN_TTL_SECONDS` | `900` | Lifetime of the emailed single-use reset link, 1–3600 seconds. |
 | `MFA_CODE_TTL_SECONDS` | `300` | Lifetime of an emailed MFA code. |
 | `MFA_MAX_ATTEMPTS` | `5` | Wrong-code attempts before a challenge dies. |
