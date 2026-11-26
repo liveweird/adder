@@ -42,7 +42,7 @@ function beginEcho(
   roomId: number,
   threadNumber: number,
   expectedMessageId?: number,
-): { id: string; mutation: PendingMutation; expire: () => void } | undefined {
+): ReplyEcho | undefined {
   const id = globalThis.crypto?.randomUUID?.();
   if (id === undefined) return undefined;
   const mutations = sessions.get(queryClient) ?? new Map<string, PendingMutation>();
@@ -57,13 +57,6 @@ function beginEcho(
 
   const mutation: PendingMutation = { kind, roomId, threadNumber, expectedMessageId, timer: setTimeout(expire, MUTATION_ECHO_LIFETIME_MS) };
   mutations.set(id, mutation);
-  return { id, mutation, expire };
-}
-
-export function beginReplyEcho(queryClient: QueryClient, roomId: number, threadNumber: number): ReplyEcho | undefined {
-  const registered = beginEcho(queryClient, "message.posted", roomId, threadNumber);
-  if (!registered) return undefined;
-  const { id, mutation, expire } = registered;
   return {
     id,
     confirm(messageId) {
@@ -81,23 +74,14 @@ export function beginReplyEcho(queryClient: QueryClient, roomId: number, threadN
   };
 }
 
+export function beginReplyEcho(queryClient: QueryClient, roomId: number, threadNumber: number): ReplyEcho | undefined {
+  return beginEcho(queryClient, "message.posted", roomId, threadNumber);
+}
+
 export function beginReactionEcho(queryClient: QueryClient, roomId: number, threadNumber: number, messageId: number) {
-  const registered = beginEcho(queryClient, "message.reaction_changed", roomId, threadNumber, messageId);
-  if (!registered) return undefined;
-  const { id, mutation, expire } = registered;
-  return {
-    id,
-    confirm() {
-      if (sessions.get(queryClient)?.get(id) !== mutation || mutation.confirmedMessageId !== undefined) return;
-      mutation.confirmedMessageId = messageId;
-      delete mutation.held;
-    },
-    cancel() {
-      if (mutation.confirmedMessageId !== undefined) return;
-      clearTimeout(mutation.timer);
-      expire();
-    },
-  };
+  const echo = beginEcho(queryClient, "message.reaction_changed", roomId, threadNumber, messageId);
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(messageId), cancel: echo.cancel };
 }
 
 /** Only hold exact correlated message echoes from one request in this session. Process every other frame as usual. */

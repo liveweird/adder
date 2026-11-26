@@ -8,6 +8,7 @@ import { jsonResponse } from "../test/http";
 import { makeMessage } from "../test/messageFixtures";
 import { renderWithProviders } from "../test/render";
 import type { MessageResponse } from "../api/messages";
+import * as liveEcho from "../utils/liveReplyEcho";
 
 // The real emoji-mart is a shadow-DOM custom element happy-dom cannot drive (EmojiButton.test.tsx).
 vi.mock("./EmojiPicker", () => ({
@@ -65,6 +66,31 @@ describe("MessageReactions", () => {
     await user.click(screen.getByRole("button", { name: "❤️, 5 reactions" }));
     await waitFor(() => expect(puts()).toHaveLength(2));
     expect(JSON.parse(puts()[1][1].body as string)).toEqual({ emoji: "❤️", reacted: true });
+  });
+
+  test("a cross-origin reaction keeps its regular mutation refresh and omits the correlation header", async () => {
+    const canCorrelate = vi.spyOn(liveEcho, "canCorrelateReply").mockReturnValue(false);
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    try {
+      renderReactions(makeMessage({ threadNumber: 42, reactions: [THUMBS] }), true, { queryClient });
+      await userEvent.setup().click(screen.getByRole("button", { name: "👍, 3 reactions" }));
+      await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12, "messages", 42] }));
+      expect(new Headers(puts()[0][1].headers).has("X-Mutation-Id")).toBe(false);
+    } finally {
+      canCorrelate.mockRestore();
+    }
+  });
+
+  test("reactor names keep their accessible English fallback while the language is unresolved", () => {
+    const language = i18n.resolvedLanguage;
+    i18n.resolvedLanguage = undefined;
+    try {
+      renderReactions(makeMessage({ reactions: [THUMBS] }));
+      expect(screen.getByRole("button", { name: "👍, 3 reactions" })).toHaveAccessibleDescription("Ada, Bob, and Cy");
+    } finally {
+      i18n.resolvedLanguage = language;
+    }
   });
 
   test("after a 204 only the conversation of the thread is re-read", async () => {

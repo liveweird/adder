@@ -71,3 +71,32 @@ test("coverage requires every active matching query to be successful, idle and f
     client.clear();
   }
 });
+
+test("an active invalidated or still-fetching query cannot cover a mutation hint", async () => {
+  const client = new QueryClient();
+  const root = ["rooms", "threads", 12, "messages", 4];
+  const key = [...root, "timeline"];
+  const next = deferred<string>();
+  const observer = new QueryObserver(client, { queryKey: key, queryFn: () => "initial timeline" });
+  const unsubscribe = observer.subscribe(() => undefined);
+  try {
+    await observer.refetch();
+    expect(activeQueriesAreFresh(client, root)).toBe(true);
+
+    await client.invalidateQueries({ queryKey: key, refetchType: "none" });
+    expect(client.getQueryState(key)?.fetchStatus).toBe("idle");
+    expect(activeQueriesAreFresh(client, root)).toBe(false);
+
+    observer.setOptions({ queryKey: key, queryFn: () => next.promise });
+    const refetch = observer.refetch();
+    await vi.waitFor(() => expect(client.getQueryState(key)?.fetchStatus).toBe("fetching"));
+    expect(activeQueriesAreFresh(client, root)).toBe(false);
+    next.resolve("fresh timeline");
+    await refetch;
+    expect(activeQueriesAreFresh(client, root)).toBe(true);
+  } finally {
+    next.resolve("fresh timeline");
+    unsubscribe();
+    client.clear();
+  }
+});

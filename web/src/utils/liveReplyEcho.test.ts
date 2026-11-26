@@ -168,4 +168,30 @@ describe("reaction echo correlation", () => {
     vi.advanceTimersByTime(30_000);
     expect(replay).toHaveBeenCalledTimes(2);
   });
+
+  test("a reaction falls back when another operation already holds the same correlation ID", () => {
+    const reply = beginReplyEcho(client, 7, 3)!;
+    const replay = vi.fn();
+
+    expect(beginReactionEcho(client, 7, 3, 41)).toBeUndefined();
+    expect(deferReplyEcho(client, reacted(reply.id), replay)).toBe(false);
+    expect(deferReplyEcho(client, posted(reply.id), replay)).toBe(true);
+    reply.cancel();
+    expect(replay).toHaveBeenCalledOnce();
+  });
+
+  test("a confirmed reaction ignores late cleanup and repeated hints for that operation", () => {
+    const reaction = beginReactionEcho(client, 7, 3, 41)!;
+    const replay = vi.fn();
+
+    reaction.confirm();
+    reaction.cancel();
+    expect(deferReplyEcho(client, reacted(reaction.id), replay)).toBe(true);
+    expect(deferReplyEcho(client, reacted(reaction.id, 42), replay)).toBe(false);
+    reaction.confirm();
+    vi.advanceTimersByTime(30_000);
+    expect(replay).not.toHaveBeenCalled();
+    expect(deferReplyEcho(client, reacted(reaction.id), replay)).toBe(false);
+  });
+
 });

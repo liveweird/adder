@@ -310,3 +310,7 @@ The reply POST and reaction PUT accept one optional `X-Mutation-Id` header with 
 The sender records the operation in its logical session before issuing the write. An early exact-kind hint waits for the write and its query refresh. A reply confirms the message id returned by the POST; a reaction already knows its message id. After every active covered query is successful, idle and fresh, only that matching hint is redundant. A failed request, failed or paused refresh, mismatched resource, or expired correlation releases the held event through the normal invalidator. Another tab of the same account refreshes as usual. Room revocations, resync, notification events, message revisions and deletions keep their independent handling. The logical session tracks at most 32 mutations for 30 seconds.
 
 In a warm two-tab Chromium rehearsal, a reply produced two timeline, detail, thread-list and rail reads in the writer before correlation, and one of each afterward. The observer still read each once. Holding the POST response after the observer received the event caused no writer reads until the response arrived. Aborting that held response released the event and the committed reply appeared in both tabs.
+
+A three-tab Chromium rehearsal measured two writer timeline reads before reaction correlation and one afterward.
+The other tab of the writer’s account and a different member each read once. The writer made no timeline request while
+its PUT response was held. All three tabs picked up the committed removal after the writer lost that response.
