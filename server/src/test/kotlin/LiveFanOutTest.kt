@@ -9,13 +9,17 @@ import ch.nokillswit.live.LiveTicketResponse
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 import io.ktor.client.call.body
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.TestApplication
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.delay
@@ -121,13 +125,23 @@ class LiveFanOutTest {
             assertTrue(socket.nextNonResync() is LiveServerFrame.Subscribed)
             awaitListenerUp(other.application.attributes[LiveHubKey])
 
-            val posted = scene.writer.client.postJson(
+            val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+            val posted = scene.writer.client.post(
                 "/api/v1/rooms/${scene.room}/threads/${scene.thread}/messages",
-                MessageRequest("Across instances"),
-            )
+            ) {
+                header(MUTATION_ID_HEADER, mutationId)
+                contentType(ContentType.Application.Json)
+                setBody(MessageRequest("Across instances"))
+            }
             assertEquals(HttpStatusCode.Created, posted.status)
             assertEquals(
-                LiveServerFrame.Event(LiveKind.MESSAGE_POSTED, scene.room, scene.thread, posted.body<MessageResponse>().id),
+                LiveServerFrame.Event(
+                    LiveKind.MESSAGE_POSTED,
+                    scene.room,
+                    scene.thread,
+                    posted.body<MessageResponse>().id,
+                    mutationId,
+                ),
                 socket.nextNonResync(),
             )
             socket.close()

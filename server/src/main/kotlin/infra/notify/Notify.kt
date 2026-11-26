@@ -68,6 +68,9 @@ data class LiveHint(
     val targetUserIds: List<UInt>? = null,
     /** True when an ADMIN outside the room must lose the subscription too (a hidden room member left). */
     val requiresMembership: Boolean = false,
+    /** Reply correlation metadata used only to personalize the writer's public live frames. */
+    val mutationId: String? = null,
+    val originUserId: UInt? = null,
     @EncodeDefault val v: Int = LIVE_HINT_VERSION,
 )
 

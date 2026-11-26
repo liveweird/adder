@@ -78,6 +78,14 @@ describe("parseServerFrame", () => {
     expect(parse({ type: "subscribed", roomIds: [1] })).toEqual({ type: "subscribed", roomIds: [1], refused: [], capped: [] });
   });
 
+  test("a valid reply correlation survives parsing and unusable correlation leaves the event intact", () => {
+    const event = { type: "event", kind: "message.posted", roomId: 7, threadNumber: 3, messageId: 41 };
+    const mutationId = "14d7ed05-24c1-4374-b6eb-60b147595822";
+    expect(parse({ ...event, mutationId })).toEqual({ ...event, mutationId });
+    expect(parse({ ...event, mutationId: mutationId.toUpperCase() })).toEqual(event);
+    expect(parse({ ...event, mutationId, kind: "message.deleted" })).toEqual({ ...event, kind: "message.deleted" });
+  });
+
   test("unknown members are dropped and unknown types are ignored", () => {
     expect(parse({ type: "revoked", roomId: 4, why: "because" })).toEqual({ type: "revoked", roomId: 4 });
     expect(parse({ type: "hello" })).toBeNull();

@@ -356,8 +356,7 @@ class LiveHub internal constructor(
                 val recipients = LinkedHashSet<HubSocket>()
                 if (audience != Audience.TARGETS) subscribersByRoom[hint.roomId]?.let { recipients += it }
                 if (audience != Audience.SUBSCRIBERS) recipients += targetSockets(hint)
-                val event = eventOf(hint)
-                recipients.forEach { queueFrame(it, event) }
+                recipients.forEach { queueFrame(it, eventOf(hint, it)) }
             }
         }
     }
@@ -388,12 +387,9 @@ class LiveHub internal constructor(
         val recipients = LinkedHashSet<HubSocket>()
         subscribersByRoom[hint.roomId]?.let { recipients += it }
         recipients += stillReadable
-        val event = eventOf(hint)
-        recipients.forEach { queueFrame(it, event) }
+        recipients.forEach { queueFrame(it, eventOf(hint, it)) }
     }
 
     private fun targetSockets(hint: LiveHint): List<HubSocket> =
         hint.targetUserIds.orEmpty().flatMap { socketsByUser[it].orEmpty() }
-
-    private fun eventOf(hint: LiveHint) = LiveServerFrame.Event(hint.kind, hint.roomId, hint.threadNumber, hint.messageId)
 }

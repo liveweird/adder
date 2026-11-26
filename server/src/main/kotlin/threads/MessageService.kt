@@ -240,6 +240,7 @@ class MessageService internal constructor(
         caller: CallerPrincipal,
         raw: MessageRequest,
         quotedMessageId: UInt? = null,
+        mutationId: String? = null,
     ): PostedMessage {
         val request = sanitizedMessage(raw)
         validateMessage(request)
@@ -247,11 +248,11 @@ class MessageService internal constructor(
         val hashtags = parseHashtags(request.body) // before the room lock
         if (quotedMessageId == null) {
             return database.withThreadWrite(roomId, number, caller, memberGuard) { write ->
-                postLocked(roomId, number, request, hashtags, write, null)
+                postLocked(roomId, number, request, hashtags, write, null, mutationId)
             }
         }
         return database.withQuotedThreadWrite(roomId, number, quotedMessageId, caller) { write ->
-            postLocked(roomId, number, request, hashtags, write.destination, write.quoted)
+            postLocked(roomId, number, request, hashtags, write.destination, write.quoted, mutationId)
         }
     }
 
@@ -262,6 +263,7 @@ class MessageService internal constructor(
         hashtags: List<String>,
         write: ThreadWrite,
         quoted: QuotedMessage?,
+        mutationId: String?,
     ): PostedMessage {
         write.requireRoomActive()
         write.requireThreadOpen()
@@ -278,7 +280,16 @@ class MessageService internal constructor(
             it[lastActivityAt] = stamp
         }
         rooms.touchActivity(roomId, stamp, authorId)
-        notifyLive(LiveHint(LiveKind.MESSAGE_POSTED, roomId, threadNumber = number, messageId = id))
+        notifyLive(
+            LiveHint(
+                LiveKind.MESSAGE_POSTED,
+                roomId,
+                threadNumber = number,
+                messageId = id,
+                mutationId = mutationId,
+                originUserId = authorId.takeIf { mutationId != null },
+            ),
+        )
         val notices = followPosted(inserted)
         val names = userNames(listOfNotNull(authorId, quoted?.authorId))
         val tokenIds = listOfNotNull(id.takeIf { request.body.contains("<@") }, quoted?.id?.takeIf { quoted.hasTokens })

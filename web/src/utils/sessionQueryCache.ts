@@ -1,6 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { getSessionSnapshot, subscribeSessionIdentityChange } from "../api/session";
 
+import { clearReplyEchoes } from "./liveReplyEcho";
+
 const AUTH_STORAGE_PREFIX = "adder.auth.";
 
 /** Observe both this tab's session writes and completed writes from another tab. */
@@ -29,6 +31,7 @@ export function bindSessionQueryCache(queryClient: QueryClient): () => void {
     const nextIdentity = getSessionSnapshot().identity;
     if (nextIdentity === identity) return;
     identity = nextIdentity;
+    clearReplyEchoes(queryClient);
     // `clear()` removes cache entries, but an already-mounted QueryObserver otherwise retains
     // its last result until React renders again. Reset first so no A-owned data remains visible
     // during the identity handoff; reset() also cancels that query without starting a refetch.

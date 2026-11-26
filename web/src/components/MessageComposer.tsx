@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { IconSend } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import { postMessage } from "../api/messages";
-import { ApiError } from "../api/http";
+import { API_BASE, ApiError } from "../api/http";
 import type { RoomResponse } from "../api/rooms";
 import type { ThreadResponse } from "../api/threads";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
@@ -15,6 +15,7 @@ import { useQuoteSource } from "../hooks/useQuoteSource";
 import { useThreadDrafts, type QuoteDraft } from "../hooks/useThreadDrafts";
 import { messageComposeBlock } from "../utils/messageAccess";
 import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
+import { beginReplyEcho, canCorrelateReply } from "../utils/liveReplyEcho";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
 import { blankQuote, quoteDraftExcerpt, reconcileQuote } from "../utils/quoteDraft";
@@ -153,8 +154,9 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
     sentOk.delete(key);
     const sent: Sent = { text, quote };
     setPending(key, sent);
+    const echo = canCorrelateReply(API_BASE, window.location.href) ? beginReplyEcho(queryClient, room.id, thread.number) : undefined;
     try {
-      const created = await postMessage(room.id, thread.number, normalizeBody(text), quote?.id);
+      const created = await postMessage(room.id, thread.number, normalizeBody(text), quote?.id, echo?.id);
       // Cleared in the store too: a post that finishes after the reader navigated away has no mounted box to clear it, and the sent text
       // (and the quote) would otherwise come back as a draft. A quote picked while the post travelled (even of the same message) is another pick, and stays.
       drafts.setReply(room.id, thread.number, "");
@@ -163,13 +165,17 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
       setQuote((current) => (current === sent.quote ? null : current));
       sentOk.set(key, sent);
       onPosted(created.id);
-      await refreshAfterMessageWrite(queryClient, room.id, { newReply: true });
+      await refreshAfterMessageWrite(queryClient, room.id, {
+        newReply: true,
+        onCovered: echo ? () => echo.confirm(created.id) : undefined,
+      }).catch(() => echo?.cancel());
     } catch (err) {
       setError(messageErrorMessage(err, t));
       // The server says the message is gone: the line keeps the author and loses the text (a pick made since, another object, stays as it is).
       if (isProblem(err, PROBLEM_TYPES.quoteUnavailable)) setQuote((current) => (current === sent.quote && current !== null ? blankQuote(current) : current));
       if (isAccessRefusal(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
     } finally {
+      echo?.cancel();
       setPending(key, null);
     }
   }

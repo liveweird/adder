@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.22.0
+  version: 1.23.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -2524,6 +2524,15 @@ paths:
         the thread POST (`429` beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The
         request body is at most 64 KiB (`413` beyond it), and the write waits at most about 3 seconds for the room's write lock before it is
         answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+      parameters:
+        - name: X-Mutation-Id
+          in: header
+          required: false
+          description: |
+            Optional identifier for correlating this request with the writer's live message.posted event. Supply at most one
+            canonical lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events.
+            Sending the same identifier again can post another message.
+          schema: { $ref: '#/components/schemas/LiveMutationId' }
       requestBody:
         required: true
         content:
@@ -4216,6 +4225,10 @@ components:
         roomIds: { type: array, items: { type: integer, format: int64, minimum: 1, maximum: 4294967295 } }
         refused: { type: array, items: { type: integer, format: int64, minimum: 1, maximum: 4294967295 } }
         capped: { type: array, items: { type: integer, format: int64, minimum: 1, maximum: 4294967295 } }
+    LiveMutationId:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
     LiveEventFrame:
       type: object
       required: [type, kind, roomId]
@@ -4226,6 +4239,9 @@ components:
         roomId: { type: integer, format: int64, minimum: 1, maximum: 4294967295 }
         threadNumber: { type: integer, format: int32, description: The thread's per-room number; present for the thread and message kinds. }
         messageId: { type: integer, format: int64, minimum: 1, maximum: 4294967295, description: Present for the message kinds. }
+        mutationId:
+          allOf: [{ $ref: '#/components/schemas/LiveMutationId' }]
+          description: On message.posted, correlates a reply POST with its event for the writer's account only.
     LiveRevokedFrame:
       type: object
       required: [type, roomId]

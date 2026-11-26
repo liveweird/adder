@@ -66,6 +66,17 @@ class LiveFramesTest {
             """{"type":"event","kind":"message.posted","roomId":12,"threadNumber":7,"messageId":991}""",
             LiveServerFrame.Event(LiveKind.MESSAGE_POSTED, 12u, 7, 991u).toJson(),
         )
+        assertEquals(
+            """{"type":"event","kind":"message.posted","roomId":12,"threadNumber":7,"messageId":991,""" +
+                """"mutationId":"2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"}""",
+            LiveServerFrame.Event(
+                LiveKind.MESSAGE_POSTED,
+                12u,
+                7,
+                991u,
+                "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a",
+            ).toJson(),
+        )
         assertEquals("""{"type":"event","kind":"room.updated","roomId":12}""", LiveServerFrame.Event(LiveKind.ROOM_UPDATED, 12u).toJson())
         assertEquals("""{"type":"revoked","roomId":12}""", LiveServerFrame.Revoked(12u).toJson())
         assertEquals("""{"type":"resync"}""", LiveServerFrame.Resync.toJson())

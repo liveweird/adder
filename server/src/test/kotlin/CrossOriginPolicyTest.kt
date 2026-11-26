@@ -13,6 +13,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The cross-origin posture (`plugins/SecurityHeaders.kt`, `plugins/Http.kt`): `Cross-Origin-Opener-Policy` and
@@ -53,11 +54,13 @@ class CrossOriginPolicyTest {
         swagger.assertIsolated("Swagger UI")
     }
 
-    private suspend fun io.ktor.client.HttpClient.preflight(origin: String): HttpResponse = options("/api/v1/login") {
-        header(HttpHeaders.Origin, origin)
-        header(HttpHeaders.AccessControlRequestMethod, "POST")
-        header(HttpHeaders.XForwardedProto, "https")
-    }
+    private suspend fun io.ktor.client.HttpClient.preflight(origin: String, requestHeaders: String? = null): HttpResponse =
+        options("/api/v1/login") {
+            header(HttpHeaders.Origin, origin)
+            header(HttpHeaders.AccessControlRequestMethod, "POST")
+            requestHeaders?.let { header(HttpHeaders.AccessControlRequestHeaders, it) }
+            header(HttpHeaders.XForwardedProto, "https")
+        }
 
     @Test
     fun `development admits an http or https origin of a listed host`() = testApplication {
@@ -68,6 +71,12 @@ class CrossOriginPolicyTest {
             val response = client.preflight(origin)
             assertEquals(origin, response.headers[HttpHeaders.AccessControlAllowOrigin], origin)
         }
+        val mutation = client.preflight("https://app.example.com", "X-Mutation-Id")
+        assertEquals(HttpStatusCode.OK, mutation.status)
+        assertTrue(
+            mutation.headers[HttpHeaders.AccessControlAllowHeaders].orEmpty().split(',')
+                .any { it.trim().equals("X-Mutation-Id", ignoreCase = true) },
+        )
     }
 
     @Test

@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.23.0",
+    date: "2026-11-26",
+    en: `**Adder 1.23.0 — fewer repeat reads after replying**
+
+- When the app and API share an origin, your tab can use one refresh for your reply and its matching live update. Other tabs still show the reply live.
+- A live update can still bring the reply into view if its response is lost.`,
+    pl: `**Adder 1.23.0 — mniej powtórnych odczytów po odpowiedzi**
+
+- Gdy aplikacja i API mają wspólne źródło, Twoja karta może użyć jednego odświeżenia dla odpowiedzi i powiązanego zdarzenia na żywo. W innych kartach odpowiedź nadal pojawia się na żywo.
+- Zdarzenie na żywo nadal może wyświetlić zapisaną wiadomość, jeśli odpowiedź serwera zaginie.`,
+  },
+  {
     version: "1.22.0",
     date: "2026-11-26",
     en: `**Adder 1.22.0 — faster live account updates**

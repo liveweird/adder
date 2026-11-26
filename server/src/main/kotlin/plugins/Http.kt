@@ -19,6 +19,7 @@ import io.ktor.server.plugins.mutableOriginConnectionPoint
 import io.ktor.server.plugins.origin
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 
 /**
  * Global request-body ceiling: a memory-DoS backstop, not a business rule. 512 KiB is far above the largest legitimate body
@@ -212,6 +213,7 @@ fun Application.configureHttp() {
             allowHeader(HttpHeaders.Authorization)
             allowHeader(HttpHeaders.ContentType)
             allowHeader(EXPECTED_REVISION_HEADER)
+            allowHeader(MUTATION_ID_HEADER)
             corsHosts.forEach { allowHost(it, schemes = corsSchemes) }
         }
     }

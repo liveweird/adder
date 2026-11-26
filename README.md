@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Faster reply refreshes (1.23.0)
+
+- When the app and API share an origin, replying avoids a duplicate fetch cycle in the sending tab. Other tabs still see new replies live.
+
 ### Live account updates (1.22.0)
 
 - Open conversations recheck access promptly after a logout, a role change, account deletion, or a password change. Other valid sign-ins remain connected.

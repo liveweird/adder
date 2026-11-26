@@ -7,6 +7,7 @@ import ch.nokillswit.authz.requireMessageAuthor
 import ch.nokillswit.authz.requireMessageRemover
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.infra.db.PreviewFetcherKey
+import ch.nokillswit.infra.mutationId
 import ch.nokillswit.infra.paging.SortField
 import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.paging.parsePaging
@@ -171,12 +172,13 @@ private fun Route.messagePost(roomService: RoomService, messageService: MessageS
             val caller = call.caller()
             val roomId = route.parent.parent.parent.id
             requireRoomMember(caller, roomService.visibleStanding(caller, roomId))
+            val mutationId = call.mutationId()
             val body = call.receive<MessagePostRequest>()
             val request = sanitizedMessage(body.message())
             validateMessage(request)
             validateQuotedMessageId(body.quotedMessageId)
             val number = route.parent.number.toInt()
-            val posted = messageService.post(roomId, number, caller, request, body.quotedMessageId)
+            val posted = messageService.post(roomId, number, caller, request, body.quotedMessageId, mutationId)
             audit(
                 "message.posted",
                 "byUserId" to caller.userId.toLong(),
