@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Shared session refresh and logout (1.26.0)
+
+An interrupted refresh can retry on another instance using the same database. Logout revokes the current session's credentials and clears refresh grace in one transaction. Other signed-in sessions keep working. Deploy this release with the existing single-instance replacement strategy.
+
 ### Shared live socket limits and presence (1.25.0)
 
 The per-user tab limit and foreground presence use shared PostgreSQL leases. `@here` can reach eligible room members whose foreground tabs connect through another application instance. Each process retains its own connection resource limits. The supplied deployments still run a single app.
@@ -329,7 +333,7 @@ For a hosted deployment, supply the settings through the app's environment and s
 | `REFRESH_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP refresh bucket (blank = 30). |
 | `READY_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP bucket on `GET /api/v1/ready` (blank = 60; the kubelet probes 12/min). |
 | `PASSWORD_RESET_RATE_LIMIT_PER_MINUTE` | *(blank)* | Per-IP reset bucket; blank follows the mode (5 prod / 100 dev). |
-| `REFRESH_REPLAY_GRACE_SECONDS` | `60` | How long a rotated refresh token may be replayed (a lost `/refresh` response, two racing tabs) before the replay is a 401; `0` = strict one-time use. In-memory, per instance (`.claude/docs/security.md` "Token storage"). |
+| `REFRESH_REPLAY_GRACE_SECONDS` | `60` | How long a rotated refresh token may be replayed (a lost `/refresh` response, two racing tabs) before the replay is a 401; `0` = strict one-time use. Shared in PostgreSQL, with at most two retries per token (`.claude/docs/security.md` "Token storage"). |
 | `PASSWORD_RESET_MIN_INTERVAL_SECONDS` | `60` | One reset request per submitted email per interval. |
 | `PASSWORD_RESET_MAX_TRACKED` | `10000` | Maximum in-memory reset cooldowns; new identities receive 429 at capacity. |
 | `PASSWORD_RESET_TOKEN_TTL_SECONDS` | `900` | Lifetime of the emailed single-use reset link, 1–3600 seconds. |

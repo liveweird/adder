@@ -104,28 +104,20 @@ present `jti`, not blocklisted, the user still active, `credentialRevision` curr
 access/refresh pair is minted. Only the claim is atomic; delivery of the response is not, so of any number of
 concurrent calls with one token exactly one inserts the row (`CLAIMED`) and the rest are decided by the grace below.
 **Replay grace** (`security.refresh.replayGraceSeconds`, `$REFRESH_REPLAY_GRACE_SECONDS`, default 60, 0 = strict
-one-time use): a `/refresh` response can be lost after the claim committed (the SPA's 30 s deadline, a dropped VPN, a
-reload mid-flight), leaving the client holding the already-retired token. So a replay of a token THIS instance rotated
-less than the grace ago is answered with another fresh pair (audit `refresh.replay_grace`, `userId`) instead of a `401`
-that would sign the user out; the same grace answers the loser of two tabs refreshing at once (the rotation is
-recorded inside the claim's transaction, before its commit, so a racing loser, which only resumes after that commit,
-always finds it). One token gets at most 2 such re-mints (`MAX_GRACE_REUSES`; a lost response or a racing tab needs one);
-after that, or after the window, a replay is rejected. **A logout that REACHES the route body ends the grace**: it
-drops every rotation record of the access principal's user and of the presented refresh token's own user
-(`TokenBlocklistService.forgetRotations`), so a copy of a recently rotated token cannot mint after sign-out and its replay
-is `reason=revoked` (it also ends the grace of that user's other devices, whose next lost-response retry then signs out:
-strict, never lax). `/logout` sits behind `authenticate {}`, so it needs a valid ACCESS token: the SPA's `logout()`
-(`web/src/api/auth.ts`) therefore, on a `401` (the stored access token expired after idle or a lost refresh response),
-exchanges the captured refresh token for a new pair without touching the already-cleared local session
-(`refreshPairDetached`) and calls `/logout` again with the NEW pair, so the live refresh token is the one revoked; if that
-refresh fails the sign-out stays local only and the refresh token lives until its own expiry (<= 1 h). A direct API caller
-that logs out with an expired access token gets the plain `401` and revokes nothing. Known limitation: a refresh and a
-logout racing within the same few milliseconds can leave the freshly minted pair unrevoked, bounded by the refresh TTL. The rotation records (`auth/RefreshRotations.kt`, `RefreshRotationsTest`) are in memory
-and per instance like the lockout/MFA state (single replica) and capacity-bounded at 10,000: when full, records whose
-token has expired or whose grace has passed are evicted first and, if it is still full, the NEW record is dropped. A
-restart, or a dropped record, loses them and the behaviour falls back to strict. Outside the grace, a replay of a rotated token the instance still remembers is a `401`
-audited as `refresh.rejected reason=replayed`; a token blocklisted by logout (or whose rotation is not remembered) is
-`reason=revoked`, so the trail separates theft/replay from logout. The accepted cost of the grace: a stolen token replayed
+one-time use): a `/refresh` response can be lost after the claim commits, leaving the client holding a retired token.
+V55 records the rotation in the same PostgreSQL transaction as the denylist claim. A retry from any instance can receive
+another pair within the database-clock grace period. One token has two aggregate re-mints (`MAX_GRACE_REUSES`). A replay
+outside that window is `401` with `refresh.rejected reason=replayed` while the rotation is recorded. A logout-revoked or
+metadata-less denylist entry is `reason=revoked` and has no grace. At the shared 10,000-slot limit, issuance can reclaim
+rotations whose grace has ended. A new rotation without an available slot is strict.
+
+`/logout` requires a valid access token. Its transaction revokes that JTI and any valid refresh JTI presented, clears the
+affected accounts' rotations, and publishes the exact access-session hint at commit. It serializes with refresh claims for
+those accounts. Other live token pairs remain valid. A refresh that claimed its token before the logout can still return a
+fresh pair. The SPA handles an expired access token by trying a detached refresh before revoking the fresh pair. If that
+refresh fails, it clears local sign-in state and the outstanding refresh token lives until expiry. A direct logout request
+with an expired access token receives `401`. Keep the supplied `Recreate` strategy during the V55 upgrade. An old process
+cannot clear a new process's durable grace records. An upgraded denylist entry from before V55 remains strict. The accepted cost of the grace: a stolen token replayed
 within the grace of its legitimate rotation also gets a pair, at most twice (the window is short, the replay is audited and a logout ends it). There is
 deliberately NO family-wide revocation and no "sign out everywhere": a replay outside the grace does not end the live
 chain, and a stolen token that refreshes FIRST makes the victim's next refresh the rejected replay (the victim is signed

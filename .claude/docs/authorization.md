@@ -36,8 +36,8 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
   60-second grace (`security.refresh.replayGraceSeconds`; covers a lost response and the loser of two racing tabs) is
   answered with another pair (at most twice per token, and a logout that reaches the route ends the grace of that user's rotations) and audited
   `refresh.replay_grace`, a replay after it is the uniform `401` with
-  `refresh.rejected reason=replayed` (`revoked` stays for logout-revoked tokens; the grace/records are in memory,
-  per instance, and a restart falls back to strict - `security.md` "Token storage"). There is no family-wide revocation; the superseded access token lives until its own expiry; a session that nothing refreshes (no refresh
+  `refresh.rejected reason=replayed`. V55 keeps the grace and its consumption in PostgreSQL, across processes and restarts.
+  Logout atomically clears the affected accounts' grace, while other active token pairs stay usable. See `security.md` "Token storage". There is no family-wide revocation; the superseded access token lives until its own expiry; a session that nothing refreshes (no refresh
   within the refresh TTL) ends (a visible tab always refreshes, a hidden one for up to 8 h: `security.md` "Token storage"), as does one hit by a password change/reset or account delete (`security.md` "Token storage"
   states the consequence). Every rejection is audited (`refresh.rejected` with `reason`). Frontend:
   `web/src/api/http.ts` `authedFetch` silently refreshes (single-flighted within the current
