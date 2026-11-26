@@ -7,6 +7,7 @@ import ch.nokillswit.authz.requireMessageAuthor
 import ch.nokillswit.authz.requireMessageRemover
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.infra.db.PreviewFetcherKey
+import ch.nokillswit.infra.mutationId
 import ch.nokillswit.infra.paging.SortField
 import ch.nokillswit.infra.paging.optionalUInt
 import ch.nokillswit.infra.paging.parsePaging
@@ -70,19 +71,6 @@ class MessageLinkPreviewRoute(val parent: RoomMessagesRoute.Id)
 
 /** The largest `id[lt]` the spec admits: message ids are int32 sequences (a wider value is a `400`, never a wrapped id). */
 private val MAX_MESSAGE_ID = Int.MAX_VALUE.toUInt()
-
-/** Optional client correlation metadata for a reply and its writer-only live echo; it is deliberately not an idempotency key. */
-const val MUTATION_ID_HEADER = "X-Mutation-Id"
-
-private val MUTATION_ID_PATTERN = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
-
-private fun ApplicationCall.mutationId(): String? {
-    val values = request.headers.getAll(MUTATION_ID_HEADER) ?: return null
-    if (values.size != 1 || !MUTATION_ID_PATTERN.matches(values.single())) {
-        throw BadRequestException("$MUTATION_ID_HEADER must be one canonical lowercase UUIDv4")
-    }
-    return values.single()
-}
 
 fun Application.configureMessageRoutes() {
     val roomService = attributes[RoomServiceKey]

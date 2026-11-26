@@ -9,7 +9,7 @@ import ch.nokillswit.live.LiveTicketResponse
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
-import ch.nokillswit.threads.MUTATION_ID_HEADER
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 import io.ktor.client.call.body
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.plugins.websocket.WebSockets

@@ -6,7 +6,7 @@ import ch.nokillswit.threads.MAX_MESSAGE_BODY_LENGTH
 import ch.nokillswit.threads.MessagePageResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
-import ch.nokillswit.threads.MUTATION_ID_HEADER
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 import ch.nokillswit.threads.THREAD_CLOSED_PROBLEM_TYPE
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadResponse
