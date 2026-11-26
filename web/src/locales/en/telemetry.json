@@ -12,6 +12,9 @@
   "role": {
     "app": "App"
   },
+  "process": {
+    "earlierBoot": "{{instance}} · earlier boot #{{id}}"
+  },
   "stale": {
     "badge": "Stale",
     "title": "{{role}} has stopped reporting",

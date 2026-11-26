@@ -84,6 +84,37 @@ describe("TelemetryPanel", () => {
     expect(within(second).getByText("Critical")).toBeInTheDocument();
   });
 
+  test("restarted processes with the same instance keep both samples under distinct accessible labels", async () => {
+    const older = processFixture({
+      id: 41,
+      instance: "adder-app-1",
+      startedAt: Date.UTC(2026, 9, 24, 8, 0, 0),
+      memory: { ...processFixture().memory, heapUsedBytes: 141 * MB },
+      jvm: { ...processFixture().jvm, threads: 31 },
+    });
+    const newest = processFixture({
+      id: 42,
+      instance: "adder-app-1",
+      startedAt: Date.UTC(2026, 9, 24, 9, 0, 0),
+      memory: { ...processFixture().memory, heapUsedBytes: 242 * MB },
+      jvm: { ...processFixture().jvm, threads: 52 },
+    });
+    stubApi(currentFixture({ processes: [older, newest] }));
+    const user = userEvent.setup();
+    renderPanel();
+
+    const currentMemory = await screen.findByRole("table", { name: "Memory of adder-app-1" });
+    const olderMemory = screen.getByRole("table", { name: "Memory of adder-app-1 · earlier boot #41" });
+    expect(within(currentMemory).getByText("242 MB")).toBeInTheDocument();
+    expect(within(olderMemory).getByText("141 MB")).toBeInTheDocument();
+
+    await user.click(section("JVM"));
+    const currentJvm = screen.getByRole("table", { name: "JVM figures of adder-app-1" });
+    const olderJvm = screen.getByRole("table", { name: "JVM figures of adder-app-1 · earlier boot #41" });
+    expect(within(currentJvm).getByText("52")).toBeInTheDocument();
+    expect(within(olderJvm).getByText("31")).toBeInTheDocument();
+  });
+
   test("a process below 80 % has no badge; a stale one is flagged by text, in its heading and as an alert", async () => {
     stubApi(currentFixture({ processes: [processFixture({ memory: { ...processFixture().memory, percentOfLimit: 79.9 } }), processFixture({ id: 2, instance: "adder-app-2", stale: true })] }));
     renderPanel();
@@ -291,12 +322,17 @@ describe("TelemetryPanel", () => {
   });
 
   test("a wedged replica listed beside a live one of the same role keeps its own table and Stale badge", async () => {
-    stubApi(currentFixture({ processes: [processFixture(), processFixture({ id: 3, instance: "adder-app-0", stale: true })] }));
+    stubApi(currentFixture({
+      processes: [
+        processFixture(),
+        processFixture({ id: 3, instance: "adder-app-1", startedAt: Date.UTC(2026, 9, 22, 8, 0, 0), stale: true }),
+      ],
+    }));
     renderPanel();
     expect(await screen.findByRole("table", { name: "Memory of adder-app-1" })).toBeInTheDocument();
-    expect(screen.getByRole("table", { name: "Memory of adder-app-0" })).toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Memory of adder-app-1 · earlier boot #3" })).toBeInTheDocument();
     expect(screen.getAllByText("Stale")).toHaveLength(1);
-    expect(screen.getByRole("alert")).toHaveTextContent("adder-app-0 has sent no sample");
+    expect(screen.getByRole("alert")).toHaveTextContent("adder-app-1 · earlier boot #3 has sent no sample");
   });
 
   test("the headings form one outline: h2 title, an h3 per section, an h4 per process", async () => {
