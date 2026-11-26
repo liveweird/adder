@@ -32,6 +32,7 @@ import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import { MAX_USER_NAME_LENGTH } from "../utils/userForm";
 import { homeKey, roomKeys } from "../utils/roomKeys";
+import { clearRoomMessageRevisions } from "../utils/messageRevisionCache";
 import classes from "./RoomMembers.module.css";
 
 const SORT_FIELDS = ["name", "role", "addedAt"] as const;
@@ -97,6 +98,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
   useEffect(
     () => () => {
       if (!left.current) return;
+      clearRoomMessageRevisions(queryClient, room.id);
       for (const key of [roomKeys.detail, roomKeys.members, roomKeys.workflow]) queryClient.removeQueries({ queryKey: key(room.id) });
       void refreshQueriesAfterMutation(queryClient, ["rooms"]);
     },
@@ -110,6 +112,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
   const changeRole = useMutation({
     mutationFn: ({ userId, to }: { userId: number; to: RoomRole }) => setRoomMemberRole(room.id, userId, to),
     onSuccess: async (_none, { userId, to }) => {
+      clearRoomMessageRevisions(queryClient, room.id);
       showSuccessToast(t(userId === me && to === "MEMBER" ? "rooms.members.toast.steppedDown" : "rooms.members.toast.roleChanged"));
       await refresh();
     },

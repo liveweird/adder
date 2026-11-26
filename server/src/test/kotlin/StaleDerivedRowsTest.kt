@@ -228,6 +228,26 @@ class StaleDerivedRowsTest {
     }
 
     @Test
+    fun `a batch of clean tombstones does not hide later stale rows`() = testApplication {
+        usePostgresTestcontainer()
+        awaitBootRun()
+        val f = fixture("stale-clean-first")
+        val clean = TestThreads.post(f.room, 1, f.author, "already scrubbed")
+        val gone = TestThreads.post(f.room, 1, f.author, "going")
+        tombstone(clean, f.author)
+        tombstone(gone, f.author)
+        derivedRows(f, gone)
+        exec(
+            "INSERT INTO notifications (recipient_id, room_id, notification_type, actor_id, thread_id, message_id, created_at) " +
+                "VALUES (?, ?, 'REACTION_ADDED', ?, ?, ?, 1)",
+            f.author, f.room, f.author, f.threadId, gone,
+        )
+
+        assertEquals(listOf(7), StaleDerivedRows(sharedDatabaseForTests(), batchSize = 1).purgeRounds())
+        assertEquals(0, derivedCount(gone))
+    }
+
+    @Test
     fun `every table that references messages is purged here or named as handled elsewhere`() {
         // The catalog, as MessageDerivedRowsTest asks it: a table a later migration adds fails this until it is dealt with.
         val referencing = PostgresTestSupport.connect().use { c ->
@@ -237,8 +257,8 @@ class StaleDerivedRowsTest {
                 st.executeQuery(sql).use { rs -> buildSet { while (rs.next()) add(rs.getString(1)) } }
             }
         }
-        // message_tags: the tag rows of deleted messages go through MessageTagService.purgeDeletedTags, the pass before this one.
-        val handledElsewhere = setOf("message_tags")
+        // Hashtags have their own startup pass. Message revisions are physically removed in the message or thread deletion transaction.
+        val handledElsewhere = setOf("message_tags", "message_revisions")
         assertEquals(STALE_DERIVED_TABLES + handledElsewhere, referencing)
     }
 

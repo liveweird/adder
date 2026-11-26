@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Group, Stack } from "@mantine/core";
+import { Button, Group, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAdmin } from "../auth";
 import { editMessage, type MessageResponse } from "../api/messages";
@@ -12,6 +12,7 @@ import { appendMentionToken, replaceMentionRequest, type MentionReplacementReque
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { MAX_MESSAGE_BODY_LENGTH, messageBodyError, normalizeBody } from "../utils/threadForm";
+import { roomKeys } from "../utils/roomKeys";
 import ConfirmActionModal from "./ConfirmActionModal";
 import AddAndMention from "./AddAndMention";
 import MentionTextarea from "./MentionTextarea";
@@ -75,6 +76,7 @@ export default function MessageEditForm({
     setSaving(true);
     try {
       await editMessage(roomId, message.id, normalizeBody(text));
+      await queryClient.invalidateQueries({ queryKey: roomKeys.messageRevisions(roomId, message.threadNumber, message.id) });
       await refreshAfterMessageWrite(queryClient, roomId, { pins: true });
       onDone();
     } catch (err) {
@@ -110,6 +112,9 @@ export default function MessageEditForm({
           }}
         />
       </div>
+      <Text size="xs" c="dimmed">
+        {t("threads.message.history.editNotice")}
+      </Text>
       <Group justify="flex-end" gap="xs">
         {room && <AddAndMention room={room} disabled={saving} request={mentionRequest} onRequestClose={() => setMentionRequest(null)}
           onMention={({ token }, request) => setText((current) => {

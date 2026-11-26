@@ -102,6 +102,16 @@ class ChatLogHygieneTest {
                 HttpStatusCode.NoContent,
                 member.client.raw(HttpMethod.Put, "$rooms/$room/messages/$messageId", """{"body":"E $marker-edit"}""").status,
             )
+            // A real pin write reads the message body while assembling its response. Keep the marker planted through pin and unpin.
+            assertEquals(
+                HttpStatusCode.NoContent,
+                member.client.raw(HttpMethod.Put, "$rooms/$room/messages/$messageId/pin", """{"pinned":true}""").status,
+            )
+            assertEquals(HttpStatusCode.OK, member.client.get("$rooms/$room/pins").status)
+            assertEquals(
+                HttpStatusCode.NoContent,
+                member.client.raw(HttpMethod.Put, "$rooms/$room/messages/$messageId/pin", """{"pinned":false}""").status,
+            )
             // The details PUT rewrites the title and the field.
             assertEquals(
                 HttpStatusCode.NoContent,
@@ -135,7 +145,10 @@ class ChatLogHygieneTest {
 
             // The capture really saw this traffic (the audit lines reach the root logger), or "no marker" would prove nothing.
             val names = capture.events.map { it.message }
-            assertTrue("thread.created" in names && "message.posted" in names && "message.deleted" in names, "captured: $names")
+            assertTrue(
+                "thread.created" in names && "message.posted" in names && "message.deleted" in names && "room.pin_changed" in names,
+                "captured: $names",
+            )
             val leaked = capture.events.filter { marker in it.rendered() }
             assertEquals(emptyList(), leaked.map { it.rendered().take(300) }, "a log line carries user content")
         } finally {

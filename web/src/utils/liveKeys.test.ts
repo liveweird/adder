@@ -61,6 +61,7 @@ describe("keysForFrame: the key map", () => {
   test("message.edited re-reads the conversation, the thread (an edit can add or drop a hashtag its header shows), the thread list (the same on its rows) and the room's pins (a redacted body must not linger in the panel)", () => {
     expect(keysForFrame(event("message.edited", 5, 7, 99))).toEqual([
       ["rooms", "threads", 5, "messages", 7],
+      ["rooms", "threads", 5, "message-revisions", 7],
       ["rooms", "threads", 5, "detail", 7],
       ["rooms", "threads", 5, "list"],
       ["rooms", "pins", 5],
@@ -211,6 +212,7 @@ describe("the keys and the readers cannot drift apart", () => {
     roomKeys.threadDetail(5, 7),
     [...roomKeys.threadEvents(5, 7), 1],
     roomKeys.messages(5, 7),
+    [...roomKeys.messageRevisions(5, 7, 99), 1],
     [...roomKeys.search(5), "term", "all", 1],
     [...searchAllKey, "term", "all", 1],
     [...notificationsKey, "unseen"], // the bell reads under this prefix
@@ -584,7 +586,7 @@ describe("createLiveInvalidator", () => {
   test("a key being fetched is NOT cancelled or re-read: it is tried again until it is idle", () => {
     const t = setup();
     // The conversation, the thread, the list and the pins are all being fetched: none is re-read, nor cancelled, until it is idle.
-    t.fetching.mockImplementation((filters) => (["messages", "detail", "list"].includes(keyOf(filters)[3] as string) || keyOf(filters)[1] === "pins" ? 1 : 0));
+    t.fetching.mockImplementation((filters) => (["messages", "message-revisions", "detail", "list"].includes(keyOf(filters)[3] as string) || keyOf(filters)[1] === "pins" ? 1 : 0));
     t.invalidator.handle(event("message.edited", 5, 7, 1));
     t.clock.advanceBy(300);
     t.clock.advanceBy(300);
@@ -592,7 +594,7 @@ describe("createLiveInvalidator", () => {
     expect(t.flushed()).toEqual([HOME]);
     t.fetching.mockReturnValue(0);
     t.clock.advanceBy(300);
-    expect(t.flushed()).toEqual([HOME, ["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
+    expect(t.flushed()).toEqual([HOME, ["rooms", "threads", 5, "messages", 7], ["rooms", "threads", 5, "message-revisions", 7], ["rooms", "threads", 5, "detail", 7], ["rooms", "threads", 5, "list"], ["rooms", "pins", 5]]);
     // Nothing was ever asked to cancel.
     expect(t.queryClient.isFetching()).toBe(0);
   });
@@ -668,5 +670,31 @@ describe("createLiveInvalidator", () => {
     await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2));
     unsubscribe();
     invalidator.dispose();
+  });
+});
+
+
+describe("message revision permissions", () => {
+  test.each([
+    event("room.member_role_changed", 5),
+    event("message.deleted", 5, 7, 99),
+    event("thread.deleted", 5, 7),
+    { type: "revoked", roomId: 5 } satisfies LiveServerFrame,
+  ])("access and lifecycle hints clear bodies in a mounted revision observer", (frame) => {
+    const queryClient = new QueryClient();
+    const invalidator = createLiveInvalidator(queryClient, new FakeClock());
+    const key = [...roomKeys.messageRevisions(5, 7, 99), 1];
+    queryClient.setQueryData(key, { items: [{ body: "saved draft" }] });
+    const observer = new QueryObserver(queryClient, { queryKey: key, enabled: false });
+    const detach = observer.subscribe(() => undefined);
+    try {
+      expect(observer.getCurrentResult().data).toEqual({ items: [{ body: "saved draft" }] });
+      invalidator.handle(frame);
+      expect(observer.getCurrentResult().data).toBeUndefined();
+      expect(queryClient.getQueryData(key)).toBeUndefined();
+    } finally {
+      detach();
+      queryClient.clear();
+    }
   });
 });

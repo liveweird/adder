@@ -3,6 +3,7 @@ package ch.nokillswit.threads
 import ch.nokillswit.authz.CallerPrincipal
 import ch.nokillswit.authz.requireThreadSteward
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.activeForPartialIndex
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
@@ -33,7 +34,7 @@ internal fun mergedSources(roomId: UInt, number: Int) =
     (Threads.roomId eq roomId) and (Threads.mergedIntoThreadNumber eq number) and Threads.active()
 
 /** Normal lists and workflow operations enumerate canonical, active threads. */
-internal fun ThreadService.Threads.canonical() = active() and mergedIntoThreadNumber.isNull()
+internal fun ThreadService.Threads.canonical() = activeForPartialIndex() and mergedIntoThreadNumber.isNull()
 
 private val steward: ThreadGuard = { caller, standing, thread -> requireThreadSteward(caller, standing, thread.ownerId) }
 
@@ -46,6 +47,7 @@ internal class ThreadLifecycleService(
     private val database: R2dbcDatabase,
     private val events: ThreadEventService,
     private val notices: ThreadNotices,
+    private val revisions: MessageRevisionService,
 ) {
     suspend fun delete(roomId: UInt, number: Int, caller: CallerPrincipal): UInt =
         database.withThreadWrite(roomId, number, caller, readerGuard, steward, allowMerged = true) { write ->
@@ -56,6 +58,7 @@ internal class ThreadLifecycleService(
                 it[markedAsDeleted] = true
                 it[updatedAt] = nowMillis()
             }
+            revisions.purgeThreadsInTransaction(threadIds)
             RoomPins.deleteWhere { threadId inList threadIds }
             notices.threadsRemoved(roomId, threadIds)
             notifyLive(LiveHint(LiveKind.THREAD_DELETED, roomId, threadNumber = number))

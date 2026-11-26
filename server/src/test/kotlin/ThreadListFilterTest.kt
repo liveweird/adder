@@ -32,6 +32,7 @@ import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -42,6 +43,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.r2dbc.select
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.slf4j.LoggerFactory
 
 /**
  * The thread list's filters and the workflow-order sort over HTTP (`chat-model.md` "The thread list: filters and sorts"):
@@ -178,6 +180,68 @@ class ThreadListFilterTest {
         assertEquals(listOf(2, 3), owner.client.numbers(room, "?field=lead:${lead.id}&field=severity:s1&field=severity:s2"))
         assertEquals(emptyList(), owner.client.numbers(room, "?field=severity:s1&field=severity:s9&field=lead:${owner.id}"))
         assertEquals(emptyList(), owner.client.numbers(room, "?field=severity:nosuch"), "a value that is no option matches nothing")
+    }
+
+    /**
+     * V49 is partial on canonical threads. PostgreSQL's generic planner can use it only when the statement itself carries the literal
+     * live and unmerged predicates; a bound `marked_as_deleted = $n` cannot prove the index predicate. Exercise the HTTP list and plan
+     * the exact count statement logged by the driver, rather than a hand-written equivalent.
+     */
+    @Test
+    fun `a field list emits canonical literals and its generic plan can use the room scoped index`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("flt-field-plan")
+        val room = room(owner)
+        TestThreads.seed(room, owner.id, fields = severity("s1"))
+        val driver = LoggerFactory.getLogger("io.r2dbc.postgresql.QUERY") as ch.qos.logback.classic.Logger
+        val saved = driver.level
+        val capture = LogCapture(driver.name)
+        try {
+            driver.level = ch.qos.logback.classic.Level.DEBUG
+            assertEquals(listOf(1), owner.client.numbers(room, "?field=severity:s1"))
+            val statements = capture.events.map { it.formattedMessage }.filter { "threads.fields @>" in it }
+            assertEquals(2, statements.size, "the count and page field statements: $statements")
+            statements.forEach { statement ->
+                assertTrue("NOT threads.marked_as_deleted" in statement, "the partial-index predicate is a SQL literal: $statement")
+                assertTrue("threads.marked_as_deleted =" !in statement, "the live predicate is not a generic-plan parameter: $statement")
+                assertTrue("threads.merged_into_thread_number IS NULL" in statement, statement)
+            }
+            val countSql = statements.single { "COUNT(*)" in it }.removePrefix("Executing query: ")
+            assertFieldCountUsesCanonicalIndexInGenericPlan(countSql)
+        } finally {
+            driver.level = saved
+            capture.detach()
+        }
+    }
+
+    private fun assertFieldCountUsesCanonicalIndexInGenericPlan(sql: String) {
+        PostgresTestSupport.connect().use { connection ->
+            connection.autoCommit = false
+            try {
+                connection.createStatement().use { statement ->
+                    statement.execute("SET LOCAL plan_cache_mode = force_generic_plan")
+                    statement.execute("SET LOCAL enable_seqscan = off")
+                    // The fixture is deliberately tiny. Remove the competing room indexes transactionally so this checks whether V49
+                    // can serve the exact emitted predicate, independent of the tiny table's arbitrary cost winner.
+                    statement.execute("ALTER TABLE threads DROP CONSTRAINT fk_threads_merged_into")
+                    statement.execute("DROP INDEX uq_threads_room_number")
+                    statement.execute("DROP INDEX idx_threads_room_activity")
+                    statement.execute("DROP INDEX idx_threads_room_status")
+                    statement.execute("DROP INDEX idx_threads_marked_as_deleted")
+                    statement.execute("PREPARE field_count_plan(int4, text) AS $sql")
+                    val plan = buildString {
+                        statement.executeQuery("EXPLAIN EXECUTE field_count_plan(1, '{\"severity\":\"s1\"}')").use { rows ->
+                            while (rows.next()) appendLine(rows.getString(1))
+                        }
+                    }
+                    assertTrue("idx_threads_room_fields_canonical" in plan, "the exact field count can use V49:\n$plan")
+                    assertTrue(Regex("Index Cond:.*room_id").containsMatchIn(plan), "room scope is an index condition:\n$plan")
+                    assertTrue("Seq Scan on threads" !in plan, "no global thread scan:\n$plan")
+                }
+            } finally {
+                connection.rollback()
+            }
+        }
     }
 
     @Test

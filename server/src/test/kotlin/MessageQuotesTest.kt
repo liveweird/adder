@@ -288,13 +288,14 @@ class MessageQuotesTest {
             assertEquals(HttpStatusCode.BadRequest, response.status, "quotedMessageId $id")
             assertNotEquals(QUOTE_UNAVAILABLE_PROBLEM_TYPE, response.body<ProblemDetail>().type, "$id is no message id: the plain 400")
         }
-        // An explicit null quotes nothing. A quoted decimal is read as the number (kotlinx decodes every UInt leniently, project-wide:
-        // `security.md`), so "7" is the id 7, which is no message of this thread: it reaches the quote check, the typed 400.
+        // An explicit null quotes nothing. Even a string containing the opener's id is invalid JSON input for the integer field.
         val none = cast.member.client.rawJson(HttpMethod.Post, post, """{"body":"x","quotedMessageId":null}""")
         assertEquals(HttpStatusCode.Created, none.status)
-        val text = cast.member.client.rawJson(HttpMethod.Post, post, """{"body":"x","quotedMessageId":"7"}""")
-        assertEquals(HttpStatusCode.BadRequest, text.status)
-        assertEquals(QUOTE_UNAVAILABLE_PROBLEM_TYPE, text.body<ProblemDetail>().type)
+        for (id in listOf("${cast.opener}", "+${cast.opener}", "00${cast.opener}")) {
+            val text = cast.member.client.rawJson(HttpMethod.Post, post, """{"body":"x","quotedMessageId":"$id"}""")
+            assertEquals(HttpStatusCode.BadRequest, text.status)
+            assertNotEquals(QUOTE_UNAVAILABLE_PROBLEM_TYPE, text.body<ProblemDetail>().type)
+        }
 
         // The edit keeps the quote, and a PUT that names `quotedMessageId` (to add, change or remove it) is the strict decoder's 400.
         val quotedId = TestThreads.post(cast.room, 1, cast.author.id, "Quoted")

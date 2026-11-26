@@ -5,13 +5,13 @@ import { ActionIcon, Kbd, Text, UnstyledButton } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { useOs } from "@mantine/hooks";
 import { Spotlight, type SpotlightActionData, type SpotlightActionGroupData, type SpotlightFilterFunction } from "@mantine/spotlight";
-import { IconActivity, IconEye, IconHash, IconSearch } from "@tabler/icons-react";
+import { IconActivity, IconEye, IconFolder, IconHash, IconSearch } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
 import { getRoom } from "../api/rooms";
 import { ACCOUNT_NAV, visibleSections } from "../utils/navigation";
 import { useRailRooms } from "../hooks/useRailRooms";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "../hooks/useTelemetryPanel";
-import { parseRoomId, roomPath, roomSearchPath, searchPath } from "../utils/roomLinks";
+import { parseRoomId, roomOrganizationPath, roomPath, roomSearchPath, searchPath } from "../utils/roomLinks";
 import { roomKeys } from "../utils/roomKeys";
 import { queryProblem, searchResultsPath, watchedThreadsPath } from "../utils/searchParams";
 import { palette, paletteStore } from "../utils/commandPalette";
@@ -20,7 +20,7 @@ import classes from "../theme.module.css";
 
 /**
  * The command palette: ⌘K / Ctrl K, or the search-looking trigger in the header. Pages — every page the
- * session may see (the same nav model as the sidebar plus the account leaves) — and Rooms, the caller's active
+ * session may see, including the account leaves and room organizer — and Rooms, the caller's active
  * rooms from the rail's own query; from a searchable term on, "Search all rooms for ..." (and, inside a room, "Search {room} for ...") links to the
  * search pages; an ADMIN also gets Actions. Matched client-side by folded label. Renders BOTH the trigger and the Spotlight, mounted
  * once in the shell header. No `highlightQuery`: it splits a label into `<mark>` + text
@@ -59,6 +59,12 @@ export default function CommandPalette({ shortcutEnabled = true }: { shortcutEna
           onClick: () => go(leaf.to),
         };
       }),
+      {
+        id: `page:${roomOrganizationPath}`,
+        label: t("rooms.organization.title"),
+        leftSection: <IconFolder size={18} stroke={1.5} />,
+        onClick: () => go(roomOrganizationPath),
+      },
       // The search across rooms with the "Threads I watch" switch on and no term (any caller; a caller with no rooms gets an empty list).
       {
         id: "page:watching",

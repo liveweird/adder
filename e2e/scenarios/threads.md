@@ -15,8 +15,8 @@
    template and adds the teammate from the Members tab.
    - *Expected*: the add answers 200 and the teammate's row appears.
 2. The owner opens the room's **Threads** tab, clicks **New thread**, fills a unique title and the first message (with a
-   `**replica**` Markdown run) and clicks **Start thread**.
-   - *Expected*: the create answers 201 and the app is at `/rooms/<id>/threads/1`; the pane's h3 reads `#1 <title>`, the conversation
+   `**replica**` Markdown run), chooses one tag from the registry and clicks **Start thread**.
+   - *Expected*: the create answers 201 with the chosen tag and the app is at `/rooms/<id>/threads/1`; the pane's h3 reads `#1 <title>`, the conversation
      shows one message by the owner with "replica" rendered bold, the header says "1 message" and the thread is a link in the list.
 3. The owner signs out; the teammate signs in, follows the room in the rail and opens the thread from the list.
    - *Expected*: the conversation shows the opener; the composer is empty and its counter reads "0 / 8000".
@@ -35,18 +35,20 @@
    - *Expected*: each post answers 201; the owner's opening note has a row menu for the teammate that offers only **Quote** and **Pin** (any member
      quotes and pins; never Edit, Delete or Remove), and their own replies have the full menu.
 3. They open the menu of "first draft", choose **Edit**, replace the text with "final draft" and click **Save**.
-   - *Expected*: the edit answers 204, the editor goes, the message reads "final draft" with an "edited" marker and the old text is gone.
-4. They open the menu of "oops wrong thread", choose **Delete** and confirm in the "Delete this message?" dialog.
+   - *Expected*: the editor explains that earlier versions are retained; the edit answers 204, the editor goes, the message reads "final draft" with an "edited" marker and the old text is gone.
+4. They open **View edit history** from "final draft".
+   - *Expected*: a focused dialog shows "first draft" as inert source text with no rendered links; closing it returns to the conversation.
+5. They open the menu of "oops wrong thread", choose **Delete** and confirm in the "Delete this message?" dialog.
    - *Expected*: the delete answers 204 and the dialog closes; the message becomes a tombstone "This message was deleted." that still
      names the teammate and has no menu.
-5. The teammate signs out; the owner signs in and opens the thread, then opens the menu of their own opening note.
+6. The teammate signs out; the owner signs in and opens the thread, then opens the menu of their own opening note.
    - *Expected*: **Edit** and **Delete** are offered; after Escape the menu closes.
-6. They open the menu of "token is hunter2" (the teammate's).
+7. They open the menu of "token is hunter2" (the teammate's).
    - *Expected*: only **Remove** is offered, never Edit or Delete.
-7. They choose **Remove** and confirm in the "Remove this message?" dialog.
+8. They choose **Remove** and confirm in the "Remove this message?" dialog.
    - *Expected*: the delete answers 204, the dialog closes, the text is gone and the message is a tombstone "Removed by a room owner
      or an administrator."; the earlier own-delete tombstone still reads "This message was deleted.".
-8. The teammate signs in again and opens the thread.
+9. The teammate signs in again and opens the thread.
    - *Expected*: both tombstones, each in its own words and under the teammate's name, and the "final draft" message still carries its
      "edited" marker.
 

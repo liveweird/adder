@@ -146,7 +146,7 @@ val OpenApiConformance = createClientPlugin("OpenApiConformance") {
  * OWN `exercised-<pid>.txt` and then, under a file lock, re-merges EVERY fork's file into the ONE
  * `coverage.md` + `gaps.txt` ([OpenApiCoverageMerge]) — so a pair exercised by ANY fork is covered, and
  * whichever fork exits last leaves the complete union behind (an earlier exit leaves a superset of the gaps,
- * never a subset). `server/build.gradle.kts` clears the directory before the `test` task and reads `gaps.txt`
+ * never a subset). `server/test-execution.gradle.kts` clears the directory before the `test` task and reads `gaps.txt`
  * after it (the gate).
  */
 object OpenApiCoverage {

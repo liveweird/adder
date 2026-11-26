@@ -244,10 +244,11 @@ Layered RBAC. Implemented in the `server/src/main/kotlin/authz/` package.
     | `GET /rooms/{id}/threads`, `GET .../threads/{number}`, `GET .../threads/{number}/events` | 404 | 200 | 200 | 200 | 200 |
     | `DELETE .../threads/{number}` with an active room and a present thread | 404 | 403 | 204 | 204 | 204 |
     | `PUT .../threads/{number}/merge` with an active room and a canonical target | 404 | 403 | 204 if also a target steward | 204 | 204 |
-    | `GET /rooms/{id}/tags` (the room's hashtags, 0.5.0; a reader, the per-user `chat-read` bucket) | 404 | 200 | 200 | 200 | 200 |
+    | `GET /rooms/{id}/hashtags` or `GET /rooms/{id}/tags` (the same reader guard and `chat-read` budget) | 404 | 200 | 200 | 200 | 200 |
     | `GET /rooms/{id}/search` (full-text search, 0.5.0; a reader; the per-user `search` bucket first, so a 429 can precede the 404; the matrix also pins a member's `400` for a bad `q`) | 404 | 200 | 200 | 200 | 200 |
     | `GET .../threads/{number}/messages/context` and `GET .../threads/{number}/messages/search` (1.10.0; room readers) | 404 | 200 | 200 | 200 | 200 |
     | `POST .../messages/{messageId}/link-preview` (1.13.0, a live message's current link) | 404 | 200 | 200 | 200 | 200 |
+    | `GET .../messages/{messageId}/revisions` (live message and active thread) | 404 | 200 for the author, otherwise 403 | 200 for the author, otherwise 403 | 200 | 200 |
     | `POST /rooms/{id}/threads` (201 + `Location`) | 404 | 201 | 201 | 201 | 403 |
     | `PUT .../threads/{number}` (details, `X-Expected-Revision`) | 404 | 204 | 204 | 204 | 204 |
     | `PUT .../threads/{number}/tags` on an OPEN thread (1.2 D1, `X-Expected-Revision`; any reader tags, an ADMIN outside the room included; `chat-write`) | 404 | 204 | 204 | 204 | 204 |

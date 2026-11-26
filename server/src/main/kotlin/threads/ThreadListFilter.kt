@@ -4,6 +4,7 @@ import ch.nokillswit.infra.db.jsonbContains
 import ch.nokillswit.infra.paging.optionalPositiveId
 import ch.nokillswit.infra.paging.positiveId
 import ch.nokillswit.infra.paging.repeatedStrings
+import ch.nokillswit.infra.paging.repeatedValues
 import ch.nokillswit.rooms.RoomWorkflowSnapshot
 import ch.nokillswit.rooms.SnapshotField
 import ch.nokillswit.tags.normalizedTagName
@@ -46,8 +47,8 @@ data class FieldCriterion(val key: String, val value: String)
 /**
  * The thread list's filters. Within a parameter the values are any-of; across parameters (and across field keys) all-of. A blank list
  * filters nothing. A well-formed but unknown status key or owner id matches nothing; an unknown, retired or unfilterable FIELD key is a
- * `400` ([predicate]). A `threadTag` is a registry tag name; a `tag` is a folded hashtag; one the room never saw matches nothing, as does a
- * `mentionedId` nobody was mentioned as.
+ * `400` ([predicate]). A `threadTag` is a registry tag name; `hashtag` and its compatibility alias `tag` are one folded hashtag filter;
+ * one the room never saw matches nothing, as does a `mentionedId` nobody was mentioned as.
  */
 data class ThreadListFilter(
     val closed: Boolean? = null,
@@ -107,12 +108,31 @@ private fun Parameters.userIdFilter(name: String): List<UInt> = repeatedStrings(
 }.distinct()
 
 /**
- * The `tag` values, validated and case-folded ([requireTagFilter]); the bound of [MAX_TAG_FILTER_VALUES] counts the values AFTER folding
- * (`A` and `a` are one), over a request that carries at most [MAX_RAW_TAG_VALUES] distinct raw ones.
+ * The combined `tag` and `hashtag` values, validated and case-folded ([requireTagFilter]); the bound of [MAX_TAG_FILTER_VALUES] counts
+ * values AFTER folding (`A` and `a` are one), over a request that carries at most [MAX_RAW_TAG_VALUES] distinct raw values across both
+ * names. The legacy name is read first so a tag-only request retains its validation order.
  */
 private fun Parameters.tagFilter(): List<String> {
-    val folded = repeatedStrings("tag", MAX_RAW_TAG_VALUES).map(::requireTagFilter).distinct()
-    if (folded.size > MAX_TAG_FILTER_VALUES) throw BadRequestException("Parameter 'tag' takes at most $MAX_TAG_FILTER_VALUES distinct tags")
+    val legacy = repeatedValues("tag")
+    val aliases = repeatedValues("hashtag")
+    val raw = (legacy + aliases).map { it.trim() }.distinct()
+    if (raw.size > MAX_RAW_TAG_VALUES) {
+        val detail = if (aliases.isEmpty()) {
+            "Parameter 'tag' takes at most $MAX_RAW_TAG_VALUES values"
+        } else {
+            "Parameters 'tag' and 'hashtag' take at most $MAX_RAW_TAG_VALUES distinct raw tags"
+        }
+        throw BadRequestException(detail)
+    }
+    val folded = raw.map(::requireTagFilter).distinct()
+    if (folded.size > MAX_TAG_FILTER_VALUES) {
+        val detail = if (aliases.isEmpty()) {
+            "Parameter 'tag' takes at most $MAX_TAG_FILTER_VALUES distinct tags"
+        } else {
+            "Parameters 'tag' and 'hashtag' take at most $MAX_TAG_FILTER_VALUES distinct folded tags"
+        }
+        throw BadRequestException(detail)
+    }
     return folded
 }
 

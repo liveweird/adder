@@ -25,6 +25,8 @@ Mechanism and narrative text kept out of `web/CLAUDE.md` so that file stays a le
   `timeoutSignal()` (30 s, feature-detected for happy-dom) — a hung request rejects with a
   `TimeoutError` DOMException instead of pending forever; new `fetch` call sites in `api/` must
   attach it.
+- A protected call with no access token returns a local 401 response. Queries that briefly remain mounted during sign-out can
+  settle without sending anonymous requests. Login and password reset use their existing public transport calls.
 
 ### `session.ts`
 
@@ -105,7 +107,7 @@ excerpt renderer. Pending join requests link directly to Members. Home refreshes
 All rooms uses the directory's existing filters, pagination and server sort. Its table groups membership and archive state with the room name. On narrower main
 areas the rows become cards, and the same sort buttons stay visible above them. Both views use the reader's time zone.
 
-**Organize rooms** opens `/rooms/organize` from the directory, sidebar or command palette. The editor loads the account's revisioned
+**Organize rooms** opens `/rooms/organize` from the directory or command palette. The editor loads the account's revisioned
 organization and pages through joined rooms. Group order, room order and assignments stay in the draft until Save. The editor keeps a
 draft on a revision conflict and offers to reload the current layout. The sidebar uses `personalOrder` before its page cap and labels
 the groups from the shared organization query. The archived switch reveals archived rooms in their saved positions.
@@ -550,3 +552,7 @@ offers Reload, which re-seeds the draft only on the user's click. The shared pie
 - The Polish user-facing noun for Users is "Użytkownicy/czki" (EN "Users").
 
 - **The reconnect refetch follows the tab (1.2 branch audit).** `utils/queryClient.ts` builds the app's one query client with `refetchOnReconnect` as a function: a HIDDEN tab, and a tab whose live status is `idle` (hidden 8 hours), does not re-read its mounted queries when the browser comes back `online` (each 401 on such a read would silently refresh the token pair and stretch the 8 h + refresh TTL bound, `security.md`). `useLiveUpdates` reports every live status to it (`reportLiveStatus`). What a hidden tab missed is caught up on becoming visible (TanStack's focus refetch fires only then: its focus manager reads `visibilityState`; the live client reconnects with a `resync`), and the quiet tab's bell is the live channel's own. The only interval poll (`TelemetryPanel`) has `refetchIntervalInBackground: false`. `queryClient.test.tsx` pins that a hidden and an idle tab make no API call on `online`.
+
+## Message edit history
+
+`MessageRevisionDialog` is opened from an edited message’s actions. It requests a bounded page only after opening and displays the prior body in a wrapping plain-text view. The server authorizes each request. The client discards cached pages on room-access and role changes, message or thread deletion, and session changes; an open dialog reacts to those events immediately. `roomKeys.messageRevisions` scopes cache invalidation to the room and message. The new-thread form and the existing tag editor use the same `ThreadTagPicker`; kept drafts accept the optional curated tag ids.

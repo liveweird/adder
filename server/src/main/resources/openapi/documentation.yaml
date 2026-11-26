@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.19.0
+  version: 1.20.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -1746,6 +1746,7 @@ paths:
       description: |
         A member of the room or an `ADMIN` (a non-member gets the uniform `404`, then the parameters are checked: `400`).
 
+        This path and `GET /rooms/{id}/hashtags` return the same collection.
         A tag is a hashtag written in a message (`#Wdrozenie`); it belongs to the MESSAGE, so a thread has it while one of its live
         messages does, and editing it away or deleting the message removes it. A row is the FOLDED tag (lower case, accents stripped: the
         key the thread list's `tag` filter takes) and `threadCount`, the number of distinct threads, open and closed, that have a live
@@ -1759,8 +1760,8 @@ paths:
         Rides the per-USER `chat-read` bucket of 300 per minute shared with the thread list and the registry read (`429` beyond it; the bucket is spent
         before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
         list past it is answered `429` of type `urn:adder:problem:read-timeout` with `Retry-After: 2`, audited without the filter value.
-        At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list, the tag list and the thread read together, a read
-        waits about 1 second for a slot): past either it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
+        The caller can have at most 8 listed reads in flight, subject to a server-wide default of 8 for the shared list budget. Each
+        read waits about 1 second for a slot. If the wait runs out, it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
         (the server is loaded; retry shortly, nothing to narrow).
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -1770,6 +1771,36 @@ paths:
       responses:
         '200':
           description: A page of the room's tags
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomTagPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/hashtags:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [threads]
+      operationId: listRoomHashtags
+      summary: List a room's hashtags
+      description: |
+        Lists the same message-derived hashtags as `GET /rooms/{id}/tags`. Room reader access is checked before query validation.
+        Each row's `tag` is a case- and accent-folded key for the thread list's `hashtag` filter. `threadCount` counts distinct
+        threads with at least one live message carrying that key. Sortable fields are `tag` and `threadCount`. The default is
+        `-threadCount` with ties by `tag`. The optional `q` matches a case- and accent-insensitive substring up to 50 characters.
+        Both paths share the `chat-read` rate limit and read budget.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/TagQ'
+      responses:
+        '200':
+          description: A page of the room's hashtags
           content:
             application/json:
               schema:
@@ -1877,8 +1908,9 @@ paths:
           within a key and all-of across keys (SELECT and MULTI_SELECT: an option key, one the room has since removed still finds
           the threads that kept it; USER: a user id). An unknown, RETIRED, TEXT, URL, DATE or NUMBER field key, a `field` without a
           colon and a value of the wrong shape for its type are a `400`.
-        - `tag` (repeatable, any-of, at most 10 distinct after case folding) keeps the threads that have a LIVE message carrying any of
-          the hashtags: the value is the tag as written without its `#`, or a `tag` of `GET /rooms/{id}/tags` as returned, and it is
+        - `hashtag` and `tag` (aliases, repeatable, any-of, at most 10 distinct after case folding across both names) keep the threads
+          that have a LIVE message carrying any of the hashtags. A value is the tag as written without its `#`, or a `tag` of
+          `GET /rooms/{id}/hashtags` as returned, and it is
           folded (case and accents ignored: `Wdrozenie` and `wdrożenie` are one tag). A returned key can hold punctuation and be longer
           than a written tag, so a value is 1 to 150 characters without `#` or control characters. A malformed value, or more than 10
           distinct values, is a `400`.
@@ -1908,8 +1940,8 @@ paths:
         - Rides the per-USER `chat-read` bucket of 300 per minute shared with `GET /rooms/{id}/tags` and `GET /tag-categories` (`429` beyond it; the bucket is spent
           before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
           list past it is answered `429` of type `urn:adder:problem:read-timeout` with `Retry-After: 2`, audited without the filter values.
-          At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list, the tag list and the thread read together, a read
-          waits about 1 second for a slot): past either it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
+          The caller can have at most 8 listed reads in flight, subject to a server-wide default of 8 for the shared list budget. Each
+          read waits about 1 second for a slot. If the wait runs out, it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
           (the server is loaded; retry shortly, nothing to narrow).
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -1923,6 +1955,7 @@ paths:
         - $ref: '#/components/parameters/ThreadOwnerFilter'
         - $ref: '#/components/parameters/ThreadFieldFilter'
         - $ref: '#/components/parameters/ThreadTagFilter'
+        - $ref: '#/components/parameters/ThreadHashtagFilter'
         - $ref: '#/components/parameters/ThreadCuratedTagFilter'
         - $ref: '#/components/parameters/ThreadMentionFilter'
         - $ref: '#/components/parameters/ThreadMentionsMeFilter'
@@ -1952,7 +1985,7 @@ paths:
         A MEMBER of the room (an `ADMIN` who is not a member is `403` and joins through the Members page first; a non-member is the
         uniform `404`). Checked in this order: visibility (`404`), membership (`403`), the body (`400`), then under the room lock the
         guard again (a caller removed while the write waited is refused), an archived room (`409` of type `urn:adder:problem:room-archived`)
-        and the field values (`400`).
+        and the field values and registry membership of selected tags (`400`).
 
         The thread starts in the room's initial status with the caller as its owner and the number `MAX + 1` of the room; `body`
         becomes its opening message. `title` is a single line of 1 to 200 characters; `body` is Markdown of 1 to 8,000 UTF-16 units
@@ -1963,7 +1996,11 @@ paths:
         together, and so do the notifications (`listNotifications`): every other ACTIVE member of the room gets `THREAD_CREATED`, or the most
         specific of `MENTIONED` (named with `<@id>`), `TEAM_MENTIONED` (a member of a team the body names with `<@team:id>`) and
         `HERE_MENTIONED` (an active member with a fresh visible-tab lease when `<@here>` is introduced) and `EVERYONE_MENTIONED`
-        (`<@everyone>`); `<@watchers>` in an opening message reaches nobody. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
+        (`<@everyone>`); `<@watchers>` in an opening message reaches nobody.
+
+        Optional `tags` contains curated registry names. Omission or an empty list creates an untagged thread.
+        A nonempty list commits its tag associations and a `TAGS_CHANGED` event with the creation. The new thread starts at revision 1.
+        Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
         beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The request body is at most 192 KiB (`413` beyond it)
         and `fields` holds at most 20 keys whose values are primitives, `null` or a list of at most 50 option keys (anything else, a
         nested object included, is a `400` before any lock); the stored values may not exceed 439,001 characters of JSON (`400`). The write
@@ -2070,7 +2107,7 @@ paths:
       description: |
         The thread steward (the owner while a member, a room owner, or an ADMIN with room access) deletes an open or closed thread
         in an active room. Deleting a canonical thread also deletes the conversations merged into it. The thread numbers are not reused.
-        The room write lock serializes the deletion. The per-user chat-write bucket applies.
+        The room write lock serializes the deletion and removal of saved message revisions. The per-user chat-write bucket applies.
       responses:
         '204': { description: Thread deleted }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -2616,8 +2653,9 @@ paths:
 
         The body rules are those of the post. The message's quote (`quote`) is set when it is posted and cannot be added, changed or
         removed by an edit: the request has no `quotedMessageId`, so naming one is a `400`; the quote stays through the edit. Sending the body the message already has (after normalising) is `204` with no write and
-        no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
-        order are untouched. Only the people the edit NEWLY addresses are notified: addressed by the new body, by name or through a team,
+        no audit line. Otherwise a revision preserves the previous body in the same transaction, the body is overwritten, and
+        `editedAt` is set. `messageCount` and the activity order are untouched. Only the people the edit NEWLY addresses are
+        notified: addressed by the new body, by name or through a team,
         the watchers, here or everyone, and not by the old one; team, watcher and everyone recipients are read as of the edit. A kept
         `<@here>` token preserves the recipient snapshot taken when it was introduced and addresses nobody again; removing it deletes that
         snapshot, and adding it in a later edit takes a new snapshot of recently active visible tabs. A person who held a less specific
@@ -2655,7 +2693,7 @@ paths:
         (`409` of type `urn:adder:problem:room-archived`) and a closed thread (`409` of type `urn:adder:problem:thread-closed`: a
         moderator's delete included; a steward reopens the thread, deletes and closes it again).
 
-        The body is scrubbed, the row is marked deleted and `deleted_by` records the caller. The message stays in the thread's list
+        The body is scrubbed, all revisions are removed, the row is marked deleted and `deleted_by` records the caller. The message stays in the thread's list
         as a tombstone (`deletedByModerator` tells an author's own delete from a moderator's); `messageCount` never goes down. Every
         notification about the message is deleted with it. A deleted message is `404` for every further read or write.
         Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
@@ -2667,6 +2705,38 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/messages/{messageId}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/MessageIdPath'
+    get:
+      tags: [messages]
+      operationId: listMessageRevisions
+      summary: List a message's edit history
+      description: |
+        The message's author while a room member, a room owner, or an `ADMIN` with access to the room can read prior bodies.
+        Room visibility and a live message in an active thread in that room are required (`404`).
+        Other room readers receive `403`. History is readable in closed, archived, and merged conversations when these checks pass.
+        A message with no saved history returns an empty page. Recording starts with the first real edit after the upgrade.
+        Deleting the message removes its saved bodies. Revisions never include the current body.
+        Sortable field `id`. Default `-id` (newest revision first). The route shares the `chat-read` budget and serves `Cache-Control: no-store`.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: A page of earlier message bodies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageRevisionPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
   /api/v1/rooms/{id}/messages/{messageId}/link-preview:
@@ -3768,15 +3838,30 @@ components:
       in: query
       required: false
       description: >-
-        Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as
+        Compatibility alias of `hashtag`. Repeatable - any of these hashtags, without the `#`: a tag as written, or a key of the room's list as
         returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags
         (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct
         values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to
-        at most 10.
+        at most 10 across both parameter names.
       schema:
         type: array
         minItems: 1
-        maxItems: 10
+        maxItems: 50
+        items: { type: string, minLength: 1, maxLength: 150 }
+      style: form
+      explode: true
+    ThreadHashtagFilter:
+      name: hashtag
+      in: query
+      required: false
+      description: >-
+        Repeatable any-of filter on message hashtags without the leading `#`. Values are folded for case and accents.
+        Values under `hashtag` and `tag` are combined before deduplication. The combined limit is 50 distinct raw values
+        and 10 distinct folded keys. A malformed key or exceeded limit returns `400`.
+      schema:
+        type: array
+        minItems: 1
+        maxItems: 50
         items: { type: string, minLength: 1, maxLength: 150 }
       style: form
       explode: true
@@ -5071,6 +5156,8 @@ components:
           description: The opening message, Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays.
         fields:
           $ref: '#/components/schemas/ThreadFieldValues'
+        tags:
+          $ref: '#/components/schemas/ThreadTagNames'
     ThreadUpdateRequest:
       type: object
       required: [title]
@@ -5187,10 +5274,14 @@ components:
       required: [tags]
       properties:
         tags:
-          type: array
-          maxItems: 20
-          description: 'The thread''s whole tag set (an empty list clears it). Registry names; each is normalised (trimmed, whitespace collapsed, lower-cased), must then be 1 to 40 characters of the tag grammar and a LIVE tag, and must not repeat. The raw bound only keeps a request small; a longer name is a `400` either way.'
-          items: { type: string, minLength: 1, maxLength: 200 }
+          $ref: '#/components/schemas/ThreadTagNames'
+    ThreadTagNames:
+      type: array
+      maxItems: 20
+      description: >-
+        The thread's whole curated tag set. An empty list means no tags. Registry names are trimmed, whitespace-collapsed and
+        lowercased. Each name must then be 1 to 40 characters in the tag grammar, name a live registry tag, and be unique in the list.
+      items: { type: string, minLength: 1, maxLength: 200 }
     ThreadHashtags:
       type: array
       maxItems: 20
@@ -5473,6 +5564,24 @@ components:
             $ref: '#/components/schemas/MessageResponse'
         older: { type: boolean, description: There are messages before the first returned item. }
         newer: { type: boolean, description: There are messages after the last returned item. }
+    MessageRevision:
+      type: object
+      required: [id, body, createdAt, supersededAt]
+      properties:
+        id: { type: integer, format: int32, minimum: 1 }
+        body: { type: string, minLength: 1, maxLength: 8000, description: The prior Markdown source. Render it as inert text. }
+        createdAt: { type: integer, format: int64, minimum: 0, description: Epoch milliseconds when this body became current. }
+        supersededAt: { type: integer, format: int64, minimum: 0, description: Epoch milliseconds when the next edit replaced this body. }
+    MessageRevisionPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MessageRevision' }
+        page: { type: integer, format: int32, minimum: 1 }
+        pageSize: { type: integer, format: int32, minimum: 1, maximum: 100 }
+        total: { type: integer, format: int64, minimum: 0 }
     MessageResponse:
       type: object
       required: [id, threadNumber, authorId, authorName, body, deleted, deletedByModerator, editedAt, createdAt, mentions, groupMentions, reactions, quote]

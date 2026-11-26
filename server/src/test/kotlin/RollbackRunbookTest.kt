@@ -18,7 +18,8 @@ import kotlin.test.assertTrue
  * the rollback); the unseen index comes back; the watch backfill of the way back up is idempotent.
  */
 class RollbackRunbookTest {
-    // `repo.root` is set by server/build.gradle.kts (which also declares the doc as a test input); the `..` fallback covers an IDE run.
+    // `repo.root` is set by server/test-execution.gradle.kts (which also declares the doc as a test input);
+    // the `..` fallback covers an IDE run.
     private val doc: String = File(System.getProperty("repo.root") ?: "..", ".claude/docs/persistence.md").also {
         assertTrue(it.exists(), "persistence.md not found (${it.absolutePath})")
     }.readText()

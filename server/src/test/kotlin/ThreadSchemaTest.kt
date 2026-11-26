@@ -20,7 +20,7 @@ import kotlin.test.assertTrue
 /**
  * The V14 constraints, by raw SQL (no service exists yet): the tombstone shape of `messages`, the composite status foreign key, the
  * per-room number, and the room hard-delete cascade that the `NO ACTION` foreign key must let through (`TestRooms.purge` relies on it);
- * then the V15 tag index and the V16 search columns (stored generated vectors over the accent-folding configuration, and no index on them).
+ * then the V15 tag index, the V16 stored search vectors and their later scoped indexes.
  */
 class ThreadSchemaTest {
     private companion object {
@@ -524,21 +524,48 @@ class ThreadSchemaTest {
     }
 
     @Test
-    fun `neither search vector is indexed - the match is a per-thread probe through idx_messages_thread`() {
+    fun `message search is indexed by its live per-thread expression while title search stays room-scoped`() {
         PostgresTestSupport.connect().use { c ->
-            listOf("messages", "threads").forEach { table ->
-                assertEquals(
-                    0,
-                    c.scalar(
-                        "SELECT count(*) FROM pg_index x JOIN pg_class t ON t.oid = x.indrelid " +
-                            "JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(x.indkey) " +
-                            "WHERE t.relname = '$table' AND a.attname = 'search'",
-                    ),
-                    "$table.search has no index: the search probes each searched thread's messages through idx_messages_thread " +
-                        "(a later index is a deliberate migration with its own measurement, BACKLOG.md)",
-                )
-            }
-            assertEquals(1, c.scalar("SELECT count(*) FROM pg_class WHERE relname = 'idx_messages_thread'"), "the probe's index exists")
+            val definition = c.text("SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_messages_thread_search_live'")!!
+            assertTrue("USING gist (thread_id, COALESCE(search, ''::tsvector))" in definition, definition)
+            assertTrue("WHERE (NOT marked_as_deleted)" in definition, definition)
+            assertEquals(
+                0,
+                c.scalar(
+                    "SELECT count(*) FROM pg_index x JOIN pg_class t ON t.oid = x.indrelid " +
+                        "JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(x.indkey) " +
+                        "WHERE t.relname = 'threads' AND a.attname = 'search'",
+                ),
+                "title search stays a filter on the room-led thread index",
+            )
+        }
+    }
+
+    @Test
+    fun `canonical field filters use the room-scoped jsonb index in custom and generic plans`() {
+        PostgresTestSupport.connect().use { c ->
+            val definition = c.text("SELECT indexdef FROM pg_indexes WHERE indexname = 'idx_threads_room_fields_canonical'")!!
+            assertTrue("USING gin (room_id, fields jsonb_path_ops)" in definition, definition)
+            assertTrue("(NOT marked_as_deleted)" in definition, definition)
+            assertTrue("(merged_into_thread_number IS NULL)" in definition, definition)
+        }
+        val sql = "SELECT id FROM threads WHERE room_id = ? AND NOT marked_as_deleted " +
+            "AND merged_into_thread_number IS NULL AND (fields @> ? OR fields @> ?) AND fields @> ?"
+        for (mode in listOf("auto", "force_generic_plan")) {
+            val plan = explain(
+                sql,
+                "int4, jsonb, jsonb, jsonb",
+                "1, '{\"severity\":\"s1\"}', '{\"severity\":\"s2\"}', '{\"labels\":[\"backend\"]}'",
+                mode,
+                before = "ALTER TABLE threads DROP CONSTRAINT fk_threads_merged_into; " +
+                    "DROP INDEX uq_threads_room_number; DROP INDEX idx_threads_room_activity; " +
+                    "DROP INDEX idx_threads_room_status; DROP INDEX idx_threads_marked_as_deleted; " +
+                    "SET LOCAL enable_seqscan = off",
+                restrictPlanner = false,
+            )
+            assertTrue("idx_threads_room_fields_canonical" in plan, "$mode: the composite GIN serves the filter:\n$plan")
+            assertTrue(Regex("Index Cond:.*room_id").containsMatchIn(plan), "$mode: room scope is in the index condition:\n$plan")
+            assertTrue("Seq Scan on threads" !in plan, "$mode: it never scans threads globally:\n$plan")
         }
     }
 

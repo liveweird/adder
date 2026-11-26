@@ -102,6 +102,6 @@ class AnonymousAccessTest {
          * The exact count excludes the eight public operations (`security: []`). Pin it so an operation that silently
          * drops out of the sweep, or lands without an explicit count update, fails here.
          */
-        const val SECURED_OPERATIONS = 93
+        const val SECURED_OPERATIONS = 95
     }
 }

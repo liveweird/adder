@@ -51,6 +51,10 @@ to be a routine denial path).
 
 **Spans carry an exception's type only.** The Ktor instrumentation records the RAW throwable of a failed request (`Span.recordException`: `exception.message` and `exception.stacktrace` with every "Caused by" message). `core`'s `getOpenTelemetry` wraps whichever exporter `OTEL_TRACES_EXPORTER` selects in `ScrubbedSpanExporter` (`addSpanExporterCustomizer`), which drops those two attributes from every span event, empties a span status description and drops the request's query string (`url.query`, with the full-URL spellings `url.full`, `http.url`, `http.target`: it holds what a user typed into a search or a filter); `exception.type` and every other attribute stay. Pinned by `ScrubbedSpanExporterTest` (the wrapper, and the real `getOpenTelemetry` wiring through a test-only exporter SPI). The OTel logs appender needs no wrapper: the 500 catch-all hands it the scrubbed throwable.
 
+Closed response channels produce a DEBUG line with the method, path and exception class. Coroutine cancellation propagates to the
+engine. SQL statement timeouts and unexpected failures keep their existing error handling. The edit-history list uses the shared
+read budget and reports the resource as `revisions`. Saved bodies stay out of audit events.
+
 **Database connection guards (WARN logs, no audit event; `persistence.md` "Connection pool").** Logger
 `ch.nokillswit.infra.db.LeakedSocketGuard`: `closed the socket of a broken database connection the driver had left open (backend pid
 <pid>; its transaction rolls back)` each time the guard disposes a socket r2dbc-postgresql gave up on without closing (the r2dbc-postgresql
@@ -115,6 +119,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   `password_reset.completed` (userId, `lockoutCleared` - the confirm; true when it also lifted a held failure counter, lock or MFA escalation level of the account, `security.md`) / `password_reset.notification_failed` (userId/errorType - the post-reset
   notice; the reset stands) - the self-service reset trail, none of it carrying a token or a password; the async task's events
   double as test barriers,
+- `password.change_notification_failed` (userId/errorType) records a delivery failure for a password-change receipt. The committed password change stands; credentials and the mail provider’s error text stay out of the log.
 - `refresh.rejected` (with `reason`: invalid_or_expired/wrong_token_type/revoked/malformed/
   user_gone/credential_changed/replayed — `replayed` is a rotated refresh token presented again after the replay grace,
   `revoked` a logout-revoked one or a rotation this instance no longer remembers),

@@ -51,7 +51,7 @@ object PostgresTestSupport {
      * cannot be cancelled, so one half-dead connection hung a CI job to its 25-minute timeout (the 2026-10-17
      * `DimDateContentionTest` stall). The bounds sit far above any legitimate statement here (the slowest is a
      * blocked row lock, tens of seconds on a slow runner) and BELOW the test task's stall watchdog
-     * (`-PtestStallMinutes`, default 5 min in `server/build.gradle.kts`), so a dead socket fails the one test with
+     * (`-PtestStallMinutes`, default 5 min in `server/test-execution.gradle.kts`), so a dead socket fails the one test with
      * its own stack trace instead of being killed as a hung fork.
      */
     fun connect(): java.sql.Connection = connectTo(jdbcUrl)

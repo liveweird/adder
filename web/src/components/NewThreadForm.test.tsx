@@ -74,6 +74,12 @@ function renderFormWithElsewhere() {
   );
 }
 
+function serveTags(mockFetch: ReturnType<typeof vi.fn>, fallback: (url: string, init?: RequestInit) => Promise<Response>, tags: string[]) {
+  mockFetch.mockImplementation((url: string, init?: RequestInit) => url.startsWith("/api/v1/tag-categories?")
+    ? Promise.resolve(jsonResponse(200, { items: [{ id: 2, name: "Area", tags, revision: 1 }], page: 1, pageSize: 100, total: 1 }))
+    : fallback(url, init));
+}
+
 describe("NewThreadForm", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   const posts = () => mockFetch.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "POST");
@@ -126,6 +132,22 @@ describe("NewThreadForm", () => {
       body: "db-3 is at 100%",
       fields: { severity: "s2", component: "db" },
     });
+  });
+
+  test("registry tags can be picked before the thread is started", async () => {
+    serve();
+    const defaults = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    serveTags(mockFetch, defaults, ["backend", "frontend"]);
+    const user = userEvent.setup();
+    renderForm();
+    await fillRequired(user);
+    await user.click(screen.getByRole("combobox", { name: /Severity/ }));
+    await user.click(await screen.findByRole("option", { name: "S1" }));
+    await user.click(screen.getByRole("combobox", { name: /^Tags/ }));
+    await user.click(await screen.findByRole("option", { name: "backend" }));
+    await user.click(screen.getByRole("button", { name: "Start thread" }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(JSON.parse((posts()[0][1] as RequestInit).body as string)).toMatchObject({ tags: ["backend"] });
   });
 
   test("the opening message takes a mention: the box shows the name and the thread starts with the token", async () => {
@@ -333,6 +355,22 @@ describe("NewThreadForm", () => {
     expect(screen.getByRole("textbox", { name: /First message/ })).toHaveValue("db-3 is at 100%");
     expect(screen.getByRole("combobox", { name: /Severity/ })).toHaveValue("S2");
     // It is still a draft to protect: Cancel asks before throwing it away.
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByText("Discard changes?")).toBeInTheDocument();
+  });
+
+  test("a tag-only draft is retained when the form is left and reopened", async () => {
+    serve();
+    const defaults = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    serveTags(mockFetch, defaults, ["backend"]);
+    const user = userEvent.setup();
+    renderFormWithElsewhere();
+    await user.click(await screen.findByRole("combobox", { name: /^Tags/ }));
+    await user.click(await screen.findByRole("option", { name: "backend" }));
+    await user.click(screen.getByRole("link", { name: "to a tab" }));
+    await user.click(await screen.findByRole("link", { name: "to the form" }));
+    await screen.findByRole("combobox", { name: /^Tags/ });
+    expect(screen.getAllByText("backend").some((node) => node.classList.contains("mantine-Pill-label"))).toBe(true);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(await screen.findByText("Discard changes?")).toBeInTheDocument();
   });

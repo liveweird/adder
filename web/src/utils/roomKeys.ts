@@ -58,6 +58,11 @@ export const roomKeys = {
   threadWatchers: (room: number, thread: number) => ["rooms", "threads", room, "watchers", thread] as const,
   threadEvents: (room: number, thread: number) => ["rooms", "threads", room, "events", thread] as const,
   messages: (room: number, thread: number) => ["rooms", "threads", room, "messages", thread] as const,
+  /** Sensitive, on-demand prior message bodies. A page number is appended by the dialog. */
+  messageRevisionRoom: (room: number) => ["rooms", "threads", room, "message-revisions"] as const,
+  messageRevisions: (room: number, thread: number, messageId?: number) => messageId === undefined
+    ? [...roomKeys.messageRevisionRoom(room), thread] as const
+    : [...roomKeys.messageRevisionRoom(room), thread, messageId] as const,
   messageContext: (room: number, thread: number, messageId: number | null) => [...roomKeys.messages(room, thread), "context", messageId] as const,
   /** A source-addressed message used only to revalidate a quote draft before its destination composer exposes the excerpt. */
   quoteSource: (room: number, messageId: number) => [...roomKeys.threads(room), "quote-source", messageId] as const,

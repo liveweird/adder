@@ -65,6 +65,9 @@ class MessageTagsTest {
 
     private suspend fun HttpClient.tags(room: UInt, query: String = ""): RoomTagPageResponse = get("$rooms/$room/tags$query").body()
 
+    private suspend fun HttpClient.hashtags(room: UInt, query: String = ""): RoomTagPageResponse =
+        get("$rooms/$room/hashtags$query").body()
+
     private fun tagsOf(messageId: UInt): List<String> = PostgresTestSupport.connect().use { c ->
         c.prepareStatement("SELECT tag FROM message_tags WHERE message_id = ? ORDER BY tag").use { st ->
             st.setInt(1, messageId.toInt())
@@ -355,6 +358,46 @@ class MessageTagsTest {
         assertEquals(HttpStatusCode.OK, owner.get("$rooms/${cast.room}/threads?" + (1..10).joinToString("&") { "tag=t$it" }).status)
         assertEquals(HttpStatusCode.OK, owner.get("$rooms/${cast.room}/threads?tag=a&tag=A&tag=a").status, "duplicates collapse")
         assertEquals(HttpStatusCode.NotFound, cast.outsider.client.get("$rooms/${cast.room}/threads?tag=%23bad").status)
+    }
+
+    @Test
+    fun `hashtag is a combined alias of tag with shared raw and folded bounds`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("tag-alias")
+        TestThreads.seed(cast.room, cast.member.id)
+        TestThreads.seed(cast.room, cast.member.id)
+        cast.member.client.post(cast.room, 1, "#alpha")
+        cast.member.client.post(cast.room, 2, "#beta")
+        val owner = cast.owner.client
+
+        assertEquals(listOf(1), owner.threadNumbers(cast.room, "?hashtag=ALPHA"))
+        assertEquals(listOf(1, 2), owner.threadNumbers(cast.room, "?tag=alpha&hashtag=beta"))
+        assertEquals(listOf(1), owner.threadNumbers(cast.room, "?tag=alpha&hashtag=ALPHA"), "aliases deduplicate after folding")
+        val elevenFolded = (1..6).joinToString("&") { "tag=t$it" } + "&" +
+            (7..11).joinToString("&") { "hashtag=t$it" }
+        assertEquals(HttpStatusCode.BadRequest, owner.get("$rooms/${cast.room}/threads?$elevenFolded").status)
+        val fiftyOneRaw = (1..25).joinToString("&") { "tag=raw$it" } + "&" +
+            (26..51).joinToString("&") { "hashtag=raw$it" }
+        assertEquals(HttpStatusCode.BadRequest, owner.get("$rooms/${cast.room}/threads?$fiftyOneRaw").status)
+        assertEquals(HttpStatusCode.BadRequest, owner.get("$rooms/${cast.room}/threads?hashtag=%23bad").status)
+        assertEquals(HttpStatusCode.NotFound, cast.outsider.client.get("$rooms/${cast.room}/threads?hashtag=%23bad").status)
+    }
+
+    @Test
+    fun `hashtags list path is the tags path alias with the same guards and query behavior`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("tag-path-alias")
+        TestThreads.seed(cast.room, cast.member.id)
+        cast.member.client.post(cast.room, 1, "#alpha #beta")
+        val query = "?q=alp&pageSize=1&sort=tag"
+
+        assertEquals(cast.owner.client.tags(cast.room, query), cast.owner.client.hashtags(cast.room, query))
+        assertEquals(HttpStatusCode.NotFound, cast.outsider.client.get("$rooms/${cast.room}/hashtags").status)
+        assertEquals(
+            HttpStatusCode.NotFound,
+            cast.outsider.client.get("$rooms/${cast.room}/hashtags?q=${"a".repeat(80)}").status,
+            "visibility is checked before the shared query validation",
+        )
     }
 
     @Test

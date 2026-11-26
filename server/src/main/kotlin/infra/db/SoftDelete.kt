@@ -18,6 +18,22 @@ interface SoftDeletable {
 /** The rows that still exist, in the business sense. */
 fun SoftDeletable.active(): Op<Boolean> = markedAsDeleted eq false
 
+/**
+ * The active-row predicate as trusted SQL text, for a query that must prove a partial index's literal
+ * `WHERE NOT marked_as_deleted` predicate under PostgreSQL's generic-plan rules. [active] normally binds
+ * `false`, which is correct but cannot imply that predicate until execution. This expression contains only
+ * a schema-owned [Column], never request data; values still belong in bound arguments.
+ */
+fun SoftDeletable.activeForPartialIndex(): Op<Boolean> {
+    val column = markedAsDeleted
+    return object : Op<Boolean>() {
+        override fun toQueryBuilder(queryBuilder: QueryBuilder) {
+            queryBuilder.append("NOT ")
+            queryBuilder.append(column)
+        }
+    }
+}
+
 /** The rows that were soft-deleted (the purge sweep's candidates). */
 fun SoftDeletable.deleted(): Op<Boolean> = markedAsDeleted eq true
 

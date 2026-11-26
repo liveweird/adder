@@ -28,8 +28,8 @@ export type FieldDraft =
   | { kind: "multi"; value: string[] }
   | { kind: "user"; value: PickedOption | null };
 
-/** The new-thread form: a title, the opening message (Markdown) and a draft per workflow field, keyed by the field's key. */
-export type ThreadFormValues = { title: string; body: string; fields: Record<string, FieldDraft> };
+/** The new-thread form: a title, opening message, curated tags and a draft per workflow field, keyed by the field's key. */
+export type ThreadFormValues = { title: string; body: string; tags: string[]; fields: Record<string, FieldDraft> };
 
 export function emptyFieldDraft(field: Pick<WorkflowField, "type">): FieldDraft {
   if (field.type === "MULTI_SELECT") return { kind: "multi", value: [] };
@@ -38,7 +38,7 @@ export function emptyFieldDraft(field: Pick<WorkflowField, "type">): FieldDraft 
 }
 
 export function emptyThreadForm(fields: readonly WorkflowField[]): ThreadFormValues {
-  return { title: "", body: "", fields: Object.fromEntries(fields.map((field) => [field.key, emptyFieldDraft(field)])) };
+  return { title: "", body: "", tags: [], fields: Object.fromEntries(fields.map((field) => [field.key, emptyFieldDraft(field)])) };
 }
 
 /** Whether the draft holds nothing (a blank string, no option, nobody): such a field is left out of the request. */
@@ -166,14 +166,19 @@ export function draftValue(field: WorkflowField, draft: FieldDraft): ThreadField
   return field.type === "URL" ? (normalizedHttpUrl(text) ?? text) : text;
 }
 
-/** The create request: the trimmed title, the normalised body and only the fields that hold something. */
+/** The create request: the trimmed title, normalised body, chosen tags and only the fields that hold something. */
 export function toThreadCreateBody(values: ThreadFormValues, fields: readonly WorkflowField[]): ThreadCreateBody {
   const set: ThreadFieldValues = {};
   for (const field of fields) {
     const draft = values.fields[field.key];
     if (!isUnsetDraft(draft)) set[field.key] = draftValue(field, draft);
   }
-  return { title: values.title.trim(), body: normalizeBody(values.body), ...(Object.keys(set).length > 0 ? { fields: set } : {}) };
+  return {
+    title: values.title.trim(),
+    body: normalizeBody(values.body),
+    ...(values.tags.length > 0 ? { tags: values.tags } : {}),
+    ...(Object.keys(set).length > 0 ? { fields: set } : {}),
+  };
 }
 
 /** Whether a 400's problem `detail` is about a field of the room's workflow ("Field 'x' is required", "Unknown field 'x'", "Field 'x' is retired"). */
@@ -199,9 +204,9 @@ export function threadCreateErrorMessage(err: unknown, t: TFunction): string {
   return withServerDetail(message, err);
 }
 
-/** Whether the draft holds nothing at all (no title, no message, no field): such a form is clean, and nothing is kept for it. */
+/** Whether the draft holds nothing at all (no title, message, tag or field): such a form is clean, and nothing is kept for it. */
 export function isThreadDraftEmpty(values: ThreadFormValues): boolean {
-  return values.title.trim() === "" && values.body.trim() === "" && Object.values(values.fields).every(isUnsetDraft);
+  return values.title.trim() === "" && values.body.trim() === "" && values.tags.length === 0 && Object.values(values.fields).every(isUnsetDraft);
 }
 
 /** A kept draft laid over the room's current fields: a field that is gone is dropped, a new one starts empty, and a changed type starts over. */
@@ -212,5 +217,5 @@ export function reconcileThreadDraft(kept: ThreadFormValues | null, fields: read
     const earlier = kept.fields[field.key];
     return [field.key, earlier !== undefined && earlier.kind === empty.fields[field.key].kind ? earlier : empty.fields[field.key]];
   }));
-  return { title: kept.title, body: kept.body, fields: merged };
+  return { title: kept.title, body: kept.body, tags: kept.tags ?? [], fields: merged };
 }

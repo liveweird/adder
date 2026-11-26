@@ -35,6 +35,8 @@ import ch.nokillswit.threads.MessageLinkPreviewService
 import ch.nokillswit.threads.MessageLinkPreviewServiceKey
 import ch.nokillswit.threads.MessageReactionService
 import ch.nokillswit.threads.MessageReactionServiceKey
+import ch.nokillswit.threads.MessageRevisionService
+import ch.nokillswit.threads.MessageRevisionServiceKey
 import ch.nokillswit.threads.MessageService
 import ch.nokillswit.threads.MessageServiceKey
 import ch.nokillswit.threads.MessageTagService
@@ -139,7 +141,6 @@ internal fun Application.publishChatServices(
         pushAvailable = browserPushConfig != null,
     )
     val roomMemberService = RoomMemberService(database, teamService, noticeWriter)
-    attributes.put(ThreadLifecycleServiceKey, ThreadLifecycleService(database, threadEventService, noticeWriter))
     attributes.put(ThreadMuteServiceKey, ThreadMuteService(database, roomMemberService))
     attributes.put(RoomMemberServiceKey, roomMemberService)
     attributes.put(RoomEnrollmentServiceKey, RoomEnrollmentService(database, noticeWriter))
@@ -156,6 +157,7 @@ internal fun Application.publishChatServices(
     val foregroundPresence = ForegroundPresence()
     attributes.put(ForegroundPresenceKey, foregroundPresence)
     val messageMentionService = MessageMentionService(roomMemberService, noticeWriter, threadWatchService, teamService, foregroundPresence)
+    val messageRevisionService = publishRevisionServices(database, roomService, readLimiter, threadEventService, noticeWriter)
     // Home is a read-only top-layer projection over rooms and threads. It shares the bounded, chat-read-bucketed list limiter.
     attributes.put(HomeServiceKey, HomeService(database, messageMentionService, readLimiter))
     // The reactions (V20) are read by the message reads and clear a deleted message's rows as a follower, which the service always runs.
@@ -163,7 +165,7 @@ internal fun Application.publishChatServices(
     attributes.put(MessageReactionServiceKey, reactionService)
     val messageService = MessageService(
         database, roomService, messageTagService, messageMentionService,
-        listOf(threadWatchService.replyFollower, PinCleanup()), reactionService, threadReadLimiter,
+        listOf(threadWatchService.replyFollower, PinCleanup()), reactionService, threadReadLimiter, messageRevisionService,
     )
     attributes.put(MessageServiceKey, messageService)
     attributes.put(MessageLinkPreviewServiceKey, MessageLinkPreviewService(roomService, messageService))
@@ -208,4 +210,16 @@ internal fun Application.publishChatServices(
     )
     // The workflow's thread-usage port (S6): rooms/ declares it and never imports threads/, so this root registers the implementation.
     attributes.put(WorkflowUsageKey, ThreadWorkflowUsage(roomWorkflowService, threadEventService))
+}
+
+/** Publishes the saved-body service and the lifecycle writer that physically scrubs it. */
+private fun Application.publishRevisionServices(
+    database: R2dbcDatabase,
+    roomService: RoomService,
+    readLimiter: ReadLimiter,
+    events: ThreadEventService,
+    notices: NoticeWriter,
+): MessageRevisionService = MessageRevisionService(database, roomService, readLimiter).also { revisions ->
+    attributes.put(MessageRevisionServiceKey, revisions)
+    attributes.put(ThreadLifecycleServiceKey, ThreadLifecycleService(database, events, notices, revisions))
 }

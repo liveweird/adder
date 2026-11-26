@@ -548,7 +548,7 @@ class GlobalSearchTest {
      * log shows what is sent.
      */
     @Test
-    fun `the thread statements restrict by room first and probe messages without EXISTS or the GIN index`() = testApplication {
+    fun `the thread statements restrict by room first and probe messages through the scoped search index`() = testApplication {
         usePostgresTestcontainer()
         val term = word("kappa")
         val ann = actor("gs-shape")
@@ -563,7 +563,9 @@ class GlobalSearchTest {
             assertEquals(2, statements.size, "the count and the page: $statements")
             statements.forEach { sql ->
                 assertTrue("threads.room_id = ANY(CAST(" in sql, sql)
-                assertGenericPlanProbesThroughThreadIndex(sql.removePrefix("Executing query: "))
+                assertTrue("NOT messages.marked_as_deleted" in sql, "the partial-index predicate is a SQL literal: $sql")
+                assertTrue("messages.marked_as_deleted =" !in sql, "the live probe is not a generic-plan parameter: $sql")
+                assertGenericPlanProbesThroughScopedSearchIndex(sql.removePrefix("Executing query: "))
                 assertTrue("LIMIT 1) IS NOT NULL" in sql && "EXISTS" !in sql.uppercase(), sql)
                 assertTrue("COALESCE(messages.search, ''::tsvector) @@" in sql, "the probe never names the bare column: $sql")
             }
@@ -574,26 +576,33 @@ class GlobalSearchTest {
     }
 
     /**
-     * The probe's plan, from the statement the driver really sent, as a PREPARED statement's GENERIC plan (what a pooled connection
-     * uses from its sixth run) with sequential scans off: it must reach the messages through `idx_messages_thread` and must not be a
-     * hashed subplan (a table-wide read). Both are plan-shape facts, not timings: they hold on any table size.
+     * Test that the driver-emitted generic plan can use V48 with both keys. The small shared fixture can favor the ordinary thread index
+     * depending on table statistics, so temporarily remove that competing access path inside the rolled-back test transaction.
      */
-    private fun assertGenericPlanProbesThroughThreadIndex(sql: String) {
+    private fun assertGenericPlanProbesThroughScopedSearchIndex(sql: String) {
         PostgresTestSupport.connect().use { c ->
             c.autoCommit = false
             try {
                 c.createStatement().use { st ->
                     st.execute("SET LOCAL plan_cache_mode = force_generic_plan")
                     st.execute("SET LOCAL enable_seqscan = off")
-                    st.execute("PREPARE probe_plan(int4[], boolean, text, boolean, text) AS $sql")
+                    st.execute("DROP INDEX idx_messages_thread")
+                    st.execute("PREPARE probe_plan(int4[], boolean, text, text) AS $sql")
                     val plan = buildString {
-                        st.executeQuery("EXPLAIN EXECUTE probe_plan('{1,2}', false, 'word', false, 'word')").use { rs ->
+                        st.executeQuery("EXPLAIN EXECUTE probe_plan('{1,2}', false, 'word', 'word')").use { rs ->
                             while (rs.next()) appendLine(rs.getString(1))
                         }
                     }
-                    assertTrue("idx_messages_thread" in plan, "the probe reaches messages through its thread index:\n$plan")
+                    assertTrue(
+                        "idx_messages_thread_search_live" in plan,
+                        "the probe reaches messages through the live thread-and-vector index:\n$plan",
+                    )
+                    assertTrue(
+                        plan.lineSequence().any { "Index Cond:" in it && "thread_id" in it && "COALESCE" in it },
+                        "the thread and vector are conditions on the same index probe:\n$plan",
+                    )
                     assertTrue("hashed SubPlan" !in plan, "no hashed (table-wide) subplan:\n$plan")
-                    assertTrue("idx_messages_search" !in plan, "no index on the vector is in the plan:\n$plan")
+                    assertTrue("Seq Scan on messages" !in plan, "no table-wide message scan:\n$plan")
                 }
             } finally {
                 c.rollback()

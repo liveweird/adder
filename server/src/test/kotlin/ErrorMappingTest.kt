@@ -4,7 +4,9 @@ import ch.nokillswit.authz.ConflictException
 import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.plugins.configureErrorHandling
+import ch.nokillswit.plugins.isClientAbort
 import ch.nokillswit.plugins.respondProblem
+import ch.qos.logback.classic.Logger
 import com.auth0.jwt.JWT
 import io.ktor.client.request.get
 import io.ktor.client.statement.HttpResponse
@@ -18,6 +20,9 @@ import io.ktor.server.routing.routing
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import io.r2dbc.spi.R2dbcNonTransientResourceException
+import io.ktor.util.cio.ChannelWriteException
+import io.ktor.utils.io.ClosedByteChannelException
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.exceptions.ExposedSQLException
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
@@ -59,6 +64,7 @@ class ErrorMappingTest {
             }
             get("/probe/other") { throw r2dbc("40001", "could not serialize SECRET-VALUE") }
             get("/probe/exposed") { throw exposed(r2dbc("22021")) }
+            get("/probe/client-abort") { throw ChannelWriteException("gone", ClosedByteChannelException()) }
             get("/probe/forbidden") { throw ForbiddenException("not yours") }
             get("/probe/forbidden-authenticated") {
                 val token = JWT.create().withClaim("userId", 7L).sign(com.auth0.jwt.algorithms.Algorithm.HMAC256("secret"))
@@ -74,6 +80,27 @@ class ErrorMappingTest {
     }
 
     private suspend fun HttpResponse.problem(): ProblemDetail = problemJson.decodeFromString(bodyAsText())
+
+    @Test
+    fun `only known closed response channels classify as client aborts`() {
+        assertTrue(!CancellationException("cancelled").isClientAbort(), "coroutine cancellation is propagated separately")
+        assertTrue(ClosedByteChannelException().isClientAbort())
+        assertTrue(ChannelWriteException("gone", ClosedByteChannelException()).isClientAbort())
+        assertTrue(RuntimeException("wrapper", ClosedByteChannelException()).isClientAbort())
+        assertTrue(!r2dbc("57014", "statement timeout").isClientAbort(), "a cancelled database statement remains a real 500")
+        assertTrue(!IllegalStateException("bug").isClientAbort(), "an internal failure remains a real 500")
+    }
+
+    @Test
+    fun `a closed response channel does not produce an unhandled exception error`() = probe {
+        val capture = LogCapture(Logger.ROOT_LOGGER_NAME)
+        try {
+            client.get("/probe/client-abort")
+            assertTrue(capture.events.none { it.message.startsWith("Unhandled exception while processing") })
+        } finally {
+            capture.detach()
+        }
+    }
 
     @Test
     fun `a conflict names the instance it collides with, and a problem without a detail says the status description`() = probe {

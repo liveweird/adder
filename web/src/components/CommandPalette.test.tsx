@@ -53,6 +53,16 @@ describe("CommandPalette", () => {
     expect(screen.queryByRole("button", { name: /^Users$/ })).not.toBeInTheDocument();
   });
 
+  test("the room organizer stays discoverable in the palette", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const user = userEvent.setup();
+    renderPalette();
+    palette.open();
+    await user.type(await screen.findByRole("textbox"), "organize");
+    await user.click(screen.getByRole("button", { name: "Organize rooms" }));
+    expect(await screen.findByText("at /rooms/organize")).toBeInTheDocument();
+  });
+
   test("an admin session's palette includes the Administration pages, and a pick navigates", async () => {
     localStorage.setItem("adder.auth.roles", JSON.stringify(["ADMIN"]));
     vi.stubGlobal("fetch", vi.fn());

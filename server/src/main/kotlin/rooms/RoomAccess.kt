@@ -18,8 +18,11 @@ import ch.nokillswit.authz.requireRoomReader
  * `requireRoomManager` on the returned standing next, which keeps the documented order: 401, visibility (404), role (403), then header
  * and body (400).
  */
-internal suspend fun RoomService.visibleStanding(caller: CallerPrincipal, roomId: UInt): RoomStanding {
-    val standing = standing(roomId, caller.userId)
+internal suspend fun RoomService.visibleStanding(caller: CallerPrincipal, roomId: UInt): RoomStanding =
+    auditAndRequireRoomReader(caller, roomId, standing(roomId, caller.userId))
+
+/** Apply the normal room visibility audit to a standing read inside a bounded transaction. */
+internal fun RoomService.auditAndRequireRoomReader(caller: CallerPrincipal, roomId: UInt, standing: RoomStanding?): RoomStanding {
     if (
         standing != null && standing.role == null &&
         (!caller.isAdmin() || standing.accessType == RoomAccessType.RESTRICTED_HIDDEN)

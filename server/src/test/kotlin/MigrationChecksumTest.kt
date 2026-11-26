@@ -67,6 +67,10 @@ class MigrationChecksumTest {
         "V44__browser_push_subscriptions.sql" to 1840861196,
         "V45__reaction_notifications.sql" to 372869932,
         "V46__thread_lifecycle.sql" to 175696962,
+        "V47__message_edit_history.sql" to -377186130,
+        "V48__index_message_search_by_thread.sql" to -431511298,
+        "V49__index_canonical_thread_fields_by_room.sql" to 646060412,
+        "V50__index_deleted_messages_for_boot_purge.sql" to -923612618,
     )
 
     @Test

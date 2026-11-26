@@ -5,6 +5,7 @@ import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.authz.requireThreadSteward
+import ch.nokillswit.infra.JsonInt
 import ch.nokillswit.infra.db.EVENT_LOG_DEFAULT_SORT
 import ch.nokillswit.infra.db.EVENT_LOG_SORT_FIELDS
 import ch.nokillswit.infra.db.orVanished
@@ -70,6 +71,11 @@ class ThreadsRoute(val parent: RoomsRoute.Id) {
 @Resource("tags")
 class RoomTagsRoute(val parent: RoomsRoute.Id)
 
+/** `/api/v1/rooms/{id}/hashtags`: the clearer path alias of [RoomTagsRoute]. */
+@Serializable
+@Resource("hashtags")
+class RoomHashtagsRoute(val parent: RoomsRoute.Id)
+
 fun Application.configureThreadRoutes() {
     val roomService = attributes[RoomServiceKey]
     val threadService = attributes[ThreadServiceKey]
@@ -96,7 +102,7 @@ fun Application.configureThreadRoutes() {
 }
 
 @Serializable
-private data class ThreadMergeRequest(val targetNumber: Int)
+private data class ThreadMergeRequest(val targetNumber: JsonInt)
 
 private fun Route.threadLifecycle(roomService: RoomService, threads: ThreadService, lifecycle: ThreadLifecycleService) {
     rateLimit(RateLimitName(RateLimits.CHAT_WRITE)) {
@@ -181,21 +187,29 @@ private fun Parameters.historyWindow(): LongRange? {
 }
 
 /**
- * `GET /rooms/{id}/tags` (reader, the per-USER `chat-read` bucket shared with the thread list): the guard order of every read - 401,
- * the bucket, visibility (404), then the `400`s (paging, then the substring). The substring is at most [MAX_TAG_FILTER_LENGTH]
- * characters (a longer one could match no tag).
+ * `GET /rooms/{id}/tags` and its `/hashtags` alias (reader, one per-USER `chat-read` bucket shared with the thread list): the guard order
+ * of every read - 401, the bucket, visibility (404), then the `400`s (paging, then the substring). The substring is at most
+ * [MAX_TAG_FILTER_LENGTH] characters (a longer one could match no tag). Both registrations call one handler so their behavior cannot
+ * drift.
  */
 private fun Route.roomTags(roomService: RoomService, tagService: MessageTagService) {
     rateLimit(RateLimitName(RateLimits.CHAT_READ)) {
         get<RoomTagsRoute> { route ->
-            val caller = call.caller()
-            roomService.visibleStanding(caller, route.parent.id)
-            val paging = call.parsePaging(sortable = ROOM_TAG_SORT_FIELDS, defaultSort = ROOM_TAG_DEFAULT_SORT)
-            val q = call.request.queryParameters.optionalBoundedString("q", MAX_TAG_FILTER_LENGTH)
-            val result = tagService.list(caller.userId, route.parent.id, RoomTagListFilter(q), paging)
-            call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+            call.respondRoomTags(route.parent.id, roomService, tagService)
+        }
+        get<RoomHashtagsRoute> { route ->
+            call.respondRoomTags(route.parent.id, roomService, tagService)
         }
     }
+}
+
+private suspend fun ApplicationCall.respondRoomTags(roomId: UInt, roomService: RoomService, tagService: MessageTagService) {
+    val caller = caller()
+    roomService.visibleStanding(caller, roomId)
+    val paging = parsePaging(sortable = ROOM_TAG_SORT_FIELDS, defaultSort = ROOM_TAG_DEFAULT_SORT)
+    val q = request.queryParameters.optionalBoundedString("q", MAX_TAG_FILTER_LENGTH)
+    val result = tagService.list(caller.userId, roomId, RoomTagListFilter(q), paging)
+    respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
 }
 
 /** The per-USER `chat-post` bucket (120/min, shared with the message POST), inside `authenticate`, before every guard. */

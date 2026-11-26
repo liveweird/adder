@@ -4,17 +4,20 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.auth.AccountGuess
 import ch.nokillswit.auth.LoginThrottle
 import ch.nokillswit.auth.hashPassword
+import ch.nokillswit.auth.notifyPasswordChanged
 import ch.nokillswit.auth.verifyPassword
 import ch.nokillswit.authz.ForbiddenException
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireSelfOrAdmin
+import ch.nokillswit.infra.mail.mailer
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.resources.put
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import kotlinx.coroutines.launch
 
 /** `password.change_rejected_locked`: a self password change refused because the account is locked out (`security.md`). */
 private const val EVENT_PASSWORD_CHANGE_REJECTED_LOCKED = "password.change_rejected_locked"
@@ -69,12 +72,19 @@ internal fun Route.userPassword(userService: UserService, loginThrottle: LoginTh
         }
         validatePassword(req.password)
         userService.updatePassword(route.parent.id, hashPassword(req.password)).orNotFound("User")
+        val selfChange = caller.userId == route.parent.id
         audit(
             "password.changed",
             "targetUserId" to route.parent.id.toLong(),
             "byUserId" to caller.userId.toLong(),
-            "selfChange" to (caller.userId == route.parent.id),
+            "selfChange" to selfChange,
         )
+        // updatePassword owns and completes the credential transaction before returning. The mandatory receipt bypasses ordinary
+        // notification preferences and runs afterwards; a disabled transport skips it, and a delivery failure cannot change the 204.
+        call.application.mailer()?.let { mailer ->
+            val app = call.application
+            app.launch { notifyPasswordChanged(app, userService, mailer, route.parent.id, selfChange) }
+        }
         call.respond(HttpStatusCode.NoContent)
     }
 }

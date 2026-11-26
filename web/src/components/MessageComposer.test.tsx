@@ -262,6 +262,17 @@ describe("MessageComposer", () => {
     expect(JSON.parse((message?.[1] as RequestInit).body as string)).toEqual({ body: "Please review <@91>" });
   });
 
+  test("cancelling add and mention returns focus to its opener", async () => {
+    const user = userEvent.setup();
+    renderComposer({ room: makeRoom({ role: "OWNER" }) });
+    const opener = screen.getByRole("button", { name: "Add and mention" });
+
+    await user.click(opener);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
   test("a draft survives the thread being closed and reopened", async () => {
     const user = userEvent.setup();
     renderWithProviders(<Harness />);

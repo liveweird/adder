@@ -75,10 +75,16 @@ internal fun ThreadRow.requireUnmerged() {
 }
 
 /**
- * The message row as a write under the room lock sees it: who wrote it, what it says now and the grammar version its hashtags were
- * indexed under (a deleted message is never read here).
+ * The message row as a write under the room lock sees it: author, current body and its current-since stamp, plus the grammar version
+ * its hashtags were indexed under (a deleted message is never read here).
  */
-internal data class MessageRow(val authorId: UInt, val body: String, val tagsVersion: Short)
+internal data class MessageRow(
+    val authorId: UInt,
+    val body: String,
+    val tagsVersion: Short,
+    val createdAt: Long,
+    val editedAt: Long?,
+)
 
 /** What a message write's block is handed: the thread write (caller, standing and thread row, as under the lock) and the message row. */
 internal class MessageWrite(val threadWrite: ThreadWrite, val message: MessageRow) {
@@ -108,7 +114,13 @@ internal suspend fun <T> R2dbcDatabase.withMessageWrite(
     val row = messages.innerJoin(threads).selectAll()
         .where { (messages.id eq messageId) and (threads.roomId eq roomId) and messages.active() and threads.active() }
         .toList().singleOrNull() ?: throw NotFoundException("Message not found")
-    val message = MessageRow(row[messages.authorId].value, row[messages.body], row[messages.tagsVersion])
+    val message = MessageRow(
+        authorId = row[messages.authorId].value,
+        body = row[messages.body],
+        tagsVersion = row[messages.tagsVersion],
+        createdAt = row[messages.createdAt],
+        editedAt = row[messages.editedAt],
+    )
     actGuard(fresh, standing, message)
     val thread = row.toThreadRow()
     if (!allowMerged) thread.requireUnmerged()

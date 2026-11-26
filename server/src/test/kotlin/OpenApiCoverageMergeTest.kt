@@ -5,7 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** The fork-safe merge behind the OpenAPI coverage gate (`server/build.gradle.kts`'s `tasks.test`). */
+/** The fork-safe merge behind the OpenAPI coverage gate (`server/test-execution.gradle.kts`'s `test` task). */
 class OpenApiCoverageMergeTest {
     private val declared = listOf(
         DeclaredOperation("GET", "/api/v1/things", "listThings", listOf("200", "401", "403")),

@@ -12,9 +12,8 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcTransaction
 const val DEFAULT_READ_TIMEOUT_SECONDS = 5
 
 /**
- * The default of `threads.readMaxConcurrent` (the thread list and the tag list): well under the pool's 20 connections, so the lists never
- * starve the rest of the app. 8, so that with the searches (4), the notice list (4) and the thread detail (its own
- * pool, `THREAD_READ_MAX_CONCURRENT` in `infra/db/Database.kt`, 3) the readers together are 19, below the pool of 20 (the boot check).
+ * The default of `threads.readMaxConcurrent`. Alongside the search (4), notice list (4) and thread detail (3) caps, the list cap (8)
+ * admits up to 19 readers. The default pool has 23 connections, and the production boot check reserves four for other work.
  */
 const val DEFAULT_READ_MAX_CONCURRENT = 8
 

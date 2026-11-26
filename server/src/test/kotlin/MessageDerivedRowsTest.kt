@@ -188,7 +188,7 @@ class MessageDerivedRowsTest {
     // pin the test puts on the message and the reaction it seeds on it.
     private val arrangedByTheBody = setOf(
         "message_tags", "message_mentions", "message_group_mentions", "message_here_mentions", "notifications", "room_pins",
-        "message_reactions",
+        "message_reactions", "message_revisions",
     )
 
     @Test
@@ -200,6 +200,7 @@ class MessageDerivedRowsTest {
         val team = TestTeams.seedMentionable("derived", listOf(peer))
         val body = MessageRequest("Derived #derived-row <@${w.owner}> <@$peer> ${team.token} <@everyone>")
         val id = TestThreads.messages.post(w.room, seeded.number, w.caller, body).message.id
+        TestThreads.messages.edit(w.room, id, w.caller, MessageRequest("${body.body} revised"))
         TestThreads.pins.setMessagePin(w.room, id, w.caller, true)
         PostgresTestSupport.connect().use { c ->
             c.prepareStatement(

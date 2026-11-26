@@ -288,7 +288,7 @@ Taken without asking, in the 1.1.0 plan. Detail and the rules they became: `chat
 - **1.1 A26. No new dependency.**
 - **1.1 A27. Search snippets still show raw tokens.**
 - **1.1 A28. A 1.0.0 user who never touched their preferences stops getting the digest after the upgrade** (email is off by default, 1.1 D7). Their stored V22 "switched off" rows keep meaning off, and nobody has an opt-in row yet. The upgrade does not re-enable anything; the changelog entry says so. **An accepted exception to API-VER-002** (additive changes inside `/api/v1`): the meaning of the unchanged `GET`/`PUT /users/{id}/notification-preferences` body flips, so a 1.0.0 client's `{"disabled": []}` ("everything on") now leaves every email off; the spec says "Changed in 1.1.0" on both operations.
-- **1.1 A29. Account email is not a notice kind and always goes:** the MFA code and the password-reset link are sent directly, never through the digest or the preferences. Adder sends no "password changed" or "account created" email; porting Lettuce's locked-on kinds for them is not in 1.1.0 (`BACKLOG.md`).
+- **1.1 A29. Account email is not a notice kind and always goes:** the MFA code and the password-reset link are sent directly, never through the digest or the preferences. In 1.1.0 this covered MFA and reset. The localized password-change receipt arrived in 1.20.0.
 - **1.1 A30. The team PUT is a full replace, so an omitted `handle` clears it** (the `managerId` rule). A pre-1.1 client (an old SPA tab after the deploy, or a 1.0.0 script) that renames a team therefore clears its handle, and the `<@team:id>` tokens of that team then render as plain text and stop notifying. Accepted, **like A28 an exception to API-VER-002** (the meaning of the unchanged team PUT changes for a pre-1.1 client; the spec says so); traced by the `team.updated` audit line with `handle` null.
 - **1.1 A31. The preferences PUT is a full replace, so a stale client resets what it does not know.** A pre-1.1 client (an old SPA tab after the deploy, or a 1.0.0 script) sends `disabled` only, so a save from it resets every in-app switch and every email opt-in the person set under 1.1 to the defaults (the app on, email off). Accepted, like A30; traced by `user.notification_preferences_changed` (`from`/`to` as `TYPE:CHANNEL=on|off`), and the spec says so.
 - **1.1 A32. A steward can re-subscribe a member who unwatched a thread** by handing the thread to them (the new owner watches the thread they receive, 1.1 D1, again on every later hand-over) and back, or by taking it themself. Accepted (the S3 security audit): the steward is the room's owner, the thread's owner or an ADMIN; it is bounded by the `chat-write` bucket ONLY (the auto-watch and `THREAD_ASSIGNED` are direct, outside the wide-event budget, which limits just the `THREAD_OWNER_CHANGED` fan-out) and traced by `thread.owner_changed`; the member can stop watching again at once.
@@ -391,7 +391,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.19.0** (thread workflow and conversation), on 1.18.0 (chat and notification controls), on 1.17.0 (grouped reply notifications), on 1.16.0 (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.20.0** (thread tags and message edit history), on 1.19.0 (thread workflow and conversation), on 1.18.0 (chat and notification controls), on 1.17.0 (grouped reply notifications), on 1.16.0 (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -422,6 +422,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.17.0 Grouped reply notifications** | The bell and email digest group plain replies by watched thread and keep personally addressed notices visible. |
 | **1.18.0 Chat and notification controls** | Opt-in browser alerts and thread muting, foreground `@here`, add-and-mention from the composer, linked profiles and full reactor and watcher lists, workflow change details, and automatic watching that respects explicit unwatch. |
 | **1.19.0 Thread workflow and conversation** | Thread deletion and same-room merging, inline workflow history, cross-room quotes with source access checks, reaction and named team notices, and Markdown-aware mention and hashtag indexing. |
+| **1.20.0 Thread tags and message edit history** | Tags at thread creation, an explicit hashtag API, permission-checked message revisions, password-change email, and indexed search and boot cleanup. |
 
 ## Donors
 
@@ -447,6 +448,10 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v1.20.0 — thread tags and message edit history (2026-11-26)
+
+Choose curated tags while creating a thread. Edit history shows plain-text prior versions to the current author or a room steward with access, and message deletion scrubs all revisions. The API exposes explicit hashtag aliases. Account password changes send a localized security receipt when mail is enabled. The release also updates the room navigation, search indexes, and database maintenance.
 
 ### v1.19.0 — thread workflow and conversation (2026-11-26)
 

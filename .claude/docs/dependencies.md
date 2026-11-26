@@ -222,11 +222,11 @@ Installed with `npm install --legacy-peer-deps` (the existing web exception: rec
 - `recharts` — `@mantine/charts`' rendering engine (a peer it does not bundle). ~400 kB: it must only ever enter **lazy chunks** (`npm run build` shows it as its own chunk, and the main
   `index-*.js` stays free of it). Each chart component imports `@mantine/charts/styles.css` itself — without it the tooltip renders unstyled.
 - `react-markdown` + `remark-gfm` + `remark-gemoji` — the markdown renderer behind `components/MarkdownView.tsx` (the changelog bodies; later the message bodies). Lazy-chunk-only: they must not enter the main bundle.
-- `emoji-mart` + `@emoji-mart/react` + `@emoji-mart/data` (Lettuce's trio, ported in 0.3.0 for the message composer and the thread body) — the emoji picker behind `components/EmojiPicker.tsx`. Lazy-chunk-only: the picker mounts
+- `emoji-mart` and `@emoji-mart/data` provide the emoji picker behind `components/EmojiPicker.tsx`. The component mounts the picker
+  element directly and replaces it as the language or theme changes. The element receives current options during initialization. Lazy-chunk-only: the picker mounts
   through `EmojiButton`'s `React.lazy` and the data set (a few hundred kB) has its own `emoji-data` code-splitting group in `vite.config.ts`; none of them may enter the main bundle (`npm run build` shows the chunks). **No CDN, ever:**
   `data` AND `i18n` are always passed to the `Picker` explicitly (one i18n file per `SUPPORTED_LANGUAGES` entry) — omitting either makes emoji-mart fetch it from a CDN at runtime, which the CSP (`connect-src 'self'`)
-  blocks and a self-hosted deployment must not attempt; `EmojiPicker.test.tsx` pins the props. `@emoji-mart/react@1.1.1` declares React `^16.8 || ^17 || ^18` as its peer and works under React 19: the
-  existing `--legacy-peer-deps` exception tolerates it (Lettuce does the same, with no override) — revisit when an emoji-mart release declares React 19.
+  blocks and a self-hosted deployment must not attempt. `EmojiPicker.test.tsx` covers the bundled data, locale, and element lifecycle.
 - **`react-is` override** (`web/package.json` `"overrides": { "react-is": "^19" }`): under React 19 the tree otherwise keeps `react-is@17` (pulled by `@testing-library/dom`'s
   `pretty-format` and `prop-types`), and recharts imports `isFragment` from `react-is` — which must match React's major. `npm ls react-is` must show one version; keep the
   override matched to React's major when React moves.

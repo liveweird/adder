@@ -1,5 +1,6 @@
 package ch.nokillswit.threads
 
+import ch.nokillswit.infra.JsonUInt
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.nowMillis
@@ -20,7 +21,7 @@ val ThreadReadServiceKey = AttributeKey<ThreadReadService>("ThreadReadService")
 
 /** `PUT .../threads/{number}/read-marker`: the member has read the thread up to, and including, message [messageId]. */
 @Serializable
-data class ReadMarkerRequest(val messageId: UInt)
+data class ReadMarkerRequest(val messageId: JsonUInt)
 
 /** Message ids are int32 sequences: a wider value is a `400`, never a wrapped id (the `id[lt]` rule of the message list). */
 internal fun requireReadMarkerMessageId(messageId: UInt) {

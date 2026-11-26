@@ -155,6 +155,14 @@
     "deleteBody": "It is replaced by a note that it was deleted. This cannot be undone.",
     "removeTitle": "Remove this message?",
     "removeBody": "It is replaced by a note that a room owner or an administrator removed it. This cannot be undone.",
+    "history": {
+      "action": "View edit history",
+      "title": "Edit history",
+      "version": "Current from {{from}} until {{until}}",
+      "empty": "No earlier versions are available.",
+      "loadFailed": "Could not load the edit history",
+      "editNotice": "Earlier versions remain visible to you, room owners and administrators. Deleting the message also deletes its history."
+    },
     "error": {
       "forbidden": "You do not have permission to do that in this room",
       "gone": "This message no longer exists, or you no longer have access to its room — reload the page",

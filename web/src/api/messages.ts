@@ -14,6 +14,7 @@ export type MessageContext = paths["/api/v1/rooms/{id}/threads/{number}/messages
 export type MessageQuoteSummary = NonNullable<MessageResponse["quote"]>;
 export type MessageBody = paths["/api/v1/rooms/{id}/threads/{number}/messages"]["post"]["requestBody"]["content"]["application/json"];
 export type MessageEditBody = paths["/api/v1/rooms/{id}/messages/{messageId}"]["put"]["requestBody"]["content"]["application/json"];
+export type MessageRevisionPage = paths["/api/v1/rooms/{id}/messages/{messageId}/revisions"]["get"]["responses"]["200"]["content"]["application/json"];
 
 /** One live source message, re-read for a cross-room quote draft and hidden by the server as 404 when access is gone. */
 export function getMessage(roomId: number, messageId: number, signal?: AbortSignal): Promise<MessageResponse> {
@@ -68,6 +69,14 @@ export async function listMessageReactors(roomId: number, messageId: number, rea
 export async function editMessage(roomId: number, messageId: number, body: string): Promise<void> {
   const payload: MessageEditBody = { body };
   return voidRequest(`/api/v1/rooms/${roomId}/messages/${messageId}`, { method: "PUT", body: JSON.stringify(payload) });
+}
+
+/** Earlier bodies for one edited message, newest first. The server marks this sensitive response `no-store`. */
+export async function listMessageRevisions(
+  roomId: number, messageId: number, page: number, pageSize: number, signal: AbortSignal,
+): Promise<MessageRevisionPage> {
+  const params = buildQuery({ page, pageSize, sort: "-id" });
+  return jsonRequest<MessageRevisionPage>(`/api/v1/rooms/${roomId}/messages/${messageId}/revisions?${params}`, { signal });
 }
 
 /** The author's own message, or any message for a room OWNER or an ADMIN (a moderator removal, shown as such in the tombstone). */
