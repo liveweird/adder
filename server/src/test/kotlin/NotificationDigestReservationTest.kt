@@ -58,6 +58,12 @@ class NotificationDigestReservationTest {
     private fun <T> sql(query: String, block: (PreparedStatement) -> T): T =
         PostgresTestSupport.connect().use { connection -> connection.prepareStatement(query).use(block) }
 
+    private fun recipientPacingIds(): Set<UInt> = sql(
+        "SELECT recipient_id FROM notification_digest_recipient_pacing ORDER BY recipient_id",
+    ) { statement ->
+        statement.executeQuery().use { rows -> buildSet { while (rows.next()) add(rows.getLong(1).toUInt()) } }
+    }
+
     @Test
     fun `two stores reserve only one recipient attempt for different actors`() = runBlocking {
         val recipient = user("digest-reserve-recipient")
@@ -115,28 +121,70 @@ class NotificationDigestReservationTest {
     }
 
     @Test
-    fun `recipient capacity fails closed until bounded expiry cleanup frees a slot`() = runBlocking {
+    fun `a full recipient pool reclaims one expired slot without waiting for the sweep`() = runBlocking {
         val first = user("digest-cap-first")
         val second = user("digest-cap-second")
+        val third = user("digest-cap-third")
         val actor = user("digest-cap-actor")
         val now = AtomicLong(System.currentTimeMillis())
-        val digestStore = store(now, capacity = 1)
+        val digestStore = store(now, capacity = 2)
 
-        assertEquals(
-            DigestAttemptStatus.RESERVED,
-            digestStore.reserveAttempt(first, setOf(actor), RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS).status,
-        )
+        for (recipient in listOf(first, second)) {
+            assertEquals(
+                DigestAttemptStatus.RESERVED,
+                digestStore.reserveAttempt(recipient, setOf(actor), RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS).status,
+            )
+        }
         assertEquals(
             DigestAttemptStatus.CAPACITY,
-            digestStore.reserveAttempt(second, setOf(actor), RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS).status,
+            digestStore.reserveAttempt(third, setOf(actor), RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS).status,
         )
 
-        now.addAndGet(ACTOR_RECIPIENT_INTERVAL_MILLIS)
-        assertEquals(2, digestStore.purgeExpiredPacing(RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS, batchSize = 1))
+        now.addAndGet(RECIPIENT_INTERVAL)
         assertEquals(
             DigestAttemptStatus.RESERVED,
-            digestStore.reserveAttempt(second, setOf(actor), RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS).status,
+            digestStore.reserveAttempt(third, setOf(actor), RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS).status,
         )
+        assertEquals(2, recipientPacingIds().size, "physical occupancy remains exactly at the configured test capacity")
+        assertEquals(true, third in recipientPacingIds())
+    }
+
+    @Test
+    fun `one slot supports repeated expired generations and concurrent admission never displaces the active owner`() = runBlocking {
+        val generations = List(4) { user("digest-generation-$it") }
+        val deferred = user("digest-generation-deferred")
+        val actor = user("digest-generation-actor")
+        val now = AtomicLong(System.currentTimeMillis())
+        val stores = List(2) { store(now, capacity = 1) }
+
+        for (recipient in generations.take(3)) {
+            assertEquals(
+                DigestAttemptStatus.RESERVED,
+                stores.first().reserveAttempt(recipient, setOf(actor), RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS).status,
+            )
+            assertEquals(setOf(recipient), recipientPacingIds())
+            now.addAndGet(RECIPIENT_INTERVAL)
+        }
+
+        val racing = stores.map { digestStore ->
+            async(Dispatchers.Default) {
+                digestStore.reserveAttempt(
+                    generations.last(),
+                    setOf(actor),
+                    RECIPIENT_INTERVAL,
+                    ACTOR_RECIPIENT_INTERVAL_MILLIS,
+                )
+            }
+        }.awaitAll()
+        assertEquals(1, racing.count { it.status == DigestAttemptStatus.RESERVED })
+        assertEquals(1, racing.count { it.status in setOf(DigestAttemptStatus.RECIPIENT_PACED, DigestAttemptStatus.CAPACITY) })
+        assertEquals(setOf(generations.last()), recipientPacingIds())
+
+        assertEquals(
+            DigestAttemptStatus.CAPACITY,
+            stores.first().reserveAttempt(deferred, setOf(actor), RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS).status,
+        )
+        assertEquals(setOf(generations.last()), recipientPacingIds(), "an active reservation is never displaced")
     }
 
     @Test

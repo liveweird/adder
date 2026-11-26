@@ -897,7 +897,8 @@ V52 stores the last digest SMTP attempt by actor and recipient. Claiming skips c
 ### Shared digest recipient pacing (V59)
 
 V59 replaces the process-local recipient interval with a durable reservation shared by every app instance. A reservation transaction
-locks the recipient row first and the requested V52 actor/recipient rows in `(actor_id, recipient_id)` order. If the recipient is still
+locks the existing recipient and actor user rows in id order, then the recipient pacing row and the requested V52 actor/recipient rows
+in `(actor_id, recipient_id)` order. The leading user locks keep maintenance hard deletion and its FK cascades in the same order. If the recipient is still
 inside `notifications.email.minIntervalSeconds`, no actor row changes. If every actor is still inside the V52 one-hour interval, the
 recipient row does not change and all of that digest's claims are released. Otherwise the transaction timestamps the recipient and only
 the eligible actor pairs together, commits, and releases paced actors' claims before SMTP. The database connection and every row lock are
@@ -906,8 +907,10 @@ an access/preference re-check that skips the recipient consumes neither.
 
 `notification_digest_recipient_pacing` has one row per paced recipient and takes a unique slot from 50,000 pre-seeded
 `notification_digest_recipient_slots` rows. The fixed pool preserves the former fail-closed capacity: a new recipient at capacity is not
-claimed or mailed, while an existing recipient can still be checked without a global lock. Free-slot selection uses `SKIP LOCKED`; it is
-the only cross-recipient capacity decision. Sweep cleanup deletes at most 500 expired recipient rows and 500 expired V52 pair rows per
+claimed or mailed, while an existing recipient can still be checked without a global lock. A new recipient first locks and atomically
+reuses one row selected through the attempted-time index when its interval has expired; only then does it search the fixed slots for a
+free one. Both selections use `SKIP LOCKED`, never displace an active row and are the only cross-recipient capacity decisions. Sweep
+cleanup still deletes at most 500 expired recipient rows and 500 expired V52 pair rows per
 tick in separate bounded statements. Claim-time pacing filters are only an optimization; the ordered reservation transaction is the
 authority for races and expiry and uses PostgreSQL time. Older digest senders do not write the V59 table, so stop them before upgrading.
 On rollback, leave V59 installed; an older app ignores it and returns to process-local recipient pacing.

@@ -20,20 +20,39 @@ internal data class DigestAttemptReservation(
     val status: DigestAttemptStatus,
     val actorIds: Set<UInt> = emptySet(),
 )
+private data class ExpiredRecipient(val recipientId: Long, val slot: Int, val attemptedAt: Long)
 
 private const val LOCK_RECIPIENT = """
 SELECT attempted_at FROM notification_digest_recipient_pacing
 WHERE recipient_id = CAST(? AS int8)
 FOR UPDATE"""
 
-private const val ENSURE_RECIPIENT = """
-WITH free_slot AS MATERIALIZED (
-    SELECT slots.slot FROM notification_digest_recipient_slots AS slots
-    WHERE slots.slot <= CAST(? AS int4)
-      AND NOT EXISTS (SELECT 1 FROM notification_digest_recipient_pacing AS pacing WHERE pacing.slot = slots.slot)
-    ORDER BY slots.slot LIMIT 1 FOR UPDATE OF slots SKIP LOCKED)
+private const val LOCK_USERS = """
+SELECT id FROM users
+WHERE id = ANY(CAST(? AS int8[]))
+ORDER BY id
+FOR KEY SHARE"""
+
+private const val LOCK_EXPIRED_RECIPIENT = """
+SELECT recipient_id, slot, attempted_at FROM notification_digest_recipient_pacing
+WHERE slot <= CAST(? AS int4) AND attempted_at <= CAST(? AS int8)
+ORDER BY attempted_at, recipient_id
+LIMIT 1 FOR UPDATE SKIP LOCKED"""
+
+private const val LOCK_FREE_SLOT = """
+SELECT slots.slot FROM notification_digest_recipient_slots AS slots
+WHERE slots.slot <= CAST(? AS int4)
+  AND NOT EXISTS (SELECT 1 FROM notification_digest_recipient_pacing AS pacing WHERE pacing.slot = slots.slot)
+ORDER BY slots.slot LIMIT 1 FOR UPDATE OF slots SKIP LOCKED"""
+
+private const val DELETE_EXPIRED_RECIPIENT = """
+DELETE FROM notification_digest_recipient_pacing
+WHERE recipient_id = CAST(? AS int8) AND attempted_at = CAST(? AS int8)
+RETURNING slot"""
+
+private const val INSERT_RECIPIENT = """
 INSERT INTO notification_digest_recipient_pacing (recipient_id, slot, attempted_at)
-SELECT CAST(? AS int8), slot, -9223372036854775808 FROM free_slot
+VALUES (CAST(? AS int8), CAST(? AS int4), -9223372036854775808)
 ON CONFLICT (recipient_id) DO NOTHING"""
 
 private const val REQUESTED_PAIRS = """
@@ -154,8 +173,8 @@ internal class NotificationDigestStore(
     }
 
     /**
-     * Authoritative pre-SMTP reservation. Locks one recipient first, then that recipient's actor pairs in actor order. Neither interval
-     * starts when the recipient or every actor is paced. The transaction commits before this method returns; SMTP holds no connection.
+     * Authoritative pre-SMTP reservation. Locks referenced users in id order, then one recipient and its actor pairs in actor order.
+     * Neither interval starts when the recipient or every actor is paced. The transaction commits before return; SMTP holds no connection.
      */
     suspend fun reserveAttempt(
         recipientId: UInt,
@@ -170,13 +189,19 @@ internal class NotificationDigestStore(
             val array = ArrayColumnType<Long, List<Long>>(LongColumnType())
             val transaction = TransactionManager.current()
             val recipientArgument = LongColumnType() to recipientId.toLong()
+            val userIds = (orderedActors + recipientId).distinct().sorted()
+            transaction.noticeRows(
+                LOCK_USERS,
+                listOf(array to userIds.map { it.toLong() }),
+            ) { row -> row.noticeColumn(0, Long::class.javaObjectType) }
             var recipientAttemptedAt = transaction.lockRecipient(recipientArgument)
             val createdRecipient = recipientAttemptedAt == null
             if (recipientAttemptedAt == null) {
-                transaction.exec(
-                    ENSURE_RECIPIENT,
-                    listOf(IntegerColumnType() to bounds.maxRecipientReservations, recipientArgument),
-                    explicitStatementType = StatementType.INSERT,
+                val admissionAt = pacingNow()
+                transaction.ensureRecipient(
+                    recipientArgument,
+                    bounds.maxRecipientReservations,
+                    admissionAt - recipientIntervalMillis,
                 )
                 recipientAttemptedAt = transaction.lockRecipient(recipientArgument)
                     ?: return@suspendTransaction DigestAttemptReservation(DigestAttemptStatus.CAPACITY)
@@ -244,7 +269,7 @@ internal class NotificationDigestStore(
 
     /**
      * Sweep integration seam: deletes at most [batchSize] expired pairs in its own transaction. The caller failure-isolates this
-     * independently from notice retention; `SKIP LOCKED` leaves racing reservations for a later hourly pass.
+     * independently from notice retention; `SKIP LOCKED` leaves racing reservations for a later sweep tick.
      */
     suspend fun purgeExpiredPacing(
         recipientIntervalMillis: Long,
@@ -275,4 +300,39 @@ internal class NotificationDigestStore(
     ): Long? = noticeRows(LOCK_RECIPIENT, listOf(recipientArgument)) {
         it.noticeColumn(0, Long::class.javaObjectType)
     }.singleOrNull()
+
+    /** Reuses one indexed expired row before consulting the fixed free-slot pool. Caller has already locked every referenced user. */
+    private suspend fun R2dbcTransaction.ensureRecipient(
+        recipientArgument: Pair<LongColumnType, Long>,
+        capacity: Int,
+        expiredCutoff: Long,
+    ) {
+        val expired = noticeRows(
+            LOCK_EXPIRED_RECIPIENT,
+            listOf(IntegerColumnType() to capacity, LongColumnType() to expiredCutoff),
+        ) { row ->
+            ExpiredRecipient(
+                row.noticeColumn(0, Long::class.javaObjectType),
+                row.noticeColumn(1, Int::class.javaObjectType),
+                row.noticeColumn(2, Long::class.javaObjectType),
+            )
+        }.singleOrNull()
+        val slot = if (expired == null) {
+            noticeRows(LOCK_FREE_SLOT, listOf(IntegerColumnType() to capacity)) {
+                it.noticeColumn(0, Int::class.javaObjectType)
+            }.singleOrNull()
+        } else {
+            val removed = noticeRows(
+                DELETE_EXPIRED_RECIPIENT,
+                listOf(LongColumnType() to expired.recipientId, LongColumnType() to expired.attemptedAt),
+            ) { it.noticeColumn(0, Int::class.javaObjectType) }.single()
+            check(removed == expired.slot)
+            expired.slot
+        } ?: return
+        exec(
+            INSERT_RECIPIENT,
+            listOf(recipientArgument, IntegerColumnType() to slot),
+            explicitStatementType = StatementType.INSERT,
+        )
+    }
 }
