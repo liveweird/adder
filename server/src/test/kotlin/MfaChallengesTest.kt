@@ -3,7 +3,10 @@ package ch.nokillswit
 import ch.nokillswit.auth.MfaChallenges
 import ch.nokillswit.auth.MfaChallenges.Outcome
 import ch.nokillswit.infra.crypto.FieldCipher
+import ch.nokillswit.infra.db.connectPooledDatabase
 import ch.nokillswit.infra.json.sha256Hex
+import io.r2dbc.spi.ConnectionFactoryOptions
+import java.time.Duration
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -33,6 +36,42 @@ class MfaChallengesTest {
         accounts.forEach { userId ->
             store().discardUser(userId)
             TestUsers.softDelete(userId)
+        }
+    }
+
+    @Test
+    fun `challenge store rejects non-positive capacity bounds`() {
+        assertFailsWith<IllegalArgumentException> { store(maxTracked = 0) }
+        assertFailsWith<IllegalArgumentException> { store(maxPerUser = 0) }
+    }
+
+    @Test
+    fun `a missing capacity guard fails closed without recording a challenge`() = withIsolatedTestDatabase { fixture ->
+        runBlocking {
+            val options = ConnectionFactoryOptions.parse(fixture.r2dbcUrl)
+                .mutate()
+                .option(ConnectionFactoryOptions.USER, PostgresTestSupport.user)
+                .option(ConnectionFactoryOptions.PASSWORD, PostgresTestSupport.password)
+                .build()
+            val (database, pool) = connectPooledDatabase(options, 2, 0, Duration.ofSeconds(10), Duration.ofMinutes(1))
+            try {
+                val userId = fixtureUser(fixture)
+                fixture.connect().use { connection ->
+                    connection.createStatement().use { statement ->
+                        assertEquals(1, statement.executeUpdate("DELETE FROM mfa_challenge_capacity_guard"))
+                    }
+                }
+                val isolated = MfaChallenges(database, FieldCipher(key), 300_000, 5)
+
+                assertFailsWith<IllegalStateException> { isolated.issue(userId, EMAIL, credentialRevision = 0) }
+                fixture.connect().use { connection ->
+                    connection.prepareStatement("SELECT count(*) FROM mfa_challenges").use { statement ->
+                        statement.executeQuery().use { rows -> assertTrue(rows.next()); assertEquals(0, rows.getInt(1)) }
+                    }
+                }
+            } finally {
+                pool.dispose()
+            }
         }
     }
 
@@ -185,6 +224,15 @@ class MfaChallengesTest {
             connection.prepareStatement("UPDATE mfa_challenges SET expires_at = 0 WHERE challenge_hash = ?").use { statement ->
                 statement.setString(1, sha256Hex(issued.challengeId))
                 assertEquals(1, statement.executeUpdate())
+            }
+        }
+    }
+
+    private fun fixtureUser(fixture: IsolatedTestDatabase): UInt = fixture.connect().use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery("SELECT id FROM users ORDER BY id LIMIT 1").use { rows ->
+                check(rows.next())
+                rows.getLong(1).toUInt()
             }
         }
     }

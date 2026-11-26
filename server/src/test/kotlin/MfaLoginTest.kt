@@ -457,6 +457,38 @@ class MfaLoginTest {
     }
 
     @Test
+    fun `a correct code cannot sign in an account deleted after challenge issuance`() = testApplication {
+        usePostgresTestcontainer()
+        val email = uniqueEmail("mfa-deleted")
+        val userId = seedMfaUser(email, "pw-123456789")
+        val mail = LogCapture("ch.nokillswit.mail")
+        val auditEvents = LogCapture("ch.nokillswit.audit")
+        try {
+            val client = jsonClient()
+            val challenge = client.login(email, "pw-123456789").body<MfaChallengeResponse>()
+            val code = mail.codeFor(email)
+            TestUsers.softDelete(userId)
+
+            assertEquals(HttpStatusCode.Unauthorized, client.verify(challenge.challengeId, code).status)
+            assertNotNull(
+                auditEvents.awaitEvent {
+                    it.message == "login.mfa_failure" && it.hasKeyValue("reason", "user_gone") &&
+                        it.hasKeyValue("userId", userId.toLong())
+                },
+            )
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client.verify(challenge.challengeId, code).status,
+                "the consumed challenge cannot create a session on retry",
+            )
+            assertTrue(auditEvents.events.none { it.message == "login.mfa_success" })
+        } finally {
+            mail.detach()
+            auditEvents.detach()
+        }
+    }
+
+    @Test
     fun `a malformed body is 400 and the exhausted per-IP bucket is 429`() = testApplication {
         usePostgresTestcontainer()
         val client = jsonClient()
