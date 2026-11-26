@@ -573,6 +573,46 @@ class MfaLoginTest {
     }
 
     @Test
+    fun `a wrong code captured before a credential revision change never advances lockout`() = testApplication {
+        configureApp("security.lockout.threshold" to "1")
+        startApplication()
+        val email = uniqueEmail("mfa-revised-wrong")
+        val userId = seedMfaUser(email, "pw-123456789")
+        val mail = LogCapture("ch.nokillswit.mail")
+        val auditEvents = LogCapture("ch.nokillswit.audit")
+        try {
+            val client = jsonClient()
+            val challenge = client.login(email, "pw-123456789").body<MfaChallengeResponse>()
+            val code = mail.codeFor(email)
+            PostgresTestSupport.connect().use { connection ->
+                connection.prepareStatement(
+                    "UPDATE users SET credential_revision = credential_revision + 1 WHERE id = ?",
+                ).use { statement ->
+                    statement.setLong(1, userId.toLong())
+                    assertEquals(1, statement.executeUpdate())
+                }
+            }
+
+            val wrong = if (code == "000000") "000001" else "000000"
+            assertEquals(HttpStatusCode.Unauthorized, client.verify(challenge.challengeId, wrong).status)
+            assertNotNull(
+                auditEvents.awaitEvent {
+                    it.message == "login.mfa_failure" && it.hasKeyValue("reason", "credential_changed") &&
+                        it.hasKeyValue("userId", userId.toLong())
+                },
+            )
+            assertTrue(
+                auditEvents.events.none { it.message == "login.lockout" && it.hasKeyValue("userId", userId.toLong()) },
+                "a stale guess must not create or advance lockout state",
+            )
+            assertEquals(HttpStatusCode.Unauthorized, client.verify(challenge.challengeId, wrong).status)
+        } finally {
+            mail.detach()
+            auditEvents.detach()
+        }
+    }
+
+    @Test
     fun `a malformed body is 400 and the exhausted per-IP bucket is 429`() = testApplication {
         usePostgresTestcontainer()
         val client = jsonClient()
