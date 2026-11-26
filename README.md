@@ -7,9 +7,9 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
-### Faster reaction updates (1.33.0)
+### Fewer duplicate reads after chat updates (1.33.0)
 
-When the app and API share an origin, adding or removing a reaction avoids a duplicate conversation fetch in the sending tab. Other tabs still see the reaction live, and interrupted requests keep the live recovery path.
+When the app and API share an origin, a successful reaction, owner handover, status change, or edit to thread details or curated tags refreshes the sending tab once. Other tabs still receive the change live. Interrupted saves can recover through the live event.
 
 ### Optional two-instance deployment (1.32.0)
 

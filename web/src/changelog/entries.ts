@@ -17,44 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
-    version: "1.36.0",
-    date: "2026-11-26",
-    en: `**Adder 1.36.0 — faster thread detail and tag saves**
-
-- Editing a thread's title, fields or curated tags reuses the writer's complete successful refresh. Other tabs still receive the update live, and interrupted or uncertain saves retain the normal recovery path.`,
-    pl: `**Adder 1.36.0 — szybszy zapis szczegółów i tagów wątku**
-
-- Edycja tytułu, pól lub wybranych tagów wątku wykorzystuje pełne, udane odświeżenie po stronie osoby zapisującej. Inne karty nadal otrzymują zmianę na żywo, a przerwane lub niepewne zapisy zachowują zwykłą ścieżkę odzyskiwania.`,
-  },
-  {
-    version: "1.35.0",
-    date: "2026-11-26",
-    en: `**Adder 1.35.0 — faster status transitions**
-
-- Moving, closing or reopening a thread reuses the writer's successful thread and workflow refresh. Other tabs still receive the status change live, and interrupted requests retain the normal recovery path.`,
-    pl: `**Adder 1.35.0 — szybsze zmiany statusu**
-
-- Zmiana statusu, zamknięcie lub ponowne otwarcie wątku wykorzystuje udane odświeżenie wątku i przepływu pracy po stronie osoby wykonującej operację. Inne karty nadal otrzymują zmianę na żywo, a przerwane żądania zachowują zwykłą ścieżkę odzyskiwania.`,
-  },
-  {
-    version: "1.34.0",
-    date: "2026-11-26",
-    en: `**Adder 1.34.0 — faster owner hand-overs**
-
-- Passing a thread to another owner reuses the writer's successful thread refresh. Other tabs still receive the owner change live, and an interrupted request still recovers through the live event.`,
-    pl: `**Adder 1.34.0 — szybsze przekazywanie wątków**
-
-- Przekazanie wątku innej osobie wykorzystuje udane odświeżenie po stronie osoby wykonującej operację. Inne karty nadal otrzymują zmianę właściciela na żywo, a przerwane żądanie nadal odzyskuje ją ze zdarzenia.`,
-  },
-  {
     version: "1.33.0",
     date: "2026-11-26",
-    en: `**Adder 1.33.0 — faster reaction updates**
+    en: `**Adder 1.33.0 — fewer duplicate reads after chat updates**
 
-- Adding or removing a reaction reuses the writer's successful conversation refresh. Other tabs still receive the update live, and an interrupted request still recovers through the live event.`,
-    pl: `**Adder 1.33.0 — szybsze aktualizacje reakcji**
+- After adding or removing a reaction, handing over a thread, changing its status, or saving its details or curated tags, the sending tab skips redundant reads once its refresh succeeds.
+- Other tabs still see these changes live. The live event can also recover an interrupted save.`,
+    pl: `**Adder 1.33.0 — mniej powtórnych odświeżeń po zmianach w czacie**
 
-- Dodanie lub usunięcie reakcji wykorzystuje udane odświeżenie rozmowy po stronie osoby wykonującej operację. Inne karty nadal otrzymują zmianę na żywo, a przerwane żądanie nadal odzyskuje ją ze zdarzenia.`,
+- Po dodaniu lub usunięciu reakcji, przekazaniu wątku, zmianie jego statusu lub zapisie jego szczegółów albo tagów aktywna karta pomija ponowne odświeżanie, gdy pierwsze odświeżenie się powiedzie.
+- Pozostałe karty nadal pokazują zmiany na żywo. Zdarzenie na żywo pomaga też odzyskać stan po przerwanym zapisie.`,
   },
   {
     version: "1.32.0",
