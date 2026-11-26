@@ -42,11 +42,21 @@ class TokenBlocklistRotationTest {
         TestUsers.seed(uniqueEmail("refresh-store-$label"), "pw", role = UserRole.USER).also { users += it }
 
     @Test
+    fun `rotation store rejects invalid grace and capacity bounds`() = testApplication {
+        usePostgresTestcontainer()
+
+        assertFailsWith<IllegalArgumentException> { newTokenBlocklistService(replayGraceMillis = -1) }
+        assertFailsWith<IllegalArgumentException> { newTokenBlocklistService(maxRotationRecords = 0) }
+        assertFailsWith<IllegalArgumentException> { newTokenBlocklistService(maxRotationRecords = 10_001) }
+    }
+
+    @Test
     fun `revokeIfAbsent inserts once and an upgrade-era row without rotation metadata stays strict`() = testApplication {
         usePostgresTestcontainer()
         val service = newTokenBlocklistService()
         val jti = UUID.randomUUID().toString()
 
+        assertEquals(RefreshPrecheck.AVAILABLE, service.refreshPrecheck(jti))
         assertTrue(service.revokeIfAbsent(jti, farFuture))
         assertFalse(service.revokeIfAbsent(jti, farFuture))
         assertEquals(RefreshPrecheck.REVOKED, newTokenBlocklistService().refreshPrecheck(jti))
@@ -58,6 +68,7 @@ class TokenBlocklistRotationTest {
         val userId = user("aggregate")
         val jti = UUID.randomUUID().toString()
         assertEquals(RefreshClaim.CLAIMED, newTokenBlocklistService().claimRefresh(jti, farFuture, userId))
+        assertEquals(RefreshPrecheck.GRACE, newTokenBlocklistService().refreshPrecheck(jti))
 
         val results = coroutineScope {
             List(8) {
@@ -99,6 +110,29 @@ class TokenBlocklistRotationTest {
         assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(second, farFuture, secondUser))
         assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(first, farFuture, firstUser))
         assertEquals(RefreshClaim.REVOKED, service.claimRefresh(second, farFuture, secondUser))
+    }
+
+    @Test
+    fun `a full bounded store promptly reuses an expired grace slot while the old revocation stays strict`() = testApplication {
+        usePostgresTestcontainer()
+        val firstUser = user("expired-cap-first")
+        val secondUser = user("expired-cap-second")
+        val first = UUID.randomUUID().toString()
+        val second = UUID.randomUUID().toString()
+        val service = newTokenBlocklistService(replayGraceMillis = 50, maxRotationRecords = 1)
+
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(first, farFuture, firstUser))
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement("SELECT pg_sleep(0.08)").use { it.executeQuery().close() }
+        }
+
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(second, farFuture, secondUser))
+        assertEquals(
+            RefreshClaim.REVOKED,
+            service.claimRefresh(first, farFuture, firstUser),
+            "reusing rotation metadata must not remove the original token's denylist row",
+        )
+        assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(second, farFuture, secondUser))
     }
 
     @Test
@@ -152,5 +186,24 @@ class TokenBlocklistRotationTest {
         }
         assertFalse(service.isRevoked(access))
         assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(rotated, farFuture, userId))
+    }
+
+    @Test
+    fun `logout with an already revoked access token still clears that users refresh grace`() = testApplication {
+        usePostgresTestcontainer()
+        val userId = user("logout-already-revoked")
+        val rotated = UUID.randomUUID().toString()
+        val access = UUID.randomUUID().toString()
+        val service = newTokenBlocklistService()
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(rotated, farFuture, userId))
+        assertTrue(service.revokeIfAbsent(access, farFuture))
+
+        assertFalse(service.logoutSession(userId, access, farFuture, refresh = null))
+        assertTrue(service.isRevoked(access))
+        assertEquals(
+            RefreshClaim.REVOKED,
+            service.claimRefresh(rotated, farFuture, userId),
+            "idempotent access revocation must not skip the transactional grace cleanup",
+        )
     }
 }
