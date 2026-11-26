@@ -391,7 +391,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.27.0** (shared sign-in protection), on 1.26.0 (shared session refresh and logout), on 1.25.0 (shared live socket limits and presence), on 1.24.0 (durable live tickets), on 1.23.0 (faster reply refreshes), on 1.22.0 (live account updates), on 1.21.0 (notification retention and email pacing), on 1.20.0 (thread tags and message edit history), on 1.19.0 (thread workflow and conversation), on 1.18.0 (chat and notification controls), on 1.17.0 (grouped reply notifications), on 1.16.0 (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.28.0** (shared email sign-in codes), on 1.27.0 (shared sign-in protection), on 1.26.0 (shared session refresh and logout), on 1.25.0 (shared live socket limits and presence), on 1.24.0 (durable live tickets), on 1.23.0 (faster reply refreshes), on 1.22.0 (live account updates), on 1.21.0 (notification retention and email pacing), on 1.20.0 (thread tags and message edit history), on 1.19.0 (thread workflow and conversation), on 1.18.0 (chat and notification controls), on 1.17.0 (grouped reply notifications), on 1.16.0 (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -430,6 +430,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.25.0 Shared live socket limits and presence** | Shared per-user socket limit and foreground presence, with expiring PostgreSQL leases and a process-local connection budget. |
 | **1.26.0 Shared session refresh and logout** | Cross-instance retry grace and atomic session logout under durable per-account coordination. |
 | **1.27.0 Shared sign-in protection** | PostgreSQL-backed account guess protection and reset cooldowns, with atomic clearing on password reset. |
+| **1.28.0 Shared email sign-in codes** | Single-use, encrypted email MFA challenges and shared attempts and expiry. |
 
 ## Donors
 
@@ -455,6 +456,10 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v1.28.0 — shared email sign-in codes (2026-11-26)
+
+V57 stores a pending challenge as its digest with encrypted code and email. Verification can finish after an app restart or on another app that shares the database and field encryption key ring.
 
 ### v1.27.0 — shared sign-in protection (2026-11-26)
 

@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Shared email sign-in codes (1.28.0)
+
+Instances using the same database and data encryption keys can verify each other's pending MFA challenges. Each code is single-use and its attempts and expiry are shared. Pending challenges issued by an earlier release need a fresh sign-in after the update.
+
 ### Shared sign-in protection (1.27.0)
 
 Account credential attempts and password-reset request cooldowns use PostgreSQL. Limits persist across restarts. Password reset confirmation clears active lockout state in the password change transaction. Stored throttle keys are deployment-keyed digests.
