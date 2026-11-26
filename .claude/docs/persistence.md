@@ -19,12 +19,12 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   the pin is then re-pinned in the same commit, and a dev database that booted an earlier checksum of such a file is reset (`docker compose down -v`) or repaired (`flyway repair`).
   **The lanes of one release land in any order, so a dev database can apply a later 0.6 migration before an earlier one (V20 before V18, say):** Flyway then refuses the
   lower number (`outOfOrder` is off) and the table it creates is missing, so reset such a database with `docker compose down -v`; a fresh one (a test container, CI) applies them in order.
-  The exception ends with the release that contains the file. The range today is **V1–V54**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
+  The exception ends with the release that contains the file. The range today is **V1–V55**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
   `unaccent` extension, V5 `user_disabled_features` (V1–V5 are Flow's), V6 `teams` (with the optional
   manager), V7 `users.credential_revision`, V8 `password_reset_tokens`, V9 the `ops` telemetry
   schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows, V13 the room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`), V14 the thread aggregate (`threads`, `messages`, `thread_events`), V15 the hashtag index (`message_tags`, `messages.tags_version`), V16 the search columns (`messages.search` and `threads.search`, the `adder_search` configuration; its GIN index was dropped before release), V17 the mention index (`message_mentions`), V18 the notices (`notifications`), V19 the read state (`room_members.seen_at` and `read_from`, `thread_reads`), V20 the reaction table (`message_reactions`), V21 the room pins (`room_pins`), V22 the digest's claim column and the email switches (`notifications.emailed_at`, `user_notification_preferences`), V23 the history scrub (data only: `thread_events.params`), V24 the per-actor digest budget (`notification_email_budget`), V25 the team mention handle (`teams.handle`, 1.1.0), V26 the thread watches (`thread_watches`, 1.1.0), V27 the notice reshape (`notifications.in_app`, one notice per message and recipient, 1.1.0), V28 the preference choices (`user_notification_preferences.enabled`, 1.1.0), V29 the wide-event budget (`notification_email_budget.broadcasts`, `broadcasts_exceeded_at`, 1.1.0), V30 the group-mention index (`message_group_mentions`, 1.1.0), V31 the thread hashtag index (`idx_message_tags_thread`, 1.2.0), V32 the tag registry (`tag_categories`, `tags` and the Kind and Area seed, 1.2.0), V33 the thread tags (`thread_tags`, 1.2.0), V34 the unseen-notice index by room (`idx_notifications_unseen_room`, 1.2.0), V35 the message quote (`messages.quoted_message_id` and `idx_messages_quoted`, 1.3.0), V36 room access (`rooms.access_type` and `room_join_requests`, 1.6.0), V37 personal room organization (`user_room_organizations`, 1.8.0), V38 room membership notices (1.14.0), V39 the grouped-reply index (1.17.0), V40 the sticky watch preference (`thread_watches.watching`). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
   V41 links workflow notices to events, V42 adds thread mutes, V43 foreground mention snapshots, V44 browser push, V45 reaction notices,
-  V46 thread lifecycle, V47 revisions, V48–V50 chat search and cleanup indexes, V51 notice recipient guards, V52 digest pacing, V53 shared live tickets and V54 shared socket leases.
+  V46 thread lifecycle, V47 revisions, V48–V50 chat search and cleanup indexes, V51 notice recipient guards, V52 digest pacing, V53 shared live tickets, V54 shared socket leases and V55 refresh replay grace.
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root (the chat's services are built by `ChatWiring.kt` beside it, called from `configureDatabase`): it constructs the
   services and publishes them into `Application.attributes` (`UserServiceKey`, `TeamServiceKey`,
@@ -821,8 +821,9 @@ default `adder`/`adder`; the value is word-split on purpose):
   extension needs no change here: the drop is by catalog, not by name. Stop the app first (compose `docker compose stop app`; k8s
   scale to 0). To restore beside the data instead, make a scratch database (`ADDER_DB_NAME=adder_restored` after `createdb`) and compare.
 - **Keys and application secrets** are stored separately from the dump. Keep `DATA_ENCRYPTION_KEY`, `JWT_SECRET`, and the previous
-  encryption key when applicable. A restore needs the encryption keys covering the dump's browser push endpoints (`security.md`). A restored database keeps its users'
-  password hashes and `credential_revision`s, so every outstanding token stays valid or not as the live system decided. In-memory state (lockouts, MFA codes, refresh rotations) starts empty.
+  encryption key when applicable. A restore needs the encryption keys covering the dump's browser push endpoints (`security.md`).
+  It restores password hashes, credential revisions, and revocations from the snapshot. It also restores refresh rotation grace and
+  replay counters with their original deadlines. State held in process memory starts fresh.
 - **A dump restores into the same or a newer app version** (Flyway migrates forward on boot). An OLDER app against a newer database is
   not refused by Flyway (its default ignores `*:future` migrations; the config is unchanged), so never roll the app back past the
   schema without restoring a dump of that older schema, UNLESS that release's own rollback runbook says otherwise (1.2.0 to 1.1.0:
@@ -906,3 +907,11 @@ Each process renews its own leases in batches of 1,000 every 20 seconds. A socke
 outlasts its access token. Foreground expiry is independent, and `@here` checks only current room members against fresh
 foreground leases in the message transaction. Socket I/O uses a monotonic deadline derived conservatively from the database
 response. Close releases the row by its owning process and session IDs. Crash residue expires and is removed in bounded batches.
+
+### Shared refresh replay grace (V55)
+
+V55 links bounded `refresh_rotations` to `revoked_tokens`, with at most 10,000 preallocated slot IDs and indexes for the grace
+and token expiry paths. Only the JTI and identifiers needed to clear grace are stored. Revocation prunes expired blocks in
+bounded batches, cascading their rotation rows. The user guard joins refresh and logout transactions for the same account.
+Logout orders the account guards and JTIs when two different principals are involved. No scripts should delete revocations to
+reset grace. Existing V54 or older denylist rows have no grace. Keep the old process stopped while upgrading to V55.

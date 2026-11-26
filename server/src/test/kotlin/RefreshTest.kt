@@ -239,6 +239,11 @@ class RefreshTest {
 
         // A's rotated-away token is no longer inside a grace: its replay is revoked, not re-minted.
         assertEquals(HttpStatusCode.Unauthorized, client.postJson("/api/v1/refresh", RefreshRequest(a.refreshToken)).status)
+        assertEquals(
+            HttpStatusCode.Unauthorized,
+            client.postJson("/api/v1/refresh", RefreshRequest(aRotated.refreshToken)).status,
+            "the mismatched but verified refresh token itself is revoked",
+        )
     }
 
     @Test

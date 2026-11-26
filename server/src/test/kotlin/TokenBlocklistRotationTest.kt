@@ -1,108 +1,274 @@
 package ch.nokillswit
 
-import ch.nokillswit.auth.REFRESH_REPLAY_GRACE_MS
+import ch.nokillswit.auth.MAX_GRACE_REUSES
 import ch.nokillswit.auth.RefreshClaim
-import io.ktor.server.testing.testApplication
+import ch.nokillswit.auth.RefreshPrecheck
+import ch.nokillswit.auth.RefreshTokenRevocation
+import ch.nokillswit.auth.TokenBlocklistService
+import ch.nokillswit.infra.db.connectPooledDatabase
+import ch.nokillswit.users.UserRole
+import io.r2dbc.spi.ConnectionFactoryOptions
+import java.time.Duration
 import java.util.UUID
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+import io.ktor.server.testing.testApplication
+import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
-/**
- * The refresh-rotation half of auth/TokenBlocklistService.kt, straight against the database: the
- * atomic claim (the HTTP replay tests are answered by the `isRevoked` fast path (a plain select), so only
- * these prove the row insert itself decides the winner) and the replay-grace verdicts under an
- * injected clock.
- */
+/** PostgreSQL contract for refresh claims, shared replay grace and the atomic logout boundary. */
 class TokenBlocklistRotationTest {
-
+    private val users = mutableListOf<UInt>()
     private val farFuture get() = System.currentTimeMillis() + 600_000
 
-    private companion object {
-        const val USER = 42L
+    @AfterTest
+    fun cleanUp() = runBlocking {
+        if (users.isNotEmpty()) {
+            PostgresTestSupport.connect().use { connection ->
+                connection.prepareStatement("DELETE FROM refresh_rotations WHERE user_id = ANY(?)").use { statement ->
+                    statement.setArray(1, connection.createArrayOf("bigint", users.map(UInt::toLong).toTypedArray()))
+                    statement.executeUpdate()
+                }
+            }
+        }
+        users.forEach { TestUsers.softDelete(it) }
+    }
+
+    private suspend fun user(label: String): UInt =
+        TestUsers.seed(uniqueEmail("refresh-store-$label"), "pw", role = UserRole.USER).also { users += it }
+
+    @Test
+    fun `rotation store rejects invalid grace and capacity bounds`() = testApplication {
+        usePostgresTestcontainer()
+
+        assertFailsWith<IllegalArgumentException> { newTokenBlocklistService(replayGraceMillis = -1) }
+        assertFailsWith<IllegalArgumentException> { newTokenBlocklistService(maxRotationRecords = 0) }
+        assertFailsWith<IllegalArgumentException> { newTokenBlocklistService(maxRotationRecords = 10_001) }
     }
 
     @Test
-    fun `revokeIfAbsent inserts once - the second call for the same jti reports false`() = testApplication {
+    fun `revokeIfAbsent inserts once and an upgrade-era row without rotation metadata stays strict`() = testApplication {
         usePostgresTestcontainer()
-        val service = newTokenBlocklistService { 1_000_000L }
+        val service = newTokenBlocklistService()
         val jti = UUID.randomUUID().toString()
 
+        assertEquals(RefreshPrecheck.AVAILABLE, service.refreshPrecheck(jti))
         assertTrue(service.revokeIfAbsent(jti, farFuture))
         assertFalse(service.revokeIfAbsent(jti, farFuture))
-        // A fresh instance has no cache and no memory: the DATABASE row is what says "already there".
-        assertFalse(newTokenBlocklistService { 1_000_000L }.revokeIfAbsent(jti, farFuture))
+        assertEquals(RefreshPrecheck.REVOKED, newTokenBlocklistService().refreshPrecheck(jti))
     }
 
     @Test
-    fun `concurrent claims of one jti produce exactly one winner`() = testApplication {
+    fun `concurrent stores share one claim and at most two aggregate grace responses`() = testApplication {
         usePostgresTestcontainer()
+        val userId = user("aggregate")
         val jti = UUID.randomUUID().toString()
-        val expiresAt = farFuture
+        assertEquals(RefreshClaim.CLAIMED, newTokenBlocklistService().claimRefresh(jti, farFuture, userId))
+        assertEquals(RefreshPrecheck.GRACE, newTokenBlocklistService().refreshPrecheck(jti))
 
         val results = coroutineScope {
-            // One service per caller: separate caches and no shared state, only the database row.
-            (1..12).map { async(Dispatchers.IO) { newTokenBlocklistService { 1_000_000L }.revokeIfAbsent(jti, expiresAt) } }
-                .awaitAll()
+            List(8) {
+                async(Dispatchers.IO) { newTokenBlocklistService().claimRefresh(jti, farFuture, userId) }
+            }.awaitAll()
+        }
+        assertEquals(MAX_GRACE_REUSES, results.count { it == RefreshClaim.GRACE_REPLAY }, results.toString())
+        assertEquals(8 - MAX_GRACE_REUSES, results.count { it == RefreshClaim.REPLAYED }, results.toString())
+    }
+
+    @Test
+    fun `grace survives the issuing service disappearing and uses PostgreSQL time`() = testApplication {
+        usePostgresTestcontainer()
+        val userId = user("restart")
+        val durable = UUID.randomUUID().toString()
+        assertEquals(RefreshClaim.CLAIMED, newTokenBlocklistService().claimRefresh(durable, farFuture, userId))
+        assertEquals(RefreshClaim.GRACE_REPLAY, newTokenBlocklistService().claimRefresh(durable, farFuture, userId))
+
+        val expiring = UUID.randomUUID().toString()
+        val shortGrace = newTokenBlocklistService(replayGraceMillis = 50)
+        assertEquals(RefreshClaim.CLAIMED, shortGrace.claimRefresh(expiring, farFuture, userId))
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement("SELECT pg_sleep(0.08)").use { it.executeQuery().close() }
+        }
+        assertEquals(RefreshPrecheck.REPLAYED, newTokenBlocklistService(replayGraceMillis = 50).refreshPrecheck(expiring))
+        assertEquals(RefreshClaim.REPLAYED, shortGrace.claimRefresh(expiring, farFuture, userId))
+    }
+
+    @Test
+    fun `a full bounded store keeps existing grace and makes the unrecorded rotation strict`() = withIsolatedRotationStore {
+        val first = UUID.randomUUID().toString()
+        val second = UUID.randomUUID().toString()
+        val service = service()
+
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(first, farFuture, userId))
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(second, farFuture, userId))
+        assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(first, farFuture, userId))
+        assertEquals(RefreshClaim.REVOKED, service.claimRefresh(second, farFuture, userId))
+    }
+
+    @Test
+    fun `a full bounded store promptly reuses an expired grace slot while the old revocation stays strict`() =
+        withIsolatedRotationStore {
+            val first = UUID.randomUUID().toString()
+            val second = UUID.randomUUID().toString()
+            val service = service(replayGraceMillis = 50)
+
+            assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(first, farFuture, userId))
+            connect().use { connection ->
+                connection.prepareStatement("SELECT pg_sleep(0.08)").use { it.executeQuery().close() }
+            }
+
+            assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(second, farFuture, userId))
+            assertEquals(
+                RefreshClaim.REVOKED,
+                service.claimRefresh(first, farFuture, userId),
+                "reusing rotation metadata must not remove the original token's denylist row",
+            )
+            assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(second, farFuture, userId))
         }
 
-        assertEquals(1, results.count { it }, "exactly one insert wins: $results")
-    }
-
     @Test
-    fun `a replay is a grace re-mint inside the window, at most twice, and replayed after it`() = testApplication {
-        usePostgresTestcontainer()
-        var now = 1_000_000L
-        val service = newTokenBlocklistService { now }
+    fun `a missing user guard fails closed before recording a refresh claim`() = withIsolatedRotationStore {
+        connect().use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    "CREATE FUNCTION discard_refresh_guard() RETURNS trigger LANGUAGE plpgsql AS " +
+                        "'BEGIN RETURN NULL; END'",
+                )
+                statement.execute(
+                    "CREATE TRIGGER discard_refresh_guard BEFORE INSERT ON refresh_rotation_user_guards " +
+                        "FOR EACH ROW EXECUTE FUNCTION discard_refresh_guard()",
+                )
+            }
+        }
+
         val jti = UUID.randomUUID().toString()
-
-        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(jti, farFuture, USER))
-        now += REFRESH_REPLAY_GRACE_MS - 1
-        assertTrue(service.inReplayGrace(jti))
-        assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(jti, farFuture, USER))
-        assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(jti, farFuture, USER))
-        // The re-mints are used up: still inside the window, but now a replay.
-        assertFalse(service.inReplayGrace(jti))
-        assertEquals(RefreshClaim.REPLAYED, service.claimRefresh(jti, farFuture, USER))
-
-        val late = UUID.randomUUID().toString()
-        now += 10
-        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(late, farFuture, USER))
-        now += REFRESH_REPLAY_GRACE_MS
-        assertEquals(RefreshClaim.REPLAYED, service.claimRefresh(late, farFuture, USER), "past the window, unused re-mints do not matter")
+        assertFailsWith<IllegalStateException> { service().claimRefresh(jti, farFuture, userId) }
+        connect().use { connection ->
+            connection.prepareStatement("SELECT count(*) FROM revoked_tokens WHERE jti = ?").use { statement ->
+                statement.setString(1, jti)
+                statement.executeQuery().use { rows ->
+                    assertTrue(rows.next())
+                    assertEquals(0, rows.getInt(1), "the failed guard cannot partially claim the token")
+                }
+            }
+        }
     }
 
     @Test
-    fun `forgetting a user's rotations ends their grace but not another user's`() = testApplication {
+    fun `logout atomically revokes the exact pair and clears both users grace only`() = testApplication {
         usePostgresTestcontainer()
-        val service = newTokenBlocklistService { 1_000_000L }
-        val mine = UUID.randomUUID().toString()
-        val other = UUID.randomUUID().toString()
-        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(mine, farFuture, USER))
-        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(other, farFuture, USER + 1))
+        val refreshUser = user("logout-refresh")
+        val accessUser = user("logout-access")
+        val unrelatedUser = user("logout-unrelated")
+        val refreshOld = UUID.randomUUID().toString()
+        val accessOld = UUID.randomUUID().toString()
+        val unrelatedOld = UUID.randomUUID().toString()
+        val service = newTokenBlocklistService()
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(refreshOld, farFuture, refreshUser))
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(accessOld, farFuture, accessUser))
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(unrelatedOld, farFuture, unrelatedUser))
 
-        service.forgetRotations(USER)
+        val accessJti = UUID.randomUUID().toString()
+        val presentedRefresh = UUID.randomUUID().toString()
+        val otherAccessToken = UUID.randomUUID().toString()
+        val otherRefreshToken = UUID.randomUUID().toString()
+        assertTrue(
+            service.logoutSession(
+                accessUser, accessJti, farFuture,
+                RefreshTokenRevocation(refreshUser, presentedRefresh, farFuture),
+            ),
+        )
 
-        assertEquals(RefreshClaim.REVOKED, service.claimRefresh(mine, farFuture, USER))
-        assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(other, farFuture, USER + 1))
+        assertTrue(service.isRevoked(accessJti))
+        assertTrue(service.isRevoked(presentedRefresh))
+        assertFalse(service.isRevoked(otherAccessToken))
+        assertFalse(service.isRevoked(otherRefreshToken))
+        assertEquals(RefreshClaim.REVOKED, service.claimRefresh(refreshOld, farFuture, refreshUser))
+        assertEquals(RefreshClaim.REVOKED, service.claimRefresh(accessOld, farFuture, accessUser))
+        assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(unrelatedOld, farFuture, unrelatedUser))
     }
 
     @Test
-    fun `a logout-revoked or not-remembered token is revoked, never a grace replay`() = testApplication {
+    fun `logout revocations and grace clearing roll back together`() = testApplication {
         usePostgresTestcontainer()
-        val service = newTokenBlocklistService { 1_000_000L }
-        val loggedOut = UUID.randomUUID().toString()
-        service.revoke(loggedOut, farFuture)
-        assertEquals(RefreshClaim.REVOKED, service.claimRefresh(loggedOut, farFuture, USER))
+        val userId = user("rollback")
+        val rotated = UUID.randomUUID().toString()
+        val access = UUID.randomUUID().toString()
+        val service = newTokenBlocklistService()
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(rotated, farFuture, userId))
 
-        // Rotated by another instance (or before a restart): the row exists, this instance remembers nothing.
-        val rotatedElsewhere = UUID.randomUUID().toString()
-        assertEquals(RefreshClaim.CLAIMED, newTokenBlocklistService { 1_000_000L }.claimRefresh(rotatedElsewhere, farFuture, USER))
-        assertEquals(RefreshClaim.REVOKED, service.claimRefresh(rotatedElsewhere, farFuture, USER))
+        assertFailsWith<IllegalStateException> {
+            suspendTransaction(sharedDatabaseForTests()) {
+                service.logoutSession(userId, access, farFuture, refresh = null)
+                error("roll back")
+            }
+        }
+        assertFalse(service.isRevoked(access))
+        assertEquals(RefreshClaim.GRACE_REPLAY, service.claimRefresh(rotated, farFuture, userId))
+    }
+
+    @Test
+    fun `logout with an already revoked access token still clears that users refresh grace`() = testApplication {
+        usePostgresTestcontainer()
+        val userId = user("logout-already-revoked")
+        val rotated = UUID.randomUUID().toString()
+        val access = UUID.randomUUID().toString()
+        val service = newTokenBlocklistService()
+        assertEquals(RefreshClaim.CLAIMED, service.claimRefresh(rotated, farFuture, userId))
+        assertTrue(service.revokeIfAbsent(access, farFuture))
+
+        assertFalse(service.logoutSession(userId, access, farFuture, refresh = null))
+        assertTrue(service.isRevoked(access))
+        assertEquals(
+            RefreshClaim.REVOKED,
+            service.claimRefresh(rotated, farFuture, userId),
+            "idempotent access revocation must not skip the transactional grace cleanup",
+        )
+    }
+
+    /** Capacity assertions need a whole migrated database; shared-suite rotations may legitimately occupy slot one. */
+    private fun withIsolatedRotationStore(test: suspend IsolatedRotationStore.() -> Unit): Unit =
+        withIsolatedTestDatabase { fixture ->
+            runBlocking {
+                val options = ConnectionFactoryOptions.parse(fixture.r2dbcUrl)
+                    .mutate()
+                    .option(ConnectionFactoryOptions.USER, PostgresTestSupport.user)
+                    .option(ConnectionFactoryOptions.PASSWORD, PostgresTestSupport.password)
+                    .build()
+                val (database, pool) = connectPooledDatabase(options, 2, 0, Duration.ofSeconds(10), Duration.ofMinutes(1))
+                try {
+                    IsolatedRotationStore(fixture, database).test()
+                } finally {
+                    pool.dispose()
+                }
+            }
+        }
+
+    private class IsolatedRotationStore(
+        private val fixture: IsolatedTestDatabase,
+        private val database: R2dbcDatabase,
+    ) {
+        val userId: UInt = connect().use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT id FROM users ORDER BY id LIMIT 1").use { rows ->
+                    check(rows.next())
+                    rows.getLong(1).toUInt()
+                }
+            }
+        }
+
+        fun connect() = fixture.connect()
+
+        fun service(replayGraceMillis: Long = 60_000): TokenBlocklistService =
+            TokenBlocklistService(database, replayGraceMillis, maxRotationRecords = 1)
     }
 }

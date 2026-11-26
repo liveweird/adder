@@ -35,7 +35,7 @@ class AccessVerdictsTest {
     @Test
     fun `the batch agrees with the single check for every verdict, in the order asked`() = testApplication {
         usePostgresTestcontainer()
-        val service = newTokenBlocklistService { System.currentTimeMillis() }
+        val service = newTokenBlocklistService()
         val live = seed()
         val admin = seed(UserRole.ADMIN)
         val gone = seed().also { TestUsers.softDelete(it) }
@@ -71,7 +71,7 @@ class AccessVerdictsTest {
     @Test
     fun `a batch past the chunk size is judged in several chunks and keeps its order`() = testApplication {
         usePostgresTestcontainer()
-        val service = newTokenBlocklistService { System.currentTimeMillis() }
+        val service = newTokenBlocklistService()
         val live = seed()
         val gone = seed().also { TestUsers.softDelete(it) }
         // A revoked jti sits in the SECOND chunk (index 1003), where a per-chunk lookup that forgot it would answer LIVE.
@@ -96,7 +96,7 @@ class AccessVerdictsTest {
     @Test
     fun `a deleted account whose token is also revoked is USER_GONE, in both checks`() = testApplication {
         usePostgresTestcontainer()
-        val service = newTokenBlocklistService { System.currentTimeMillis() }
+        val service = newTokenBlocklistService()
         val gone = seed().also { TestUsers.softDelete(it) }
         val jti = UUID.randomUUID().toString().also { service.revoke(it, System.currentTimeMillis() + 600_000) }
         assertEquals(AccessVerdict.USER_GONE, service.accessVerdict(jti, gone, 0, emptySet()))

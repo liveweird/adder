@@ -75,6 +75,7 @@ class MigrationChecksumTest {
         "V52__notification_email_pacing.sql" to -1756005064,
         "V53__share_live_tickets.sql" to -1388767374,
         "V54__share_live_session_leases.sql" to -894410750,
+        "V55__share_refresh_rotation_grace.sql" to -766416629,
     )
 
     @Test

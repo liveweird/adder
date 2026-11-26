@@ -31,6 +31,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -42,6 +43,13 @@ internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 
 /** Ceiling for the in-memory throttle/challenge stores' `maxTracked` capacities — bounds the memory an operator can commit. */
 internal const val MAX_TRACKED_IDENTITIES = 1_000_000
+
+internal fun interface RefreshAfterPrecheck {
+    suspend fun reached(jti: String)
+}
+
+/** Internal operation-boundary seam for deterministic refresh-claim races; production never publishes this attribute. */
+internal val RefreshAfterPrecheckKey = AttributeKey<RefreshAfterPrecheck>("RefreshAfterPrecheck")
 
 internal fun JwtConfig.authResponse(userId: UInt, user: User): LoginResponse {
     val roles = user.additionalRoles
@@ -157,10 +165,13 @@ private fun Route.refresh(deps: AuthDeps) {
         // A jti-less token could never be blocklisted, so it is malformed by definition
         // (every server-minted token carries one).
         val jti = decoded.id ?: reject("malformed", rawUserId)
-        // The cheap fast path (one plain select); a recently rotated token is let through to the claim below.
-        if (blocklist.isRevoked(jti) && !blocklist.inReplayGrace(jti)) {
-            reject(if (blocklist.wasRotated(jti)) "replayed" else "revoked", rawUserId)
+        // The cheap shared fast path. Grace remains durable across instances; strict and old denylist rows stop before the user read.
+        when (blocklist.refreshPrecheck(jti)) {
+            RefreshPrecheck.AVAILABLE, RefreshPrecheck.GRACE -> Unit
+            RefreshPrecheck.REPLAYED -> reject("replayed", rawUserId)
+            RefreshPrecheck.REVOKED -> reject("revoked", rawUserId)
         }
+        call.application.attributes.getOrNull(RefreshAfterPrecheckKey)?.reached(jti)
         val userId = rawUserId
             ?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }
             ?.toUInt()
@@ -181,7 +192,7 @@ private fun Route.refresh(deps: AuthDeps) {
         // insert. Two concurrent refreshes with the same token both pass the fast path above; only the
         // insert's winner is CLAIMED, the other is answered by the grace (its own pair) or rejected.
         val expiresAt = decoded.expiresAt?.time ?: reject("malformed", rawUserId)
-        when (blocklist.claimRefresh(jti, expiresAt, userId.toLong())) {
+        when (blocklist.claimRefresh(jti, expiresAt, userId)) {
             RefreshClaim.CLAIMED -> Unit
             RefreshClaim.GRACE_REPLAY -> audit("refresh.replay_grace", "userId" to rawUserId)
             RefreshClaim.REPLAYED -> reject("replayed", rawUserId)
@@ -196,22 +207,13 @@ private fun Route.logout(deps: AuthDeps) {
     val refreshVerifier = deps.refreshVerifier
     post("/api/v1/logout") {
         val principal = call.principal<JWTPrincipal>()!!
-        val userId = principal.payload.getClaim("userId").asLong()
         val callerUserId = call.caller().userId
         call.revokeBrowserPushForLogout()
-        // A logout ends the replay grace of this user's recently rotated refresh tokens (a copy of one
-        // must not mint after sign-out); the access principal is what logout already trusts.
-        userId?.let { blocklist.forgetRotations(it) }
-        val jti = principal.payload.id
+        val accessJti = principal.payload.id
+            ?: throw UnauthorizedException("Access token is no longer valid - refresh or sign in again")
         val exp = principal.payload.expiresAt?.time ?: nowMillis()
-        if (jti != null) {
-            blocklist.revokeAccess(callerUserId, jti, exp)
-        }
-        // Also revoke the refresh token, if the client sent it, so an explicit logout kills it
-        // too (a refresh token is also blocklisted when it is rotated, but logout ends the live one).
-        // Best-effort by design (logout always answers 204), but the failures are NARROW
-        // and logged — a blanket catch would silently skip revocation on unrelated errors
-        // and swallow coroutine cancellation.
+        // Decode the optional credential before the one database transaction. Malformed or unverifiable bodies stay best-effort:
+        // the exact access token is still revoked, while only a fully verified refresh token contributes its jti and account.
         val body = try {
             call.receiveNullable<LogoutRequest>()
         } catch (cause: BadRequestException) {
@@ -233,7 +235,7 @@ private fun Route.logout(deps: AuthDeps) {
             )
             null
         }
-        body?.refreshToken?.let { rt ->
+        val refresh = body?.refreshToken?.let { rt ->
             val decoded = try {
                 refreshVerifier.verify(rt)
             } catch (cause: JWTVerificationException) {
@@ -245,12 +247,20 @@ private fun Route.logout(deps: AuthDeps) {
                 )
                 null
             }
-            // Covers a mismatched pair too: the presented refresh token's own user loses its grace as well.
-            decoded?.strictLongClaim("userId")?.let { blocklist.forgetRotations(it) }
-            decoded?.id?.let { rjti ->
-                blocklist.revoke(rjti, decoded.expiresAt?.time ?: nowMillis())
+            decoded?.takeIf { it.getClaim("typ").asString() == TOKEN_TYPE_REFRESH }?.let { verified ->
+                val refreshUserId = verified.strictLongClaim("userId")
+                    ?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }
+                    ?.toUInt()
+                val refreshJti = verified.id
+                val refreshExpiry = verified.expiresAt?.time
+                if (refreshUserId != null && refreshJti != null && refreshExpiry != null) {
+                    RefreshTokenRevocation(refreshUserId, refreshJti, refreshExpiry)
+                } else {
+                    null
+                }
             }
         }
+        blocklist.logoutSession(callerUserId, accessJti, exp, refresh)
         audit(
             "logout",
             "userId" to principal.payload.getClaim("userId").asLong(),

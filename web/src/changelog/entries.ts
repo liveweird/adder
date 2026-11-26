@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.26.0",
+    date: "2026-11-26",
+    en: `**Adder 1.26.0 — shared session refresh and logout**
+
+- A retry after an interrupted session refresh can succeed on another application instance using the same database.
+- Logout revokes the current session's credentials and clears refresh grace together. Other signed-in sessions keep working.`,
+    pl: `**Adder 1.26.0 — wspólne odświeżanie i wylogowanie sesji**
+
+- Po przerwanym odświeżeniu sesji ponowna próba może zadziałać na innej instancji aplikacji korzystającej z tej samej bazy danych.
+- Wylogowanie unieważnia tokeny bieżącej sesji i jednocześnie kończy okres ponawiania odświeżenia. Inne zalogowane sesje nadal działają.`,
+  },
+  {
     version: "1.25.0",
     date: "2026-11-26",
     en: `**Adder 1.25.0 — shared live socket limits and presence**

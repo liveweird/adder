@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.25.0
+  version: 1.26.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -213,8 +213,10 @@ paths:
         non-revoked refresh token and returns a brand-new access token and refresh token (each with
         a full TTL). The presented refresh token is retired: it is blocklisted until its own expiry,
         so it works once. A replay of an already-rotated token is `401`, except that a replay within
-        a short grace window after the rotation (60 seconds by default; it covers a response lost in
-        flight, at most twice per token, and not after a logout that reached the server) is answered with another fresh pair.
+        a short shared grace window after the rotation (60 seconds by default; it survives a node
+        restart or retry on another node, covers a response lost in flight, allows at most two
+        aggregate replay responses per token, and ends when a logout for its account reaches the
+        server) is answered with another fresh pair.
         The superseded access token is not revoked and
         lives until its own expiry. Requires no `Authorization` header (the access token may
         already be expired). Returns `401` for a missing/invalid/expired/revoked/already-used
@@ -250,7 +252,9 @@ paths:
       summary: Revoke the bearer token (server-side denylist)
       description: |
         Revokes the access token carried in the `Authorization` header. If a `refreshToken` is
-        supplied in the body, it is revoked too. The body is optional. A browser that opted in to
+        supplied in the body and verifies as a refresh token, it is revoked too. The access-token
+        revocation, optional refresh-token revocation, and removal of either account's applicable
+        refresh grace are atomic. The body is optional. A browser that opted in to
         Web Push may send its opaque subscription id in `X-Adder-Push-Subscription`; cleanup is
         best-effort and caller-scoped, and never changes the logout response.
       parameters:
