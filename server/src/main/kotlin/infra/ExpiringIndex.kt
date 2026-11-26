@@ -3,8 +3,7 @@ package ch.nokillswit.infra
 import java.util.TreeMap
 
 /**
- * The expiry order of an in-memory TTL store (the login lockout, the password-reset cooldown, the MFA challenges and the live-socket
- * tickets keep one each): which keys expire at which instant, so a sweep drops the expired ones in order of expiry and stops at the
+ * The expiry order of an in-memory TTL store: which keys expire at which instant, so a sweep drops the expired ones and stops at the
  * first that is still live, never scanning the store. It holds KEYS only; the owner keeps the entries and says, per swept key, whether
  * the entry still expires at that instant (an entry re-keyed to a later expiry is not dropped by its old slot).
  *

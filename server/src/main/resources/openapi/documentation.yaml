@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.26.0
+  version: 1.27.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -119,10 +119,16 @@ paths:
         `LOGIN_LOCKOUT_MFA_MAX_DURATION_SECONDS`, default 24 h; the level is forgotten after
         `LOGIN_LOCKOUT_MFA_DECAY_SECONDS` without a lock); a window of wrong passwords only stays the flat
         window. A confirmed password reset (`POST /password-reset/confirm`) lifts the lock and its level.
-        The answer is the same `429` whatever the cause. The in-memory lockout store admits at most
-        `LOGIN_LOCKOUT_MAX_TRACKED` identities (default 10,000). At capacity a new identity
-        receives `429` before password verification; existing tracked identities continue,
-        and expired state frees capacity. This applies equally to existing and unknown emails.
+        The answer is the same `429` whatever the cause. The database-shared lockout store admits at most
+        `LOGIN_LOCKOUT_MAX_TRACKED` ordinary, untrusted submitted identities (default 10,000 physical rows).
+        At capacity a new identity submitted to this login endpoint receives `429` before password
+        verification; existing tracked identities continue, and expired state frees capacity.
+        Known-account MFA-code and authenticated password-change failures are still admitted above
+        that configured cap: one reserved row is bound by foreign key to the proved user id and follows
+        that account's current canonical email, so repeated email changes cannot add reservations.
+        Refusing to count a credential guess already compared would weaken the lockout. State and
+        capacity are shared across every application instance. Submitted identities are represented
+        only by a deployment-keyed digest in this store; the stable binding stores a user id, never an address.
 
         **Email MFA (opt-in via the `MFA` feature flag):** when the account has MFA enabled,
         correct credentials answer `200` with an `MfaChallengeResponse` instead of tokens — a
@@ -293,9 +299,11 @@ paths:
         receives the token in a URL fragment, never in a server-visible path or query string.
         Throttled per submitted email — one request per interval
         (default 60 s, `PASSWORD_RESET_MIN_INTERVAL_SECONDS`) — uniformly for existing and
-        unknown addresses, and rate-limited per client IP. The in-memory cooldown store admits
+        unknown addresses, and rate-limited per client IP. The database-shared cooldown store admits
         at most `PASSWORD_RESET_MAX_TRACKED` identities (default 10,000). At capacity a new
         identity receives `429` and no reset email is scheduled; elapsed cooldowns free space.
+        The limit and interval apply across every application instance, and the submitted
+        identity is represented only by a separate deployment-keyed digest in this store.
         A soft-deleted account is unknown here (no link is minted or emailed, and the response
         follows the same acceptance and throttling rules). Answers `503` on deployments without
         outbound email (`MAIL_TRANSPORT=disabled`) or without a configured `MAIL_APP_URL` (the

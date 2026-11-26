@@ -13,13 +13,13 @@ import java.security.SecureRandom
  * POST /api/v1/login/mfa within [ttlMillis] and [maxAttempts] guesses. A challenge is
  * single-use: consumed on success, dropped on expiry or when the attempt cap is exceeded.
  *
- * In-memory and per-instance by design (the LoginThrottle posture): the deployment runs a
- * single replica, and a restart only invalidates pending challenges — the user simply signs
+ * The challenge itself remains in-memory and per-instance at this stage. A restart only invalidates pending challenges — the user
+ * simply signs
  * in again. An account holds at most [maxPerUser] live challenges: issuing one more REPLACES
  * the oldest (refusing would let anyone holding the password lock the owner out of signing
  * in, and every extra live code is another independent guess target). The per-challenge
  * attempt cap bounds one code; the ROUTE counts every wrong guess into the per-account
- * lockout (`LoginThrottle`, `auth/AccountLockout.kt`), which bounds the guesses across
+ * PostgreSQL-shared lockout (`PostgresAccountThrottle`, `auth/AccountLockout.kt`), which bounds the guesses across
  * challenges, so a fresh login never resets the budget.
  */
 class MfaChallenges(

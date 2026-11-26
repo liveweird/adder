@@ -7,6 +7,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.flywaydb.core.api.MigrationVersion
 
 /**
  * The SQL of `persistence.md` "Rollback below 1.1.0 (runbook)" runs against the migrated schema, so an operator who pastes it at 3 a.m. is
@@ -239,9 +240,16 @@ class RollbackRunbookTest {
         val shipped = Files.createTempDirectory("flyway-$release-")
         try {
             val source = File(System.getProperty("repo.root") ?: "..", "server/src/main/resources/db/migration")
+            val boundary = MigrationVersion.fromVersion(lastShipped.toString())
             val files = source.listFiles { f -> f.name.endsWith(".sql") }.orEmpty()
-                .filter { Regex("V(\\d+)__.*").matchEntire(it.name)!!.groupValues[1].toInt() <= lastShipped }
-            assertEquals((1..lastShipped).toList(), files.map { it.name.substringAfter('V').substringBefore("__").toInt() }.sorted())
+                .map { file -> file to MigrationVersion.fromVersion(file.name.substringAfter('V').substringBefore("__")) }
+                .filter { (_, version) -> version <= boundary }
+                .map { (file, _) -> file }
+            assertEquals(
+                (1..lastShipped).toList(),
+                files.map { it.name.substringAfter('V').substringBefore("__").toInt() }.sorted(),
+                "the historical release still ships exactly its original integer migration set",
+            )
             files.forEach { it.copyTo(File(shipped.toFile(), it.name)) }
             fun flyway(vararg ignore: String) = org.flywaydb.core.Flyway.configure()
                 .dataSource(PostgresTestSupport.jdbcUrl, PostgresTestSupport.user, PostgresTestSupport.password)
@@ -250,8 +258,8 @@ class RollbackRunbookTest {
                 .load()
 
             val old = flyway()
-            val newest = old.info().applied().maxOf { it.version.version.toInt() }
-            assertTrue(newest > lastShipped, "the shared schema is ahead of the $release set (V$newest)")
+            val newest = old.info().applied().maxOf { it.version }
+            assertTrue(newest > boundary, "the shared schema is ahead of the $release set (V$newest)")
             old.validate()
             assertEquals(0, old.migrate().migrationsExecuted, "the old jar's boot migrates nothing")
             assertTrue(

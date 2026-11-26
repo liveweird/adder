@@ -177,15 +177,17 @@ in-line).
 `security.lockout.threshold` (default 5, `$LOGIN_LOCKOUT_THRESHOLD`) consecutive failures for one
 submitted email, `/login` answers `429` for `security.lockout.durationSeconds` (default 900,
 `$LOGIN_LOCKOUT_DURATION_SECONDS`; longer when wrong emailed codes tripped it, see "progressive for MFA codes ONLY" below) — even with the correct password, and regardless of whether the
-account exists (no enumeration signal). A success resets the counter. The in-memory, per-instance (so the app runs ONE replica — `ci.yml` `k8s-static` pins it)
-store has a hard `security.lockout.maxTracked` limit (default 10,000,
-`$LOGIN_LOCKOUT_MAX_TRACKED`): expired state is reclaimed through an expiry index (`infra/ExpiringIndex.kt`, the one TTL index shared by the reset cooldown and MFA challenges), but fresh
-counters and active locks are never evicted to admit a new identity. At capacity, an untracked
+account exists (no enumeration signal). A success resets the counter. The PostgreSQL-shared store limits admission for ordinary
+identities with `security.lockout.maxTracked` (default 10,000, `$LOGIN_LOCKOUT_MAX_TRACKED`). It reclaims expired state in bounded batches.
+Fresh counters and active locks are never evicted to admit a new identity. At capacity, an untracked
 identity receives an audited `429` before password verification, so saturation cannot bypass the
-account throttle; tracked identities can still finish their normal flow. A fixed-size digest of
+account throttle; tracked identities can still finish their normal flow. Known accounts can still record failures beyond that cap,
+bounded by the users table. A fixed-size, deployment-keyed digest of
 the canonical submitted identity bounds retained key size even for malformed login input;
 oversized identities are also digested in audit fields instead of logged in full. The deployment
-is single-replica; a restart resets the throttle. This complements the per-IP `RateLimit` bucket,
+never stores the submitted address in this operational state, and a separate derivation label keeps the key apart from the audit
+digest and password-reset cooldown. PostgreSQL time supplies every deadline, and the same counter is observed by every app instance
+and survives restarts. This complements the per-IP `RateLimit` bucket,
 which rotating hosts sidestep. The 429 is **thrown** (`TooManyRequestsException`), never
 `respondProblem`ed directly — StatusPages' generic 429 status handler rewrites any non-StatusPages
 429, so only the exception path keeps the specific detail. Tests: `LoginThrottleTest` (unit,
@@ -200,11 +202,17 @@ that route always answers (401 at login and the MFA step, 403 on the change); ev
 `429` (thrown, see above), the change BEFORE any bcrypt (preflight), and an unseen identity at a full store the audited capacity
 `429` - **but only where the account is not yet known (the 1.0.0 checkup's M1).** The MFA step (the challenge's subject) and the
 self password change (the signed-in caller) act on an account that EXISTS, so their failures are counted even at a full store
-(`AccountGuess.knownAccount`, `LoginThrottle.preflight/recordFailure(knownAccount = true)`): otherwise a password holder could fill
+(`AccountGuess.knownUserId`, `AccountThrottle.preflight/recordFailure(knownUserId = ...)`): otherwise a password holder could fill
 the store with junk logins (about 670 a minute) and then guess emailed codes without ever locking. **The memory bound stays:** the
-key space of those extra entries is the user table (one digest per EMAIL an account held during a failure window, each expiring after the lock window; an ADMIN email change adds a key, so the bound is per email, not strictly per account), so a full store can
-hold at most `maxTracked` unknown identities plus one entry per such email. The capacity refusal stays for an UNKNOWN identity, and at
-`/login` it stays for every untracked email: the refusal comes BEFORE any password is compared and answers the same `429` for a known
+extra entry has a nullable unique foreign-key binding to the proved user id, so a full store has at most `maxTracked` physical
+unbound identities plus one reserved row per durable user. A known operation locks that current active user row, rejects a stale
+captured email, then takes the old/current digest advisory locks in lexical order and moves the bound row; repeated ADMIN email
+changes cannot add reservations. An active user who later receives a deleted or renamed user's former address reclaims that stale
+binding under the digest lock; the locked current user row plus active-email uniqueness proves the two durable user ids cannot both
+actively own the address. An unbound row is the address-level failure window accumulated before an account was proved, so a later
+proved operation at that same current address preserves and binds it; foreign bound state is discarded on address reuse. The capacity
+refusal stays for an UNKNOWN identity, and at `/login` it stays for every untracked email:
+the refusal comes BEFORE any password is compared and answers the same `429` for a known
 and an unknown email, so it leaks nothing and lets no guess through, whereas counting a wrong password for a known account there
 would have to answer differently from an unknown one (an existence oracle). **The accepted cost:** the above-cap entries can only be made for REAL accounts, so while an attacker holds the store full, a `/login` probe of an email flips from the capacity `429` to `401` once that account's owner mistypes an MFA code or their current password. That proves the account exists, and the probe then counts a failure against it. It needs the owner's own mistake inside the lock window plus a sustained fill that already denies sign-in to everyone untracked, so it is accepted. A correct password (non-MFA), a correct code or a correct current password clears the counter; a MISSING `currentPassword`
 is a plain 403 that does not count (nothing was guessed). An admin resetting ANOTHER user's password verifies nothing, so it neither
@@ -213,6 +221,11 @@ password until the window ends. The ways out: the emailed reset link (`POST /pas
 changes the password without `currentPassword`), or an admin resetting the password; with `MAIL_TRANSPORT=disabled` (no reset mail) only
 an admin can. For an MFA account the password step does NOT clear the counter (it is only the first factor: a
 caller holding the password could otherwise log in afresh after every few wrong codes and never lock); an accepted code does.
+The digest key is derived from the validated deployment JWT secret. A coordinated rotation stops every old-key process, clears only
+the operational `account_login_attempts` and `password_reset_cooldowns` tables, then starts every process with the new key. This
+resets lockout/escalation and cooldown state, never credentials, reset grants or token-revocation data. Intentionally retained proved
+rows can still be found by user id and moved, but anonymous old-key rows and cooldowns are unaddressable by new-key submissions and
+occupy capacity until their deadlines expire.
 **Pending MFA challenges and a lock:** a lock tripped by the MFA step (or met by a wrong code there) drops the account's pending
 challenges; a lock tripped by wrong passwords at `/login` or on the change does NOT, but no pending code can finish a sign-in
 during it (a correct code answers the lockout's `429`, `AccountGuess.recordSuccess`) and the challenges expire on their own TTL.
@@ -246,9 +259,9 @@ window with one escalates whatever failure then trips it. Otherwise a password h
 with a wrong password at `/login`, staying on the flat 15 minutes forever. This is safe for the owner: a wrong code needs a live
 challenge, so someone who knows only the username cannot START an escalating window. They can CONTINUE one the owner left open with a
 single code typo, but only inside that typo's 15-minute window and for at most one level per owner typo; (5) **memory**: the escalation map and the code
-counter of rule (6) are written only by `recordFailure(mfaCode = true)`, which requires a `knownAccount` (the MFA challenge's
-subject), so their key space is the user table (one digest per email an account held during an escalated lock or a code failure, each
-entry gone `lock + decay` / `decay` later through its own `ExpiringIndex`, like the above-cap entries), and neither counts against
+counter of rule (6) are written only by `recordFailure(mfaCode = true)`, which requires a proved user id (the MFA challenge's
+subject), so their key space is the user table (one FK-bound row per durable user, moved to the current canonical-email digest),
+and neither counts against
 `maxTracked`: the capacity rule for unknown identities is unchanged; (6) **pacing**: the shared counter's window is only the flat
 15 minutes, so a guesser who stays one short of the threshold and waits would never trip a lock. A SEPARATE per-account counter of
 wrong CODES only (`codeGuesses`) closes that: it lives `mfaDecaySeconds` from the FIRST code failure of its period (a fixed window,
@@ -262,11 +275,11 @@ codes are NOT counted (`MfaRoutes.challengeStillCurrent`, one primary-key read p
 `reason=credential_changed`, the challenge dropped), so an old challenge cannot re-lock the owner right after a reset lifted the lock. The level counter is clamped (32) and the doubling is step-wise against the cap,
 so nothing overflows. **Nothing new is disclosed:** the 429 is the same `accountLockedException` for every cause and carries no
 `Retry-After` today either; only the audit line carries the length and level. **Cost, accepted:** a real owner who mistypes codes
-repeatedly can sit locked out for up to 24 h; the ways out are the lock's end, a restart of the single replica and **a confirmed
+repeatedly can sit locked out for up to 24 h; the ways out are the lock's end and **a confirmed
 password reset (the owner's 2026-11-20 decision: it lifts the lock AND the level)**: the reset link goes to the same mailbox as the
 sign-in codes, so completing it proves the very factor a code guesser lacks (`LoginThrottle.clear`, keyed on the account's email,
-called by the confirm route after `PasswordResetService.complete` succeeded, keyed on the email `complete` verified under the user-row
-lock, `PasswordResetService.Completion`; the audit says so with `lockoutCleared`, below). Only
+called within `PasswordResetService.complete` so it commits or rolls back with the password replacement, keyed on the user id and
+email verified under the user-row lock, `PasswordResetService.Completion`; the audit says so with `lockoutCleared`, below). Only
 the CONFIRM does this: an unconfirmed `POST /password-reset` mails a link and clears nothing, so asking for mail cannot lift a lock;
 `login.lockout` with `escalationLevel >= 2` is the operator's signal that a password
 holder is guessing codes.
@@ -320,14 +333,16 @@ kills pending refresh tokens and MFA challenges, while MFA stays as it was, so t
 best-effort localized notice ("your password was reset, sessions signed out"; no token, no password) is emailed after the
 response; its failure (`password_reset.notification_failed`) cannot undo the reset. A confirmed reset **clears the
 per-account lockout** (the counter, an active lock of ANY cause and the MFA escalation level; owner decision 2026-11-20, "Per-account login
-lockout" above; the `password_reset.completed` line carries `lockoutCleared`). A lost 204 can make a retry answer `401`: sign in with the
+lockout" above; the clear joins grant consumption, password replacement and credential revision in the reset transaction, so a
+database failure rolls all of them back; the `password_reset.completed` line carries `lockoutCleared`). A lost 204 can make a retry answer `401`: sign in with the
 chosen password or request another link.
 
 Throttling: per submitted email - one request per `security.passwordReset.minIntervalSeconds` (default 60,
-`$PASSWORD_RESET_MIN_INTERVAL_SECONDS`) - uniformly for existing and unknown addresses (`auth/PasswordResetThrottle.kt`,
-in-memory/per-instance like the lockout), with the hard `security.passwordReset.maxTracked` limit (default 10,000,
+`$PASSWORD_RESET_MIN_INTERVAL_SECONDS`) - uniformly for existing and unknown addresses (`auth/PostgresPasswordResetThrottle.kt`,
+shared through PostgreSQL), with the hard `security.passwordReset.maxTracked` limit (default 10,000,
 `$PASSWORD_RESET_MAX_TRACKED`: elapsed cooldowns are reclaimed, a fresh one never evicted; saturation rejects a new identity with
-an audited `429` before any task starts); the per-IP `password-reset` bucket (`security.rateLimit.passwordResetPerMinute`,
+an audited `429` before any task starts). Only a deployment-keyed digest under its own derivation label is stored, and PostgreSQL
+time makes the interval consistent across instances and restarts. The per-IP `password-reset` bucket (`security.rateLimit.passwordResetPerMinute`,
 `$PASSWORD_RESET_RATE_LIMIT_PER_MINUTE` - blank follows the mode: 5/min production, 100/min development); and the confirm
 step's own per-IP `password-reset-confirm` bucket, 10/min in every mode (not configurable - the MFA idiom). `Cache-Control:
 no-store` already rides every `/api/` JSON and problem+json answer (`plugins/Http.kt`, StatusPages' 429s included); the bodiless
@@ -481,7 +496,7 @@ AFTER `verifyPassword`, so nothing about enumeration changes; the lockout counte
 above; `login.success` is deliberately NOT emitted); a 6-digit code (`generateMfaCode`, `auth/Passwords.kt`) is held in the
 in-memory challenge store (config `security.mfa.codeTtlSeconds` default 300
 `$MFA_CODE_TTL_SECONDS`, `security.mfa.maxAttempts` default 5 `$MFA_MAX_ATTEMPTS`; per-instance
-like the throttles — a restart just means signing in again) and emailed in the user's stored
+while login lockout and reset cooldowns are shared across instances; a restart means signing in again) and emailed in the user's stored
 language (V1 `users.language`, EN fallback). Its hard `security.mfa.maxTracked` limit (default
 10,000, `$MFA_MAX_TRACKED`) first drops expired challenges, then rejects new issuance with an
 audited `429` at capacity; existing codes remain verifiable and no rejected code is emailed. A

@@ -41,7 +41,7 @@ import kotlinx.coroutines.CancellationException
  */
 internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 
-/** Ceiling for the in-memory throttle/challenge stores' `maxTracked` capacities — bounds the memory an operator can commit. */
+/** Ceiling for the bounded throttle/challenge stores' `maxTracked` capacities. */
 internal const val MAX_TRACKED_IDENTITIES = 1_000_000
 
 internal fun interface RefreshAfterPrecheck {
@@ -80,7 +80,7 @@ internal class AuthDeps(
     val jwtConfig: JwtConfig,
     val userService: ch.nokillswit.users.UserService,
     val blocklist: TokenBlocklistService,
-    val loginThrottle: LoginThrottle,
+    val loginThrottle: AccountThrottle,
     val mailer: ch.nokillswit.infra.mail.Mailer?,
     val mfaChallenges: MfaChallenges,
     val mfaTtlMinutes: Long,
@@ -111,7 +111,7 @@ fun Application.configureAuthRoutes() {
         loginThrottle = attributes[LoginThrottleKey],
         mailer = mailer(),
         // Email MFA: pending challenges for MFA-enabled accounts mid-login. In-memory, per-instance,
-        // like the throttles above. The issuance helper lives beside the email content (auth/MfaEmail.kt).
+        // while account lockout is shared. The issuance helper lives beside the email content (auth/MfaEmail.kt).
         mfaChallenges = MfaChallenges(
             ttlMillis = mfaTtlSeconds * 1000,
             maxAttempts = requireConfigInt(environment.config, "security.mfa.maxAttempts", min = 1, max = 100),

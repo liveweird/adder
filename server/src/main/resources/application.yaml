@@ -93,10 +93,11 @@ ktor:
 security:
   # Per-account login lockout (complements the per-IP rate limit): after `threshold`
   # consecutive failures for one email, further attempts are 429 for `durationSeconds`.
-  # A successful login resets the counter. In-memory, per-instance.
+  # A successful login resets the counter. PostgreSQL shares the lockout across app instances.
   lockout:
     threshold: "$LOGIN_LOCKOUT_THRESHOLD:5"
     durationSeconds: "$LOGIN_LOCKOUT_DURATION_SECONDS:900"
+    # Physical cap for ordinary unbound identity rows. Proved accounts use one FK-bound reservation per user above this cap.
     maxTracked: "$LOGIN_LOCKOUT_MAX_TRACKED:10000"
     # Progressive for MFA ONLY: a lock tripped by a wrong emailed code doubles per consecutive such lock (15 min, 30, 60, ...) up to
     # `mfaMaxDurationSeconds` (never below `durationSeconds`); the level is forgotten `mfaDecaySeconds` after the last such lock ends,
@@ -129,7 +130,7 @@ security:
   # (auth/TokenBlocklistService.accessVerdict, plugins/Security.kt) is ONE uncached database
   # statement (revocation, account liveness, credential revision, roles), so a logout, a delete,
   # a demotion or a password change ends the token on its next request on ANY replica. The
-  # login lockout, password-reset cooldown, and email MFA challenge state are process-local.
+  # login lockout and password-reset cooldown are shared. Email MFA challenges remain process-local.
   # The supplied Kubernetes deployment uses one app replica.
   # Refresh-token rotation (auth/TokenBlocklistService.kt): every /refresh blocklists the presented
   # token. The shared database permits up to two retries during `replayGraceSeconds`, including
@@ -138,7 +139,7 @@ security:
   refresh:
     replayGraceSeconds: "$REFRESH_REPLAY_GRACE_SECONDS:60"
   # Self-service password reset: at most one request per submitted email per interval,
-  # uniformly whether or not the account exists. In-memory, per-instance, like the lockout.
+  # uniformly for every submitted address. PostgreSQL shares the cooldown across app instances.
   # The emailed link is a persisted single-use grant (V8, only its digest is stored) valid for
   # tokenTtlSeconds (1..3600; default 15 minutes) - a request never changes a password, only
   # the owner opening the link and choosing one does (auth/PasswordResetService.kt).
@@ -148,8 +149,8 @@ security:
     tokenTtlSeconds: "$PASSWORD_RESET_TOKEN_TTL_SECONDS:900"
   # Email MFA (opt-in per user via the MFA feature flag): a login with correct credentials
   # mints a challenge and emails a 6-digit code; the code must come back to
-  # POST /api/v1/login/mfa within the TTL and attempt cap. Challenges are in-memory,
-  # per-instance, like the lockout above (a restart just means signing in again).
+  # POST /api/v1/login/mfa within the TTL and attempt cap. Challenges are in-memory and
+  # per-instance, unlike the PostgreSQL-shared lockout above (a restart just means signing in again).
   mfa:
     codeTtlSeconds: "$MFA_CODE_TTL_SECONDS:300"
     maxAttempts: "$MFA_MAX_ATTEMPTS:5"

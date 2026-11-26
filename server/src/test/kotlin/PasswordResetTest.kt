@@ -276,6 +276,7 @@ class PasswordResetTest {
 
     @Test
     fun `a full reset store rejects a new identity without scheduling reset work`() = testApplication {
+        clearAccountAttemptState()
         configureApp("security.passwordReset.maxTracked" to "1")
         startApplication()
         val client = jsonClient()

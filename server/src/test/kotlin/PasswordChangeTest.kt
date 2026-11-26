@@ -327,6 +327,7 @@ class PasswordChangeTest {
     @Test
     fun `a full lockout store does not stop a wrong current password counting - the account locks, wrong stays a 403`() =
         testApplication {
+            clearAccountAttemptState()
             configureApp("security.lockout.maxTracked" to "1", "security.lockout.threshold" to "2")
             startApplication()
             val email = uniqueEmail("capacity-change")
@@ -355,6 +356,7 @@ class PasswordChangeTest {
 
     @Test
     fun `a full lockout store does not stop the right current password - an untracked account still changes it`() = testApplication {
+        clearAccountAttemptState()
         configureApp("security.lockout.maxTracked" to "1")
         startApplication()
         val email = uniqueEmail("capacity-change-ok")

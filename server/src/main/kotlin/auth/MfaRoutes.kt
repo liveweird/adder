@@ -14,7 +14,7 @@ import io.ktor.server.routing.post
  * Second login step for MFA-enabled accounts: exchange the challenge id + the emailed code for the ordinary token pair. Not behind
  * `authenticate` - there is no token yet.
  *
- * Every wrong code counts into the per-ACCOUNT lockout ([LoginThrottle], the counter `/login` uses), so the guesses across
+ * Every wrong code counts into the per-ACCOUNT lockout ([AccountThrottle], the counter `/login` uses), so the guesses across
  * any number of fresh challenges add up and lock the account; the locking failure and every later one for the account also drop its
  * pending challenges, so no live code can finish a sign-in during a lock. A correct code clears the counter, exactly as a
  * password-only login does.
@@ -23,7 +23,7 @@ internal fun Route.mfaVerify(
     jwtConfig: JwtConfig,
     userService: UserService,
     mfaChallenges: MfaChallenges,
-    loginThrottle: LoginThrottle,
+    loginThrottle: AccountThrottle,
 ) {
     post("/api/v1/login/mfa") {
         val req = call.receive<MfaVerifyRequest>()
@@ -56,7 +56,7 @@ internal fun Route.mfaVerify(
                     audit(EVENT_LOGIN_MFA_FAILURE, "reason" to "user_gone", "userId" to userId.toLong())
                     throw UnauthorizedException("Invalid or expired sign-in code")
                 }
-                if (outcome.credentialRevision != user.credentialRevision) {
+                if (outcome.credentialRevision != user.credentialRevision || outcome.subject.email != user.email) {
                     audit(
                         EVENT_LOGIN_MFA_FAILURE,
                         "reason" to "credential_changed",
@@ -84,16 +84,16 @@ internal fun Route.mfaVerify(
 private suspend fun staleChallengeReason(userService: UserService, failure: MfaChallenges.Outcome.Failure): String? {
     val subject = failure.subject ?: return null
     val user = userService.read(subject.userId) ?: return "user_gone"
-    return if (user.credentialRevision == failure.credentialRevision) null else "credential_changed"
+    return if (user.credentialRevision == failure.credentialRevision && user.email == subject.email) null else "credential_changed"
 }
 
 /** The MFA step's guess at [subject]'s account: a lock (now or already) also drops the account's pending challenges. */
-private fun mfaGuess(throttle: LoginThrottle, challenges: MfaChallenges, subject: MfaChallenges.Subject) = AccountGuess(
+private fun mfaGuess(throttle: AccountThrottle, challenges: MfaChallenges, subject: MfaChallenges.Subject) = AccountGuess(
     throttle,
     subject.email,
     listOf("userId" to subject.userId.toLong(), "source" to "mfa"),
     // The challenge was minted for a real account: a wrong code counts even at a full lockout store.
-    knownAccount = true,
+    knownUserId = subject.userId,
     // A lock a wrong code trips escalates (progressive for MFA only); the password step and the change keep the flat lock.
     mfaCode = true,
     onLocked = { challenges.discardUser(subject.userId) },

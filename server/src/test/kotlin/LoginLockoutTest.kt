@@ -4,6 +4,7 @@ import ch.nokillswit.users.UserRole
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
+import io.ktor.server.testing.TestApplication
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -18,7 +19,27 @@ import kotlin.test.assertNotNull
 class LoginLockoutTest {
 
     @Test
+    fun `failures on two application instances share one account lock`() = testApplication {
+        clearAccountAttemptState()
+        configureApp("security.lockout.threshold" to "2")
+        startApplication()
+        val email = uniqueEmail("cross-instance-lock")
+        TestUsers.seed(email = email, password = "right-pw")
+        val other = TestApplication { configureApp("security.lockout.threshold" to "2") }
+        other.start()
+        try {
+            assertEquals(HttpStatusCode.Unauthorized, jsonClient().login(email, "wrong-one").status)
+            val otherClient = other.createClient { testClientDefaults() }
+            assertEquals(HttpStatusCode.Unauthorized, otherClient.login(email, "wrong-two").status)
+            assertEquals(HttpStatusCode.TooManyRequests, jsonClient().login(email, "right-pw").status)
+        } finally {
+            other.stop()
+        }
+    }
+
+    @Test
     fun `a full lockout store rejects unseen identities while retaining existing state`() = testApplication {
+        clearAccountAttemptState()
         configureApp(
             "security.lockout.threshold" to "2",
             "security.lockout.maxTracked" to "1",
@@ -110,6 +131,7 @@ class LoginLockoutTest {
 
     @Test
     fun `at a full store a real account's login gets the same capacity 429 as an unknown email`() = testApplication {
+        clearAccountAttemptState()
         configureApp("security.lockout.maxTracked" to "1")
         startApplication()
         val client = jsonClient()

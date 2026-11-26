@@ -12,6 +12,8 @@ import ch.nokillswit.infra.config.requireConfigLong
 import ch.nokillswit.infra.mail.mailAppUrl
 import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.infra.mail.respondMailUnavailable
+import ch.nokillswit.infra.db.R2dbcDatabaseKey
+import ch.nokillswit.plugins.JwtConfigKey
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.plugins.respondProblem
 import io.ktor.http.HttpStatusCode
@@ -37,7 +39,9 @@ fun Application.configurePasswordResetRoutes() {
     val appUrl = mailAppUrl() // the boot-validated origin (infra/mail/Mail.kt), never the request Host
     // One request per submitted email per interval, uniformly whether or not the account exists (the 429 carries no
     // enumeration signal). Boot-validated like the lockout: the *1000 conversion must not overflow.
-    val throttle = PasswordResetThrottle(
+    val throttle: ResetRequestThrottle = PostgresPasswordResetThrottle(
+        database = attributes[R2dbcDatabaseKey],
+        jwtSecret = attributes[JwtConfigKey].secret,
         minIntervalMillis = requireConfigLong(
             environment.config, "security.passwordReset.minIntervalSeconds", min = 1, max = MAX_DURATION_SECONDS,
         ) * 1000,
@@ -92,11 +96,12 @@ fun Application.configurePasswordResetRoutes() {
                 if (!resets.isUsable(req.token)) reject()
                 // A password the rules refuse is a 400 that leaves the grant unconsumed, so the owner can retry on the same link.
                 validatePassword(req.password)
-                val (userId, grantEmail) = resets.complete(req.token, hashPassword(req.password)) ?: reject()
+                val (userId, _, lockoutCleared) = resets.complete(req.token, hashPassword(req.password)) { id, grantEmail ->
+                    loginThrottle.clearInCurrentTransaction(grantEmail, id)
+                } ?: reject()
                 // A confirmed reset proves the mailbox (the one that gets the sign-in codes): it lifts the account's lock and its
                 // escalation level. The key is the email `complete` verified under the user-row lock (the one a login folds to),
                 // not a second read after the commit, which an email change could have moved.
-                val lockoutCleared = loginThrottle.clear(grantEmail)
                 audit("password_reset.completed", "userId" to userId.toLong(), "lockoutCleared" to lockoutCleared)
                 if (mailer != null) {
                     val app = call.application
