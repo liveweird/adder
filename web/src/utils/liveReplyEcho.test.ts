@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { beginReplyEcho, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
+import { beginReplyEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
 import type { LiveServerFrame } from "./liveProtocol";
 
 const firstId = "14d7ed05-24c1-4374-b6eb-60b147595822";
@@ -21,6 +21,7 @@ describe("reply echo correlation", () => {
   afterEach(() => {
     clearReplyEchoes(client);
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 
@@ -71,6 +72,30 @@ describe("reply echo correlation", () => {
     expect(deferReplyEcho(client, posted(operation.id), replay)).toBe(false);
   });
 
+  test("duplicate UUIDs and a full registry fall back to ordinary invalidation", () => {
+    expect(beginReplyEcho(client, 7, 3)).toBeDefined();
+    expect(beginReplyEcho(client, 7, 3)).toBeUndefined();
+    let counter = 0;
+    vi.mocked(crypto.randomUUID).mockImplementation(() => `14d7ed05-24c1-4374-b6eb-${(++counter).toString(16).padStart(12, "0")}`);
+    for (let index = 0; index < 31; index++) expect(beginReplyEcho(client, 7, 3)).toBeDefined();
+    expect(beginReplyEcho(client, 7, 3)).toBeUndefined();
+  });
+
+  test("browsers without secure UUID generation use ordinary invalidation", () => {
+    vi.stubGlobal("crypto", {});
+    expect(beginReplyEcho(client, 7, 3)).toBeUndefined();
+  });
+
+  test("a duplicate early hint replays once and a different message passes promptly", () => {
+    const operation = beginReplyEcho(client, 7, 3)!;
+    const replay = vi.fn();
+    expect(deferReplyEcho(client, posted(operation.id), replay)).toBe(true);
+    expect(deferReplyEcho(client, posted(operation.id), replay)).toBe(true);
+    expect(deferReplyEcho(client, posted(operation.id, 42), replay)).toBe(false);
+    operation.cancel();
+    expect(replay).toHaveBeenCalledOnce();
+  });
+
   test("session reset discards old queued hints and invalidates old operation handles", () => {
     const old = beginReplyEcho(client, 7, 3)!;
     const replay = vi.fn();
@@ -83,5 +108,20 @@ describe("reply echo correlation", () => {
     expect(replay).not.toHaveBeenCalled();
     next.cancel();
     expect(replay).toHaveBeenCalledOnce();
+  });
+});
+
+describe("reply correlation origin", () => {
+  test.each([
+    ["", true],
+    ["/adder/", true],
+    ["https://adder.test/api", true],
+    ["https://adder.test:443/api", true],
+    ["//other.test/api", false],
+    ["https://other.test/api", false],
+    ["http://adder.test/api", false],
+    ["https://", false],
+  ])("resolves %s against the page origin", (base, expected) => {
+    expect(canCorrelateReply(base, "https://adder.test/rooms/5")).toBe(expected);
   });
 });

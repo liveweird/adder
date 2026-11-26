@@ -9,7 +9,7 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ### Faster reply refreshes (1.23.0)
 
-- Replying avoids a duplicate fetch cycle in the sending tab. Other tabs still see new replies live.
+- When the app and API share an origin, replying avoids a duplicate fetch cycle in the sending tab. Other tabs still see new replies live.
 
 ### Live account updates (1.22.0)
 

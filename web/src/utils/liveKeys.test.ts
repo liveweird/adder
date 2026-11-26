@@ -1,3 +1,4 @@
+import { beginReplyEcho } from "./liveReplyEcho";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query";
 import { FakeClock } from "../test/socket";
@@ -695,6 +696,28 @@ describe("message revision permissions", () => {
     } finally {
       detach();
       queryClient.clear();
+    }
+  });
+});
+
+describe("correlated reply recovery", () => {
+  test("releases a held event into the real invalidator if the reply response is lost", () => {
+    const client = new QueryClient();
+    const clock = new FakeClock();
+    const invalidator = createLiveInvalidator(client, clock);
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const echo = beginReplyEcho(client, 5, 7)!;
+    try {
+      invalidator.handle({ type: "event", kind: "message.posted", roomId: 5, threadNumber: 7, messageId: 99, mutationId: echo.id });
+      clock.advanceBy(5000);
+      expect(invalidate).not.toHaveBeenCalled();
+      echo.cancel();
+      clock.advanceBy(5000);
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: roomKeys.messages(5, 7) });
+    } finally {
+      echo.cancel();
+      invalidator.dispose();
+      client.clear();
     }
   });
 });

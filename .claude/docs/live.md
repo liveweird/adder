@@ -306,7 +306,7 @@ Each hub coalesces up to 1,024 pending account ids and looks up matching sockets
 
 ## Reply correlation
 
-The reply POST accepts one optional `X-Mutation-Id` header with a canonical lowercase UUIDv4. The same identifier may accompany a `message.posted` hint on the writer’s account sockets. Other recipients receive the ordinary hint. A repeated request can create another message. The identifier has no effect on authorization, retries or notification events.
+The reply POST accepts one optional `X-Mutation-Id` header with a canonical lowercase UUIDv4. The same identifier may accompany a `message.posted` hint on the writer’s account sockets. Other recipients receive the ordinary hint. The Adder web client uses the optional header for same-origin API requests. Cross-origin requests retain ordinary refresh through mixed CORS configurations. A repeated request can create another message. The identifier has no effect on authorization, retries or notification events.
 
 The sender records the operation in its logical session before issuing the write. An early matching hint waits for the write and its query refresh. After a successful refresh, only the hint for the returned message is redundant. A failed request, failed refresh or expired correlation releases the held event through the normal invalidator. Another tab refreshes as usual. Room revocations, resync, message revisions and deletions keep their independent handling.
 

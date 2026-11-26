@@ -425,7 +425,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.20.0 Thread tags and message edit history** | Tags at thread creation, an explicit hashtag API, permission-checked message revisions, password-change email, and indexed search and boot cleanup. |
 | **1.21.0 Notification retention and email pacing** | A shared per-person unseen cap, bounded notification writes, and durable digest pacing for each sender and recipient. |
 | **1.22.0 Live account updates** | Committed account and session changes recheck affected live connections. The periodic sweep remains a fallback. |
-| **1.23.0 Faster reply refreshes** | A writer reuses the successful reply refresh for its matching live event. Other tabs and failed responses keep normal live recovery. |
+| **1.23.0 Faster reply refreshes** | A same-origin writer reuses the successful reply refresh for its matching live event. Other tabs and failed responses keep normal live recovery. |
 
 ## Donors
 
@@ -454,7 +454,7 @@ Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplet
 
 ### v1.23.0 — faster reply refreshes (2026-11-26)
 
-Posting a reply correlates the writer’s refresh with the matching live event. The writer avoids a redundant fetch while observers continue to receive the event. Query refresh and live recovery stay independent when the write result is uncertain.
+In the same-origin deployment, posting a reply correlates the writer’s refresh with the matching live event. The writer avoids a redundant fetch while observers continue to receive the event. Query refresh and live recovery stay independent when the write result is uncertain.
 
 ### v1.22.0 — live account updates (2026-11-26)
 

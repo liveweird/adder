@@ -25,6 +25,15 @@ interface PendingReply {
 
 const sessions = new WeakMap<QueryClient, Map<string, PendingReply>>();
 
+/** A cross-origin reply must also work with an older server's CORS header allowlist. */
+export function canCorrelateReply(apiBase: string, pageUrl: string): boolean {
+  try {
+    return new URL(apiBase, pageUrl).origin === new URL(pageUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
 export function beginReplyEcho(queryClient: QueryClient, roomId: number, threadNumber: number): ReplyEcho | undefined {
   const id = globalThis.crypto?.randomUUID?.();
   if (id === undefined) return undefined;
