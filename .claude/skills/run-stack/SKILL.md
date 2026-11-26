@@ -89,8 +89,9 @@ side on one machine; host ports bind to 127.0.0.1:
   (`k8s/app-service.yaml`) and the ingress-nginx Ingress `k8s/ingress.yaml`, which ends TLS and REPLACES
   `X-Forwarded-For`: the ingress-nginx controller must be installed in the cluster first (not part of `k8s/`), and the app is
   then at `https://adder.k8s.orb.local` (self-signed certificate, so `curl -k`; no `localhost:8087` for the cluster;
-  `kubectl -n adder port-forward svc/app 8087` is the debug bypass). One replica (the login lockout, MFA and reset throttles are
-  per-instance in-memory state; CI pins `replicas: 1`). `k8s/network-policies.yaml` (default-deny + the few allowed flows; `:8087` only from the ingress-nginx controller's pods)
+  `kubectl -n adder port-forward svc/app 8087` is the debug bypass). The default starts one app replica. Follow
+  [Running on Kubernetes](../../../README.md#running-on-kubernetes-local) for the opt-in two-replica profile,
+  build stamps, connection budget, and upgrade steps. `k8s/network-policies.yaml` (default-deny + the few allowed flows; `:8087` only from the ingress-nginx controller's pods)
   is applied with the rest and OrbStack's cluster enforces it: an in-cluster SMTP relay is blocked until you add an
   egress policy for it (`.claude/docs/security.md`, "Kubernetes pod and network hardening"). For throwaway plain-HTTP
   local-cluster testing, flip `KTOR_DEVELOPMENT` to `"true"` in the file. **Teardown:** retain database data by scaling the

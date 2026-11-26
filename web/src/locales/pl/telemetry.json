@@ -12,6 +12,9 @@
   "role": {
     "app": "Aplikacja"
   },
+  "process": {
+    "earlierBoot": "{{instance}} · wcześniejsze uruchomienie #{{id}}"
+  },
   "stale": {
     "badge": "Nieaktualne",
     "title": "Proces „{{role}}” przestał raportować",

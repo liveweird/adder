@@ -255,6 +255,8 @@ Passwords are generated client-side and revealed exactly once (`components/OneTi
 
 The ADMIN telemetry panel (`components/Telemetry*.tsx`, the shell's right-hand aside: memory, storage, requests, JVM) is the only chart surface in 0.1.0. Rules that apply to every page:
 
+- A restarted process can keep the same instance name while both boots remain current. `utils/telemetryProcessLabels.ts` gives the newest boot the short instance label and qualifies older boots by stable process id; Memory/JVM headings and table names and stale alerts all use that one map.
+
 - **Charts** (any page): charts live only in lazy chunks, each chart component imports `@mantine/charts/styles.css` itself, a legend for two or more series, one axis (never dual), every chart has its numbers in a table beside it, colour is never the only carrier of identity, and colours come from the existing vocabulary in `utils/chartColors.ts` (no new hue for meaningful series; series keyed by arbitrary names — statuses, columns, people — draw from its `CATEGORY_PALETTE`; every mark clears WCAG 1.4.11, ≥ 3:1). Tests mock `@mantine/charts`. 
 - **Dates** render deterministically (`YYYY-MM-DD` / `YYYY-MM-DD HH:mm` via `utils/formatDate.ts`), never `toLocaleString()`, and in the reader's
   own zone (`browserTimeZone()`) on every list and in the chat; only the telemetry panel and reports read a configured or UTC zone. Tests that print a

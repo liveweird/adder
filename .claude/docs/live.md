@@ -14,7 +14,7 @@ the existing REST endpoints, so authorization and OpenAPI conformance stay in on
 
 - **Delivery is at-most-once, with no replay.** The refetch is the backfill; `resync` covers every gap (a listener outage, an overflowing socket queue).
 - **A hint carries a kind and ids only**: never a title, body, name or field value (enforced by the `LiveHint` type).
-- **Single app deployment.** The supplied deployment runs one app. PostgreSQL shares tickets, the authenticated per-user socket cap and foreground presence. Each app keeps its own socket hub and resource caps for its connections. The rollout checklist for a second replica remains in `BACKLOG.md`.
+- **Server topology.** The supplied profile defaults to one app and supports opting into two replicas with matching settings and one PostgreSQL database. The database shares tickets, per-user socket admission and foreground presence. Each app keeps its own hub, listener and connection resource caps. See `ci.md` and the README's Kubernetes setup.
 
 ## Endpoints, handshake and Origin
 

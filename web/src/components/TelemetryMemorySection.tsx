@@ -38,19 +38,19 @@ function PercentOfLimit({ percent }: { percent: number | null }) {
   );
 }
 
-function ProcessMemory({ process, intervalSeconds }: { process: TelemetryProcess; intervalSeconds: number }) {
+function ProcessMemory({ process, intervalSeconds, label }: { process: TelemetryProcess; intervalSeconds: number; label: string }) {
   const { t } = useTranslation();
   const m = process.memory;
   const limit = m.containerLimitBytes;
   return (
     <Stack gap="xs">
-      <TelemetryProcessHeader process={process} />
+      <TelemetryProcessHeader process={process} label={label} />
       {process.sampledAt == null ? (
         <FirstSampleNote intervalSeconds={intervalSeconds} />
       ) : (
         <>
           <TelemetryValueTable
-            label={t("telemetry.memory.tableAria", { process: process.instance })}
+            label={t("telemetry.memory.tableAria", { process: label })}
             rows={[
               { label: t("telemetry.memory.limit"), value: limit == null ? t("telemetry.memory.noLimit") : formatBytes(limit) },
               { label: t("telemetry.memory.workingSet"), value: formatBytes(m.workingSetBytes) },
@@ -77,7 +77,17 @@ function ProcessMemory({ process, intervalSeconds }: { process: TelemetryProcess
 }
 
 /** Memory: per process the container working set against its limit, the JVM's own pools, and the trend. */
-export default function TelemetryMemorySection({ current, range, active }: { current: TelemetryCurrent; range: TelemetryRange; active: boolean }) {
+export default function TelemetryMemorySection({
+  current,
+  range,
+  active,
+  processLabels,
+}: {
+  current: TelemetryCurrent;
+  range: TelemetryRange;
+  active: boolean;
+  processLabels: ReadonlyMap<number, string>;
+}) {
   const { t } = useTranslation();
   // The container limit per role (the live process first), to draw the working set as a share of it.
   const limits = new Map<string, number>();
@@ -91,7 +101,12 @@ export default function TelemetryMemorySection({ current, range, active }: { cur
         <FirstSampleNote intervalSeconds={current.sampleIntervalSeconds} />
       ) : (
         current.processes.map((process) => (
-          <ProcessMemory key={process.id} process={process} intervalSeconds={current.sampleIntervalSeconds} />
+          <ProcessMemory
+            key={process.id}
+            process={process}
+            intervalSeconds={current.sampleIntervalSeconds}
+            label={processLabels.get(process.id)!}
+          />
         ))
       )}
       <TelemetryTrend

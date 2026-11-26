@@ -297,13 +297,13 @@ jobs:
           tar -xzf "$RUNNER_TEMP/kubeconform.tgz" -C "$RUNNER_TEMP" kubeconform
       - name: Validate the manifests
         run: '"$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.33.0 -schema-location "$KUBECONFORM_SCHEMAS" k8s/*.yaml'
-      # The app keeps the login lockout, MFA challenges and reset throttles in memory, per instance
-      # (security.md): a second replica would split them and multiply every limit. Pin it to one replica,
-      # with no autoscaler and no rolling surge (strategy Recreate), until that state moves to a shared store.
-      - name: Pin the app deployment to one replica, strategy Recreate (per-instance auth state)
+      # Shared admission and authentication stores make two replicas safe when explicitly requested. Keep
+      # one replica as the predictable local default, with no autoscaler, and retain Recreate so an upgrade
+      # never overlaps binaries on different migration or deployment contracts.
+      - name: Pin the default app deployment to one replica, strategy Recreate
         run: |
           test "$(grep -cE '^  replicas: 1$' k8s/app-deployment.yaml)" -eq 1
-          # Recreate, not RollingUpdate: a surge pod would run beside the old one for a while, with its own lockout/MFA state.
+          # Recreate keeps the default upgrade path free of old/new application overlap.
           test "$(grep -cE '^    type: Recreate$' k8s/app-deployment.yaml)" -eq 1
           if grep -l 'kind: HorizontalPodAutoscaler' k8s/*.yaml; then echo "an autoscaler would scale the app" >&2; exit 1; fi
       # The Ingress is the only way in (k8s/ingress.yaml; allow-app-ingress admits only the controller's pods and the app trusts the
@@ -313,16 +313,18 @@ jobs:
           if grep -nE '^\s*(type: (LoadBalancer|NodePort)|hostPort:|hostNetwork: true)' k8s/*.yaml; then echo "a path around the Ingress" >&2; exit 1; fi
           test "$(grep -cE '^  type: ClusterIP$' k8s/app-service.yaml)" -eq 1
           grep -q 'kubernetes.io/metadata.name: ingress-nginx' k8s/network-policies.yaml
-      - name: Validate what apply-local.sh renders
+      - name: Validate both apply-local.sh renders
         run: |
-          # A stand-in kubectl: the Secret "exists", and `apply -f <dir>` records the rendered directory.
-          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/rendered"
-          printf '#!/bin/sh\n[ "$1" = apply ] && cp "$3"/*.yaml "$RENDER_OUT"/\nexit 0\n' > "$RUNNER_TEMP/bin/kubectl"
-          chmod +x "$RUNNER_TEMP/bin/kubectl"
-          PATH="$RUNNER_TEMP/bin:$PATH" RENDER_OUT="$RUNNER_TEMP/rendered" sh k8s/apply-local.sh ci-check
-          "$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.33.0 -schema-location "$KUBECONFORM_SCHEMAS" "$RUNNER_TEMP"/rendered/*.yaml
-          test "$(grep -h 'image: adder-app:ci-check' "$RUNNER_TEMP"/rendered/*.yaml | wc -l)" -eq 1
-          if grep -q 'local-build' "$RUNNER_TEMP"/rendered/*.yaml; then echo "unrendered image placeholder" >&2; exit 1; fi
+          # Positive and negative stub cases prove the two-replica preflight cannot reach a real cluster.
+          sh k8s/check-apply-local.sh "$RUNNER_TEMP"
+          "$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.33.0 -schema-location "$KUBECONFORM_SCHEMAS" "$RUNNER_TEMP"/rendered-single/*.yaml
+          "$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.33.0 -schema-location "$KUBECONFORM_SCHEMAS" "$RUNNER_TEMP"/rendered-two/*.yaml
+          test "$(grep -c 'image: adder-app:test-single' "$RUNNER_TEMP/rendered-single/app-deployment.yaml")" -eq 1
+          test "$(grep -c 'image: adder-app:test-two' "$RUNNER_TEMP/rendered-two/app-deployment.yaml")" -eq 1
+          test "$(grep -cE '^  replicas: 1$' "$RUNNER_TEMP/rendered-single/app-deployment.yaml")" -eq 1
+          test "$(grep -cE '^  replicas: 2$' "$RUNNER_TEMP/rendered-two/app-deployment.yaml")" -eq 1
+          grep -A1 '^            - name: NOTIFICATIONS_EMAIL_MAX_PER_RUN$' "$RUNNER_TEMP/rendered-two/app-deployment.yaml" | grep -q 'value: "50"'
+          if grep -q 'local-build' "$RUNNER_TEMP"/rendered-*/*.yaml; then echo "unrendered image placeholder" >&2; exit 1; fi
 
   images:
     # Dockerfile drift guard: the image must still build — and, built, must carry no fixable

@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.32.0",
+    date: "2026-11-26",
+    en: `**Adder 1.32.0 — optional two-instance deployment**
+
+- The Kubernetes profile can run two Adder instances with the same database and ingress. Both share sign-in limits, live tickets, per-user socket limits, and notification pacing.
+- The telemetry panel distinguishes an earlier process boot when a restarted replica keeps the same instance name, without hiding either sample.`,
+    pl: `**Adder 1.32.0 — opcjonalne wdrożenie dwóch instancji**
+
+- Profil Kubernetes może uruchomić dwie instancje Addera ze wspólną bazą i jednym punktem dostępu. Instancje współdzielą limity logowania, bilety i limity połączeń na żywo oraz odstępy między powiadomieniami.
+- Panel telemetrii odróżnia wcześniejsze uruchomienie procesu, gdy po restarcie replika zachowuje tę samą nazwę instancji, i pokazuje obie próbki.`,
+  },
+  {
     version: "1.31.0",
     date: "2026-11-26",
     en: `**Adder 1.31.0 — shared limits for parallel chat actions**

@@ -7,6 +7,7 @@ import { getTelemetryCurrent, type TelemetryCurrent, type TelemetryRange } from 
 import { isOneOf, useStoredState } from "../hooks/useStoredState";
 import { formatDateTime } from "../utils/formatDate";
 import { roleName } from "../utils/telemetryRole";
+import { telemetryProcessLabels } from "../utils/telemetryProcessLabels";
 import ErrorAlert from "./ErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import TelemetryJvmSection from "./TelemetryJvmSection";
@@ -21,7 +22,7 @@ const RANGES = ["24h", "7d", "90d"] as const;
 /** `current` is refetched every minute while the panel is open (the panel only exists while open), never in a background tab. */
 const REFRESH_MS = 60_000;
 
-const VIEWS: Record<SectionId, ComponentType<{ current: TelemetryCurrent; range: TelemetryRange; active: boolean }>> = {
+const VIEWS: Record<SectionId, ComponentType<{ current: TelemetryCurrent; range: TelemetryRange; active: boolean; processLabels: ReadonlyMap<number, string> }>> = {
   memory: TelemetryMemorySection,
   storage: TelemetryStorageSection,
   requests: TelemetryRequestsSection,
@@ -53,6 +54,7 @@ export default function TelemetryPanel({ onClose }: { onClose: () => void }) {
   // only while it is expanded (`active`).
   const [opened, setOpened] = useState<ReadonlySet<SectionId>>(() => new Set(expanded));
   const data = current.data;
+  const processLabels = telemetryProcessLabels(data?.processes ?? [], t);
   const sampled = data?.processes.reduce<number | null>((newest, p) => (p.sampledAt == null ? newest : Math.max(newest ?? 0, p.sampledAt)), null);
   return (
     <>
@@ -92,7 +94,7 @@ export default function TelemetryPanel({ onClose }: { onClose: () => void }) {
             .filter((process) => process.stale)
             .map((process) => (
               <Alert key={process.id} color="orange" variant="light" title={t("telemetry.stale.title", { role: roleName(t, process.role) })}>
-                {t("telemetry.stale.message", { instance: process.instance })}
+                {t("telemetry.stale.message", { instance: processLabels.get(process.id)! })}
               </Alert>
             ))}
           {data !== undefined && (
@@ -111,7 +113,11 @@ export default function TelemetryPanel({ onClose }: { onClose: () => void }) {
                 return (
                   <Accordion.Item key={id} value={id}>
                     <Accordion.Control>{t(`telemetry.section.${id}`)}</Accordion.Control>
-                    <Accordion.Panel>{(expanded.includes(id) || opened.has(id)) && <View current={data} range={range} active={expanded.includes(id)} />}</Accordion.Panel>
+                    <Accordion.Panel>
+                      {(expanded.includes(id) || opened.has(id)) && (
+                        <View current={data} range={range} active={expanded.includes(id)} processLabels={processLabels} />
+                      )}
+                    </Accordion.Panel>
                   </Accordion.Item>
                 );
               })}

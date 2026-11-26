@@ -5,13 +5,13 @@ import { formatDateTime } from "../utils/formatDate";
 import { roleName } from "../utils/telemetryRole";
 
 /** One process's heading in a section: role and instance, a "Stale" badge, and when its figures were sampled. */
-export default function TelemetryProcessHeader({ process }: { process: TelemetryProcess }) {
+export default function TelemetryProcessHeader({ process, label }: { process: TelemetryProcess; label: string }) {
   const { t } = useTranslation();
   return (
     <Stack gap={2}>
       <Group justify="space-between" wrap="nowrap" align="flex-start" gap="xs">
         <Title order={4} size="h5" style={{ overflowWrap: "anywhere" }}>
-          {roleName(t, process.role)} · {process.instance}
+          {roleName(t, process.role)} · {label}
         </Title>
         {process.stale && (
           <Badge color="orange" variant="light" style={{ flexShrink: 0 }}>
