@@ -91,7 +91,7 @@ with `hasKeyValue` from `TestEnvironment.kt`). Emitted today:
   (`HMAC-SHA256(jwtSecret, "adder.audit-digest.v1")`, then HMAC of the folded address): the one secret every mode already requires
   (production refuses a missing or public one), no new setting, and the fixed label keeps the key a different value from the token
   signing secret. Repeated attempts at one address carry one digest within a deployment (an operator can correlate a guessing run);
-  rotating the JWT secret changes every digest. The in-memory lockout key (`loginIdentityKey`, an unkeyed hash) is never logged.
+  rotating the JWT secret changes every digest. The deployment-keyed lockout digest is separate from the audit digest and is never logged.
   `login.lockout` and `login.rejected_locked` are also written, with `userId` and `source` (`mfa` or
   `password_change`) instead of the email, when a wrong MFA code or a wrong current password on the self password change trips or
   meets that one throttle (`auth/AccountLockout.kt`); those two routes act on a KNOWN account, which the throttle counts even at a

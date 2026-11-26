@@ -496,7 +496,7 @@ AFTER `verifyPassword`, so nothing about enumeration changes; the lockout counte
 above; `login.success` is deliberately NOT emitted); a 6-digit code (`generateMfaCode`, `auth/Passwords.kt`) is held in the
 in-memory challenge store (config `security.mfa.codeTtlSeconds` default 300
 `$MFA_CODE_TTL_SECONDS`, `security.mfa.maxAttempts` default 5 `$MFA_MAX_ATTEMPTS`; per-instance
-like the throttles — a restart just means signing in again) and emailed in the user's stored
+while login lockout and reset cooldowns are shared across instances; a restart means signing in again) and emailed in the user's stored
 language (V1 `users.language`, EN fallback). Its hard `security.mfa.maxTracked` limit (default
 10,000, `$MFA_MAX_TRACKED`) first drops expired challenges, then rejects new issuance with an
 audited `429` at capacity; existing codes remain verifiable and no rejected code is emailed. A
