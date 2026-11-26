@@ -164,10 +164,11 @@ private fun io.ktor.server.plugins.ratelimit.RateLimitProviderConfig.sharedDecis
     }
     modifyResponse { call, _ ->
         val decision = call.attributes[SharedRateLimitDecisionKey]
-        call.response.headers.appendIfAbsent(X_RATE_LIMIT_LIMIT, decision.limit.toString())
-        call.response.headers.appendIfAbsent(X_RATE_LIMIT_REMAINING, decision.remaining.toString())
-        call.response.headers.appendIfAbsent(X_RATE_LIMIT_RESET, ((decision.refillAtMillis + 999L) / 1_000L).toString())
-        if (!decision.admitted) {
+        if (decision.admitted) {
+            call.response.headers.appendIfAbsent(X_RATE_LIMIT_LIMIT, decision.limit.toString())
+            call.response.headers.appendIfAbsent(X_RATE_LIMIT_REMAINING, decision.remaining.toString())
+            call.response.headers.appendIfAbsent(X_RATE_LIMIT_RESET, ((decision.refillAtMillis + 999L) / 1_000L).toString())
+        } else {
             val retryAfter = ((decision.refillAtMillis - decision.serverNowMillis).coerceAtLeast(1L) + 999L) / 1_000L
             call.response.headers.appendIfAbsent(HttpHeaders.RetryAfter, retryAfter.toString())
         }

@@ -21,6 +21,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SharedRateLimitHttpTest {
@@ -80,9 +81,9 @@ class SharedRateLimitHttpTest {
             assertTrue(reset * 1_000L >= System.currentTimeMillis())
             val refused = client.login(uniqueEmail("shared-login"), "x")
             assertEquals(HttpStatusCode.TooManyRequests, refused.status)
-            assertEquals("3", refused.headers["X-RateLimit-Limit"])
-            assertEquals("0", refused.headers["X-RateLimit-Remaining"])
-            assertEquals(reset.toString(), refused.headers["X-RateLimit-Reset"])
+            assertNull(refused.headers["X-RateLimit-Limit"])
+            assertNull(refused.headers["X-RateLimit-Remaining"])
+            assertNull(refused.headers["X-RateLimit-Reset"])
             assertTrue(assertNotNull(refused.headers[HttpHeaders.RetryAfter]).toInt() in 1..60)
         }
 
@@ -108,9 +109,9 @@ class SharedRateLimitHttpTest {
                     setBody(LoginRequest(uniqueEmail("capacity-$index"), "wrong"))
                 }
                 assertEquals(HttpStatusCode.TooManyRequests, response.status)
-                assertEquals("1000", response.headers["X-RateLimit-Limit"])
-                assertEquals("0", response.headers["X-RateLimit-Remaining"])
-                assertNotNull(response.headers["X-RateLimit-Reset"])
+                assertNull(response.headers["X-RateLimit-Limit"])
+                assertNull(response.headers["X-RateLimit-Remaining"])
+                assertNull(response.headers["X-RateLimit-Reset"])
                 assertTrue(assertNotNull(response.headers[HttpHeaders.RetryAfter]).toInt() in 1..60)
             }
             assertEquals(1, rateLimiterRegistrySize(), "one constant Ktor registry key is used for the login provider")
