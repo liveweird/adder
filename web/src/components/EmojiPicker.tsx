@@ -1,4 +1,5 @@
-import Picker from "@emoji-mart/react";
+import { useEffect, useRef } from "react";
+import { Picker } from "emoji-mart";
 import data from "@emoji-mart/data";
 import en from "@emoji-mart/data/i18n/en.json";
 import pl from "@emoji-mart/data/i18n/pl.json";
@@ -18,13 +19,30 @@ const EMOJI_I18N: Record<SupportedLanguage, unknown> = { en, pl };
 export default function EmojiPicker({ onSelect }: { onSelect: (native: string) => void }) {
   const scheme = useComputedColorScheme("light");
   const { i18n } = useTranslation();
-  return (
-    <Picker
-      data={data}
-      i18n={EMOJI_I18N[asSupportedLanguage(i18n.resolvedLanguage)]}
-      theme={scheme}
-      previewPosition="none"
-      onEmojiSelect={(emoji: { native: string }) => onSelect(emoji.native)}
-    />
-  );
+  const host = useRef<HTMLDivElement>(null);
+  const picker = useRef<(Picker & HTMLElement) | null>(null);
+  const labels = EMOJI_I18N[asSupportedLanguage(i18n.resolvedLanguage)];
+
+  useEffect(() => {
+    const options = {
+      data,
+      i18n: labels,
+      theme: scheme,
+      previewPosition: "none",
+      onEmojiSelect: (emoji: { native: string }) => onSelect(emoji.native),
+    };
+    if (picker.current) {
+      picker.current.update(options);
+    } else {
+      picker.current = new Picker(options) as Picker & HTMLElement;
+      host.current!.append(picker.current);
+    }
+  }, [labels, onSelect, scheme]);
+
+  useEffect(() => () => {
+    picker.current?.remove();
+    picker.current = null;
+  }, []);
+
+  return <div ref={host} />;
 }
