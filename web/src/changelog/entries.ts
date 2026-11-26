@@ -21,10 +21,10 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     date: "2026-11-26",
     en: `**Adder 1.32.0 — optional two-instance deployment**
 
-- The Kubernetes profile can run two Adder instances with the same database and ingress. Both share sign-in limits, live connections, and notification pacing.`,
+- The Kubernetes profile can run two Adder instances with the same database and ingress. Both share sign-in limits, live tickets, per-user socket limits, and notification pacing.`,
     pl: `**Adder 1.32.0 — opcjonalne wdrożenie dwóch instancji**
 
-- Profil Kubernetes może uruchomić dwie instancje Addera ze wspólną bazą i jednym punktem dostępu. Instancje współdzielą limity logowania, połączenia na żywo i odstępy między powiadomieniami.`,
+- Profil Kubernetes może uruchomić dwie instancje Addera ze wspólną bazą i jednym punktem dostępu. Instancje współdzielą limity logowania, bilety i limity połączeń na żywo oraz odstępy między powiadomieniami.`,
   },
   {
     version: "1.31.0",
