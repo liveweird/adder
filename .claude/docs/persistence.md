@@ -19,13 +19,13 @@ in-network consumers use `postgres:5432`). There is one persistence stack:
   the pin is then re-pinned in the same commit, and a dev database that booted an earlier checksum of such a file is reset (`docker compose down -v`) or repaired (`flyway repair`).
   **The lanes of one release land in any order, so a dev database can apply a later 0.6 migration before an earlier one (V20 before V18, say):** Flyway then refuses the
   lower number (`outOfOrder` is off) and the table it creates is missing, so reset such a database with `docker compose down -v`; a fresh one (a test container, CI) applies them in order.
-  The exception ends with the release that contains the file. The range today is **V1–V58**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
+  The exception ends with the release that contains the file. The range today is **V1–V59**: V1 `users`, V2 `revoked_tokens`, V3 the seed admin, V4 the
   `unaccent` extension, V5 `user_disabled_features` (V1–V5 are Flow's), V6 `teams` (with the optional
   manager), V7 `users.credential_revision`, V8 `password_reset_tokens`, V9 the `ops` telemetry
   schema, V10 `team_members` (the roster), V11 `workflow_templates` (the registry), V12 its two seed rows, V13 the room aggregate (`rooms`, `room_members`, `room_statuses`, `room_fields`), V14 the thread aggregate (`threads`, `messages`, `thread_events`), V15 the hashtag index (`message_tags`, `messages.tags_version`), V16 the search columns (`messages.search` and `threads.search`, the `adder_search` configuration; its GIN index was dropped before release), V17 the mention index (`message_mentions`), V18 the notices (`notifications`), V19 the read state (`room_members.seen_at` and `read_from`, `thread_reads`), V20 the reaction table (`message_reactions`), V21 the room pins (`room_pins`), V22 the digest's claim column and the email switches (`notifications.emailed_at`, `user_notification_preferences`), V23 the history scrub (data only: `thread_events.params`), V24 the per-actor digest budget (`notification_email_budget`), V25 the team mention handle (`teams.handle`, 1.1.0), V26 the thread watches (`thread_watches`, 1.1.0), V27 the notice reshape (`notifications.in_app`, one notice per message and recipient, 1.1.0), V28 the preference choices (`user_notification_preferences.enabled`, 1.1.0), V29 the wide-event budget (`notification_email_budget.broadcasts`, `broadcasts_exceeded_at`, 1.1.0), V30 the group-mention index (`message_group_mentions`, 1.1.0), V31 the thread hashtag index (`idx_message_tags_thread`, 1.2.0), V32 the tag registry (`tag_categories`, `tags` and the Kind and Area seed, 1.2.0), V33 the thread tags (`thread_tags`, 1.2.0), V34 the unseen-notice index by room (`idx_notifications_unseen_room`, 1.2.0), V35 the message quote (`messages.quoted_message_id` and `idx_messages_quoted`, 1.3.0), V36 room access (`rooms.access_type` and `room_join_requests`, 1.6.0), V37 personal room organization (`user_room_organizations`, 1.8.0), V38 room membership notices (1.14.0), V39 the grouped-reply index (1.17.0), V40 the sticky watch preference (`thread_watches.watching`). (The bootstrap renumbered the donor's history; from V10 on, migrations are append-only like any other.)
   V41 links workflow notices to events, V42 adds thread mutes, V43 foreground mention snapshots, V44 browser push, V45 reaction notices,
   V46 thread lifecycle, V47 revisions, V48–V50 chat search and cleanup indexes, V51 notice recipient guards, V52 digest pacing,
-  V53 shared live tickets, V54 shared socket leases, V55 refresh replay grace, V56 shared account-attempt limits, V57 shared MFA challenges and V58 shared HTTP quotas.
+  V53 shared live tickets, V54 shared socket leases, V55 refresh replay grace, V56 shared account-attempt limits, V57 shared MFA challenges, V58 shared HTTP quotas and V59 shared digest recipient pacing.
 - **Exposed + R2DBC** (`infra/db/Database.kt` + the feature services) — runtime DB access.
   `Database.kt` connects the `R2dbcDatabase` and is the composition root (the chat's services are built by `ChatWiring.kt` beside it, called from `configureDatabase`): it constructs the
   services and publishes them into `Application.attributes` (`UserServiceKey`, `TeamServiceKey`,
@@ -893,6 +893,32 @@ ON CONFLICT (recipient_id) DO UPDATE SET needs_normalization = TRUE;
 The next sweeps drain the flagged recipients. Check the excess query above before declaring normalization complete.
 
 V52 stores the last digest SMTP attempt by actor and recipient. Claiming skips currently paced pairs. Just before send, the digest locks pairs in sorted order and timestamps eligible reservations after the locks are acquired. This transaction is separate from claim and delivery. A racing pair's notices stay pending. A failed or interrupted SMTP attempt consumes the interval. Expired pacing rows are cleared in bounded transactions on sweep ticks. Pacing begins with the first reservation made by 1.21 and remains durable across restarts. Stop older digest senders before upgrading. If an older sender runs during a rollback, its attempts are outside the V52 pacing history.
+
+### Shared digest recipient pacing (V59)
+
+V59 replaces the process-local recipient interval with a durable reservation shared by every app instance. A reservation transaction
+locks the existing recipient and actor user rows in id order, then the recipient pacing row and the requested V52 actor/recipient rows
+in `(actor_id, recipient_id)` order. The leading user locks keep maintenance hard deletion and its FK cascades in the same order. If the recipient is still
+inside `notifications.email.minIntervalSeconds`, no actor row changes. If every actor is still inside the V52 one-hour interval, the
+recipient row does not change and all of that digest's claims are released. Otherwise the transaction timestamps the recipient and only
+the eligible actor pairs together, commits, and releases paced actors' claims before SMTP. The database connection and every row lock are
+released before rendering or SMTP begins. Successful, failed and cancellation-outcome-unknown SMTP attempts consume both reservations;
+an access/preference re-check that skips the recipient consumes neither.
+
+`notification_digest_recipient_pacing` has one row per paced recipient and takes a unique slot from 50,000 pre-seeded
+`notification_digest_recipient_slots` rows. The fixed pool preserves the former fail-closed capacity: a new recipient at capacity is not
+claimed or mailed, while an existing recipient can still be checked without a global lock. A new recipient first locks and atomically
+reuses one row selected through the attempted-time index when its interval has expired; only then does it search the fixed slots for a
+free one. Both selections use `SKIP LOCKED`, never displace an active row and are the only cross-recipient capacity decisions. Sweep
+cleanup still deletes at most 500 expired recipient rows and 500 expired V52 pair rows per
+tick in separate bounded statements. Claim-time pacing filters are only an optimization; the ordered reservation transaction is the
+authority for races and expiry and uses PostgreSQL time. Older digest senders do not write the V59 table, so stop them before upgrading.
+On rollback, leave V59 installed; an older app ignores it and returns to process-local recipient pacing.
+
+`notifications.email.maxPerRun` remains a per-process tick budget: each process owns its Mailer and sweep coroutine, while the shared
+reservations prevent overlap only for the same recipient. Distinct recipients can therefore start up to `instances * maxPerRun` sends
+per tick. This is an independent resource bound, not a recipient-pacing correctness gap. A provider-wide cluster quota or sweep lease
+would be a separate V60 change if a multi-instance deployment needs one.
 
 ### Shared live tickets (V53)
 

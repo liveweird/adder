@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Shared digest delivery intervals (1.30.0)
+
+Notification digest recipient intervals survive app restarts and apply across application instances. Adder reserves the recipient interval and sender pacing together before it contacts the email provider.
+
 ### Shared request limits (1.29.0)
 
 Application request allowances are shared through PostgreSQL. Clients keep the same quotas and headers. Health probes keep a separate allowance for each app process.
@@ -388,7 +392,7 @@ For a hosted deployment, supply the settings through the app's environment and s
 | `MAIL_FROM` | `adder@localhost` | Sender address of every outbound email. |
 | `MAIL_APP_URL` | *(blank)* | The deployment's public **origin** (`https://host[:port]` in production — `http` only in development; no path, query or credentials) — the self-service password reset emails a link built from it. A malformed value refuses startup; blank = the reset answers 503. The notification digest builds its links from it too (none when blank). |
 | `NOTIFICATIONS_EMAIL_DELAY_SECONDS` | `300` | A notice still unseen after this many seconds is emailed in a digest (0..86400). With `MAIL_TRANSPORT=disabled` nothing is mailed. |
-| `NOTIFICATIONS_EMAIL_MIN_INTERVAL_SECONDS` | `900` | At most one digest per person per this many seconds, per process (0..86400); what arrives meanwhile waits for the next one. |
+| `NOTIFICATIONS_EMAIL_MIN_INTERVAL_SECONDS` | `900` | At most one digest per person per this many seconds across the deployment (0..86400). New notices wait for the next eligible digest. |
 | `NOTIFICATIONS_EMAIL_MAX_PER_RUN` | `100` | The most digest emails one sweep tick sends (1..1000). The digest shares the mailer with MFA codes and password resets, so this budget protects them; the people beyond it wait for the next tick. |
 | `NOTIFICATIONS_EMAIL_MAX_RECIPIENTS_PER_ACTOR_PER_DAY` | `20` | The most distinct people one person's @mentions and hand-overs can make eligible for the digest in a UTC day (1..1000). Over it the bell notice is still made and only its email is withheld. An ADMIN is not exempt. |
 | `NOTIFICATIONS_MAX_BROADCASTS_PER_ACTOR_PER_DAY` | `500` | The most WIDE events (more than 20 people notified: a new thread in a big room, a reply in a heavily watched thread, a status move or a hand-over) one person causes in a UTC day (1..10000). Over it the write still succeeds and only the people named directly (`<@id>` mentions, the author of a quoted message, a hand-over's new owner) are told; one `notification.broadcast_budget_exceeded` audit line per person and day. |

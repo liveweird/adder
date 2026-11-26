@@ -3,19 +3,28 @@ package ch.nokillswit
 import ch.nokillswit.auth.LoginRequest
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.auth.MfaChallengeResponse
+import ch.nokillswit.auth.MfaChallenges
 import ch.nokillswit.auth.MfaVerifyRequest
+import ch.nokillswit.auth.issueMfaChallenge
+import ch.nokillswit.infra.crypto.FieldCipherKey
+import ch.nokillswit.infra.db.R2dbcDatabaseKey
+import ch.nokillswit.infra.mail.Mailer
 import ch.nokillswit.users.Feature
+import ch.nokillswit.users.User
 import ch.nokillswit.users.UserFeaturesUpdateRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import io.ktor.server.routing.post
+import io.ktor.server.routing.routing
 import ch.qos.logback.classic.Level
 import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.classic.spi.ThrowableProxyUtil
@@ -23,6 +32,10 @@ import java.net.ServerSocket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -384,6 +397,56 @@ class MfaLoginTest {
     }
 
     @Test
+    fun `cancelled MFA delivery releases the shared capacity slot`() = testApplication {
+        configureApp()
+        val deliveryStarted = CompletableDeferred<Unit>()
+        val cancellingMailer = object : Mailer {
+            override suspend fun send(to: String, subject: String, body: String) {
+                deliveryStarted.complete(Unit)
+                throw CancellationException("cancel test delivery")
+            }
+        }
+        val accounts = mutableMapOf<String, Pair<UInt, User>>()
+        application {
+            val challenges = MfaChallenges(
+                database = attributes[R2dbcDatabaseKey],
+                cipher = attributes[FieldCipherKey],
+                ttlMillis = 60_000,
+                maxCodeAttempts = 3,
+                maxTracked = 1,
+            )
+            routing {
+                post("/test/mfa-cancel/{account}") {
+                    val (userId, user) = checkNotNull(accounts[call.parameters["account"]])
+                    issueMfaChallenge(call, challenges, cancellingMailer, 1, userId, user)
+                }
+            }
+        }
+        startApplication()
+        suspend fun account(label: String): Pair<UInt, User> {
+            val email = uniqueEmail("mfa-cancel-$label")
+            val user = User(name = label, email = email, passwordHash = "unused")
+            val id = TestUsers.seed(email, "pw-123456789")
+            challengeAccounts += id
+            return id to user
+        }
+        accounts["first"] = account("first")
+        accounts["second"] = account("second")
+        val client = jsonClient()
+
+        assertEquals(HttpStatusCode.OK, client.post("/test/mfa-cancel/first").status)
+        withTimeout(5_000) { deliveryStarted.await() }
+        withTimeout(5_000) {
+            while (mfaChallengeCount(accounts.getValue("first").first) != 0) yield()
+        }
+        assertEquals(
+            HttpStatusCode.OK,
+            client.post("/test/mfa-cancel/second").status,
+            "non-cancellable cleanup must release the only shared slot",
+        )
+    }
+
+    @Test
     fun `a failed MFA delivery logs a user id and an error type, never the address or the throwable`() = testApplication {
         val port = ServerSocket(0).use { it.localPort }
         configureApp(
@@ -470,6 +533,13 @@ class MfaLoginTest {
         argumentArray?.forEach { append(' ').append(it) }
         keyValuePairs?.forEach { append(' ').append(it.key).append('=').append(it.value) }
         throwableProxy?.let { append(' ').append(ThrowableProxyUtil.asString(it)) }
+    }
+
+    private fun mfaChallengeCount(userId: UInt): Int = PostgresTestSupport.connect().use { connection ->
+        connection.prepareStatement("SELECT count(*) FROM mfa_challenges WHERE user_id = ?").use { statement ->
+            statement.setLong(1, userId.toLong())
+            statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+        }
     }
 
     @Test

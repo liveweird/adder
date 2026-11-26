@@ -131,7 +131,7 @@ security:
   # statement (revocation, account liveness, credential revision, roles), so a logout, a delete,
   # a demotion or a password change ends the token on its next request on ANY replica. The
   # login lockout, password-reset cooldown, email MFA challenges, and request quotas share PostgreSQL.
-  # The supplied deployment uses one app replica while digest recipient pacing and operation guards are process-local.
+  # The supplied deployment uses one app replica while read-all and link preview guards are process-local.
   # Refresh-token rotation (auth/TokenBlocklistService.kt): every /refresh blocklists the presented
   # token. The shared database permits up to two retries during `replayGraceSeconds`, including
   # across app instances and restarts. This covers lost responses and exceeds the SPA's 30 s
@@ -322,8 +322,8 @@ notifications:
     # The email digest of unseen notices (`notifications/NotificationDigest.kt`, run by the sweep's tick when a mailer exists; with
     # `mail.transport=disabled` it does nothing). A notice still unseen after this many seconds is mailed: 0..86400 (0 = at the next tick).
     delaySeconds: "$NOTIFICATIONS_EMAIL_DELAY_SECONDS:300"
-    # At most one email per person per this many seconds, per process (kept in memory, so a restart forgets it); a person inside it waits
-    # and gets everything in ONE later email. 0..86400 (0 = no spacing). Nothing older than a day is ever mailed.
+    # At most one email attempt per person per this many seconds across app instances. A paced recipient waits for a later
+    # digest. 0..86400 (0 disables recipient spacing). Actor-recipient spacing still applies. Notices older than one day are ineligible for email.
     minIntervalSeconds: "$NOTIFICATIONS_EMAIL_MIN_INTERVAL_SECONDS:900"
     # The most digest emails ONE run (one sweep tick) sends; the people beyond it keep their notices for the next tick (the claims are
     # released). The digest shares the mailer with MFA codes and password resets, and this budget is what keeps a flood of notices from
