@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.32.0",
+    date: "2026-11-26",
+    en: `**Adder 1.32.0 — optional two-instance deployment**
+
+- The Kubernetes profile can run two Adder instances with the same database and ingress. Both share sign-in limits, live connections, and notification pacing.`,
+    pl: `**Adder 1.32.0 — opcjonalne wdrożenie dwóch instancji**
+
+- Profil Kubernetes może uruchomić dwie instancje Addera ze wspólną bazą i jednym punktem dostępu. Instancje współdzielą limity logowania, połączenia na żywo i odstępy między powiadomieniami.`,
+  },
+  {
     version: "1.31.0",
     date: "2026-11-26",
     en: `**Adder 1.31.0 — shared limits for parallel chat actions**

@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Optional two-instance deployment (1.32.0)
+
+The Kubernetes profile can run two app processes behind one ingress and one PostgreSQL service. Tickets, account limits, socket admission, lookup of foreground tabs, and notification pacing work across both processes. The local helper keeps a single app by default.
+
 ### Shared limits for parallel chat actions (1.31.0)
 
 Mark all as read and link previews each keep one in-flight request per account across application instances. An abandoned slot expires. Preview fetching holds no database connection while it contacts the external site.
@@ -162,7 +166,7 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
   chat write emits one PostgreSQL `NOTIFY` hint (ids only) inside its transaction; one `LISTEN` connection per process fans the hints out to the sockets subscribed to a room, and the page refetches what changed. Threads,
   messages, status, owner and detail changes, members and the room workflow update without a reload; the header says **Reconnecting…** while the connection is down, or **Live updates off** when a user's tab cap is hit
   (16 sockets per user; a tab hidden for five minutes goes quiet, keeping its socket for personal notices, and closes after eight hours), and a removed member's room leaves the rail at once. A committed logout rechecks its exact session, and deletion, password and role changes recheck the account's sockets. The periodic sweep remains a fallback.
-  Tickets, per-user admission and foreground leases are shared through PostgreSQL. The supplied deployment currently runs one replica (`BACKLOG.md`). The ADMIN telemetry panel shows the open sockets, the listener and the NOTIFY queue usage.
+  Tickets, per-user admission and foreground leases are shared through PostgreSQL. The supplied Kubernetes profile supports an optional second app replica. The ADMIN telemetry panel shows the open sockets, the listener and the NOTIFY queue usage.
 - **Behind a reverse proxy** the WebSocket upgrade must pass: `proxy_http_version 1.1`, `Upgrade $http_upgrade`, `Connection $connection_upgrade`, read/send timeouts of 60 s or more (the server pings every 25 s), and the
   original host (`Host $host`, or `X-Forwarded-Host` with `HTTP_BEHIND_PROXY=true`), otherwise the Origin check answers 403 (`.claude/docs/live.md` "Deploy and proxies", `.claude/docs/ci.md`). Behind a TLS-terminating
   proxy the socket also needs `X-Forwarded-Proto: https` with `HTTP_BEHIND_PROXY=true`, and a public port other than 443 inside `X-Forwarded-Host`.
@@ -242,9 +246,9 @@ runbook, with the restore order and what a dump does not hold (`DATA_ENCRYPTION_
 
 ## Running on Kubernetes (local)
 
-Two Deployments, each a single replica with `Recreate` updates (the old pod stops before the
-new one starts, so an upgrade briefly interrupts it): `postgres` and `app` (the HTTP API and the SPA; one process). The application pod migrates on boot and runs in production mode
-(`KTOR_DEVELOPMENT=false`), in the `adder` namespace.
+The `adder` namespace has `postgres` and `app` Deployments. Each defaults to one replica. `Recreate` stops the old app pods
+before starting the new version, so upgrading briefly interrupts the app. Application pods migrate on boot and use production
+mode (`KTOR_DEVELOPMENT=false`).
 
 With a local cluster that shares the Docker image store (e.g. OrbStack):
 
@@ -259,6 +263,19 @@ kubectl create namespace adder
 The helper renders the deployment image with the selected build tag and excludes the Secret
 template. Use a new tag for each rebuild; do not apply `k8s/` directly, since the checked-in image
 name is a placeholder. An existing installation already has the namespace and Secret.
+
+For two app replicas, build a supported immutable image with `--build-arg ADDER_BUILD_VERSION=1.32.0` and the exact commit
+in `ADDER_BUILD_COMMIT`. Apply it with the default invocation first. Once its Deployment is ready, apply the same tag again
+with `./k8s/apply-local.sh "$ADDER_IMAGE_TAG" --replicas=2`. Both replicas use the same database, deployment secrets, and
+public origin. The ingress may send a ticket request and the corresponding socket upgrade to different replicas.
+
+The default connection budget for two apps is 48 steady PostgreSQL connections, including the two dedicated listeners.
+Allow two short-lived Flyway connections during a concurrent start and leave capacity for the administration and monitoring
+clients. The supplied PostgreSQL limit of 100 covers this budget at the default pool size of 23. The two-app render sets the
+mail budget to 50 digest sends per sweep on each app, for the same combined default of 100. Run the one-argument helper with
+the same image tag to return to one replica. For an upgrade or rollback, apply the target build with one replica first and
+opt back in once that build is ready and supports the shared stores.
+
 
 The manifests are hardened: no ServiceAccount token in any pod, non-root/seccomp/`drop: [ALL]` on the
 app and postgres containers, and `k8s/network-policies.yaml` — default-deny plus only

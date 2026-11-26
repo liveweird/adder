@@ -93,8 +93,9 @@ go through R2DBC.
   from the backend. Deployment assumption: one client connection is one server session — a transaction-mode PgBouncer in front of
   Postgres would break the cache (none today). `StatementTimeoutCacheTest` (own one-connection pool) pins convergence, the
   rolled-back SET, the aborted-transaction canary, a budget enforced again after a cancelled statement, and the skip with its limit.
-- **Sizing.** Size it as `(maxSize + 1) × replicas + 1` (the `+ 1` per replica is the live listener's connection, "The LISTEN connection" below; the last is Flyway's short-lived JDBC connection, `infra/db/Flyway.kt`) well under
-  the server's `max_connections`. `maxAcquireTimeSeconds` is a per-attempt deadline, and the effective
+- **Sizing.** Budget `(maxSize + 1) × replicas` steady connections, with one dedicated live listener per replica. Add one Flyway
+  JDBC connection per concurrently starting process and leave room for administrative and monitoring connections. With two app replicas
+  and the default pool size of 23, that is 48 steady app connections and up to 50 while both run Flyway. `maxAcquireTimeSeconds` is a per-attempt deadline, and the effective
   bound is about 2× the setting. r2dbc-pool 1.0.2's `ConnectionPool` builds `create()` as
   `Mono.defer { acquire.flatMap(…).timeout(maxAcquireTime) }.retry(acquireRetry)` and the builder default is
   `acquireRetry = 1`: the timeout is an ordinary error to `retry`, so a timed-out waiter is

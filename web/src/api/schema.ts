@@ -2621,7 +2621,7 @@ export interface paths {
          *     Rides the per-USER `live-ticket` bucket of 60 per minute (`429` beyond it; spent before anything else). The server holds at most
          *     `live.maxTickets` (10,000) unexpired tickets in the deployment database. When the shared store is full, minting returns
          *     `429` with `Retry-After: 30` (audited `live.ticket_saturated`). The ticket can be redeemed by an instance using that database
-         *     and the same authorization settings. The supported deployment still runs one application instance.
+         *     and the same authorization settings. The supplied Kubernetes profile supports one or two application instances.
          *     The caller may hold up to 16 authenticated sockets by default (`LIVE_MAX_SOCKETS_PER_USER`) across instances using
          *     the same deployment database. A mint beyond
          *     that is a `429` of type `urn:adder:problem:live-socket-limit` with `Retry-After: 60` (nothing is minted). While the server is

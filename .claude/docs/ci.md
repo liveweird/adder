@@ -11,7 +11,7 @@ Read on demand before changing a CI job, a Dependabot rule or a static-analysis 
   (`npm run test:coverage -- --sequence.shuffle --sequence.seed=<seed>`, which is also the `isolate: false` independence proof; `scripts/gates.sh web` mirrors it with a
   random seed it prints; CI picks the seed itself and writes it, with the replay command, to the job summary before the run, so a shuffle-order failure can be reproduced), `e2e-static` —
   lint/knip/typecheck/scenario parity/setup, the toolchain-pins check, `npm audit` (high+) on both npm workspaces, `k8s-static` (kubeconform over
-  `k8s/`, the app deployment pinned to one replica, and no path around the Ingress: no `LoadBalancer`/`NodePort`/`hostPort`/`hostNetwork`, the app Service `ClusterIP`, `allow-app-ingress` naming the ingress-nginx namespace), and `images`, an image build plus a Trivy scan of it, on `master` pushes and on every pull request that changes more than Markdown — the `changes` job decides it, as it does `server`); the blackbox Playwright
+  `k8s/`, the default one-replica deployment, the opt-in two-replica render, and no path around the Ingress: no `LoadBalancer`/`NodePort`/`hostPort`/`hostNetwork`, the app Service `ClusterIP`, `allow-app-ingress` naming the ingress-nginx namespace), and `images`, an image build plus a Trivy scan of it, on `master` pushes and on every pull request that changes more than Markdown — the `changes` job decides it, as it does `server`); the blackbox Playwright
   suite (`e2e.yml`) runs nightly and on demand, and re-scans the image it built with the same Trivy gate (its "Build images" step is a plain `docker compose build`, like `images`). Dependabot (`.github/dependabot.yml`) checks every
   workspace, Actions and container manifests weekly — the version PRs are a signal, and Gradle bumps are done in manual rounds (strict locks + checksum regeneration). Dependabot security alerts, secret scanning and push protection are enabled (2026-11-20, C-GATE-5); an open security alert is triaged within the week, fixed or dismissed with a reason; `.claude/docs/dependencies.md` describes
   grouping, compatibility pins and runtime verification, and
@@ -84,7 +84,10 @@ app's password-reset and MFA email to it (`MAIL_TRANSPORT=smtp`). Ports delibera
 
 Kubernetes
 (OrbStack) deployment targets the dedicated `adder` namespace — see `k8s/secret.yaml`'s header for
-the secret-creation command; the image is `adder-app` and the cluster runs a single `app-deployment.yaml` (one process, one replica) beside postgres.
+the secret-creation command. The app image is `adder-app` and the default Deployment has one replica beside PostgreSQL. The
+`apply-local.sh` two-replica option checks that the same supported immutable build is already ready, then renders two app pods.
+Both renders retain `Recreate`, ingress-only networking, and the same Secret references. The `k8s-static` job validates the
+rendered manifests and runs the mocked preflight cases, including older builds and a Deployment in progress.
 **The front door is an ingress-nginx Ingress** (`k8s/ingress.yaml`, decided 2026-11-20): the `app` Service is `ClusterIP`, so there is no `localhost:8087`
 for the cluster; the app is at `https://adder.k8s.orb.local` (OrbStack resolves `*.k8s.orb.local` ingress hosts; the controller's LoadBalancer answers on 80/443; with `tls:` and
 no `secretName` the controller's self-signed fake certificate is served, so a browser warns once and `curl -k` works; plain HTTP gets the controller's 308). It needs the ingress-nginx
@@ -97,7 +100,7 @@ certificate SAN and `MAIL_APP_URL` move together (the file's header); `http.cors
 browser's origin with the request's own host, so the proxied request must keep the original `Host`. A reverse proxy in front of a real deployment must pass the upgrade (`proxy_http_version 1.1`,
 `Upgrade $http_upgrade`, `Connection $connection_upgrade`), keep read and send timeouts at 60 s or more (the server pings every 25 s), and give the application the browser's own scheme, host and port, or every Origin check is a `403`: **TLS at the proxy needs `X-Forwarded-Proto: https` plus
 `http.behindProxy=true`**, **a public port other than 443 must be in `X-Forwarded-Host`** (`app.example.com:8443`), and **`Host $host` alone behind TLS gets a 403** (right host,
-wrong scheme); with `http.behindProxy=true` the per-IP `live-connect` bucket and the per-address pending share also see the real client. Without real client addresses (a plain proxy with `behindProxy=false`, an SNAT load balancer: a Kubernetes Service with `externalTrafficPolicy: Cluster`, which can also be what the ingress controller's own Service is on a cluster that SNATs: check the address in an audit line) EVERYONE shares ONE `live.maxPendingPerAddress` (8) and one `live-connect` bucket: raise the share or fix the trust; with a client-supplied `X-Forwarded-For` (no proxy stripping it) a client picks its own key and both are bypassable (`security.md`). A second replica needs sticky `/api/v1/live*` or a shared ticket table (`BACKLOG.md`).
+wrong scheme); with `http.behindProxy=true` the per-IP `live-connect` bucket and the per-address pending share also see the real client. Without real client addresses (a plain proxy with `behindProxy=false`, an SNAT load balancer: a Kubernetes Service with `externalTrafficPolicy: Cluster`, which can also be what the ingress controller's own Service is on a cluster that SNATs: check the address in an audit line) EVERYONE shares ONE `live.maxPendingPerAddress` (8) and one `live-connect` bucket: raise the share or fix the trust; with a client-supplied `X-Forwarded-For` (no proxy stripping it) a client picks its own key and both are bypassable (`security.md`). The opt-in two-replica profile exchanges tickets across both apps through the shared database. Each replica keeps its own connection resource caps.
 
 **AppCDS (class-data sharing).**
 
