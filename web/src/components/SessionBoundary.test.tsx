@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, renderWithProviders, screen, waitFor } from "../test/render";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { getSessionSnapshot, getUserId, persistRefreshedSession, persistSession } from "../api/session";
 import type { components } from "../api/schema";
 import { bindSessionQueryCache } from "../utils/sessionQueryCache";
@@ -40,6 +40,10 @@ function ResultPanel({ request, published }: { request: () => Promise<string>; p
 }
 
 describe("session boundary", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   test("switching accounts retires the old account's browser push binding", async () => {
     persistSession(session(1, "token-a"));
     const unsubscribe = vi.fn(async () => true);
