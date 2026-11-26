@@ -20,7 +20,7 @@ buildscript {
             classpath("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.23.0")
             classpath("org.apache.logging.log4j:log4j-api:2.26.1")
             classpath("org.apache.logging.log4j:log4j-core:2.26.1")
-            classpath("org.codehaus.plexus:plexus-utils:4.1.0")
+            classpath("org.codehaus.plexus:plexus-utils:4.2.0")
             // Jib's google-http-client/auth libraries pull Guava; HIGH CVE-2026-102554 is fixed in 33.7.2
             // (build-time only; the application's own floor is `libs.guava` below).
             classpath("com.google.guava:guava:33.8.0-jre")
