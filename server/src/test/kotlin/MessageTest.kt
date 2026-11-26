@@ -90,6 +90,20 @@ class MessageTest {
     private suspend fun HttpClient.edit(room: UInt, id: UInt, body: String): HttpResponse =
         putJson("$rooms/$room/messages/$id", MessageRequest(body))
 
+    private suspend fun HttpClient.editWithMutation(
+        room: UInt,
+        id: UInt,
+        body: String,
+        mutationId: String,
+        repeatHeader: Boolean = false,
+    ): HttpResponse = request("$rooms/$room/messages/$id") {
+        method = HttpMethod.Put
+        contentType(ContentType.Application.Json)
+        header(MUTATION_ID_HEADER, mutationId)
+        if (repeatHeader) headers.append(MUTATION_ID_HEADER, mutationId)
+        setBody(MessageRequest(body))
+    }
+
     private suspend fun HttpClient.page(room: UInt, query: String = "", number: Int = 1): MessagePageResponse =
         get("$rooms/$room/threads/$number/messages$query").body()
 
@@ -355,6 +369,38 @@ class MessageTest {
         for (bad in listOf("", "  ", "x".repeat(MAX_MESSAGE_BODY_LENGTH + 1), "ctl\u0001")) {
             assertEquals(HttpStatusCode.BadRequest, cast.member.client.edit(cast.room, id, bad).status)
         }
+    }
+
+    @Test
+    fun `edit mutation ids are checked after the author guard and before the body`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("msg-edit-mutation")
+        val id = TestThreads.post(cast.room, 1, cast.member.id, "first draft")
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+
+        assertEquals(HttpStatusCode.NoContent, cast.member.client.editWithMutation(cast.room, id, "second draft", mutationId).status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.member.client.editWithMutation(cast.room, id, "never written", mutationId.uppercase()).status,
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.member.client.editWithMutation(cast.room, id, "never written", mutationId, repeatHeader = true).status,
+        )
+
+        suspend fun HttpClient.guardedMalformed(messageId: UInt): HttpResponse = request("$rooms/${cast.room}/messages/$messageId") {
+            method = HttpMethod.Put
+            contentType(ContentType.Application.Json)
+            header(MUTATION_ID_HEADER, "invalid")
+            setBody("{ not json")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, jsonClient().guardedMalformed(id).status)
+        assertEquals(HttpStatusCode.NotFound, cast.outsider.client.guardedMalformed(id).status)
+        assertEquals(HttpStatusCode.Forbidden, cast.owner.client.guardedMalformed(id).status)
+        val member = cast.member.client.guardedMalformed(id)
+        assertEquals(HttpStatusCode.BadRequest, member.status)
+        assertTrue(MUTATION_ID_HEADER in member.body<ProblemDetail>().detail.orEmpty())
+        assertEquals("second draft", rawMessage(cast, id).body)
     }
 
     @Test

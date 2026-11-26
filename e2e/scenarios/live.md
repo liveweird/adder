@@ -25,6 +25,16 @@ change can only arrive by being pushed, and marks the document, so "without a re
    - *Expected*: the reply appears in the owner's conversation as its last message, under the teammate's name.
    - *Expected*: neither document was reloaded (the marker set on load is still there).
 
+## Scenario: a message edit refreshes the author once and updates another reader live
+
+1. The owner starts a thread and pins its opening message. Both members open the thread and subscribe.
+2. The owner edits the pinned message and adds a hashtag. The browser holds the successful save response.
+   - *Expected*: the edit hint includes the request identifier on the author's socket. The teammate receives the edit without that identifier.
+   - *Expected*: the teammate's conversation and pin show the new text while the author is still saving. The author has yet to re-read the timeline.
+3. The browser receives the save response.
+   - *Expected*: the author's new body appears after exactly one timeline read, even after the live refresh window elapses.
+   - *Expected*: the author can read the original body in edit history. The teammate's message menu has no history action. Neither page reloads.
+
 ## Scenario: a thread started by one member appears in another member's thread list
 
 1. The same setup, without a thread: both members open the room's **Threads** view.

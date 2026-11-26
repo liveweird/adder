@@ -359,13 +359,30 @@ class NotifyHintsTest {
         TestRooms.addMember(room, member.id)
         TestThreads.seed(room, member.id)
         val message = TestThreads.post(room, 1, member.id, "first #alpha")
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
         NotifyCapture().use { capture ->
             val hints = capture.during {
                 // The words are the same and only the tag changes: a hashtag edit is a message edit, so the SPA's refetch of the
                 // thread list (which the tag filter reads) rides the existing hint.
-                member.client.putJson("$rooms/$room/messages/$message", MessageRequest("first #beta")).expect(HttpStatusCode.NoContent)
+                member.client.put("$rooms/$room/messages/$message") {
+                    header(MUTATION_ID_HEADER, mutationId)
+                    contentType(ContentType.Application.Json)
+                    setBody(MessageRequest("first #beta"))
+                }.expect(HttpStatusCode.NoContent)
             }
-            assertEquals(listOf(hint(LiveKind.MESSAGE_EDITED, room, thread = 1, message = message)), hints)
+            assertEquals(
+                listOf(
+                    LiveHint(
+                        LiveKind.MESSAGE_EDITED,
+                        room,
+                        threadNumber = 1,
+                        messageId = message,
+                        mutationId = mutationId,
+                        originUserId = member.id,
+                    ),
+                ),
+                hints,
+            )
         }
     }
 
@@ -532,8 +549,12 @@ class NotifyHintsTest {
                 member.client.putStatus(room, "open").expect(HttpStatusCode.NoContent) // the same status
                 // the same owner
                 owner.client.putJson("$rooms/$room/threads/1/owner", ThreadOwnerRequest(member.id)).expect(HttpStatusCode.NoContent)
-                // an unchanged edit
-                member.client.putJson("$rooms/$room/messages/$posted", MessageRequest("Same words")).expect(HttpStatusCode.NoContent)
+                // an unchanged edit, even with correlation metadata
+                member.client.put("$rooms/$room/messages/$posted") {
+                    header(MUTATION_ID_HEADER, "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a")
+                    contentType(ContentType.Application.Json)
+                    setBody(MessageRequest("Same words"))
+                }.expect(HttpStatusCode.NoContent)
                 member.client.putStatus(room, "monitoring").expect(HttpStatusCode.NoContent) // real
             }
             assertEquals(

@@ -76,9 +76,13 @@ export async function listMessageReactors(roomId: number, messageId: number, rea
 }
 
 /** The author's own message, while a member; an unchanged body is a server-side no-op (204). */
-export async function editMessage(roomId: number, messageId: number, body: string): Promise<void> {
+export async function editMessage(roomId: number, messageId: number, body: string, mutationId?: string): Promise<void> {
   const payload: MessageEditBody = { body };
-  return voidRequest(`/api/v1/rooms/${roomId}/messages/${messageId}`, { method: "PUT", body: JSON.stringify(payload) });
+  return voidRequest(`/api/v1/rooms/${roomId}/messages/${messageId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+    ...(mutationId === undefined ? {} : { headers: { "X-Mutation-Id": mutationId } }),
+  });
 }
 
 /** Earlier bodies for one edited message, newest first. The server marks this sensitive response `no-store`. */

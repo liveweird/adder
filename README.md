@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Fewer duplicate reads after message edits (1.34.0)
+
+After a successful message edit, the sending tab reuses its refresh when the matching live event arrives. Other readers still see the edit live, including in pins and quotes. Edit history remains available to the author and authorized moderators.
+
 ### Fewer duplicate reads after chat updates (1.33.0)
 
 When the app and API share an origin, a successful reaction, owner handover, status change, or edit to thread details or curated tags refreshes the sending tab once. Other tabs still receive the change live. Interrupted saves can recover through the live event.

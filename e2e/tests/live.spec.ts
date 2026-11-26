@@ -37,6 +37,9 @@ interface Person {
 interface Frame {
   type: string;
   roomIds?: number[];
+  kind?: string;
+  messageId?: number;
+  mutationId?: string;
 }
 
 /** One signed-in browser: its own context (so its own session and its own socket), plus every frame and socket address it saw. */
@@ -160,6 +163,85 @@ test("a message posted in one browser appears in the other without a reload", as
   await expect(conversation(author.page).getByRole("listitem").last()).toContainText("Confirmed, lag is falling.");
   await expectNoReload(reader);
   await expectNoReload(author);
+});
+
+test("a message edit refreshes the author once and updates another reader live", async ({ page, browser }) => {
+  const room = await scene(page);
+  const original = "Draft incident summary";
+  const revised = "Revised incident summary";
+  await seedThread(room, original);
+  const thread = `/rooms/${room.roomId}/threads/1`;
+  const timelinePath = `/api/v1${thread}/messages`;
+  const timeline = await room.api.get(timelinePath);
+  expect(timeline.status()).toBe(200);
+  const { items: [{ id }] } = await timeline.json() as { items: { id: number }[] };
+  const messagePath = `/api/v1/rooms/${room.roomId}/messages/${id}`;
+  const pin = await room.api.put(`${messagePath}/pin`, { data: { pinned: true } });
+  expect(pin.status()).toBe(204);
+
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await author.page.clock.install();
+  await openLive(author, thread, room.roomId);
+  await openLive(reader, thread, room.roomId);
+  const readerPins = reader.page.getByRole("region", { name: "Pins in this thread", exact: true });
+  await expect(readerPins.getByRole("button", { name: `Pinned: ${original}`, exact: true })).toBeVisible();
+  const operations = (seat: Seat, body: string) => messageNamed(seat.page, body).getByRole("button", { name: /^Operations for message by / });
+  await operations(author, original).click();
+  await author.page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  const editor = author.page.getByRole("textbox", { name: "Edit message", exact: true });
+  await editor.fill(`${revised} #reviewed`);
+  // Let the initial subscription's spread reads start before measuring this write.
+  await author.page.clock.runFor(2_100);
+  let authorTimelineReads = 0;
+  author.page.on("request", (request) => {
+    if (request.method() === "GET" && new URL(request.url()).pathname === timelinePath) authorTimelineReads++;
+  });
+
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await author.page.route((url) => url.pathname === messagePath, async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    const response = await route.fetch();
+    expect(response.status()).toBe(204);
+    await held;
+    await route.fulfill({ response });
+  });
+
+  const editFrame = (seat: Seat) => seat.frames.find((frame) => frame.kind === "message.edited" && frame.messageId === id);
+  try {
+    const [request] = await Promise.all([
+      author.page.waitForRequest((request) => request.method() === "PUT" && new URL(request.url()).pathname === messagePath),
+      author.page.getByRole("button", { name: "Save", exact: true }).click(),
+    ]);
+    const mutationId = request.headers()["x-mutation-id"];
+    expect(mutationId).toMatch(/^[0-9a-f-]{36}$/);
+    await expect.poll(() => editFrame(author)?.mutationId).toBe(mutationId);
+    await expect(messageNamed(reader.page, revised)).toBeVisible();
+    await expect(readerPins.getByRole("button", { name: new RegExp(`^Pinned: ${revised}`) })).toBeVisible();
+    expect(editFrame(reader)).toBeDefined();
+    expect(editFrame(reader)?.mutationId).toBeUndefined();
+    await author.page.clock.runFor(1_100);
+    expect(authorTimelineReads).toBe(0);
+    await expect(editor).toBeVisible();
+  } finally {
+    release();
+  }
+
+  await expect(editor).toHaveCount(0);
+  await expect(messageNamed(author.page, revised)).toBeVisible();
+  await author.page.clock.runFor(3_200);
+  expect(authorTimelineReads).toBe(1);
+
+  await operations(author, revised).click();
+  await author.page.getByRole("menuitem", { name: "View edit history", exact: true }).click();
+  const history = author.page.getByRole("dialog", { name: "Edit history", exact: true });
+  await expect(history.locator("pre")).toHaveText(original);
+  await operations(reader, revised).click();
+  await expect(reader.page.getByRole("menuitem", { name: "Quote", exact: true })).toBeVisible();
+  await expect(reader.page.getByRole("menuitem", { name: "View edit history", exact: true })).toHaveCount(0);
+  await expectNoReload(author);
+  await expectNoReload(reader);
 });
 
 test("a thread started by one member appears in another member's thread list", async ({ page, browser }) => {

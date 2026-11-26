@@ -202,6 +202,17 @@ export function requestRefresh(queryClient: QueryClient, key: QueryKey): void {
   else void queryClient.invalidateQueries({ queryKey: key });
 }
 
+function queueCorrelatedEditQuotes(
+  queryClient: QueryClient,
+  frame: LiveServerFrame,
+  queue: (key: QueryKey, spread: boolean, slow: boolean) => void,
+): void {
+  if (frame.type !== "event" || frame.kind !== "message.edited") return;
+  quoteDependencyKeys(queryClient, frame)
+    .filter((key) => key[0] === "rooms" && key[2] !== frame.roomId)
+    .forEach((key) => queue(key, false, false));
+}
+
 /**
  * Turns frames into invalidations, coalesced (a burst of hints is one re-read per key) and spaced (a list at most every three seconds).
  * It NEVER cancels: while a key is being fetched it waits and tries again, because cancelling a fetch would drop a "Load older messages" click
@@ -270,7 +281,13 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       quiet = next;
     },
     handle(frame) {
-      if (deferReplyEcho(queryClient, frame, () => active.get(queryClient)?.handle(frame))) return;
+      if (deferReplyEcho(queryClient, frame, () => active.get(queryClient)?.handle(frame))) {
+        // The edit writer's own refresh covers every source-room thread read and the source room's pins. Quotes rendered in another room are
+        // independent reads, so keep their ordinary invalidation even while the exact correlated event waits for the write response.
+        queueCorrelatedEditQuotes(queryClient, frame, queue);
+        arm();
+        return;
+      }
       const roomLost = frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted");
       const quoteDependencies = quoteDependencyKeys(queryClient, frame);
       const quoteSourceChanged = frame.type === "event" &&

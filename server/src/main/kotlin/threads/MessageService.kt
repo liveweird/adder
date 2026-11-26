@@ -280,16 +280,7 @@ class MessageService internal constructor(
             it[lastActivityAt] = stamp
         }
         rooms.touchActivity(roomId, stamp, authorId)
-        notifyLive(
-            LiveHint(
-                LiveKind.MESSAGE_POSTED,
-                roomId,
-                threadNumber = number,
-                messageId = id,
-                mutationId = mutationId,
-                originUserId = authorId.takeIf { mutationId != null },
-            ),
-        )
+        notifyMessageWrite(LiveKind.MESSAGE_POSTED, roomId, number, id, authorId, mutationId)
         val notices = followPosted(inserted)
         val names = userNames(listOfNotNull(authorId, quoted?.authorId))
         val tokenIds = listOfNotNull(id.takeIf { request.body.contains("<@") }, quoted?.id?.takeIf { quoted.hasTokens })
@@ -307,10 +298,17 @@ class MessageService internal constructor(
      * Edits message [messageId] in ONE message write: the AUTHOR while a member ([requireMessageAuthor] on the fresh caller and row), an
      * archived room `409`, a closed thread `409`; the same body again (after sanitising) is null, a `204` with no write; otherwise the
      * previous body is snapshotted and the new body plus `edited_at` are written on one stamp. An edit never bumps the activity or
-     * `message_count`. The hashtags follow
-     * the body in the same transaction: rewritten when the folded set changed, or when the message was never indexed under this grammar.
+     * `message_count`. A changed edit carries its optional correlation id and writer id on the live hint; a no-op emits no hint. The
+     * hashtags follow the body in the same transaction: rewritten when the folded set changed, or when the message was never indexed under
+     * this grammar.
      */
-    suspend fun edit(roomId: UInt, messageId: UInt, caller: CallerPrincipal, raw: MessageRequest): MessageEdit? {
+    suspend fun edit(
+        roomId: UInt,
+        messageId: UInt,
+        caller: CallerPrincipal,
+        raw: MessageRequest,
+        mutationId: String? = null,
+    ): MessageEdit? {
         val request = sanitizedMessage(raw)
         validateMessage(request)
         val newTags = parseHashtags(request.body) // the new body is parsed ONCE, before the room lock
@@ -338,7 +336,7 @@ class MessageService internal constructor(
             if (write.message.tagsVersion < TAGS_VERSION || tagKeysDiffer(write.message.body, newTags)) {
                 tags.replaceInTransaction(messageId, write.thread.id, roomId, newTags)
             }
-            notifyLive(LiveHint(LiveKind.MESSAGE_EDITED, roomId, threadNumber = write.thread.number, messageId = messageId))
+            notifyMessageWrite(LiveKind.MESSAGE_EDITED, roomId, write.thread.number, messageId, write.message.authorId, mutationId)
             val ref = MessageRef(
                 roomId, write.thread.id, write.thread.number, messageId,
                 openingOf = { isOpening(write.thread.id, messageId) },
@@ -384,6 +382,15 @@ class MessageService internal constructor(
         return Messages.select(first).where { Messages.threadId eq threadId }.toList().single()[first]?.value == messageId
     }
 }
+
+private suspend fun notifyMessageWrite(
+    kind: LiveKind, roomId: UInt, number: Int, messageId: UInt, authorId: UInt, mutationId: String?,
+) = notifyLive(
+    LiveHint(
+        kind, roomId, threadNumber = number, messageId = messageId,
+        mutationId = mutationId, originUserId = authorId.takeIf { mutationId != null },
+    ),
+)
 
 private const val CONTEXT_SIDE = 25
 

@@ -122,6 +122,7 @@ internal fun eventOf(hint: LiveHint, recipient: HubSocket) = LiveServerFrame.Eve
     mutationId = hint.mutationId.takeIf {
         (
             hint.kind == LiveKind.MESSAGE_POSTED ||
+                hint.kind == LiveKind.MESSAGE_EDITED ||
                 hint.kind == LiveKind.MESSAGE_REACTION_CHANGED ||
                 hint.kind == LiveKind.THREAD_UPDATED ||
                 hint.kind == LiveKind.THREAD_STATUS_CHANGED ||

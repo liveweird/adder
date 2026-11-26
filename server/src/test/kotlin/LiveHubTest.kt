@@ -126,7 +126,7 @@ class LiveHubTest {
     }
 
     @Test
-    fun `a reply mutation id reaches every writer tab and no other subscriber`() = withHub {
+    fun `a chat mutation id reaches every writer tab and no other subscriber`() = withHub {
         val writerTabOne = socket(1u)
         val writerTabTwo = socket(1u)
         val otherUser = socket(2u)
@@ -172,6 +172,25 @@ class LiveHubTest {
         assertEquals(listOf<LiveServerFrame>(reaction), writerTabTwo.drain())
         assertEquals(
             listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.MESSAGE_REACTION_CHANGED, 7u, 3, 99u)),
+            otherUser.drain(),
+        )
+
+        deliver(
+            LiveHint(
+                LiveKind.MESSAGE_EDITED,
+                7u,
+                threadNumber = 3,
+                messageId = 99u,
+                mutationId = mutationId,
+                originUserId = 1u,
+            ),
+        )
+        barrier(writerTabOne)
+        val edited = LiveServerFrame.Event(LiveKind.MESSAGE_EDITED, 7u, 3, 99u, mutationId)
+        assertEquals(listOf<LiveServerFrame>(edited), writerTabOne.drain())
+        assertEquals(listOf<LiveServerFrame>(edited), writerTabTwo.drain())
+        assertEquals(
+            listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.MESSAGE_EDITED, 7u, 3, 99u)),
             otherUser.drain(),
         )
 
