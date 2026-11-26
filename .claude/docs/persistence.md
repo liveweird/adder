@@ -962,5 +962,8 @@ Current identities use the indexed consume operation. New identities share the c
 counter caps the physical table at 100,000 rows, including expired windows. At the cap, admission reclaims at most one expired row;
 active rows are never reclaimed. Each app sweeps up to 1,000 expired rows every ten seconds under the same guard and decrements the
 counter in the delete transaction. The expiry index supports both bounded cleanup paths without a table-wide capacity count.
+The existing-key fast path ends its bucket-row transaction before a missing key enters the capacity path. The latter locks the
+capacity guard first and only then rechecks or locks a bucket row, matching cleanup's guard-to-row order; it must never wait for the
+guard while retaining a conditional-UPDATE tuple lock.
 The PostgreSQL clock owns the 60-second window. Changing the JWT signing key creates a new namespace, as it also replaces existing
 sessions. Set the same quota configuration on each process using the database.

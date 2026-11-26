@@ -40,24 +40,38 @@ internal class SharedRateLimitStore(
         require(bucket.length in 1..40)
         require(KEY_HASH.matches(keyHash))
         require(limit > 0 && weight in 1..limit)
-        consumeOnce(bucket, keyHash, limit, weight, retryLockedExpired = true)?.let { return it }
+        consumeExistingWindow(bucket, keyHash, limit, weight)?.let { return it }
+        admitNewKey(bucket, keyHash, limit, weight, retryLockedExpired = true)?.let { return it }
         delay(CAPACITY_RETRY_MILLIS)
-        return checkNotNull(consumeOnce(bucket, keyHash, limit, weight, retryLockedExpired = false))
+        return checkNotNull(admitNewKey(bucket, keyHash, limit, weight, retryLockedExpired = false))
     }
 
-    private suspend fun consumeOnce(
+    /**
+     * Existing keys never need the capacity guard. Keep their tuple-lock transaction separate: a conditional UPDATE that loses a
+     * READ COMMITTED race can briefly lock the latest tuple before returning no row, and must release it before any guard wait.
+     */
+    private suspend fun consumeExistingWindow(
         bucket: String,
         keyHash: String,
         limit: Int,
         weight: Int,
-        retryLockedExpired: Boolean,
     ): SharedRateLimitDecision? = suspendTransaction(database) {
         consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
         readExisting(bucket, keyHash, limit)?.let { existing ->
             if (existing.remaining < weight) return@suspendTransaction existing
             consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
         }
+        null
+    }
 
+    /** Guard-first path for a genuinely absent key; every row lock taken here follows the shared capacity guard. */
+    private suspend fun admitNewKey(
+        bucket: String,
+        keyHash: String,
+        limit: Int,
+        weight: Int,
+        retryLockedExpired: Boolean,
+    ): SharedRateLimitDecision? = suspendTransaction(database) {
         var stored = checkNotNull(lockCapacity()) { "Rate-limit capacity guard is missing" }
         consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
         readExisting(bucket, keyHash, limit)?.let { existing -> return@suspendTransaction existing }

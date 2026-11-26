@@ -16,6 +16,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -76,21 +77,55 @@ class SharedRateLimitsTest {
     }
 
     @Test
-    fun `two stores racing one key share one token budget`() = testApplication {
+    fun `repeated cold-key races across two stores share each token budget without deadlock`() = testApplication {
         usePostgresTestcontainer()
         val first = SharedRateLimitStore(sharedDatabaseForTests())
         val second = SharedRateLimitStore(sharedDatabaseForTests())
-        val key = "b".repeat(64)
 
-        val decisions = coroutineScope {
-            (0 until 30).map { index ->
-                async { (if (index % 2 == 0) first else second).consume("test-race", key, limit = 16) }
-            }.awaitAll()
+        repeat(5) { generation ->
+            val key = generation.toString(16).padStart(64, 'b')
+            val decisions = coroutineScope {
+                val start = CompletableDeferred<Unit>()
+                val attempts = (0 until 30).map { index ->
+                    async {
+                        start.await()
+                        (if (index % 2 == 0) first else second).consume("test-race", key, limit = 16)
+                    }
+                }
+                start.complete(Unit)
+                attempts.awaitAll()
+            }
+
+            assertEquals(16, decisions.count { it.admitted })
+            assertEquals(14, decisions.count { !it.admitted })
+            assertEquals((0 until 16).toSet(), decisions.filter { it.admitted }.map { it.remaining }.toSet())
         }
+    }
 
-        assertEquals(16, decisions.count { it.admitted })
-        assertEquals(14, decisions.count { !it.admitted })
-        assertEquals((0 until 16).toSet(), decisions.filter { it.admitted }.map { it.remaining }.toSet())
+    @Test
+    fun `active and exhausted existing keys never wait for the capacity guard`() = withIsolatedTestDatabase { isolated ->
+        testApplication {
+            configureIsolated(isolated)
+            val store = SharedRateLimitStore(application.attributes[R2dbcDatabaseKey], maxStoredKeys = 1)
+            val key = "a".repeat(64)
+            assertTrue(store.consume("test-envelope", key, limit = 2).admitted)
+
+            isolated.connect().use { holder ->
+                holder.autoCommit = false
+                holder.createStatement().use {
+                    it.executeQuery("SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton FOR UPDATE").use { rows ->
+                        assertTrue(rows.next())
+                    }
+                }
+                val finalToken = withTimeout(1_000) { store.consume("test-envelope", key, limit = 2) }
+                assertTrue(finalToken.admitted)
+                assertEquals(0, finalToken.remaining)
+                val exhausted = withTimeout(1_000) { store.consume("test-envelope", key, limit = 2) }
+                assertFalse(exhausted.admitted)
+                assertFalse(exhausted.capacityRefusal)
+                holder.rollback()
+            }
+        }
     }
 
     @Test
