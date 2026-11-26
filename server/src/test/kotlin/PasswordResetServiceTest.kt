@@ -2,6 +2,9 @@ package ch.nokillswit
 
 import ch.nokillswit.auth.PasswordResetService
 import ch.nokillswit.auth.PasswordResetService.IssueOutcome
+import ch.nokillswit.auth.DeploymentKeyedDigest
+import ch.nokillswit.auth.LoginThrottle
+import ch.nokillswit.auth.PostgresAccountThrottle
 import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.auth.verifyPassword
 import ch.nokillswit.users.UserRole
@@ -19,6 +22,10 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.TextColumnType
+import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
 /** The grant store (`auth/PasswordResetService.kt`, V8) over the shared container: digests, expiry, single use, staleness. */
@@ -87,17 +94,41 @@ class PasswordResetServiceTest {
         val email = uniqueEmail("reset-clear-rollback")
         val id = TestUsers.seed(email, "old-password")
         val token = assertNotNull(resets.issueToken(id, 0, email))
+        val secret = "8c".repeat(32)
+        val throttle = PostgresAccountThrottle(
+            sharedDatabaseForTests(), secret, threshold = 2, lockoutMillis = 60_000, maxTracked = 10,
+            mfaMaxLockoutMillis = 120_000, mfaDecayMillis = 120_000,
+        )
+        val identityHash = DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").of(email)
+        assertEquals(LoginThrottle.FailureResult.RECORDED, throttle.recordFailure(email, knownAccount = true).result)
 
         val failed = runCatching {
-            resets.complete(token, hashPassword("new-password", cost = 4)) { error("clear failed") }
+            resets.complete(token, hashPassword("new-password", cost = 4)) { grantEmail ->
+                assertTrue(throttle.clearInCurrentTransaction(grantEmail), "the live attempt row was deleted")
+                assertEquals(0, attemptRows(identityHash), "the deletion is visible inside the reset transaction")
+                error("fail after the real clear")
+            }
         }
         assertTrue(failed.isFailure)
         assertTrue(resets.isUsable(token), "the reset grant remains usable after the transaction rolls back")
+        assertEquals(1, suspendTransaction(sharedDatabaseForTests()) { attemptRows(identityHash) })
+        assertEquals(
+            LoginThrottle.FailureResult.LOCKED_NOW,
+            throttle.recordFailure(email, knownAccount = true).result,
+            "the pre-reset failure was restored by the rollback",
+        )
         val account = assertNotNull(TestUsers.service.read(id))
         assertEquals(0, account.credentialRevision)
         assertTrue(verifyPassword("old-password", account.passwordHash))
         assertFalse(verifyPassword("new-password", account.passwordHash))
+        assertTrue(throttle.clear(email))
     }
+
+    private suspend fun attemptRows(identityHash: String): Int = TransactionManager.current().exec(
+        "SELECT count(*)::int FROM account_login_attempts WHERE identity_hash = CAST(? AS char(64))",
+        listOf(TextColumnType() to identityHash),
+        explicitStatementType = StatementType.SELECT,
+    ) { row -> row.get(0, Int::class.javaObjectType)!! }?.toList()?.single() ?: 0
 
     @Test
     fun `a password change, an email change and a deletion invalidate issued and in-flight grants but a role change does not`() =

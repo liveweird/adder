@@ -267,8 +267,8 @@ so nothing overflows. **Nothing new is disclosed:** the 429 is the same `account
 repeatedly can sit locked out for up to 24 h; the ways out are the lock's end and **a confirmed
 password reset (the owner's 2026-11-20 decision: it lifts the lock AND the level)**: the reset link goes to the same mailbox as the
 sign-in codes, so completing it proves the very factor a code guesser lacks (`LoginThrottle.clear`, keyed on the account's email,
-called by the confirm route after `PasswordResetService.complete` succeeded, keyed on the email `complete` verified under the user-row
-lock, `PasswordResetService.Completion`; the audit says so with `lockoutCleared`, below). Only
+called within `PasswordResetService.complete` so it commits or rolls back with the password replacement, keyed on the email verified
+under the user-row lock, `PasswordResetService.Completion`; the audit says so with `lockoutCleared`, below). Only
 the CONFIRM does this: an unconfirmed `POST /password-reset` mails a link and clears nothing, so asking for mail cannot lift a lock;
 `login.lockout` with `escalationLevel >= 2` is the operator's signal that a password
 holder is guessing codes.

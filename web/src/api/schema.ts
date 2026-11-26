@@ -73,10 +73,13 @@ export interface paths {
          *     `LOGIN_LOCKOUT_MFA_DECAY_SECONDS` without a lock); a window of wrong passwords only stays the flat
          *     window. A confirmed password reset (`POST /password-reset/confirm`) lifts the lock and its level.
          *     The answer is the same `429` whatever the cause. The database-shared lockout store admits at most
-         *     `LOGIN_LOCKOUT_MAX_TRACKED` identities (default 10,000). At capacity a new identity
-         *     receives `429` before password verification; existing tracked identities continue,
-         *     and expired state frees capacity. This applies equally to existing and unknown emails
-         *     across every application instance. Submitted identities are represented only by a
+         *     `LOGIN_LOCKOUT_MAX_TRACKED` ordinary, untrusted submitted identities (default 10,000).
+         *     At capacity a new identity submitted to this login endpoint receives `429` before password
+         *     verification; existing tracked identities continue, and expired state frees capacity.
+         *     Known-account MFA-code and authenticated password-change failures are still admitted above
+         *     that configured cap: their identity space is bounded by the user table, and refusing to
+         *     count a credential guess already compared would weaken the lockout. State and capacity are
+         *     shared across every application instance. Submitted identities are represented only by a
          *     deployment-keyed digest in this store.
          *
          *     **Email MFA (opt-in via the `MFA` feature flag):** when the account has MFA enabled,

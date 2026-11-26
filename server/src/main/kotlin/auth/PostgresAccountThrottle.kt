@@ -115,7 +115,9 @@ internal class PostgresAccountThrottle(
     override suspend fun clearInCurrentTransaction(email: String): Boolean {
         val hash = digest.of(email)
         lockIdentity(hash)
-        return delete(hash)
+        val heldLiveState = !read(hash).normalized(databaseNow()).isEmpty()
+        delete(hash)
+        return heldLiveState
     }
 
     private suspend fun <T> transaction(email: String, block: suspend (String, Long) -> T): T = suspendTransaction(database) {

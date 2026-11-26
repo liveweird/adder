@@ -92,6 +92,47 @@ class AccountThrottlePostgresTest {
     }
 
     @Test
+    fun `clear treats state at its exact database deadline as expired but removes its residue`() = runBlocking {
+        val email = "expired-${UUID.randomUUID()}@test"
+        val hash = DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").of(email)
+        PostgresTestSupport.connect().use { connection ->
+            val expiresAt = connection.createStatement().use { statement ->
+                statement.executeQuery(
+                    "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
+                ).use { rows ->
+                    assertTrue(rows.next())
+                    rows.getLong(1)
+                }
+            }
+            connection.prepareStatement(
+                """
+                INSERT INTO account_login_attempts (
+                    identity_hash, failures, locked_until, state_expires_at, code_failed,
+                    escalation_level, escalation_anchor, escalation_expires_at, code_guesses, code_expires_at
+                ) VALUES (?, 1, ?, ?, TRUE, 1, ?, ?, 1, ?)
+                """.trimIndent(),
+            ).use { statement ->
+                statement.setString(1, hash)
+                for (index in 2..6) statement.setLong(index, expiresAt)
+                assertEquals(1, statement.executeUpdate())
+            }
+        }
+
+        assertFalse(login().clear(email), "a deadline is exclusive: state is not live at the exact expiry instant")
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement(
+                "SELECT count(*) FROM account_login_attempts WHERE identity_hash = CAST(? AS char(64))",
+            ).use { statement ->
+                statement.setString(1, hash)
+                statement.executeQuery().use { rows ->
+                    assertTrue(rows.next())
+                    assertEquals(0, rows.getInt(1), "fully expired storage residue is still removed")
+                }
+            }
+        }
+    }
+
+    @Test
     fun `a success racing the locking failure cannot clear a newly active lock`() = runBlocking {
         val email = "race-${UUID.randomUUID()}@test"
         login().recordFailure(email, knownAccount = true)
