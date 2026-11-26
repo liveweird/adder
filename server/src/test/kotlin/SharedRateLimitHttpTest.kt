@@ -92,15 +92,16 @@ class SharedRateLimitHttpTest {
     }
 
     @Test
-    fun `distinct capacity-refused identities keep one cached limiter per provider`() = testApplication {
-        configureShared(
-            UUID.randomUUID().toString(),
-            "http.behindProxy" to "true",
-            "security.rateLimit.loginPerMinute" to "1000",
-        )
-        val originalCount = storedCount()
-        setStoredCount(100_000)
-        try {
+    fun `distinct capacity-refused identities keep one cached limiter per provider`() = withIsolatedTestDatabase { isolated ->
+        seedFullActiveCapacity(isolated)
+        testApplication {
+            configureShared(
+                UUID.randomUUID().toString(),
+                "http.behindProxy" to "true",
+                "security.rateLimit.loginPerMinute" to "1000",
+                "postgres.jdbcUrl" to isolated.jdbcUrl,
+                "postgres.r2dbcUrl" to isolated.r2dbcUrl,
+            )
             val client = jsonClient()
             repeat(20) { index ->
                 val response = client.post("/api/v1/login") {
@@ -115,8 +116,6 @@ class SharedRateLimitHttpTest {
                 assertTrue(assertNotNull(response.headers[HttpHeaders.RetryAfter]).toInt() in 1..60)
             }
             assertEquals(1, rateLimiterRegistrySize(), "one constant Ktor registry key is used for the login provider")
-        } finally {
-            setStoredCount(originalCount)
         }
     }
 
@@ -183,17 +182,28 @@ class SharedRateLimitHttpTest {
         }
     }
 
-    private fun storedCount(): Int = PostgresTestSupport.connect().use { connection ->
-        connection.prepareStatement("SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton").use { statement ->
-            statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
-        }
-    }
-
-    private fun setStoredCount(count: Int) {
-        PostgresTestSupport.connect().use { connection ->
-            connection.prepareStatement(
-                "UPDATE http_rate_limit_capacity_guard SET stored_count = ? WHERE singleton",
-            ).use { statement -> statement.setInt(1, count); assertEquals(1, statement.executeUpdate()) }
+    private fun seedFullActiveCapacity(isolated: IsolatedTestDatabase) {
+        isolated.connect().use { connection ->
+            connection.autoCommit = false
+            try {
+                connection.prepareStatement(
+                    "SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton FOR UPDATE",
+                ).use { statement -> statement.executeQuery().use { rows -> check(rows.next() && rows.getInt(1) == 0) } }
+                val inserted = connection.prepareStatement(
+                    "INSERT INTO http_rate_limit_buckets (bucket_name, key_hash, tokens_remaining, refill_at) " +
+                        "SELECT 'capacity-fill', lpad(to_hex(value), 64, '0'), 1, " +
+                        "floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint + 60000 " +
+                        "FROM generate_series(1, 100000) AS series(value)",
+                ).use { statement -> statement.executeUpdate() }
+                assertEquals(100_000, inserted)
+                connection.prepareStatement(
+                    "UPDATE http_rate_limit_capacity_guard SET stored_count = ? WHERE singleton",
+                ).use { statement -> statement.setInt(1, inserted); assertEquals(1, statement.executeUpdate()) }
+                connection.commit()
+            } catch (failure: Throwable) {
+                connection.rollback()
+                throw failure
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.crypto.DeploymentKeyedDigest
+import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.plugins.RATE_LIMIT_WINDOW_MILLIS
 import ch.nokillswit.plugins.SharedRateLimitStore
 import kotlin.test.AfterTest
@@ -86,69 +87,73 @@ class SharedRateLimitsTest {
     }
 
     @Test
-    fun `new-key capacity refuses with a real refill deadline and expired cleanup is bounded`() = testApplication {
-        usePostgresTestcontainer()
-        val baseline = physicalCount()
-        val store = SharedRateLimitStore(sharedDatabaseForTests(), maxStoredKeys = baseline + 2)
-        val first = "c".repeat(64)
-        val second = "d".repeat(64)
-        val third = "e".repeat(64)
-        store.consume("test-capacity", first, limit = 3)
-        store.consume("test-capacity", second, limit = 3)
+    fun `new-key capacity refuses with a real refill deadline and expired cleanup is bounded`() = withIsolatedTestDatabase { isolated ->
+        testApplication {
+            configureIsolated(isolated)
+            val store = SharedRateLimitStore(application.attributes[R2dbcDatabaseKey], maxStoredKeys = 2)
+            val first = "c".repeat(64)
+            val second = "d".repeat(64)
+            val third = "e".repeat(64)
+            store.consume("test-capacity", first, limit = 3)
+            store.consume("test-capacity", second, limit = 3)
 
-        val refused = store.consume("test-capacity", third, limit = 3)
-        assertFalse(refused.admitted)
-        assertTrue(refused.capacityRefusal)
-        assertTrue(refused.refillAtMillis > refused.serverNowMillis)
+            val refused = store.consume("test-capacity", third, limit = 3)
+            assertFalse(refused.admitted)
+            assertTrue(refused.capacityRefusal)
+            assertTrue(refused.refillAtMillis > refused.serverNowMillis)
 
-        expire("test-capacity", first)
-        assertTrue(store.consume("test-capacity", third, limit = 3).admitted, "expired capacity is reclaimed for a new key")
-        assertEquals(0, store.pruneExpired(batchSize = 1))
-        assertEquals(0, bucketCount("test-capacity", first))
+            expire("test-capacity", first, isolated)
+            assertTrue(store.consume("test-capacity", third, limit = 3).admitted, "expired capacity is reclaimed for a new key")
+            assertEquals(0, store.pruneExpired(batchSize = 1))
+            assertEquals(0, bucketCount("test-capacity", first, isolated))
+        }
     }
 
     @Test
-    fun `physical capacity has an exact high water across repeated expired generations`() = testApplication {
-        usePostgresTestcontainer()
-        val baseline = physicalCount()
-        val store = SharedRateLimitStore(sharedDatabaseForTests(), maxStoredKeys = baseline + 1)
+    fun `physical capacity has an exact high water across repeated expired generations`() = withIsolatedTestDatabase { isolated ->
+        testApplication {
+            configureIsolated(isolated)
+            val store = SharedRateLimitStore(application.attributes[R2dbcDatabaseKey], maxStoredKeys = 1)
 
-        repeat(12) { generation ->
-            val key = generation.toString(16).padStart(64, '0')
-            assertTrue(store.consume("test-generations", key, limit = 1).admitted)
-            assertEquals(baseline + 1, physicalCount())
-            assertEquals(physicalCount(), storedCount())
-            if (generation < 11) expire("test-generations", key)
+            repeat(12) { generation ->
+                val key = generation.toString(16).padStart(64, '0')
+                assertTrue(store.consume("test-generations", key, limit = 1).admitted)
+                assertEquals(1, physicalCount(isolated))
+                assertEquals(physicalCount(isolated), storedCount(isolated))
+                if (generation < 11) expire("test-generations", key, isolated)
+            }
+
+            val liveKey = 11.toString(16).padStart(64, '0')
+            val exhausted = store.consume("test-generations", liveKey, limit = 1)
+            assertFalse(exhausted.admitted, "an existing key keeps its per-key quota at the physical cap")
+            assertFalse(exhausted.capacityRefusal)
+            val newKey = "f".repeat(64)
+            assertTrue(store.consume("test-generations", newKey, limit = 1).capacityRefusal)
+            assertEquals(1, physicalCount(isolated))
+            assertEquals(physicalCount(isolated), storedCount(isolated))
         }
-
-        val liveKey = 11.toString(16).padStart(64, '0')
-        val exhausted = store.consume("test-generations", liveKey, limit = 1)
-        assertFalse(exhausted.admitted, "an existing key keeps its per-key quota at the physical cap")
-        assertFalse(exhausted.capacityRefusal)
-        val newKey = "f".repeat(64)
-        assertTrue(store.consume("test-generations", newKey, limit = 1).capacityRefusal)
-        assertEquals(baseline + 1, physicalCount())
-        assertEquals(physicalCount(), storedCount())
     }
 
     @Test
-    fun `two stores cannot admit distinct active keys beyond physical capacity`() = testApplication {
-        usePostgresTestcontainer()
-        val baseline = physicalCount()
-        val first = SharedRateLimitStore(sharedDatabaseForTests(), maxStoredKeys = baseline + 1)
-        val second = SharedRateLimitStore(sharedDatabaseForTests(), maxStoredKeys = baseline + 1)
+    fun `two stores cannot admit distinct active keys beyond physical capacity`() = withIsolatedTestDatabase { isolated ->
+        testApplication {
+            configureIsolated(isolated)
+            val database = application.attributes[R2dbcDatabaseKey]
+            val first = SharedRateLimitStore(database, maxStoredKeys = 1)
+            val second = SharedRateLimitStore(database, maxStoredKeys = 1)
 
-        val decisions = coroutineScope {
-            listOf(
-                async { first.consume("test-cap-race", "1".repeat(64), limit = 2) },
-                async { second.consume("test-cap-race", "2".repeat(64), limit = 2) },
-            ).awaitAll()
+            val decisions = coroutineScope {
+                listOf(
+                    async { first.consume("test-cap-race", "1".repeat(64), limit = 2) },
+                    async { second.consume("test-cap-race", "2".repeat(64), limit = 2) },
+                ).awaitAll()
+            }
+
+            assertEquals(1, decisions.count { it.admitted })
+            assertEquals(1, decisions.count { it.capacityRefusal })
+            assertEquals(1, physicalCount(isolated))
+            assertEquals(physicalCount(isolated), storedCount(isolated))
         }
-
-        assertEquals(1, decisions.count { it.admitted })
-        assertEquals(1, decisions.count { it.capacityRefusal })
-        assertEquals(baseline + 1, physicalCount())
-        assertEquals(physicalCount(), storedCount())
     }
 
     @Test
@@ -161,8 +166,8 @@ class SharedRateLimitsTest {
         assertTrue(Regex("[0-9a-f]{64}").matches(first.ofCanonical("canonical")))
     }
 
-    private fun expire(bucket: String, key: String) {
-        PostgresTestSupport.connect().use { connection ->
+    private fun expire(bucket: String, key: String, isolated: IsolatedTestDatabase? = null) {
+        (isolated?.connect() ?: PostgresTestSupport.connect()).use { connection ->
             connection.prepareStatement(
                 "UPDATE http_rate_limit_buckets SET refill_at = " +
                     "floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint - 1 " +
@@ -175,7 +180,7 @@ class SharedRateLimitsTest {
         }
     }
 
-    private fun bucketCount(bucket: String, key: String): Int = PostgresTestSupport.connect().use { connection ->
+    private fun bucketCount(bucket: String, key: String, isolated: IsolatedTestDatabase): Int = isolated.connect().use { connection ->
         connection.prepareStatement(
             "SELECT count(*) FROM http_rate_limit_buckets WHERE bucket_name = ? AND key_hash = ?",
         ).use { statement ->
@@ -185,13 +190,13 @@ class SharedRateLimitsTest {
         }
     }
 
-    private fun physicalCount(): Int = PostgresTestSupport.connect().use { connection ->
+    private fun physicalCount(isolated: IsolatedTestDatabase): Int = isolated.connect().use { connection ->
         connection.prepareStatement("SELECT count(*) FROM http_rate_limit_buckets").use { statement ->
             statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
         }
     }
 
-    private fun storedCount(): Int = PostgresTestSupport.connect().use { connection ->
+    private fun storedCount(isolated: IsolatedTestDatabase): Int = isolated.connect().use { connection ->
         connection.prepareStatement("SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton").use { statement ->
             statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
         }
@@ -201,5 +206,10 @@ class SharedRateLimitsTest {
         connection.prepareStatement("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint").use { statement ->
             statement.executeQuery().use { rows -> rows.next(); rows.getLong(1) }
         }
+    }
+
+    private suspend fun io.ktor.server.testing.ApplicationTestBuilder.configureIsolated(isolated: IsolatedTestDatabase) {
+        configureApp("postgres.jdbcUrl" to isolated.jdbcUrl, "postgres.r2dbcUrl" to isolated.r2dbcUrl)
+        startApplication()
     }
 }
