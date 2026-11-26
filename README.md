@@ -7,6 +7,14 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Thread tags and message edit history (1.20.0)
+
+- Choose curated **Tags** in the new-thread form. They save together with the opening message.
+- Authors who are still room members, room owners, and administrators with room access can open **Edit history** from the message menu.
+  Earlier bodies appear as plain text. Deleting a message removes its saved versions.
+- API clients can use `GET /api/v1/rooms/{id}/hashtags` and the thread-list `hashtag` parameter. The existing `tags` path and `tag`
+  parameter continue to work, and `threadTag` still selects curated tags.
+
 ### Thread workflow and conversation (1.19.0)
 
 - Workflow changes appear between replies. Open **Details** for the full history.
@@ -355,7 +363,7 @@ For a hosted deployment, supply the settings through the app's environment and s
 | `NOTIFICATIONS_SWEEP_INTERVAL_SECONDS` | `60` | How often the notification sweep wakes (10..3600); the email digest rides the same tick. |
 | `NOTIFICATIONS_SWEEP_ENABLED` | `true` | `false` keeps the sweep (purge and digest) from starting; the test harness turns it off. |
 | `SEARCH_TIMEOUT_SECONDS` | `5` | The budget of one search request (all its statements); past it the search is cancelled and answers 429 `search-timeout` (1..30). |
-| `SEARCH_MAX_CONCURRENT` | `4` | The most searches this process runs at once; the next answers 429 `search-busy` (1..16). With `THREADS_READ_MAX_CONCURRENT`, the notification list's fixed cap of 4 and the thread detail's fixed cap of 3 it must stay below `POSTGRES_POOL_MAX_SIZE`, or a production-mode startup is refused. |
+| `SEARCH_MAX_CONCURRENT` | `4` | The most searches this process runs at once; the next answers 429 `search-busy` (1..16). With `THREADS_READ_MAX_CONCURRENT`, the notification list's fixed cap of 4 and the thread detail's fixed cap of 3, production startup requires at least four connections below `POSTGRES_POOL_MAX_SIZE` for writes and token checks. |
 | `THREADS_READ_TIMEOUT_SECONDS` | `5` | The budget of one filtered thread-list or tag-list read; past it the read is cancelled and answers 429 `read-timeout` (1..30). |
 | `THREADS_READ_MAX_CONCURRENT` | `8` | The most filtered thread-list and tag-list reads this process runs at once; the next answers 429 `read-busy` (1..16). |
 | `THREADS_TAG_REINDEX_ON_BOOT` | `true` | Index the hashtags of messages written before the index, once after boot and without blocking the start; `false` leaves them unindexed until a boot that has it on. |
@@ -364,7 +372,7 @@ For a hosted deployment, supply the settings through the app's environment and s
 | `POSTGRES_USER` | `adder` | Database user. |
 | `POSTGRES_PASSWORD` | `adder` | Database password. Production mode (`KTOR_DEVELOPMENT=false`) **refuses to start** on this default, on a blank value and on the k8s `CHANGE-ME` placeholder: set a private one on the database and the app (`openssl rand -hex 16`). The compose demo runs in development mode and keeps `adder`. |
 | `POSTGRES_CONNECT_RETRIES` | `10` | How many times Flyway retries its boot connection (doubling waits capped at 8 s, ~63 s at 10) so a cold start waits for Postgres instead of crash-looping; `0` fails fast (0..15 — 15 is ~2 min, inside the k8s startup-probe budget). |
-| `POSTGRES_POOL_MAX_SIZE` | `20` | Ceiling on concurrent pooled R2DBC connections for this instance (1..1000). |
+| `POSTGRES_POOL_MAX_SIZE` | `23` | Ceiling on concurrent pooled R2DBC connections for this instance (1..1000). |
 | `POSTGRES_POOL_INITIAL_SIZE` | `2` | Connections the pool fills up to on its first acquire (0..maxSize). |
 | `POSTGRES_POOL_MAX_ACQUIRE_SECONDS` | `10` | How long a caller waits for a free pooled connection before failing (1..600). |
 | `POSTGRES_POOL_MAX_IDLE_SECONDS` | `600` | How long an idle pooled connection may sit before recycling (1..86400). |

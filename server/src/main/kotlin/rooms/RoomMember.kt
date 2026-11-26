@@ -1,5 +1,6 @@
 package ch.nokillswit.rooms
 
+import ch.nokillswit.infra.JsonUInt
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.paging.PageResponse
 import io.ktor.server.plugins.BadRequestException
@@ -33,8 +34,8 @@ data class RoomMemberListResult(val items: List<RoomMemberResponse>, val total: 
 /** At least one of [userIds] (at most [MAX_USER_IDS_PER_ADD]) and [teamId]; always added as MEMBER. */
 @Serializable
 data class RoomMembersAddRequest(
-    val userIds: List<UInt>? = null,
-    val teamId: UInt? = null,
+    val userIds: List<JsonUInt>? = null,
+    val teamId: JsonUInt? = null,
 )
 
 /** [added] people got a membership row now, [alreadyMembers] of the requested (and the team's) people had one. */

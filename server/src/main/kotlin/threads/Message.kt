@@ -1,5 +1,6 @@
 package ch.nokillswit.threads
 
+import ch.nokillswit.infra.JsonUInt
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.sanitizeMultiLine
 import io.ktor.server.plugins.BadRequestException
@@ -111,7 +112,7 @@ data class MessageRequest(val body: String)
  * out of every edit with no code.
  */
 @Serializable
-data class MessagePostRequest(val body: String, val quotedMessageId: UInt? = null) {
+data class MessagePostRequest(val body: String, val quotedMessageId: JsonUInt? = null) {
     /** The body half, for the shared message rules and the sanitiser. */
     fun message(): MessageRequest = MessageRequest(body)
 }

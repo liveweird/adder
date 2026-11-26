@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Group, MultiSelect, Stack, Text } from "@mantine/core";
+import { Button, Group, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import type { RoomResponse } from "../api/rooms";
 import type { TagCategory } from "../api/tagCategories";
@@ -15,13 +15,13 @@ import { roomKeys } from "../utils/roomKeys";
 import { loadErrorMessage } from "../utils/saveError";
 import { threadTagsBlock } from "../utils/threadAccess";
 import { threadTagsErrorMessage } from "../utils/threadTagsErrors";
-import { liveTagNames, MAX_THREAD_TAGS, retiredTagNames, sameTagSet, tagOptionGroups } from "../utils/threadTags";
+import { liveTagNames, retiredTagNames, sameTagSet } from "../utils/threadTags";
 import { showSuccessToast } from "../utils/toast";
-import { accessibleRenderPill } from "./accessiblePill";
 import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
 import RevisionConflictAlert from "./RevisionConflictAlert";
 import TagPills from "./TagPills";
+import ThreadTagPicker from "./ThreadTagPicker";
 
 type Seed = { names: string[]; revision: number };
 
@@ -118,20 +118,11 @@ export default function ThreadTagsEditor({
 
   return (
     <Stack gap="xs">
-      <MultiSelect
+      <ThreadTagPicker
         ref={pickerRef}
-        label={t("threads.tags.label")}
-        description={t("threads.tags.hint")}
-        placeholder={value.length === 0 ? t("threads.tags.placeholder") : undefined}
-        data={tagOptionGroups(categories.data ?? [])}
+        categories={categories.data ?? []}
         value={value}
         onChange={setValue}
-        maxValues={MAX_THREAD_TAGS}
-        renderPill={accessibleRenderPill((label) => t("common.filter.removeValue", { value: label }))}
-        searchable
-        clearable
-        clearButtonProps={{ "aria-label": t("threads.tags.clear") }}
-        nothingFoundMessage={t("threads.tags.empty")}
         disabled={categories.isLoading || block !== null}
       />
       {retired.length > 0 && (

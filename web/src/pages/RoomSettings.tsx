@@ -18,6 +18,7 @@ import RoomPage from "../components/RoomPage";
 import RoomTabHeader from "../components/RoomTabHeader";
 import { useBeforeUnloadGuard } from "../hooks/useBeforeUnloadGuard";
 import { useDeleteConfirm } from "../hooks/useDeleteConfirm";
+import { clearRoomMessageRevisions } from "../utils/messageRevisionCache";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
 import { canManageRoom } from "../utils/roomAccess";
@@ -176,6 +177,7 @@ function Lifecycle({ room, admin }: { room: RoomResponse; admin: boolean }) {
   const remove = useDeleteConfirm<RoomResponse>({
     mutationFn: (target) => deleteRoom(target.id),
     onSuccess: async (target) => {
+      clearRoomMessageRevisions(queryClient, target.id);
       // Leave first: the room's own queries would only answer 404 from here on.
       navigate(roomsPath, { replace: true });
       queryClient.removeQueries({ queryKey: roomKeys.detail(target.id) });

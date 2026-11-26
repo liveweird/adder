@@ -205,32 +205,41 @@ class ConnectionPoolTest {
         assertStartupFails("postgres.pool.initialSize") { startApplication() }
     }
 
-    // Production mode only (the tests above run tiny pools on purpose): the list reads and the searches each hold one connection while
-    // they run, so their process caps (8 + 4 by default, plus the notification list's own 4 and the thread detail's own 3) together must
-    // stay BELOW the pool. The boundary is the pool size 19 -> 20.
+    // Production mode reserves four connections above the four bounded read categories.
+    // The default read caps total 19, so the boundary is pool size 22 -> 23.
     @Test
-    fun `production mode refuses a pool the list reads and the searches could take whole`() = testApplication {
+    fun `production mode refuses even when readers would leave three connections free`() = testApplication {
         configureApp(
             "jwt.secret" to strongJwtSecret(), "security.encryption.key" to strongEncryptionKey(), "mail.transport" to "disabled",
-            "postgres.pool.maxSize" to "19",
+            "postgres.pool.maxSize" to "22",
         )
         serverConfig { developmentMode = false }
         withSeedRestored {
             assertStartupFails(
-                "\"search.maxConcurrent\" (4) + the notification list's cap (4) + the thread detail's cap (3) must stay below",
+                "leave at least 4 connections",
             ) { startApplication() }
         }
     }
 
     @Test
-    fun `production mode passes the pool check one connection above the caps`() = testApplication {
+    fun `production mode passes with exactly four connections above the reader caps`() = testApplication {
         configureApp(
             "jwt.secret" to strongJwtSecret(), "security.encryption.key" to strongEncryptionKey(), "mail.transport" to "disabled",
-            "postgres.pool.maxSize" to "20",
+            "postgres.pool.maxSize" to "23",
         )
         serverConfig { developmentMode = false }
         // The pool check passed: the boot reaches the NEXT fail-closed check (the seed password), not this one.
         withSeedRestored { assertStartupFails("seed password") { startApplication() } }
+    }
+
+    @Test
+    fun `a higher custom list cap must increase the pool to retain the reserve`() = testApplication {
+        configureApp(
+            "jwt.secret" to strongJwtSecret(), "security.encryption.key" to strongEncryptionKey(), "mail.transport" to "disabled",
+            "postgres.pool.maxSize" to "23", "threads.readMaxConcurrent" to "9",
+        )
+        serverConfig { developmentMode = false }
+        withSeedRestored { assertStartupFails("leave at least 4 connections") { startApplication() } }
     }
 
     // The bounds go through the shared infra/config helpers, so a non-numeric value is a config

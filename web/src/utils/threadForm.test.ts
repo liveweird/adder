@@ -106,7 +106,7 @@ describe("threadFormValidation", () => {
     const noUser = values({}, { lead: { kind: "user", value: null } });
     expect(errorsOf(noUser)["fields.lead"]).toBeUndefined();
     const requiredUser = [field("lead", "USER", true)];
-    expect(errorsOf({ title: "t", body: "b", fields: { lead: { kind: "user", value: null } } }, requiredUser)["fields.lead"]).toBe("This field is required");
+    expect(errorsOf({ title: "t", body: "b", tags: [], fields: { lead: { kind: "user", value: null } } }, requiredUser)["fields.lead"]).toBe("This field is required");
   });
 
   test.each([
@@ -193,8 +193,13 @@ describe("toThreadCreateBody", () => {
 
   test("a thread with no field set carries no `fields` key at all", () => {
     const optionalOnly = [field("component", "TEXT")];
-    expect(toThreadCreateBody({ title: "T", body: "B", fields: { component: text("") } }, optionalOnly)).toEqual({ title: "T", body: "B" });
-    expect(toThreadCreateBody({ title: "T", body: "B", fields: {} }, [])).toEqual({ title: "T", body: "B" });
+    expect(toThreadCreateBody({ title: "T", body: "B", tags: [], fields: { component: text("") } }, optionalOnly)).toEqual({ title: "T", body: "B" });
+    expect(toThreadCreateBody({ title: "T", body: "B", tags: [], fields: {} }, [])).toEqual({ title: "T", body: "B" });
+  });
+
+  test("sends picked registry tags and omits an empty tag set", () => {
+    expect(toThreadCreateBody(values({ tags: ["backend", "incident"] }), FIELDS)).toMatchObject({ tags: ["backend", "incident"] });
+    expect(toThreadCreateBody(values({ tags: [] }), FIELDS)).not.toHaveProperty("tags");
   });
 
   test("the types come from the generated spec, so a spec change fails the compile", () => {
@@ -229,21 +234,23 @@ describe("threadCreateErrorMessage", () => {
 });
 
 describe("kept drafts", () => {
-  test("a draft is empty only when it holds no title, message or field", () => {
+  test("a draft is empty only when it holds no title, message, tag or field", () => {
     expect(isThreadDraftEmpty(emptyThreadForm(FIELDS))).toBe(true);
     expect(isThreadDraftEmpty({ ...emptyThreadForm(FIELDS), title: "  " })).toBe(true);
     expect(isThreadDraftEmpty({ ...emptyThreadForm(FIELDS), title: "x" })).toBe(false);
     expect(isThreadDraftEmpty({ ...emptyThreadForm(FIELDS), body: "x" })).toBe(false);
+    expect(isThreadDraftEmpty({ ...emptyThreadForm(FIELDS), tags: ["incident"] })).toBe(false);
     expect(isThreadDraftEmpty(values({ title: "", body: "" }))).toBe(false); // the required field is set
   });
 
   test("a kept draft is laid over the current fields: gone dropped, new empty, a changed type starts over", () => {
     expect(reconcileThreadDraft(null, FIELDS)).toEqual(emptyThreadForm(FIELDS));
-    const kept = values({ title: "T", body: "B" }, { component: text("db"), tags: { kind: "multi", value: ["s1"] } });
+    const kept = values({ title: "T", body: "B", tags: ["incident"] }, { component: text("db"), tags: { kind: "multi", value: ["s1"] } });
     const now = [field("severity", "SELECT", true), field("component", "NUMBER"), field("tags", "MULTI_SELECT"), field("added", "TEXT")];
     const merged = reconcileThreadDraft(kept, now);
     expect(merged.title).toBe("T");
     expect(merged.body).toBe("B");
+    expect(merged.tags).toEqual(["incident"]);
     expect(Object.keys(merged.fields)).toEqual(["severity", "component", "tags", "added"]);
     expect(merged.fields.severity).toEqual(text("s1"));
     expect(merged.fields.tags).toEqual({ kind: "multi", value: ["s1"] });
@@ -252,5 +259,10 @@ describe("kept drafts", () => {
     expect(merged.fields.component).toEqual(text("db"));
     const typed = reconcileThreadDraft(kept, [field("component", "USER")]);
     expect(typed.fields.component).toEqual({ kind: "user", value: null });
+  });
+
+  test("an old kept draft without tags is upgraded to an empty tag set", () => {
+    const old = { title: "T", body: "B", fields: {} } as ThreadFormValues;
+    expect(reconcileThreadDraft(old, []).tags).toEqual([]);
   });
 });

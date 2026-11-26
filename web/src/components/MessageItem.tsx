@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { ActionIcon, Avatar, Box, Divider, Group, Menu, Stack, Text, Tooltip } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { IconArrowRight, IconPencil, IconPinFilled, IconQuote, IconTrash } from "@tabler/icons-react";
+import { IconArrowRight, IconHistory, IconPencil, IconPinFilled, IconQuote, IconTrash } from "@tabler/icons-react";
 import { deleteMessage, type MessageResponse } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
 import { useThreadRefHref } from "../hooks/useThreadRefHref";
@@ -11,6 +11,7 @@ import type { MessageActions } from "../utils/messageAccess";
 import { messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
+import { clearMessageRevisions } from "../utils/messageRevisionCache";
 import { tagFilterPath } from "../utils/roomLinks";
 import { fillSlots, slot } from "../utils/slots";
 import { initialsOf } from "../utils/text";
@@ -18,6 +19,7 @@ import ConfirmActionModal from "./ConfirmActionModal";
 import FormErrorAlert from "./FormErrorAlert";
 import MarkdownView from "./MarkdownView";
 import MessageEditForm from "./MessageEditForm";
+import MessageRevisionDialog from "./MessageRevisionDialog";
 import MessagePinMenuItem from "./MessagePinMenuItem";
 import MessageQuote from "./MessageQuote";
 import MessageReactions from "./MessageReactions";
@@ -83,6 +85,7 @@ export default function MessageItem({
   const threadHref = useThreadRefHref(roomId);
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [historyOpened, setHistoryOpened] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const item = useRef<HTMLLIElement>(null);
@@ -95,6 +98,7 @@ export default function MessageItem({
   const pinned = pinner !== undefined;
   const quoting = actions.quote === true && onQuote !== undefined ? () => onQuote(message) : undefined;
   const quotingElsewhere = !message.deleted && onQuoteElsewhere !== undefined ? () => onQuoteElsewhere(message) : undefined;
+  const canViewHistory = actions.history === true && message.editedAt !== null && !message.deleted;
   // The edit action went (the thread closed, the room was archived): the editor goes with it and must not come back by itself on a reopen.
   if (editing && !actions.edit) setEditing(false);
   useEffect(() => {
@@ -109,12 +113,14 @@ export default function MessageItem({
       item.current?.focus();
     }
   }, [message.deleted]);
+  if (historyOpened && !canViewHistory) setHistoryOpened(false);
 
   async function confirmRemove() {
     setError(null);
     setRemoving(true);
     try {
       await deleteMessage(roomId, message.id);
+      clearMessageRevisions(queryClient, roomId, message.threadNumber, message.id);
       refocusTombstone.current = true;
       setConfirming(false);
       await refreshAfterMessageWrite(queryClient, roomId, { pins: true });
@@ -165,7 +171,7 @@ export default function MessageItem({
                 </Text>
               )}
             </Group>
-            {(quoting || quotingElsewhere || actions.edit || actions.remove !== null || actions.pin) && !editing && (
+            {(quoting || quotingElsewhere || actions.edit || actions.remove !== null || actions.pin || canViewHistory) && !editing && (
               <Group gap={2} wrap="nowrap" className={classes.actions}>
                 {quoting && (
                   <Tooltip label={t("threads.quote.action")}>
@@ -194,6 +200,11 @@ export default function MessageItem({
                       }}
                     >
                       {t("common.action.edit")}
+                    </Menu.Item>
+                  )}
+                  {canViewHistory && (
+                    <Menu.Item leftSection={<IconHistory size={14} />} onClick={() => setHistoryOpened(true)}>
+                      {t("threads.message.history.action")}
                     </Menu.Item>
                   )}
                   {actions.pin && <MessagePinMenuItem roomId={roomId} messageId={message.id} onError={setError} />}
@@ -260,6 +271,15 @@ export default function MessageItem({
         onConfirm={() => void confirmRemove()}
         loading={removing}
       />
+      {canViewHistory && (
+        <MessageRevisionDialog
+          roomId={roomId}
+          threadNumber={message.threadNumber}
+          messageId={message.id}
+          opened={historyOpened}
+          onClose={() => setHistoryOpened(false)}
+        />
+      )}
     </Box>
   );
 }

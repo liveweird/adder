@@ -1,5 +1,6 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { clearRoomLinkPreviews } from "./linkPreviewCache";
+import { clearRoomMessageRevisions } from "./messageRevisionCache";
 import { homeKey, notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
 
 /** Shared invalidation for a local lifecycle mutation or a live hint from another writer. */
@@ -13,6 +14,7 @@ export function threadLifecycleKeys(roomId: number, deleted: boolean): QueryKey[
 /** Reset data that can hold deleted content, including cached merged histories and in-flight reads. */
 export async function resetDeletedThreadContent(queryClient: QueryClient, roomId: number): Promise<void> {
   clearRoomLinkPreviews(queryClient, roomId);
+  clearRoomMessageRevisions(queryClient, roomId);
   await Promise.all([
     queryClient.resetQueries({ queryKey: searchAllKey, predicate: ({ queryKey }) => queryKey[1] !== "room" || queryKey[2] === roomId }),
     queryClient.resetQueries({

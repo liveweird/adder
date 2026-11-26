@@ -10,6 +10,7 @@ import { lookingAt } from "./lookingAt";
 import { clearRoomLinkPreviews } from "./linkPreviewCache";
 import { quoteDependencyKeys } from "./quoteCacheDependencies";
 import { resetDeletedThreadContent, threadLifecycleKeys } from "./threadLifecycleCache";
+import { clearMessageRevisions, clearRoomMessageRevisions } from "./messageRevisionCache";
 
 const { rail: RAIL, list: ROOM_LIST, detail, access, joinRequests, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
 
@@ -20,6 +21,7 @@ const roomGone = (r: number): QueryKey[] => [detail(r), access(r), threads(r), m
 
 /** Discard replies issued under the old room permissions, including a first request that has no cache data yet. */
 function resetRoomReads(queryClient: QueryClient, roomId: number, includeGlobalSearch: boolean) {
+  clearRoomMessageRevisions(queryClient, roomId);
   void queryClient.resetQueries({
     queryKey: searchAllKey,
     predicate: ({ queryKey }) => queryKey[1] === "room" ? queryKey[2] === roomId : includeGlobalSearch,
@@ -50,7 +52,7 @@ function threadKeys(kind: ThreadScopedKind, r: number, n: number | undefined): Q
       // The conversation, the thread itself (an edit can add or drop a hashtag, which its header and side panel show), the list (the same, on
       // its rows, and a tag filter would show or hide the thread) and the room's pins (a pinned message's body shows in the panel; a
       // redacted one must not linger there).
-      return [messages(r, n), threadDetail(r, n), threadList(r), pins(r), homeKey];
+      return [messages(r, n), roomKeys.messageRevisions(r, n), threadDetail(r, n), threadList(r), pins(r), homeKey];
     case "message.reaction_changed":
       // Only the conversation shows reactions: no count, no list order and no rail moves with one (a reaction is not activity). Spaced: `isSlowFrame`.
       return [messages(r, n)];
@@ -288,6 +290,12 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       }
       if (frame.type === "event" && frame.kind === "thread.deleted") {
         void resetDeletedThreadContent(queryClient, frame.roomId);
+      }
+      if (frame.type === "event" && frame.kind === "room.member_role_changed") {
+        clearRoomMessageRevisions(queryClient, frame.roomId);
+      }
+      if (frame.type === "event" && frame.kind === "message.deleted" && frame.threadNumber !== undefined) {
+        clearMessageRevisions(queryClient, frame.roomId, frame.threadNumber, frame.messageId);
       }
       // A notice about the thread the reader is looking at (open, visible, at the end) is acknowledged by the pane through the read marker; the
       // bell is not re-read, so the badge never rises and falls again (`utils/lookingAt.ts`).

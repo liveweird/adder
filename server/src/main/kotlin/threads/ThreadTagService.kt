@@ -38,7 +38,8 @@ val ThreadTagServiceKey = AttributeKey<ThreadTagService>("ThreadTagService")
  * ONE thread write under the room lock ([withThreadWrite]) so the diff, the `TAGS_CHANGED` event, the revision bump and the hint commit
  * together; [forThreads] and [idsOf] run in the CALLER's transaction (the list's and the read's own). **Cross-feature** (`persistence.md`):
  * this service READS the registry's `tags` rows (`TagCategoryService.Tags`, names and the retired flag) and UPDATES the thread row's
- * `revision` and `updated_at`; it writes `thread_tags` and, through [ThreadEventService], `thread_events`. It never touches
+ * `revision` and `updated_at` on replace; it writes `thread_tags` and, through [ThreadEventService], `thread_events`. A create resolves
+ * its live set before the thread insert, then calls [addInitialInTransaction] without a revision bump. It never touches
  * `last_activity_at`, the room's activity or the `ThreadNotices` port: a tag change is history, not activity (1.2 A4).
  */
 class ThreadTagService internal constructor(
@@ -116,8 +117,7 @@ class ThreadTagService internal constructor(
             write.requireRoomActive()
             val thread = write.thread
             requireRevision(expectedRevision, thread.revision)
-            val live = liveTagIds(request.tags)
-            if (request.tags.any { it !in live }) throw BadRequestException("Every tag must be one of the registry's live tags")
+            val live = requireLiveTagIds(request.tags)
             val current = currentTagIds(thread.id)
             val diff = TagDiff(
                 added = request.tags.filter { it !in current }.sortedWith(CODE_POINT_ORDER),
@@ -150,11 +150,34 @@ class ThreadTagService internal constructor(
         }
     }
 
-    /** The LIVE registry tags among [names] by name (empty in, no query). */
-    private suspend fun liveTagIds(names: List<String>): Map<String, UInt> {
+    /**
+     * Resolves every normalised [name] to a LIVE registry row, or refuses the whole set with the PUT's fixed, non-echoing detail.
+     * Called under the room lock by both replace and create, before either writes an association (and before create inserts the thread).
+     */
+    internal suspend fun requireLiveTagIds(names: List<String>): Map<String, UInt> {
         if (names.isEmpty()) return emptyMap()
-        return tags.select(tags.id, tags.name).where { tags.active() and (tags.name inList names) }.toList()
+        val live = tags.select(tags.id, tags.name).where { tags.active() and (tags.name inList names) }.toList()
             .associate { it[tags.name] to it[tags.id].value }
+        if (names.any { it !in live }) throw BadRequestException("Every tag must be one of the registry's live tags")
+        return live
+    }
+
+    /**
+     * Adds a create's already-resolved [live] tag set and its initial history row inside the caller's room-write transaction. The
+     * thread starts at revision 1, so this deliberately does not update the aggregate or emit a second live hint.
+     */
+    internal suspend fun addInitialInTransaction(threadId: UInt, actorId: UInt, live: Map<String, UInt>, stamp: Long) {
+        if (live.isEmpty()) return
+        val names = live.keys.sortedWith(CODE_POINT_ORDER)
+        names.forEach { name ->
+            ThreadTags.insert {
+                it[ThreadTags.threadId] = threadId
+                it[tagId] = live.getValue(name)
+                it[addedAt] = stamp
+                it[addedBy] = actorId
+            }
+        }
+        events.record(threadId, actorId, threadTagsChangedEvent(names, emptyList()), stamp)
     }
 
     /** The thread's current tags by name, retired ones included. */

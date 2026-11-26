@@ -1,5 +1,6 @@
 package ch.nokillswit.rooms
 
+import ch.nokillswit.infra.JsonUInt
 import ch.nokillswit.infra.validation.requireNoDuplicates
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import io.ktor.server.plugins.BadRequestException
@@ -14,7 +15,7 @@ const val MAX_ROOM_ORGANIZATION_PLACEMENTS = 2_000
 data class RoomOrganizationGroup(val id: String, val name: String)
 
 @Serializable
-data class RoomOrganizationPlacement(val roomId: UInt, val groupId: String?)
+data class RoomOrganizationPlacement(val roomId: JsonUInt, val groupId: String?)
 
 @Serializable
 data class RoomOrganizationUpdateRequest(

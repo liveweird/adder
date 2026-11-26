@@ -159,6 +159,14 @@
     "deleteBody": "Zastąpi ją informacja, że została usunięta. Tej operacji nie można cofnąć.",
     "removeTitle": "Usunąć tę wiadomość z pokoju?",
     "removeBody": "Zastąpi ją informacja, że usunął ją właściciel/ka pokoju lub administrator/ka. Tej operacji nie można cofnąć.",
+    "history": {
+      "action": "Pokaż historię edycji",
+      "title": "Historia edycji",
+      "version": "Aktualna od {{from}} do {{until}}",
+      "empty": "Brak wcześniejszych wersji.",
+      "loadFailed": "Nie udało się wczytać historii edycji",
+      "editNotice": "Wcześniejsze wersje są widoczne dla Ciebie, właścicieli pokoju i administratorów. Usunięcie wiadomości usuwa także jej historię."
+    },
     "error": {
       "forbidden": "Nie masz uprawnień, żeby to zrobić w tym pokoju",
       "gone": "Ta wiadomość już nie istnieje albo nie masz już dostępu do jej pokoju — odśwież stronę",

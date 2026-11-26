@@ -46,6 +46,7 @@ describe("MessageEditForm", () => {
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const { onDone } = renderForm(makeMessage({ id: 9, body: "first" }), queryClient);
     expect(box()).toHaveValue("first");
+    expect(screen.getByText(/Earlier versions remain visible/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     await user.type(box(), "  \n\n");
     await user.type(box(), "!");
@@ -58,6 +59,7 @@ describe("MessageEditForm", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "rail"] });
     // The pinned panel shows the body, so an edit re-reads the pins too.
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "pins", 12] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12, "message-revisions", 42, 9] });
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["rooms"] });
   });
 

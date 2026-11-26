@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from "vitest";
-import { deleteMessage, editMessage, listMessages, postMessage, type MessageBody, type MessageEditBody, type MessageQuoteSummary, type MessageResponse } from "./messages";
+import { deleteMessage, editMessage, listMessageRevisions, listMessages, postMessage, type MessageBody, type MessageEditBody, type MessageQuoteSummary, type MessageResponse, type MessageRevisionPage } from "./messages";
 import type { components } from "./schema";
 
 describe("messages API wrappers", () => {
@@ -53,6 +53,15 @@ describe("messages API wrappers", () => {
     expect(JSON.parse(init.body as string)).toEqual({ body: "edited" });
   });
 
+  test("listMessageRevisions reads earlier bodies newest first", async () => {
+    mockFetch.mockResolvedValue(json(200, { items: [], page: 2, pageSize: 20, total: 21 }));
+    const { signal } = new AbortController();
+    await listMessageRevisions(5, 9, 2, 20, signal);
+    expect(lastCall()[0]).toBe("/api/v1/rooms/5/messages/9/revisions?page=2&pageSize=20&sort=-id");
+    expect(lastCall()[1].method).toBeUndefined();
+    expect(lastCall()[1].signal).toBe(signal);
+  });
+
   test("deleteMessage DELETEs the single message", async () => {
     mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
     await expect(deleteMessage(5, 9)).resolves.toBeUndefined();
@@ -71,6 +80,7 @@ describe("messages API wrappers", () => {
     expectTypeOf<MessageBody>().toEqualTypeOf<components["schemas"]["MessagePostRequest"]>();
     expectTypeOf<MessageQuoteSummary>().toEqualTypeOf<components["schemas"]["MessageQuote"]>();
     expectTypeOf<MessageEditBody>().toEqualTypeOf<components["schemas"]["MessageRequest"]>();
+    expectTypeOf<MessageRevisionPage>().toEqualTypeOf<components["schemas"]["MessageRevisionPage"]>();
     expectTypeOf(listMessages).returns.resolves.toEqualTypeOf<components["schemas"]["MessagePage"]>();
   });
 });

@@ -59,6 +59,7 @@ ktor:
       # Threads (V14): the room's threads and their history, then their messages (0.3.0 S5). After the room routes, before the catch-all.
       - ch.nokillswit.threads.ThreadRoutesKt.configureThreadRoutes
       - ch.nokillswit.threads.MessageRoutesKt.configureMessageRoutes
+      - ch.nokillswit.threads.MessageRevisionRoutesKt.configureMessageRevisionRoutes
       - ch.nokillswit.threads.ReactionRoutesKt.configureReactionRoutes
       - ch.nokillswit.threads.ThreadReadRoutesKt.configureThreadReadRoutes
       # Watching (V26): the caller's own watch of a thread, beside the read marker (own state, no room lock, no live hint).
@@ -341,7 +342,7 @@ search:
   # prefix over a very large corpus, not a slow one. 1..30.
   timeoutSeconds: "$SEARCH_TIMEOUT_SECONDS:5"
   # The most searches this process runs AT ONCE, both routes together (`ThreadSearchService`: a `tryAcquire` before any pool connection, never a
-  # wait): the next one is answered 429 `search-busy` with `Retry-After: 1`. Keep it well below `postgres.pool.maxSize` (20), so a flood of
+  # wait): the next one is answered 429 `search-busy` with `Retry-After: 1`. Keep it well below `postgres.pool.maxSize` (23), so a flood of
   # searches never takes the connections the rest of the app needs; a search holds ONE connection. 1..16.
   maxConcurrent: "$SEARCH_MAX_CONCURRENT:4"
 
@@ -352,8 +353,8 @@ threads:
   readTimeoutSeconds: "$THREADS_READ_TIMEOUT_SECONDS:5"
   # The most filtered thread-list and tag-list reads this process runs AT ONCE (`threads/ReadLimiter.kt`, `ReadLimiter`): a read waits at most
   # 1 s for a permit, then is answered 429 `read-busy` with `Retry-After: 1`, before any pool connection is asked for. Keep it well below
-  # `postgres.pool.maxSize` (20): a read holds ONE connection. (At most 8 reads per user are in flight besides, and the boot refuses a value
-  # that, with `search.maxConcurrent`, the notice list's cap (4) and the thread detail's own cap (3), would reach the pool size: 8 + 4 + 4 + 3 = 19.) 1..16.
+  # `postgres.pool.maxSize` (23): a read holds ONE connection. Production reserves four connections after summing this cap,
+  # `search.maxConcurrent`, the notice list's cap (4) and the thread detail's cap (3). The default total is 8 + 4 + 4 + 3 = 19. 1..16.
   readMaxConcurrent: "$THREADS_READ_MAX_CONCURRENT:8"
   # Index the hashtags of messages written before the index (V15, `messages.tags_version` 0) once after boot, in batches, without blocking
   # the start (`threads/MessageTagReindex.kt`). Off leaves them unindexed until a boot that has it on; a grammar bump needs it on. The switch
@@ -380,7 +381,7 @@ postgres:
   # (infra/db/Flyway.kt) and any other client.
   pool:
     # The ceiling on concurrent pooled connections for this instance.
-    maxSize: "$POSTGRES_POOL_MAX_SIZE:20"
+    maxSize: "$POSTGRES_POOL_MAX_SIZE:23"
     # The floor the pool fills up to on its FIRST acquire (r2dbc-pool warms up lazily — no
     # explicit warmup() call): the first acquire (a probe, a request, or the seed-admin work of configureBootstrap)
     # opens them.

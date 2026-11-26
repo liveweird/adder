@@ -3,6 +3,7 @@ package ch.nokillswit.threads
 import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.infra.db.active
+import ch.nokillswit.infra.db.activeForPartialIndex
 import ch.nokillswit.infra.db.equalsAnyInt
 import ch.nokillswit.infra.db.ftsMatches
 import ch.nokillswit.infra.db.ftsQueryText
@@ -216,7 +217,7 @@ class ThreadSearchService(
         val messages = MessageService.Messages
         val threads = ThreadService.Threads
         val source = messages.innerJoin(threads)
-        var predicate: Op<Boolean> = (messages.threadId eq threadId) and messages.active() and threads.active()
+        var predicate: Op<Boolean> = (messages.threadId eq threadId) and messages.activeForPartialIndex() and threads.active()
         if (queryText != null) predicate = predicate and messages.ftsRowVector().ftsMatches(queryText)
         resolved?.messagePredicate("messages", "threads")?.let { predicate = predicate and it.asOp() }
         budget.arm(this)
@@ -362,16 +363,17 @@ class ThreadSearchService(
      * matching message of the WHOLE table (a seq scan of it when the prefix is common: 1.3 s over 200,000 messages for a caller in 500
      * of 1,000 rooms, and linear in the table), whatever rooms the caller is in. A scalar subquery is never hashed, so the work is
      * bounded by the caller's own threads: the rooms (the first predicate) are restricted FIRST, and each of their threads probes
-     * `idx_messages_thread` and stops at its first matching message. There is no index on `messages.search`; the probe matches on
-     * [ftsRowVector], not the bare column, so a generic plan could not put one inside the per-thread probe if one were added
-     * (`persistence.md` "Search (V16)"). The title vector is a filter on the room index.
+     * `idx_messages_thread_search_live` and stops at its first matching message. The probe matches on [ftsRowVector], and the live
+     * predicate is a literal rather than a bound Boolean: together those expressions exactly match V48's partial expression index even
+     * in a generic plan. The title vector remains a filter on the room index.
      */
     private fun matchesTitleOrMessage(queryText: String): Op<Boolean> {
         val threads = ThreadService.Threads
         val messages = MessageService.Messages
         val firstLiveMatch = wrapAsExpression<Any>(
             messages.select(messages.id).where {
-                (messages.threadId eq threads.id) and messages.active() and messages.ftsRowVector().ftsMatches(queryText)
+                (messages.threadId eq threads.id) and messages.activeForPartialIndex() and
+                    messages.ftsRowVector().ftsMatches(queryText)
             }.limit(1),
         )
         return threads.ftsVector().ftsMatches(queryText) or firstLiveMatch.isNotNull()

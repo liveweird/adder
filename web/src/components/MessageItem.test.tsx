@@ -115,6 +115,36 @@ describe("MessageItem", () => {
     expect(screen.getByText(`edited ${formatDateTime(SOME_TIME + 60_000, ZONE)}`)).toBeInTheDocument();
   });
 
+  test("an eligible reader opens inert edit history from an edited message", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(200, {
+      items: [{ id: 3, body: "old **source**", createdAt: SOME_TIME, supersededAt: SOME_TIME + 60_000 }],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    }));
+    const user = userEvent.setup();
+    renderItem(makeMessage({ id: 9, editedAt: SOME_TIME + 60_000 }), { edit: false, remove: null, history: true });
+    await user.click(screen.getByRole("button", { name: NAME }));
+    await user.click(await screen.findByRole("menuitem", { name: "View edit history" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit history" });
+    expect(dialog).toHaveTextContent("old **source**");
+    expect(dialog.querySelector("strong")).toBeNull();
+  });
+
+  test("history is absent without access, on an unedited message, and on a tombstone", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderItem(makeMessage({ editedAt: SOME_TIME }), { edit: true, remove: "delete" });
+    await user.click(screen.getByRole("button", { name: NAME }));
+    expect(screen.queryByRole("menuitem", { name: "View edit history" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    rerender(list(makeMessage({ editedAt: null }), { edit: true, remove: "delete", history: true }));
+    await user.click(screen.getByRole("button", { name: NAME }));
+    expect(screen.queryByRole("menuitem", { name: "View edit history" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    rerender(list(makeMessage({ editedAt: null, deleted: true, body: null }), { edit: false, remove: null, history: true }));
+    expect(screen.queryByRole("button", { name: NAME })).not.toBeInTheDocument();
+  });
+
   test("a tombstone says who removed it, keeps the author and time, and offers nothing", () => {
     const { unmount } = renderItem(makeMessage({ body: null, deleted: true }), { edit: false, remove: null });
     expect(screen.getByText("This message was deleted.")).toBeInTheDocument();

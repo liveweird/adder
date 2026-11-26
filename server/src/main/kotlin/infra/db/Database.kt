@@ -263,20 +263,22 @@ internal const val NOTIFICATION_READ_MAX_CONCURRENT = 4
  * serve a room of a few dozen people re-reading after one hint within the 1 s permit wait. Counted by [requireReadersUnderPool].
  */
 internal const val THREAD_READ_MAX_CONCURRENT = 3
+private const val MIN_CONNECTIONS_FOR_OTHER_WORK = 4
 
 /**
  * The fail-closed pool check of production mode: the list reads, the thread detail, the notification list and the searches each hold ONE
- * pooled connection while they run, so their process caps together must stay below the pool, or a flood of them could take every
- * connection (the rest of the app, the room-write path included, would then wait for the pool). Development mode skips it: tests run
+ * pooled connection while they run, so their process caps must leave room for writes and authentication.
+ * Development mode skips it: tests run
  * tiny pools on purpose (`ConnectionPoolTest`).
  */
 internal fun requireReadersUnderPool(readMaxConcurrent: Int, searchMaxConcurrent: Int, poolMaxSize: Int) {
     val notices = NOTIFICATION_READ_MAX_CONCURRENT
     val detail = THREAD_READ_MAX_CONCURRENT
-    check(readMaxConcurrent + searchMaxConcurrent + notices + detail < poolMaxSize) {
+    val readerCap = readMaxConcurrent + searchMaxConcurrent + notices + detail
+    check(poolMaxSize - readerCap >= MIN_CONNECTIONS_FOR_OTHER_WORK) {
         "Config \"threads.readMaxConcurrent\" ($readMaxConcurrent) + \"search.maxConcurrent\" ($searchMaxConcurrent) + the notification " +
-            "list's cap ($notices) + the thread detail's cap ($detail) must stay below \"postgres.pool.maxSize\" ($poolMaxSize), so " +
-            "reads and searches together can never take the whole pool"
+            "list's cap ($notices) + the thread detail's cap ($detail) must leave at least $MIN_CONNECTIONS_FOR_OTHER_WORK connections " +
+            "in \"postgres.pool.maxSize\" ($poolMaxSize) for writes, authentication, and other work"
     }
 }
 

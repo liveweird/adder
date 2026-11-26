@@ -1,5 +1,6 @@
 package ch.nokillswit.notifications
 
+import ch.nokillswit.infra.JsonUInt
 import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.caller
 import ch.nokillswit.infra.db.nowMillis
@@ -108,7 +109,7 @@ private fun Route.notificationFeed(notifications: NotificationService) {
 }
 
 @Serializable
-data class NotificationReplyGroupSeenRequest(val fromId: UInt, val throughId: UInt)
+data class NotificationReplyGroupSeenRequest(val fromId: JsonUInt, val throughId: JsonUInt)
 
 /** Marks only the caller's still-unseen plain replies in this room/thread through the feed snapshot ceiling. */
 private fun Route.notificationReplyGroupSeen(notifications: NotificationService) {

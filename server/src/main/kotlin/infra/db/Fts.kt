@@ -65,13 +65,11 @@ private class FtsVector(private val table: Table) : Expression<Any>() {
 }
 
 /**
- * The `search` column of [this] table as a plain ROW value, `COALESCE(<table>.search, ''::tsvector)`, which no index can serve (the
- * column is never NULL, so the value is the same). For a match that is probed ROW BY ROW through another index (a thread's messages
- * through `idx_messages_thread`). No index covers `search` today (V16 creates none, deliberately), so the wrapper changes no plan now;
- * it is the guard for the day one is added (`BACKLOG.md`): on the bare column a prepared (GENERIC) plan then adds that index to EVERY
- * probe, and each probe builds the bitmap of every matching message of the table (measured over 15 seconds for a caller in 500 of
- * 1,000 rooms, 200,000 messages, `persistence.md` "Search (V16)"). Wrapped, the probe stays `idx_messages_thread` plus a filter in
- * every plan mode.
+ * The `search` column of [this] table as a plain ROW value, `COALESCE(<table>.search, ''::tsvector)` (the column is never NULL, so the
+ * value is the same). V48's partial multicolumn GiST index spells this expression exactly beside `thread_id`, so the per-thread scalar
+ * probe can use one scoped index scan and keep its `LIMIT 1` early exit in custom and generic plans. Do not simplify it to the bare
+ * column: that stops the scoped expression index matching and lets a later plain vector index put a table-wide bitmap inside EVERY
+ * probe, the generic-plan failure this wrapper originally guarded against (`persistence.md` "Search (V16)").
  */
 fun Table.ftsRowVector(): Expression<*> = FtsRowVector(this)
 

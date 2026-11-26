@@ -1196,6 +1196,7 @@ export interface paths {
          * List a room's hashtags
          * @description A member of the room or an `ADMIN` (a non-member gets the uniform `404`, then the parameters are checked: `400`).
          *
+         *     This path and `GET /rooms/{id}/hashtags` return the same collection.
          *     A tag is a hashtag written in a message (`#Wdrozenie`); it belongs to the MESSAGE, so a thread has it while one of its live
          *     messages does, and editing it away or deleting the message removes it. A row is the FOLDED tag (lower case, accents stripped: the
          *     key the thread list's `tag` filter takes) and `threadCount`, the number of distinct threads, open and closed, that have a live
@@ -1209,11 +1210,37 @@ export interface paths {
          *     Rides the per-USER `chat-read` bucket of 300 per minute shared with the thread list and the registry read (`429` beyond it; the bucket is spent
          *     before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
          *     list past it is answered `429` of type `urn:adder:problem:read-timeout` with `Retry-After: 2`, audited without the filter value.
-         *     At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list, the tag list and the thread read together, a read
-         *     waits about 1 second for a slot): past either it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
+         *     The caller can have at most 8 listed reads in flight, subject to a server-wide default of 8 for the shared list budget. Each
+         *     read waits about 1 second for a slot. If the wait runs out, it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
          *     (the server is loaded; retry shortly, nothing to narrow).
          */
         get: operations["listRoomTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/hashtags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a room's hashtags
+         * @description Lists the same message-derived hashtags as `GET /rooms/{id}/tags`. Room reader access is checked before query validation.
+         *     Each row's `tag` is a case- and accent-folded key for the thread list's `hashtag` filter. `threadCount` counts distinct
+         *     threads with at least one live message carrying that key. Sortable fields are `tag` and `threadCount`. The default is
+         *     `-threadCount` with ties by `tag`. The optional `q` matches a case- and accent-insensitive substring up to 50 characters.
+         *     Both paths share the `chat-read` rate limit and read budget.
+         */
+        get: operations["listRoomHashtags"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1310,8 +1337,9 @@ export interface paths {
          *       within a key and all-of across keys (SELECT and MULTI_SELECT: an option key, one the room has since removed still finds
          *       the threads that kept it; USER: a user id). An unknown, RETIRED, TEXT, URL, DATE or NUMBER field key, a `field` without a
          *       colon and a value of the wrong shape for its type are a `400`.
-         *     - `tag` (repeatable, any-of, at most 10 distinct after case folding) keeps the threads that have a LIVE message carrying any of
-         *       the hashtags: the value is the tag as written without its `#`, or a `tag` of `GET /rooms/{id}/tags` as returned, and it is
+         *     - `hashtag` and `tag` (aliases, repeatable, any-of, at most 10 distinct after case folding across both names) keep the threads
+         *       that have a LIVE message carrying any of the hashtags. A value is the tag as written without its `#`, or a `tag` of
+         *       `GET /rooms/{id}/hashtags` as returned, and it is
          *       folded (case and accents ignored: `Wdrozenie` and `wdrożenie` are one tag). A returned key can hold punctuation and be longer
          *       than a written tag, so a value is 1 to 150 characters without `#` or control characters. A malformed value, or more than 10
          *       distinct values, is a `400`.
@@ -1341,8 +1369,8 @@ export interface paths {
          *     - Rides the per-USER `chat-read` bucket of 300 per minute shared with `GET /rooms/{id}/tags` and `GET /tag-categories` (`429` beyond it; the bucket is spent
          *       before any guard, so a refused or invalid read costs a token too). The read runs under one deadline of 5 seconds by default: a
          *       list past it is answered `429` of type `urn:adder:problem:read-timeout` with `Retry-After: 2`, audited without the filter values.
-         *       At most 8 of the caller's list reads run at once and at most 10 in the server (the thread list, the tag list and the thread read together, a read
-         *       waits about 1 second for a slot): past either it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
+         *       The caller can have at most 8 listed reads in flight, subject to a server-wide default of 8 for the shared list budget. Each
+         *       read waits about 1 second for a slot. If the wait runs out, it is answered `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`
          *       (the server is loaded; retry shortly, nothing to narrow).
          */
         get: operations["listThreads"];
@@ -1352,7 +1380,7 @@ export interface paths {
          * @description A MEMBER of the room (an `ADMIN` who is not a member is `403` and joins through the Members page first; a non-member is the
          *     uniform `404`). Checked in this order: visibility (`404`), membership (`403`), the body (`400`), then under the room lock the
          *     guard again (a caller removed while the write waited is refused), an archived room (`409` of type `urn:adder:problem:room-archived`)
-         *     and the field values (`400`).
+         *     and the field values and registry membership of selected tags (`400`).
          *
          *     The thread starts in the room's initial status with the caller as its owner and the number `MAX + 1` of the room; `body`
          *     becomes its opening message. `title` is a single line of 1 to 200 characters; `body` is Markdown of 1 to 8,000 UTF-16 units
@@ -1363,7 +1391,11 @@ export interface paths {
          *     together, and so do the notifications (`listNotifications`): every other ACTIVE member of the room gets `THREAD_CREATED`, or the most
          *     specific of `MENTIONED` (named with `<@id>`), `TEAM_MENTIONED` (a member of a team the body names with `<@team:id>`) and
          *     `HERE_MENTIONED` (an active member with a fresh visible-tab lease when `<@here>` is introduced) and `EVERYONE_MENTIONED`
-         *     (`<@everyone>`); `<@watchers>` in an opening message reaches nobody. Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
+         *     (`<@everyone>`); `<@watchers>` in an opening message reaches nobody.
+         *
+         *     Optional `tags` contains curated registry names. Omission or an empty list creates an untagged thread.
+         *     A nonempty list commits its tag associations and a `TAGS_CHANGED` event with the creation. The new thread starts at revision 1.
+         *     Rides the per-USER `chat-post` bucket of 120 per minute shared with the message POST (`429`
          *     beyond it); the bucket is spent before any guard, so a refused or invalid POST costs a token too. The request body is at most 192 KiB (`413` beyond it)
          *     and `fields` holds at most 20 keys whose values are primitives, `null` or a list of at most 50 option keys (anything else, a
          *     nested object included, is a `400` before any lock); the stored values may not exceed 439,001 characters of JSON (`400`). The write
@@ -1425,7 +1457,7 @@ export interface paths {
          * Delete a thread
          * @description The thread steward (the owner while a member, a room owner, or an ADMIN with room access) deletes an open or closed thread
          *     in an active room. Deleting a canonical thread also deletes the conversations merged into it. The thread numbers are not reused.
-         *     The room write lock serializes the deletion. The per-user chat-write bucket applies.
+         *     The room write lock serializes the deletion and removal of saved message revisions. The per-user chat-write bucket applies.
          */
         delete: operations["deleteThread"];
         options?: never;
@@ -1903,8 +1935,9 @@ export interface paths {
          *
          *     The body rules are those of the post. The message's quote (`quote`) is set when it is posted and cannot be added, changed or
          *     removed by an edit: the request has no `quotedMessageId`, so naming one is a `400`; the quote stays through the edit. Sending the body the message already has (after normalising) is `204` with no write and
-         *     no audit line. Otherwise the body is overwritten (no versions are kept) and `editedAt` is set; `messageCount` and the activity
-         *     order are untouched. Only the people the edit NEWLY addresses are notified: addressed by the new body, by name or through a team,
+         *     no audit line. Otherwise a revision preserves the previous body in the same transaction, the body is overwritten, and
+         *     `editedAt` is set. `messageCount` and the activity order are untouched. Only the people the edit NEWLY addresses are
+         *     notified: addressed by the new body, by name or through a team,
          *     the watchers, here or everyone, and not by the old one; team, watcher and everyone recipients are read as of the edit. A kept
          *     `<@here>` token preserves the recipient snapshot taken when it was introduced and addresses nobody again; removing it deletes that
          *     snapshot, and adding it in a later edit takes a new snapshot of recently active visible tabs. A person who held a less specific
@@ -1924,12 +1957,41 @@ export interface paths {
          *     (`409` of type `urn:adder:problem:room-archived`) and a closed thread (`409` of type `urn:adder:problem:thread-closed`: a
          *     moderator's delete included; a steward reopens the thread, deletes and closes it again).
          *
-         *     The body is scrubbed, the row is marked deleted and `deleted_by` records the caller. The message stays in the thread's list
+         *     The body is scrubbed, all revisions are removed, the row is marked deleted and `deleted_by` records the caller. The message stays in the thread's list
          *     as a tombstone (`deletedByModerator` tells an author's own delete from a moderator's); `messageCount` never goes down. Every
          *     notification about the message is deleted with it. A deleted message is `404` for every further read or write.
          *     Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
          */
         delete: operations["deleteMessage"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/rooms/{id}/messages/{messageId}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a message's edit history
+         * @description The message's author while a room member, a room owner, or an `ADMIN` with access to the room can read prior bodies.
+         *     Room visibility and a live message in an active thread in that room are required (`404`).
+         *     Other room readers receive `403`. History is readable in closed, archived, and merged conversations when these checks pass.
+         *     A message with no saved history returns an empty page. Recording starts with the first real edit after the upgrade.
+         *     Deleting the message removes its saved bodies. Revisions never include the current body.
+         *     Sortable field `id`. Default `-id` (newest revision first). The route shares the `chat-read` budget and serves `Cache-Control: no-store`.
+         */
+        get: operations["listMessageRevisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3583,6 +3645,7 @@ export interface components {
             /** @description The opening message, Markdown (stored raw, rendered without HTML). Line endings are normalised; leading blank lines and trailing whitespace are dropped, the first line's indentation stays. */
             body: string;
             fields?: components["schemas"]["ThreadFieldValues"];
+            tags?: components["schemas"]["ThreadTagNames"];
         };
         ThreadUpdateRequest: {
             /** @description A single line; trimmed. */
@@ -3710,9 +3773,10 @@ export interface components {
          */
         ThreadTags: components["schemas"]["ThreadTag"][];
         ThreadTagsRequest: {
-            /** @description The thread's whole tag set (an empty list clears it). Registry names; each is normalised (trimmed, whitespace collapsed, lower-cased), must then be 1 to 40 characters of the tag grammar and a LIVE tag, and must not repeat. The raw bound only keeps a request small; a longer name is a `400` either way. */
-            tags: string[];
+            tags: components["schemas"]["ThreadTagNames"];
         };
+        /** @description The thread's whole curated tag set. An empty list means no tags. Registry names are trimmed, whitespace-collapsed and lowercased. Each name must then be 1 to 40 characters in the tag grammar, name a live registry tag, and be unique in the list. */
+        ThreadTagNames: string[];
         /**
          * @description The thread's HASHTAGS (the `#word`s of its live messages, 0.5.0): the distinct stored (case- and accent-folded)
          *     keys, alphabetical, at most 20. Each is a valid `tag` filter value of the thread list. A deleted message's hashtags are gone; an edit adds or drops them.
@@ -3955,6 +4019,31 @@ export interface components {
             older: boolean;
             /** @description There are messages after the last returned item. */
             newer: boolean;
+        };
+        MessageRevision: {
+            /** Format: int32 */
+            id: number;
+            /** @description The prior Markdown source. Render it as inert text. */
+            body: string;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds when this body became current.
+             */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Epoch milliseconds when the next edit replaced this body.
+             */
+            supersededAt: number;
+        };
+        MessageRevisionPage: {
+            items: components["schemas"]["MessageRevision"][];
+            /** Format: int32 */
+            page: number;
+            /** Format: int32 */
+            pageSize: number;
+            /** Format: int64 */
+            total: number;
         };
         MessageResponse: {
             /**
@@ -4782,8 +4871,10 @@ export interface components {
         ThreadMentionFilter: number[];
         /** @description Repeatable `key:value` (the thread list): the field's key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). Any-of within one key, all-of across keys; at most 20 distinct pairs. The key must be an ACTIVE SELECT, MULTI_SELECT or USER field of the room; any other key, a missing colon or a value of the wrong shape is a `400`. */
         ThreadFieldFilter: string[];
-        /** @description Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10. */
+        /** @description Compatibility alias of `hashtag`. Repeatable - any of these hashtags, without the `#`: a tag as written, or a key of the room's list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10 across both parameter names. */
         ThreadTagFilter: string[];
+        /** @description Repeatable any-of filter on message hashtags without the leading `#`. Values are folded for case and accents. Values under `hashtag` and `tag` are combined before deduplication. The combined limit is 50 distinct raw values and 10 distinct folded keys. A malformed key or exceeded limit returns `400`. */
+        ThreadHashtagFilter: string[];
         /** @description Repeatable - any of these CURATED tags (the registry's names, `GET /tag-categories`; the thread list and both searches): normalised like the tags PUT (trimmed, whitespace collapsed, lower-cased), 1 to 40 characters of the tag grammar. A retired tag still finds the threads that kept it; a well-formed name the registry never held matches nothing; a malformed value, or more than 20 distinct values, is a `400`. Duplicates collapse before the bound (so the raw count may exceed 20 when values repeat), and a blank value is ignored. Not the hashtags: those are `tag`. */
         ThreadCuratedTagFilter: string[];
         /**
@@ -6656,6 +6747,48 @@ export interface operations {
             500: components["responses"]["InternalServerError"];
         };
     };
+    listRoomHashtags: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+                /** @description Free-text substring of a hashtag (API-LIST-005; the room's tag list). Unlike `Q` it is OPTIONAL and has no minimum, because a picker lists every tag before the user types. Case- and accent-insensitive; trimmed first; at most 50 characters (code points), `400` past that. */
+                q?: components["parameters"]["TagQ"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the room's hashtags */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomTagPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
     searchRoom: {
         parameters: {
             query?: {
@@ -6757,8 +6890,10 @@ export interface operations {
                 ownerId?: components["parameters"]["ThreadOwnerFilter"];
                 /** @description Repeatable `key:value` (the thread list): the field's key, a colon, then an option key (SELECT, MULTI_SELECT) or a user id (USER). Any-of within one key, all-of across keys; at most 20 distinct pairs. The key must be an ACTIVE SELECT, MULTI_SELECT or USER field of the room; any other key, a missing colon or a value of the wrong shape is a `400`. */
                 field?: components["parameters"]["ThreadFieldFilter"];
-                /** @description Repeatable - any of these hashtags, without the `#` (the thread list): a tag as written, or a key of the room's tag list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10. */
+                /** @description Compatibility alias of `hashtag`. Repeatable - any of these hashtags, without the `#`: a tag as written, or a key of the room's list as returned (folding can add punctuation and length, so up to 150 characters, no control characters). Folded like the stored tags (case and accents ignored). A tag that no live message carries matches nothing; a malformed value, or more than 10 distinct values after case folding, is a `400`. A request may carry at most 50 distinct raw values (more is a `400`), which must fold to at most 10 across both parameter names. */
                 tag?: components["parameters"]["ThreadTagFilter"];
+                /** @description Repeatable any-of filter on message hashtags without the leading `#`. Values are folded for case and accents. Values under `hashtag` and `tag` are combined before deduplication. The combined limit is 50 distinct raw values and 10 distinct folded keys. A malformed key or exceeded limit returns `400`. */
+                hashtag?: components["parameters"]["ThreadHashtagFilter"];
                 /** @description Repeatable - any of these CURATED tags (the registry's names, `GET /tag-categories`; the thread list and both searches): normalised like the tags PUT (trimmed, whitespace collapsed, lower-cased), 1 to 40 characters of the tag grammar. A retired tag still finds the threads that kept it; a well-formed name the registry never held matches nothing; a malformed value, or more than 20 distinct values, is a `400`. Duplicates collapse before the bound (so the raw count may exceed 20 when values repeat), and a blank value is ignored. Not the hashtags: those are `tag`. */
                 threadTag?: components["parameters"]["ThreadCuratedTagFilter"];
                 /** @description Repeatable - a live message of the thread mentions any of these people (the thread list; "mentions me" is the caller's own id). An id nobody was mentioned as matches nothing; a non-positive or non-integer one, or more than 20 distinct values, is a `400`. */
@@ -7544,6 +7679,49 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listMessageRevisions: {
+        parameters: {
+            query?: {
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+                /** @description A message id (int32; ids start at 1). */
+                messageId: components["parameters"]["MessageIdPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of earlier message bodies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageRevisionPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
         };

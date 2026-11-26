@@ -1,5 +1,6 @@
 package ch.nokillswit.threads
 
+import ch.nokillswit.infra.JsonUInt
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.sanitizeMultiLine
 import ch.nokillswit.infra.validation.sanitizeSingleLine
@@ -18,14 +19,16 @@ const val MAX_THREAD_TITLE_LENGTH = 200
 const val MAX_MESSAGE_BODY_LENGTH = 8000
 
 /**
- * `POST /rooms/{id}/threads`: a title, the opening message and the field values (a `null` value means unset; every required field must
- * be supplied; the kernel, `ThreadFields.kt`, judges them against the room's field definitions).
+ * `POST /rooms/{id}/threads`: a title, the opening message, the field values (a `null` value means unset; every required field must be
+ * supplied; the kernel, `ThreadFields.kt`, judges them against the room's field definitions), and optional live curated registry tags.
  */
 @Serializable
 data class ThreadCreateRequest(
     val title: String,
     val body: String,
     val fields: Map<String, JsonElement> = emptyMap(),
+    /** Live curated registry tag names; omitted and empty preserve the pre-1.10 create behavior. */
+    val tags: List<String> = emptyList(),
 )
 
 /**
@@ -121,6 +124,7 @@ data class CreatedThread(val id: UInt, val number: Int, val messageId: UInt, val
 fun sanitizedThreadCreate(request: ThreadCreateRequest): ThreadCreateRequest = request.copy(
     title = sanitizeSingleLine(request.title, "Title"),
     body = sanitizeMultiLine(request.body, "Body"),
+    tags = normalizedThreadTags(ThreadTagsRequest(request.tags)).tags,
 )
 
 /** A thread title: 1 to [MAX_THREAD_TITLE_LENGTH] characters after trimming. */
@@ -145,6 +149,7 @@ fun validateThreadCreate(request: ThreadCreateRequest) {
     requireThreadTitle(request.title)
     requireMessageBody(request.body)
     requireFieldShape(request.fields)
+    validateThreadTags(ThreadTagsRequest(request.tags))
 }
 
 /** Trims the title (a control or hidden direction character is a 400, `sanitizeSingleLine`); the field values are the kernel's. */
@@ -166,4 +171,4 @@ data class ThreadStatusRequest(val status: String)
 
 /** `PUT .../threads/{number}/owner`: the id of an ACTIVE member of the room (anyone else is a `400`, under the room lock). */
 @Serializable
-data class ThreadOwnerRequest(val ownerId: UInt)
+data class ThreadOwnerRequest(val ownerId: JsonUInt)

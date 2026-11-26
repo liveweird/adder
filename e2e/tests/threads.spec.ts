@@ -46,17 +46,26 @@ async function addMemberViaUi(page: Page, roomId: number, person: { name: string
 }
 
 /** Start a thread from the room view's "New thread" form; lands on the new thread's pane. */
-async function startThreadViaUi(page: Page, roomId: number, title: string, body: string): Promise<void> {
+async function startThreadViaUi(page: Page, roomId: number, title: string, body: string, pickTag = false): Promise<string | null> {
   await page.goto(`/rooms/${roomId}`);
   await page.getByRole("link", { name: "New thread", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/new$`));
   await page.getByRole("textbox", { name: "Title", exact: true }).fill(title);
   await page.getByRole("textbox", { name: "First message", exact: true }).fill(body);
-  await Promise.all([
+  let pickedTag: string | null = null;
+  if (pickTag) {
+    await page.getByRole("combobox", { name: "Tags", exact: true }).click();
+    const option = page.getByRole("option").first();
+    pickedTag = (await option.textContent())?.trim() ?? null;
+    await option.click();
+  }
+  const [response] = await Promise.all([
     page.waitForResponse((r) => r.request().method() === "POST" && THREADS_API.test(r.url()) && r.status() === 201),
     page.getByRole("button", { name: "Start thread", exact: true }).click(),
   ]);
+  if (pickedTag !== null) expect(response.request().postDataJSON()).toMatchObject({ tags: [pickedTag] });
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/\\d+$`));
+  return pickedTag;
 }
 
 /** Post a reply with Ctrl+Enter from the composer (the key is the subject of the first journey; here it is the quickest way). */
@@ -189,7 +198,8 @@ test("a member starts a thread from the room view and another member replies to 
   const roomId = await createRoomViaUi(page, roomName, "Default", cleanup);
   await addMemberViaUi(page, roomId, mate);
   const title = uniqueText("Disk full");
-  await startThreadViaUi(page, roomId, title, "The **replica** is out of space.");
+  const pickedTag = await startThreadViaUi(page, roomId, title, "The **replica** is out of space.", true);
+  expect(pickedTag).not.toBeNull();
   await expect(page.getByRole("heading", { level: 3, name: `#1 ${title}` })).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/1$`));
   const opener = messageNamed(page, "is out of space");
@@ -283,6 +293,15 @@ test("an author edits and deletes their own message and a room owner removes ano
   await expect(final).toHaveCount(1);
   await expect(final.getByText(EDITED_MARKER)).toBeVisible();
   await expect(messageNamed(page, "first draft")).toHaveCount(0);
+
+  // Earlier Markdown is loaded only on request and shown as source text, never rendered into active links or formatting.
+  await kebab(final).click();
+  await page.getByRole("menuitem", { name: "View edit history", exact: true }).click();
+  const history = page.getByRole("dialog", { name: "Edit history", exact: true });
+  await expect(history.locator("pre")).toHaveText("first draft");
+  await expect(history.getByRole("link")).toHaveCount(0);
+  await history.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(history).toHaveCount(0);
 
   // Delete: the confirm asks, and the message becomes a tombstone that still names its author.
   const wrong = messageNamed(page, "oops wrong thread");

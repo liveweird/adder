@@ -272,8 +272,9 @@ class ThreadService(
      * Starts a thread in ONE room write, in this order (`chat-model.md` "Guard order and locking"): the member guard ([memberGuard]) on the
      * re-read caller and standing, an archived room is the typed `409`, the room's workflow snapshot gives the
      * initial status and the field definitions, the kernel validates the field values (a `400`, required fields at create), the
-     * next per-room number, the thread (`message_count` = 1), the creator's watch, its opening message, the `CREATED` event and the
-     * activity bump of the thread and the room. Any throw rolls everything back.
+     * create's live registry tags, the next per-room number, the thread (`message_count` = 1), the creator's watch, its opening message,
+     * the `CREATED` event, an optional `TAGS_CHANGED` event, and the activity bump of the thread and the room. Any throw rolls everything
+     * back; initial tags do not advance the thread beyond revision 1.
      */
     suspend fun create(roomId: UInt, caller: CallerPrincipal, raw: ThreadCreateRequest): CreatedThread {
         // Sanitised AND validated service-side (both idempotent after the route): a direct caller can never hand a control character on.
@@ -285,6 +286,8 @@ class ThreadService(
             val snapshot = workflows.snapshot(roomId)
             val initial = snapshot.statuses.single { it.initial }
             val document = storedDocument(validatedFields(roomId, snapshot, emptyMap(), request.fields, creating = true).merged)
+            // Resolve the whole live set before allocating a number or inserting the thread; associations still commit with the create.
+            val initialTags = threadTags.requireLiveTagIds(request.tags)
             val maxNumber = Threads.number.max()
             val number = (Threads.select(maxNumber).where { Threads.roomId eq roomId }.toList().single()[maxNumber] ?: 0) + 1
             val stamp = nowMillis()
@@ -307,6 +310,7 @@ class ThreadService(
                 roomId, threadId, number, caller.userId, request.body, hashtags, stamp, opening = true,
             )
             events.record(threadId, caller.userId, threadCreatedEvent(initial.key, initial.label), stamp)
+            threadTags.addInitialInTransaction(threadId, caller.userId, initialTags, stamp)
             rooms.touchActivity(roomId, stamp, caller.userId)
             // The opening message is part of this hint, never a `message.posted` of its own.
             notifyLive(LiveHint(LiveKind.THREAD_CREATED, roomId, threadNumber = number))

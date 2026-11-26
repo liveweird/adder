@@ -17,6 +17,24 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.20.0",
+    date: "2026-11-26",
+    en: `**Adder 1.20.0 — thread tags and message edit history**
+
+- Choose curated **Tags** while starting a thread. The tags save with the opening message.
+- Open **Edit history** from a message menu to see earlier versions. Authors who are still room members, room owners, and administrators with room access can view them. Deleting a message also deletes its saved versions.
+- Open **Organize rooms** from **All rooms**. The sidebar now has more space for your rooms and groups.
+- Adder emails you when your password changes, including when an administrator changes it, on servers with email delivery configured.
+- The API accepts the explicit \`hashtag\` filter and room hashtag list path. The existing aliases still work. Search and workflow field filters use new database indexes.`,
+    pl: `**Adder 1.20.0 — tagi wątków i historia edycji wiadomości**
+
+- Wybierz **Tagi** przy tworzeniu wątku. Zapiszą się razem z pierwszą wiadomością.
+- Otwórz **Historię edycji** z menu wiadomości, aby zobaczyć poprzednie wersje. Dostęp mają autorzy i autorki, którzy nadal należą do pokoju, osoby zarządzające pokojem jako właściciele lub właścicielki oraz administratorzy i administratorki z dostępem do pokoju. Usunięcie wiadomości usuwa też zapisane wersje.
+- Otwórz **Uporządkuj pokoje** z widoku **Wszystkie pokoje**. Na pasku bocznym jest więcej miejsca na pokoje i grupy.
+- Jeśli serwer wysyła pocztę, Adder powiadomi Cię e-mailem o zmianie hasła, także wtedy, gdy zmieni je administrator lub administratorka.
+- API obsługuje filtr \`hashtag\` i ścieżkę listy hashtagów w pokoju. Dotychczasowe aliasy nadal działają. Wyszukiwanie i filtry pól obiegu pracy korzystają z nowych indeksów w bazie danych.`,
+  },
+  {
     version: "1.19.0",
     date: "2026-11-26",
     en: `**Adder 1.19.0 — thread workflow and conversation**

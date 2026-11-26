@@ -53,6 +53,7 @@ class MessageService internal constructor(
     followers: List<MessageFollower> = emptyList(),
     private val reactions: MessageReactionService = MessageReactionService(database),
     private val contextLimiter: ReadLimiter = ReadLimiter(perUser = THREAD_READS_PER_USER),
+    private val revisions: MessageRevisionService = MessageRevisionService(database, rooms),
 ) {
     /**
      * Every follower of a write, in order: the mention index first, then the [followers] the composition root adds, then the reactions'
@@ -294,7 +295,8 @@ class MessageService internal constructor(
     /**
      * Edits message [messageId] in ONE message write: the AUTHOR while a member ([requireMessageAuthor] on the fresh caller and row), an
      * archived room `409`, a closed thread `409`; the same body again (after sanitising) is null, a `204` with no write; otherwise the
-     * body is overwritten (no versions kept) and `edited_at` set. An edit never bumps the activity or `message_count`. The hashtags follow
+     * previous body is snapshotted and the new body plus `edited_at` are written on one stamp. An edit never bumps the activity or
+     * `message_count`. The hashtags follow
      * the body in the same transaction: rewritten when the folded set changed, or when the message was never indexed under this grammar.
      */
     suspend fun edit(roomId: UInt, messageId: UInt, caller: CallerPrincipal, raw: MessageRequest): MessageEdit? {
@@ -308,9 +310,17 @@ class MessageService internal constructor(
             write.threadWrite.requireRoomActive()
             write.threadWrite.requireThreadOpen()
             if (request.body == write.message.body) return@withMessageWrite null
+            val previousStartedAt = write.message.editedAt ?: write.message.createdAt
+            val stamp = maxOf(nowMillis(), previousStartedAt)
+            revisions.recordInTransaction(
+                messageId = messageId,
+                body = write.message.body,
+                createdAt = previousStartedAt,
+                supersededAt = stamp,
+            )
             Messages.update({ Messages.id eq messageId }) {
                 it[body] = request.body
-                it[editedAt] = nowMillis()
+                it[editedAt] = stamp
                 it[tagsVersion] = TAGS_VERSION
             }
             // The old body is parsed only when the version is current (a stale one rewrites without comparing).
@@ -348,6 +358,7 @@ class MessageService internal constructor(
                 it[markedAsDeleted] = true
                 it[deletedBy] = remover
             }
+            revisions.purgeMessageInTransaction(messageId)
             tags.clearInTransaction(messageId)
             notifyLive(LiveHint(LiveKind.MESSAGE_DELETED, roomId, threadNumber = write.thread.number, messageId = messageId))
             // A delete does not read `opening`: nothing about a removed message's audience depends on it.

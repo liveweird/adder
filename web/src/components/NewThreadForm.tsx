@@ -12,6 +12,7 @@ import type { RoomResponse } from "../api/rooms";
 import { useDiscardGuard } from "../hooks/useDiscardGuard";
 import { useThreadDrafts } from "../hooks/useThreadDrafts";
 import { useRoomWorkflow } from "../hooks/useRoomWorkflow";
+import { useTagCategories } from "../hooks/useTagCategories";
 import { charCountDescription } from "../utils/charCount";
 import { isSendShortcut } from "../utils/messageForm";
 import { appendMentionToken, replaceMentionRequest, type MentionReplacementRequest } from "../utils/mentionText";
@@ -40,6 +41,7 @@ import FormErrorAlert from "./FormErrorAlert";
 import LoadingBlock from "./LoadingBlock";
 import MentionTextarea from "./MentionTextarea";
 import ThreadFieldInput from "./ThreadFieldInput";
+import ThreadTagPicker from "./ThreadTagPicker";
 import { roomKeys } from "../utils/roomKeys";
 
 /**
@@ -55,6 +57,7 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
   const queryClient = useQueryClient();
   const moreId = useId();
   const drafts = useThreadDrafts();
+  const categories = useTagCategories();
   // Seeded once from what was kept; "dirty" is "holds something", not "differs from the seed", since the seed may itself be a kept draft.
   const form = useForm<ThreadFormValues>({ initialValues: reconcileThreadDraft(drafts.get(room.id), fields), validate: threadFormValidation(t, fields) });
   useEffect(() => {
@@ -162,6 +165,13 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
             />
           </div>
           {required.map(renderField)}
+          <ThreadTagPicker
+            categories={categories.data ?? []}
+            value={form.values.tags}
+            onChange={(tags) => form.setFieldValue("tags", tags)}
+            disabled={submitting || categories.isLoading || categories.isError}
+          />
+          {categories.isError && <ErrorAlert error={categories.error} title={t("threads.tags.loadFailed")} />}
           {optional.length > 0 && (
             <>
               <Button

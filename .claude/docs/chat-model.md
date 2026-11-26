@@ -287,8 +287,8 @@ Edits, deletes and the workflow PUT's `moveThreads` do not bump.
 - **A retired field's values are hidden in the history too (C-SEC-6).** `GET .../events` answers a `FIELD_CHANGED` of a retired field without `from`/`to`
   (the entry stays; pages and `total` are unchanged), and a revived field shows them again: the same rule as the thread's `fields` ("Stored values survive
   a workflow edit").
-- **Message edits and deletes go to the audit trail only**, not to the history.
-- Placement: the side panel, newest first, 10 per page (interleaving it into the conversation is a BACKLOG item).
+- **Message edits and deletes** go to the audit trail. Earlier message bodies have their own restricted revision list.
+- Workflow events appear inline in the conversation. **Details** also shows the full history, newest first, 10 per page.
 
 ### Audit
 
@@ -330,7 +330,7 @@ A room's threads and a thread's history are the next two: `GET /rooms/{id}/threa
 - **One predicate for count and rows**, in one transaction: `room_id = ? [AND closed_at IS (NOT) NULL] [AND status_key IN (...)] [AND owner_id IN (...)] [AND EXISTS (SELECT 1 FROM message_tags mt WHERE mt.room_id = ? AND mt.thread_id = threads.id AND mt.tag IN (<folded key>, ...))] [AND (fields @> CAST(? AS jsonb) OR ...)]`, one `@>` group per field key. Containment documents: SELECT `{"severity":"s1"}`; USER `{"lead":42}` (numbers compare by value, a string never equals a number); MULTI_SELECT `{"labels":["a"]}`.
 - **`sort=status`** (a `sort` list names each field at most once and at most as many fields as the whitelist holds, a `400` otherwise: `parsePaging`, so this `CASE` costs at most one per status key) is `ORDER BY CASE WHEN status_key = ? THEN 0 ... ELSE n END, id` over the room's reserved status keys (at most 200, retired ones included, so a retired status sorts where it sits) as `RoomWorkflowService.snapshot` returns them in position order; the `ELSE` ranks a key the snapshot lacks last: `threads/` never joins `room_statuses` ("Room data comes only through the `rooms/` services", `persistence.md`). `applyPaging` takes `Expression<*>` columns for it (the one departure from the verbatim Lettuce port). The snapshot is read only when a `field` filter or `sort=status` is present; the plain list keeps its two queries, and the rows still never select `fields`.
 - **Where it lives:** `threads/ThreadListFilter.kt` parses `status`, `ownerId` and `field` in the route (shape `400`s: key grammar, ids of 1 to int32, a pair without a colon, more than 20 distinct values); the type checks (unknown, retired or unfilterable key, a value of the wrong shape) run in `ThreadService.list`'s own transaction over the snapshot; `infra/db/JsonbOps.kt` is the `@>` operator (a custom Exposed `Op`, verified against a real query: it renders `fields @> CAST(? AS jsonb)` with the document as a bound argument).
-- `threads.fields` gets **no index** (0.5 A9): a filter scans one room. An index is a `BACKLOG.md` item for a room past a few thousand threads. There are no facet counts. The list and the tag list share the per-USER `chat-read` bucket (300/min) and each read runs under ONE `threads.readTimeoutSeconds` deadline (5 s; past it, the audited `429` `urn:adder:problem:read-timeout`): `security.md`. The thread DETAIL read (`GET /rooms/{id}/threads/{number}`, 1.2 branch audit) has the same deadline and in-flight caps of its OWN (resource `thread`: 2 per user, 3 per process, not the lists' permits) but NOT the bucket: a live hint re-reads the open thread within the settle time, unspaced, so in a busy thread it would spend the lists' budget; the SPA retries a `read-busy` or `read-timeout` once after `Retry-After`.
+- V49 indexes `threads.fields` together with the room id for live, canonical threads. There are no facet counts. The list and the tag list share the per-USER `chat-read` bucket (300/min) and each read runs under ONE `threads.readTimeoutSeconds` deadline (5 s; past it, the audited `429` `urn:adder:problem:read-timeout`): `security.md`. The thread DETAIL read (`GET /rooms/{id}/threads/{number}`, 1.2 branch audit) has the same deadline and in-flight caps of its OWN (resource `thread`: 2 per user, 3 per process, not the lists' permits) but NOT the bucket: a live hint re-reads the open thread within the settle time, unspaced, so in a busy thread it would spend the lists' budget; the SPA retries a `read-busy` or `read-timeout` once after `Retry-After`.
 
 ### Hashtags (V15)
 
@@ -841,3 +841,25 @@ A message author can receive one reaction notice per reacting person while that 
 reactions are silent. Removing the last emoji removes the notice. The existing notification preferences and mute rules govern
 delivery. Team mention notices show one matching currently mentionable team of the recipient, selected in team ID order. The
 notice uses generic mention wording when there is no current match.
+
+## Tags at thread creation and the hashtag aliases
+
+A thread's optional creation payload `tags` names live curated registry tags. It follows the same validation and ordering as the
+thread tags PUT. The opening message, initial tag set, and consecutive `CREATED` and `TAGS_CHANGED` events commit together under the
+room lock. An omitted or empty list creates an untagged thread with only the `CREATED` event. The first revision is 1 in both cases.
+
+`GET /rooms/{id}/hashtags` is an alias of the existing message-derived `GET /rooms/{id}/tags` list. A thread list combines the
+repeatable `hashtag` and `tag` parameters as one any-of hashtag filter with the existing raw and folded bounds. `threadTag` continues
+to select curated tags. Structured search keeps its existing `hashtag:` clause.
+
+## Message edit history
+
+A changed edit keeps the previous body, when it became current, and when the edit superseded it. All three are recorded inside
+the message write transaction. An identical edit makes no revision. Recording begins on upgrade and has no backfill.
+`GET /rooms/{id}/messages/{messageId}/revisions` lists earlier bodies newest-first. Access requires current room visibility and
+either authorship while a member, room ownership, or the administrator role. The active message and thread must still exist.
+An authorized reader can see history in closed, archived, or merged conversations.
+
+The author or a moderator who deletes a message removes its current body and every saved body in the same write. A thread
+deletion removes all message revisions for that thread and any merged sources it deletes. The client opens history on demand in
+the message menu and renders saved bodies as plain text. Earlier drafts have no active links, previews, mentions, or reactions.

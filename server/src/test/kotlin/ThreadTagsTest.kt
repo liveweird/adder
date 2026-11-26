@@ -7,6 +7,7 @@ import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
 import ch.nokillswit.tags.TagCategoryPageResponse
 import ch.nokillswit.threads.ThreadEventPageResponse
+import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadPageResponse
 import ch.nokillswit.threads.ThreadResponse
 import ch.nokillswit.threads.ThreadTag
@@ -89,9 +90,75 @@ class ThreadTagsTest {
     private fun HttpResponse.expect(expected: HttpStatusCode) =
         assertEquals(expected, status, "${request.method.value} ${request.url.encodedPath}")
 
-    private suspend fun Tagged.history(): List<Pair<String, Map<String, String>>> =
-        cast.admin.client.get("$rooms/$room/threads/1/events?pageSize=100&sort=id").body<ThreadEventPageResponse>().items
+    private suspend fun Tagged.history(number: Int = 1): List<Pair<String, Map<String, String>>> =
+        cast.admin.client.get("$rooms/$room/threads/$number/events?pageSize=100&sort=id").body<ThreadEventPageResponse>().items
             .map { it.type.name to it.params }
+
+    @Test
+    fun `creation attaches normalized live tags at revision one and records consecutive events`() = testApplication {
+        val w = tagged("ttag-create")
+        val (a, _, c) = w.tags
+        val response = w.cast.member.client.postJson(
+            "$rooms/${w.room}/threads",
+            ThreadCreateRequest("Tagged from birth", "Opening", mapOf("severity" to JsonPrimitive("s1")), listOf(c.uppercase(), a)),
+        )
+
+        response.expect(HttpStatusCode.Created)
+        val created = response.body<ThreadResponse>()
+        assertEquals(2, created.number)
+        assertEquals(1L, created.revision, "initial tags do not consume a later revision")
+        assertEquals(listOf(ThreadTag(a, false), ThreadTag(c, false)), created.tags)
+        val events = w.cast.admin.client
+            .get("$rooms/${w.room}/threads/${created.number}/events?pageSize=100&sort=id")
+            .body<ThreadEventPageResponse>().items
+        assertEquals(listOf("CREATED", "TAGS_CHANGED"), events.map { it.type.name })
+        assertEquals(events.first().createdAt, events.last().createdAt, "the atomic create uses one timestamp")
+        assertEquals(mapOf("added" to "$a, $c"), events.last().params)
+        assertEquals(
+            listOf(created.number),
+            w.cast.member.client.get("$rooms/${w.room}/threads?threadTag=$a").body<ThreadPageResponse>().items.map { it.number },
+            "the initial association is searchable as soon as the create returns",
+        )
+    }
+
+    @Test
+    fun `empty creation tags preserve the old wire behavior and record only CREATED`() = testApplication {
+        val w = tagged("ttag-create-empty")
+        val response = w.cast.member.client.postJson(
+            "$rooms/${w.room}/threads",
+            ThreadCreateRequest("Untagged", "Opening", mapOf("severity" to JsonPrimitive("s1")), emptyList()),
+        )
+
+        response.expect(HttpStatusCode.Created)
+        val created = response.body<ThreadResponse>()
+        assertEquals(1L, created.revision)
+        assertEquals(emptyList(), created.tags)
+        assertEquals(listOf("CREATED"), w.history(created.number).map { it.first })
+    }
+
+    @Test
+    fun `creation refuses invalid registry sets before writing and visibility still wins`() = testApplication {
+        val w = tagged("ttag-create-bad", count = 21)
+        val (a, retired) = w.tags
+        val category = w.cast.admin.client.get("/api/v1/tag-categories?pageSize=100").body<TagCategoryPageResponse>().items
+            .single { retired in it.tags }
+        w.cast.admin.client.saveCategory(category.id, tags = category.tags - retired, name = category.name)
+            .expect(HttpStatusCode.NoContent)
+        val base = mapOf("severity" to JsonPrimitive("s1"))
+        suspend fun create(client: HttpClient, tags: List<String>) = client.postJson(
+            "$rooms/${w.room}/threads", ThreadCreateRequest("Refused", "Opening", base, tags),
+        )
+
+        create(w.cast.member.client, listOf(a, a.uppercase())).expect(HttpStatusCode.BadRequest)
+        create(w.cast.member.client, listOf(uniqueTag())).expect(HttpStatusCode.BadRequest)
+        create(w.cast.member.client, listOf(retired)).expect(HttpStatusCode.BadRequest)
+        create(w.cast.member.client, w.tags).expect(HttpStatusCode.BadRequest)
+        create(w.cast.outsider.client, listOf(uniqueTag())).expect(HttpStatusCode.NotFound)
+
+        val accepted = create(w.cast.member.client, listOf(a))
+        accepted.expect(HttpStatusCode.Created)
+        assertEquals(2, accepted.body<ThreadResponse>().number, "refusals leave no thread number behind")
+    }
 
     @Test
     fun `a member tags an open thread - the thread, the list and the history show it, and it is not activity`() = testApplication {

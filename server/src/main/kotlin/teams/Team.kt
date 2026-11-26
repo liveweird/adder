@@ -1,5 +1,6 @@
 package ch.nokillswit.teams
 
+import ch.nokillswit.infra.JsonUInt
 import ch.nokillswit.infra.paging.PageResponse
 import ch.nokillswit.infra.validation.sanitizeSingleLine
 import ch.nokillswit.infra.validation.requireNameAndDescription
@@ -38,7 +39,7 @@ data class TeamCreateRequest(
     val name: String,
     val description: String? = null,
     /** Optional manager — an ACTIVE user (400 otherwise); omitted = no manager. */
-    val managerId: UInt? = null,
+    val managerId: JsonUInt? = null,
     /** Optional mention handle (V25): see [validateTeamHandle]; omitted = none (a blank one is a 400, not none). */
     val handle: String? = null,
 )
@@ -48,7 +49,7 @@ data class TeamUpdateRequest(
     val name: String,
     val description: String? = null,
     /** PUT is a full replace: omitted = unset. An ACTIVE user (400 otherwise). */
-    val managerId: UInt? = null,
+    val managerId: JsonUInt? = null,
     /** PUT is a full replace: omitted = the handle is cleared. */
     val handle: String? = null,
 )

@@ -1,5 +1,6 @@
 package ch.nokillswit.rooms
 
+import ch.nokillswit.infra.JsonUInt
 import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.infra.paging.PageResponse
@@ -23,7 +24,7 @@ const val MAX_ROOM_DESCRIPTION_LENGTH = 500
 @Serializable
 data class RoomCreateRequest(
     val name: String,
-    val templateId: UInt,
+    val templateId: JsonUInt,
     val description: String? = null,
     val language: String? = null,
     val accessType: RoomAccessType? = null,

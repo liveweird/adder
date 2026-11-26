@@ -21,7 +21,7 @@ export function messageComposeBlock(room: Pick<RoomResponse, "role" | "archived"
  * pin or unpin it (`pin`), react to it (`react`) and quote it in a reply (`quote`, 1.3); the last three absent read as false. The first two are the
  * message's own writes; `pin` is the room's; `react` and `quote` are speech.
  */
-export type MessageActions = { edit: boolean; remove: "delete" | "moderate" | null; pin?: boolean; react?: boolean; quote?: boolean };
+export type MessageActions = { edit: boolean; remove: "delete" | "moderate" | null; pin?: boolean; react?: boolean; quote?: boolean; history?: boolean };
 
 type OwnWrites = Pick<MessageActions, "edit" | "remove">;
 const NO_ACTIONS: OwnWrites = { edit: false, remove: null };
@@ -38,9 +38,11 @@ type MessageActionsInput = {
 export function messageActions(args: MessageActionsInput): MessageActions {
   const { room, message, thread } = args;
   const pin = room.role !== null && !room.archived && !message.deleted;
-  if (thread.mergedIntoThreadNumber != null) return { ...NO_ACTIONS, pin };
+  const history = !message.deleted && ((room.role !== null && message.authorId === args.userId) || canManageRoom(room, args.admin));
+  const historyAction = history ? { history: true as const } : {};
+  if (thread.mergedIntoThreadNumber != null) return { ...NO_ACTIONS, pin, ...historyAction };
   const speech = canReact(args);
-  return { ...ownWrites(args), pin, react: speech, quote: speech };
+  return { ...ownWrites(args), pin, react: speech, quote: speech, ...historyAction };
 }
 
 /**
