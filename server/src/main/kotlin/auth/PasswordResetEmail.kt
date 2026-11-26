@@ -106,14 +106,14 @@ internal suspend fun processPasswordReset(
 }
 
 /** A notification failure cannot undo a confirmed password change or turn its 204 into a 500. */
-internal suspend fun notifyPasswordReset(app: Application, users: UserService, mailer: Mailer, userId: UInt) {
-    try {
-        val user = users.read(userId) ?: return
-        mailer.send(user.email, PASSWORD_RESET_COMPLETED_SUBJECT.of(user.language), PASSWORD_RESET_COMPLETED_BODY.of(user.language))
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        audit("password_reset.notification_failed", "userId" to userId.toLong(), "errorType" to e.javaClass.simpleName)
-        app.log.error("Password reset notification failed ({})", e.javaClass.simpleName)
-    }
-}
+internal suspend fun notifyPasswordReset(app: Application, users: UserService, mailer: Mailer, userId: UInt) =
+    sendSecurityReceipt(
+        app = app,
+        users = users,
+        mailer = mailer,
+        userId = userId,
+        subject = PASSWORD_RESET_COMPLETED_SUBJECT,
+        body = PASSWORD_RESET_COMPLETED_BODY,
+        failureEvent = "password_reset.notification_failed",
+        failureLog = "Password reset notification failed",
+    )

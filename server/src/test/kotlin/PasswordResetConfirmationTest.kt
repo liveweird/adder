@@ -203,6 +203,13 @@ class PasswordResetConfirmationTest {
             ).formattedMessage
             assertFalse(token in notification)
             assertFalse("chosen-password" in notification)
+            assertEquals(
+                1,
+                mail.events.count {
+                    "To: $email" in it.formattedMessage && "Subject: Your Adder password was reset" in it.formattedMessage
+                },
+                "reset completion keeps its single dedicated receipt",
+            )
         } finally {
             mail.detach()
         }

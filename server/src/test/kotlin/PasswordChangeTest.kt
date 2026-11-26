@@ -9,6 +9,7 @@ import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -20,15 +21,25 @@ class PasswordChangeTest {
         val email = uniqueEmail("self")
         val userId = TestUsers.seed(email = email, password = "old-password", role = UserRole.USER)
         val client = authedClient(email, "old-password")
+        val mail = LogCapture("ch.nokillswit.mail")
+        try {
+            val response = client.putJson(
+                "/api/v1/users/$userId/password",
+                PasswordUpdateRequest(password = "brand-new-password", currentPassword = "old-password"),
+            )
+            assertEquals(HttpStatusCode.NoContent, response.status)
+            val message = assertNotNull(
+                mail.awaitEvent { "To: $email" in it.formattedMessage && "Adder: security notice" in it.formattedMessage },
+            ).formattedMessage
+            assertContains(message, "Your Adder password was changed")
+            assertFalse("old-password" in message)
+            assertFalse("brand-new-password" in message)
 
-        val response = client.putJson(
-            "/api/v1/users/$userId/password",
-            PasswordUpdateRequest(password = "brand-new-password", currentPassword = "old-password"),
-        )
-        assertEquals(HttpStatusCode.NoContent, response.status)
-
-        val login = jsonClient().postJson("/api/v1/login", LoginRequest(email, "brand-new-password"))
-        assertEquals(HttpStatusCode.OK, login.status)
+            val login = jsonClient().postJson("/api/v1/login", LoginRequest(email, "brand-new-password"))
+            assertEquals(HttpStatusCode.OK, login.status)
+        } finally {
+            mail.detach()
+        }
     }
 
     @Test
@@ -37,18 +48,23 @@ class PasswordChangeTest {
         val email = uniqueEmail("wrongcur")
         val userId = TestUsers.seed(email = email, password = "old-password", role = UserRole.USER)
         val client = authedClient(email, "old-password")
+        val mail = LogCapture("ch.nokillswit.mail")
+        try {
+            val wrong = client.putJson(
+                "/api/v1/users/$userId/password",
+                PasswordUpdateRequest(password = "brand-new-password", currentPassword = "not-it"),
+            )
+            assertEquals(HttpStatusCode.Forbidden, wrong.status)
 
-        val wrong = client.putJson(
-            "/api/v1/users/$userId/password",
-            PasswordUpdateRequest(password = "brand-new-password", currentPassword = "not-it"),
-        )
-        assertEquals(HttpStatusCode.Forbidden, wrong.status)
+            val missing = client.putJson("/api/v1/users/$userId/password", PasswordUpdateRequest(password = "brand-new-password"))
+            assertEquals(HttpStatusCode.Forbidden, missing.status)
 
-        val missing = client.putJson("/api/v1/users/$userId/password", PasswordUpdateRequest(password = "brand-new-password"))
-        assertEquals(HttpStatusCode.Forbidden, missing.status)
-
-        val oldStillWorks = jsonClient().postJson("/api/v1/login", LoginRequest(email, "old-password"))
-        assertEquals(HttpStatusCode.OK, oldStillWorks.status)
+            val oldStillWorks = jsonClient().postJson("/api/v1/login", LoginRequest(email, "old-password"))
+            assertEquals(HttpStatusCode.OK, oldStillWorks.status)
+            assertTrue(mail.events.none { "To: $email" in it.formattedMessage }, "a refused change sends no receipt")
+        } finally {
+            mail.detach()
+        }
     }
 
     @Test
@@ -57,14 +73,76 @@ class PasswordChangeTest {
         val adminEmail = uniqueEmail("resetter")
         val targetEmail = uniqueEmail("target")
         TestUsers.seed(email = adminEmail, password = "admin-pw", role = UserRole.ADMIN)
-        val targetId = TestUsers.seed(email = targetEmail, password = "old-password", role = UserRole.USER)
+        val targetId = TestUsers.seed(email = targetEmail, password = "old-password", role = UserRole.USER, language = "pl")
         val client = authedClient(adminEmail, "admin-pw")
+        val mail = LogCapture("ch.nokillswit.mail")
+        try {
+            val response = client.putJson("/api/v1/users/$targetId/password", PasswordUpdateRequest(password = "admin-chosen-pw"))
+            assertEquals(HttpStatusCode.NoContent, response.status)
+            val message = assertNotNull(
+                mail.awaitEvent { "To: $targetEmail" in it.formattedMessage && "powiadomienie o bezpieczeństwie" in it.formattedMessage },
+            ).formattedMessage
+            assertContains(message, "Administrator zmienił Twoje hasło Adder")
+            assertFalse("An administrator changed" in message)
+            assertFalse("admin-chosen-pw" in message)
 
-        val response = client.putJson("/api/v1/users/$targetId/password", PasswordUpdateRequest(password = "admin-chosen-pw"))
+            val login = jsonClient().postJson("/api/v1/login", LoginRequest(targetEmail, "admin-chosen-pw"))
+            assertEquals(HttpStatusCode.OK, login.status)
+        } finally {
+            mail.detach()
+        }
+    }
+
+    @Test
+    fun `a disabled mail transport does not block a successful password change`() = testApplication {
+        configureApp("mail.transport" to "disabled")
+        val email = uniqueEmail("change-mail-disabled")
+        val userId = TestUsers.seed(email = email, password = "old-password", role = UserRole.USER)
+        val client = authedClient(email, "old-password")
+
+        val response = client.putJson(
+            "/api/v1/users/$userId/password",
+            PasswordUpdateRequest(password = "brand-new-password", currentPassword = "old-password"),
+        )
         assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals(HttpStatusCode.OK, jsonClient().login(email, "brand-new-password").status)
+    }
 
-        val login = jsonClient().postJson("/api/v1/login", LoginRequest(targetEmail, "admin-chosen-pw"))
-        assertEquals(HttpStatusCode.OK, login.status)
+    @Test
+    fun `a receipt delivery failure cannot undo the password change or expose either password`() = testApplication {
+        configureApp(
+            "mail.transport" to "smtp",
+            "mail.smtp.host" to "localhost",
+            "mail.smtp.port" to "1",
+            "mail.smtp.startTls" to "false",
+        )
+        val email = uniqueEmail("change-mail-fail")
+        val userId = TestUsers.seed(email = email, password = "old-password", role = UserRole.USER)
+        val client = authedClient(email, "old-password")
+        val auditEvents = LogCapture("ch.nokillswit.audit")
+        try {
+            val response = client.putJson(
+                "/api/v1/users/$userId/password",
+                PasswordUpdateRequest(password = "brand-new-password", currentPassword = "old-password"),
+            )
+            assertEquals(HttpStatusCode.NoContent, response.status)
+            val failure = assertNotNull(
+                auditEvents.awaitEvent {
+                    it.message == "password.change_notification_failed" && it.hasKeyValue("userId", userId.toLong())
+                },
+            )
+            fun ch.qos.logback.classic.spi.ILoggingEvent.mentions(secret: String) =
+                secret in formattedMessage || keyValuePairs.orEmpty().any { secret in it.value.toString() }
+            assertFalse(failure.mentions("old-password"))
+            assertFalse(failure.mentions("brand-new-password"))
+            assertTrue(
+                auditEvents.events.none { it.mentions("old-password") || it.mentions("brand-new-password") },
+                "no audit message or field contains a credential",
+            )
+            assertEquals(HttpStatusCode.OK, jsonClient().login(email, "brand-new-password").status)
+        } finally {
+            auditEvents.detach()
+        }
     }
 
     @Test
