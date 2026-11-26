@@ -131,7 +131,7 @@ security:
   # statement (revocation, account liveness, credential revision, roles), so a logout, a delete,
   # a demotion or a password change ends the token on its next request on ANY replica. The
   # login lockout, password-reset cooldown, email MFA challenges, and request quotas share PostgreSQL.
-  # The supplied deployment uses one app replica while read-all and link preview guards are process-local.
+  # The supplied Kubernetes deployment defaults to one app replica.
   # Refresh-token rotation (auth/TokenBlocklistService.kt): every /refresh blocklists the presented
   # token. The shared database permits up to two retries during `replayGraceSeconds`, including
   # across app instances and restarts. This covers lost responses and exceeds the SPA's 30 s
