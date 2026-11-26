@@ -12,6 +12,7 @@ import { clearRoomLinkPreviews } from "./linkPreviewCache";
 import { quoteDependencyKeys } from "./quoteCacheDependencies";
 import { resetDeletedThreadContent, threadLifecycleKeys } from "./threadLifecycleCache";
 import { clearMessageRevisions, clearRoomMessageRevisions } from "./messageRevisionCache";
+import { commitTrackedMessageDelete } from "./messageDeleteCommit";
 
 const { rail: RAIL, list: ROOM_LIST, detail, access, joinRequests, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
 
@@ -288,6 +289,7 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
         arm();
         return;
       }
+      if (commitTrackedMessageDelete(queryClient, frame, () => active.get(queryClient)?.handle(frame))) return;
       const roomLost = frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted");
       const quoteDependencies = quoteDependencyKeys(queryClient, frame);
       const quoteSourceChanged = frame.type === "event" &&

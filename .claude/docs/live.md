@@ -311,6 +311,16 @@ The sender records the operation in its logical session before issuing the write
 
 An edit refreshes the source room’s thread tree, including message revisions and quote drafts, along with its pins, rail and Home. Quotes in other rooms keep their normal live refresh, including in the tab that made the edit. Only authorized REST reads return bodies and revisions.
 
+## Single-message deletion
+
+A message ID can be deleted only once. In the deleting tab, an HTTP `204` or the existing `message.deleted` hint for the exact room, thread and message can start the same refresh. The hint can arrive while the HTTP response is held or lost. Other tabs still process the ordinary event. The DELETE endpoint and the live frame keep their existing shapes.
+
+Clearing cached edit history and quote excerpts never waits for the HTTP response after a deletion is known. The conversation obtains the authoritative tombstone from its usual REST read. Pins, thread details, lists, Home and notices also refresh. Room revocation, thread deletion and notification events still have their own handling.
+
+In Chromium, holding a committed DELETE response reproduced two timeline reads and two pin reads in the writer on 1.34.0. Sharing the refresh cut that to one of each. A separate scenario discards the response and verifies that the tombstone and deleted quote update live.
+
+## Mutation refresh measurements
+
 In a warm two-tab Chromium rehearsal, a reply produced two timeline, detail, thread-list and rail reads in the writer before correlation, and one of each afterward. The observer still read each once. Holding the POST response after the observer received the event caused no writer reads until the response arrived. Aborting that held response released the event and the committed reply appeared in both tabs.
 
 A three-tab Chromium rehearsal measured two writer timeline reads before reaction correlation and one afterward.

@@ -3,7 +3,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { KeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import { ApiError } from "../api/http";
-import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from "./messageForm";
+import { isSendShortcut, messageErrorMessage, refreshAfterReply } from "./messageForm";
 import { PROBLEM_TYPES } from "./problems";
 import { messageBodyError } from "./threadForm";
 
@@ -73,16 +73,14 @@ describe("messageBodyError", () => {
   });
 });
 
-describe("refreshAfterMessageWrite", () => {
-  const refreshed = async (options?: { pins?: boolean }) => {
+describe("refreshAfterReply", () => {
+  test("refreshes thread and activity views, Home, and watched searches", async () => {
     const queryClient = new QueryClient();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    await refreshAfterMessageWrite(queryClient, 12, options);
-    return invalidate.mock.calls.map(([filters]) => filters?.queryKey);
-  };
-
-  test("a post re-reads the room's threads and the rail, and nothing of the pins", async () => {
-    expect(await refreshed()).toEqual([["rooms", "threads", 12], ["rooms", "rail"]]);
+    await refreshAfterReply(queryClient, 12);
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
+      ["rooms", "threads", 12], ["rooms", "rail"], ["search"], ["home"],
+    ]);
   });
 
   test("reports coverage only after a successful active refresh", async () => {
@@ -94,9 +92,9 @@ describe("refreshAfterMessageWrite", () => {
     const unsubscribe = observer.subscribe(() => undefined);
     const onCovered = vi.fn();
     try {
-      await refreshAfterMessageWrite(client, 12, { newReply: true, onCovered });
+      await refreshAfterReply(client, 12, onCovered);
       expect(onCovered).not.toHaveBeenCalled();
-      await refreshAfterMessageWrite(client, 12, { newReply: true, onCovered });
+      await refreshAfterReply(client, 12, onCovered);
       expect(onCovered).toHaveBeenCalledOnce();
       expect(client.getQueryData(key)).toBe("fresh");
     } finally {
@@ -105,7 +103,4 @@ describe("refreshAfterMessageWrite", () => {
     }
   });
 
-  test("an edit or a delete also re-reads the room's pins: a pinned body shows in the panel", async () => {
-    expect(await refreshed({ pins: true })).toEqual([["rooms", "threads", 12], ["rooms", "rail"], ["rooms", "pins", 12]]);
-  });
 });

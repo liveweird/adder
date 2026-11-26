@@ -38,24 +38,13 @@ export function isSendShortcut(event: KeyboardEvent): boolean {
   return event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.nativeEvent.isComposing;
 }
 
-/**
- * After the caller's own message write (post, edit, delete): the room's thread queries (the list's order, the thread's count and times, the
- * conversation) and the rail, per plan 4.5. A message changes no workflow count and no room header, so those stay as they are; an access
- * refusal re-reads the whole `["rooms"]` prefix instead (`isAccessRefusal`). An edit or a delete of a message that exists passes `pins`: the
- * pinned panel shows the body, so a redacted one must not linger there. A new reply can start watching, so it also refreshes Home
- * and watched searches.
- */
-export async function refreshAfterMessageWrite(
+/** A reply changes the conversation and activity. It can also start watching, which affects Home and watched searches. */
+export async function refreshAfterReply(
   queryClient: QueryClient,
   roomId: number,
-  { pins = false, newReply = false, onCovered }: { pins?: boolean; newReply?: boolean; onCovered?: () => void } = {},
+  onCovered?: () => void,
 ): Promise<void> {
-  const keys = [
-    roomKeys.threads(roomId),
-    roomKeys.rail,
-    ...(pins ? [roomKeys.pins(roomId)] : []),
-    ...(newReply ? WATCH_SEARCH_KEYS : []),
-  ];
+  const keys = [roomKeys.threads(roomId), roomKeys.rail, ...WATCH_SEARCH_KEYS];
   await refreshQueriesAfterMutation(queryClient, ...keys);
   if (!onCovered) return;
   // TanStack resolves invalidation after a failed or paused fetch as well. Keep the live fallback

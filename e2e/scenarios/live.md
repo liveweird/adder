@@ -7,7 +7,7 @@
   and its users, removed through the API in an `afterEach` (rooms first, then the users, so a failing step leaves nothing behind). The seeded
   Default template is shared and read-only: rooms only copy it. Every room is created by a throwaway user, so the seed administrator is never a
   member of one. The last scenario owns one throwaway user and no room (the socket under test is that user's own, so its ticket bucket is untouched).
-  The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket. Threads and messages are never deleted through the API: a room's removal hides them with it.
+  The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket. Deletion scenarios act on their own messages. Room cleanup hides the remaining conversations.
 
 Every scenario that watches a change first waits until the page's own socket has been acknowledged for the room (the `subscribed` frame), so the
 change can only arrive by being pushed, and marks the document, so "without a reload" is checked rather than assumed.
@@ -34,6 +34,19 @@ change can only arrive by being pushed, and marks the document, so "without a re
 3. The browser receives the save response.
    - *Expected*: the author's new body appears after exactly one timeline read, even after the live refresh window elapses.
    - *Expected*: the author can read the original body in edit history. The teammate's message menu has no history action. Neither page reloads.
+
+## Scenario: a committed message deletion clears both tabs before its response and refreshes the writer once
+
+1. The owner opens the same thread in two sessions. The thread includes an edited, pinned message.
+2. The owner opens its edit history in the second tab and confirms deletion in the first. The browser holds the successful HTTP response.
+   - *Expected*: both timelines replace the body with a tombstone. The pin and open history close without waiting for the response.
+3. The response arrives. The writer's timeline and pins each read once and focus goes to the tombstone. Neither tab reloads.
+
+## Scenario: a lost deletion response still removes the message and its quote live
+
+1. The owner writes a message and quotes it in another room. The teammate opens the thread with the quote and subscribes to both rooms.
+2. The owner deletes the original. The server commits and the test discards the HTTP response.
+   - *Expected*: the owner sees a tombstone without a lingering error. The teammate sees the quote's deleted notice and the quoting reply remains visible. Neither page reloads.
 
 ## Scenario: a thread started by one member appears in another member's thread list
 

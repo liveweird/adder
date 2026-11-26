@@ -1,8 +1,8 @@
-// Live updates across two browsers: one member acts, another sees it without reloading. A reply, a new thread, a status move and a removal
-// reach the other member's open page through the shell's WebSocket; the header says "Reconnecting…" while the browser is offline and the page
+// Live updates across two browsers: a reply, message edit or deletion, new thread, status move or membership removal reaches the other
+// page through the shell's WebSocket. The header says "Reconnecting…" while the browser is offline and the page
 // catches up when it is back; the socket opens under the stack's own Content-Security-Policy. Owns: its throwaway `e2e-live-*` rooms and users,
 // removed through the API in an `afterEach` (rooms first, then the users); the CSP test owns one throwaway user and no room. Every room is created by a throwaway user and only copies the
-// seeded Default template. Threads and messages are never deleted: a room's removal hides them. The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket, and the file's own
+// seeded Default template. Deletion scenarios act on their own messages. The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket, and the file's own
 // administrator (`specAdmins`) spends its own bucket, never the seed administrator's.
 import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
@@ -55,6 +55,7 @@ interface Scene {
   owner: Person;
   mate: Person;
   roomId: number;
+  templateId: number;
   api: APIRequestContext;
 }
 
@@ -72,13 +73,18 @@ async function scene(page: Page): Promise<Scene> {
   expect(templates.status(), await templates.text()).toBe(200);
   const template = ((await templates.json()) as { items: { id: number; name: string }[] }).items.find((candidate) => candidate.name === "Default");
   expect(template, "the seeded Default template").toBeDefined();
-  const created = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-live"), templateId: template!.id, accessType: "RESTRICTED_VISIBLE" } });
+  const templateId = template!.id;
+  return { owner, mate, roomId: await createSharedRoom(api, templateId, mate.id), templateId, api };
+}
+
+async function createSharedRoom(api: APIRequestContext, templateId: number, memberId: number): Promise<number> {
+  const created = await api.post("/api/v1/rooms", { data: { name: uniqueText("e2e-live"), templateId, accessType: "RESTRICTED_VISIBLE" } });
   expect(created.status(), await created.text()).toBe(201);
   const roomId = ((await created.json()) as { id: number }).id;
   cleanup.unshift(`/api/v1/rooms/${roomId}`);
-  const added = await api.post(`/api/v1/rooms/${roomId}/members`, { data: { userIds: [mate.id] } });
+  const added = await api.post(`/api/v1/rooms/${roomId}/members`, { data: { userIds: [memberId] } });
   expect(added.status(), await added.text()).toBe(200);
-  return { owner, mate, roomId, api };
+  return roomId;
 }
 
 /** Seed one thread (number 1: every room here is new) as the owner and return its title. */
@@ -240,6 +246,119 @@ test("a message edit refreshes the author once and updates another reader live",
   await operations(reader, revised).click();
   await expect(reader.page.getByRole("menuitem", { name: "Quote", exact: true })).toBeVisible();
   await expect(reader.page.getByRole("menuitem", { name: "View edit history", exact: true })).toHaveCount(0);
+  await expectNoReload(author);
+  await expectNoReload(reader);
+});
+
+test("a committed message deletion clears both tabs before its response and refreshes the writer once", async ({ page, browser }) => {
+  const room = await scene(page);
+  const earlier = "Earlier incident note";
+  const deleted = "Wording to remove";
+  await seedThread(room);
+  const thread = `/rooms/${room.roomId}/threads/1`;
+  const timelinePath = `/api/v1${thread}/messages`;
+  const posted = await room.api.post(timelinePath, { data: { body: earlier } });
+  expect(posted.status()).toBe(201);
+  const { id } = await posted.json() as { id: number };
+  const messagePath = `/api/v1/rooms/${room.roomId}/messages/${id}`;
+  const edited = await room.api.put(messagePath, { data: { body: deleted } });
+  expect(edited.status()).toBe(204);
+  const pinned = await room.api.put(`${messagePath}/pin`, { data: { pinned: true } });
+  expect(pinned.status()).toBe(204);
+
+  const author = await signedIn(browser, room.owner);
+  const otherTab = await signedIn(browser, room.owner);
+  await author.page.clock.install();
+  await openLive(author, thread, room.roomId);
+  await openLive(otherTab, thread, room.roomId);
+  const pins = otherTab.page.getByRole("region", { name: "Pins in this thread", exact: true });
+  await expect(pins.getByRole("button", { name: `Pinned: ${deleted}`, exact: true })).toBeVisible();
+  const operations = (seat: Seat) => messageNamed(seat.page, deleted).getByRole("button", { name: /^Operations for message by / });
+  await operations(otherTab).click();
+  await otherTab.page.getByRole("menuitem", { name: "View edit history", exact: true }).click();
+  const history = otherTab.page.getByRole("dialog", { name: "Edit history", exact: true });
+  await expect(history.locator("pre")).toHaveText(earlier);
+  await operations(author).click();
+  await author.page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  const confirmation = author.page.getByRole("dialog", { name: "Delete this message?", exact: true });
+  await author.page.clock.runFor(2_100);
+  const reads = { timeline: 0, pins: 0 };
+  author.page.on("request", (request) => {
+    if (request.method() !== "GET") return;
+    const path = new URL(request.url()).pathname;
+    if (path === timelinePath) reads.timeline++;
+    if (path === `/api/v1/rooms/${room.roomId}/pins`) reads.pins++;
+  });
+
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await author.page.route((url) => url.pathname === messagePath, async (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    const response = await route.fetch();
+    expect(response.status()).toBe(204);
+    await held;
+    await route.fulfill({ response });
+  });
+
+  const tombstone = (seat: Seat) => conversation(seat.page).locator(`[data-message-id="${id}"]`);
+  try {
+    await confirmation.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect.poll(() => author.frames.some((frame) => frame.kind === "message.deleted" && frame.messageId === id)).toBe(true);
+    await author.page.clock.runFor(1_100);
+    await expect(tombstone(author)).toContainText("This message was deleted.");
+    await expect(tombstone(otherTab)).toContainText("This message was deleted.");
+    await expect(pins).toHaveCount(0);
+    await expect(history).toHaveCount(0);
+  } finally {
+    release();
+  }
+
+  await expect(confirmation).toHaveCount(0);
+  await author.page.clock.runFor(3_200);
+  expect(reads).toEqual({ timeline: 1, pins: 1 });
+  await expect(tombstone(author)).toBeFocused();
+  await expectNoReload(author);
+  await expectNoReload(otherTab);
+});
+
+test("a lost deletion response still removes the message and its quote live", async ({ page, browser }) => {
+  const room = await scene(page);
+  const original = "Source note for the quote";
+  await seedThread(room);
+  const destinationRoom = await createSharedRoom(room.api, room.templateId, room.mate.id);
+  await seedThread({ ...room, roomId: destinationRoom }, "Destination for the quote");
+  const thread = `/rooms/${room.roomId}/threads/1`;
+  const destination = `/rooms/${destinationRoom}/threads/1`;
+  const posted = await room.api.post(`/api/v1${thread}/messages`, { data: { body: original } });
+  expect(posted.status()).toBe(201);
+  const { id } = await posted.json() as { id: number };
+  const quoted = await room.api.post(`/api/v1${destination}/messages`, { data: { body: "Reply stands on its own", quotedMessageId: id } });
+  expect(quoted.status()).toBe(201);
+
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, thread, room.roomId);
+  await openLive(reader, destination, destinationRoom);
+  await expect.poll(() => reader.frames.some((frame) => frame.type === "subscribed" && frame.roomIds?.includes(room.roomId))).toBe(true);
+  const replyInOtherThread = messageNamed(reader.page, "Reply stands on its own");
+  await expect(replyInOtherThread.getByRole("link", { name: new RegExp(original) })).toBeVisible();
+
+  const messagePath = `/api/v1/rooms/${room.roomId}/messages/${id}`;
+  await author.page.route((url) => url.pathname === messagePath, async (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    const response = await route.fetch();
+    expect(response.status()).toBe(204);
+    await route.abort();
+  });
+  await messageNamed(author.page, original).getByRole("button", { name: /^Operations for message by / }).click();
+  await author.page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  await author.page.getByRole("dialog", { name: "Delete this message?", exact: true }).getByRole("button", { name: "Delete", exact: true }).click();
+
+  const tombstone = conversation(author.page).locator(`[data-message-id="${id}"]`);
+  await expect(tombstone).toHaveText(/This message was deleted\./);
+  await expect(replyInOtherThread.getByRole("link", { name: /The quoted message was deleted/ })).toBeVisible();
+  await expect(replyInOtherThread).not.toContainText(original);
+  await expect(tombstone.getByRole("alert")).toHaveCount(0);
   await expectNoReload(author);
   await expectNoReload(reader);
 });

@@ -8,10 +8,10 @@ import type { RoomResponse } from "../api/rooms";
 import { useThreadRefHref } from "../hooks/useThreadRefHref";
 import { formatDateTime } from "../utils/formatDate";
 import type { MessageActions } from "../utils/messageAccess";
-import { messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
+import { messageErrorMessage } from "../utils/messageForm";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
-import { clearMessageRevisions } from "../utils/messageRevisionCache";
+import { beginMessageDeleteCommit, type MessageDeleteCommit } from "../utils/messageDeleteCommit";
 import { tagFilterPath } from "../utils/roomLinks";
 import { fillSlots, slot } from "../utils/slots";
 import { initialsOf } from "../utils/text";
@@ -28,13 +28,26 @@ import RowActionsMenu from "./RowActionsMenu";
 import UnreadCue from "./UnreadCue";
 import classes from "./MessageItem.module.css";
 
+async function failedDeleteMessage(
+  commit: MessageDeleteCommit,
+  queryClient: ReturnType<typeof useQueryClient>,
+  error: unknown,
+  format: (error: unknown) => string,
+): Promise<string | null> {
+  if (await commit.reject()) return null;
+  if (isAccessRefusal(error)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
+  return format(error);
+}
+
+const deleteConfirmationIsVisible = (confirming: boolean, deleted: boolean) => confirming && !deleted;
+
 /**
  * One message of the conversation: its author (a bold run, never a heading), when it was posted (the browser's zone), an "edited" marker,
  * and its body as `message`-variant Markdown. A tombstone shows who removed it instead of the body. `actions` says what the caller may do
  * (`utils/messageAccess.ts`): Edit and Delete for the author, Remove for a room OWNER or an ADMIN (D2), and Pin or Unpin for any member (`pin`, even in
  * a closed thread: `MessagePinMenuItem`), under a kebab menu; `react` shows the emoji picker under the body, where the reactions sit
  * (`MessageReactions`; without it they are read-only, and a tombstone has none); Edit swaps the body
- * for the inline editor, and Delete/Remove asks first. A write re-reads the room's thread queries and the rail, and a refusal (403, 404, 409)
+ * for the inline editor, and Delete/Remove asks first. A confirmed deletion refreshes the affected caches, and a refusal (403, 404, 409)
  * re-reads the whole `["rooms"]` prefix, so the controls follow the truth. The failure of an edit or a delete shows under the message: it
  * lives HERE, so it outlives an editor that the refusal takes away (the thread closed), and `editing` resets when the edit action goes.
  * Focus has somewhere to go: the message (`tabIndex={-1}`) takes it back after an edit ends (saved or cancelled) and when the message
@@ -93,6 +106,7 @@ export default function MessageItem({
   const refocusTombstone = useRef(false);
   const when = formatDateTime(message.createdAt, zone);
   const moderate = actions.remove === "moderate";
+  const confirmVisible = deleteConfirmationIsVisible(confirming, message.deleted);
   // A tombstone never wears the mark.
   const pinner = message.deleted ? undefined : pinnedBy;
   const pinned = pinner !== undefined;
@@ -118,17 +132,20 @@ export default function MessageItem({
   async function confirmRemove() {
     setError(null);
     setRemoving(true);
+    refocusTombstone.current = true;
+    const commit = beginMessageDeleteCommit(queryClient, {
+      roomId,
+      threadNumber: message.threadNumber,
+      messageId: message.id,
+    });
     try {
       await deleteMessage(roomId, message.id);
-      clearMessageRevisions(queryClient, roomId, message.threadNumber, message.id);
-      refocusTombstone.current = true;
+      await commit.confirm();
       setConfirming(false);
-      await refreshAfterMessageWrite(queryClient, roomId, { pins: true });
     } catch (err) {
       // The failure shows under the message, so the dialog goes (its message is a paragraph, which holds no alert).
       setConfirming(false);
-      setError(messageErrorMessage(err, t));
-      if (isAccessRefusal(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
+      setError(await failedDeleteMessage(commit, queryClient, err, (failure) => messageErrorMessage(failure, t)));
     } finally {
       setRemoving(false);
     }
@@ -258,11 +275,11 @@ export default function MessageItem({
             )}
           </Box>
           {!editing && <MessageReactions roomId={roomId} message={message} canReact={actions.react === true} onError={setError} />}
-          {error && <FormErrorAlert>{error}</FormErrorAlert>}
+          {!message.deleted && error && <FormErrorAlert>{error}</FormErrorAlert>}
         </Stack>
       </div>
       <ConfirmActionModal
-        opened={confirming}
+        opened={confirmVisible}
         onClose={() => setConfirming(false)}
         title={t(moderate ? "threads.message.removeTitle" : "threads.message.deleteTitle")}
         message={t(moderate ? "threads.message.removeBody" : "threads.message.deleteBody")}

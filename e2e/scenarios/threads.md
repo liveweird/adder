@@ -154,7 +154,7 @@
 ## Scenario: a cross-room quote opens its source and stays hidden from destination-only readers
 
 1. The owner creates separate source and destination rooms and starts a thread in each. A second person joins the destination.
-2. From the source message menu the owner chooses **Quote in another thread…**, finds the destination room and thread, then posts a reply.
+2. From the source message menu the owner chooses **Quote in another thread…**, finds the destination room and thread, then clicks **Send** after the source quote check finishes.
    - *Expected*: the composer carries the source quote to the destination.
 3. The owner follows the quote, then selects **Back to reply**.
    - *Expected*: the links open and focus the correct messages across both rooms.

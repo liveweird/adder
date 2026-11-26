@@ -14,7 +14,7 @@ import { useLoadedMessage } from "../hooks/useLoadedMessage";
 import { useQuoteSource } from "../hooks/useQuoteSource";
 import { useThreadDrafts, type QuoteDraft } from "../hooks/useThreadDrafts";
 import { messageComposeBlock } from "../utils/messageAccess";
-import { isSendShortcut, messageErrorMessage, refreshAfterMessageWrite } from "../utils/messageForm";
+import { isSendShortcut, messageErrorMessage, refreshAfterReply } from "../utils/messageForm";
 import { beginReplyEcho, canCorrelateReply } from "../utils/liveReplyEcho";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
@@ -165,10 +165,8 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
       setQuote((current) => (current === sent.quote ? null : current));
       sentOk.set(key, sent);
       onPosted(created.id);
-      await refreshAfterMessageWrite(queryClient, room.id, {
-        newReply: true,
-        onCovered: echo ? () => echo.confirm(created.id) : undefined,
-      }).catch(() => echo?.cancel());
+      const onCovered = echo ? () => echo.confirm(created.id) : undefined;
+      await refreshAfterReply(queryClient, room.id, onCovered).catch(() => echo?.cancel());
     } catch (err) {
       setError(messageErrorMessage(err, t));
       // The server says the message is gone: the line keeps the author and loses the text (a pick made since, another object, stays as it is).
