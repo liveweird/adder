@@ -4,9 +4,11 @@ import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.live.LiveAudit
 import ch.nokillswit.live.LiveConfig
 import ch.nokillswit.live.LiveHub
+import ch.nokillswit.live.LiveLeaseCoordinator
 import ch.nokillswit.live.LIVE_TICKET_TTL_MILLIS
 import ch.nokillswit.live.LiveServerFrame
 import ch.nokillswit.live.LiveSessionDeps
+import ch.nokillswit.live.LiveSessionLeaseStore
 import ch.nokillswit.live.LiveTickets
 import ch.nokillswit.live.liveSession
 import ch.nokillswit.plugins.configureSockets
@@ -79,8 +81,11 @@ class LiveSocketFaultsTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val tickets = LiveTickets(LiveTicketMemoryStore(config.maxTickets, LIVE_TICKET_TTL_MILLIS))
-            val hub = LiveHub(scope, config.maxSockets, config.maxSocketsPerUser, neverConnects)
-            val deps = LiveSessionDeps(config, tickets, hub, blocklist, rooms, LiveAudit(), clock)
+            val hub = LiveHub(scope, config.maxSockets, neverConnects)
+            val leases = LiveLeaseCoordinator(
+                LiveSessionLeaseStore(sharedDatabaseForTests(), UUID.randomUUID()), scope, config.maxSocketsPerUser,
+            )
+            val deps = LiveSessionDeps(config, tickets, hub, leases, blocklist, rooms, LiveAudit(), clock)
             application {
                 configureSockets()
                 routing { webSocket(path) { liveSession(deps) } }

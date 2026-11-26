@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.CallerPrincipal
+import ch.nokillswit.infra.presence.ForegroundPresence
 import ch.nokillswit.rooms.RoomMemberService
 import ch.nokillswit.teams.TeamService
 import ch.nokillswit.threads.CreatedThread
@@ -170,7 +171,9 @@ class MessageDerivedRowsTest {
         private val database = sharedDatabaseForTests()
         private val teams = TeamService(database)
         private val members = RoomMemberService(database, teams)
-        val mentions = MessageMentionService(members, TestThreads.noticeWriter, TestThreads.watches, teams)
+        val mentions = MessageMentionService(
+            members, TestThreads.noticeWriter, TestThreads.watches, teams, ForegroundPresence { emptySet() },
+        )
         val messages = MessageService(database, TestRooms.service, MessageTagService(database), mentions, followers)
         val threads =
             ThreadService(

@@ -4,6 +4,7 @@ import ch.nokillswit.live.LIVE_SESSION_LEASE_MILLIS
 import ch.nokillswit.live.LiveLeaseAdmission
 import ch.nokillswit.live.LiveLeaseRefusal
 import ch.nokillswit.live.LiveSessionLeaseStore
+import ch.nokillswit.infra.presence.PostgresForegroundPresence
 import ch.nokillswit.users.UserRole
 import java.util.UUID
 import kotlin.test.AfterTest
@@ -49,7 +50,7 @@ class LiveSessionLeasesTest {
 
         val results = coroutineScope {
             (0 until 20).map { index ->
-                async { (if (index % 2 == 0) first else second).admit(user, UUID.randomUUID(), tokenExpiry) }
+                async { (if (index % 2 == 0) first else second).admit(user, UUID.randomUUID(), tokenExpiry, 16) }
             }.awaitAll()
         }
 
@@ -68,13 +69,28 @@ class LiveSessionLeasesTest {
         val store = LiveSessionLeaseStore(sharedDatabaseForTests(), UUID.randomUUID())
         val before = databaseNow()
         val tokenExpiry = before + 5_000
-        val accepted = assertIs<LiveLeaseAdmission.Accepted>(store.admit(user, UUID.randomUUID(), tokenExpiry))
+        val accepted = assertIs<LiveLeaseAdmission.Accepted>(store.admit(user, UUID.randomUUID(), tokenExpiry, 16))
         val after = databaseNow()
 
         assertTrue(accepted.serverNowMillis in before..after)
         assertEquals(tokenExpiry, accepted.expiresAtMillis)
-        val expired = store.admit(user, UUID.randomUUID(), before - 1)
+        val expired = store.admit(user, UUID.randomUUID(), before - 1, 16)
         assertEquals(LiveLeaseRefusal.TOKEN_EXPIRED, assertIs<LiveLeaseAdmission.Refused>(expired).reason)
+        assertEquals(1, leaseCount(user))
+    }
+
+    @Test
+    fun `capacity hint is non-consuming and admission honors the configured limit`() = runBlocking {
+        val user = user("live-lease-configured-cap")
+        val store = LiveSessionLeaseStore(sharedDatabaseForTests(), UUID.randomUUID())
+        val tokenExpiry = databaseNow() + 300_000
+
+        assertTrue(store.hasCapacity(user, 1))
+        assertIs<LiveLeaseAdmission.Accepted>(store.admit(user, UUID.randomUUID(), tokenExpiry, 1))
+        assertEquals(false, store.hasCapacity(user, 1))
+        assertEquals(LiveLeaseRefusal.CAPACITY, assertIs<LiveLeaseAdmission.Refused>(
+            store.admit(user, UUID.randomUUID(), tokenExpiry, 1),
+        ).reason)
         assertEquals(1, leaseCount(user))
     }
 
@@ -84,13 +100,14 @@ class LiveSessionLeasesTest {
         val outsider = user("live-lease-scope")
         val first = LiveSessionLeaseStore(sharedDatabaseForTests(), UUID.randomUUID())
         val second = LiveSessionLeaseStore(sharedDatabaseForTests(), UUID.randomUUID())
+        val presence = PostgresForegroundPresence(sharedDatabaseForTests())
         val tokenExpiry = databaseNow() + 300_000
         val one = UUID.randomUUID()
         val two = UUID.randomUUID()
         val other = UUID.randomUUID()
-        assertIs<LiveLeaseAdmission.Accepted>(first.admit(user, one, tokenExpiry))
-        assertIs<LiveLeaseAdmission.Accepted>(first.admit(user, two, tokenExpiry))
-        assertIs<LiveLeaseAdmission.Accepted>(second.admit(outsider, other, tokenExpiry))
+        assertIs<LiveLeaseAdmission.Accepted>(first.admit(user, one, tokenExpiry, 16))
+        assertIs<LiveLeaseAdmission.Accepted>(first.admit(user, two, tokenExpiry, 16))
+        assertIs<LiveLeaseAdmission.Accepted>(second.admit(outsider, other, tokenExpiry, 16))
 
         assertEquals(emptyMap(), second.renew(listOf(one, two)).deadlines)
         assertEquals(emptySet(), second.setForeground(listOf(one), visible = true).updatedSessions)
@@ -100,19 +117,19 @@ class LiveSessionLeasesTest {
         assertEquals(setOf(one, two), visible.updatedSessions)
         assertEquals(visible.serverNowMillis + LIVE_SESSION_LEASE_MILLIS, visible.expiresAtMillis)
         val foregroundBeforeHeartbeat = foregroundDeadline(one)
-        assertEquals(setOf(user), first.eligiblePresentUserIds(listOf(user, user)))
-        assertEquals(emptySet(), first.eligiblePresentUserIds(listOf(outsider)))
+        assertEquals(setOf(user), presence.eligibleUserIds(listOf(user, user)))
+        assertEquals(emptySet(), presence.eligibleUserIds(listOf(outsider)))
         assertEquals(setOf(other), second.setForeground(listOf(other), visible = true).updatedSessions)
-        assertEquals(setOf(outsider), second.eligiblePresentUserIds(listOf(outsider)))
+        assertEquals(setOf(outsider), presence.eligibleUserIds(listOf(outsider)))
 
         val renewed = first.renew(listOf(one, two))
         assertEquals(setOf(one, two), renewed.deadlines.keys)
         assertTrue(renewed.deadlines.values.all { it == renewed.serverNowMillis + LIVE_SESSION_LEASE_MILLIS })
         assertEquals(foregroundBeforeHeartbeat, foregroundDeadline(one), "socket heartbeat must not renew foreground presence")
         first.setForeground(listOf(one), visible = false)
-        assertEquals(setOf(user), first.eligiblePresentUserIds(listOf(user)), "the second visible tab keeps the user present")
+        assertEquals(setOf(user), presence.eligibleUserIds(listOf(user)), "the second visible tab keeps the user present")
         first.setForeground(listOf(two), visible = false)
-        assertEquals(emptySet(), first.eligiblePresentUserIds(listOf(user)))
+        assertEquals(emptySet(), presence.eligibleUserIds(listOf(user)))
 
         expire(one)
         assertEquals(setOf(two), first.renew(listOf(one, two)).deadlines.keys, "an expired socket is omitted from the actual renewed set")
@@ -128,7 +145,7 @@ class LiveSessionLeasesTest {
         val store = LiveSessionLeaseStore(sharedDatabaseForTests(), UUID.randomUUID())
         val sessions = (0 until 4).map { UUID.randomUUID() }
         val tokenExpiry = databaseNow() + 300_000
-        sessions.forEach { assertIs<LiveLeaseAdmission.Accepted>(store.admit(user, it, tokenExpiry)) }
+        sessions.forEach { assertIs<LiveLeaseAdmission.Accepted>(store.admit(user, it, tokenExpiry, 16)) }
         sessions.forEachIndexed { index, session -> expire(session, databaseNow() - 10_000 + index) }
 
         PostgresTestSupport.connect().use { holder ->

@@ -47,7 +47,7 @@ internal class HubSocket(
 /** A socket and a COPY of the rooms it is ACTIVE in at the moment of the snapshot (the hub's own set is the actor's alone). */
 internal class SocketView(val socket: HubSocket, val activeRooms: List<UInt>)
 
-internal enum class RegisterResult { OK, USER_CAP, FULL, UNAVAILABLE }
+internal enum class RegisterResult { OK, FULL, UNAVAILABLE }
 
 internal sealed interface LiveHubCommand {
     class Register(val socket: HubSocket, val reply: CompletableDeferred<RegisterResult>) : LiveHubCommand
@@ -58,7 +58,6 @@ internal sealed interface LiveHubCommand {
     class Unsubscribe(val socket: HubSocket, val ids: List<UInt>) : LiveHubCommand
     class Deliver(val hint: LiveHint) : LiveHubCommand
     class Pong(val socket: HubSocket) : LiveHubCommand
-    class Foreground(val socket: HubSocket, val visible: Boolean) : LiveHubCommand
     class Snapshot(val userIds: Set<UInt>?, val reply: CompletableDeferred<List<SocketView>>) : LiveHubCommand
     class RevokeRoom(val socket: HubSocket, val roomId: UInt) : LiveHubCommand
     data object Gap : LiveHubCommand

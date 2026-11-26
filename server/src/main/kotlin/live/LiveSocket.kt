@@ -33,6 +33,7 @@ internal class LiveSessionDeps(
     val config: LiveConfig,
     val tickets: LiveTickets,
     val hub: LiveHub,
+    val leases: LiveLeaseCoordinator,
     val blocklist: TokenBlocklistService,
     val rooms: RoomService,
     val audits: LiveAudit,
@@ -52,7 +53,8 @@ private sealed interface Next {
  *    unauthenticated time is counted in the hub's pending slots (in total and per client address, the caps the admission checks).
  *    Redemption, in order: the ticket
  *    (single use; unknown, used and expired are one answer, 4401), `accessVerdict` of the token it was minted with (not LIVE: 4003),
- *    the token's `exp` (4001), then the hub's register (the per-user cap: 4429), which queues `ready` first.
+ *    the token's `exp` (4001), shared PostgreSQL lease admission (the per-user cap: 4429), then the process hub's global admission,
+ *    which queues `ready` first.
  * 2. **Serve.** One writer drains the socket's queue; the reading loop answers `ping`, subscribes and unsubscribes, and ends on a
  *    close from either side. A subscribe registers the rooms PENDING in the hub, judges them with `RoomService.readableRoomIds` OUTSIDE
  *    the hub, and lets the hub activate the ones still PENDING and queue the ack in one step.
@@ -75,6 +77,7 @@ internal suspend fun DefaultWebSocketServerSession.liveSession(deps: LiveSession
     }
     var pendingHeld = true
     var socket: HubSocket? = null
+    var lease: LeaseHandle? = null
     var writer: Job? = null
     var expiry: Job? = null
     try {
@@ -85,6 +88,23 @@ internal suspend fun DefaultWebSocketServerSession.liveSession(deps: LiveSession
         val registered = HubSocket(
             binding.userId, binding.isAdmin, binding.tokenExpiresAtMillis, binding.jti, binding.credentialRevision, binding.roles,
         )
+        when (val opened = deps.leases.admit(binding.userId, binding.tokenExpiresAtMillis, registered.closeRequest)) {
+            is LeaseOpen.Accepted -> lease = opened.handle
+            is LeaseOpen.Refused -> {
+                when (opened.refusal.reason) {
+                    LiveLeaseRefusal.CAPACITY -> {
+                        deps.audits.refused("socket-cap", binding.userId, "limit" to deps.config.maxSocketsPerUser)
+                        closeWith(CLOSE_SOCKET_CAP, "Too many sockets for this account")
+                    }
+                    LiveLeaseRefusal.TOKEN_EXPIRED -> closeWith(CLOSE_TOKEN_EXPIRED, "The access token expired")
+                }
+                return
+            }
+            LeaseOpen.Unavailable -> {
+                closeWith(CloseReason.Codes.TRY_AGAIN_LATER.code, "Live updates unavailable")
+                return
+            }
+        }
         // Set BEFORE the register: a session cancelled while it waits for the hub's reply must still unregister, or the actor's
         // Register (FIFO, so followed by this Unregister) would leave a slot nobody ever frees. The hub ignores an unknown socket.
         socket = registered
@@ -92,10 +112,10 @@ internal suspend fun DefaultWebSocketServerSession.liveSession(deps: LiveSession
         // Registration is an asynchronous actor round trip. Re-judge afterwards, before the writer can expose `ready`, so an account
         // change in that window cannot obtain a serving socket.
         if (!recheckAfterRegister(deps, binding)) return
-        writer = launch { writeFrames(registered) }
+        writer = launch { writeFrames(registered, checkNotNull(lease)) }
         // The socket never outlives its token: at `exp` the hub-independent timer asks the reading loop to close 4001.
         expiry = launch { closeAtExpiry(deps, registered) }
-        serve(deps, registered)
+        serve(deps, registered, checkNotNull(lease))
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -110,6 +130,7 @@ internal suspend fun DefaultWebSocketServerSession.liveSession(deps: LiveSession
         }
         writer?.cancel()
         expiry?.cancel()
+        lease?.release()
     }
 }
 
@@ -196,10 +217,6 @@ private suspend fun DefaultWebSocketSession.redeem(deps: LiveSessionDeps, auth: 
 private suspend fun DefaultWebSocketSession.register(deps: LiveSessionDeps, binding: LiveTicketBinding, socket: HubSocket): Boolean {
     when (deps.hub.register(socket)) {
         RegisterResult.OK -> return true
-        RegisterResult.USER_CAP -> {
-            deps.audits.refused("socket-cap", binding.userId, "limit" to deps.config.maxSocketsPerUser)
-            closeWith(CLOSE_SOCKET_CAP, "Too many sockets for this account")
-        }
         RegisterResult.FULL -> {
             deps.audits.refused("capacity", binding.userId, "limit" to "sockets")
             closeWith(CloseReason.Codes.TRY_AGAIN_LATER.code, "The server is full")
@@ -209,9 +226,15 @@ private suspend fun DefaultWebSocketSession.register(deps: LiveSessionDeps, bind
     return false
 }
 
-private suspend fun DefaultWebSocketSession.writeFrames(socket: HubSocket) {
+private suspend fun DefaultWebSocketSession.writeFrames(socket: HubSocket, lease: LeaseHandle) {
     try {
-        for (frame in socket.outbound) send(Frame.Text(frame.toJson()))
+        for (frame in socket.outbound) {
+            if (!lease.isLive()) {
+                lease.expire()
+                break
+            }
+            send(Frame.Text(frame.toJson()))
+        }
     } catch (_: CancellationException) {
         // the session ended
     } catch (_: Exception) {
@@ -220,7 +243,7 @@ private suspend fun DefaultWebSocketSession.writeFrames(socket: HubSocket) {
 }
 
 /** The reading loop: frames from the client and close requests from the hub, until either side ends the socket. */
-private suspend fun DefaultWebSocketSession.serve(deps: LiveSessionDeps, socket: HubSocket) {
+private suspend fun DefaultWebSocketSession.serve(deps: LiveSessionDeps, socket: HubSocket, lease: LeaseHandle) {
     val rate = InboundRate()
     while (true) {
         // `select` is biased to the FIRST clause: a close request (stopping, a failed verdict) is never starved by a chatty client.
@@ -242,21 +265,26 @@ private suspend fun DefaultWebSocketSession.serve(deps: LiveSessionDeps, socket:
                     return
                 }
                 val parsed = parse(deps, frame, socket.userId) ?: return
-                if (!handle(deps, socket, parsed)) return
+                if (!handle(deps, socket, lease, parsed)) return
             }
         }
     }
 }
 
 /** Handles one parsed frame; false when it closed the socket. */
-private suspend fun DefaultWebSocketSession.handle(deps: LiveSessionDeps, socket: HubSocket, frame: LiveClientFrame): Boolean {
+private suspend fun DefaultWebSocketSession.handle(
+    deps: LiveSessionDeps,
+    socket: HubSocket,
+    lease: LeaseHandle,
+    frame: LiveClientFrame,
+): Boolean {
     when (frame) {
         is LiveClientFrame.Auth -> {
             badFrame(deps, socket.userId, "A second auth frame")
             return false
         }
         LiveClientFrame.Ping -> deps.hub.pong(socket)
-        is LiveClientFrame.Foreground -> deps.hub.foreground(socket, frame.visible)
+        is LiveClientFrame.Foreground -> lease.foreground(frame.visible)
         is LiveClientFrame.Subscribe -> {
             val ids = validIds(frame.roomIds)
             if (ids == null) {

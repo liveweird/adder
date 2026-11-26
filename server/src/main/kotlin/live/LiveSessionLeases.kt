@@ -13,7 +13,6 @@ import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
 import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
 
-internal const val MAX_LIVE_SESSIONS_PER_USER = 16
 internal const val LIVE_SESSION_LEASE_MILLIS = 60_000L
 internal const val LIVE_SESSION_PRUNE_BATCH = 500
 
@@ -44,13 +43,22 @@ internal data class LiveForegroundUpdate(
     val expiresAtMillis: Long?,
 )
 
+internal interface LiveLeaseStore {
+    suspend fun admit(userId: UInt, sessionId: UUID, tokenExpiresAtMillis: Long, maxSessions: Int): LiveLeaseAdmission
+    suspend fun hasCapacity(userId: UInt, maxSessions: Int): Boolean
+    suspend fun renew(sessionIds: Collection<UUID>): LiveLeaseRenewal
+    suspend fun setForeground(sessionIds: Collection<UUID>, visible: Boolean): LiveForegroundUpdate
+    suspend fun release(sessionIds: Collection<UUID>): Int
+    suspend fun pruneExpired(batchSize: Int = LIVE_SESSION_PRUNE_BATCH): Int
+}
+
 /** PostgreSQL-backed live socket leases shared by every application instance. */
 internal class LiveSessionLeaseStore(
     private val database: R2dbcDatabase,
     private val instanceId: UUID,
-) {
-    /** Serializes one user's admission and atomically enforces the shared 16-live-session cap. */
-    suspend fun admit(userId: UInt, sessionId: UUID, tokenExpiresAtMillis: Long): LiveLeaseAdmission =
+) : LiveLeaseStore {
+    /** Serializes one user's admission and atomically enforces the configured shared live-session cap. */
+    override suspend fun admit(userId: UInt, sessionId: UUID, tokenExpiresAtMillis: Long, maxSessions: Int): LiveLeaseAdmission =
         suspendTransaction(database) {
             val transaction = TransactionManager.current()
             val user = LongColumnType() to userId.toLong()
@@ -67,7 +75,7 @@ internal class LiveSessionLeaseStore(
                         user,
                         LongColumnType() to tokenExpiresAtMillis,
                         LongColumnType() to LIVE_SESSION_LEASE_MILLIS,
-                        IntegerColumnType() to MAX_LIVE_SESSIONS_PER_USER,
+                        IntegerColumnType() to maxSessions,
                     ),
                     explicitStatementType = StatementType.SELECT,
                 ) { result ->
@@ -89,38 +97,36 @@ internal class LiveSessionLeaseStore(
             }
         }
 
+    /** Non-consuming capacity hint for ticket minting; admission remains the authoritative serialized decision. */
+    override suspend fun hasCapacity(userId: UInt, maxSessions: Int): Boolean = suspendTransaction(database) {
+        checkNotNull(
+            TransactionManager.current().exec(
+                CAPACITY_HINT,
+                listOf(IntegerColumnType() to maxSessions, LongColumnType() to userId.toLong()),
+                explicitStatementType = StatementType.SELECT,
+            ) { row -> checkNotNull(row.get(0, Boolean::class.javaObjectType)) },
+        ).filterNotNull().toList().single()
+    }
+
     /** Renews only this instance's still-live sessions and reports the exact rows and DB-clock deadlines that moved. */
-    suspend fun renew(sessionIds: Collection<UUID>): LiveLeaseRenewal = suspendTransaction(database) {
+    override suspend fun renew(sessionIds: Collection<UUID>): LiveLeaseRenewal = suspendTransaction(database) {
         val rows = timedRows(RENEW_LEASES, sessionIds, visible = null)
         LiveLeaseRenewal(rows.first().serverNow, rows.mapNotNull { row -> row.sessionId?.let { it to checkNotNull(row.deadline) } }.toMap())
     }
 
     /** Sets or clears foreground state without extending the socket lease. Expired leases are never changed. */
-    suspend fun setForeground(sessionIds: Collection<UUID>, visible: Boolean): LiveForegroundUpdate = suspendTransaction(database) {
-        val rows = timedRows(SET_FOREGROUND, sessionIds, visible)
-        LiveForegroundUpdate(
-            rows.first().serverNow,
-            rows.mapNotNull(TimedRow::sessionId).toSet(),
-            rows.firstNotNullOfOrNull(TimedRow::deadline),
-        )
-    }
-
-    /** Candidate users with at least one fresh visible lease; unknown and duplicate ids are harmless. */
-    suspend fun eligiblePresentUserIds(candidateUserIds: Collection<UInt>): Set<UInt> {
-        val candidates = candidateUserIds.distinct()
-        if (candidates.isEmpty()) return emptySet()
-        return suspendTransaction(database) {
-            TransactionManager.current().exec(
-                PRESENT_USERS,
-                listOf(ArrayColumnType<Long, List<Long>>(LongColumnType()) to candidates.map(UInt::toLong)),
-                explicitStatementType = StatementType.SELECT,
-            ) { row -> checkNotNull(row.get(0, Long::class.javaObjectType)).toUInt() }
-                ?.toList().orEmpty().filterNotNull().toSet()
+    override suspend fun setForeground(sessionIds: Collection<UUID>, visible: Boolean): LiveForegroundUpdate =
+        suspendTransaction(database) {
+            val rows = timedRows(SET_FOREGROUND, sessionIds, visible)
+            LiveForegroundUpdate(
+                rows.first().serverNow,
+                rows.mapNotNull(TimedRow::sessionId).toSet(),
+                rows.firstNotNullOfOrNull(TimedRow::deadline),
+            )
         }
-    }
 
     /** Releases only session ids owned by this store's instance. */
-    suspend fun release(sessionIds: Collection<UUID>): Int {
+    override suspend fun release(sessionIds: Collection<UUID>): Int {
         val ids = sessionIds.distinct()
         if (ids.isEmpty()) return 0
         return suspendTransaction(database) {
@@ -136,7 +142,7 @@ internal class LiveSessionLeaseStore(
     }
 
     /** Deletes at most [batchSize] expired leases in deadline/id order, skipping rows held by another transaction. */
-    suspend fun pruneExpired(batchSize: Int = LIVE_SESSION_PRUNE_BATCH): Int {
+    override suspend fun pruneExpired(batchSize: Int): Int {
         require(batchSize > 0)
         return suspendTransaction(database) {
             TransactionManager.current().exec(
@@ -182,6 +188,14 @@ ON CONFLICT (user_id) DO NOTHING"""
 
 private const val LOCK_USER_GUARD = """
 SELECT user_id FROM live_session_user_guards WHERE user_id = CAST(? AS int8) FOR UPDATE"""
+
+private const val CAPACITY_HINT = """
+WITH clock AS MATERIALIZED (
+  SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
+)
+SELECT count(*) < CAST(? AS int4)
+FROM live_session_leases lease CROSS JOIN clock
+WHERE lease.user_id = CAST(? AS int8) AND lease.socket_expires_at > clock.now_millis"""
 
 private const val ADMIT_LEASE = """
 WITH input AS MATERIALIZED (
@@ -238,18 +252,6 @@ WITH input AS MATERIALIZED (
 )
 SELECT clock.now_millis, changed.session_id, changed.foreground_expires_at
 FROM clock LEFT JOIN changed ON TRUE"""
-
-private const val PRESENT_USERS = """
-WITH clock AS MATERIALIZED (
-  SELECT (extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
-)
-SELECT DISTINCT lease.user_id
-FROM live_session_leases lease CROSS JOIN clock
-WHERE lease.user_id = ANY(CAST(? AS int8[]))
-  AND lease.socket_expires_at > clock.now_millis
-  AND lease.token_expires_at > clock.now_millis
-  AND lease.foreground_expires_at > clock.now_millis
-ORDER BY lease.user_id"""
 
 private const val RELEASE_LEASES = """
 DELETE FROM live_session_leases

@@ -52,7 +52,7 @@ internal class MessageMentionService(
     private val notices: ThreadNotices,
     private val watches: ThreadWatchService,
     teams: TeamService,
-    private val presence: ForegroundPresence = ForegroundPresence(),
+    private val presence: ForegroundPresence,
 ) : MessageFollower {
     /** The group mentions (V30): `<@team:id>`, `<@watchers>`, `<@everyone>`, kept in step with the same body by the same write. */
     val groups = MessageGroupMentionIndex(teams)
@@ -191,8 +191,9 @@ internal class MessageMentionService(
     }
 
     private suspend fun GroupReach.hereRecipients(authorId: UInt): List<UInt> {
-        val foreground = presence.activeUserIds()
-        return if (foreground.isEmpty()) emptyList() else members().filter { it in foreground && it != authorId }
+        val candidates = members().filter { it != authorId }
+        val present = presence.eligibleUserIds(candidates)
+        return candidates.filter { it in present }
     }
 
     /** The people among [ids] who are active members of room [roomId]. */
