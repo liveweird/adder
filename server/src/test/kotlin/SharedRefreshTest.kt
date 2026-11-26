@@ -2,7 +2,13 @@ package ch.nokillswit
 
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.auth.LogoutRequest
+import ch.nokillswit.auth.MAX_GRACE_REUSES
+import ch.nokillswit.auth.RefreshAfterPrecheck
+import ch.nokillswit.auth.RefreshAfterPrecheckKey
+import ch.nokillswit.auth.RefreshClaim
 import ch.nokillswit.auth.RefreshRequest
+import ch.nokillswit.auth.TokenBlocklistServiceKey
+import com.auth0.jwt.JWT
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.header
@@ -20,8 +26,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /** Cross-application HTTP coverage for durable refresh grace and logout ordering. */
 class SharedRefreshTest {
@@ -55,6 +63,19 @@ class SharedRefreshTest {
         header(HttpHeaders.Authorization, "Bearer ${session.token}")
         contentType(ContentType.Application.Json)
         setBody(LogoutRequest(session.refreshToken))
+    }
+
+    private class ClaimGate : RefreshAfterPrecheck {
+        @Volatile var target: String? = null
+        val entered = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+
+        override suspend fun reached(jti: String) {
+            if (jti == target) {
+                entered.complete(Unit)
+                proceed.await()
+            }
+        }
     }
 
     @Test
@@ -150,6 +171,67 @@ class SharedRefreshTest {
             assertEquals(HttpStatusCode.Unauthorized, client.refresh(session.refreshToken).status)
         } finally {
             other.stop()
+        }
+    }
+
+    @Test
+    fun `strict revocation after precheck wins before the refresh claim`() = testApplication {
+        configureApp()
+        val gate = ClaimGate()
+        application { attributes.put(RefreshAfterPrecheckKey, gate) }
+        startApplication()
+        val (email, password) = account("strict-race")
+        val client = jsonClient()
+        val session = client.loginPair(email, password)
+        val decoded = JWT.decode(session.refreshToken)
+        val jti = requireNotNull(decoded.id)
+        val expiresAt = requireNotNull(decoded.expiresAt).time
+        gate.target = jti
+
+        try {
+            coroutineScope {
+                val response = async { client.refresh(session.refreshToken) }
+                withTimeout(5_000) { gate.entered.await() }
+                assertTrue(application.attributes[TokenBlocklistServiceKey].revokeIfAbsent(jti, expiresAt))
+                gate.proceed.complete(Unit)
+                assertEquals(HttpStatusCode.Unauthorized, response.await().status)
+            }
+        } finally {
+            gate.proceed.complete(Unit)
+        }
+    }
+
+    @Test
+    fun `grace consumed after precheck is rejected by the refresh claim`() = testApplication {
+        configureApp()
+        val gate = ClaimGate()
+        application { attributes.put(RefreshAfterPrecheckKey, gate) }
+        startApplication()
+        val (email, password) = account("grace-race")
+        val client = jsonClient()
+        val session = client.loginPair(email, password)
+        assertEquals(HttpStatusCode.OK, client.refresh(session.refreshToken).status, "establish the durable grace row")
+        val decoded = JWT.decode(session.refreshToken)
+        val jti = requireNotNull(decoded.id)
+        val expiresAt = requireNotNull(decoded.expiresAt).time
+        gate.target = jti
+
+        try {
+            coroutineScope {
+                val response = async { client.refresh(session.refreshToken) }
+                withTimeout(5_000) { gate.entered.await() }
+                repeat(MAX_GRACE_REUSES) {
+                    assertEquals(
+                        RefreshClaim.GRACE_REPLAY,
+                        application.attributes[TokenBlocklistServiceKey]
+                            .claimRefresh(jti, expiresAt, session.userId),
+                    )
+                }
+                gate.proceed.complete(Unit)
+                assertEquals(HttpStatusCode.Unauthorized, response.await().status)
+            }
+        } finally {
+            gate.proceed.complete(Unit)
         }
     }
 }

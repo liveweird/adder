@@ -31,6 +31,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -42,6 +43,13 @@ internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 
 /** Ceiling for the in-memory throttle/challenge stores' `maxTracked` capacities — bounds the memory an operator can commit. */
 internal const val MAX_TRACKED_IDENTITIES = 1_000_000
+
+internal fun interface RefreshAfterPrecheck {
+    suspend fun reached(jti: String)
+}
+
+/** Internal operation-boundary seam for deterministic refresh-claim races; production never publishes this attribute. */
+internal val RefreshAfterPrecheckKey = AttributeKey<RefreshAfterPrecheck>("RefreshAfterPrecheck")
 
 internal fun JwtConfig.authResponse(userId: UInt, user: User): LoginResponse {
     val roles = user.additionalRoles
@@ -163,6 +171,7 @@ private fun Route.refresh(deps: AuthDeps) {
             RefreshPrecheck.REPLAYED -> reject("replayed", rawUserId)
             RefreshPrecheck.REVOKED -> reject("revoked", rawUserId)
         }
+        call.application.attributes.getOrNull(RefreshAfterPrecheckKey)?.reached(jti)
         val userId = rawUserId
             ?.takeIf { it in 1..UInt.MAX_VALUE.toLong() }
             ?.toUInt()
