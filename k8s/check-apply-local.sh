@@ -1,6 +1,12 @@
 #!/bin/sh
 set -eu
 
+if [ "$#" -gt 1 ]; then
+    echo "usage: $0 [render-output-root]" >&2
+    exit 2
+fi
+
+render_output_root=${1:-}
 script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 work_dir=$(mktemp -d)
 trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
@@ -54,6 +60,7 @@ new_case() {
 
 new_case default
 PATH="$bin_dir:$PATH" sh "$script_dir/apply-local.sh" test-single
+single_rendered=$RENDER_OUT
 grep -q '^kubectl -n adder get secret adder-secrets$' "$COMMAND_LOG"
 grep -q '^kubectl apply -f ' "$COMMAND_LOG"
 if grep -q '^docker ' "$COMMAND_LOG"; then echo "default render inspected Docker" >&2; exit 1; fi
@@ -75,6 +82,7 @@ export DOCKER_BUILD_VERSION=1.32.0 DOCKER_BUILD_COMMIT=0123456789abcdef
 export KUBECTL_RUNTIME_VERSION=1.32.0 KUBECTL_RUNTIME_COMMIT=0123456789abcdef
 unset KUBECTL_RUNTIME_VERSION_TWO KUBECTL_RUNTIME_COMMIT_TWO KUBECTL_EXEC_FAIL_POD
 PATH="$bin_dir:$PATH" sh "$script_dir/apply-local.sh" test-two --replicas=2
+two_rendered=$RENDER_OUT
 grep -q '^kubectl -n adder rollout status deployment/app --timeout=10s$' "$COMMAND_LOG"
 grep -q '^kubectl -n adder get deployment app -o jsonpath=' "$COMMAND_LOG"
 grep -q '^docker image inspect --format ' "$COMMAND_LOG"
@@ -127,5 +135,17 @@ export KUBECTL_RUNTIME_COMMIT=new-build KUBECTL_EXEC_FAIL_POD=app-one
 expect_preflight_failure runtime-inspection-failed retagged --replicas=2
 unset KUBECTL_EXEC_FAIL_POD
 expect_preflight_failure invalid-option image --replicas=3
+
+if [ -n "$render_output_root" ]; then
+    single_destination="$render_output_root/rendered-single"
+    two_destination="$render_output_root/rendered-two"
+    if [ -e "$single_destination" ] || [ -e "$two_destination" ]; then
+        echo "render output directories already exist under $render_output_root" >&2
+        exit 1
+    fi
+    mkdir -p "$single_destination" "$two_destination"
+    cp "$single_rendered"/*.yaml "$single_destination/"
+    cp "$two_rendered"/*.yaml "$two_destination/"
+fi
 
 echo "apply-local render checks passed"
