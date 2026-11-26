@@ -162,7 +162,7 @@ internal class NotificationDigestDelivery(
                 val notice = groupedNotice.notice
                 DigestEntry(
                     notice.type,
-                    actorNames[notice.actorId].orEmpty(),
+                    actorNames.getOrDefault(notice.actorId, ""),
                     notice.roomId,
                     roomNames.getValue(notice.roomId),
                     notice.threadId?.let(threadNumbers::getValue),

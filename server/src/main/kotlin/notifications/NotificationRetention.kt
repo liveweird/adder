@@ -1,6 +1,5 @@
 package ch.nokillswit.notifications
 
-import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.ArrayColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
@@ -50,9 +49,9 @@ internal class NotificationRetention(private val unseenLimit: Int = MAX_UNSEEN_N
         val transaction = TransactionManager.current()
         val array = ArrayColumnType<Long, List<Long>>(LongColumnType())
         transaction.exec(ENSURE_RECIPIENT_GUARDS, listOf(array to ids), explicitStatementType = StatementType.INSERT)
-        transaction.exec(LOCK_RECIPIENT_GUARDS, listOf(array to ids), explicitStatementType = StatementType.SELECT) { row ->
-            row.get(0, Long::class.javaObjectType)
-        }?.toList()
+        transaction.noticeRows(LOCK_RECIPIENT_GUARDS, listOf(array to ids)) { row ->
+            row.noticeColumn(0, Long::class.javaObjectType)
+        }
     }
 
     /**
@@ -94,11 +93,10 @@ internal class NotificationRetention(private val unseenLimit: Int = MAX_UNSEEN_N
 
     /** Locks at most one legacy guard after [after], for a bounded normalization transaction. */
     suspend fun nextLegacyRecipient(after: UInt): UInt? =
-        TransactionManager.current().exec(
+        TransactionManager.current().noticeRows(
             NEXT_LEGACY_RECIPIENT,
             listOf(LongColumnType() to after.toLong()),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Long::class.javaObjectType)?.toUInt() }?.toList().orEmpty().singleOrNull()
+        ) { row -> row.noticeColumn(0, Long::class.javaObjectType).toUInt() }.singleOrNull()
 
     /**
      * Deletes one departing membership's notices in ascending locked batches before the membership's cascade. Both operations stay in
@@ -109,7 +107,7 @@ internal class NotificationRetention(private val unseenLimit: Int = MAX_UNSEEN_N
         var after = 0u
         var deleted = 0
         do {
-            val ids = TransactionManager.current().exec(
+            val ids = TransactionManager.current().noticeRows(
                 LOCK_MEMBERSHIP_NOTICE_BATCH,
                 listOf(
                     LongColumnType() to recipientId.toLong(),
@@ -117,8 +115,7 @@ internal class NotificationRetention(private val unseenLimit: Int = MAX_UNSEEN_N
                     IntegerColumnType() to after.toInt(),
                     IntegerColumnType() to batchSize,
                 ),
-                explicitStatementType = StatementType.SELECT,
-            ) { row -> row.get(0, Int::class.javaObjectType)?.toUInt() }?.toList().orEmpty().filterNotNull()
+            ) { row -> row.noticeColumn(0, Int::class.javaObjectType).toUInt() }
             if (ids.isNotEmpty()) {
                 after = ids.last()
                 deleted += deleteIds(recipientId, ids).size
@@ -130,19 +127,18 @@ internal class NotificationRetention(private val unseenLimit: Int = MAX_UNSEEN_N
     /** One set-oriented bound probe for the whole audience; compliant broadcasts take no per-recipient statements or guard writes. */
     private suspend fun oversizedRecipients(recipients: List<UInt>): Set<UInt> {
         if (recipients.isEmpty()) return emptySet()
-        return TransactionManager.current().exec(
+        return TransactionManager.current().noticeRows(
             OVERSIZED_RECIPIENTS,
             listOf(
                 ArrayColumnType<Long, List<Long>>(LongColumnType()) to recipients.map(UInt::toLong),
                 IntegerColumnType() to unseenLimit,
             ),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Long::class.javaObjectType)?.toUInt() }?.toList().orEmpty().filterNotNull().toSet()
+        ) { row -> row.noticeColumn(0, Long::class.javaObjectType).toUInt() }.toSet()
     }
 
     private suspend fun deleteOldestAvailable(recipients: Set<UInt>, prune: Int): List<DeletedNotice> {
         if (recipients.isEmpty()) return emptyList()
-        return TransactionManager.current().exec(
+        return TransactionManager.current().noticeRows(
             DELETE_OLDEST_AVAILABLE,
             listOf(
                 ArrayColumnType<Long, List<Long>>(LongColumnType()) to recipients.sorted().map(UInt::toLong),
@@ -150,52 +146,48 @@ internal class NotificationRetention(private val unseenLimit: Int = MAX_UNSEEN_N
                 IntegerColumnType() to unseenLimit,
                 IntegerColumnType() to prune,
             ),
-            explicitStatementType = StatementType.SELECT,
         ) { row ->
             DeletedNotice(
-                row.get(0, Long::class.javaObjectType)!!.toUInt(),
-                row.get(1, Int::class.javaObjectType)!!.toUInt(),
-                row.get(2, Boolean::class.javaObjectType) == true,
+                row.noticeColumn(0, Long::class.javaObjectType).toUInt(),
+                row.noticeColumn(1, Int::class.javaObjectType).toUInt(),
+                row.noticeColumn(2, Boolean::class.javaObjectType),
             )
-        }?.toList().orEmpty().filterNotNull()
+        }
     }
 
     private suspend fun deleteCreated(ids: Collection<UInt>): List<DeletedNotice> {
         if (ids.isEmpty()) return emptyList()
-        return TransactionManager.current().exec(
+        return TransactionManager.current().noticeRows(
             DELETE_CREATED_NOTICES,
             listOf(ArrayColumnType<Int, List<Int>>(IntegerColumnType()) to ids.distinct().map(UInt::toInt)),
-            explicitStatementType = StatementType.SELECT,
         ) { row ->
             DeletedNotice(
-                row.get(0, Long::class.javaObjectType)!!.toUInt(),
-                row.get(1, Int::class.javaObjectType)!!.toUInt(),
-                row.get(2, Boolean::class.javaObjectType) == true,
+                row.noticeColumn(0, Long::class.javaObjectType).toUInt(),
+                row.noticeColumn(1, Int::class.javaObjectType).toUInt(),
+                row.noticeColumn(2, Boolean::class.javaObjectType),
             )
-        }?.toList().orEmpty().filterNotNull()
+        }
     }
 
     private suspend fun deleteIds(recipient: UInt, ids: Collection<UInt>): List<Pair<UInt, Boolean>> {
         if (ids.isEmpty()) return emptyList()
-        return TransactionManager.current().exec(
+        return TransactionManager.current().noticeRows(
             DELETE_NOTICE_IDS,
             listOf(
                 LongColumnType() to recipient.toLong(),
                 ArrayColumnType<Int, List<Int>>(IntegerColumnType()) to ids.distinct().map(UInt::toInt),
             ),
-            explicitStatementType = StatementType.SELECT,
         ) { row ->
-            row.get(0, Int::class.javaObjectType)!!.toUInt() to (row.get(1, Boolean::class.javaObjectType) == true)
-        }?.toList().orEmpty().filterNotNull()
+            row.noticeColumn(0, Int::class.javaObjectType).toUInt() to row.noticeColumn(1, Boolean::class.javaObjectType)
+        }
     }
 
     private suspend fun existingIds(ids: Collection<UInt>): Set<UInt> {
         if (ids.isEmpty()) return emptySet()
-        return TransactionManager.current().exec(
+        return TransactionManager.current().noticeRows(
             EXISTING_NOTICE_IDS,
             listOf(ArrayColumnType<Int, List<Int>>(IntegerColumnType()) to ids.distinct().map(UInt::toInt)),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType)?.toUInt() }?.toList().orEmpty().filterNotNull().toSet()
+        ) { row -> row.noticeColumn(0, Int::class.javaObjectType).toUInt() }.toSet()
     }
 
     private suspend fun setNormalizationState(recipients: Collection<UInt>, needed: Collection<UInt>) {

@@ -1,7 +1,6 @@
 package ch.nokillswit.notifications
 
 import ch.nokillswit.infra.time.MILLIS_PER_DAY
-import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.ArrayColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
@@ -86,11 +85,11 @@ internal class NotificationDigestStore(
         val pacingCutoff = LongColumnType() to now - actorRecipientIntervalMillis
         val offByDefault = ArrayColumnType<String, List<String>>(TextColumnType()) to
             NotificationType.entries.filter { !it.defaultOn(NotificationChannel.EMAIL) }.map { it.name }
-        val settled = TransactionManager.current().exec(
+        val transaction = TransactionManager.current()
+        val settled = transaction.noticeRows(
             SETTLE,
             listOf(cutoff, floor, IntegerColumnType() to bounds.scanCap, offByDefault, LongColumnType() to now),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType) }?.toList().orEmpty().size
+        ) { row -> row.noticeColumn(0, Int::class.javaObjectType) }.size
         val arguments = listOf(
             cutoff,
             floor,
@@ -101,21 +100,21 @@ internal class NotificationDigestStore(
             IntegerColumnType() to peopleToClaim(batchSize, maxPerRun),
             LongColumnType() to now,
         )
-        val claimed = TransactionManager.current().exec(CLAIM, arguments, explicitStatementType = StatementType.SELECT) { row ->
-            val type = NotificationType.entries.firstOrNull { it.name == row.get(5, String::class.java) }
+        val claimed = transaction.noticeRows(CLAIM, arguments) { row ->
+            val type = NotificationType.entries.firstOrNull { it.name == row.noticeColumn(5, String::class.java) }
             type?.let {
                 ClaimedNotice(
-                    id = row.get(0, Int::class.javaObjectType)!!.toUInt(),
-                    recipientId = row.get(1, Long::class.javaObjectType)!!.toUInt(),
-                    roomId = row.get(2, Int::class.javaObjectType)!!.toUInt(),
+                    id = row.noticeColumn(0, Int::class.javaObjectType).toUInt(),
+                    recipientId = row.noticeColumn(1, Long::class.javaObjectType).toUInt(),
+                    roomId = row.noticeColumn(2, Int::class.javaObjectType).toUInt(),
                     threadId = row.get(3, Int::class.javaObjectType)?.toUInt(),
                     messageId = row.get(4, Int::class.javaObjectType)?.toUInt(),
                     type = it,
-                    actorId = row.get(6, Long::class.javaObjectType)!!.toUInt(),
-                    rank = row.get(7, Long::class.javaObjectType)!!,
+                    actorId = row.noticeColumn(6, Long::class.javaObjectType).toUInt(),
+                    rank = row.noticeColumn(7, Long::class.javaObjectType),
                 )
             }
-        }?.toList().orEmpty().filterNotNull().sortedBy { it.id }
+        }.sortedBy { it.id }
         DigestClaim(claimed, settled)
     }
 
@@ -133,20 +132,17 @@ internal class NotificationDigestStore(
             val pairArgs = listOf(array to ordered.map { it.actorId.toLong() }, array to ordered.map { it.recipientId.toLong() })
             val transaction = TransactionManager.current()
             transaction.exec(ENSURE_PAIRS, pairArgs, explicitStatementType = StatementType.INSERT)
-            transaction.exec(LOCK_PAIRS, pairArgs, explicitStatementType = StatementType.SELECT) { row ->
-                row.get(0, Long::class.javaObjectType)
-            }?.toList()
+            transaction.noticeRows(LOCK_PAIRS, pairArgs) { row -> row.noticeColumn(0, Long::class.javaObjectType) }
             val reservedAt = clock()
-            transaction.exec(
+            transaction.noticeRows(
                 RESERVE_PAIRS,
                 pairArgs + listOf(LongColumnType() to reservedAt, LongColumnType() to reservedAt - intervalMillis),
-                explicitStatementType = StatementType.SELECT,
             ) { row ->
                 ActorRecipientPair(
-                    row.get(0, Long::class.javaObjectType)!!.toUInt(),
-                    row.get(1, Long::class.javaObjectType)!!.toUInt(),
+                    row.noticeColumn(0, Long::class.javaObjectType).toUInt(),
+                    row.noticeColumn(1, Long::class.javaObjectType).toUInt(),
                 )
-            }?.toList().orEmpty().filterNotNull().toSet()
+            }.toSet()
         }
     }
 
@@ -156,14 +152,13 @@ internal class NotificationDigestStore(
         val ordered = ids.sorted()
         return suspendTransaction(database) {
             queryTimeout = bounds.statementTimeoutSeconds
-            TransactionManager.current().exec(
+            TransactionManager.current().noticeRows(
                 RELEASE_CLAIMS,
                 listOf(
                     ArrayColumnType<Int, List<Int>>(IntegerColumnType()) to ordered.map { it.toInt() },
                     LongColumnType() to stamp,
                 ),
-                explicitStatementType = StatementType.SELECT,
-            ) { row -> row.get(0, Int::class.javaObjectType) }?.toList().orEmpty().size
+            ) { row -> row.noticeColumn(0, Int::class.javaObjectType) }.size
         }
     }
 
@@ -173,10 +168,9 @@ internal class NotificationDigestStore(
      */
     suspend fun purgeExpiredPacing(cutoffMillis: Long, batchSize: Int = PACING_PURGE_BATCH): Int = suspendTransaction(database) {
         queryTimeout = bounds.statementTimeoutSeconds
-        TransactionManager.current().exec(
+        TransactionManager.current().noticeRows(
             PURGE_EXPIRED_PACING,
             listOf(LongColumnType() to cutoffMillis, IntegerColumnType() to batchSize),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Long::class.javaObjectType) }?.toList().orEmpty().size
+        ) { row -> row.noticeColumn(0, Long::class.javaObjectType) }.size
     }
 }

@@ -260,6 +260,66 @@ class NotificationRetentionTest {
     }
 
     @Test
+    fun `legacy excess discards the current mixed-channel replacement when the bounded old-row trim cannot restore the cap`() =
+        runBlocking {
+            val scene = scene("retain-fallback")
+            listOf(
+                NotificationType.MENTIONED,
+                NotificationType.MESSAGE_QUOTED,
+                NotificationType.REACTION_ADDED,
+                NotificationType.THREAD_REPLIED,
+            ).forEachIndexed { index, type -> seedNotice(scene, index.toLong(), type = type) }
+            val current = seedNotice(scene, 5L, inApp = false, type = NotificationType.THREAD_CLOSED)
+            val replacement = PersistedNotice(
+                scene.recipient, current, NotificationType.THREAD_CLOSED, inApp = false, replacedInApp = true,
+            )
+            val retained = suspendTransaction(sharedDatabaseForTests()) {
+                NotificationRetention(2).run {
+                    lockRecipients(listOf(scene.recipient))
+                    trimLocked(listOf(scene.recipient), listOf(replacement), pruneLimit = 1)
+                }
+            }
+
+            assertEquals(emptyList(), retained.survivors)
+            assertEquals(2, retained.deleted, "one old row and the current replacement are removed")
+            assertEquals(setOf(scene.recipient), retained.bellChanged, "removing the replaced app row invalidates the bell")
+            assertEquals(3, unseen(scene.recipient).size, "the remaining legacy excess is left for bounded background cleanup")
+            assertTrue(normalizationNeeded(scene.recipient))
+        }
+
+    @Test
+    fun `a surviving mail-only replacement still invalidates the bell for its removed app row`() = runBlocking {
+        val scene = scene("retain-replacement-bell")
+        val current = seedNotice(scene, 1L, inApp = false, type = NotificationType.THREAD_CLOSED)
+        val replacement = PersistedNotice(
+            scene.recipient, current, NotificationType.THREAD_CLOSED, inApp = false, replacedInApp = true,
+        )
+
+        val retained = suspendTransaction(sharedDatabaseForTests()) {
+            NotificationRetention(10).run {
+                lockRecipients(listOf(scene.recipient))
+                trimLocked(listOf(scene.recipient), listOf(replacement))
+            }
+        }
+
+        assertEquals(listOf(replacement), retained.survivors)
+        assertEquals(setOf(scene.recipient), retained.bellChanged)
+        assertEquals(0, retained.deleted)
+    }
+
+    @Test
+    fun `retention rejects invalid bounds before issuing notification writes`() = runBlocking<Unit> {
+        assertFailsWith<IllegalArgumentException> { NotificationRetention(0) }
+        assertFailsWith<IllegalArgumentException> { NoticeSeenWriter(NotificationRetention(), threadChunk = 0) }
+        suspendTransaction(sharedDatabaseForTests()) {
+            val retention = NotificationRetention()
+            retention.lockRecipients(emptyList())
+            assertFailsWith<IllegalArgumentException> { retention.trimLocked(emptyList(), emptyList(), pruneLimit = 0) }
+            assertFailsWith<IllegalArgumentException> { retention.deleteMembershipNotices(1u, 1u, batchSize = 0) }
+        }
+    }
+
+    @Test
     fun `legacy normalization is bounded per recipient and finishes over several passes`() = runBlocking {
         val scene = scene("retain-legacy")
         repeat(8) { seedNotice(scene, it.toLong(), type = NotificationType.entries[it]) }
@@ -457,6 +517,15 @@ class NotificationRetentionTest {
                 statement.setLong(1, recipient.toLong())
                 statement.executeUpdate()
             }
+        }
+    }
+
+    private fun normalizationNeeded(recipient: UInt): Boolean = PostgresTestSupport.connect().use { connection ->
+        connection.prepareStatement(
+            "SELECT needs_normalization FROM notification_recipient_guards WHERE recipient_id = ?",
+        ).use { statement ->
+            statement.setLong(1, recipient.toLong())
+            statement.executeQuery().use { rows -> rows.next() && rows.getBoolean(1) }
         }
     }
 

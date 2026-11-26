@@ -64,6 +64,8 @@ internal data class DigestBounds(
     val statementTimeoutSeconds: Int = DIGEST_STATEMENT_TIMEOUT_SECONDS,
     /** Fixed production policy; this override lives on the existing test seam rather than widening the digest constructor. */
     val actorRecipientIntervalMillis: Long = ACTOR_RECIPIENT_INTERVAL_MILLIS,
+    /** Fixed production safety cap; the override lets tests exercise fail-closed behavior without minting 50,000 accounts. */
+    val maxRemembered: Int = DIGEST_MAX_REMEMBERED,
 )
 
 internal data class ClaimedNotice(
@@ -177,7 +179,7 @@ internal class NotificationDigest(
     private suspend fun runLocked(mailer: Mailer): DigestRun {
         val now = clock()
         mailedAt.values.removeAll { now - it >= minIntervalMillis }
-        if (mailedAt.size >= DIGEST_MAX_REMEMBERED) {
+        if (mailedAt.size >= bounds.maxRemembered) {
             log.warn("notification email digest paused: {} recipients are inside the mail interval", mailedAt.size)
             return DigestRun(0, 0, 0)
         }

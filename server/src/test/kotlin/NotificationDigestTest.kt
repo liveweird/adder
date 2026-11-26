@@ -51,12 +51,14 @@ class NotificationDigestTest {
     private val mintedRooms = mutableListOf<UInt>()
     private val mintedUsers = mutableListOf<UInt>()
     private val mintedTemplates = mutableListOf<UInt>()
+    private val mintedTeams = mutableListOf<UInt>()
 
     @AfterTest
     fun cleanUp() = runBlocking {
         TestRooms.purge(mintedRooms)
         mintedUsers.forEach { TestUsers.softDelete(it) }
         mintedTemplates.forEach { TestTemplates.delete(it) }
+        mintedTeams.forEach { TestTeams.service.delete(it) }
     }
 
     private class Sent(val to: String, val subject: String, val body: String)
@@ -191,6 +193,7 @@ class NotificationDigestTest {
         scanCap: Int = DIGEST_SCAN_CAP,
         statementTimeoutSeconds: Int = DIGEST_STATEMENT_TIMEOUT_SECONDS,
         actorRecipientIntervalMillis: Long = ACTOR_RECIPIENT_INTERVAL_MILLIS,
+        maxRemembered: Int = ch.nokillswit.notifications.DIGEST_MAX_REMEMBERED,
         failMemberRooms: (suspend (UInt) -> List<ch.nokillswit.rooms.RoomSummary>)? = null,
     ) = NotificationDigest(
         database = sharedDatabaseForTests(),
@@ -203,7 +206,7 @@ class NotificationDigestTest {
         batchSize = batchSize,
         maxPerRun = maxPerRun,
         afterClaim = afterClaim,
-        bounds = DigestBounds(scanCap, statementTimeoutSeconds, actorRecipientIntervalMillis),
+        bounds = DigestBounds(scanCap, statementTimeoutSeconds, actorRecipientIntervalMillis, maxRemembered),
     )
 
     @Test
@@ -342,6 +345,29 @@ class NotificationDigestTest {
     }
 
     @Test
+    fun `the remembered-recipient cap pauses claims fail closed`() = runBlocking {
+        val s = setup()
+        val first = s.member()
+        val waiting = s.member()
+        s.notice(first)
+        val waitingNotice = s.notice(waiting)
+        val mailer = RecordingMailer()
+        val capture = LogCapture("ch.nokillswit.notifications.NotificationDigest")
+        try {
+            val runner = digest(mailer, s, batchSize = 1, maxRemembered = 1)
+            assertEquals(1, runner.run().sent)
+
+            val paused = runner.run()
+
+            assertEquals(0, paused.claimed)
+            assertNull(emailedAt(waitingNotice), "the fail-closed cap leaves unclaimed work pending")
+            assertTrue(capture.events.any { it.formattedMessage.contains("digest paused") })
+        } finally {
+            capture.detach()
+        }
+    }
+
+    @Test
     fun `a switched-off kind is skipped and never mailed later`() = runBlocking {
         val s = setup()
         val ann = s.member()
@@ -381,6 +407,29 @@ class NotificationDigestTest {
         assertTrue(mail.body.contains("Olga added you to"))
         assertEquals("  $APP_URL/rooms/${s.room}", mail.body.lines().first { it.startsWith("  $APP_URL") })
         assertTrue(emailedAt(notice) != null)
+    }
+
+    @Test
+    fun `a team mention digest names a team the recipient belongs to`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val team = TestTeams.seedMentionable("digest", listOf(ann.id)).also { mintedTeams += it.id }
+        val messageId = TestThreads.rawMessages(s.thread).first().id
+        sql(
+            "INSERT INTO message_group_mentions (message_id, group_kind, team_id, thread_id, room_id) VALUES (?, 'TEAM', ?, ?, ?)",
+        ) { st ->
+            st.setInt(1, messageId.toInt())
+            st.setInt(2, team.id.toInt())
+            st.setInt(3, s.thread.toInt())
+            st.setInt(4, s.room.toInt())
+            st.executeUpdate()
+        }
+        s.notice(ann, type = NotificationType.TEAM_MENTIONED.name, messageId = messageId.toInt())
+        val mailer = RecordingMailer()
+
+        digest(mailer, s).run()
+
+        assertTrue(mailer.to(ann.email).single().body.contains("mentioned your team ${team.name}"))
     }
 
     @Test
@@ -749,6 +798,63 @@ class NotificationDigestTest {
         assertTrue(mailer.sent.none { it.to in listOf(first.email, second.email, third.email) })
         digest(mailer, s).run()
         listOf(first, second, third).forEach { assertEquals(1, mailer.to(it.email).size, "mailed by the next run") }
+    }
+
+    @Test
+    fun `cancellation during the final access check releases the unattempted claim`() = runBlocking {
+        val s = setup()
+        val ann = s.member()
+        val id = s.notice(ann)
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val runner = digest(
+            RecordingMailer(),
+            s,
+            failMemberRooms = {
+                started.complete(Unit)
+                kotlinx.coroutines.awaitCancellation()
+            },
+        )
+        val job = async(Dispatchers.Default) { runner.run() }
+        started.await()
+
+        job.cancel()
+        runCatching { job.await() }
+
+        assertNull(emailedAt(id), "nothing reached SMTP, so the claim is returned")
+        assertNull(pacingAt(s.owner.id, ann.id), "an access-check cancellation reserves no pacing interval")
+    }
+
+    @Test
+    fun `a failed cancellation release is scrubbed and leaves its claim settled`() = runBlocking<Unit> {
+        val s = setup()
+        val ann = s.member()
+        val id = s.notice(ann)
+        val blocker = PostgresTestSupport.connect()
+        val capture = LogCapture("ch.nokillswit.notifications.NotificationDigest")
+        try {
+            val runner = digest(
+                RecordingMailer(),
+                s,
+                statementTimeoutSeconds = 1,
+                afterClaim = {
+                    blocker.autoCommit = false
+                    blocker.createStatement().use { it.execute("LOCK TABLE notifications IN ACCESS EXCLUSIVE MODE") }
+                    throw kotlinx.coroutines.CancellationException("stop")
+                },
+            )
+
+            val failure = runCatching { runner.run() }.exceptionOrNull()
+
+            assertTrue(failure is kotlinx.coroutines.CancellationException)
+            val line = capture.events.single { it.formattedMessage.contains("could not release") }
+            assertFalse(line.everything().contains(s.roomName), "the release failure log is scrubbed")
+            blocker.rollback()
+            assertNotNull(emailedAt(id), "a timed-out release cannot return the claim")
+        } finally {
+            blocker.rollback()
+            blocker.close()
+            capture.detach()
+        }
     }
 
     @Test
