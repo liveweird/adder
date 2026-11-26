@@ -223,7 +223,7 @@ Installed with `npm install --legacy-peer-deps` (the existing web exception: rec
   `index-*.js` stays free of it). Each chart component imports `@mantine/charts/styles.css` itself — without it the tooltip renders unstyled.
 - `react-markdown` + `remark-gfm` + `remark-gemoji` — the markdown renderer behind `components/MarkdownView.tsx` (the changelog bodies; later the message bodies). Lazy-chunk-only: they must not enter the main bundle.
 - `emoji-mart` and `@emoji-mart/data` provide the emoji picker behind `components/EmojiPicker.tsx`. The component mounts the picker
-  element directly and updates it as the language or theme changes. Lazy-chunk-only: the picker mounts
+  element directly and replaces it as the language or theme changes. The element receives current options during initialization. Lazy-chunk-only: the picker mounts
   through `EmojiButton`'s `React.lazy` and the data set (a few hundred kB) has its own `emoji-data` code-splitting group in `vite.config.ts`; none of them may enter the main bundle (`npm run build` shows the chunks). **No CDN, ever:**
   `data` AND `i18n` are always passed to the `Picker` explicitly (one i18n file per `SUPPORTED_LANGUAGES` entry) — omitting either makes emoji-mart fetch it from a CDN at runtime, which the CSP (`connect-src 'self'`)
   blocks and a self-hosted deployment must not attempt. `EmojiPicker.test.tsx` covers the bundled data, locale, and element lifecycle.
