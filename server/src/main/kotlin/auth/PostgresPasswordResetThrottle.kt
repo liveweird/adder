@@ -1,5 +1,7 @@
 package ch.nokillswit.auth
 
+import ch.nokillswit.infra.crypto.DeploymentKeyedDigest
+import ch.nokillswit.infra.validation.canonicalEmail
 import kotlinx.coroutines.flow.firstOrNull
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
@@ -57,7 +59,7 @@ internal class PostgresPasswordResetThrottle(
             listOf(LongColumnType() to now, IntegerColumnType() to AUTH_STATE_EXPIRY_CLEANUP_BATCH),
             explicitStatementType = StatementType.DELETE,
         )
-        val hash = digest.of(email)
+        val hash = digest.ofCanonical(canonicalEmail(email))
         val expiresAt = TransactionManager.current().exec(
             READ_RESET_COOLDOWN,
             listOf(TextColumnType() to hash),

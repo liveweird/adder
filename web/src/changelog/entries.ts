@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.29.0",
+    date: "2026-11-26",
+    en: `**Adder 1.29.0 — shared request limits**
+
+- Application instances sharing a database now share their existing sign-in and action limits. Restarting an app keeps active limits in effect.`,
+    pl: `**Adder 1.29.0 — wspólne limity żądań**
+
+- Instancje aplikacji korzystające z tej samej bazy danych współdzielą dotychczasowe limity logowania i operacji. Restart aplikacji nie zeruje aktywnych limitów.`,
+  },
+  {
     version: "1.28.0",
     date: "2026-11-26",
     en: `**Adder 1.28.0 — shared email sign-in codes**

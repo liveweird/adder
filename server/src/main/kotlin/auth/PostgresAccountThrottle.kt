@@ -1,5 +1,6 @@
 package ch.nokillswit.auth
 
+import ch.nokillswit.infra.crypto.DeploymentKeyedDigest
 import ch.nokillswit.infra.validation.canonicalEmail
 import kotlinx.coroutines.flow.firstOrNull
 import org.jetbrains.exposed.v1.core.BooleanColumnType
@@ -169,7 +170,7 @@ internal class PostgresAccountThrottle(
         block: suspend (Pair<String, LoginAttemptState>, Long) -> T,
     ): T {
         if (knownUserId != null) return knownIdentity(email, knownUserId, stale, block)
-        val hash = digest.of(email)
+        val hash = digest.ofCanonical(canonicalEmail(email))
         lockIdentity(hash)
         val now = databaseNow()
         return block(hash to read(hash).normalized(now), now)
@@ -192,7 +193,7 @@ internal class PostgresAccountThrottle(
         userId: UInt,
         block: suspend (Pair<String, LoginAttemptState>, Long) -> T,
     ): T {
-        val currentHash = digest.of(currentEmail)
+        val currentHash = digest.ofCanonical(currentEmail)
         val oldHash = boundHash(userId)
         listOfNotNull(oldHash, currentHash).distinct().sorted().forEach { lockIdentity(it) }
         val validOldHash = oldHash?.takeIf { boundUser(it) == userId }

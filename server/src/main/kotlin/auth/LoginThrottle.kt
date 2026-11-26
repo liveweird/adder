@@ -112,5 +112,5 @@ class LoginThrottle(
     }
 }
 
-/** Fixed-size test-adapter key. Production uses [DeploymentKeyedDigest]. */
+/** Fixed-size test-adapter key. Production uses a deployment-keyed HMAC. */
 internal fun loginIdentityKey(email: String): String = sha256Hex(email.trim().lowercase())

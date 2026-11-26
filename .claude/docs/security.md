@@ -353,6 +353,13 @@ a completed reset followed by an admin password write: both succeed, the admin's
 bucket, the byte ceiling, MFA, notification failure, the `mail.appUrl` boot contract), `PasswordResetTest` (the request route and
 the full link roundtrip incl. the session revocation), `PasswordResetThrottleTest`, `LocalizedEmailTest`.
 
+**Shared HTTP rate limits (V58).** Application request lanes share their existing per-IP and per-user allowances through PostgreSQL.
+The `ready` bucket stays on each process so local health probes keep separate allowances. A window starts at the first admitted
+request and refills after 60 seconds on the database clock. The existing `X-RateLimit-*` and `Retry-After` headers describe the
+shared window. IP keys use the same canonical IPv4 or IPv6-prefix selection as before and user keys come from a verified token.
+The table stores only domain-separated deployment HMAC digests. Saturation at 100,000 active bucket identities refuses new
+identities with `429` and preserves active ones. A database failure follows the ordinary server error path.
+
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today
 `login`, `refresh`, `password-reset`, `password-reset-confirm`, `mfa`, `ready`, `live-connect` (below), and the per-USER `telemetry`, `directory`, `room-name`, `room-members`, `chat-post`, `chat-write`, `chat-read`, `read-state`, `thread-watch`, `notification-prefs`, `notification-read`, `live-ticket`, `search`, `link-preview` and `password-change` below): blank **follows the mode** — 10/min in production,

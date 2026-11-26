@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Shared request limits (1.29.0)
+
+Application request allowances are shared through PostgreSQL. Clients keep the same quotas and headers. Health probes keep a separate allowance for each app process.
+
 ### Shared email sign-in codes (1.28.0)
 
 Instances using the same database and data encryption keys can verify each other's pending MFA challenges. Each code is single-use and its attempts and expiry are shared. Pending challenges issued by an earlier release need a fresh sign-in after the update.

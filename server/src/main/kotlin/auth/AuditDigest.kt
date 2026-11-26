@@ -1,5 +1,7 @@
 package ch.nokillswit.auth
 
+import ch.nokillswit.infra.crypto.DeploymentKeyedDigest
+import ch.nokillswit.infra.validation.canonicalEmail
 import ch.nokillswit.plugins.JwtConfigKey
 import io.ktor.server.application.Application
 import io.ktor.util.AttributeKey
@@ -21,7 +23,7 @@ internal class AuditDigest(jwtSecret: String) {
     private val digest = DeploymentKeyedDigest(jwtSecret, DERIVATION_LABEL)
 
     /** The 64-character lowercase hex digest of [email], folded like the lockout key (trimmed, lower-cased). */
-    fun of(email: String): String = digest.of(email)
+    fun of(email: String): String = digest.ofCanonical(canonicalEmail(email))
 
     private companion object {
         const val DERIVATION_LABEL = "adder.audit-digest.v1"
