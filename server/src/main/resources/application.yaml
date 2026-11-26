@@ -105,7 +105,7 @@ security:
     # an escalated lock even when paced under the 15-minute window). A lock tripped by wrong passwords stays the flat `durationSeconds`. Both in 1 .. 30 days.
     mfaMaxDurationSeconds: "$LOGIN_LOCKOUT_MFA_MAX_DURATION_SECONDS:86400"
     mfaDecaySeconds: "$LOGIN_LOCKOUT_MFA_DECAY_SECONDS:86400"
-  # Per-IP token bucket on POST /api/v1/login. The per-account lockout above is the
+  # Per-IP rate limit on POST /api/v1/login, shared across instances in PostgreSQL. The per-account lockout above is the
   # actual brute-force defence and is unaffected by this. Blank FOLLOWS THE MODE:
   # 10/min in production, 1000/min in development — the e2e suite drives many logins
   # from a single host and would otherwise spend minutes sleeping out the bucket.
@@ -115,7 +115,7 @@ security:
     # Blank keeps the default 30/min (both modes); a number pins it.
     refreshPerMinute: "$REFRESH_RATE_LIMIT_PER_MINUTE:"
     # Per-IP bucket on GET /api/v1/ready (the anonymous probe that takes a pooled DB connection per
-    # call). Blank keeps the default 60/min (both modes; the kubelet probes 12/min); a number pins it.
+    # call). This instance-local probe limit defaults to 60/min (both modes). The kubelet probes 12/min.
     readyPerMinute: "$READY_RATE_LIMIT_PER_MINUTE:"
     # Per-IP bucket on POST /api/v1/password-reset. Blank FOLLOWS THE MODE (5/min in
     # production, 100/min in development — the loginPerMinute rationale); a number pins it.
@@ -130,8 +130,8 @@ security:
   # (auth/TokenBlocklistService.accessVerdict, plugins/Security.kt) is ONE uncached database
   # statement (revocation, account liveness, credential revision, roles), so a logout, a delete,
   # a demotion or a password change ends the token on its next request on ANY replica. The
-  # login lockout, password-reset cooldown, and email MFA challenges share PostgreSQL.
-  # The supplied Kubernetes deployment uses one app replica.
+  # login lockout, password-reset cooldown, email MFA challenges, and request quotas share PostgreSQL.
+  # The supplied deployment uses one app replica while digest recipient pacing and operation guards are process-local.
   # Refresh-token rotation (auth/TokenBlocklistService.kt): every /refresh blocklists the presented
   # token. The shared database permits up to two retries during `replayGraceSeconds`, including
   # across app instances and restarts. This covers lost responses and exceeds the SPA's 30 s
