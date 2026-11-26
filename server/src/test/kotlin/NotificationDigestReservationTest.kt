@@ -4,6 +4,7 @@ import ch.nokillswit.notifications.ACTOR_RECIPIENT_INTERVAL_MILLIS
 import ch.nokillswit.notifications.DigestAttemptStatus
 import ch.nokillswit.notifications.DigestBounds
 import ch.nokillswit.notifications.NotificationDigestStore
+import ch.nokillswit.notifications.PACING_PURGE_BATCH
 import ch.nokillswit.users.UserRole
 import java.sql.PreparedStatement
 import java.util.concurrent.atomic.AtomicLong
@@ -11,6 +12,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -62,6 +64,30 @@ class NotificationDigestReservationTest {
         "SELECT recipient_id FROM notification_digest_recipient_pacing ORDER BY recipient_id",
     ) { statement ->
         statement.executeQuery().use { rows -> buildSet { while (rows.next()) add(rows.getLong(1).toUInt()) } }
+    }
+
+    private fun recipientSlot(recipientId: UInt): Int? = sql(
+        "SELECT slot FROM notification_digest_recipient_pacing WHERE recipient_id = ?",
+    ) { statement ->
+        statement.setLong(1, recipientId.toLong())
+        statement.executeQuery().use { rows -> if (rows.next()) rows.getInt(1) else null }
+    }
+
+    @Test
+    fun `empty actor and claim sets return without allocating pacing work`() = runBlocking {
+        val recipient = user("digest-empty-recipient")
+        val now = AtomicLong(System.currentTimeMillis())
+        val digestStore = store(now)
+
+        val reservation = digestStore.reserveAttempt(
+            recipient,
+            emptySet(),
+            RECIPIENT_INTERVAL,
+            ACTOR_RECIPIENT_INTERVAL_MILLIS,
+        )
+        assertEquals(DigestAttemptStatus.ACTORS_PACED, reservation.status)
+        assertNull(pacing("notification_digest_recipient_pacing", recipient))
+        assertEquals(0, digestStore.release(emptyList(), now.get()))
     }
 
     @Test
@@ -118,6 +144,53 @@ class NotificationDigestReservationTest {
         assertEquals(DigestAttemptStatus.RESERVED, mixed.status)
         assertEquals(setOf(eligible), mixed.actorIds)
         assertEquals(now.get(), pacing("notification_digest_recipient_pacing", recipient))
+    }
+
+    @Test
+    fun `an existing recipient is unchanged when its window expires but every actor remains paced`() = runBlocking {
+        val recipient = user("digest-existing-recipient")
+        val actor = user("digest-existing-actor")
+        val now = AtomicLong(System.currentTimeMillis())
+        val digestStore = store(now)
+        val recipientInterval = 100L
+        val actorInterval = 1_000L
+
+        assertEquals(
+            DigestAttemptStatus.RESERVED,
+            digestStore.reserveAttempt(recipient, setOf(actor), recipientInterval, actorInterval).status,
+        )
+        val attemptedAt = pacing("notification_digest_recipient_pacing", recipient)
+        val slot = recipientSlot(recipient)
+        now.addAndGet(recipientInterval)
+
+        assertEquals(
+            DigestAttemptStatus.ACTORS_PACED,
+            digestStore.reserveAttempt(recipient, setOf(actor), recipientInterval, actorInterval).status,
+        )
+        assertEquals(attemptedAt, pacing("notification_digest_recipient_pacing", recipient))
+        assertEquals(slot, recipientSlot(recipient), "an all-actors-paced retry neither updates nor reallocates the recipient")
+    }
+
+    @Test
+    fun `default purge removes expired recipient and actor pacing in one bounded call`() = runBlocking {
+        val recipient = user("digest-default-purge-recipient")
+        val actor = user("digest-default-purge-actor")
+        val now = AtomicLong(System.currentTimeMillis())
+        val digestStore = store(now)
+
+        assertEquals(
+            DigestAttemptStatus.RESERVED,
+            digestStore.reserveAttempt(recipient, setOf(actor), RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS).status,
+        )
+        now.addAndGet(ACTOR_RECIPIENT_INTERVAL_MILLIS)
+
+        val removed = digestStore.purgeExpiredPacing(RECIPIENT_INTERVAL, ACTOR_RECIPIENT_INTERVAL_MILLIS)
+        assertTrue(
+            removed in 2..(2 * PACING_PURGE_BATCH),
+            "the default call removes our rows and stays within its recipient-plus-pair bound: $removed",
+        )
+        assertNull(pacing("notification_digest_recipient_pacing", recipient))
+        assertNull(pacing("notification_email_pacing", recipient, actor))
     }
 
     @Test
