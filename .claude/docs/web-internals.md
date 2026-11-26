@@ -216,6 +216,7 @@ Typing `@` and letters opens a list of the room's members (`listRoomMembers` wit
 
 When the room membership search finds no match for a typed `@` name of at least two characters, `MentionTextarea` can offer the
 room manager a directory search. It opens the same `AddAndMention` dialog as the toolbar action and prefills the typed name.
+After a successful addition the composer keeps keyboard focus for the next keystroke. Cancel returns focus to the opener.
 Admission succeeds before the composer inserts the canonical mention. The captured token is replaced only if its range still matches
 the draft. The reply composer keeps the result in the draft store across navigation.
 

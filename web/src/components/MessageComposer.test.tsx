@@ -2,7 +2,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { QueryClient } from "@tanstack/react-query";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import MessageComposer from "./MessageComposer";
 import ThreadDraftsProvider from "./ThreadDraftsProvider";
 import { jsonResponse } from "../test/http";
@@ -252,11 +252,24 @@ describe("MessageComposer", () => {
     const directory = screen.getByRole("combobox", { name: "User" });
     await user.type(directory, "New");
     await user.click(await screen.findByText("New Person (new@example.test)"));
-    await user.click(screen.getAllByRole("button", { name: "Add and mention" }).at(-1)!);
-    await waitFor(() => expect(box()).toHaveValue("Please review @New Person "));
-    await waitFor(() => expect(box()).toHaveFocus());
+    const submit = screen.getAllByRole("button", { name: "Add and mention" }).at(-1)!;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      submit.focus();
+      await act(async () => { fireEvent.click(submit); });
+      // Flush the modal's deferred focus return before checking which control keeps focus.
+      await act(() => vi.advanceTimersByTimeAsync(20));
+      expect(box()).toHaveValue("Please review @New Person ");
+      expect(box()).toHaveFocus();
+    } finally {
+      vi.useRealTimers();
+    }
     const add = mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/members" && (init as RequestInit).method === "POST");
     expect(JSON.parse((add?.[1] as RequestInit).body as string)).toEqual({ userIds: [91] });
+    const opener = screen.getByRole("button", { name: "Add and mention" });
+    await user.click(opener);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(opener).toHaveFocus());
     await user.click(screen.getByRole("button", { name: "Send" }));
     const message = await waitFor(() => mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/threads/42/messages" && (init as RequestInit).method === "POST"));
     expect(JSON.parse((message?.[1] as RequestInit).body as string)).toEqual({ body: "Please review <@91>" });

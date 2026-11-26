@@ -22,11 +22,13 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
     en: `**Adder 1.22.0 — faster live account updates**
 
 - Open conversations recheck access after an account role changes, a password changes, or an account is removed. Logout closes live connections using the revoked session credential.
-- A separate sign-in keeps its live connection while its own credentials and permissions remain valid.`,
+- A separate sign-in keeps its live connection while its own credentials and permissions remain valid.
+- After adding and mentioning someone, keyboard focus stays in the reply box so you can continue your draft.`,
     pl: `**Adder 1.22.0 — szybsza reakcja na zmiany konta**
 
 - Otwarte rozmowy ponownie sprawdzają dostęp po zmianie roli lub hasła albo po usunięciu konta. Wylogowanie zamyka połączenia korzystające z unieważnionego tokenu sesji.
-- Osobne logowanie zachowuje połączenie, jeśli jego token i uprawnienia są nadal ważne.`,
+- Osobne logowanie zachowuje połączenie, jeśli jego token i uprawnienia są nadal ważne.
+- Po dodaniu i oznaczeniu osoby fokus pozostaje w polu odpowiedzi, dzięki czemu możesz dalej pisać.`,
   },
   {
     version: "1.21.0",
