@@ -1,10 +1,15 @@
 package ch.nokillswit.plugins
 
 import io.ktor.server.plugins.ratelimit.RateLimiter
+import io.r2dbc.spi.Row
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.count
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.single
+import kotlinx.coroutines.flow.singleOrNull
+import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.IntegerColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.TextColumnType
@@ -86,12 +91,12 @@ internal class SharedRateLimitStore(
                 PRUNE_EXPIRED,
                 listOf(IntegerColumnType() to batchSize),
                 explicitStatementType = StatementType.SELECT,
-            ) { row -> row.get(0, String::class.java) }?.filterNotNull()?.toList()?.size ?: 0
+            ) { row -> checkNotNull(row.get(0, String::class.java)) }?.count() ?: 0
         }
     }
 
     private suspend fun consumeExisting(bucket: String, keyHash: String, limit: Int, weight: Int): SharedRateLimitDecision? =
-        TransactionManager.current().exec(
+        executeDecision(
             CONSUME_EXISTING,
             listOf(
                 IntegerColumnType() to limit,
@@ -102,83 +107,84 @@ internal class SharedRateLimitStore(
                 TextColumnType() to keyHash,
                 IntegerColumnType() to weight,
             ),
-            explicitStatementType = StatementType.SELECT,
-        ) { row ->
-            SharedRateLimitDecision(
-                admitted = true,
-                remaining = checkNotNull(row.get(1, Int::class.javaObjectType)),
-                limit = limit,
-                serverNowMillis = checkNotNull(row.get(0, Long::class.javaObjectType)),
-                refillAtMillis = checkNotNull(row.get(2, Long::class.javaObjectType)),
-            )
-        }?.filterNotNull()?.toList()?.singleOrNull()
+            admitted = true,
+            limit = limit,
+        )
 
     private suspend fun readExisting(bucket: String, keyHash: String, limit: Int): SharedRateLimitDecision? =
-        TransactionManager.current().exec(
+        executeDecision(
             READ_EXISTING,
             arguments(bucket, keyHash),
-            explicitStatementType = StatementType.SELECT,
-        ) { row ->
-            SharedRateLimitDecision(
-                admitted = false,
-                remaining = checkNotNull(row.get(1, Int::class.javaObjectType)),
-                limit = limit,
-                serverNowMillis = checkNotNull(row.get(0, Long::class.javaObjectType)),
-                refillAtMillis = checkNotNull(row.get(2, Long::class.javaObjectType)),
-            )
-        }?.filterNotNull()?.toList()?.singleOrNull()
+            admitted = false,
+            limit = limit,
+        )
 
     private suspend fun insert(bucket: String, keyHash: String, limit: Int, weight: Int): SharedRateLimitDecision? =
-        TransactionManager.current().exec(
+        executeDecision(
             INSERT_NEW,
             arguments(bucket, keyHash) + listOf(
                 IntegerColumnType() to limit,
                 IntegerColumnType() to weight,
                 LongColumnType() to RATE_LIMIT_WINDOW_MILLIS,
             ),
-            explicitStatementType = StatementType.SELECT,
-        ) { row ->
-            SharedRateLimitDecision(
-                admitted = true,
-                remaining = checkNotNull(row.get(1, Int::class.javaObjectType)),
-                limit = limit,
-                serverNowMillis = checkNotNull(row.get(0, Long::class.javaObjectType)),
-                refillAtMillis = checkNotNull(row.get(2, Long::class.javaObjectType)),
-            )
-        }?.filterNotNull()?.toList()?.singleOrNull()
+            admitted = true,
+            limit = limit,
+        )
+
+    private suspend fun executeDecision(
+        sql: String,
+        arguments: Iterable<Pair<IColumnType<*>, Any?>>,
+        admitted: Boolean,
+        limit: Int,
+    ): SharedRateLimitDecision? = TransactionManager.current().exec(
+        sql,
+        arguments,
+        explicitStatementType = StatementType.SELECT,
+    ) { row -> row.decision(admitted, limit) }.singleOptional()
 
     private suspend fun lockCapacity(): Int? =
         TransactionManager.current().exec(
             LOCK_CAPACITY,
             explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Int::class.javaObjectType) }?.filterNotNull()?.toList()?.singleOrNull()
+        ) { row -> checkNotNull(row.get(0, Int::class.javaObjectType)) }.singleOptional()
 
     private suspend fun reclaimOneExpired(): Boolean =
         TransactionManager.current().exec(
             RECLAIM_ONE_EXPIRED,
             explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, String::class.java) }?.filterNotNull()?.toList()?.singleOrNull() != null
+        ) { row -> checkNotNull(row.get(0, String::class.java)) }.singleOptional() != null
 
-    private suspend fun capacity(): Capacity = checkNotNull(
+    private suspend fun capacity(): Capacity =
         TransactionManager.current().exec(CAPACITY, explicitStatementType = StatementType.SELECT) { row ->
             Capacity(
                 checkNotNull(row.get(0, Long::class.javaObjectType)),
                 checkNotNull(row.get(1, Boolean::class.javaObjectType)),
                 row.get(2, Long::class.javaObjectType),
             )
-        },
-    ).filterNotNull().toList().single()
+        }.singleRequired()
 
     private fun arguments(bucket: String, keyHash: String) =
         listOf(TextColumnType() to bucket, TextColumnType() to keyHash)
 
     private data class Capacity(val serverNow: Long, val hasExpired: Boolean, val earliestRefillAt: Long?)
 
+    private fun Row.decision(admitted: Boolean, limit: Int) = SharedRateLimitDecision(
+        admitted = admitted,
+        remaining = checkNotNull(get(1, Int::class.javaObjectType)),
+        limit = limit,
+        serverNowMillis = checkNotNull(get(0, Long::class.javaObjectType)),
+        refillAtMillis = checkNotNull(get(2, Long::class.javaObjectType)),
+    )
+
     private companion object {
         val KEY_HASH = Regex("[0-9a-f]{64}")
         const val CAPACITY_RETRY_MILLIS = 10L
     }
 }
+
+private suspend fun <T : Any> Flow<T?>?.singleOptional(): T? = this?.filterNotNull()?.singleOrNull()
+
+private suspend fun <T : Any> Flow<T?>?.singleRequired(): T = checkNotNull(this).filterNotNull().single()
 
 /** Stateless Ktor adapter; the suspending request-weight hook has already made and stored the real database decision. */
 internal object SharedRateLimiter : RateLimiter {
