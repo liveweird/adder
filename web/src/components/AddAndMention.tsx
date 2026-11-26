@@ -52,6 +52,7 @@ export default function AddAndMention({
   if (request !== seenRequest) {
     setSeenRequest(request);
     if (request !== null) {
+      setFocusComposerOnExit(false);
       setPerson(null);
       setError(null);
       setPickerCycle((cycle) => cycle + 1);
@@ -127,16 +128,14 @@ export default function AddAndMention({
       <Modal
         opened={explicitlyOpened || request !== null}
         onClose={close}
-        // Cancel returns to the opener through Mantine. A successful add has a different destination:
-        // disabling that automatic return prevents it from racing the textarea focus in onExited.
+        // Keep Mantine's focus return off until the next opening after a successful add.
+        // Enabling it while closed schedules a second focus move back to the opener.
         returnFocus={!focusComposerOnExit}
         title={t("threads.composer.addAndMentionTitle")}
         closeButtonProps={{ "aria-label": t("common.action.close") }}
         transitionProps={{
           onExited: () => {
-            if (!focusComposerOnExit) return;
-            setFocusComposerOnExit(false);
-            focusAfterAdd?.();
+            if (focusComposerOnExit) focusAfterAdd?.();
           },
         }}
         centered
