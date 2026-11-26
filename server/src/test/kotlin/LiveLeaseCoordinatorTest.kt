@@ -12,13 +12,16 @@ import io.ktor.websocket.CloseReason
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -91,6 +94,77 @@ class LiveLeaseCoordinatorTest {
         }
     }
 
+    @Test
+    fun `cancelling a client after the shared admission frees its slot`() = runBlocking {
+        val inserted = CompletableDeferred<UUID>()
+        val finishAdmission = CompletableDeferred<Unit>()
+        val store = FakeLeaseStore(afterAdmit = { id ->
+            inserted.complete(id)
+            finishAdmission.await()
+        })
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = LiveLeaseCoordinator(store, scope, maxSessionsPerUser = 1)
+            val job = async { coordinator.admit(7u, 300_000, CompletableDeferred()) }
+            val id = withTimeout(2_000) { inserted.await() }
+            job.cancel()
+            finishAdmission.complete(Unit)
+            withTimeout(2_000) { job.join() }
+            assertEquals(listOf(id), store.released)
+        } finally {
+            finishAdmission.complete(Unit)
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `an admission that cannot report its commit is released by its exact id`() = runBlocking {
+        var uncertainId: UUID? = null
+        val store = FakeLeaseStore(afterAdmit = { id ->
+            uncertainId = id
+            error("store lost the commit response")
+        })
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = LiveLeaseCoordinator(store, scope, maxSessionsPerUser = 1)
+            assertEquals(LeaseOpen.Unavailable, coordinator.admit(7u, 300_000, CompletableDeferred()))
+            assertEquals(listOf(requireNotNull(uncertainId)), store.released)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `an expiry observation cannot close a socket after its lease renewed`() = runBlocking {
+        val now = AtomicLong()
+        val startedRenewal = CompletableDeferred<Unit>()
+        val completeRenewal = CompletableDeferred<Unit>()
+        val store = FakeLeaseStore(afterRenew = {
+            if (now.get() > 0) {
+                startedRenewal.complete(Unit)
+                completeRenewal.await()
+            }
+        })
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val close = CompletableDeferred<CloseReason>()
+            val coordinator = LiveLeaseCoordinator(store, scope, 1, now::get, heartbeatMillis = 25, watchdogMillis = 30_000)
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, close)).handle
+            now.set(59_000_000_000L)
+            withTimeout(2_000) { startedRenewal.await() }
+            now.set(60_000_000_000L)
+            assertFalse(handle.isLive(), "the writer or watchdog observed the previous deadline")
+            completeRenewal.complete(Unit)
+            await { handle.isLive() }
+            handle.expire()
+            assertFalse(close.isCompleted, "the current deadline superseded that observation")
+            handle.release()
+        } finally {
+            completeRenewal.complete(Unit)
+            scope.cancel()
+        }
+    }
+
     private suspend fun await(condition: () -> Boolean) = withTimeout(5_000) {
         while (!condition()) delay(10)
     }
@@ -98,6 +172,8 @@ class LiveLeaseCoordinatorTest {
     private class FakeLeaseStore(
         private val renewNone: Boolean = false,
         private val failAdmission: Boolean = false,
+        private val afterAdmit: suspend (UUID) -> Unit = {},
+        private val afterRenew: suspend () -> Unit = {},
     ) : LiveLeaseStore {
         private val sessions = java.util.concurrent.ConcurrentHashMap.newKeySet<UUID>()
         val renewBatches = CopyOnWriteArrayList<Set<UUID>>()
@@ -108,6 +184,7 @@ class LiveLeaseCoordinatorTest {
         override suspend fun admit(userId: UInt, sessionId: UUID, tokenExpiresAtMillis: Long, maxSessions: Int): LiveLeaseAdmission {
             if (failAdmission) error("store unavailable")
             sessions += sessionId
+            afterAdmit(sessionId)
             return LiveLeaseAdmission.Accepted(clock.get().toLong(), LIVE_SESSION_LEASE_MILLIS)
         }
 
@@ -115,6 +192,7 @@ class LiveLeaseCoordinatorTest {
 
         override suspend fun renew(sessionIds: Collection<UUID>): LiveLeaseRenewal {
             renewBatches += sessionIds.toSet()
+            afterRenew()
             val now = clock.incrementAndGet().toLong()
             val deadlines = if (renewNone) emptyMap() else sessionIds.associateWith { now + LIVE_SESSION_LEASE_MILLIS }
             return LiveLeaseRenewal(now, deadlines)

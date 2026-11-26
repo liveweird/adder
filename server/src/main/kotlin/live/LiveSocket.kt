@@ -229,10 +229,7 @@ private suspend fun DefaultWebSocketSession.register(deps: LiveSessionDeps, bind
 private suspend fun DefaultWebSocketSession.writeFrames(socket: HubSocket, lease: LeaseHandle) {
     try {
         for (frame in socket.outbound) {
-            if (!lease.isLive()) {
-                lease.expire()
-                break
-            }
+            if (!lease.isLive() && lease.expire()) break
             send(Frame.Text(frame.toJson()))
         }
     } catch (_: CancellationException) {

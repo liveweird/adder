@@ -11,7 +11,9 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -31,6 +33,7 @@ internal class LiveLeaseCoordinator(
     private val maxSessionsPerUser: Int,
     private val monotonicNanos: () -> Long = System::nanoTime,
     private val heartbeatMillis: Long = LIVE_LEASE_HEARTBEAT_MILLIS,
+    private val watchdogMillis: Long = LIVE_LEASE_WATCHDOG_MILLIS,
 ) {
     private val sessions = ConcurrentHashMap<UUID, State>()
     private val foregroundSignal = Channel<Unit>(Channel.CONFLATED)
@@ -46,10 +49,15 @@ internal class LiveLeaseCoordinator(
         val id = UUID.randomUUID()
         val began = monotonicNanos()
         val admission = try {
-            withContext(NonCancellable) { store.admit(userId, id, tokenExpiresAtMillis, maxSessionsPerUser) }
+            val admitted = withContext(NonCancellable) { store.admit(userId, id, tokenExpiresAtMillis, maxSessionsPerUser) }
+            currentCoroutineContext().ensureActive()
+            admitted
         } catch (failure: CancellationException) {
+            releaseStored(id)
             throw failure
         } catch (failure: Exception) {
+            // Losing the result can leave an accepted row behind. Compensate only for this generated id.
+            releaseStored(id)
             leaseLog.warn("live lease admission failed ({})", failure.javaClass.simpleName)
             return LeaseOpen.Unavailable
         }
@@ -70,14 +78,20 @@ internal class LiveLeaseCoordinator(
         foregroundSignal.trySend(Unit)
     }
 
-    fun isLive(handle: LeaseHandle): Boolean =
-        sessions[handle.id] === handle.state && monotonicNanos() < handle.state.deadlineNanos.get()
+    fun isLive(handle: LeaseHandle): Boolean {
+        val deadline = handle.state.deadline.get()
+        return sessions[handle.id] === handle.state && !deadline.expired && monotonicNanos() < deadline.leaseNanos
+    }
 
-    fun expire(handle: LeaseHandle) = expire(handle.state)
+    fun expire(handle: LeaseHandle): Boolean =
+        sessions[handle.id] !== handle.state || expireIfDue(handle.state, monotonicNanos())
 
     suspend fun release(handle: LeaseHandle) {
-        if (!sessions.remove(handle.id, handle.state)) return
-        withContext(NonCancellable) { safely("release") { store.release(listOf(handle.id)) } }
+        if (sessions.remove(handle.id, handle.state)) releaseStored(handle.id)
+    }
+
+    private suspend fun releaseStored(id: UUID) {
+        withContext(NonCancellable) { safely("release") { store.release(listOf(id)) } }
     }
 
     private suspend fun renewLoop() {
@@ -95,33 +109,33 @@ internal class LiveLeaseCoordinator(
         batch.forEach { (id, state) ->
             val deadline = renewal.deadlines[id]
             if (deadline == null) {
-                expire(state)
+                expireIfDue(state, Long.MAX_VALUE)
             } else {
-                state.deadlineNanos.set(conservativeDeadline(began, renewal.serverNowMillis, deadline))
-                state.tokenDeadlineNanos.set(
+                val next = Deadline(
+                    conservativeDeadline(began, renewal.serverNowMillis, deadline),
                     conservativeDeadline(began, renewal.serverNowMillis, state.tokenExpiresAtMillis),
                 )
+                state.deadline.updateAndGet { if (it.expired) it else next }
             }
         }
     }
 
     private suspend fun foregroundLoop() {
-        var untilRefreshMillis = heartbeatMillis
+        val heartbeatNanos = heartbeatMillis * 1_000_000
+        var nextRefreshNanos = monotonicNanos() + heartbeatNanos
         while (true) {
-            val waitedAt = monotonicNanos()
+            val untilRefreshMillis = (nextRefreshNanos - monotonicNanos()).coerceAtLeast(0) / 1_000_000
             val changed = withTimeoutOrNull(untilRefreshMillis) { foregroundSignal.receive() } != null
-            val elapsedMillis = ((monotonicNanos() - waitedAt).coerceAtLeast(0) / 1_000_000).coerceAtMost(untilRefreshMillis)
-            untilRefreshMillis -= elapsedMillis
             if (changed) {
                 delay(FOREGROUND_COALESCE_MILLIS)
                 while (foregroundSignal.tryReceive().isSuccess) {
                     // Drain all changes into the single state snapshot below.
                 }
             }
-            val refresh = !changed || untilRefreshMillis <= 0
-            // The fixed periodic deadline cannot be starved by a stream of foreground changes.
+            val now = monotonicNanos()
+            val refresh = !changed || now >= nextRefreshNanos
+            if (refresh) nextRefreshNanos = now + heartbeatNanos
             flushForeground(refreshVisible = refresh)
-            if (refresh) untilRefreshMillis = heartbeatMillis
         }
     }
 
@@ -148,9 +162,9 @@ internal class LiveLeaseCoordinator(
 
     private suspend fun watchdogLoop() {
         while (true) {
-            delay(LIVE_LEASE_WATCHDOG_MILLIS)
+            delay(watchdogMillis)
             val now = monotonicNanos()
-            sessions.values.filter { now >= it.deadlineNanos.get() }.forEach(::expire)
+            sessions.values.forEach { expireIfDue(it, now) }
         }
     }
 
@@ -161,11 +175,18 @@ internal class LiveLeaseCoordinator(
         }
     }
 
-    private fun expire(state: State) {
-        val tokenExpired = state.tokenDeadlineNanos.get() <= state.deadlineNanos.get()
-        val reason = if (tokenExpired) CloseReason(CLOSE_TOKEN_EXPIRED, "The access token expired")
-        else CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Live session expired")
-        state.closeRequest.complete(reason)
+    private fun expireIfDue(state: State, now: Long): Boolean {
+        while (true) {
+            val deadline = state.deadline.get()
+            if (deadline.expired) return true
+            if (now < deadline.leaseNanos) return false
+            // A concurrent renewal can replace this deadline before the close. Once this CAS wins, it cannot reopen the socket.
+            if (!state.deadline.compareAndSet(deadline, deadline.copy(expired = true))) continue
+            val reason = if (deadline.tokenNanos <= deadline.leaseNanos) CloseReason(CLOSE_TOKEN_EXPIRED, "The access token expired")
+            else CloseReason(CloseReason.Codes.TRY_AGAIN_LATER, "Live session expired")
+            state.closeRequest.complete(reason)
+            return true
+        }
     }
 
     private fun conservativeDeadline(beganNanos: Long, serverNowMillis: Long, expiresAtMillis: Long): Long =
@@ -186,12 +207,12 @@ internal class LiveLeaseCoordinator(
         initialDeadlineNanos: Long,
         initialTokenDeadlineNanos: Long,
     ) {
-        val deadlineNanos = AtomicLong(initialDeadlineNanos)
-        val tokenDeadlineNanos = AtomicLong(initialTokenDeadlineNanos)
+        val deadline = AtomicReference(Deadline(initialDeadlineNanos, initialTokenDeadlineNanos))
         val foreground = AtomicReference(Intent(false, 0))
         val appliedForegroundVersion = AtomicLong(0)
     }
 
+    internal data class Deadline(val leaseNanos: Long, val tokenNanos: Long, val expired: Boolean = false)
     internal data class Intent(val visible: Boolean, val version: Long)
 }
 
