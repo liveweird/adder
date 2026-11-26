@@ -280,16 +280,7 @@ class MessageService internal constructor(
             it[lastActivityAt] = stamp
         }
         rooms.touchActivity(roomId, stamp, authorId)
-        notifyLive(
-            LiveHint(
-                LiveKind.MESSAGE_POSTED,
-                roomId,
-                threadNumber = number,
-                messageId = id,
-                mutationId = mutationId,
-                originUserId = authorId.takeIf { mutationId != null },
-            ),
-        )
+        notifyMessageWrite(LiveKind.MESSAGE_POSTED, roomId, number, id, authorId, mutationId)
         val notices = followPosted(inserted)
         val names = userNames(listOfNotNull(authorId, quoted?.authorId))
         val tokenIds = listOfNotNull(id.takeIf { request.body.contains("<@") }, quoted?.id?.takeIf { quoted.hasTokens })
@@ -345,16 +336,7 @@ class MessageService internal constructor(
             if (write.message.tagsVersion < TAGS_VERSION || tagKeysDiffer(write.message.body, newTags)) {
                 tags.replaceInTransaction(messageId, write.thread.id, roomId, newTags)
             }
-            notifyLive(
-                LiveHint(
-                    LiveKind.MESSAGE_EDITED,
-                    roomId,
-                    threadNumber = write.thread.number,
-                    messageId = messageId,
-                    mutationId = mutationId,
-                    originUserId = caller.userId.takeIf { mutationId != null },
-                ),
-            )
+            notifyMessageWrite(LiveKind.MESSAGE_EDITED, roomId, write.thread.number, messageId, write.message.authorId, mutationId)
             val ref = MessageRef(
                 roomId, write.thread.id, write.thread.number, messageId,
                 openingOf = { isOpening(write.thread.id, messageId) },
@@ -400,6 +382,15 @@ class MessageService internal constructor(
         return Messages.select(first).where { Messages.threadId eq threadId }.toList().single()[first]?.value == messageId
     }
 }
+
+private suspend fun notifyMessageWrite(
+    kind: LiveKind, roomId: UInt, number: Int, messageId: UInt, authorId: UInt, mutationId: String?,
+) = notifyLive(
+    LiveHint(
+        kind, roomId, threadNumber = number, messageId = messageId,
+        mutationId = mutationId, originUserId = authorId.takeIf { mutationId != null },
+    ),
+)
 
 private const val CONTEXT_SIDE = 25
 
