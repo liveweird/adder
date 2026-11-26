@@ -197,6 +197,7 @@ private fun Route.logout(deps: AuthDeps) {
     post("/api/v1/logout") {
         val principal = call.principal<JWTPrincipal>()!!
         val userId = principal.payload.getClaim("userId").asLong()
+        val callerUserId = call.caller().userId
         call.revokeBrowserPushForLogout()
         // A logout ends the replay grace of this user's recently rotated refresh tokens (a copy of one
         // must not mint after sign-out); the access principal is what logout already trusts.
@@ -204,7 +205,7 @@ private fun Route.logout(deps: AuthDeps) {
         val jti = principal.payload.id
         val exp = principal.payload.expiresAt?.time ?: nowMillis()
         if (jti != null) {
-            blocklist.revoke(jti, exp)
+            blocklist.revokeAccess(callerUserId, jti, exp)
         }
         // Also revoke the refresh token, if the client sent it, so an explicit logout kills it
         // too (a refresh token is also blocklisted when it is rotated, but logout ends the live one).

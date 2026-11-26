@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.22.0",
+    date: "2026-11-26",
+    en: `**Adder 1.22.0 — faster live account updates**
+
+- Open conversations recheck access after an account role changes, a password changes, or an account is removed. Logout closes live connections using the revoked session credential.
+- A separate sign-in keeps its live connection while its own credentials and permissions remain valid.`,
+    pl: `**Adder 1.22.0 — szybsza reakcja na zmiany konta**
+
+- Otwarte rozmowy ponownie sprawdzają dostęp po zmianie roli lub hasła albo po usunięciu konta. Wylogowanie zamyka połączenia korzystające z unieważnionego tokenu sesji.
+- Osobne logowanie zachowuje połączenie, jeśli jego token i uprawnienia są nadal ważne.`,
+  },
+  {
     version: "1.21.0",
     date: "2026-11-26",
     en: `**Adder 1.21.0 — notification retention and email pacing**

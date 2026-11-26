@@ -1,8 +1,11 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveAccountHint
 import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.notify.LiveNotification
 import ch.nokillswit.infra.notify.MAX_NOTIFY_PAYLOAD_BYTES
+import ch.nokillswit.infra.notify.decodeLiveNotification
 import ch.nokillswit.infra.notify.notifyLive
 import ch.nokillswit.infra.notify.toPayload
 import java.io.File
@@ -36,6 +39,26 @@ class LiveHintTest {
     fun `a hint round trips through its payload`() {
         val hint = LiveHint(LiveKind.ROOM_DELETED, 9u, targetUserIds = listOf(1u, 2u))
         assertEquals(hint, Json.decodeFromString(LiveHint.serializer(), hint.toPayload()))
+    }
+
+    @Test
+    fun `a room hint tolerates extra fields added by a newer sender`() {
+        val future = """{"kind":"room.updated","roomId":12,"v":1,"futureCounter":3}"""
+        assertEquals(LiveNotification.Room(LiveHint(LiveKind.ROOM_UPDATED, 12u)), decodeLiveNotification(future))
+    }
+
+    @Test
+    fun `the roomless account envelope round trips but can never be widened into a room event`() {
+        val payload = LiveAccountHint(7u).toPayload()
+        assertEquals("""{"accountUserId":7,"v":1}""", payload)
+        assertEquals(LiveNotification.Account(7u), decodeLiveNotification(payload))
+        assertEquals(
+            LiveNotification.Room(LiveHint(LiveKind.ROOM_UPDATED, 12u)),
+            decodeLiveNotification(LiveHint(LiveKind.ROOM_UPDATED, 12u).toPayload()),
+        )
+        assertEquals(null, decodeLiveNotification("""{"accountUserId":7,"roomId":12,"v":1}"""))
+        assertEquals(null, decodeLiveNotification("""{"accountUserId":0,"v":1}"""))
+        assertEquals(null, decodeLiveNotification("""{"accountUserId":7,"v":2}"""))
     }
 
     @Test

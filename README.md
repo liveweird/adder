@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Live account updates (1.22.0)
+
+- Open conversations recheck access promptly after a logout, a role change, account deletion, or a password change. Other valid sign-ins remain connected.
+
 ### Notification retention and email pacing (1.21.0)
 
 - The service retains up to 5,000 unseen notices per person. Expired notices leave the bell and cancel pending delivery. Read state stays independent.

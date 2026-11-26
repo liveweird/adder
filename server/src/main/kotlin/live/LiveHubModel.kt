@@ -1,5 +1,6 @@
 package ch.nokillswit.live
 
+import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
 import io.ktor.websocket.CloseReason
 import kotlinx.coroutines.CompletableDeferred
@@ -48,6 +49,22 @@ internal class SocketView(val socket: HubSocket, val activeRooms: List<UInt>)
 
 internal enum class RegisterResult { OK, USER_CAP, FULL, UNAVAILABLE }
 
+internal sealed interface LiveHubCommand {
+    class Register(val socket: HubSocket, val reply: CompletableDeferred<RegisterResult>) : LiveHubCommand
+    class Unregister(val socket: HubSocket) : LiveHubCommand
+    class Begin(val socket: HubSocket, val ids: List<UInt>, val reply: CompletableDeferred<SubscribeBegin>) : LiveHubCommand
+    class Complete(val socket: HubSocket, val begin: SubscribeBegin, val readable: Set<UInt>) : LiveHubCommand
+    class Abort(val socket: HubSocket, val ids: List<UInt>) : LiveHubCommand
+    class Unsubscribe(val socket: HubSocket, val ids: List<UInt>) : LiveHubCommand
+    class Deliver(val hint: LiveHint) : LiveHubCommand
+    class Pong(val socket: HubSocket) : LiveHubCommand
+    class Foreground(val socket: HubSocket, val visible: Boolean) : LiveHubCommand
+    class Snapshot(val userIds: Set<UInt>?, val reply: CompletableDeferred<List<SocketView>>) : LiveHubCommand
+    class RevokeRoom(val socket: HubSocket, val roomId: UInt) : LiveHubCommand
+    data object Gap : LiveHubCommand
+    class CloseAll(val reason: CloseReason) : LiveHubCommand
+}
+
 /**
  * The outcome of the first half of a subscribe: [toCheck] are registered PENDING and need the readable check; [already] are
  * subscribed; [capped] are over the limit.
@@ -60,6 +77,8 @@ internal class SubscribeBegin(val already: List<UInt>, val toCheck: List<UInt>, 
  * than left with a silent gap. Called by the hub's actor only.
  */
 internal fun queueFrame(socket: HubSocket, frame: LiveServerFrame) {
+    // Once a close has won, no later hint/pong may get ahead of it on the wire.
+    if (socket.closeRequest.isCompleted) return
     if (socket.outbound.trySend(frame).isSuccess) return
     val kept = ArrayList<LiveServerFrame>()
     while (true) {

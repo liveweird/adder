@@ -6,6 +6,9 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
 import org.jetbrains.exposed.v1.core.TextColumnType
 import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
@@ -68,10 +71,47 @@ data class LiveHint(
     @EncodeDefault val v: Int = LIVE_HINT_VERSION,
 )
 
-private val wire = Json { explicitNulls = false }
+private val wire = Json {
+    explicitNulls = false
+    ignoreUnknownKeys = true
+}
+
+/** An internal, roomless prompt to re-judge every live token of one account. It is never a browser frame. */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class LiveAccountHint(
+    val accountUserId: UInt,
+    @EncodeDefault val v: Int = LIVE_HINT_VERSION,
+)
+
+/** The two version-one payload shapes accepted from the private PostgreSQL channel. */
+sealed interface LiveNotification {
+    data class Room(val hint: LiveHint) : LiveNotification
+    data class Account(val userId: UInt) : LiveNotification
+}
 
 /** The NOTIFY payload of [hint]: compact JSON, nulls omitted, `v` always present. */
 fun LiveHint.toPayload(): String = wire.encodeToString(LiveHint.serializer(), this)
+
+/** The deliberately roomless account envelope; field order is pinned because this is an internal protocol. */
+fun LiveAccountHint.toPayload(): String = wire.encodeToString(LiveAccountHint.serializer(), this)
+
+/**
+ * Decodes only one of the two version-one envelopes. In particular, an account prompt cannot be widened with room-event fields and
+ * can therefore never accidentally become a public event.
+ */
+fun decodeLiveNotification(payload: String): LiveNotification? = runCatching {
+    val element = wire.parseToJsonElement(payload)
+    val objectValue: JsonObject = element.jsonObject
+    if ("accountUserId" in objectValue) {
+        if (objectValue.keys != setOf("accountUserId", "v")) return null
+        val hint = wire.decodeFromJsonElement<LiveAccountHint>(element)
+        hint.takeIf { it.v == LIVE_HINT_VERSION && it.accountUserId > 0u }?.let { LiveNotification.Account(it.accountUserId) }
+    } else {
+        val hint = wire.decodeFromJsonElement<LiveHint>(element)
+        hint.takeIf { it.v == LIVE_HINT_VERSION }?.let(LiveNotification::Room)
+    }
+}.getOrNull()
 
 /**
  * Emits [hint] on [LIVE_CHANNEL] through the CURRENT transaction (call it right before a change branch returns, inside the write's own
@@ -80,9 +120,17 @@ fun LiveHint.toPayload(): String = wire.encodeToString(LiveHint.serializer(), th
  * runs). The payload must stay under [MAX_NOTIFY_PAYLOAD_BYTES] (the worst case is a 500-id `room.member_added`, about 5.6 KB).
  */
 suspend fun notifyLive(hint: LiveHint) {
-    val payload = hint.toPayload()
+    notifyPayload(hint.toPayload(), hint.kind.toString())
+}
+
+/** Emits a roomless account prompt in the caller's current transaction. */
+suspend fun notifyLiveAccount(userId: UInt) {
+    notifyPayload(LiveAccountHint(userId).toPayload(), "account")
+}
+
+private suspend fun notifyPayload(payload: String, description: String) {
     check(payload.toByteArray(Charsets.UTF_8).size < MAX_NOTIFY_PAYLOAD_BYTES) {
-        "A live hint of ${hint.kind} exceeds the NOTIFY payload limit"
+        "A live hint of $description exceeds the NOTIFY payload limit"
     }
     val arguments = listOf(TextColumnType() to payload)
     TransactionManager.current()
