@@ -313,16 +313,34 @@ jobs:
           if grep -nE '^\s*(type: (LoadBalancer|NodePort)|hostPort:|hostNetwork: true)' k8s/*.yaml; then echo "a path around the Ingress" >&2; exit 1; fi
           test "$(grep -cE '^  type: ClusterIP$' k8s/app-service.yaml)" -eq 1
           grep -q 'kubernetes.io/metadata.name: ingress-nginx' k8s/network-policies.yaml
-      - name: Validate what apply-local.sh renders
+      - name: Validate both apply-local.sh renders
         run: |
-          # A stand-in kubectl: the Secret "exists", and `apply -f <dir>` records the rendered directory.
-          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/rendered"
-          printf '#!/bin/sh\n[ "$1" = apply ] && cp "$3"/*.yaml "$RENDER_OUT"/\nexit 0\n' > "$RUNNER_TEMP/bin/kubectl"
-          chmod +x "$RUNNER_TEMP/bin/kubectl"
-          PATH="$RUNNER_TEMP/bin:$PATH" RENDER_OUT="$RUNNER_TEMP/rendered" sh k8s/apply-local.sh ci-check
-          "$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.33.0 -schema-location "$KUBECONFORM_SCHEMAS" "$RUNNER_TEMP"/rendered/*.yaml
-          test "$(grep -h 'image: adder-app:ci-check' "$RUNNER_TEMP"/rendered/*.yaml | wc -l)" -eq 1
-          if grep -q 'local-build' "$RUNNER_TEMP"/rendered/*.yaml; then echo "unrendered image placeholder" >&2; exit 1; fi
+          # Positive and negative stub cases prove the two-replica preflight cannot reach a real cluster.
+          sh k8s/check-apply-local.sh
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/rendered-single" "$RUNNER_TEMP/rendered-two"
+          cat > "$RUNNER_TEMP/bin/kubectl" <<'STUB'
+          #!/bin/sh
+          if [ "$1" = apply ]; then cp "$3"/*.yaml "$RENDER_OUT"/
+          elif [ "$3" = rollout ]; then exit 0
+          elif [ "$3" = get ] && [ "$4" = deployment ]; then printf 'adder-app:ci-check'
+          fi
+          exit 0
+          STUB
+          cat > "$RUNNER_TEMP/bin/docker" <<'STUB'
+          #!/bin/sh
+          printf 'ADDER_BUILD_VERSION=1.32.0\n'
+          STUB
+          chmod +x "$RUNNER_TEMP/bin/kubectl" "$RUNNER_TEMP/bin/docker"
+          PATH="$RUNNER_TEMP/bin:$PATH" RENDER_OUT="$RUNNER_TEMP/rendered-single" sh k8s/apply-local.sh ci-check
+          PATH="$RUNNER_TEMP/bin:$PATH" RENDER_OUT="$RUNNER_TEMP/rendered-two" sh k8s/apply-local.sh ci-check --replicas=2
+          "$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.33.0 -schema-location "$KUBECONFORM_SCHEMAS" "$RUNNER_TEMP"/rendered-single/*.yaml
+          "$RUNNER_TEMP/kubeconform" -strict -summary -kubernetes-version 1.33.0 -schema-location "$KUBECONFORM_SCHEMAS" "$RUNNER_TEMP"/rendered-two/*.yaml
+          test "$(grep -c 'image: adder-app:ci-check' "$RUNNER_TEMP/rendered-single/app-deployment.yaml")" -eq 1
+          test "$(grep -c 'image: adder-app:ci-check' "$RUNNER_TEMP/rendered-two/app-deployment.yaml")" -eq 1
+          test "$(grep -cE '^  replicas: 1$' "$RUNNER_TEMP/rendered-single/app-deployment.yaml")" -eq 1
+          test "$(grep -cE '^  replicas: 2$' "$RUNNER_TEMP/rendered-two/app-deployment.yaml")" -eq 1
+          grep -A1 '^            - name: NOTIFICATIONS_EMAIL_MAX_PER_RUN$' "$RUNNER_TEMP/rendered-two/app-deployment.yaml" | grep -q 'value: "50"'
+          if grep -q 'local-build' "$RUNNER_TEMP"/rendered-*/*.yaml; then echo "unrendered image placeholder" >&2; exit 1; fi
 
   images:
     # Dockerfile drift guard: the image must still build — and, built, must carry no fixable
