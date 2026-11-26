@@ -180,24 +180,23 @@ internal class SharedRateLimitStore(
     }
 }
 
-/** Ktor 3.6 adapter; exceptions deliberately escape to standard server-error handling instead of minting a false 429. */
-internal class SharedRateLimiter(
-    private val store: () -> SharedRateLimitStore,
-    private val bucket: String,
-    private val keyHash: String,
-    private val limit: Int,
-    private val onCapacity: () -> Unit,
-) : RateLimiter {
+/** Stateless Ktor adapter; the suspending request-weight hook has already made and stored the real database decision. */
+internal object SharedRateLimiter : RateLimiter {
     override suspend fun tryConsume(tokens: Int): RateLimiter.State {
-        val decision = store().consume(bucket, keyHash, limit, tokens)
-        if (decision.capacityRefusal) onCapacity()
-        return if (decision.admitted) {
-            RateLimiter.State.Available(decision.remaining, decision.limit, decision.refillAtMillis)
-        } else {
-            RateLimiter.State.Exhausted((decision.refillAtMillis - decision.serverNowMillis).coerceAtLeast(1).milliseconds)
+        return when (tokens) {
+            SHARED_RATE_LIMIT_ADMITTED_WEIGHT -> RateLimiter.State.Available(
+                remainingTokens = 0,
+                limit = 1,
+                refillAtTimeMillis = System.currentTimeMillis() + RATE_LIMIT_WINDOW_MILLIS,
+            )
+            SHARED_RATE_LIMIT_REFUSED_WEIGHT -> RateLimiter.State.Exhausted(1.milliseconds)
+            else -> error("Unexpected shared rate-limit decision weight: $tokens")
         }
     }
 }
+
+internal const val SHARED_RATE_LIMIT_ADMITTED_WEIGHT = 1
+internal const val SHARED_RATE_LIMIT_REFUSED_WEIGHT = 2
 
 private const val CONSUME_EXISTING = """
 WITH clock AS MATERIALIZED (

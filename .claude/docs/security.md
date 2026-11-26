@@ -361,6 +361,9 @@ The table stores only domain-separated deployment HMAC digests. It holds at most
 including expired rows awaiting the bounded background sweep. A first-seen identity at that physical cap atomically reclaims at most
 one expired row; if none is available, it receives `429`. Existing identities continue to use their per-key allowance and no active row
 is reclaimed. A database failure, including a missing capacity guard, follows the ordinary server error path.
+Ktor's in-process limiter registry has one constant entry per shared bucket, not one entry per submitted identity: the suspending
+request-weight hook performs the PostgreSQL decision once and the response hook publishes that decision's real limit, remaining,
+reset and retry headers. The cached limiter is stateless; its process-clock refill is used only for Ktor's registry eviction schedule.
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today

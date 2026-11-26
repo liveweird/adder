@@ -1,15 +1,21 @@
 package ch.nokillswit
 
 import ch.nokillswit.auth.LoginResponse
+import ch.nokillswit.auth.LoginRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.DefaultRequest
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import io.ktor.util.AttributeKey
 import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -68,14 +74,49 @@ class SharedRateLimitHttpTest {
             val client = jsonClient()
             val finalAllowed = client.login(uniqueEmail("shared-login"), "x")
             assertEquals(HttpStatusCode.Unauthorized, finalAllowed.status)
+            assertEquals("3", finalAllowed.headers["X-RateLimit-Limit"])
             assertEquals("0", finalAllowed.headers["X-RateLimit-Remaining"])
+            val reset = assertNotNull(finalAllowed.headers["X-RateLimit-Reset"]).toLong()
+            assertTrue(reset * 1_000L >= System.currentTimeMillis())
             val refused = client.login(uniqueEmail("shared-login"), "x")
             assertEquals(HttpStatusCode.TooManyRequests, refused.status)
+            assertEquals("3", refused.headers["X-RateLimit-Limit"])
+            assertEquals("0", refused.headers["X-RateLimit-Remaining"])
+            assertEquals(reset.toString(), refused.headers["X-RateLimit-Reset"])
             assertTrue(assertNotNull(refused.headers[HttpHeaders.RetryAfter]).toInt() in 1..60)
         }
 
         ephemeralRows += rateRows() - baseline
         assertOpaqueStoredKeys("login")
+    }
+
+    @Test
+    fun `distinct capacity-refused identities keep one cached limiter per provider`() = testApplication {
+        configureShared(
+            UUID.randomUUID().toString(),
+            "http.behindProxy" to "true",
+            "security.rateLimit.loginPerMinute" to "1000",
+        )
+        val originalCount = storedCount()
+        setStoredCount(100_000)
+        try {
+            val client = jsonClient()
+            repeat(20) { index ->
+                val response = client.post("/api/v1/login") {
+                    contentType(ContentType.Application.Json)
+                    header(HttpHeaders.XForwardedFor, "203.0.113.${index + 1}")
+                    setBody(LoginRequest(uniqueEmail("capacity-$index"), "wrong"))
+                }
+                assertEquals(HttpStatusCode.TooManyRequests, response.status)
+                assertEquals("1000", response.headers["X-RateLimit-Limit"])
+                assertEquals("0", response.headers["X-RateLimit-Remaining"])
+                assertNotNull(response.headers["X-RateLimit-Reset"])
+                assertTrue(assertNotNull(response.headers[HttpHeaders.RetryAfter]).toInt() in 1..60)
+            }
+            assertEquals(1, rateLimiterRegistrySize(), "one constant Ktor registry key is used for the login provider")
+        } finally {
+            setStoredCount(originalCount)
+        }
     }
 
     @Test
@@ -139,6 +180,28 @@ class SharedRateLimitHttpTest {
                 }
             }
         }
+    }
+
+    private fun storedCount(): Int = PostgresTestSupport.connect().use { connection ->
+        connection.prepareStatement("SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton").use { statement ->
+            statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+        }
+    }
+
+    private fun setStoredCount(count: Int) {
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement(
+                "UPDATE http_rate_limit_capacity_guard SET stored_count = ? WHERE singleton",
+            ).use { statement -> statement.setInt(1, count); assertEquals(1, statement.executeUpdate()) }
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun ApplicationTestBuilder.rateLimiterRegistrySize(): Int {
+        val getter = Class.forName("io.ktor.server.plugins.ratelimit.RateLimitKt")
+            .getMethod("getRateLimiterInstancesRegistryKey")
+        val key = getter.invoke(null) as AttributeKey<Any>
+        return (application.attributes[key] as Map<*, *>).size
     }
 
     private companion object {
