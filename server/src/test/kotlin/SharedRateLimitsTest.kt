@@ -3,16 +3,23 @@ package ch.nokillswit
 import ch.nokillswit.infra.crypto.DeploymentKeyedDigest
 import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.plugins.RATE_LIMIT_WINDOW_MILLIS
+import ch.nokillswit.plugins.SHARED_RATE_LIMIT_ADMITTED_WEIGHT
+import ch.nokillswit.plugins.SHARED_RATE_LIMIT_REFUSED_WEIGHT
+import ch.nokillswit.plugins.SharedRateLimiter
 import ch.nokillswit.plugins.SharedRateLimitStore
+import io.ktor.server.plugins.ratelimit.RateLimiter
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
 import io.ktor.server.testing.testApplication
 
 class SharedRateLimitsTest {
@@ -154,6 +161,94 @@ class SharedRateLimitsTest {
             assertEquals(1, physicalCount(isolated))
             assertEquals(physicalCount(isolated), storedCount(isolated))
         }
+    }
+
+    @Test
+    fun `locked expired capacity retries once then refuses without reclaiming an active row`() =
+        withIsolatedTestDatabase { isolated ->
+            testApplication {
+                configureIsolated(isolated)
+                val store = SharedRateLimitStore(application.attributes[R2dbcDatabaseKey], maxStoredKeys = 1)
+                val expired = "3".repeat(64)
+                val replacement = "4".repeat(64)
+                assertTrue(store.consume("test-capacity", expired, limit = 2).admitted)
+                expire("test-capacity", expired, isolated)
+
+                isolated.connect().use { holder ->
+                    holder.autoCommit = false
+                    holder.prepareStatement(
+                        "SELECT key_hash FROM http_rate_limit_buckets " +
+                            "WHERE bucket_name = 'test-capacity' AND key_hash = ? FOR UPDATE",
+                    ).use { statement ->
+                        statement.setString(1, expired)
+                        statement.executeQuery().use { rows -> assertTrue(rows.next()) }
+                    }
+                    val refused = withTimeout(1_000) { store.consume("test-capacity", replacement, limit = 2) }
+                    assertTrue(refused.capacityRefusal)
+                    assertEquals(1, physicalCount(isolated))
+                    holder.rollback()
+                }
+
+                assertTrue(store.consume("test-capacity", replacement, limit = 2).admitted)
+                assertEquals(1, physicalCount(isolated))
+                assertEquals(physicalCount(isolated), storedCount(isolated))
+            }
+        }
+
+    @Test
+    fun `missing capacity guard fails closed for admission and cleanup`() = withIsolatedTestDatabase { isolated ->
+        testApplication {
+            configureIsolated(isolated)
+            val store = SharedRateLimitStore(application.attributes[R2dbcDatabaseKey], maxStoredKeys = 1)
+            isolated.connect().use { connection ->
+                assertEquals(1, connection.createStatement().use { it.executeUpdate("DELETE FROM http_rate_limit_capacity_guard") })
+            }
+
+            assertFailsWith<IllegalStateException> { store.consume("test-capacity", "5".repeat(64), limit = 2) }
+            assertFailsWith<IllegalStateException> { store.pruneExpired() }
+            assertEquals(0, physicalCount(isolated))
+        }
+    }
+
+    @Test
+    fun `background cleanup deletes only its bounded expired batch and settles the counter`() =
+        withIsolatedTestDatabase { isolated ->
+            testApplication {
+                configureIsolated(isolated)
+                val store = SharedRateLimitStore(application.attributes[R2dbcDatabaseKey], maxStoredKeys = 3)
+                repeat(3) { index ->
+                    val key = (index + 6).toString().repeat(64)
+                    assertTrue(store.consume("test-capacity", key, limit = 2).admitted)
+                    expire("test-capacity", key, isolated)
+                }
+
+                assertEquals(2, store.pruneExpired(batchSize = 2))
+                assertEquals(1, physicalCount(isolated))
+                assertEquals(1, storedCount(isolated))
+                assertEquals(1, store.pruneExpired(batchSize = 2))
+                assertEquals(0, store.pruneExpired(batchSize = 2))
+                assertEquals(0, physicalCount(isolated))
+                assertEquals(0, storedCount(isolated))
+            }
+        }
+
+    @Test
+    fun `invalid inputs fail before touching the store and synthetic limiter rejects unknown weights`() = testApplication {
+        usePostgresTestcontainer()
+        val store = SharedRateLimitStore(sharedDatabaseForTests())
+        val key = "a".repeat(64)
+
+        assertFailsWith<IllegalArgumentException> { store.consume("", key, limit = 1) }
+        assertFailsWith<IllegalArgumentException> { store.consume("x".repeat(41), key, limit = 1) }
+        assertFailsWith<IllegalArgumentException> { store.consume("test-capacity", "not-a-digest", limit = 1) }
+        assertFailsWith<IllegalArgumentException> { store.consume("test-capacity", key, limit = 0) }
+        assertFailsWith<IllegalArgumentException> { store.consume("test-capacity", key, limit = 1, weight = 0) }
+        assertFailsWith<IllegalArgumentException> { store.consume("test-capacity", key, limit = 1, weight = 2) }
+        assertFailsWith<IllegalArgumentException> { store.pruneExpired(batchSize = 0) }
+
+        assertIs<RateLimiter.State.Available>(SharedRateLimiter.tryConsume(SHARED_RATE_LIMIT_ADMITTED_WEIGHT))
+        assertIs<RateLimiter.State.Exhausted>(SharedRateLimiter.tryConsume(SHARED_RATE_LIMIT_REFUSED_WEIGHT))
+        assertFailsWith<IllegalStateException> { SharedRateLimiter.tryConsume(99) }
     }
 
     @Test
