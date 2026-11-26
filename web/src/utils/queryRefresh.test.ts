@@ -52,7 +52,10 @@ test("coverage requires every active matching query to be successful, idle and f
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const root = ["rooms", "threads", 12, "messages", 4];
   const timeline = new QueryObserver(client, { queryKey: [...root, "timeline"], queryFn: () => "fresh" });
-  const roster = new QueryObserver(client, { queryKey: [...root, "reactors"], queryFn: () => Promise.reject(new Error("offline")) });
+  const roster = new QueryObserver<string>(client, {
+    queryKey: [...root, "reactors"],
+    queryFn: () => Promise.reject(new Error("offline")),
+  });
   const unsubscribers = [timeline.subscribe(() => undefined), roster.subscribe(() => undefined)];
   try {
     await vi.waitFor(() => expect(client.isFetching({ queryKey: root })).toBe(0));
