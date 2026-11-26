@@ -1,0 +1,244 @@
+package ch.nokillswit.plugins
+
+import io.ktor.server.plugins.ratelimit.RateLimiter
+import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.IntegerColumnType
+import org.jetbrains.exposed.v1.core.LongColumnType
+import org.jetbrains.exposed.v1.core.TextColumnType
+import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+
+internal const val RATE_LIMIT_WINDOW_MILLIS = 60_000L
+internal const val RATE_LIMIT_MAX_ACTIVE_KEYS = 100_000
+internal const val RATE_LIMIT_CLEANUP_BATCH = 1_000
+
+internal data class SharedRateLimitDecision(
+    val admitted: Boolean,
+    val remaining: Int,
+    val limit: Int,
+    val serverNowMillis: Long,
+    val refillAtMillis: Long,
+    val capacityRefusal: Boolean = false,
+)
+
+/** PostgreSQL fixed-window limiter: the common active-key admission is one indexed UPDATE/RETURNING operation. */
+internal class SharedRateLimitStore(
+    private val database: R2dbcDatabase,
+    private val maxActiveKeys: Int = RATE_LIMIT_MAX_ACTIVE_KEYS,
+) {
+    suspend fun consume(bucket: String, keyHash: String, limit: Int, weight: Int = 1): SharedRateLimitDecision {
+        require(bucket.length in 1..40)
+        require(KEY_HASH.matches(keyHash))
+        require(limit > 0 && weight in 1..limit)
+        return suspendTransaction(database) {
+            consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
+            readExisting(bucket, keyHash, limit)?.let { existing ->
+                if (existing.remaining < weight) return@suspendTransaction existing
+                consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
+            }
+
+            lockCapacity()
+            consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
+            readExisting(bucket, keyHash, limit)?.let { existing -> return@suspendTransaction existing }
+            val capacity = capacity()
+            if (capacity.active >= maxActiveKeys) {
+                return@suspendTransaction SharedRateLimitDecision(
+                    admitted = false,
+                    remaining = 0,
+                    limit = limit,
+                    serverNowMillis = capacity.serverNow,
+                    refillAtMillis = capacity.earliestRefillAt ?: capacity.serverNow + RATE_LIMIT_WINDOW_MILLIS,
+                    capacityRefusal = true,
+                )
+            }
+            insert(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
+            consumeExisting(bucket, keyHash, limit, weight)
+                ?: checkNotNull(readExisting(bucket, keyHash, limit))
+        }
+    }
+
+    /** Ordered, bounded expiry cleanup; called only by the background sweep, never by a request. */
+    suspend fun pruneExpired(batchSize: Int = RATE_LIMIT_CLEANUP_BATCH): Int {
+        require(batchSize > 0)
+        return suspendTransaction(database) {
+            TransactionManager.current().exec(
+                PRUNE_EXPIRED,
+                listOf(IntegerColumnType() to batchSize),
+                explicitStatementType = StatementType.SELECT,
+            ) { row -> row.get(0, String::class.java) }?.filterNotNull()?.toList()?.size ?: 0
+        }
+    }
+
+    private suspend fun consumeExisting(bucket: String, keyHash: String, limit: Int, weight: Int): SharedRateLimitDecision? =
+        TransactionManager.current().exec(
+            CONSUME_EXISTING,
+            listOf(
+                IntegerColumnType() to limit,
+                IntegerColumnType() to weight,
+                IntegerColumnType() to weight,
+                LongColumnType() to RATE_LIMIT_WINDOW_MILLIS,
+                TextColumnType() to bucket,
+                TextColumnType() to keyHash,
+                IntegerColumnType() to weight,
+            ),
+            explicitStatementType = StatementType.SELECT,
+        ) { row ->
+            SharedRateLimitDecision(
+                admitted = true,
+                remaining = checkNotNull(row.get(1, Int::class.javaObjectType)),
+                limit = limit,
+                serverNowMillis = checkNotNull(row.get(0, Long::class.javaObjectType)),
+                refillAtMillis = checkNotNull(row.get(2, Long::class.javaObjectType)),
+            )
+        }?.filterNotNull()?.toList()?.singleOrNull()
+
+    private suspend fun readExisting(bucket: String, keyHash: String, limit: Int): SharedRateLimitDecision? =
+        TransactionManager.current().exec(
+            READ_EXISTING,
+            arguments(bucket, keyHash),
+            explicitStatementType = StatementType.SELECT,
+        ) { row ->
+            SharedRateLimitDecision(
+                admitted = false,
+                remaining = checkNotNull(row.get(1, Int::class.javaObjectType)),
+                limit = limit,
+                serverNowMillis = checkNotNull(row.get(0, Long::class.javaObjectType)),
+                refillAtMillis = checkNotNull(row.get(2, Long::class.javaObjectType)),
+            )
+        }?.filterNotNull()?.toList()?.singleOrNull()
+
+    private suspend fun insert(bucket: String, keyHash: String, limit: Int, weight: Int): SharedRateLimitDecision? =
+        TransactionManager.current().exec(
+            INSERT_NEW,
+            arguments(bucket, keyHash) + listOf(
+                IntegerColumnType() to limit,
+                IntegerColumnType() to weight,
+                LongColumnType() to RATE_LIMIT_WINDOW_MILLIS,
+            ),
+            explicitStatementType = StatementType.SELECT,
+        ) { row ->
+            SharedRateLimitDecision(
+                admitted = true,
+                remaining = checkNotNull(row.get(1, Int::class.javaObjectType)),
+                limit = limit,
+                serverNowMillis = checkNotNull(row.get(0, Long::class.javaObjectType)),
+                refillAtMillis = checkNotNull(row.get(2, Long::class.javaObjectType)),
+            )
+        }?.filterNotNull()?.toList()?.singleOrNull()
+
+    private suspend fun lockCapacity() {
+        TransactionManager.current().exec(
+            LOCK_CAPACITY,
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, Boolean::class.javaObjectType) }?.toList()
+    }
+
+    private suspend fun capacity(): Capacity = checkNotNull(
+        TransactionManager.current().exec(CAPACITY, explicitStatementType = StatementType.SELECT) { row ->
+            Capacity(
+                checkNotNull(row.get(0, Long::class.javaObjectType)),
+                checkNotNull(row.get(1, Int::class.javaObjectType)),
+                row.get(2, Long::class.javaObjectType),
+            )
+        },
+    ).filterNotNull().toList().single()
+
+    private fun arguments(bucket: String, keyHash: String) =
+        listOf(TextColumnType() to bucket, TextColumnType() to keyHash)
+
+    private data class Capacity(val serverNow: Long, val active: Int, val earliestRefillAt: Long?)
+
+    private companion object {
+        val KEY_HASH = Regex("[0-9a-f]{64}")
+    }
+}
+
+/** Ktor 3.6 adapter; exceptions deliberately escape to standard server-error handling instead of minting a false 429. */
+internal class SharedRateLimiter(
+    private val store: () -> SharedRateLimitStore,
+    private val bucket: String,
+    private val keyHash: String,
+    private val limit: Int,
+    private val onCapacity: () -> Unit,
+) : RateLimiter {
+    override suspend fun tryConsume(tokens: Int): RateLimiter.State {
+        val decision = store().consume(bucket, keyHash, limit, tokens)
+        if (decision.capacityRefusal) onCapacity()
+        return if (decision.admitted) {
+            RateLimiter.State.Available(decision.remaining, decision.limit, decision.refillAtMillis)
+        } else {
+            RateLimiter.State.Exhausted((decision.refillAtMillis - decision.serverNowMillis).coerceAtLeast(1).milliseconds)
+        }
+    }
+}
+
+private const val CONSUME_EXISTING = """
+WITH clock AS MATERIALIZED (
+  SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
+)
+UPDATE http_rate_limit_buckets AS bucket
+SET tokens_remaining = CASE
+      WHEN bucket.refill_at <= clock.now_millis THEN CAST(? AS int4) - CAST(? AS int4)
+      ELSE bucket.tokens_remaining - CAST(? AS int4)
+    END,
+    refill_at = CASE
+      WHEN bucket.refill_at <= clock.now_millis THEN clock.now_millis + CAST(? AS int8)
+      ELSE bucket.refill_at
+    END
+FROM clock
+WHERE bucket.bucket_name = CAST(? AS text) AND bucket.key_hash = CAST(? AS char(64))
+  AND (bucket.refill_at <= clock.now_millis OR bucket.tokens_remaining >= CAST(? AS int4))
+RETURNING clock.now_millis, bucket.tokens_remaining, bucket.refill_at"""
+
+private const val READ_EXISTING = """
+WITH clock AS MATERIALIZED (
+  SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
+)
+SELECT clock.now_millis, bucket.tokens_remaining, bucket.refill_at
+FROM http_rate_limit_buckets AS bucket CROSS JOIN clock
+WHERE bucket.bucket_name = CAST(? AS text) AND bucket.key_hash = CAST(? AS char(64))
+  AND bucket.refill_at > clock.now_millis"""
+
+private const val INSERT_NEW = """
+WITH input AS MATERIALIZED (
+  SELECT CAST(? AS text) AS bucket_name, CAST(? AS char(64)) AS key_hash,
+         CAST(? AS int4) AS limit_value, CAST(? AS int4) AS weight, CAST(? AS int8) AS window_millis
+), clock AS MATERIALIZED (
+  SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
+), inserted AS (
+  INSERT INTO http_rate_limit_buckets (bucket_name, key_hash, tokens_remaining, refill_at)
+  SELECT input.bucket_name, input.key_hash, input.limit_value - input.weight, clock.now_millis + input.window_millis
+  FROM input CROSS JOIN clock
+  ON CONFLICT DO NOTHING
+  RETURNING tokens_remaining, refill_at
+)
+SELECT clock.now_millis, inserted.tokens_remaining, inserted.refill_at
+FROM clock CROSS JOIN inserted"""
+
+private const val LOCK_CAPACITY = "SELECT singleton FROM http_rate_limit_capacity_guard WHERE singleton FOR UPDATE"
+
+private const val CAPACITY = """
+WITH clock AS MATERIALIZED (
+  SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
+)
+SELECT clock.now_millis, count(*)::int, min(bucket.refill_at)
+FROM clock LEFT JOIN http_rate_limit_buckets AS bucket ON bucket.refill_at > clock.now_millis
+GROUP BY clock.now_millis"""
+
+private const val PRUNE_EXPIRED = """
+WITH clock AS MATERIALIZED (
+  SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
+), expired AS (
+  SELECT bucket_name, key_hash
+  FROM http_rate_limit_buckets CROSS JOIN clock
+  WHERE refill_at <= clock.now_millis
+  ORDER BY refill_at, bucket_name, key_hash
+  LIMIT CAST(? AS int4) FOR UPDATE SKIP LOCKED
+)
+DELETE FROM http_rate_limit_buckets AS bucket USING expired
+WHERE bucket.bucket_name = expired.bucket_name AND bucket.key_hash = expired.key_hash
+RETURNING bucket.key_hash"""

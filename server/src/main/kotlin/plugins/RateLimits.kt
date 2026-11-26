@@ -1,15 +1,10 @@
 package ch.nokillswit.plugins
 
-import ch.nokillswit.authz.caller
-import ch.nokillswit.infra.clientAddressKey
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.db.nowMillis
 import io.ktor.server.application.*
-import io.ktor.server.plugins.ratelimit.RateLimit
-import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.util.AttributeKey
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.time.Duration.Companion.seconds
 
 /** The name of the bucket a call last rode, stamped by its `requestKey`; read by the 429 audit in ErrorHandling.kt. */
 internal val RateLimitBucketKey = AttributeKey<String>("RateLimitBucket")
@@ -20,6 +15,9 @@ internal val RateLimitBucketKey = AttributeKey<String>("RateLimitBucket")
  * of a verified token, never client-chosen text.
  */
 internal val RateLimitUserKey = AttributeKey<UInt>("RateLimitUser")
+
+/** Internal test-application namespace; read only at request time because Ktor installs test application blocks after modules. */
+internal val RateLimitNamespaceOverrideKey = AttributeKey<String>("RateLimitNamespaceOverride")
 
 /**
  * Coalesces the `rate_limit.exceeded` audit event (checkup 2C15): an unauthenticated flood must not write one audit line
@@ -299,75 +297,5 @@ object RateLimits {
     internal fun passwordResetConfirmLimit() = PASSWORD_RESET_CONFIRM_PER_MINUTE
 }
 
-/**
- * The buckets (see application.yaml `security.rateLimit` and security.md): per IP, except the per-USER telemetry, directory,
- * room-name, room-members, chat-post, chat-write, chat-read, read-state, thread-watch, notification-prefs, notification-read, live-
- * ticket, search, link-preview and password-change buckets.
- * Login and password-reset follow the mode — production keeps them tight, development lifts them so one host
- * driving the e2e suite is not throttled (the per-account lockout and the per-email throttle are the
- * abuse defences in both modes); refresh, ready, MFA and the password-reset confirm are the same in every mode. Installed here, before
- * the feature modules, so any route may ride any bucket regardless of module order.
- */
-fun Application.configureRateLimits() {
-    val buckets = with(RateLimits) {
-        mapOf(
-            LOGIN to loginLimit(),
-            REFRESH to refreshLimit(),
-            PASSWORD_RESET to passwordResetLimit(),
-            MFA to mfaLimit(),
-            PASSWORD_RESET_CONFIRM to passwordResetConfirmLimit(),
-            READY to readyLimit(),
-            LIVE_CONNECT to liveConnectLimit(),
-        )
-    }
-    val perUserBuckets = with(RateLimits) {
-        mapOf(
-            TELEMETRY to telemetryLimit(),
-            DIRECTORY to directoryLimit(),
-            ROOM_NAME to roomNameLimit(),
-            ROOM_MEMBERS to roomMembersLimit(),
-            CHAT_POST to chatPostLimit(),
-            CHAT_WRITE to chatWriteLimit(),
-            CHAT_READ to chatReadLimit(),
-            READ_STATE to readStateLimit(),
-            THREAD_WATCH to threadWatchLimit(),
-            NOTIFICATION_PREFS to notificationPrefsLimit(),
-            NOTIFICATION_READ to notificationReadLimit(),
-            LIVE_TICKET to liveTicketLimit(),
-            SEARCH to searchLimit(),
-            LINK_PREVIEW to linkPreviewLimit(),
-            PASSWORD_CHANGE to passwordChangeLimit(),
-        )
-    }
-    install(RateLimit) {
-        buckets.forEach { (name, limit) ->
-            register(RateLimitName(name)) {
-                rateLimiter(limit = limit, refillPeriod = 60.seconds)
-                requestKey { call ->
-                    // The plugin gives its 429 no handle on the bucket, but it computes this key right before
-                    // rejecting, so the name stamped here is the rejecting bucket's (the `rate_limit.exceeded` audit).
-                    call.attributes.put(RateLimitBucketKey, name)
-                    call.clientAddressKey()
-                }
-            }
-        }
-        // The per-USER buckets (telemetry, directory, room-name, room-members, chat-post, chat-write, chat-read, read-state, thread-watch,
-        // notification-prefs, notification-read, live-ticket, search, link-preview, password-change).
-        // The routes mount them INSIDE `authenticate {}` (telemetry/TelemetryRoutes.kt, users/UserRoutes.kt, rooms/RoomRoutes.kt,
-        // threads/ThreadRoutes.kt, live/LiveRoutes.kt, threads/ThreadSearchRoutes.kt, notifications/NotificationRoutes.kt), so this key
-        // runs only for a verified token:
-        // an anonymous call is a 401 that never reaches it and never creates a limiter. The plugin keeps one limiter
-        // per key and drops it after its refill period, so memory is bounded by the accounts active within a minute.
-        perUserBuckets.forEach { (name, limit) ->
-            register(RateLimitName(name)) {
-                rateLimiter(limit = limit, refillPeriod = 60.seconds)
-                requestKey { call ->
-                    call.attributes.put(RateLimitBucketKey, name)
-                    val userId = call.caller().userId
-                    call.attributes.put(RateLimitUserKey, userId)
-                    userId
-                }
-            }
-        }
-    }
-}
+/** Stable Ktor module entry point; implementation lives in the shared-store adapter. */
+fun Application.configureRateLimits() = installRateLimits()
