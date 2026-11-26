@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { beginReactionEcho, beginReplyEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
+import { beginOwnerEcho, beginReactionEcho, beginReplyEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
 import type { LiveServerFrame } from "./liveProtocol";
 
 const firstId = "14d7ed05-24c1-4374-b6eb-60b147595822";
@@ -11,6 +11,10 @@ function posted(mutationId: string, messageId = 41, roomId = 7, threadNumber = 3
 
 function reacted(mutationId: string, messageId = 41, roomId = 7, threadNumber = 3): LiveServerFrame {
   return { type: "event", kind: "message.reaction_changed", roomId, threadNumber, messageId, mutationId };
+}
+
+function ownerChanged(mutationId: string, roomId = 7, threadNumber = 3): LiveServerFrame {
+  return { type: "event", kind: "thread.owner_changed", roomId, threadNumber, mutationId };
 }
 
 describe("reply echo correlation", () => {
@@ -194,4 +198,55 @@ describe("reaction echo correlation", () => {
     expect(deferReplyEcho(client, reacted(reaction.id), replay)).toBe(false);
   });
 
+});
+
+describe("thread owner echo correlation", () => {
+  let client: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    client = new QueryClient();
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(firstId);
+  });
+
+  afterEach(() => {
+    clearReplyEchoes(client);
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  test("holds only the exact owner event until the authoritative refresh is confirmed", () => {
+    const operation = beginOwnerEcho(client, 7, 3)!;
+    const replay = vi.fn();
+    expect(deferReplyEcho(client, ownerChanged(operation.id), replay)).toBe(true);
+    expect(deferReplyEcho(client, ownerChanged(operation.id, 8), replay)).toBe(false);
+    expect(deferReplyEcho(client, ownerChanged(operation.id, 7, 4), replay)).toBe(false);
+    expect(deferReplyEcho(client, {
+      type: "event",
+      kind: "thread.owner_changed",
+      roomId: 7,
+      threadNumber: 3,
+      messageId: 41,
+      mutationId: operation.id,
+    }, replay)).toBe(false);
+    expect(deferReplyEcho(client, reacted(operation.id), replay)).toBe(false);
+    operation.confirm();
+    expect(replay).not.toHaveBeenCalled();
+  });
+
+  test("a failed owner refresh replays its held event once", () => {
+    const operation = beginOwnerEcho(client, 7, 3)!;
+    const replay = vi.fn();
+    deferReplyEcho(client, ownerChanged(operation.id), replay);
+    operation.cancel();
+    operation.cancel();
+    expect(replay).toHaveBeenCalledOnce();
+    expect(deferReplyEcho(client, ownerChanged(operation.id), replay)).toBe(false);
+  });
+
+  test("an owner hand-over falls back when another operation holds the same correlation ID", () => {
+    const reply = beginReplyEcho(client, 7, 3)!;
+    expect(beginOwnerEcho(client, 7, 3)).toBeUndefined();
+    reply.cancel();
+  });
 });

@@ -95,8 +95,12 @@ export async function setThreadStatus(roomId: number, number: number, status: st
 }
 
 /** Passes the thread on to an active member of the room (204); stewards only, and a closed thread refuses it (409 `thread-closed`). */
-export async function setThreadOwner(roomId: number, number: number, ownerId: number): Promise<void> {
-  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/owner`, { method: "PUT", body: JSON.stringify({ ownerId }) });
+export async function setThreadOwner(roomId: number, number: number, ownerId: number, mutationId?: string): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/owner`, {
+    method: "PUT",
+    headers: mutationId === undefined ? undefined : { "X-Mutation-Id": mutationId },
+    body: JSON.stringify({ ownerId }),
+  });
 }
 
 /**

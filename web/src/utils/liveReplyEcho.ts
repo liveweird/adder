@@ -6,21 +6,34 @@ const MUTATION_ECHO_LIFETIME_MS = 30_000;
 
 interface ReplyEcho {
   id: string;
-  confirm(messageId: number): void;
+  confirm(messageId?: number): void;
   cancel(): void;
 }
 
 interface HeldEcho {
-  messageId: number;
+  messageId?: number;
   replay: () => void;
 }
 
+type MutationTarget =
+  | {
+      type: "message";
+      kind: "message.posted" | "message.reaction_changed";
+      roomId: number;
+      threadNumber: number;
+      expectedMessageId?: number;
+    }
+  | {
+      type: "thread";
+      kind: "thread.owner_changed";
+      roomId: number;
+      threadNumber: number;
+    };
+
 interface PendingMutation {
-  kind: "message.posted" | "message.reaction_changed";
-  roomId: number;
-  threadNumber: number;
-  expectedMessageId?: number;
+  target: MutationTarget;
   timer: ReturnType<typeof setTimeout>;
+  confirmed: boolean;
   confirmedMessageId?: number;
   held?: HeldEcho;
 }
@@ -38,10 +51,7 @@ export function canCorrelateReply(apiBase: string, pageUrl: string): boolean {
 
 function beginEcho(
   queryClient: QueryClient,
-  kind: PendingMutation["kind"],
-  roomId: number,
-  threadNumber: number,
-  expectedMessageId?: number,
+  target: MutationTarget,
 ): ReplyEcho | undefined {
   const id = globalThis.crypto?.randomUUID?.();
   if (id === undefined) return undefined;
@@ -55,19 +65,20 @@ function beginEcho(
     mutation.held?.replay();
   };
 
-  const mutation: PendingMutation = { kind, roomId, threadNumber, expectedMessageId, timer: setTimeout(expire, MUTATION_ECHO_LIFETIME_MS) };
+  const mutation: PendingMutation = { target, timer: setTimeout(expire, MUTATION_ECHO_LIFETIME_MS), confirmed: false };
   mutations.set(id, mutation);
   return {
     id,
     confirm(messageId) {
-      if (sessions.get(queryClient)?.get(id) !== mutation || mutation.confirmedMessageId !== undefined) return;
+      if (sessions.get(queryClient)?.get(id) !== mutation || mutation.confirmed) return;
+      mutation.confirmed = true;
       mutation.confirmedMessageId = messageId;
       const held = mutation.held;
       delete mutation.held;
-      if (held && held.messageId !== messageId) held.replay();
+      if (held && target.type === "message" && target.expectedMessageId === undefined && held.messageId !== messageId) held.replay();
     },
     cancel() {
-      if (mutation.confirmedMessageId !== undefined) return;
+      if (mutation.confirmed) return;
       clearTimeout(mutation.timer);
       expire();
     },
@@ -75,29 +86,42 @@ function beginEcho(
 }
 
 export function beginReplyEcho(queryClient: QueryClient, roomId: number, threadNumber: number): ReplyEcho | undefined {
-  return beginEcho(queryClient, "message.posted", roomId, threadNumber);
+  return beginEcho(queryClient, { type: "message", kind: "message.posted", roomId, threadNumber });
 }
 
 export function beginReactionEcho(queryClient: QueryClient, roomId: number, threadNumber: number, messageId: number) {
-  const echo = beginEcho(queryClient, "message.reaction_changed", roomId, threadNumber, messageId);
+  const echo = beginEcho(queryClient, {
+    type: "message", kind: "message.reaction_changed", roomId, threadNumber, expectedMessageId: messageId,
+  });
   if (!echo) return undefined;
   return { id: echo.id, confirm: () => echo.confirm(messageId), cancel: echo.cancel };
 }
 
-/** Only hold exact correlated message echoes from one request in this session. Process every other frame as usual. */
+export function beginOwnerEcho(queryClient: QueryClient, roomId: number, threadNumber: number) {
+  const echo = beginEcho(queryClient, { type: "thread", kind: "thread.owner_changed", roomId, threadNumber });
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
+}
+
+function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { type: "event" }>): boolean {
+  const target = mutation.target;
+  if (target.kind !== frame.kind || target.roomId !== frame.roomId || target.threadNumber !== frame.threadNumber) return false;
+  if (target.type === "thread") return frame.messageId === undefined;
+  if (frame.messageId === undefined) return false;
+  const expected = target.expectedMessageId ?? mutation.confirmedMessageId;
+  return expected === undefined || expected === frame.messageId;
+}
+
+/** Only hold exact correlated echoes from one request in this session. Process every other frame as usual. */
 export function deferReplyEcho(queryClient: QueryClient, frame: LiveServerFrame, replay: () => void): boolean {
   if (
     frame.type !== "event" ||
-    (frame.kind !== "message.posted" && frame.kind !== "message.reaction_changed") ||
-    frame.mutationId === undefined ||
-    frame.messageId === undefined
+    !["message.posted", "message.reaction_changed", "thread.owner_changed"].includes(frame.kind) ||
+    frame.mutationId === undefined
   ) return false;
   const mutation = sessions.get(queryClient)?.get(frame.mutationId);
-  if (
-    !mutation || mutation.kind !== frame.kind || mutation.roomId !== frame.roomId || mutation.threadNumber !== frame.threadNumber ||
-    (mutation.expectedMessageId !== undefined && mutation.expectedMessageId !== frame.messageId)
-  ) return false;
-  if (mutation.confirmedMessageId !== undefined) return mutation.confirmedMessageId === frame.messageId;
+  if (!mutation || !matches(mutation, frame)) return false;
+  if (mutation.confirmed) return true;
   if (mutation.held) return mutation.held.messageId === frame.messageId;
   mutation.held = { messageId: frame.messageId, replay };
   return true;

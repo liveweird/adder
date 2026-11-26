@@ -175,6 +175,24 @@ class LiveHubTest {
             otherUser.drain(),
         )
 
+        deliver(
+            LiveHint(
+                LiveKind.THREAD_OWNER_CHANGED,
+                7u,
+                threadNumber = 3,
+                mutationId = mutationId,
+                originUserId = 1u,
+            ),
+        )
+        barrier(writerTabOne)
+        val owner = LiveServerFrame.Event(LiveKind.THREAD_OWNER_CHANGED, 7u, 3, mutationId = mutationId)
+        assertEquals(listOf<LiveServerFrame>(owner), writerTabOne.drain())
+        assertEquals(listOf<LiveServerFrame>(owner), writerTabTwo.drain())
+        assertEquals(
+            listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.THREAD_OWNER_CHANGED, 7u, 3)),
+            otherUser.drain(),
+        )
+
         deliver(LiveHint(LiveKind.ROOM_UPDATED, 7u, mutationId = mutationId, originUserId = 1u))
         barrier(writerTabOne)
         val ordinary = listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.ROOM_UPDATED, 7u))

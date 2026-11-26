@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.34.0",
+    date: "2026-11-26",
+    en: `**Adder 1.34.0 — faster owner hand-overs**
+
+- Passing a thread to another owner reuses the writer's successful thread refresh. Other tabs still receive the owner change live, and an interrupted request still recovers through the live event.`,
+    pl: `**Adder 1.34.0 — szybsze przekazywanie wątków**
+
+- Przekazanie wątku innej osobie wykorzystuje udane odświeżenie po stronie osoby wykonującej operację. Inne karty nadal otrzymują zmianę właściciela na żywo, a przerwane żądanie nadal odzyskuje ją ze zdarzenia.`,
+  },
+  {
     version: "1.33.0",
     date: "2026-11-26",
     en: `**Adder 1.33.0 — faster reaction updates**

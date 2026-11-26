@@ -6,6 +6,7 @@ import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.authz.requireThreadSteward
 import ch.nokillswit.infra.JsonInt
+import ch.nokillswit.infra.mutationId
 import ch.nokillswit.infra.db.EVENT_LOG_DEFAULT_SORT
 import ch.nokillswit.infra.db.EVENT_LOG_SORT_FIELDS
 import ch.nokillswit.infra.db.orVanished
@@ -322,8 +323,9 @@ private fun Route.threadOwner(roomService: RoomService, threadService: ThreadSer
             val standing = roomService.visibleStanding(caller, roomId)
             val number = route.parent.number.toInt()
             requireThreadSteward(caller, standing, threadService.ownerOf(roomId, number).orNotFound("Thread"))
+            val mutationId = call.mutationId()
             val request = call.receive<ThreadOwnerRequest>()
-            val move = statusService.setOwner(roomId, number, caller, request.ownerId)
+            val move = statusService.setOwner(roomId, number, caller, request.ownerId, mutationId)
             if (move != null) {
                 audit(
                     "thread.owner_changed",

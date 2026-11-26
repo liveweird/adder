@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.33.0
+  version: 1.34.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -2405,7 +2405,7 @@ paths:
       description: |
         A STEWARD: the thread's owner while a member, the room's OWNER or an `ADMIN` (a non-member is the uniform `404`, a member who is
         not a steward `403`). Checked in this order: visibility (`404`), the thread (`404`) and the steward rule (`403`) on a lock-free
-        read of its owner, the body (`400`), then under the room lock the guard, the thread and the steward rule again on the fresh
+        read of its owner, the optional mutation header and the body (`400`), then under the room lock the guard, the thread and the steward rule again on the fresh
         rows, an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
         `urn:adder:problem:thread-closed`: reopen it first), and the new owner (`400` unless `ownerId` is an ACTIVE member of the room).
         A removed or deleted owner keeps the thread, inert, until a steward passes it on.
@@ -2416,6 +2416,15 @@ paths:
         `THREAD_ASSIGNED` notification (`listNotifications`) and the live `notification.created` event, unless the caller took the thread
         themself; the thread's other watchers (the caller never) get `THREAD_OWNER_CHANGED`.
         Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token), and, like every write of the room, waits at most about 3 seconds for the room's write lock before it is answered `429` of type `urn:adder:problem:room-busy` with `Retry-After: 1`.
+      parameters:
+        - name: X-Mutation-Id
+          in: header
+          required: false
+          description: |
+            Optional identifier for correlating this request with the writer's live thread.owner_changed event. Supply at most one
+            canonical lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events.
+            Sending the same identifier again does not make the request idempotent.
+          schema: { $ref: '#/components/schemas/LiveMutationId' }
       requestBody:
         required: true
         content:
@@ -4280,7 +4289,7 @@ components:
         messageId: { type: integer, format: int64, minimum: 1, maximum: 4294967295, description: Present for the message kinds. }
         mutationId:
           allOf: [{ $ref: '#/components/schemas/LiveMutationId' }]
-          description: On message.posted or message.reaction_changed, correlates the writer's HTTP request with its event for that account only.
+          description: On message.posted, message.reaction_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only.
     LiveRevokedFrame:
       type: object
       required: [type, roomId]

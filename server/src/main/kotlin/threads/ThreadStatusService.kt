@@ -84,7 +84,13 @@ class ThreadStatusService internal constructor(
      * new owner gets no notice when the caller took the thread themself). A removed or deleted owner keeps the thread, inert, until a
      * steward does this.
      */
-    suspend fun setOwner(roomId: UInt, number: Int, caller: CallerPrincipal, newOwnerId: UInt): OwnerMove? =
+    suspend fun setOwner(
+        roomId: UInt,
+        number: Int,
+        caller: CallerPrincipal,
+        newOwnerId: UInt,
+        mutationId: String? = null,
+    ): OwnerMove? =
         database.withThreadWrite(
             roomId, number, caller, readerGuard,
             actGuard = { fresh, standing, thread -> requireThreadSteward(fresh, standing, thread.ownerId) },
@@ -113,7 +119,15 @@ class ThreadStatusService internal constructor(
             // Handing over the thread can start a watch, while an explicit off survives this implicit change.
             watches.addInTransaction(thread.id, newOwnerId, stamp)
             rooms.touchActivity(roomId, stamp, caller.userId)
-            notifyLive(LiveHint(LiveKind.THREAD_OWNER_CHANGED, roomId, threadNumber = number))
+            notifyLive(
+                LiveHint(
+                    LiveKind.THREAD_OWNER_CHANGED,
+                    roomId,
+                    threadNumber = number,
+                    mutationId = mutationId,
+                    originUserId = caller.userId.takeIf { mutationId != null },
+                ),
+            )
             // The new owner hears `THREAD_ASSIGNED` (not when they took it themself), the other watchers `THREAD_OWNER_CHANGED`.
             val audience = NoticeAudience.ofHandOver(caller.userId, newOwnerId, watches.recipientIds(thread.id))
             val told = notices.forThread(roomId, thread.id, number, caller.userId, audience, eventId)
