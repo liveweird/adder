@@ -40,8 +40,8 @@ class MfaResetRaceTest {
             val commitReset = CompletableDeferred<Unit>()
             coroutineScope {
                 val reset = async {
-                    resets.complete(token, hashPassword("new-password-123", cost = 4)) { identity ->
-                        val cleared = throttle.clearInCurrentTransaction(identity)
+                    resets.complete(token, hashPassword("new-password-123", cost = 4)) { targetId, identity ->
+                        val cleared = throttle.clearInCurrentTransaction(identity, targetId)
                         resetPrepared.complete(Unit)
                         commitReset.await()
                         cleared
