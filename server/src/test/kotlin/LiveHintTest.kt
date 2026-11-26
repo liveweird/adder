@@ -28,6 +28,18 @@ class LiveHintTest {
             """{"kind":"message.posted","roomId":12,"threadNumber":7,"messageId":991,"v":1}""",
             LiveHint(LiveKind.MESSAGE_POSTED, 12u, threadNumber = 7, messageId = 991u).toPayload(),
         )
+        assertEquals(
+            """{"kind":"message.posted","roomId":12,"threadNumber":7,"messageId":991,""" +
+                """"mutationId":"2c6c7f12-79a4-4f1a-8dc7-e9686608b20a","originUserId":8,"v":1}""",
+            LiveHint(
+                LiveKind.MESSAGE_POSTED,
+                12u,
+                threadNumber = 7,
+                messageId = 991u,
+                mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a",
+                originUserId = 8u,
+            ).toPayload(),
+        )
         assertEquals("""{"kind":"room.updated","roomId":12,"v":1}""", LiveHint(LiveKind.ROOM_UPDATED, 12u).toPayload())
         assertEquals(
             """{"kind":"room.member_added","roomId":3,"targetUserIds":[5,6],"v":1}""",

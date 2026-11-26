@@ -557,3 +557,7 @@ offers Reload, which re-seeds the draft only on the user's click. The shared pie
 ## Message edit history
 
 `MessageRevisionDialog` is opened from an edited message’s actions. It requests a bounded page only after opening and displays the prior body in a wrapping plain-text view. The server authorizes each request. The client discards cached pages on room-access and role changes, message or thread deletion, and session changes; an open dialog reacts to those events immediately. `roomKeys.messageRevisions` scopes cache invalidation to the room and message. The new-thread form and the existing tag editor use the same `ThreadTagPicker`; kept drafts accept the optional curated tag ids.
+
+## Reusing the reply refresh
+
+`liveReplyEcho` holds a matching `message.posted` frame for up to 30 seconds, with at most 32 tracked replies per query client. The composer confirms a reply after the active queries covered by its standard refresh are current. Session changes discard earlier correlation state. When generation is unavailable or tracking is full, the reply and live event follow their usual paths.

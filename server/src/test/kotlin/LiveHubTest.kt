@@ -127,6 +127,45 @@ class LiveHubTest {
     }
 
     @Test
+    fun `a reply mutation id reaches every writer tab and no other subscriber`() = withHub {
+        val writerTabOne = socket(1u)
+        val writerTabTwo = socket(1u)
+        val otherUser = socket(2u)
+        listOf(writerTabOne, writerTabTwo, otherUser).forEach {
+            register(it)
+            subscribe(it, 7u)
+            it.drain()
+        }
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        deliver(
+            LiveHint(
+                LiveKind.MESSAGE_POSTED,
+                7u,
+                threadNumber = 3,
+                messageId = 99u,
+                mutationId = mutationId,
+                originUserId = 1u,
+            ),
+        )
+        barrier(writerTabOne)
+
+        val writerEvent = LiveServerFrame.Event(LiveKind.MESSAGE_POSTED, 7u, 3, 99u, mutationId)
+        assertEquals(listOf<LiveServerFrame>(writerEvent), writerTabOne.drain())
+        assertEquals(listOf<LiveServerFrame>(writerEvent), writerTabTwo.drain())
+        assertEquals(
+            listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.MESSAGE_POSTED, 7u, 3, 99u)),
+            otherUser.drain(),
+        )
+
+        deliver(LiveHint(LiveKind.ROOM_UPDATED, 7u, mutationId = mutationId, originUserId = 1u))
+        barrier(writerTabOne)
+        val ordinary = listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.ROOM_UPDATED, 7u))
+        assertEquals(ordinary, writerTabOne.drain(), "other live kinds never expose correlation metadata")
+        assertEquals(ordinary, writerTabTwo.drain())
+        assertEquals(ordinary, otherUser.drain())
+    }
+
+    @Test
     fun `an ack lists what was subscribed, refused and capped, and a room dropped while pending is refused`() = withHub {
         val s = socket()
         register(s)

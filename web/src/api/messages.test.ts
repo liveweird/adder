@@ -53,6 +53,15 @@ describe("messages API wrappers", () => {
     expect(JSON.parse(init.body as string)).toEqual({ body: "edited" });
   });
 
+  test("correlates a reply by header without changing its body", async () => {
+    const mutationId = "14d7ed05-24c1-4374-b6eb-60b147595822";
+    mockFetch.mockResolvedValue(json(201, { id: 9 }));
+    await postMessage(5, 42, "reply", undefined, mutationId);
+    const [, init] = lastCall();
+    expect(new Headers(init.headers).get("X-Mutation-Id")).toBe(mutationId);
+    expect(JSON.parse(init.body as string)).toEqual({ body: "reply" });
+  });
+
   test("listMessageRevisions reads earlier bodies newest first", async () => {
     mockFetch.mockResolvedValue(json(200, { items: [], page: 2, pageSize: 20, total: 21 }));
     const { signal } = new AbortController();

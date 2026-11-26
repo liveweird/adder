@@ -77,6 +77,8 @@ export function liveUrl(location: Pick<Location, "protocol" | "host"> & { pathna
   return `${resolved.protocol === "https:" ? "wss:" : "ws:"}//${resolved.host}${resolved.pathname}`;
 }
 
+const MUTATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 const isId = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 const isIdList = (value: unknown): value is number[] => Array.isArray(value) && value.every(isId);
 
@@ -101,6 +103,8 @@ function parseEvent(frame: Record<string, unknown>): LiveServerFrame | null {
     roomId: frame.roomId,
     ...(threadNumber === undefined ? {} : { threadNumber }),
     ...(messageId === undefined ? {} : { messageId }),
+    ...(frame.kind === "message.posted" && typeof frame.mutationId === "string" && MUTATION_ID.test(frame.mutationId)
+      ? { mutationId: frame.mutationId } : {}),
   };
 }
 

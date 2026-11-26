@@ -77,7 +77,13 @@ sealed class LiveServerFrame {
 
     @Serializable
     @SerialName("event")
-    data class Event(val kind: LiveKind, val roomId: UInt, val threadNumber: Int? = null, val messageId: UInt? = null) : LiveServerFrame()
+    data class Event(
+        val kind: LiveKind,
+        val roomId: UInt,
+        val threadNumber: Int? = null,
+        val messageId: UInt? = null,
+        val mutationId: String? = null,
+    ) : LiveServerFrame()
 
     @Serializable
     @SerialName("revoked")

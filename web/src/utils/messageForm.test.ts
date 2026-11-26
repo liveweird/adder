@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { KeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import { ApiError } from "../api/http";
@@ -83,6 +83,26 @@ describe("refreshAfterMessageWrite", () => {
 
   test("a post re-reads the room's threads and the rail, and nothing of the pins", async () => {
     expect(await refreshed()).toEqual([["rooms", "threads", 12], ["rooms", "rail"]]);
+  });
+
+  test("reports coverage only after a successful active refresh", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const key = ["rooms", "threads", 12, "detail", 1];
+    client.setQueryData(key, "old");
+    const queryFn = vi.fn<() => Promise<string>>().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce("fresh");
+    const observer = new QueryObserver(client, { queryKey: key, queryFn, staleTime: Infinity });
+    const unsubscribe = observer.subscribe(() => undefined);
+    const onCovered = vi.fn();
+    try {
+      await refreshAfterMessageWrite(client, 12, { newReply: true, onCovered });
+      expect(onCovered).not.toHaveBeenCalled();
+      await refreshAfterMessageWrite(client, 12, { newReply: true, onCovered });
+      expect(onCovered).toHaveBeenCalledOnce();
+      expect(client.getQueryData(key)).toBe("fresh");
+    } finally {
+      unsubscribe();
+      client.clear();
+    }
   });
 
   test("an edit or a delete also re-reads the room's pins: a pinned body shows in the panel", async () => {

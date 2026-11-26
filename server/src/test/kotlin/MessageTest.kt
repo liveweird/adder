@@ -6,6 +6,7 @@ import ch.nokillswit.threads.MAX_MESSAGE_BODY_LENGTH
 import ch.nokillswit.threads.MessagePageResponse
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
+import ch.nokillswit.threads.MUTATION_ID_HEADER
 import ch.nokillswit.threads.THREAD_CLOSED_PROBLEM_TYPE
 import ch.nokillswit.threads.ThreadCreateRequest
 import ch.nokillswit.threads.ThreadResponse
@@ -13,6 +14,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -71,6 +73,19 @@ class MessageTest {
 
     private suspend fun HttpClient.post(room: UInt, body: String, number: Int = 1): HttpResponse =
         postJson("$rooms/$room/threads/$number/messages", MessageRequest(body))
+
+    private suspend fun HttpClient.postWithMutation(
+        room: UInt,
+        body: String,
+        mutationId: String,
+        repeatHeader: Boolean = false,
+    ): HttpResponse = request("$rooms/$room/threads/1/messages") {
+        method = HttpMethod.Post
+        contentType(ContentType.Application.Json)
+        header(MUTATION_ID_HEADER, mutationId)
+        if (repeatHeader) headers.append(MUTATION_ID_HEADER, mutationId)
+        setBody(MessageRequest(body))
+    }
 
     private suspend fun HttpClient.edit(room: UInt, id: UInt, body: String): HttpResponse =
         putJson("$rooms/$room/messages/$id", MessageRequest(body))
@@ -139,6 +154,58 @@ class MessageTest {
         assertEquals(HttpStatusCode.NotFound, cast.outsider.client.send(HttpMethod.Post, path, malformed).status)
         assertEquals(HttpStatusCode.Forbidden, cast.admin.client.send(HttpMethod.Post, path, malformed).status)
         assertEquals(HttpStatusCode.NotFound, cast.member.client.post(cast.room, "Hi", number = 9).status, "an unknown thread")
+    }
+
+    @Test
+    fun `mutation ids are strict correlation only and are checked between the member guard and body`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("msg-mutation")
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        val before = count(cast)
+
+        val first = cast.member.client.postWithMutation(cast.room, "First", mutationId)
+        val second = cast.member.client.postWithMutation(cast.room, "Second", mutationId)
+        assertEquals(HttpStatusCode.Created, first.status)
+        assertEquals(HttpStatusCode.Created, second.status)
+        assertTrue(first.body<MessageResponse>().id != second.body<MessageResponse>().id, "the header is not an idempotency key")
+        assertEquals(before + 2, count(cast))
+
+        val bad = listOf(
+            mutationId.uppercase(),
+            "2c6c7f12-79a4-1f1a-8dc7-e9686608b20a",
+            " $mutationId",
+            "$mutationId ",
+            "not-a-uuid",
+        )
+        bad.forEach { value ->
+            assertEquals(
+                HttpStatusCode.BadRequest,
+                cast.member.client.postWithMutation(cast.room, "Never written", value).status,
+                value,
+            )
+        }
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            cast.member.client.postWithMutation(cast.room, "Never written", mutationId, repeatHeader = true).status,
+        )
+        assertEquals(before + 2, count(cast), "malformed and repeated headers write nothing")
+
+        val path = "$rooms/${cast.room}/threads/1/messages"
+        suspend fun HttpClient.guardedMalformed(): HttpResponse = request(path) {
+            method = HttpMethod.Post
+            contentType(ContentType.Application.Json)
+            header(MUTATION_ID_HEADER, "invalid")
+            setBody("{ not json")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, jsonClient().guardedMalformed().status)
+        assertEquals(HttpStatusCode.NotFound, cast.outsider.client.guardedMalformed().status)
+        assertEquals(HttpStatusCode.Forbidden, cast.admin.client.guardedMalformed().status)
+        val member = cast.member.client.guardedMalformed()
+        assertEquals(HttpStatusCode.BadRequest, member.status)
+        assertTrue(
+            MUTATION_ID_HEADER in member.body<ProblemDetail>().detail.orEmpty(),
+            "the header is checked before decoding the malformed body",
+        )
     }
 
     @Test

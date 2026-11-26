@@ -41,9 +41,15 @@ export function getMessageContext(roomId: number, threadNumber: number, messageI
  * quote any live message the caller can currently read; it is sent only when there is one, and a quote that cannot be made is a typed 400
  * (`PROBLEM_TYPES.quoteUnavailable`).
  */
-export async function postMessage(roomId: number, threadNumber: number, body: string, quotedMessageId?: number): Promise<MessageResponse> {
+export async function postMessage(
+  roomId: number, threadNumber: number, body: string, quotedMessageId?: number, mutationId?: string,
+): Promise<MessageResponse> {
   const payload: MessageBody = quotedMessageId === undefined ? { body } : { body, quotedMessageId };
-  return jsonRequest<MessageResponse>(`/api/v1/rooms/${roomId}/threads/${threadNumber}/messages`, { method: "POST", body: JSON.stringify(payload) });
+  return jsonRequest<MessageResponse>(`/api/v1/rooms/${roomId}/threads/${threadNumber}/messages`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    ...(mutationId === undefined ? {} : { headers: { "X-Mutation-Id": mutationId } }),
+  });
 }
 
 export type ReactionSummary = MessageResponse["reactions"][number];

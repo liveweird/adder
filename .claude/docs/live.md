@@ -275,8 +275,7 @@ map (`utils/liveKeys.ts`) from frames to TanStack Query keys. The wanted subscri
 archived rail and All rooms keep refreshing on focus. States `connecting | live | quiet | down | paused | idle | stopped`; backoff 1, 2, 4, 8, 16, then 30 s, each times a
 random 0.5-1, reset after 60 s live; reconnect at once on `online` and when the tab becomes visible (`quiet` and `idle` are the hidden-tab states, "The hidden tab"); a reconnect invalidates the subscribed rooms.
 Invalidation is debounced (focused keys 300 ms, aggregate keys at most once per 3 s, `resync` after a random 0-2 s) and NEVER cancels an in-flight fetch.
-The header shows a "Reconnecting..." badge after 5 s down and "Live updates off" at once when paused. The writer's own tab refetches twice (its mutation
-refresh plus the hint); accepted. Vite's proxy needs `ws: true` (no `changeOrigin`, so the Origin check matches). The socket URL is derived from the same base as the REST
+The header shows a "Reconnecting..." badge after 5 s down and "Live updates off" at once when paused. Successful reply writes can reuse their own refresh when the matching live hint arrives. See "Reply correlation". Vite's proxy needs `ws: true` (no `changeOrigin`, so the Origin check matches). The socket URL is derived from the same base as the REST
 calls (`VITE_API_BASE`): empty means the page's own host (`ws:` on http, `wss:` on https), an absolute base maps `http`/`https` to `ws`/`wss` on THAT origin
 (the server then needs the page's origin in `http.corsHosts`, as for REST). **Adder's own CSP (`connect-src 'self'`) blocks such a socket, as it blocks the REST calls**: an absolute base only works when the SPA is served from somewhere else, under that host's own CSP. A base without a leading slash resolves relative to the page, as `fetch` does. After a 4001 or 4003 the client re-mints after a random 0-1 s, so a whole room
 of sockets that expired together does not mint in one instant.
@@ -304,3 +303,9 @@ per-IP bucket and the per-address pending share also see the real client. Produc
 A committed logout, successful account update, deletion or credential revision change emits a private account id on `adder_live`. The same transaction commits the state change and the hint. The account hint has only the account id and envelope version. It never becomes a WebSocket frame. Logout invalidates the access token it revoked, and a separate session of the same user stays live while its own credentials are current.
 
 Each hub coalesces up to 1,024 pending account ids and looks up matching sockets through its user index. Overflow or a listener gap requests a full recheck. Database verdicts run outside the hub actor, and a failed recheck retries once after five seconds using a fresh snapshot. The 60-second sweep remains a fallback. Each newly registered socket is rechecked before its first frame is sent, closing the gap between ticket validation and registration.
+
+## Reply correlation
+
+The reply POST accepts one optional `X-Mutation-Id` header with a canonical lowercase UUIDv4. The same identifier may accompany a `message.posted` hint on the writer’s account sockets. Other recipients receive the ordinary hint. A repeated request can create another message. The identifier has no effect on authorization, retries or notification events.
+
+The sender records the operation in its logical session before issuing the write. An early matching hint waits for the write and its query refresh. After a successful refresh, only the hint for the returned message is redundant. A failed request, failed refresh or expired correlation releases the held event through the normal invalidator. Another tab refreshes as usual. Room revocations, resync, message revisions and deletions keep their independent handling.

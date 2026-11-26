@@ -6,6 +6,7 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import type { LiveClock } from "./liveClient";
 import { homeKey, notificationsKey, roomKeys, roomOrganizationKey, searchAllKey } from "./roomKeys";
 import { LIVE_EVENT_KINDS, type LiveEventKind, type LiveServerFrame } from "./liveProtocol";
+import { deferReplyEcho } from "./liveReplyEcho";
 import { lookingAt } from "./lookingAt";
 import { clearRoomLinkPreviews } from "./linkPreviewCache";
 import { quoteDependencyKeys } from "./quoteCacheDependencies";
@@ -269,6 +270,7 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       quiet = next;
     },
     handle(frame) {
+      if (deferReplyEcho(queryClient, frame, () => active.get(queryClient)?.handle(frame))) return;
       const roomLost = frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted");
       const quoteDependencies = quoteDependencyKeys(queryClient, frame);
       const quoteSourceChanged = frame.type === "event" &&

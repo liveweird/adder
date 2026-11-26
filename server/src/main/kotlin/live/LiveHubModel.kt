@@ -114,3 +114,13 @@ internal fun LiveKind.audience(): Audience = when (this) {
     LiveKind.ROOM_MEMBER_ADDED, LiveKind.ROOM_MEMBER_ROLE_CHANGED -> Audience.SUBSCRIBERS_AND_TARGETS
     else -> Audience.SUBSCRIBERS
 }
+
+internal fun eventOf(hint: LiveHint, recipient: HubSocket) = LiveServerFrame.Event(
+    hint.kind,
+    hint.roomId,
+    hint.threadNumber,
+    hint.messageId,
+    mutationId = hint.mutationId.takeIf {
+        hint.kind == LiveKind.MESSAGE_POSTED && hint.originUserId == recipient.userId
+    },
+)

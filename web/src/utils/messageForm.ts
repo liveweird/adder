@@ -45,12 +45,22 @@ export function isSendShortcut(event: KeyboardEvent): boolean {
  * pinned panel shows the body, so a redacted one must not linger there. A new reply can start watching, so it also refreshes Home
  * and watched searches.
  */
-export function refreshAfterMessageWrite(queryClient: QueryClient, roomId: number, { pins = false, newReply = false }: { pins?: boolean; newReply?: boolean } = {}): Promise<void> {
-  const keys = [roomKeys.threads(roomId), roomKeys.rail];
-  return refreshQueriesAfterMutation(
-    queryClient,
-    ...keys,
+export async function refreshAfterMessageWrite(
+  queryClient: QueryClient,
+  roomId: number,
+  { pins = false, newReply = false, onCovered }: { pins?: boolean; newReply?: boolean; onCovered?: () => void } = {},
+): Promise<void> {
+  const keys = [
+    roomKeys.threads(roomId),
+    roomKeys.rail,
     ...(pins ? [roomKeys.pins(roomId)] : []),
     ...(newReply ? WATCH_SEARCH_KEYS : []),
-  );
+  ];
+  await refreshQueriesAfterMutation(queryClient, ...keys);
+  if (!onCovered) return;
+  // TanStack resolves invalidation after a failed or paused fetch as well. Keep the live fallback
+  // unless every active query in this refresh has reached fresh data.
+  const refreshed = keys.every((queryKey) => queryClient.getQueryCache().findAll({ queryKey, type: "active" })
+    .every(({ state }) => state.status === "success" && state.fetchStatus === "idle" && !state.isInvalidated));
+  if (refreshed) onCovered();
 }

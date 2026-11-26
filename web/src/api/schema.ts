@@ -2912,6 +2912,8 @@ export interface components {
             refused: number[];
             capped: number[];
         };
+        /** Format: uuid */
+        LiveMutationId: string;
         /** @description A hint that something changed; ids only, never what. */
         LiveEventFrame: {
             /**
@@ -2932,6 +2934,8 @@ export interface components {
              * @description Present for the message kinds.
              */
             messageId?: number;
+            /** @description On message.posted, correlates a reply POST with its event for the writer's account only. */
+            mutationId?: components["schemas"]["LiveMutationId"];
         };
         /** @description The room is no longer readable by the caller (removed, or the room was deleted); the subscription is gone. */
         LiveRevokedFrame: {
@@ -7452,7 +7456,14 @@ export interface operations {
     postThreadMessage: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional identifier for correlating this request with the writer's live message.posted event. Supply at most one
+                 *     canonical lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events.
+                 *     Sending the same identifier again can post another message.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
