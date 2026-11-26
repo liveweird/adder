@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Shared digest delivery intervals (1.30.0)
+
+Notification digest recipient intervals survive app restarts and apply across application instances. Adder reserves the recipient interval and sender pacing together before it contacts the email provider.
+
 ### Shared request limits (1.29.0)
 
 Application request allowances are shared through PostgreSQL. Clients keep the same quotas and headers. Health probes keep a separate allowance for each app process.

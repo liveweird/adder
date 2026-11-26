@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.30.0",
+    date: "2026-11-26",
+    en: `**Adder 1.30.0 — shared digest delivery intervals**
+
+- A notification digest keeps the same delivery interval for each recipient after an app restart or when another instance sends it.`,
+    pl: `**Adder 1.30.0 — wspólne odstępy między podsumowaniami**
+
+- Podsumowania powiadomień zachowują ten sam odstęp dla każdej osoby po restarcie aplikacji i przy wysyłce z innej instancji.`,
+  },
+  {
     version: "1.29.0",
     date: "2026-11-26",
     en: `**Adder 1.29.0 — shared request limits**
