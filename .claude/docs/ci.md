@@ -85,13 +85,13 @@ app's password-reset and MFA email to it (`MAIL_TRANSPORT=smtp`). Ports delibera
 Kubernetes
 (OrbStack) deployment targets the dedicated `adder` namespace — see `k8s/secret.yaml`'s header for
 the secret-creation command. The app image is `adder-app` and the default Deployment has one replica beside PostgreSQL. The
-`apply-local.sh` two-replica option checks that the same supported immutable build is already ready, then renders two app pods.
+`apply-local.sh` two-replica option checks rollout readiness and compares each ready app pod’s version and commit with the selected immutable build before it renders two app pods.
 Both renders retain `Recreate`, ingress-only networking, and the same Secret references. The `k8s-static` job validates the
 rendered manifests and runs the mocked preflight cases, including older builds and a Deployment in progress.
 The two-app rehearsal passed all 195 Chromium scenarios against two containers sharing PostgreSQL and Mailpit. A
-round-robin HTTP and WebSocket proxy exercised both apps. PostgreSQL reached 23 client connections across 240 samples under
-the browser workload, within the 48-connection steady budget. When the proxy sent traffic to the surviving app and the first app
-stopped, the open browser reconnected in about five seconds and received a new reply without reloading. Kubernetes manifests
+round-robin HTTP and WebSocket proxy exercised both apps. PostgreSQL peaked at 19 client connections across 271 samples
+under the browser workload, within the 48-connection steady budget. When the proxy sent traffic to the surviving app and the first app
+stopped, the open browser reconnected in 2.6 seconds and received a new reply without reloading. Kubernetes manifests
 were validated separately with the pinned schemas and a mocked preflight.
 **The front door is an ingress-nginx Ingress** (`k8s/ingress.yaml`, decided 2026-11-20): the `app` Service is `ClusterIP`, so there is no `localhost:8087`
 for the cluster; the app is at `https://adder.k8s.orb.local` (OrbStack resolves `*.k8s.orb.local` ingress hosts; the controller's LoadBalancer answers on 80/443; with `tls:` and
