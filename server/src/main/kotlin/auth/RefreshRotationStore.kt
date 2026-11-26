@@ -3,6 +3,7 @@ package ch.nokillswit.auth
 import ch.nokillswit.infra.notify.notifyLiveAccount
 import kotlinx.coroutines.flow.firstOrNull
 import org.jetbrains.exposed.v1.core.IntegerColumnType
+import org.jetbrains.exposed.v1.core.IColumnType
 import org.jetbrains.exposed.v1.core.LongColumnType
 import org.jetbrains.exposed.v1.core.TextColumnType
 import org.jetbrains.exposed.v1.core.statements.StatementType
@@ -161,7 +162,7 @@ internal class RefreshRotationStore(
         var accessInserted = false
         for (revocation in revocations) {
             val inserted = insertRevocation(revocation.jti, revocation.expiresAtMillis)
-            if (revocation.jti == accessJti) accessInserted = accessInserted || inserted
+            if (revocation.jti == accessJti) accessInserted = inserted
         }
         users.forEach { userId ->
             TransactionManager.current().exec(
@@ -193,12 +194,11 @@ internal class RefreshRotationStore(
     }
 
     private suspend fun lockExistingGuard(userId: UInt) {
-        TransactionManager.current().exec(
+        firstColumn(
             LOCK_GUARD,
             listOf(LongColumnType() to userId.toLong()),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Long::class.javaObjectType)!! }?.firstOrNull()
-            ?: error("Refresh rotation user guard is missing")
+            Long::class.javaObjectType,
+        ) ?: error("Refresh rotation user guard is missing")
     }
 
     private suspend fun pruneRevocations() {
@@ -210,11 +210,11 @@ internal class RefreshRotationStore(
     }
 
     private suspend fun insertRevocation(jti: String, expiresAtMillis: Long): Boolean =
-        TransactionManager.current().exec(
+        firstColumn(
             INSERT_REVOCATION,
             listOf(TextColumnType() to jti, LongColumnType() to expiresAtMillis),
-            explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, String::class.java)!! }?.firstOrNull() != null
+            String::class.java,
+        ) != null
 
     private suspend fun recordRotation(jti: String, expiresAtMillis: Long, userId: UInt) {
         val slot = freeSlot() ?: evictStrictRotation() ?: return
@@ -232,27 +232,35 @@ internal class RefreshRotationStore(
         )
     }
 
-    private suspend fun freeSlot(): Int? = TransactionManager.current().exec(
+    private suspend fun freeSlot(): Int? = firstColumn(
         FREE_SLOT,
         listOf(IntegerColumnType() to maxRecords),
-        explicitStatementType = StatementType.SELECT,
-    ) { row -> row.get(0, Int::class.javaObjectType)!! }?.firstOrNull()
+        Int::class.javaObjectType,
+    )
 
-    private suspend fun evictStrictRotation(): Int? = TransactionManager.current().exec(
+    private suspend fun evictStrictRotation(): Int? = firstColumn(
         EVICT_STRICT_ROTATION,
         listOf(IntegerColumnType() to maxRecords),
-        explicitStatementType = StatementType.SELECT,
-    ) { row -> row.get(0, Int::class.javaObjectType)!! }?.firstOrNull()
+        Int::class.javaObjectType,
+    )
 
-    private suspend fun consumeGrace(jti: String): Boolean = TransactionManager.current().exec(
+    private suspend fun consumeGrace(jti: String): Boolean = firstColumn(
         CONSUME_GRACE,
         listOf(TextColumnType() to jti, IntegerColumnType() to MAX_GRACE_REUSES),
-        explicitStatementType = StatementType.SELECT,
-    ) { row -> row.get(0, String::class.java)!! }?.firstOrNull() != null
+        String::class.java,
+    ) != null
 
-    private suspend fun rotationExists(jti: String): Boolean = TransactionManager.current().exec(
+    private suspend fun rotationExists(jti: String): Boolean = firstColumn(
         ROTATION_EXISTS,
         listOf(TextColumnType() to jti),
-        explicitStatementType = StatementType.SELECT,
-    ) { row -> row.get(0, String::class.java)!! }?.firstOrNull() != null
+        String::class.java,
+    ) != null
+
+    private suspend fun <T : Any> firstColumn(
+        sql: String,
+        arguments: List<Pair<IColumnType<*>, Any?>>,
+        type: Class<T>,
+    ): T? = TransactionManager.current().exec(sql, arguments, explicitStatementType = StatementType.SELECT) { row ->
+        row.get(0, type)!!
+    }?.firstOrNull()
 }

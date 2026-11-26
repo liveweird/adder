@@ -136,6 +136,34 @@ class TokenBlocklistRotationTest {
         }
 
     @Test
+    fun `a missing user guard fails closed before recording a refresh claim`() = withIsolatedRotationStore {
+        connect().use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    "CREATE FUNCTION discard_refresh_guard() RETURNS trigger LANGUAGE plpgsql AS " +
+                        "'BEGIN RETURN NULL; END'",
+                )
+                statement.execute(
+                    "CREATE TRIGGER discard_refresh_guard BEFORE INSERT ON refresh_rotation_user_guards " +
+                        "FOR EACH ROW EXECUTE FUNCTION discard_refresh_guard()",
+                )
+            }
+        }
+
+        val jti = UUID.randomUUID().toString()
+        assertFailsWith<IllegalStateException> { service().claimRefresh(jti, farFuture, userId) }
+        connect().use { connection ->
+            connection.prepareStatement("SELECT count(*) FROM revoked_tokens WHERE jti = ?").use { statement ->
+                statement.setString(1, jti)
+                statement.executeQuery().use { rows ->
+                    assertTrue(rows.next())
+                    assertEquals(0, rows.getInt(1), "the failed guard cannot partially claim the token")
+                }
+            }
+        }
+    }
+
+    @Test
     fun `logout atomically revokes the exact pair and clears both users grace only`() = testApplication {
         usePostgresTestcontainer()
         val refreshUser = user("logout-refresh")
