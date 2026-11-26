@@ -1,6 +1,6 @@
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { expect, test, vi } from "vitest";
-import { refreshQueriesAfterMutation } from "./queryRefresh";
+import { activeQueriesAreFresh, refreshQueriesAfterMutation } from "./queryRefresh";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -44,6 +44,27 @@ test("refreshes active initial reads across prefixes, invalidates inactive data 
     oldSystems.resolve("old systems");
     user.resolve("user result");
     subscriptions.forEach((unsubscribe) => unsubscribe());
+    client.clear();
+  }
+});
+
+test("coverage requires every active matching query to be successful, idle and fresh", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const root = ["rooms", "threads", 12, "messages", 4];
+  const timeline = new QueryObserver(client, { queryKey: [...root, "timeline"], queryFn: () => "fresh" });
+  const roster = new QueryObserver(client, { queryKey: [...root, "reactors"], queryFn: () => Promise.reject(new Error("offline")) });
+  const unsubscribers = [timeline.subscribe(() => undefined), roster.subscribe(() => undefined)];
+  try {
+    await vi.waitFor(() => expect(client.isFetching({ queryKey: root })).toBe(0));
+    expect(activeQueriesAreFresh(client, root)).toBe(false);
+    roster.setOptions({ queryKey: [...root, "reactors"], queryFn: () => "fresh roster" });
+    await roster.refetch();
+    expect(activeQueriesAreFresh(client, root)).toBe(true);
+    client.setQueryData([...root, "inactive"], "stale cache");
+    await client.invalidateQueries({ queryKey: [...root, "inactive"], refetchType: "none" });
+    expect(activeQueriesAreFresh(client, root)).toBe(true);
+  } finally {
+    unsubscribers.forEach((unsubscribe) => unsubscribe());
     client.clear();
   }
 });

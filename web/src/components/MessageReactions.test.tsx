@@ -61,6 +61,7 @@ describe("MessageReactions", () => {
     await waitFor(() => expect(puts()).toHaveLength(1));
     expect(puts()[0][0]).toBe("/api/v1/rooms/12/messages/9/reaction");
     expect(JSON.parse(puts()[0][1].body as string)).toEqual({ emoji: "👍", reacted: false });
+    expect(new Headers(puts()[0][1].headers).get("X-Mutation-Id")).toMatch(/^[0-9a-f-]{36}$/);
     await user.click(screen.getByRole("button", { name: "❤️, 5 reactions" }));
     await waitFor(() => expect(puts()).toHaveLength(2));
     expect(JSON.parse(puts()[1][1].body as string)).toEqual({ emoji: "❤️", reacted: true });
@@ -197,6 +198,7 @@ describe("MessageReactions", () => {
     await act(async () => answers[0](new Response(null, { status: 204 })));
     await waitFor(() => expect(puts()).toHaveLength(2));
     expect(JSON.parse(puts()[1][1].body as string)).toEqual({ emoji: "🎉", reacted: true });
+    expect(new Headers(puts()[1][1].headers).get("X-Mutation-Id")).not.toBe(new Headers(puts()[0][1].headers).get("X-Mutation-Id"));
     await act(async () => answers[1](new Response(null, { status: 204 })));
   });
 

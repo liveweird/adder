@@ -156,6 +156,25 @@ class LiveHubTest {
             otherUser.drain(),
         )
 
+        deliver(
+            LiveHint(
+                LiveKind.MESSAGE_REACTION_CHANGED,
+                7u,
+                threadNumber = 3,
+                messageId = 99u,
+                mutationId = mutationId,
+                originUserId = 1u,
+            ),
+        )
+        barrier(writerTabOne)
+        val reaction = LiveServerFrame.Event(LiveKind.MESSAGE_REACTION_CHANGED, 7u, 3, 99u, mutationId)
+        assertEquals(listOf<LiveServerFrame>(reaction), writerTabOne.drain())
+        assertEquals(listOf<LiveServerFrame>(reaction), writerTabTwo.drain())
+        assertEquals(
+            listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.MESSAGE_REACTION_CHANGED, 7u, 3, 99u)),
+            otherUser.drain(),
+        )
+
         deliver(LiveHint(LiveKind.ROOM_UPDATED, 7u, mutationId = mutationId, originUserId = 1u))
         barrier(writerTabOne)
         val ordinary = listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.ROOM_UPDATED, 7u))

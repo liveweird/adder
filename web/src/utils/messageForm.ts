@@ -2,7 +2,7 @@ import type { KeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import type { QueryClient } from "@tanstack/react-query";
 import { PROBLEM_TYPES, isProblem } from "./problems";
-import { refreshQueriesAfterMutation } from "./queryRefresh";
+import { activeQueriesAreFresh, refreshQueriesAfterMutation } from "./queryRefresh";
 import { saveErrorMessage } from "./saveError";
 import { roomKeys } from "./roomKeys";
 import { WATCH_SEARCH_KEYS } from "./watch";
@@ -60,7 +60,5 @@ export async function refreshAfterMessageWrite(
   if (!onCovered) return;
   // TanStack resolves invalidation after a failed or paused fetch as well. Keep the live fallback
   // unless every active query in this refresh has reached fresh data.
-  const refreshed = keys.every((queryKey) => queryClient.getQueryCache().findAll({ queryKey, type: "active" })
-    .every(({ state }) => state.status === "success" && state.fetchStatus === "idle" && !state.isInvalidated));
-  if (refreshed) onCovered();
+  if (activeQueriesAreFresh(queryClient, ...keys)) onCovered();
 }

@@ -8,6 +8,7 @@ import ch.nokillswit.infra.paging.SortField
 import ch.nokillswit.infra.paging.optionalBoundedString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
+import ch.nokillswit.infra.mutationId
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.rooms.RoomService
 import ch.nokillswit.rooms.RoomServiceKey
@@ -89,10 +90,11 @@ private fun Route.messageReaction(roomService: RoomService, reactionService: Mes
             val caller = call.caller()
             val roomId = route.parent.parent.parent.id
             requireRoomMember(caller, roomService.visibleStanding(caller, roomId))
+            val mutationId = call.mutationId()
             val request = call.receive<ReactionRequest>()
             // Adding is judged by the one-emoji rule; removing looks the stored value up within the input bounds only.
             if (request.reacted) requireReactionEmoji(request.emoji) else requireReactionLookup(request.emoji)
-            val change = reactionService.set(roomId, route.parent.messageId, caller, request.emoji, request.reacted)
+            val change = reactionService.set(roomId, route.parent.messageId, caller, request.emoji, request.reacted, mutationId)
             if (change != null) {
                 audit(
                     "message.reaction_changed",

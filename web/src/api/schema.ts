@@ -2957,7 +2957,7 @@ export interface components {
              * @description Present for the message kinds.
              */
             messageId?: number;
-            /** @description On message.posted, correlates a reply POST with its event for the writer's account only. */
+            /** @description On message.posted or message.reaction_changed, correlates the writer's HTTP request with its event for that account only. */
             mutationId?: components["schemas"]["LiveMutationId"];
         };
         /** @description The room is no longer readable by the caller (removed, or the room was deleted); the subscription is gone. */
@@ -7910,7 +7910,14 @@ export interface operations {
     setMessageReaction: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional identifier for correlating this request with the writer's live message.reaction_changed event. Supply at most one
+                 *     canonical lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events.
+                 *     Sending the same identifier again does not make the request idempotent.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A message id (int32; ids start at 1). */

@@ -4,10 +4,12 @@ import type { TFunction } from "i18next";
 import { ActionIcon, Box, Button, Group, Text, Tooltip, VisuallyHidden } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconUsers } from "@tabler/icons-react";
+import { API_BASE } from "../api/http";
 import { setMessageReaction, type MessageResponse, type ReactionSummary } from "../api/messages";
+import { beginReactionEcho, canCorrelateReply } from "../utils/liveReplyEcho";
 import { messageErrorMessage } from "../utils/messageForm";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { activeQueriesAreFresh, refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
 import { roomKeys } from "../utils/roomKeys";
 import EmojiButton from "./EmojiButton";
@@ -78,9 +80,14 @@ export default function MessageReactions({
   async function write(emoji: string, reacted: boolean) {
     onError(null);
     busy.current = true;
+    const messagesKey = roomKeys.messages(roomId, message.threadNumber);
+    const echo = canCorrelateReply(API_BASE, window.location.href)
+      ? beginReactionEcho(queryClient, roomId, message.threadNumber, message.id)
+      : undefined;
     try {
-      await setMessageReaction(roomId, message.id, emoji, reacted);
+      await setMessageReaction(roomId, message.id, emoji, reacted, echo?.id);
     } catch (err) {
+      echo?.cancel();
       busy.current = false;
       onError(messageErrorMessage(err, t));
       sendQueuedPick();
@@ -92,7 +99,12 @@ export default function MessageReactions({
     busy.current = false;
     setAnnouncement(t(reacted ? "threads.reaction.addedAnnounce" : "threads.reaction.removedAnnounce", { emoji }));
     sendQueuedPick();
-    await rereadConversation();
+    try {
+      await rereadConversation();
+      if (echo && activeQueriesAreFresh(queryClient, messagesKey)) echo.confirm();
+    } finally {
+      echo?.cancel();
+    }
   }
 
   function pressChip(reaction: ReactionSummary) {

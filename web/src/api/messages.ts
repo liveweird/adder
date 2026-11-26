@@ -60,9 +60,13 @@ type ReactionBody = paths["/api/v1/rooms/{id}/messages/{messageId}/reaction"]["p
  * Sets whether the caller has this one emoji on a message (`reacted`), idempotent: 204 whether or not it changed. The emoji travels in the body,
  * never in a path. Members only; 409 `thread-closed`, `room-archived` or `reaction-limit` (20 distinct emoji on a message, 5 of the caller's).
  */
-export async function setMessageReaction(roomId: number, messageId: number, emoji: string, reacted: boolean): Promise<void> {
+export async function setMessageReaction(roomId: number, messageId: number, emoji: string, reacted: boolean, mutationId?: string): Promise<void> {
   const payload: ReactionBody = { emoji, reacted };
-  return voidRequest(`/api/v1/rooms/${roomId}/messages/${messageId}/reaction`, { method: "PUT", body: JSON.stringify(payload) });
+  return voidRequest(`/api/v1/rooms/${roomId}/messages/${messageId}/reaction`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+    ...(mutationId === undefined ? {} : { headers: { "X-Mutation-Id": mutationId } }),
+  });
 }
 
 /** Full reactor roster behind one message summary. The opaque key keeps the chosen emoji out of the URL. */

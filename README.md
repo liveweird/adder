@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Faster reaction updates (1.33.0)
+
+When the app and API share an origin, adding or removing a reaction avoids a duplicate conversation fetch in the sending tab. Other tabs still see the reaction live, and interrupted requests keep the live recovery path.
+
 ### Optional two-instance deployment (1.32.0)
 
 The Kubernetes profile can run two app processes behind one ingress and one PostgreSQL service. Tickets, account limits, socket admission, lookup of foreground tabs, and notification pacing work across both processes. The local helper keeps a single app by default.

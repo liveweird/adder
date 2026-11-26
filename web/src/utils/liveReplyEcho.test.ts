@@ -1,12 +1,16 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { beginReplyEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
+import { beginReactionEcho, beginReplyEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
 import type { LiveServerFrame } from "./liveProtocol";
 
 const firstId = "14d7ed05-24c1-4374-b6eb-60b147595822";
 
 function posted(mutationId: string, messageId = 41, roomId = 7, threadNumber = 3): LiveServerFrame {
   return { type: "event", kind: "message.posted", roomId, threadNumber, messageId, mutationId };
+}
+
+function reacted(mutationId: string, messageId = 41, roomId = 7, threadNumber = 3): LiveServerFrame {
+  return { type: "event", kind: "message.reaction_changed", roomId, threadNumber, messageId, mutationId };
 }
 
 describe("reply echo correlation", () => {
@@ -123,5 +127,45 @@ describe("reply correlation origin", () => {
     ["https://", false],
   ])("resolves %s against the page origin", (base, expected) => {
     expect(canCorrelateReply(base, "https://adder.test/rooms/5")).toBe(expected);
+  });
+});
+
+describe("reaction echo correlation", () => {
+  let client: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    client = new QueryClient();
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(firstId);
+  });
+
+  afterEach(() => {
+    clearReplyEchoes(client);
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  test("holds only the exact reaction event until its authoritative refresh is confirmed", () => {
+    const operation = beginReactionEcho(client, 7, 3, 41)!;
+    const replay = vi.fn();
+    expect(deferReplyEcho(client, reacted(operation.id), replay)).toBe(true);
+    expect(deferReplyEcho(client, reacted(operation.id, 42), replay)).toBe(false);
+    expect(deferReplyEcho(client, posted(operation.id), replay)).toBe(false);
+    operation.confirm();
+    expect(replay).not.toHaveBeenCalled();
+  });
+
+  test("a failed or expired reaction refresh replays one held hint", () => {
+    const operation = beginReactionEcho(client, 7, 3, 41)!;
+    const replay = vi.fn();
+    deferReplyEcho(client, reacted(operation.id), replay);
+    operation.cancel();
+    expect(replay).toHaveBeenCalledOnce();
+
+    vi.mocked(crypto.randomUUID).mockReturnValue("14d7ed05-24c1-4374-b6eb-60b147595823");
+    const expired = beginReactionEcho(client, 7, 3, 41)!;
+    deferReplyEcho(client, reacted(expired.id), replay);
+    vi.advanceTimersByTime(30_000);
+    expect(replay).toHaveBeenCalledTimes(2);
   });
 });

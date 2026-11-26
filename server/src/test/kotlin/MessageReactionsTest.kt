@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.notify.LiveKind
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.notifications.NotificationType
 import ch.nokillswit.plugins.ProblemDetail
@@ -18,6 +19,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -76,8 +78,18 @@ class MessageReactionsTest {
 
     private fun path(room: UInt, message: UInt) = "$rooms/$room/messages/$message/reaction"
 
-    private suspend fun HttpClient.react(room: UInt, message: UInt, emoji: String, reacted: Boolean = true): HttpResponse =
-        putJson(path(room, message), ReactionRequest(emoji, reacted))
+    private suspend fun HttpClient.react(
+        room: UInt,
+        message: UInt,
+        emoji: String,
+        reacted: Boolean = true,
+        mutationId: String? = null,
+    ): HttpResponse = request(path(room, message)) {
+        method = HttpMethod.Put
+        contentType(ContentType.Application.Json)
+        mutationId?.let { header(MUTATION_ID_HEADER, it) }
+        setBody(ReactionRequest(emoji, reacted))
+    }
 
     private suspend fun HttpClient.rawReact(room: UInt, message: UInt, json: String): HttpResponse = request(path(room, message)) {
         method = HttpMethod.Put
@@ -215,6 +227,49 @@ class MessageReactionsTest {
                 assertEquals(2, changes.count { it.hasKeyValue("roomId", cast.room.toLong()) })
             }
         }
+    }
+
+    @Test
+    fun `a changed reaction carries validated correlation metadata while a no-op emits no hint`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("rx-correlation")
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        NotifyCapture().use { hints ->
+            val emitted = hints.during {
+                assertEquals(
+                    HttpStatusCode.NoContent,
+                    cast.member.client.react(cast.room, cast.message, THUMBS_UP, mutationId = mutationId).status,
+                )
+            }
+            val changed = emitted.single { it.kind == LiveKind.MESSAGE_REACTION_CHANGED }
+            assertEquals(mutationId, changed.mutationId)
+            assertEquals(cast.member.id, changed.originUserId)
+            assertTrue(emitted.filter { it.kind == LiveKind.NOTIFICATION_CREATED }.all { it.mutationId == null })
+
+            val noOp = hints.during {
+                assertEquals(
+                    HttpStatusCode.NoContent,
+                    cast.member.client.react(cast.room, cast.message, THUMBS_UP, mutationId = mutationId).status,
+                )
+            }
+            assertTrue(noOp.none { it.kind == LiveKind.MESSAGE_REACTION_CHANGED })
+        }
+
+        for (invalid in listOf(mutationId.uppercase(), " $mutationId", "$mutationId ", "00000000-0000-1000-8000-000000000000")) {
+            assertEquals(
+                HttpStatusCode.BadRequest,
+                cast.member.client.react(cast.room, cast.message, PARTY, mutationId = invalid).status,
+                invalid,
+            )
+        }
+        val repeated = cast.member.client.request(path(cast.room, cast.message)) {
+            method = HttpMethod.Put
+            contentType(ContentType.Application.Json)
+            headers.append(MUTATION_ID_HEADER, mutationId)
+            headers.append(MUTATION_ID_HEADER, mutationId)
+            setBody(ReactionRequest(PARTY, true))
+        }
+        assertEquals(HttpStatusCode.BadRequest, repeated.status)
     }
 
     @Test

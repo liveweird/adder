@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.33.0",
+    date: "2026-11-26",
+    en: `**Adder 1.33.0 — faster reaction updates**
+
+- Adding or removing a reaction reuses the writer's successful conversation refresh. Other tabs still receive the update live, and an interrupted request still recovers through the live event.`,
+    pl: `**Adder 1.33.0 — szybsze aktualizacje reakcji**
+
+- Dodanie lub usunięcie reakcji wykorzystuje udane odświeżenie rozmowy po stronie osoby wykonującej operację. Inne karty nadal otrzymują zmianę na żywo, a przerwane żądanie nadal odzyskuje ją ze zdarzenia.`,
+  },
+  {
     version: "1.32.0",
     date: "2026-11-26",
     en: `**Adder 1.32.0 — optional two-instance deployment**
