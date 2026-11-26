@@ -2,7 +2,7 @@ package ch.nokillswit.users
 
 import ch.nokillswit.audit.audit
 import ch.nokillswit.auth.AccountGuess
-import ch.nokillswit.auth.LoginThrottle
+import ch.nokillswit.auth.AccountThrottle
 import ch.nokillswit.auth.hashPassword
 import ch.nokillswit.auth.notifyPasswordChanged
 import ch.nokillswit.auth.verifyPassword
@@ -27,12 +27,12 @@ private const val EVENT_PASSWORD_CHANGE_REJECTED_LOCKED = "password.change_rejec
  *
  * Changing one's OWN password verifies `currentPassword` (a bcrypt per request), so the route is a guessing oracle for whoever
  * holds a session (a stolen token) and a way to occupy the small default dispatcher. Two bounds: the bucket (per request, before
- * the guards) and the per-account lockout, the SAME counter `/login` uses ([LoginThrottle]): a wrong `currentPassword` is a failed
+ * the guards) and the per-account lockout, the SAME counter `/login` uses ([AccountThrottle]): a wrong `currentPassword` is a failed
  * sign-in attempt, N of them (across login, the MFA code and this route) lock the account. A locked account's change answers
  * what `/login` answers, the specific `429`, BEFORE any bcrypt. An admin resetting somebody ELSE's password verifies nothing, so
  * it neither counts nor is refused by the target's lock.
  */
-internal fun Route.userPassword(userService: UserService, loginThrottle: LoginThrottle) {
+internal fun Route.userPassword(userService: UserService, loginThrottle: AccountThrottle) {
     put<Users.Id.Password> { route ->
         val caller = call.caller()
         requireSelfOrAdmin(caller, route.parent.id)

@@ -8,6 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
 
 /**
  * The branches of the shared lockout helper that a route can only reach through a race (a lock that trips between the
@@ -39,39 +40,39 @@ class AccountGuessTest {
     }
 
     @Test
-    fun `a locked account is refused at the preflight, a fresh one is allowed`() {
+    fun `a locked account is refused at the preflight, a fresh one is allowed`() = runBlocking<Unit> {
         val t = throttle()
         guess(t).requireNotLocked()
         lock(t)
-        assertFailsWith<TooManyRequestsException> { guess(t).requireNotLocked() }
+        assertFailsWith<TooManyRequestsException> { runBlocking { guess(t).requireNotLocked() } }
     }
 
     @Test
-    fun `an unknown identity at a full store is refused, a known account is counted and can lock`() {
+    fun `an unknown identity at a full store is refused, a known account is counted and can lock`() = runBlocking<Unit> {
         val t = throttle(maxTracked = 1)
         t.recordFailure("filler@example.test")
-        assertFailsWith<TooManyRequestsException> { guess(t).requireNotLocked() }
-        assertFailsWith<TooManyRequestsException> { guess(t).recordFailure() }
+        assertFailsWith<TooManyRequestsException> { runBlocking { guess(t).requireNotLocked() } }
+        assertFailsWith<TooManyRequestsException> { runBlocking { guess(t).recordFailure() } }
 
         // A known account passes the preflight and its failures count past the cap: the second one locks.
         val known = guess(t, knownAccount = true)
         known.requireNotLocked()
         known.recordFailure()
         known.recordFailure()
-        assertFailsWith<TooManyRequestsException> { guess(t, knownAccount = true).requireNotLocked() }
+        assertFailsWith<TooManyRequestsException> { runBlocking { guess(t, knownAccount = true).requireNotLocked() } }
     }
 
     @Test
-    fun `a failure against an already-active lock is a 429 and runs onLocked`() {
+    fun `a failure against an already-active lock is a 429 and runs onLocked`() = runBlocking<Unit> {
         val t = throttle()
         lock(t)
         var dropped = false
-        assertFailsWith<TooManyRequestsException> { guess(t, onLocked = { dropped = true }).recordFailure() }
+        assertFailsWith<TooManyRequestsException> { runBlocking { guess(t, onLocked = { dropped = true }).recordFailure() } }
         assertTrue(dropped)
     }
 
     @Test
-    fun `the failure that trips the lock runs onLocked and is not itself refused`() {
+    fun `the failure that trips the lock runs onLocked and is not itself refused`() = runBlocking<Unit> {
         val t = throttle()
         var dropped = 0
         val g = guess(t, onLocked = { dropped++ })
@@ -79,11 +80,11 @@ class AccountGuessTest {
         assertEquals(0, dropped)
         g.recordFailure()
         assertEquals(1, dropped)
-        assertFailsWith<TooManyRequestsException> { g.requireNotLocked() }
+        assertFailsWith<TooManyRequestsException> { runBlocking { g.requireNotLocked() } }
     }
 
     @Test
-    fun `a success clears the counter, but a lock that tripped since the preflight still refuses and runs onLocked`() {
+    fun `a success clears the counter, but a lock that tripped since the preflight still refuses and runs onLocked`() = runBlocking<Unit> {
         val t = throttle()
         val g = guess(t)
         g.recordFailure()
@@ -93,7 +94,7 @@ class AccountGuessTest {
 
         lock(t)
         var dropped = false
-        assertFailsWith<TooManyRequestsException> { guess(t, onLocked = { dropped = true }).recordSuccess() }
+        assertFailsWith<TooManyRequestsException> { runBlocking { guess(t, onLocked = { dropped = true }).recordSuccess() } }
         assertTrue(dropped)
     }
 }

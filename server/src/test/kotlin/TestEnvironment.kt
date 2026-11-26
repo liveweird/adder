@@ -94,6 +94,16 @@ fun ApplicationTestBuilder.jsonClient(): HttpClient = createClient { testClientD
 /** A unique throwaway email so tests never collide on the partial-unique active-email index. */
 fun uniqueEmail(prefix: String) = "$prefix-${java.util.UUID.randomUUID()}@test"
 
+/** Clears durable attempt state before a test that deliberately shrinks a production capacity to one. */
+fun clearAccountAttemptState() {
+    PostgresTestSupport.connect().use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeUpdate("DELETE FROM account_login_attempts")
+            statement.executeUpdate("DELETE FROM password_reset_cooldowns")
+        }
+    }
+}
+
 /** A private 64-hex data-encryption key — every production-mode boot needs one (the dev default is burned). */
 fun strongEncryptionKey(): String =
     java.util.UUID.randomUUID().toString().replace("-", "") + java.util.UUID.randomUUID().toString().replace("-", "")

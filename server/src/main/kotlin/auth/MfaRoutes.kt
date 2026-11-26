@@ -14,7 +14,7 @@ import io.ktor.server.routing.post
  * Second login step for MFA-enabled accounts: exchange the challenge id + the emailed code for the ordinary token pair. Not behind
  * `authenticate` - there is no token yet.
  *
- * Every wrong code counts into the per-ACCOUNT lockout ([LoginThrottle], the counter `/login` uses), so the guesses across
+ * Every wrong code counts into the per-ACCOUNT lockout ([AccountThrottle], the counter `/login` uses), so the guesses across
  * any number of fresh challenges add up and lock the account; the locking failure and every later one for the account also drop its
  * pending challenges, so no live code can finish a sign-in during a lock. A correct code clears the counter, exactly as a
  * password-only login does.
@@ -23,7 +23,7 @@ internal fun Route.mfaVerify(
     jwtConfig: JwtConfig,
     userService: UserService,
     mfaChallenges: MfaChallenges,
-    loginThrottle: LoginThrottle,
+    loginThrottle: AccountThrottle,
 ) {
     post("/api/v1/login/mfa") {
         val req = call.receive<MfaVerifyRequest>()
@@ -88,7 +88,7 @@ private suspend fun staleChallengeReason(userService: UserService, failure: MfaC
 }
 
 /** The MFA step's guess at [subject]'s account: a lock (now or already) also drops the account's pending challenges. */
-private fun mfaGuess(throttle: LoginThrottle, challenges: MfaChallenges, subject: MfaChallenges.Subject) = AccountGuess(
+private fun mfaGuess(throttle: AccountThrottle, challenges: MfaChallenges, subject: MfaChallenges.Subject) = AccountGuess(
     throttle,
     subject.email,
     listOf("userId" to subject.userId.toLong(), "source" to "mfa"),

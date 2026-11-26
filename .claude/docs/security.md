@@ -177,15 +177,17 @@ in-line).
 `security.lockout.threshold` (default 5, `$LOGIN_LOCKOUT_THRESHOLD`) consecutive failures for one
 submitted email, `/login` answers `429` for `security.lockout.durationSeconds` (default 900,
 `$LOGIN_LOCKOUT_DURATION_SECONDS`; longer when wrong emailed codes tripped it, see "progressive for MFA codes ONLY" below) — even with the correct password, and regardless of whether the
-account exists (no enumeration signal). A success resets the counter. The in-memory, per-instance (so the app runs ONE replica — `ci.yml` `k8s-static` pins it)
-store has a hard `security.lockout.maxTracked` limit (default 10,000,
-`$LOGIN_LOCKOUT_MAX_TRACKED`): expired state is reclaimed through an expiry index (`infra/ExpiringIndex.kt`, the one TTL index shared by the reset cooldown and MFA challenges), but fresh
-counters and active locks are never evicted to admit a new identity. At capacity, an untracked
+account exists (no enumeration signal). A success resets the counter. The PostgreSQL-shared store limits admission for ordinary
+identities with `security.lockout.maxTracked` (default 10,000, `$LOGIN_LOCKOUT_MAX_TRACKED`). It reclaims expired state in bounded batches.
+Fresh counters and active locks are never evicted to admit a new identity. At capacity, an untracked
 identity receives an audited `429` before password verification, so saturation cannot bypass the
-account throttle; tracked identities can still finish their normal flow. A fixed-size digest of
+account throttle; tracked identities can still finish their normal flow. Known accounts can still record failures beyond that cap,
+bounded by the users table. A fixed-size, deployment-keyed digest of
 the canonical submitted identity bounds retained key size even for malformed login input;
 oversized identities are also digested in audit fields instead of logged in full. The deployment
-is single-replica; a restart resets the throttle. This complements the per-IP `RateLimit` bucket,
+never stores the submitted address in this operational state, and a separate derivation label keeps the key apart from the audit
+digest and password-reset cooldown. PostgreSQL time supplies every deadline, and the same counter is observed by every app instance
+and survives restarts. This complements the per-IP `RateLimit` bucket,
 which rotating hosts sidestep. The 429 is **thrown** (`TooManyRequestsException`), never
 `respondProblem`ed directly — StatusPages' generic 429 status handler rewrites any non-StatusPages
 429, so only the exception path keeps the specific detail. Tests: `LoginThrottleTest` (unit,
@@ -262,7 +264,7 @@ codes are NOT counted (`MfaRoutes.challengeStillCurrent`, one primary-key read p
 `reason=credential_changed`, the challenge dropped), so an old challenge cannot re-lock the owner right after a reset lifted the lock. The level counter is clamped (32) and the doubling is step-wise against the cap,
 so nothing overflows. **Nothing new is disclosed:** the 429 is the same `accountLockedException` for every cause and carries no
 `Retry-After` today either; only the audit line carries the length and level. **Cost, accepted:** a real owner who mistypes codes
-repeatedly can sit locked out for up to 24 h; the ways out are the lock's end, a restart of the single replica and **a confirmed
+repeatedly can sit locked out for up to 24 h; the ways out are the lock's end and **a confirmed
 password reset (the owner's 2026-11-20 decision: it lifts the lock AND the level)**: the reset link goes to the same mailbox as the
 sign-in codes, so completing it proves the very factor a code guesser lacks (`LoginThrottle.clear`, keyed on the account's email,
 called by the confirm route after `PasswordResetService.complete` succeeded, keyed on the email `complete` verified under the user-row
@@ -320,14 +322,16 @@ kills pending refresh tokens and MFA challenges, while MFA stays as it was, so t
 best-effort localized notice ("your password was reset, sessions signed out"; no token, no password) is emailed after the
 response; its failure (`password_reset.notification_failed`) cannot undo the reset. A confirmed reset **clears the
 per-account lockout** (the counter, an active lock of ANY cause and the MFA escalation level; owner decision 2026-11-20, "Per-account login
-lockout" above; the `password_reset.completed` line carries `lockoutCleared`). A lost 204 can make a retry answer `401`: sign in with the
+lockout" above; the clear joins grant consumption, password replacement and credential revision in the reset transaction, so a
+database failure rolls all of them back; the `password_reset.completed` line carries `lockoutCleared`). A lost 204 can make a retry answer `401`: sign in with the
 chosen password or request another link.
 
 Throttling: per submitted email - one request per `security.passwordReset.minIntervalSeconds` (default 60,
-`$PASSWORD_RESET_MIN_INTERVAL_SECONDS`) - uniformly for existing and unknown addresses (`auth/PasswordResetThrottle.kt`,
-in-memory/per-instance like the lockout), with the hard `security.passwordReset.maxTracked` limit (default 10,000,
+`$PASSWORD_RESET_MIN_INTERVAL_SECONDS`) - uniformly for existing and unknown addresses (`auth/PostgresPasswordResetThrottle.kt`,
+shared through PostgreSQL), with the hard `security.passwordReset.maxTracked` limit (default 10,000,
 `$PASSWORD_RESET_MAX_TRACKED`: elapsed cooldowns are reclaimed, a fresh one never evicted; saturation rejects a new identity with
-an audited `429` before any task starts); the per-IP `password-reset` bucket (`security.rateLimit.passwordResetPerMinute`,
+an audited `429` before any task starts). Only a deployment-keyed digest under its own derivation label is stored, and PostgreSQL
+time makes the interval consistent across instances and restarts. The per-IP `password-reset` bucket (`security.rateLimit.passwordResetPerMinute`,
 `$PASSWORD_RESET_RATE_LIMIT_PER_MINUTE` - blank follows the mode: 5/min production, 100/min development); and the confirm
 step's own per-IP `password-reset-confirm` bucket, 10/min in every mode (not configurable - the MFA idiom). `Cache-Control:
 no-store` already rides every `/api/` JSON and problem+json answer (`plugins/Http.kt`, StatusPages' 429s included); the bodiless

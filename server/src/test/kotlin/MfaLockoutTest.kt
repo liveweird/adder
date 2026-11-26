@@ -309,6 +309,7 @@ class MfaLockoutTest {
 
     @Test
     fun `wrong codes still count and lock with the lockout store full, and the right code is then refused`() = testApplication {
+        clearAccountAttemptState()
         configureApp("security.lockout.maxTracked" to "1", "security.lockout.threshold" to "2")
         startApplication()
         val email = uniqueEmail("mfa-capacity-code")
@@ -342,6 +343,7 @@ class MfaLockoutTest {
 
     @Test
     fun `the right code still signs in with the lockout store full - an untracked account is not turned away`() = testApplication {
+        clearAccountAttemptState()
         configureApp("security.lockout.maxTracked" to "1")
         startApplication()
         val email = uniqueEmail("mfa-capacity-ok")

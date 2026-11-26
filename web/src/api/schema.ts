@@ -72,10 +72,12 @@ export interface paths {
          *     `LOGIN_LOCKOUT_MFA_MAX_DURATION_SECONDS`, default 24 h; the level is forgotten after
          *     `LOGIN_LOCKOUT_MFA_DECAY_SECONDS` without a lock); a window of wrong passwords only stays the flat
          *     window. A confirmed password reset (`POST /password-reset/confirm`) lifts the lock and its level.
-         *     The answer is the same `429` whatever the cause. The in-memory lockout store admits at most
+         *     The answer is the same `429` whatever the cause. The database-shared lockout store admits at most
          *     `LOGIN_LOCKOUT_MAX_TRACKED` identities (default 10,000). At capacity a new identity
          *     receives `429` before password verification; existing tracked identities continue,
-         *     and expired state frees capacity. This applies equally to existing and unknown emails.
+         *     and expired state frees capacity. This applies equally to existing and unknown emails
+         *     across every application instance. Submitted identities are represented only by a
+         *     deployment-keyed digest in this store.
          *
          *     **Email MFA (opt-in via the `MFA` feature flag):** when the account has MFA enabled,
          *     correct credentials answer `200` with an `MfaChallengeResponse` instead of tokens — a
@@ -208,9 +210,11 @@ export interface paths {
          *     receives the token in a URL fragment, never in a server-visible path or query string.
          *     Throttled per submitted email — one request per interval
          *     (default 60 s, `PASSWORD_RESET_MIN_INTERVAL_SECONDS`) — uniformly for existing and
-         *     unknown addresses, and rate-limited per client IP. The in-memory cooldown store admits
+         *     unknown addresses, and rate-limited per client IP. The database-shared cooldown store admits
          *     at most `PASSWORD_RESET_MAX_TRACKED` identities (default 10,000). At capacity a new
          *     identity receives `429` and no reset email is scheduled; elapsed cooldowns free space.
+         *     The limit and interval apply across every application instance, and the submitted
+         *     identity is represented only by a separate deployment-keyed digest in this store.
          *     A soft-deleted account is unknown here (no link is minted or emailed, and the response
          *     follows the same acceptance and throttling rules). Answers `503` on deployments without
          *     outbound email (`MAIL_TRANSPORT=disabled`) or without a configured `MAIL_APP_URL` (the

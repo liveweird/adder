@@ -91,10 +91,14 @@ class PasswordResetService(
     }
 
     /** A completed reset: the account and the email the grant was checked against under the row lock (the lockout's key). */
-    data class Completion(val userId: UInt, val email: String)
+    data class Completion(val userId: UInt, val email: String, val lockoutCleared: Boolean = false)
 
     /** Consumption, password replacement and sibling revocation are ONE transaction, across instances. */
-    suspend fun complete(token: String, passwordHash: String): Completion? {
+    suspend fun complete(
+        token: String,
+        passwordHash: String,
+        clearLockout: suspend (String) -> Boolean = { false },
+    ): Completion? {
         if (!RESET_TOKEN_PATTERN.matches(token)) return null
         val hash = sha256Hex(token)
         return suspendTransaction(database) {
@@ -110,7 +114,7 @@ class PasswordResetService(
             }
             check(updatePasswordInTransaction(userId, passwordHash, revision, clock()) == 1)
             Grants.deleteWhere { Grants.userId eq userId }
-            Completion(userId, email)
+            Completion(userId, email, clearLockout(email))
         }
     }
 

@@ -81,6 +81,25 @@ class PasswordResetServiceTest {
     }
 
     @Test
+    fun `a lockout-clear failure rolls back token consumption and the password change`() = testApplication {
+        usePostgresTestcontainer()
+        val resets = newPasswordResetService()
+        val email = uniqueEmail("reset-clear-rollback")
+        val id = TestUsers.seed(email, "old-password")
+        val token = assertNotNull(resets.issueToken(id, 0, email))
+
+        val failed = runCatching {
+            resets.complete(token, hashPassword("new-password", cost = 4)) { error("clear failed") }
+        }
+        assertTrue(failed.isFailure)
+        assertTrue(resets.isUsable(token), "the reset grant remains usable after the transaction rolls back")
+        val account = assertNotNull(TestUsers.service.read(id))
+        assertEquals(0, account.credentialRevision)
+        assertTrue(verifyPassword("old-password", account.passwordHash))
+        assertFalse(verifyPassword("new-password", account.passwordHash))
+    }
+
+    @Test
     fun `a password change, an email change and a deletion invalidate issued and in-flight grants but a role change does not`() =
         testApplication {
             usePostgresTestcontainer()

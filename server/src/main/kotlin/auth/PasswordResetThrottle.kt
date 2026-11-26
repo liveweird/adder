@@ -6,8 +6,8 @@ import ch.nokillswit.infra.db.nowMillis
 /**
  * Per-email throttle for the self-service password reset: at most one request per submitted
  * email per [minIntervalMillis] — uniformly, whether or not the account exists (so the 429
- * carries no enumeration signal). Sibling of [LoginThrottle]: in-memory and per-instance by
- * design (single-replica deployment; a restart only resets the throttle).
+ * carries no enumeration signal). This deterministic in-memory implementation is the unit-test policy seam. Production routes use
+ * [PostgresPasswordResetThrottle], whose interval and capacity decision are shared across instances.
  */
 class PasswordResetThrottle(
     private val minIntervalMillis: Long,

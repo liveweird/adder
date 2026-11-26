@@ -41,7 +41,7 @@ import kotlinx.coroutines.CancellationException
  */
 internal const val MAX_DURATION_SECONDS = 30L * 24 * 3600
 
-/** Ceiling for the in-memory throttle/challenge stores' `maxTracked` capacities — bounds the memory an operator can commit. */
+/** Ceiling for the bounded throttle/challenge stores' `maxTracked` capacities. */
 internal const val MAX_TRACKED_IDENTITIES = 1_000_000
 
 internal fun interface RefreshAfterPrecheck {
@@ -80,7 +80,7 @@ internal class AuthDeps(
     val jwtConfig: JwtConfig,
     val userService: ch.nokillswit.users.UserService,
     val blocklist: TokenBlocklistService,
-    val loginThrottle: LoginThrottle,
+    val loginThrottle: AccountThrottle,
     val mailer: ch.nokillswit.infra.mail.Mailer?,
     val mfaChallenges: MfaChallenges,
     val mfaTtlMinutes: Long,
