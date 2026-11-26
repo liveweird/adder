@@ -13,7 +13,7 @@ import { useRailRooms } from "../hooks/useRailRooms";
 import { setTelemetryPanelOpen, useTelemetryPanelOpen } from "../hooks/useTelemetryPanel";
 import { parseRoomId, roomOrganizationPath, roomPath, roomSearchPath, searchPath } from "../utils/roomLinks";
 import { roomKeys } from "../utils/roomKeys";
-import { queryProblem, searchResultsPath, watchedThreadsPath } from "../utils/searchParams";
+import { detectStructuredSearch, queryProblem, searchResultsPath, watchedThreadsPath } from "../utils/searchParams";
 import { palette, paletteStore } from "../utils/commandPalette";
 import { foldDiacritics } from "../utils/text";
 import classes from "../theme.module.css";
@@ -150,7 +150,7 @@ export default function CommandPalette({ shortcutEnabled = true }: { shortcutEna
         shortcut={shortcutEnabled ? "mod + K" : null}
         query={query}
         onQueryChange={setQuery}
-        actions={[pages, ...(roomItems.length > 0 ? [roomGroup] : []), ...(queryProblem(term) === null ? [searchGroup] : []), ...(admin ? [actions] : [])]}
+        actions={[pages, ...(roomItems.length > 0 ? [roomGroup] : []), ...(queryProblem(term, detectStructuredSearch(term)) === null ? [searchGroup] : []), ...(admin ? [actions] : [])]}
         filter={filter}
         nothingFound={t("appShell.palette.nothingFound")}
         scrollable

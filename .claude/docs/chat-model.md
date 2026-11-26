@@ -376,12 +376,14 @@ ALTER TABLE threads  ADD COLUMN search tsvector GENERATED ALWAYS AS (pg_catalog.
 
 ### Structured search (1.9.0)
 
-Add `syntax=structured` to either search endpoint, with required `q` (up to 512 code points and 24 clauses). Separate clauses with spaces.
-All clauses must match. Without `syntax`, the existing plain-text search documented above applies.
+The search box accepts keywords, phrases and filters together. Separate clauses with spaces. Every clause must match.
+Bare words use the plain-text rule above, including when you add a filter. The **Search syntax** guide can insert a clause and show examples.
+
+The API accepts `syntax=unified` or `syntax=structured` on global, room and in-thread search. A query with either syntax has up to 512 code points and 24 clauses. The browser uses `unified` for new searches with operators. Previously shared links with `syntax=structured` keep the previous whole-word default for bare words. Keyword-only requests can omit `syntax` and use the plain-text search above.
 
 | Clause | Match |
 |---|---|
-| `word`, `prefix*`, `"exact phrase"` | Whole indexed term, explicit prefix of at least two letters or digits, or contiguous literal phrase. Phrase matching ignores case and preserves accents, punctuation and spaces. Prefix a text clause with `-` to exclude it. |
+| `disk`, `word:disk`, `disk*`, `"exact phrase"` | Bare words of three or more characters match word starts in unified search. `word:disk` requires the whole indexed word, while `disk*` explicitly matches a prefix of at least two letters or digits. A quoted phrase matches contiguous text, ignoring case and preserving accents, punctuation and spaces. Use `-disk` to exclude the whole word, or `-disk*` to exclude the prefix. |
 | `in:"On Call"`, `from:"Alex Kim"`, `with:"Sam Li"`, `owner:"Alex Kim"` | Room, message author, author of a live message anywhere in the thread, or current thread owner. Quote names with spaces or use a stable `#ID`. Person filters also accept an exact email address. |
 | `on:2026-11-24`, `before:2026-11-24`, `after:2026-11-24`, `during:2026-11`, `during:2026` | The specified day, earlier days, later days, calendar month or calendar year. Optional `timeZone` is an IANA name and defaults to UTC. |
 | `has:pin`, `has:link`, `has:reaction`, `has:reaction:👍`, `has:emoji:🚀` | Pinned thread or matching message, a message with an HTTP(S), `www.`, or `mailto:` link, any reaction, the specified reaction, or the literal emoji in a message body. |
@@ -389,8 +391,7 @@ All clauses must match. Without `syntax`, the existing plain-text search documen
 All message clauses apply to the same live message. Text without a message-only filter can match a title. Thread-only filters can return
 a thread without message snippets. The room, watch, tag and status restrictions still apply. Unknown operators and malformed queries
 return a fixed 400 problem. In the browser, syntax help can insert a clause, and suggestions can complete a room or person or offer a
-correction for a misspelled filter. Typing operators selects structured mode automatically. The **Structured mode** switch also enables
-whole-word matching for queries without operators. Sharing the URL retains the mode and calendar time zone.
+correction for a misspelled filter. A shared URL retains the search syntax and calendar time zone.
 
 Example: `"disk alert" -test in:"On Call" from:"Alex Kim" during:2026-11 has:link`.
 

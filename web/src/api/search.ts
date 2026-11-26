@@ -3,7 +3,9 @@
 // list of typed segments (`{text, hit}`), plain text that the SPA never renders as HTML or Markdown. `q` stays in the query string.
 
 import { buildQuery, jsonRequest } from "./http";
-import type { paths } from "./schema";
+import type { components, paths } from "./schema";
+
+export type SearchSyntax = components["parameters"]["SearchSyntax"];
 
 export type ThreadSearchPage = paths["/api/v1/search"]["get"]["responses"]["200"]["content"]["application/json"];
 export type ThreadSearchHit = ThreadSearchPage["items"][number];
@@ -15,7 +17,7 @@ export type ThreadMessageSearchPage = paths["/api/v1/rooms/{id}/threads/{number}
 
 export interface ThreadMessageSearchQuery {
   q: string;
-  syntax?: "structured";
+  syntax?: SearchSyntax;
   timeZone?: string;
   page: number;
   pageSize: number;
@@ -23,12 +25,12 @@ export interface ThreadMessageSearchQuery {
 
 export interface SearchQuery {
   /**
-   * Plain text (2 to 100 code points), or up to 512 code points of search clauses with `syntax: "structured"`.
+   * Plain text (2 to 100 code points), or up to 512 code points of search clauses with `syntax: "structured" | "unified"`.
    * A plain search with `watching: true`, `unread: true` or a `threadTag` can omit the query.
    */
   q?: string;
-  syntax?: "structured";
-  /** Time zone for structured date clauses. The API defaults to UTC. */
+  syntax?: SearchSyntax;
+  /** Time zone for date clauses. The API defaults to UTC. */
   timeZone?: string;
   page: number;
   pageSize: number;

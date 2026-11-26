@@ -122,8 +122,8 @@ The data of each scenario is seeded through the API (threads, replies, status mo
 
 1. The reader and a teammate share a Default room. Seed one match with the phrase and a link in a message by the teammate. Seed threads where
    the phrase and link are in separate messages, the phrase is absent, or the matching message is by the reader.
-2. The reader opens global search, opens **Search syntax**, and inserts `has:link`. The reader then enters the exact phrase and misspells `from:`.
-   - *Expected* — the guide inserts the link clause. The editor offers a spelling correction for the operator.
+2. The reader opens global search and uses **Search syntax** to try `word:` and then insert `has:link`. The reader enters the exact phrase and misspells `from:`.
+   - *Expected* — the guide inserts the selected clause and returns focus to the search box. The editor offers a spelling correction for the operator.
 3. The reader accepts the correction, types the teammate's name, and picks the suggestion.
    - *Expected* — the author clause uses the teammate's ID. The URL stays on the empty search until submission.
 4. The reader submits and reloads.
@@ -154,7 +154,9 @@ The data of each scenario is seeded through the API (threads, replies, status mo
 ## Scenario: status and hashtag clauses refine global, room and thread search
 
 1. Create Incident threads with a tagged match in Investigating, the same tagged text in another status, and a tag and matching word on separate messages.
-2. Submit the status and hashtag clauses with the word in global and room search.
-   - *Expected* — the Investigating thread whose message satisfies both message clauses is the sole hit.
-3. Search that conversation with the same query.
+2. Submit the status and hashtag clauses with the start of the word in global and room search.
+   - *Expected* — the Investigating thread whose message satisfies both message clauses is the sole hit. Bare words keep prefix matching with filters in the same box.
+3. Search with `word:` using the prefix and then the full word. Open a saved link with the previous whole-word default and submit it again.
+   - *Expected* — the full word matches. The short `word:` clause and the saved exact search return no hits. Retrying the saved search keeps its syntax and time zone.
+4. Search that conversation with the same prefix and filters.
    - *Expected* — the tagged message is the only hit, even though another reply contains the word.

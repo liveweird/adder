@@ -4,6 +4,7 @@ import ch.nokillswit.threads.SearchReference
 import ch.nokillswit.threads.SearchTextClause
 import ch.nokillswit.threads.SearchTextKind
 import ch.nokillswit.threads.parseStructuredSearch
+import ch.nokillswit.threads.parseUnifiedSearch
 import io.ktor.server.plugins.BadRequestException
 import java.time.LocalDate
 import java.time.ZoneId
@@ -16,6 +17,48 @@ import kotlin.test.assertTrue
 
 /** The pure parser for the structured search query language. SQL matching is covered by the search service tests. */
 class StructuredSearchTest {
+    @Test
+    fun `unified bare terms use plain prefixes while explicit and excluded words stay exact`() {
+        val parsed = parseUnifiedSearch("disk io -noise word:alert deploy* \"exact phrase\"", null)
+
+        assertEquals(
+            listOf(
+                SearchTextClause("disk", SearchTextKind.PLAIN, excluded = false),
+                SearchTextClause("io", SearchTextKind.PLAIN, excluded = false),
+                SearchTextClause("noise", SearchTextKind.WORD, excluded = true),
+                SearchTextClause("alert", SearchTextKind.WORD, excluded = false),
+                SearchTextClause("deploy", SearchTextKind.PREFIX, excluded = false),
+                SearchTextClause("exact phrase", SearchTextKind.PHRASE, excluded = false),
+            ),
+            parsed.text,
+        )
+    }
+
+    @Test
+    fun `word operator is exact in both clause modes and rejects missing or wildcard operands`() {
+        assertEquals(
+            SearchTextClause("Żółw", SearchTextKind.WORD, excluded = false),
+            parseStructuredSearch("word:Żółw", null).text.single(),
+        )
+        assertEquals(
+            SearchTextClause("7", SearchTextKind.WORD, excluded = false),
+            parseUnifiedSearch("word:7", null).text.single(),
+        )
+        for (query in listOf("word:", "word:disk*", "word:two-words", "word:\"two words\"")) {
+            assertFailsWith<BadRequestException>(query) { parseUnifiedSearch(query, null) }
+        }
+    }
+
+    @Test
+    fun `unified keeps http URL tokens as plain text without weakening unknown operators`() {
+        assertEquals(
+            SearchTextClause("https://example.test/runbook", SearchTextKind.PLAIN, excluded = false),
+            parseUnifiedSearch("https://example.test/runbook", null).text.single(),
+        )
+        assertFailsWith<BadRequestException> { parseUnifiedSearch("unknown:value", null) }
+        assertFailsWith<BadRequestException> { parseStructuredSearch("https://example.test/runbook", null) }
+    }
+
     @Test
     fun `words phrases prefixes exclusions and escapes become typed clauses`() {
         val parsed = parseStructuredSearch(

@@ -290,10 +290,7 @@ the same thread. On narrow screens the search temporarily takes the place of the
 search is open. Routine live hints leave search results alone. Revocation and room deletion reset the affected search and context reads,
 so an in-flight response cannot repopulate them under the old permissions.
 
-**Structured search (1.9.0).** Both search forms share the query assistant. It inserts example clauses, suggests joined rooms and directory
-entries using their stable IDs, and offers operator typo corrections for the reader to accept. Drafts do not run searches. The client checks a 512-code-point bound for structured queries and the API checks the 24-clause limit and grammar. Structured
-submissions store `syntax=structured` and the browser's `timeZone` in the URL, and both are included in the query cache key. The API uses
-UTC when a shared URL supplies no zone. Legacy links and plain terms use the rules below. See `chat-model.md` "Structured search (1.9.0)".
+**Search clauses (1.9.0, unified in 1.36.0).** The forms share the query assistant. It inserts example clauses such as `word:disk`, suggests joined rooms and people using their stable IDs, and offers operator corrections for the reader to accept. The form selects syntax from the submitted query. Bare keyword searches use the plain-text request. Searches with clauses use `syntax=unified`, which applies the same prefix rule to bare words. The client checks the 512-code-point bound for clause queries. The API checks the 24-clause limit and grammar. The URL and cache key carry the syntax and the browser's `timeZone`. Explicit `syntax=structured` links carry their previous whole-word default. The API uses UTC if a clause query supplies no zone. See `chat-model.md` "Structured search (1.9.0)".
 
 Two pages, one body: `pages/RoomSearch.tsx` (`/rooms/:id/search`, the room's "Search" tab in `RoomTabs`, inside `RoomPage`) and `pages/Search.tsx` (`/search`, the "Search" leaf of the Overview section in `utils/navigation.ts`, so the sidebar and the palette both get it). Both render `components/SearchBody.tsx`, which owns the URL state, the query and the triage (form, error, loading, count, empty, results, pager); the pages only say which request, which query-key prefix and whether the hit shows its room. `api/search.ts` wraps `GET /rooms/{id}/search` and `GET /search` (types from `schema.ts`).
 

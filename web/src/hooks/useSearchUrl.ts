@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import type { Scope } from "../utils/threadListParams";
 import { browserTimeZone } from "../utils/formatDate";
-import { parseSearchParams, writeSearchParams } from "../utils/searchParams";
+import { parseSearchParams, writeSearchParams, type SearchSyntax } from "../utils/searchParams";
 import { useLiveSearchParams } from "./useLiveSearchParams";
 
 /**
@@ -13,11 +13,15 @@ import { useLiveSearchParams } from "./useLiveSearchParams";
 export function useSearchUrl() {
   const [search, setSearch] = useLiveSearchParams();
   const state = useMemo(() => parseSearchParams(search), [search]);
-  const submit = useCallback((q: string, structured: boolean) => setSearch((prev) => writeSearchParams(prev, {
-    q,
-    syntax: structured ? "structured" : undefined,
-    timeZone: structured ? browserTimeZone() : undefined,
-  })), [setSearch]);
+  const submit = useCallback((q: string, syntax?: SearchSyntax) => setSearch((prev) => {
+    const current = parseSearchParams(prev);
+    const retry = current.q === q && current.syntax === syntax;
+    return writeSearchParams(prev, {
+      q,
+      syntax,
+      timeZone: syntax === undefined ? undefined : retry ? current.timeZone : browserTimeZone(),
+    });
+  }), [setSearch]);
   const setScope = useCallback((scope: Scope) => setSearch((prev) => writeSearchParams(prev, { scope }), { replace: true }), [setSearch]);
   const setWatching = useCallback((watching: boolean) => setSearch((prev) => writeSearchParams(prev, { watching }), { replace: true }), [setSearch]);
   const setUnread = useCallback((unread: boolean) => setSearch((prev) => writeSearchParams(prev, { unread }), { replace: true }), [setSearch]);

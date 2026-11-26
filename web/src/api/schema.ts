@@ -1290,8 +1290,8 @@ export interface paths {
          *       (`!!!`) is a `400`, while tag-shaped input such as `<script>` has no indexable word and matches nothing. `PROD-123` is indexed as `prod` and `-123`: searching it finds it, `123` alone does not.
          *       Hashtag text is searchable (`#db-outage` indexes `db-outage`, `db` and `outage`). Field values and deleted messages are never
          *       searched.
-         *     - `syntax=structured` makes `q` required and enables space-separated clauses combined with AND. See the `SearchSyntax`
-         *       parameter for the grammar. `timeZone` supplies the time zone of calendar dates.
+         *     - `syntax=structured` or `syntax=unified` makes `q` required and enables space-separated clauses combined with AND. See the
+         *       `SearchSyntax` parameter for the grammar. `timeZone` supplies the time zone of calendar dates.
          *     - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
          *     - `watching` (strict `true` or `false`; a repeated key is a `400`) keeps the threads the CALLER watches (`PUT .../watch`), or, with
          *       `false`, the ones they do not; it narrows the matches of `q`. **In plain mode, `q` is optional with `watching=true` or a `threadTag`** (below): with `watching=true` that is the room's
@@ -1910,9 +1910,10 @@ export interface paths {
          *     thread number get the uniform `404`. Returns a flat page of live message hits from this thread; deleted tombstones and the thread title are never searched or returned. Search is case- and
          *     accent-insensitive except that an exact phrase preserves accents, punctuation and spaces.
          *
-         *     With `syntax=structured`, `in:` must resolve to this room, while `owner:` and `with:` test the selected thread. `from:`, date,
-         *     text, link, reaction and emoji clauses test each returned message. `has:pin` alone returns pinned messages only; when combined
-         *     with another message clause, a thread pin also admits messages that satisfy those other clauses. Clauses remain AND-combined.
+         *     With `syntax=structured` or `syntax=unified`, `in:` must resolve to this room, while `owner:` and `with:` test the selected
+         *     thread. `from:`, date, text, link, reaction and emoji clauses test each returned message. `has:pin` alone returns pinned
+         *     messages only; when combined with another message clause, a thread pin also admits messages that satisfy those other clauses.
+         *     Clauses remain AND-combined.
          *
          *     - Sortable field: `id` only. Default `-id` (newest first).
          *     - At most 20 hits per page. Each hit contains a plain-text snippet with matching runs marked; render it as text, never HTML.
@@ -2269,8 +2270,8 @@ export interface paths {
          *     - Plain `q` (when `syntax` is omitted; REQUIRED unless `watching=true`, `unread` is given, or a `threadTag` is given; 2 to 100 code points after trimming, at least one letter or digit, no
          *       control characters; repeating it is a `400`): case- and accent-insensitive, every term required within ONE message or the title, a term of three or more characters
          *       matches as a PREFIX, no operators. Exactly as the room search documents it.
-         *     - `syntax=structured` makes `q` required and enables the same clauses as room search. `in:` narrows the set of rooms the
-         *       caller already belongs to. `timeZone` supplies the time zone of calendar dates.
+         *     - `syntax=structured` or `syntax=unified` makes `q` required and enables the same clauses as room search. `in:` narrows the set
+         *       of rooms the caller already belongs to. `timeZone` supplies the time zone of calendar dates.
          *     - `closed` (strict `true` or `false`, on the status category; omitted = both; a repeated key is a `400`).
          *     - `watching` (strict `true` or `false`; a repeated key is a `400`) keeps the threads the CALLER watches (`PUT .../watch`), or, with
          *       `false`, the ones they do not. **In plain mode, `q` is optional with `watching=true` or a `threadTag`** (below): with `watching=true` that is the cross-room "Threads I watch" view,
@@ -4851,16 +4852,19 @@ export interface components {
         SearchPageSize: number;
         /** @description Free-text search (API-LIST-005), REQUIRED where declared. Case- and accent-insensitive; the endpoint says how it matches (a substring, or whole words and prefixes) and what it searches. The value is trimmed before the length limits apply, so it needs 2 to 100 characters (code points) after trimming. */
         Q: string;
-        /** @description Search input (API-LIST-005) for either search route. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true`, an `unread` filter, or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
+        /** @description Search input (API-LIST-005) for either search route. With `syntax=structured` or `syntax=unified`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true`, an `unread` filter, or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
         SearchQ: string;
-        /** @description Required search input. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit. Length is measured after trimming. A repeated key, control character or direction override character is invalid. */
+        /** @description Required search input. With `syntax=structured` or `syntax=unified`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit. Length is measured after trimming. A repeated key, control character or direction override character is invalid. */
         MessageSearchQ: string;
         /**
-         * @description Omit for plain full-text search. Use `structured` for the following AND-combined clauses:
+         * @description Omit for the existing plain full-text search. Use `structured` or `unified` for the following AND-combined clauses. In
+         *     `structured`, a bare positive term is an exact indexed word. In `unified`, a bare positive term uses the plain-search rule:
+         *     each indexed term of three or more characters is a prefix and a shorter term is exact. Existing exclusions remain exact. An
+         *     HTTP(S) URL token remains bare text in `unified`; other unknown `name:value` operators are invalid.
          *
-         *     - `word` matches a full indexed word, `prefix*` an indexed word starting with at least two letters or digits, and `"exact phrase"`
-         *       a contiguous literal phrase. Phrase matching ignores case and preserves accents, punctuation and spaces. Prefix a text
-         *       clause with `-` to exclude it.
+         *     - `word:term` explicitly matches one full indexed word, `prefix*` an indexed word starting with at least two letters or digits,
+         *       and `"exact phrase"` a contiguous literal phrase. `word:` accepts one or more letters or digits and no wildcard. Phrase
+         *       matching ignores case and preserves accents, punctuation and spaces. Prefix a text clause with `-` to exclude it.
          *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
          *       The person filters also accept exact email addresses. `from` selects a matching message's author,
          *       `with` a thread with a live message by that user, and `owner` its current owner.
@@ -4879,7 +4883,7 @@ export interface components {
          *     A query with only thread filters can produce hits without message snippets. Malformed clauses and unknown operators return
          *     `400` without echoing the query.
          */
-        SearchSyntax: "structured";
+        SearchSyntax: "structured" | "unified";
         /**
          * @description IANA time zone used to interpret structured date clauses. Omit for UTC.
          * @example Europe/Warsaw
@@ -6824,14 +6828,17 @@ export interface operations {
     searchRoom: {
         parameters: {
             query?: {
-                /** @description Search input (API-LIST-005) for either search route. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true`, an `unread` filter, or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
+                /** @description Search input (API-LIST-005) for either search route. With `syntax=structured` or `syntax=unified`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true`, an `unread` filter, or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
                 q?: components["parameters"]["SearchQ"];
                 /**
-                 * @description Omit for plain full-text search. Use `structured` for the following AND-combined clauses:
+                 * @description Omit for the existing plain full-text search. Use `structured` or `unified` for the following AND-combined clauses. In
+                 *     `structured`, a bare positive term is an exact indexed word. In `unified`, a bare positive term uses the plain-search rule:
+                 *     each indexed term of three or more characters is a prefix and a shorter term is exact. Existing exclusions remain exact. An
+                 *     HTTP(S) URL token remains bare text in `unified`; other unknown `name:value` operators are invalid.
                  *
-                 *     - `word` matches a full indexed word, `prefix*` an indexed word starting with at least two letters or digits, and `"exact phrase"`
-                 *       a contiguous literal phrase. Phrase matching ignores case and preserves accents, punctuation and spaces. Prefix a text
-                 *       clause with `-` to exclude it.
+                 *     - `word:term` explicitly matches one full indexed word, `prefix*` an indexed word starting with at least two letters or digits,
+                 *       and `"exact phrase"` a contiguous literal phrase. `word:` accepts one or more letters or digits and no wildcard. Phrase
+                 *       matching ignores case and preserves accents, punctuation and spaces. Prefix a text clause with `-` to exclude it.
                  *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
                  *       The person filters also accept exact email addresses. `from` selects a matching message's author,
                  *       `with` a thread with a live message by that user, and `owner` its current owner.
@@ -7585,14 +7592,17 @@ export interface operations {
     searchThreadMessages: {
         parameters: {
             query: {
-                /** @description Required search input. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit. Length is measured after trimming. A repeated key, control character or direction override character is invalid. */
+                /** @description Required search input. With `syntax=structured` or `syntax=unified`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit. Length is measured after trimming. A repeated key, control character or direction override character is invalid. */
                 q: components["parameters"]["MessageSearchQ"];
                 /**
-                 * @description Omit for plain full-text search. Use `structured` for the following AND-combined clauses:
+                 * @description Omit for the existing plain full-text search. Use `structured` or `unified` for the following AND-combined clauses. In
+                 *     `structured`, a bare positive term is an exact indexed word. In `unified`, a bare positive term uses the plain-search rule:
+                 *     each indexed term of three or more characters is a prefix and a shorter term is exact. Existing exclusions remain exact. An
+                 *     HTTP(S) URL token remains bare text in `unified`; other unknown `name:value` operators are invalid.
                  *
-                 *     - `word` matches a full indexed word, `prefix*` an indexed word starting with at least two letters or digits, and `"exact phrase"`
-                 *       a contiguous literal phrase. Phrase matching ignores case and preserves accents, punctuation and spaces. Prefix a text
-                 *       clause with `-` to exclude it.
+                 *     - `word:term` explicitly matches one full indexed word, `prefix*` an indexed word starting with at least two letters or digits,
+                 *       and `"exact phrase"` a contiguous literal phrase. `word:` accepts one or more letters or digits and no wildcard. Phrase
+                 *       matching ignores case and preserves accents, punctuation and spaces. Prefix a text clause with `-` to exclude it.
                  *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
                  *       The person filters also accept exact email addresses. `from` selects a matching message's author,
                  *       `with` a thread with a live message by that user, and `owner` its current owner.
@@ -8053,14 +8063,17 @@ export interface operations {
     searchRooms: {
         parameters: {
             query?: {
-                /** @description Search input (API-LIST-005) for either search route. With `syntax=structured`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true`, an `unread` filter, or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
+                /** @description Search input (API-LIST-005) for either search route. With `syntax=structured` or `syntax=unified`, supply a nonblank query of up to 512 code points and 24 clauses. With `syntax` omitted, supply plain text of 2 to 100 code points with at least one letter or digit, or omit `q` with `watching=true`, an `unread` filter, or a `threadTag` filter. Length is measured after trimming. Control and direction override characters are invalid. */
                 q?: components["parameters"]["SearchQ"];
                 /**
-                 * @description Omit for plain full-text search. Use `structured` for the following AND-combined clauses:
+                 * @description Omit for the existing plain full-text search. Use `structured` or `unified` for the following AND-combined clauses. In
+                 *     `structured`, a bare positive term is an exact indexed word. In `unified`, a bare positive term uses the plain-search rule:
+                 *     each indexed term of three or more characters is a prefix and a shorter term is exact. Existing exclusions remain exact. An
+                 *     HTTP(S) URL token remains bare text in `unified`; other unknown `name:value` operators are invalid.
                  *
-                 *     - `word` matches a full indexed word, `prefix*` an indexed word starting with at least two letters or digits, and `"exact phrase"`
-                 *       a contiguous literal phrase. Phrase matching ignores case and preserves accents, punctuation and spaces. Prefix a text
-                 *       clause with `-` to exclude it.
+                 *     - `word:term` explicitly matches one full indexed word, `prefix*` an indexed word starting with at least two letters or digits,
+                 *       and `"exact phrase"` a contiguous literal phrase. `word:` accepts one or more letters or digits and no wildcard. Phrase
+                 *       matching ignores case and preserves accents, punctuation and spaces. Prefix a text clause with `-` to exclude it.
                  *     - `in:room`, `from:user`, `with:user`, and `owner:user` accept exact names or `#ID`. Quote names containing spaces.
                  *       The person filters also accept exact email addresses. `from` selects a matching message's author,
                  *       `with` a thread with a live message by that user, and `owner` its current owner.

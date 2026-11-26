@@ -1,4 +1,5 @@
 const SEARCH_OPERATORS = [
+  "word",
   "in",
   "from",
   "with",
@@ -26,11 +27,12 @@ export type SearchTokenContext = {
 };
 
 export type SearchOperatorSuggestion = {
-  id: "in" | "from" | "with" | "owner" | "on" | "before" | "after" | "during" | "status" | "hashtag" | "pin" | "link" | "reactionAny" | "reaction" | "emoji";
+  id: "word" | "in" | "from" | "with" | "owner" | "on" | "before" | "after" | "during" | "status" | "hashtag" | "pin" | "link" | "reactionAny" | "reaction" | "emoji";
   insert: string;
 };
 
 const OPERATOR_SUGGESTIONS: readonly SearchOperatorSuggestion[] = [
+  { id: "word", insert: "word:" },
   { id: "in", insert: "in:" },
   { id: "from", insert: "from:" },
   { id: "with", insert: "with:" },

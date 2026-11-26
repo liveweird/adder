@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.threads.MessageResponse
+import ch.nokillswit.threads.MessageSearchPageResponse
 import ch.nokillswit.threads.PinRequest
 import ch.nokillswit.threads.ReactionRequest
 import ch.nokillswit.threads.ThreadSearchPageResponse
@@ -47,6 +48,9 @@ class StructuredSearchRoutesTest {
         assertEquals(HttpStatusCode.OK, response.status)
         return response.body()
     }
+
+    private suspend fun HttpClient.unified(path: String, query: String): HttpResponse =
+        get("$path?syntax=unified&q=${encoded(query)}")
 
     private suspend fun HttpClient.post(room: UInt, number: Int, body: String): MessageResponse {
         val response = postJson("$rooms/$room/threads/$number/messages", MessageRequest(body))
@@ -140,6 +144,27 @@ class StructuredSearchRoutesTest {
         assertEquals(HttpStatusCode.BadRequest, cast.ann.client.get("$roomPath?syntax=future&q=scope").status)
         val legacy = cast.ann.client.get("$roomPath?q=scope").body<ThreadSearchPageResponse>()
         assertEquals(listOf(1), legacy.items.map { it.threadNumber })
+    }
+
+    @Test
+    fun `unified bare words use plain prefixes across every search scope`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = seedPairCast("ss-unified", "Unified", minted)
+        TestThreads.seed(cast.room, cast.owner.id, title = "Diskette", body = "diskette monitor")
+        TestThreads.seed(cast.room, cast.owner.id, title = "Disk", body = "disk monitor")
+        val roomPath = "$rooms/${cast.room}/search"
+
+        val prefixed = cast.owner.client.unified(roomPath, "disk").body<ThreadSearchPageResponse>()
+        assertEquals(2, prefixed.total)
+        assertEquals(1, cast.owner.client.unified(roomPath, "word:disk").body<ThreadSearchPageResponse>().total)
+        assertEquals(1, cast.owner.client.unified(roomPath, "monitor -disk").body<ThreadSearchPageResponse>().total)
+        assertEquals(1, cast.owner.client.structured(roomPath, "disk").body<ThreadSearchPageResponse>().total)
+        assertEquals(2, cast.owner.client.get("$roomPath?q=disk").body<ThreadSearchPageResponse>().total)
+        assertEquals(2, cast.owner.client.unified("/api/v1/search", "disk").body<ThreadSearchPageResponse>().total)
+
+        val inThread = "$rooms/${cast.room}/threads/1/messages/search"
+        assertEquals(1, cast.owner.client.unified(inThread, "disk").body<MessageSearchPageResponse>().total)
+        assertEquals(0, cast.owner.client.unified(inThread, "word:disk").body<MessageSearchPageResponse>().total)
     }
 
     @Test

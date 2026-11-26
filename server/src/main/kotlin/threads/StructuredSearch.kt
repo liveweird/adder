@@ -13,7 +13,7 @@ import java.time.format.DateTimeParseException
 internal const val MAX_STRUCTURED_SEARCH_CODE_POINTS = 512
 internal const val MAX_STRUCTURED_SEARCH_CLAUSES = 24
 
-internal enum class SearchTextKind { WORD, PHRASE, PREFIX }
+internal enum class SearchTextKind { WORD, PLAIN, PHRASE, PREFIX }
 
 internal data class SearchTextClause(val value: String, val kind: SearchTextKind, val excluded: Boolean)
 
@@ -81,7 +81,14 @@ private data class MutableStructuredSearch(
  * Parses the bounded query language into values the search service can bind without interpreting raw user text. Every rejection is a
  * fixed-detail `400`: a query is user content and must not appear in a problem body (`security.md` "Search").
  */
-internal fun parseStructuredSearch(raw: String?, timeZone: String?): StructuredSearch {
+internal fun parseStructuredSearch(raw: String?, timeZone: String?): StructuredSearch =
+    parseSearch(raw, timeZone, SearchTextKind.WORD)
+
+/** Parses the shared clause language with forgiving plain-search matching for positive bare terms. */
+internal fun parseUnifiedSearch(raw: String?, timeZone: String?): StructuredSearch =
+    parseSearch(raw, timeZone, SearchTextKind.PLAIN)
+
+private fun parseSearch(raw: String?, timeZone: String?, bareWordKind: SearchTextKind): StructuredSearch {
     val zone = parseZone(timeZone)
     val sent = raw.orEmpty()
     if (sent.hasForbiddenCodePoint()) invalidQuery()
@@ -92,7 +99,7 @@ internal fun parseStructuredSearch(raw: String?, timeZone: String?): StructuredS
     if (lexemes.size > MAX_STRUCTURED_SEARCH_CLAUSES) invalidQuery()
 
     val result = MutableStructuredSearch()
-    lexemes.forEach { result.add(it, zone) }
+    lexemes.forEach { result.add(it, zone, bareWordKind) }
     return result.immutable()
 }
 
@@ -155,7 +162,7 @@ private fun readLexeme(query: String, start: Int): Pair<Lexeme, Int> {
 private fun canOpenQuote(value: StringBuilder): Boolean =
     value.isEmpty() || value.contentEquals("-") || value.lastOrNull() == ':'
 
-private fun MutableStructuredSearch.add(lexeme: Lexeme, zone: ZoneId) {
+private fun MutableStructuredSearch.add(lexeme: Lexeme, zone: ZoneId, bareWordKind: SearchTextKind) {
     val phrase = lexeme.quoteStart == 0 || lexeme.quoteStart == 1 && lexeme.value.startsWith('-')
     if (phrase) {
         val excluded = lexeme.quoteStart == 1
@@ -167,7 +174,11 @@ private fun MutableStructuredSearch.add(lexeme: Lexeme, zone: ZoneId) {
 
     val separator = lexeme.value.indexOf(':')
     if (separator < 0) {
-        text += textClause(lexeme.value)
+        text += textClause(lexeme.value, bareWordKind)
+        return
+    }
+    if (bareWordKind == SearchTextKind.PLAIN && lexeme.value.isHttpUrlToken(separator)) {
+        text += textClause(lexeme.value, bareWordKind)
         return
     }
 
@@ -179,6 +190,7 @@ private fun MutableStructuredSearch.add(lexeme: Lexeme, zone: ZoneId) {
         "from" -> authors += reference(operand, quotedOperand)
         "with" -> participants += reference(operand, quotedOperand)
         "owner" -> owners += reference(operand, quotedOperand)
+        "word" -> text += wholeWordClause(operand, quotedOperand)
         "status" -> statuses += statusKey(operand)
         "hashtag" -> hashtags += hashtagKey(operand)
         "on" -> dateRange(operand, zone).also { intersect(it.first, it.second) }
@@ -189,6 +201,9 @@ private fun MutableStructuredSearch.add(lexeme: Lexeme, zone: ZoneId) {
         else -> invalidQuery()
     }
 }
+
+private fun String.isHttpUrlToken(separator: Int): Boolean =
+    substring(0, separator).lowercase() in setOf("http", "https") && startsWith("://", separator)
 
 private fun statusKey(value: String): String = try {
     requireKey(value, "Status key")
@@ -203,17 +218,22 @@ private fun hashtagKey(value: String): String = try {
     invalidQuery()
 }
 
-private fun textClause(raw: String): SearchTextClause {
+private fun textClause(raw: String, bareWordKind: SearchTextKind): SearchTextClause {
     val excluded = raw.startsWith('-')
     val term = if (excluded) raw.drop(1) else raw
     if ('*' !in term) {
         if (term.codePoints().noneMatch(Character::isLetterOrDigit)) invalidQuery()
-        return SearchTextClause(term, SearchTextKind.WORD, excluded)
+        return SearchTextClause(term, if (excluded) SearchTextKind.WORD else bareWordKind, excluded)
     }
     if (!term.endsWith('*')) invalidQuery()
     val prefix = term.dropLast(1)
     if (prefix.codePointCount(0, prefix.length) < 2 || !prefix.codePoints().allMatch(Character::isLetterOrDigit)) invalidQuery()
     return SearchTextClause(prefix, SearchTextKind.PREFIX, excluded)
+}
+
+private fun wholeWordClause(value: String, quoted: Boolean): SearchTextClause {
+    if (quoted || value.isEmpty() || !value.codePoints().allMatch(Character::isLetterOrDigit)) invalidQuery()
+    return SearchTextClause(value, SearchTextKind.WORD, excluded = false)
 }
 
 private fun reference(value: String, quoted: Boolean): SearchReference {

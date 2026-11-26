@@ -34,8 +34,8 @@ describe("queryProblem: the server's rules, so a bad term never travels", () => 
     expect(queryProblem("x".repeat(101))).toBe("tooLong");
   });
 
-  test("drafts with operators opt in to structured search", () => {
-    for (const query of ['"server down"', "outage -test", "out*", "in:ops", "frmo:alex", "has:reaction:👍", "status:investigating", "hashtag:incident"]) {
+  test("drafts with operators opt in to unified search", () => {
+    for (const query of ['"server down"', "outage -test", "out*", "word:disk", "in:ops", "frmo:alex", "has:reaction:👍", "status:investigating", "hashtag:incident"]) {
       expect(detectStructuredSearch(query), query).toBe(true);
     }
     for (const query of ["outage", "alert-triage", "https://example.test", "a * b", "mailto:help@example.test", "time:10"]) {
@@ -72,6 +72,16 @@ describe("the search URL", () => {
     expect(parseSearchParams(new URLSearchParams({ q, syntax: "invalid", timeZone: "UTC" }))).not.toHaveProperty("syntax");
     expect(parseSearchParams(new URLSearchParams({ q, syntax: "structured" }))).not.toHaveProperty("timeZone");
     expect(isSearchable(parseSearchParams(new URLSearchParams({ q: "x".repeat(120), syntax: "structured" })))).toBe(true);
+  });
+
+  test("stores new unified queries while retaining legacy structured links unchanged", () => {
+    const q = "disk word:full";
+    const unified = new URLSearchParams({ q, syntax: "unified", timeZone: "Europe/Warsaw", page: "3" });
+    expect(parseSearchParams(unified)).toMatchObject({ q, syntax: "unified", timeZone: "Europe/Warsaw", page: 3 });
+    expect(writeSearchParams(unified, { page: 4 }).toString()).toBe("q=disk+word%3Afull&syntax=unified&timeZone=Europe%2FWarsaw&page=4");
+
+    const legacy = new URLSearchParams({ q: "disk full", syntax: "structured", timeZone: "UTC", page: "2" });
+    expect(writeSearchParams(legacy, { scope: "closed" }).toString()).toBe("q=disk+full&syntax=structured&timeZone=UTC&scope=closed");
   });
   test("parses the term (trimmed), the scope (default all) and the page (default 1); junk is the default", () => {
     expect(parseSearchParams(new URLSearchParams("q=%20outage%20&scope=closed&page=3"))).toEqual({ q: "outage", scope: "closed", watching: false, unread: false, threadTag: [], page: 3 });
@@ -150,6 +160,7 @@ describe("the search URL", () => {
     expect(scopeToClosed("all")).toBeUndefined();
     expect(searchResultsPath("/search", "  awaria bazy ")).toBe("/search?q=awaria+bazy");
     expect(searchResultsPath("/rooms/7/search", "a&b=c")).toBe("/rooms/7/search?q=a%26b%3Dc");
+    expect(searchResultsPath("/search", "disk word:full", "Europe/Warsaw")).toBe("/search?q=disk+word%3Afull&syntax=unified&timeZone=Europe%2FWarsaw");
   });
 });
 

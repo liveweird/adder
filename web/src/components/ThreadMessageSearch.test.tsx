@@ -54,7 +54,7 @@ test("opens focused, validates without a request, and closes back to its trigger
   await waitFor(() => expect(trigger).toHaveFocus());
 });
 
-test("inserts structured syntax at the caret and returns focus to the query", async () => {
+test("inserts search syntax at the caret and returns focus to the query without a mode switch", async () => {
   vi.stubGlobal("fetch", vi.fn());
   const user = userEvent.setup();
   renderSearch();
@@ -64,9 +64,10 @@ test("inserts structured syntax at the caret and returns focus to the query", as
   await user.click(await screen.findByRole("button", { name: /in:"Night Shift" Search in one room/ }));
   expect(input).toHaveValue("disk in:");
   expect(input).toHaveFocus();
+  expect(screen.queryByRole("switch", { name: /structured mode/i })).not.toBeInTheDocument();
 });
 
-test("submits a structured query, renders highlighted results, and selects a direct jump", async () => {
+test("submits a unified query, renders highlighted results, and selects a direct jump", async () => {
   const fetch = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => Promise.resolve(jsonResponse(200, page())));
   vi.stubGlobal("fetch", fetch);
   localStorage.setItem("adder.auth.token", "fake-token");
@@ -78,7 +79,7 @@ test("submits a structured query, renders highlighted results, and selects a dir
   const result = await screen.findByRole("link", { name: /the outage started/i });
   const asked = new URL(String(fetch.mock.calls[0]![0]), "http://adder.test");
   expect(asked.pathname).toBe("/api/v1/rooms/12/threads/42/messages/search");
-  expect(Object.fromEntries(asked.searchParams)).toMatchObject({ q: '"outage"', syntax: "structured", page: "1", pageSize: "20" });
+  expect(Object.fromEntries(asked.searchParams)).toMatchObject({ q: '"outage"', syntax: "unified", page: "1", pageSize: "20" });
   expect(fetch.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal);
   expect(screen.getByRole("status")).toHaveTextContent("1 message found");
   expect(result.querySelector("mark")).toHaveTextContent("outage");

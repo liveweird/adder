@@ -9,6 +9,7 @@ import ch.nokillswit.infra.paging.optionalString
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.singleValue
 import ch.nokillswit.infra.validation.sanitizeSingleLine
+import io.ktor.http.Parameters
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.plugins.BadRequestException
 import kotlinx.serialization.Serializable
@@ -130,16 +131,8 @@ internal fun ApplicationCall.parseSearchParams(): SearchParams {
         value.toBooleanStrictOrNull() ?: throw BadRequestException("unread must be true or false")
     }
     val threadTags = params.threadTagFilter()
-    val syntax = params.optionalString("syntax")
-    if (syntax != null && syntax != "structured") throw BadRequestException("Unsupported search syntax")
     val raw = params.optionalString("q")
-    val structured = if (syntax == "structured") {
-        val structuredRaw = params.singleValue("q")?.takeIf { it.isNotBlank() }
-            ?: throw BadRequestException("q is required")
-        parseStructuredSearch(structuredRaw, params.optionalString("timeZone"))
-    } else {
-        null
-    }
+    val structured = params.parseClauseSearch()
     return SearchParams(
         q = if (structured != null) null else if ((watching == true || unread != null || threadTags.isNotEmpty()) && raw == null) {
             null
@@ -167,17 +160,18 @@ internal fun ApplicationCall.parseMessageSearchParams(): MessageSearchParams {
     val paging = parsePaging(sortable = MESSAGE_SEARCH_SORT_FIELDS, defaultSort = listOf(SortField("id", descending = true)))
     if (paging.pageSize > MAX_SEARCH_PAGE_SIZE) throw BadRequestException("pageSize must be between 1 and $MAX_SEARCH_PAGE_SIZE")
     val params = request.queryParameters
-    val syntax = params.optionalString("syntax")
-    if (syntax != null && syntax != "structured") throw BadRequestException("Unsupported search syntax")
-    val structured = if (syntax == "structured") {
-        val raw = params.singleValue("q")?.takeIf { it.isNotBlank() } ?: throw BadRequestException("q is required")
-        parseStructuredSearch(raw, params.optionalString("timeZone"))
-    } else {
-        null
-    }
+    val structured = params.parseClauseSearch()
     return MessageSearchParams(
         q = if (structured == null) validateSearchQuery(params.optionalString("q")) else null,
         structured = structured,
         paging = paging,
     )
+}
+
+private fun Parameters.parseClauseSearch(): StructuredSearch? {
+    val syntax = optionalString("syntax") ?: return null
+    if (syntax != "structured" && syntax != "unified") throw BadRequestException("Unsupported search syntax")
+    val raw = singleValue("q")?.takeIf { it.isNotBlank() } ?: throw BadRequestException("q is required")
+    val timeZone = optionalString("timeZone")
+    return if (syntax == "unified") parseUnifiedSearch(raw, timeZone) else parseStructuredSearch(raw, timeZone)
 }
