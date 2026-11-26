@@ -821,8 +821,9 @@ default `adder`/`adder`; the value is word-split on purpose):
   extension needs no change here: the drop is by catalog, not by name. Stop the app first (compose `docker compose stop app`; k8s
   scale to 0). To restore beside the data instead, make a scratch database (`ADDER_DB_NAME=adder_restored` after `createdb`) and compare.
 - **Keys and application secrets** are stored separately from the dump. Keep `DATA_ENCRYPTION_KEY`, `JWT_SECRET`, and the previous
-  encryption key when applicable. A restore needs the encryption keys covering the dump's browser push endpoints (`security.md`). A restored database keeps its users'
-  password hashes and `credential_revision`s, so every outstanding token stays valid or not as the live system decided. In-memory state (lockouts, MFA codes, refresh rotations) starts empty.
+  encryption key when applicable. A restore needs the encryption keys covering the dump's browser push endpoints (`security.md`).
+  It restores password hashes, credential revisions, and revocations from the snapshot. It also restores refresh rotation grace and
+  replay counters with their original deadlines. State held in process memory starts fresh.
 - **A dump restores into the same or a newer app version** (Flyway migrates forward on boot). An OLDER app against a newer database is
   not refused by Flyway (its default ignores `*:future` migrations; the config is unchanged), so never roll the app back past the
   schema without restoring a dump of that older schema, UNLESS that release's own rollback runbook says otherwise (1.2.0 to 1.1.0:
