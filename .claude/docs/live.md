@@ -83,6 +83,8 @@ equal to the spec enum and to the audit names.
 the frame on the normal 25-second ping cadence and sends `visible:false` as soon as it is hidden. PostgreSQL keeps a 60-second
 foreground lease per authenticated socket. Any fresh visible tab can make an eligible room member present for `@here`. A hidden frame clears its
 lease and graceful closure releases it. A crashed app stops renewing and its leases expire within 60 seconds.
+An app heartbeat renews the socket lease only. Foreground presence needs a new client frame, and a visible
+write that is still pending after 60 seconds clears its previous presence.
 
 | Code | When | Client |
 |---|---|---|

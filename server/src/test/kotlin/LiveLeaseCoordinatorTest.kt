@@ -224,6 +224,53 @@ class LiveLeaseCoordinatorTest {
     }
 
     @Test
+    fun `a socket heartbeat alone does not renew the last client foreground frame`() = runBlocking {
+        val store = FakeLeaseStore()
+        val now = AtomicLong()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = LiveLeaseCoordinator(store, scope, 1, now::get, heartbeatMillis = 25, watchdogMillis = 30_000)
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, CompletableDeferred())).handle
+            handle.foreground(true)
+            await { store.foregroundBatches.size == 1 }
+
+            val renews = store.renewAttempts.get()
+            now.set((LIVE_SESSION_LEASE_MILLIS + 1) * 1_000_000)
+            await { store.renewAttempts.get() >= renews + 3 }
+            assertEquals(listOf(true), store.foregroundBatches.map { it.second })
+
+            handle.foreground(true)
+            await { store.foregroundBatches.size == 2 }
+            assertEquals(listOf(true, true), store.foregroundBatches.map { it.second })
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `a visible frame that aged out before retry cannot restore foreground presence`() = runBlocking {
+        val firstWrite = CompletableDeferred<Unit>()
+        val finishFirstWrite = CompletableDeferred<Unit>()
+        val now = AtomicLong()
+        val store = FakeLeaseStore(dropFirstForeground = true, afterForeground = {
+            if (firstWrite.complete(Unit)) finishFirstWrite.await()
+        })
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val coordinator = LiveLeaseCoordinator(store, scope, 1, now::get, heartbeatMillis = 25, watchdogMillis = 30_000)
+            val handle = assertIs<LeaseOpen.Accepted>(coordinator.admit(7u, 300_000, CompletableDeferred())).handle
+            handle.foreground(true)
+            withTimeout(5_000) { firstWrite.await() }
+            now.set((LIVE_SESSION_LEASE_MILLIS + 1) * 1_000_000)
+            finishFirstWrite.complete(Unit)
+            await { store.foregroundBatches.size >= 2 }
+            assertEquals(listOf(true, false), store.foregroundBatches.take(2).map { it.second })
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `renewal and foreground outages do not cancel the coordinator loops`() = runBlocking {
         val store = FakeLeaseStore(failRenew = true, failForeground = true)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

@@ -75,7 +75,8 @@ internal class LiveLeaseCoordinator(
 
     fun foreground(handle: LeaseHandle, visible: Boolean) {
         if (sessions[handle.id] !== handle.state) return
-        handle.state.foreground.updateAndGet { Intent(visible, it.version + 1) }
+        val receivedAtNanos = monotonicNanos()
+        handle.state.foreground.updateAndGet { Intent(visible, it.version + 1, receivedAtNanos) }
         foregroundSignal.trySend(Unit)
     }
 
@@ -123,10 +124,10 @@ internal class LiveLeaseCoordinator(
 
     private suspend fun foregroundLoop() {
         val heartbeatNanos = heartbeatMillis * 1_000_000
-        var nextRefreshNanos = monotonicNanos() + heartbeatNanos
+        var nextRetryNanos = monotonicNanos() + heartbeatNanos
         while (true) {
-            val untilRefreshMillis = (nextRefreshNanos - monotonicNanos()).coerceAtLeast(0) / 1_000_000
-            val changed = withTimeoutOrNull(untilRefreshMillis) { foregroundSignal.receive() } != null
+            val untilRetryMillis = (nextRetryNanos - monotonicNanos()).coerceAtLeast(0) / 1_000_000
+            val changed = withTimeoutOrNull(untilRetryMillis) { foregroundSignal.receive() } != null
             if (changed) {
                 delay(FOREGROUND_COALESCE_MILLIS)
                 while (foregroundSignal.tryReceive().isSuccess) {
@@ -134,17 +135,18 @@ internal class LiveLeaseCoordinator(
                 }
             }
             val now = monotonicNanos()
-            val refresh = !changed || now >= nextRefreshNanos
-            if (refresh) nextRefreshNanos = now + heartbeatNanos
-            flushForeground(refreshVisible = refresh)
+            if (!changed || now >= nextRetryNanos) nextRetryNanos = now + heartbeatNanos
+            flushForeground(now)
         }
     }
 
-    private suspend fun flushForeground(refreshVisible: Boolean) {
+    private suspend fun flushForeground(now: Long) {
         val snapshot = sessions.mapNotNull { (id, state) ->
             val intent = state.foreground.get()
-            val applied = state.appliedForegroundVersion.get()
-            if (intent.version != applied || refreshVisible && intent.visible) Triple(id, state, intent) else null
+            if (intent.version == state.appliedForegroundVersion.get()) return@mapNotNull null
+            // Only a fresh client frame can set presence. A stale retry clears any earlier visible intent.
+            val visible = intent.visible && now - intent.receivedAtNanos < LIVE_SESSION_LEASE_MILLIS * 1_000_000
+            Triple(id, state, intent.copy(visible = visible))
         }
         for (visible in listOf(false, true)) {
             snapshot.filter { it.third.visible == visible }.chunked(LIVE_LEASE_BATCH_SIZE)
@@ -157,7 +159,7 @@ internal class LiveLeaseCoordinator(
             store.setForeground(selected.map { it.first }, visible).updatedSessions
         } ?: return
         selected.filter { it.first in changed }.forEach { (_, state, intent) ->
-            if (state.foreground.get() == intent) state.appliedForegroundVersion.set(intent.version)
+            if (state.foreground.get().version == intent.version) state.appliedForegroundVersion.set(intent.version)
         }
     }
 
@@ -209,12 +211,12 @@ internal class LiveLeaseCoordinator(
         initialTokenDeadlineNanos: Long,
     ) {
         val deadline = AtomicReference(Deadline(initialDeadlineNanos, initialTokenDeadlineNanos))
-        val foreground = AtomicReference(Intent(false, 0))
+        val foreground = AtomicReference(Intent(false, 0, 0))
         val appliedForegroundVersion = AtomicLong(0)
     }
 
     internal data class Deadline(val leaseNanos: Long, val tokenNanos: Long, val expired: Boolean = false)
-    internal data class Intent(val visible: Boolean, val version: Long)
+    internal data class Intent(val visible: Boolean, val version: Long, val receivedAtNanos: Long)
 }
 
 internal sealed interface LeaseOpen {
