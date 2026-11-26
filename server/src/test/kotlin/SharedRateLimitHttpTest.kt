@@ -1,7 +1,9 @@
 package ch.nokillswit
 
-import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.auth.LoginRequest
+import ch.nokillswit.auth.LoginResponse
+import ch.nokillswit.infra.db.SEED_ADMIN_EMAIL
+import ch.nokillswit.plugins.RateLimitNamespaceOverrideKey
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.DefaultRequest
@@ -16,62 +18,23 @@ import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import io.ktor.util.AttributeKey
-import java.util.UUID
-import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SharedRateLimitHttpTest {
-    private val seeded = mutableListOf<UInt>()
-    private val ephemeralRows = mutableSetOf<Pair<String, String>>()
-
-    @AfterTest
-    fun cleanUp() = kotlinx.coroutines.runBlocking {
-        seeded.forEach { TestUsers.softDelete(it) }
-        seeded.clear()
-        PostgresTestSupport.connect().use { connection ->
-            connection.autoCommit = false
-            try {
-                connection.prepareStatement(
-                    "SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton FOR UPDATE",
-                ).use { statement -> statement.executeQuery().use { rows -> check(rows.next()) } }
-                val deleted = connection.prepareStatement(
-                    "DELETE FROM http_rate_limit_buckets WHERE bucket_name = ? AND key_hash = ?",
-                ).use { statement ->
-                    ephemeralRows.forEach { (bucket, key) ->
-                        statement.setString(1, bucket)
-                        statement.setString(2, key)
-                        statement.addBatch()
-                    }
-                    statement.executeBatch().sum()
-                }
-                connection.prepareStatement(
-                    "UPDATE http_rate_limit_capacity_guard SET stored_count = stored_count - ? WHERE singleton",
-                ).use { statement -> statement.setInt(1, deleted); check(statement.executeUpdate() == 1) }
-                connection.commit()
-            } catch (failure: Throwable) {
-                connection.rollback()
-                throw failure
-            }
-        }
-        ephemeralRows.clear()
-    }
-
     @Test
-    fun `two application instances consume one shared login envelope without storing the address`() {
-        val namespace = UUID.randomUUID().toString()
-        var baseline = emptySet<Pair<String, String>>()
+    fun `two application instances consume one shared login envelope without storing the address`() = withIsolatedTestDatabase { db ->
         testApplication {
-            configureShared(namespace, "security.rateLimit.loginPerMinute" to "3")
-            baseline = rateRows()
+            configureReplica(db, "security.rateLimit.loginPerMinute" to "3")
             val client = jsonClient()
             repeat(2) { assertEquals(HttpStatusCode.Unauthorized, client.login(uniqueEmail("shared-login"), "x").status) }
         }
         testApplication {
-            configureShared(namespace, "security.rateLimit.loginPerMinute" to "3")
+            configureReplica(db, "security.rateLimit.loginPerMinute" to "3")
             val client = jsonClient()
             val finalAllowed = client.login(uniqueEmail("shared-login"), "x")
             assertEquals(HttpStatusCode.Unauthorized, finalAllowed.status)
@@ -87,21 +50,14 @@ class SharedRateLimitHttpTest {
             assertTrue(assertNotNull(refused.headers[HttpHeaders.RetryAfter]).toInt() in 1..60)
         }
 
-        ephemeralRows += rateRows() - baseline
-        assertOpaqueStoredKeys("login")
+        assertOpaqueStoredKey(db, "login")
     }
 
     @Test
     fun `distinct capacity-refused identities keep one cached limiter per provider`() = withIsolatedTestDatabase { isolated ->
         seedFullActiveCapacity(isolated)
         testApplication {
-            configureShared(
-                UUID.randomUUID().toString(),
-                "http.behindProxy" to "true",
-                "security.rateLimit.loginPerMinute" to "1000",
-                "postgres.jdbcUrl" to isolated.jdbcUrl,
-                "postgres.r2dbcUrl" to isolated.r2dbcUrl,
-            )
+            configureReplica(isolated, "http.behindProxy" to "true", "security.rateLimit.loginPerMinute" to "1000")
             val client = jsonClient()
             repeat(20) { index ->
                 val response = client.post("/api/v1/login") {
@@ -120,23 +76,18 @@ class SharedRateLimitHttpTest {
     }
 
     @Test
-    fun `authenticated action envelope is shared while readiness remains local`() {
-        val namespace = UUID.randomUUID().toString()
-        val email = uniqueEmail("shared-user")
+    fun `authenticated action envelope is shared while readiness remains local`() = withIsolatedTestDatabase { db ->
         var token = ""
-        var baseline = emptySet<Pair<String, String>>()
         testApplication {
-            configureShared(namespace, "security.rateLimit.readyPerMinute" to "1")
-            baseline = rateRows()
-            seeded += TestUsers.seed(email, "pw")
-            token = jsonClient().login(email, "pw").body<LoginResponse>().token
+            configureReplica(db, "security.rateLimit.readyPerMinute" to "1")
+            token = jsonClient().login(SEED_ADMIN_EMAIL, "changeme").body<LoginResponse>().token
             val user = tokenClient(token)
             repeat(60) { assertEquals(HttpStatusCode.OK, user.get(DIRECTORY_PATH).status) }
             assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/ready").status)
             assertEquals(HttpStatusCode.TooManyRequests, jsonClient().get("/api/v1/ready").status)
         }
         testApplication {
-            configureShared(namespace, "security.rateLimit.readyPerMinute" to "1")
+            configureReplica(db, "security.rateLimit.readyPerMinute" to "1")
             val user = tokenClient(token)
             repeat(60) { assertEquals(HttpStatusCode.OK, user.get(DIRECTORY_PATH).status) }
             val refused = user.get(DIRECTORY_PATH)
@@ -144,12 +95,12 @@ class SharedRateLimitHttpTest {
             assertTrue(assertNotNull(refused.headers[HttpHeaders.RetryAfter]).toInt() in 1..60)
             assertEquals(HttpStatusCode.OK, jsonClient().get("/api/v1/ready").status, "each replica owns its readiness allowance")
         }
-        ephemeralRows += rateRows() - baseline
     }
 
-    private suspend fun ApplicationTestBuilder.configureShared(namespace: String, vararg overrides: Pair<String, String>) {
-        configureApp(*overrides)
-        shareRateLimitNamespace(namespace)
+    private suspend fun ApplicationTestBuilder.configureReplica(db: IsolatedTestDatabase, vararg overrides: Pair<String, String>) {
+        configureApp("postgres.jdbcUrl" to db.jdbcUrl, "postgres.r2dbcUrl" to db.r2dbcUrl, *overrides)
+        // The scratch DB owns its entire quota namespace, so use the same identity keys as real app replicas.
+        application { attributes.remove(RateLimitNamespaceOverrideKey) }
         startApplication()
     }
 
@@ -158,25 +109,14 @@ class SharedRateLimitHttpTest {
         install(DefaultRequest) { header(HttpHeaders.Authorization, "Bearer $token") }
     }
 
-    private fun assertOpaqueStoredKeys(bucket: String) {
-        PostgresTestSupport.connect().use { connection ->
+    private fun assertOpaqueStoredKey(db: IsolatedTestDatabase, bucket: String) {
+        db.connect().use { connection ->
             connection.prepareStatement("SELECT key_hash FROM http_rate_limit_buckets WHERE bucket_name = ?").use { statement ->
                 statement.setString(1, bucket)
                 statement.executeQuery().use { rows ->
                     assertTrue(rows.next())
-                    do {
-                        assertTrue(Regex("[0-9a-f]{64}").matches(rows.getString(1)))
-                    } while (rows.next())
-                }
-            }
-        }
-    }
-
-    private fun rateRows(): Set<Pair<String, String>> = PostgresTestSupport.connect().use { connection ->
-        connection.prepareStatement("SELECT bucket_name, key_hash FROM http_rate_limit_buckets").use { statement ->
-            statement.executeQuery().use { rows ->
-                buildSet {
-                    while (rows.next()) add(rows.getString(1) to rows.getString(2))
+                    assertTrue(Regex("[0-9a-f]{64}").matches(rows.getString(1)))
+                    assertFalse(rows.next(), "both replicas used the same quota key")
                 }
             }
         }

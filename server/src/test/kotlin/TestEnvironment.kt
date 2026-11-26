@@ -80,11 +80,6 @@ fun TestApplicationBuilder.configureApp(vararg overrides: Pair<String, String>) 
     application { attributes.put(RateLimitNamespaceOverrideKey, rateLimitNamespace) }
 }
 
-/** Makes explicitly paired test applications exercise the production shared-quota identity. Call after [configureApp]. */
-fun TestApplicationBuilder.shareRateLimitNamespace(namespace: String) {
-    application { attributes.put(RateLimitNamespaceOverrideKey, namespace) }
-}
-
 suspend fun ApplicationTestBuilder.usePostgresTestcontainer() {
     configureApp()
     startApplication()
