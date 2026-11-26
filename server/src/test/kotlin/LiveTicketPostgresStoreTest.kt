@@ -4,12 +4,14 @@ import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.live.LIVE_TICKET_EXPIRY_CLEANUP_BATCH
 import ch.nokillswit.live.LiveTicketCapacityExceededException
 import ch.nokillswit.live.LiveTicketPostgresStore
+import ch.nokillswit.live.LiveTicketStoreUnavailableException
 import ch.nokillswit.live.LiveTickets
 import ch.nokillswit.users.UserRole
 import java.util.UUID
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -42,6 +44,22 @@ class LiveTicketPostgresStoreTest {
     private suspend fun LiveTickets.mint(userId: UInt, tokenExpiresAt: Long = System.currentTimeMillis() + 60_000) =
         issue(userId, isAdmin = true, roles = setOf("ADMIN", "USER"), jti = UUID.randomUUID().toString(),
             credentialRevision = 7, tokenExpiresAtMillis = tokenExpiresAt)
+
+    @Test
+    fun `the store refuses invalid capacity and timing bounds`() {
+        val database = sharedDatabaseForTests()
+        assertFailsWith<IllegalArgumentException> { LiveTicketPostgresStore(database, maxTickets = 0) }
+        assertFailsWith<IllegalArgumentException> { LiveTicketPostgresStore(database, maxTickets = 1, ttlMillis = 0) }
+        assertFailsWith<IllegalArgumentException> { LiveTicketPostgresStore(database, maxTickets = 1, cleanupBatch = 0) }
+    }
+
+    @Test
+    fun `a failed database insert never issues a redeemable ticket`() = runBlocking {
+        val raw = "missing-account-binding".padEnd(43, 'x')
+        val issuer = service(ticket = raw)
+        assertFailsWith<LiveTicketStoreUnavailableException> { issuer.mint(UInt.MAX_VALUE) }
+        assertNull(service().redeem(raw))
+    }
 
     @Test
     fun `a ticket minted through one store redeems once through another and only its digest is persisted`() = runBlocking {
