@@ -81,6 +81,7 @@ class MigrationChecksumTest {
         "V57__share_mfa_challenges.sql" to -2062212377,
         "V58__share_http_rate_limits.sql" to -212062878,
         "V59__share_digest_recipient_pacing.sql" to 465030050,
+        "V60__share_operation_leases.sql" to -898414099,
     )
 
     @Test
