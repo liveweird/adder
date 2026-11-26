@@ -179,7 +179,7 @@ The route needs the token's `jti`, `exp` and `credentialRevision`, which `Caller
 `AccessToken` into `call.attributes` (`authz/AccessToken.kt`). `CallerPrincipal` is unchanged.
 
 **Redemption, in order:** (1) redeem the ticket, or 4401; (2) `TokenBlocklistService.accessVerdict(...)` must be LIVE, or 4003; (3) now before the token's
-`exp`, or 4001; (4) the per-user cap has room, or 4429; (5) send `ready`.
+`exp`, or 4001; (4) register subject to the socket caps; (5) recheck the access verdict after registration, or close 4003; (6) send `ready`.
 
 ## The hub
 
