@@ -15,14 +15,29 @@ import kotlinx.coroutines.coroutineScope
 import io.ktor.server.testing.testApplication
 
 class SharedRateLimitsTest {
-    private val buckets = setOf("test-envelope", "test-race", "test-capacity")
+    private val buckets = setOf("test-envelope", "test-race", "test-capacity", "test-generations", "test-cap-race")
 
     @AfterTest
     fun cleanUp() {
         PostgresTestSupport.connect().use { connection ->
-            connection.prepareStatement("DELETE FROM http_rate_limit_buckets WHERE bucket_name = ANY(?)").use { statement ->
-                statement.setArray(1, connection.createArrayOf("text", buckets.toTypedArray()))
-                statement.executeUpdate()
+            connection.autoCommit = false
+            try {
+                connection.prepareStatement(
+                    "SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton FOR UPDATE",
+                ).use { statement -> statement.executeQuery().use { rows -> check(rows.next()) } }
+                val deleted = connection.prepareStatement(
+                    "DELETE FROM http_rate_limit_buckets WHERE bucket_name = ANY(?)",
+                ).use { statement ->
+                    statement.setArray(1, connection.createArrayOf("text", buckets.toTypedArray()))
+                    statement.executeUpdate()
+                }
+                connection.prepareStatement(
+                    "UPDATE http_rate_limit_capacity_guard SET stored_count = stored_count - ? WHERE singleton",
+                ).use { statement -> statement.setInt(1, deleted); check(statement.executeUpdate() == 1) }
+                connection.commit()
+            } catch (failure: Throwable) {
+                connection.rollback()
+                throw failure
             }
         }
     }
@@ -73,8 +88,8 @@ class SharedRateLimitsTest {
     @Test
     fun `new-key capacity refuses with a real refill deadline and expired cleanup is bounded`() = testApplication {
         usePostgresTestcontainer()
-        val baseline = activeCount()
-        val store = SharedRateLimitStore(sharedDatabaseForTests(), maxActiveKeys = baseline + 2)
+        val baseline = physicalCount()
+        val store = SharedRateLimitStore(sharedDatabaseForTests(), maxStoredKeys = baseline + 2)
         val first = "c".repeat(64)
         val second = "d".repeat(64)
         val third = "e".repeat(64)
@@ -87,9 +102,53 @@ class SharedRateLimitsTest {
         assertTrue(refused.refillAtMillis > refused.serverNowMillis)
 
         expire("test-capacity", first)
-        assertTrue(store.consume("test-capacity", third, limit = 3).admitted, "expired rows do not hold live capacity")
-        assertEquals(1, store.pruneExpired(batchSize = 1))
+        assertTrue(store.consume("test-capacity", third, limit = 3).admitted, "expired capacity is reclaimed for a new key")
+        assertEquals(0, store.pruneExpired(batchSize = 1))
         assertEquals(0, bucketCount("test-capacity", first))
+    }
+
+    @Test
+    fun `physical capacity has an exact high water across repeated expired generations`() = testApplication {
+        usePostgresTestcontainer()
+        val baseline = physicalCount()
+        val store = SharedRateLimitStore(sharedDatabaseForTests(), maxStoredKeys = baseline + 1)
+
+        repeat(12) { generation ->
+            val key = generation.toString(16).padStart(64, '0')
+            assertTrue(store.consume("test-generations", key, limit = 1).admitted)
+            assertEquals(baseline + 1, physicalCount())
+            assertEquals(physicalCount(), storedCount())
+            if (generation < 11) expire("test-generations", key)
+        }
+
+        val liveKey = 11.toString(16).padStart(64, '0')
+        val exhausted = store.consume("test-generations", liveKey, limit = 1)
+        assertFalse(exhausted.admitted, "an existing key keeps its per-key quota at the physical cap")
+        assertFalse(exhausted.capacityRefusal)
+        val newKey = "f".repeat(64)
+        assertTrue(store.consume("test-generations", newKey, limit = 1).capacityRefusal)
+        assertEquals(baseline + 1, physicalCount())
+        assertEquals(physicalCount(), storedCount())
+    }
+
+    @Test
+    fun `two stores cannot admit distinct active keys beyond physical capacity`() = testApplication {
+        usePostgresTestcontainer()
+        val baseline = physicalCount()
+        val first = SharedRateLimitStore(sharedDatabaseForTests(), maxStoredKeys = baseline + 1)
+        val second = SharedRateLimitStore(sharedDatabaseForTests(), maxStoredKeys = baseline + 1)
+
+        val decisions = coroutineScope {
+            listOf(
+                async { first.consume("test-cap-race", "1".repeat(64), limit = 2) },
+                async { second.consume("test-cap-race", "2".repeat(64), limit = 2) },
+            ).awaitAll()
+        }
+
+        assertEquals(1, decisions.count { it.admitted })
+        assertEquals(1, decisions.count { it.capacityRefusal })
+        assertEquals(baseline + 1, physicalCount())
+        assertEquals(physicalCount(), storedCount())
     }
 
     @Test
@@ -126,11 +185,16 @@ class SharedRateLimitsTest {
         }
     }
 
-    private fun activeCount(): Int = PostgresTestSupport.connect().use { connection ->
-        connection.prepareStatement(
-            "SELECT count(*) FROM http_rate_limit_buckets " +
-                "WHERE refill_at > floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint",
-        ).use { statement -> statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) } }
+    private fun physicalCount(): Int = PostgresTestSupport.connect().use { connection ->
+        connection.prepareStatement("SELECT count(*) FROM http_rate_limit_buckets").use { statement ->
+            statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+        }
+    }
+
+    private fun storedCount(): Int = PostgresTestSupport.connect().use { connection ->
+        connection.prepareStatement("SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton").use { statement ->
+            statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+        }
     }
 
     private fun databaseNow(): Long = PostgresTestSupport.connect().use { connection ->

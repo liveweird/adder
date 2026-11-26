@@ -2,6 +2,7 @@ package ch.nokillswit.plugins
 
 import io.ktor.server.plugins.ratelimit.RateLimiter
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.toList
 import org.jetbrains.exposed.v1.core.IntegerColumnType
@@ -28,43 +29,59 @@ internal data class SharedRateLimitDecision(
 /** PostgreSQL fixed-window limiter: the common active-key admission is one indexed UPDATE/RETURNING operation. */
 internal class SharedRateLimitStore(
     private val database: R2dbcDatabase,
-    private val maxActiveKeys: Int = RATE_LIMIT_MAX_ACTIVE_KEYS,
+    private val maxStoredKeys: Int = RATE_LIMIT_MAX_ACTIVE_KEYS,
 ) {
     suspend fun consume(bucket: String, keyHash: String, limit: Int, weight: Int = 1): SharedRateLimitDecision {
         require(bucket.length in 1..40)
         require(KEY_HASH.matches(keyHash))
         require(limit > 0 && weight in 1..limit)
-        return suspendTransaction(database) {
-            consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
-            readExisting(bucket, keyHash, limit)?.let { existing ->
-                if (existing.remaining < weight) return@suspendTransaction existing
-                consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
-            }
+        consumeOnce(bucket, keyHash, limit, weight, retryLockedExpired = true)?.let { return it }
+        delay(CAPACITY_RETRY_MILLIS)
+        return checkNotNull(consumeOnce(bucket, keyHash, limit, weight, retryLockedExpired = false))
+    }
 
-            lockCapacity()
+    private suspend fun consumeOnce(
+        bucket: String,
+        keyHash: String,
+        limit: Int,
+        weight: Int,
+        retryLockedExpired: Boolean,
+    ): SharedRateLimitDecision? = suspendTransaction(database) {
+        consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
+        readExisting(bucket, keyHash, limit)?.let { existing ->
+            if (existing.remaining < weight) return@suspendTransaction existing
             consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
-            readExisting(bucket, keyHash, limit)?.let { existing -> return@suspendTransaction existing }
-            val capacity = capacity()
-            if (capacity.active >= maxActiveKeys) {
-                return@suspendTransaction SharedRateLimitDecision(
-                    admitted = false,
-                    remaining = 0,
-                    limit = limit,
-                    serverNowMillis = capacity.serverNow,
-                    refillAtMillis = capacity.earliestRefillAt ?: capacity.serverNow + RATE_LIMIT_WINDOW_MILLIS,
-                    capacityRefusal = true,
-                )
-            }
-            insert(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
-            consumeExisting(bucket, keyHash, limit, weight)
-                ?: checkNotNull(readExisting(bucket, keyHash, limit))
         }
+
+        var stored = checkNotNull(lockCapacity()) { "Rate-limit capacity guard is missing" }
+        consumeExisting(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
+        readExisting(bucket, keyHash, limit)?.let { existing -> return@suspendTransaction existing }
+        var capacity = capacity()
+        if (stored >= maxStoredKeys && reclaimOneExpired()) {
+            stored -= 1
+            capacity = capacity()
+        }
+        if (stored >= maxStoredKeys) {
+            if (retryLockedExpired && capacity.hasExpired) return@suspendTransaction null
+            return@suspendTransaction SharedRateLimitDecision(
+                admitted = false,
+                remaining = 0,
+                limit = limit,
+                serverNowMillis = capacity.serverNow,
+                refillAtMillis = capacity.earliestRefillAt ?: capacity.serverNow + RATE_LIMIT_WINDOW_MILLIS,
+                capacityRefusal = true,
+            )
+        }
+        insert(bucket, keyHash, limit, weight)?.let { return@suspendTransaction it }
+        consumeExisting(bucket, keyHash, limit, weight)
+            ?: checkNotNull(readExisting(bucket, keyHash, limit))
     }
 
     /** Ordered, bounded expiry cleanup; called only by the background sweep, never by a request. */
     suspend fun pruneExpired(batchSize: Int = RATE_LIMIT_CLEANUP_BATCH): Int {
         require(batchSize > 0)
         return suspendTransaction(database) {
+            checkNotNull(lockCapacity()) { "Rate-limit capacity guard is missing" }
             TransactionManager.current().exec(
                 PRUNE_EXPIRED,
                 listOf(IntegerColumnType() to batchSize),
@@ -130,18 +147,23 @@ internal class SharedRateLimitStore(
             )
         }?.filterNotNull()?.toList()?.singleOrNull()
 
-    private suspend fun lockCapacity() {
+    private suspend fun lockCapacity(): Int? =
         TransactionManager.current().exec(
             LOCK_CAPACITY,
             explicitStatementType = StatementType.SELECT,
-        ) { row -> row.get(0, Boolean::class.javaObjectType) }?.toList()
-    }
+        ) { row -> row.get(0, Int::class.javaObjectType) }?.filterNotNull()?.toList()?.singleOrNull()
+
+    private suspend fun reclaimOneExpired(): Boolean =
+        TransactionManager.current().exec(
+            RECLAIM_ONE_EXPIRED,
+            explicitStatementType = StatementType.SELECT,
+        ) { row -> row.get(0, String::class.java) }?.filterNotNull()?.toList()?.singleOrNull() != null
 
     private suspend fun capacity(): Capacity = checkNotNull(
         TransactionManager.current().exec(CAPACITY, explicitStatementType = StatementType.SELECT) { row ->
             Capacity(
                 checkNotNull(row.get(0, Long::class.javaObjectType)),
-                checkNotNull(row.get(1, Int::class.javaObjectType)),
+                checkNotNull(row.get(1, Boolean::class.javaObjectType)),
                 row.get(2, Long::class.javaObjectType),
             )
         },
@@ -150,10 +172,11 @@ internal class SharedRateLimitStore(
     private fun arguments(bucket: String, keyHash: String) =
         listOf(TextColumnType() to bucket, TextColumnType() to keyHash)
 
-    private data class Capacity(val serverNow: Long, val active: Int, val earliestRefillAt: Long?)
+    private data class Capacity(val serverNow: Long, val hasExpired: Boolean, val earliestRefillAt: Long?)
 
     private companion object {
         val KEY_HASH = Regex("[0-9a-f]{64}")
+        const val CAPACITY_RETRY_MILLIS = 10L
     }
 }
 
@@ -215,19 +238,47 @@ WITH input AS MATERIALIZED (
   FROM input CROSS JOIN clock
   ON CONFLICT DO NOTHING
   RETURNING tokens_remaining, refill_at
+), adjusted AS (
+  UPDATE http_rate_limit_capacity_guard
+  SET stored_count = stored_count + (SELECT count(*)::int FROM inserted)
+  WHERE singleton
+  RETURNING singleton
 )
 SELECT clock.now_millis, inserted.tokens_remaining, inserted.refill_at
-FROM clock CROSS JOIN inserted"""
+FROM clock CROSS JOIN inserted CROSS JOIN adjusted"""
 
-private const val LOCK_CAPACITY = "SELECT singleton FROM http_rate_limit_capacity_guard WHERE singleton FOR UPDATE"
+private const val LOCK_CAPACITY = "SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton FOR UPDATE"
 
 private const val CAPACITY = """
 WITH clock AS MATERIALIZED (
   SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
 )
-SELECT clock.now_millis, count(*)::int, min(bucket.refill_at)
-FROM clock LEFT JOIN http_rate_limit_buckets AS bucket ON bucket.refill_at > clock.now_millis
-GROUP BY clock.now_millis"""
+SELECT clock.now_millis,
+       EXISTS (SELECT 1 FROM http_rate_limit_buckets WHERE refill_at <= clock.now_millis),
+       (SELECT refill_at FROM http_rate_limit_buckets
+        WHERE refill_at > clock.now_millis ORDER BY refill_at LIMIT 1)
+FROM clock"""
+
+private const val RECLAIM_ONE_EXPIRED = """
+WITH clock AS MATERIALIZED (
+  SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint AS now_millis
+), expired AS (
+  SELECT bucket_name, key_hash
+  FROM http_rate_limit_buckets CROSS JOIN clock
+  WHERE refill_at <= clock.now_millis
+  ORDER BY refill_at, bucket_name, key_hash
+  LIMIT 1 FOR UPDATE SKIP LOCKED
+), deleted AS (
+  DELETE FROM http_rate_limit_buckets AS bucket USING expired
+  WHERE bucket.bucket_name = expired.bucket_name AND bucket.key_hash = expired.key_hash
+  RETURNING bucket.key_hash
+), adjusted AS (
+  UPDATE http_rate_limit_capacity_guard
+  SET stored_count = stored_count - (SELECT count(*)::int FROM deleted)
+  WHERE singleton
+  RETURNING singleton
+)
+SELECT deleted.key_hash FROM deleted CROSS JOIN adjusted"""
 
 private const val PRUNE_EXPIRED = """
 WITH clock AS MATERIALIZED (
@@ -238,7 +289,14 @@ WITH clock AS MATERIALIZED (
   WHERE refill_at <= clock.now_millis
   ORDER BY refill_at, bucket_name, key_hash
   LIMIT CAST(? AS int4) FOR UPDATE SKIP LOCKED
+), deleted AS (
+  DELETE FROM http_rate_limit_buckets AS bucket USING expired
+  WHERE bucket.bucket_name = expired.bucket_name AND bucket.key_hash = expired.key_hash
+  RETURNING bucket.key_hash
+), adjusted AS (
+  UPDATE http_rate_limit_capacity_guard
+  SET stored_count = stored_count - (SELECT count(*)::int FROM deleted)
+  WHERE singleton
+  RETURNING singleton
 )
-DELETE FROM http_rate_limit_buckets AS bucket USING expired
-WHERE bucket.bucket_name = expired.bucket_name AND bucket.key_hash = expired.key_hash
-RETURNING bucket.key_hash"""
+SELECT deleted.key_hash FROM deleted CROSS JOIN adjusted"""

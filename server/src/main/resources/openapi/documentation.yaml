@@ -3974,8 +3974,10 @@ components:
         authenticated user or canonical client address. The sole exception is `/api/v1/ready`: its per-address probe bucket remains local
         to the serving process, so one failed or overloaded replica cannot consume another replica's probe allowance. Successful bucketed
         responses retain Ktor's `X-RateLimit-Limit`, `X-RateLimit-Remaining` and `X-RateLimit-Reset` headers; an exhausted window returns
-        `Retry-After` rounded up to whole seconds. A shared-store failure fails closed through the standard server-error response and is
-        not reported as caller throttling. Either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read
+        `Retry-After` rounded up to whole seconds. The shared store is bounded to 100,000 persisted bucket identities, including expired
+        rows awaiting cleanup; a first-seen identity at that physical cap reclaims one expired row when available, otherwise it is
+        throttled, while existing identities and active rows are preserved. A shared-store failure fails closed through the standard
+        server-error response and is not reported as caller throttling. Either the per-IP rate-limit bucket is exhausted (generic detail), on a telemetry read
         (`/api/v1/telemetry/**`) the per-USER telemetry bucket is exhausted (30/min), on the user directory
         (`/api/v1/users/directory`, and one entry of it, `/api/v1/users/directory/{id}`) the per-USER directory bucket (shared by both) is exhausted (120/min), on creating or
         renaming a room (`POST /api/v1/rooms`, `PUT /api/v1/rooms/{id}`) the per-USER room-name bucket (shared by both) is exhausted (30/min),

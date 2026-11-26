@@ -26,13 +26,28 @@ class SharedRateLimitHttpTest {
         seeded.forEach { TestUsers.softDelete(it) }
         seeded.clear()
         PostgresTestSupport.connect().use { connection ->
-            connection.prepareStatement("DELETE FROM http_rate_limit_buckets WHERE bucket_name = ? AND key_hash = ?").use { statement ->
-                ephemeralRows.forEach { (bucket, key) ->
-                    statement.setString(1, bucket)
-                    statement.setString(2, key)
-                    statement.addBatch()
+            connection.autoCommit = false
+            try {
+                connection.prepareStatement(
+                    "SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton FOR UPDATE",
+                ).use { statement -> statement.executeQuery().use { rows -> check(rows.next()) } }
+                val deleted = connection.prepareStatement(
+                    "DELETE FROM http_rate_limit_buckets WHERE bucket_name = ? AND key_hash = ?",
+                ).use { statement ->
+                    ephemeralRows.forEach { (bucket, key) ->
+                        statement.setString(1, bucket)
+                        statement.setString(2, key)
+                        statement.addBatch()
+                    }
+                    statement.executeBatch().sum()
                 }
-                statement.executeBatch()
+                connection.prepareStatement(
+                    "UPDATE http_rate_limit_capacity_guard SET stored_count = stored_count - ? WHERE singleton",
+                ).use { statement -> statement.setInt(1, deleted); check(statement.executeUpdate() == 1) }
+                connection.commit()
+            } catch (failure: Throwable) {
+                connection.rollback()
+                throw failure
             }
         }
         ephemeralRows.clear()

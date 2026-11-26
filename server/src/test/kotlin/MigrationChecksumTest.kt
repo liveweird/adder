@@ -79,7 +79,7 @@ class MigrationChecksumTest {
         "V56__share_account_attempt_limits.sql" to -244047785,
         "V56_1__bind_known_account_attempts.sql" to 583756196,
         "V57__share_mfa_challenges.sql" to -2062212377,
-        "V58__share_http_rate_limits.sql" to -1304501407,
+        "V58__share_http_rate_limits.sql" to -212062878,
     )
 
     @Test

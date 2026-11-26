@@ -357,8 +357,10 @@ the full link roundtrip incl. the session revocation), `PasswordResetThrottleTes
 The `ready` bucket stays on each process so local health probes keep separate allowances. A window starts at the first admitted
 request and refills after 60 seconds on the database clock. The existing `X-RateLimit-*` and `Retry-After` headers describe the
 shared window. IP keys use the same canonical IPv4 or IPv6-prefix selection as before and user keys come from a verified token.
-The table stores only domain-separated deployment HMAC digests. Saturation at 100,000 active bucket identities refuses new
-identities with `429` and preserves active ones. A database failure follows the ordinary server error path.
+The table stores only domain-separated deployment HMAC digests. It holds at most 100,000 bucket identities across every replica,
+including expired rows awaiting the bounded background sweep. A first-seen identity at that physical cap atomically reclaims at most
+one expired row; if none is available, it receives `429`. Existing identities continue to use their per-key allowance and no active row
+is reclaimed. A database failure, including a missing capacity guard, follows the ordinary server error path.
 
 **Per-IP login bucket** (`security.rateLimit.loginPerMinute`, `$LOGIN_RATE_LIMIT_PER_MINUTE`;
 every bucket is installed by `plugins/RateLimits.kt`, which also owns the bucket names — today

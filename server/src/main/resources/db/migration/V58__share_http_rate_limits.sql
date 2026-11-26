@@ -10,7 +10,8 @@ CREATE INDEX idx_http_rate_limit_buckets_expiry
     ON http_rate_limit_buckets (refill_at, bucket_name, key_hash);
 
 CREATE TABLE http_rate_limit_capacity_guard (
-    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton)
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    stored_count INTEGER NOT NULL DEFAULT 0 CHECK (stored_count >= 0 AND stored_count <= 100000)
 );
 
 INSERT INTO http_rate_limit_capacity_guard (singleton) VALUES (TRUE);
