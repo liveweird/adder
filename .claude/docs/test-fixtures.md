@@ -133,6 +133,10 @@ OrbStack, etc. — with OrbStack and no `/var/run/docker.sock`, export
 migrations, so the V3 seed admin (`admin@adder.local`) is present — tests scope their assertions
 with unique prefixes/filters (`uniqueEmail("marker")`) rather than asserting absolute counts.
 
+Tests that assert a database-wide budget or deliberately change a global guard use `withIsolatedTestDatabase`.
+The helper migrates a separate database on the same Testcontainers server and drops it after the test. Use its
+`connect()`, `jdbcUrl`, and `r2dbcUrl` for fixtures and app overrides to keep the shared suite's rows and guards independent.
+
 **Parallel forks (`-Pforks=N`).** `server/test-execution.gradle.kts` sets `maxParallelForks` from the `forks` Gradle
 property (an integer 1..8, anything else fails any build that runs the `test` task; default 1 = one JVM; CI and `scripts/gates.sh` run `-Pforks=2`; `forkEvery` is deliberately unset). Each fork is its own
 JVM, so it starts its OWN Testcontainers Postgres (`PostgresTestSupport` is a per-JVM `object`) and holds its own
