@@ -1453,7 +1453,8 @@ export interface paths {
         /**
          * Edit a thread's title and fields
          * @description A member of the room or an `ADMIN` (any reader edits the open-side metadata; a non-member is the uniform `404`). Checked in this
-         *     order: visibility (`404`), the `X-Expected-Revision` header (missing, repeated or malformed is `400`), the body (`400`), then
+         *     order: visibility (`404`), the `X-Expected-Revision` header (missing, repeated or malformed is `400`), the optional
+         *     `X-Mutation-Id` header (`400` when repeated or malformed), the body (`400`), then
          *     under the room lock: the guard again (a caller removed while the write waited is refused), the thread (`404`), an archived room
          *     (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type `urn:adder:problem:thread-closed`: reopen it
          *     first), a stale revision (`409` of type `urn:adder:problem:revision-conflict`), then the field values (`400`).
@@ -1526,7 +1527,8 @@ export interface paths {
          * @description A member of the room or an `ADMIN` (a non-member is the uniform `404`). A move between two OPEN statuses is open to every reader;
          *     a move that enters or leaves a CLOSED status - closing, reopening, or CLOSED to CLOSED - needs a STEWARD: the thread's owner
          *     while a member, the room's OWNER or an `ADMIN` (`403` otherwise). Which of the two applies depends on the target's category, so
-         *     the answer is decided under the room lock after the target resolves: checked in this order visibility (`404`), the body (`400`),
+         *     the answer is decided under the room lock after the target resolves: checked in this order visibility (`404`), the optional mutation
+         *     header and the body (`400`),
          *     then under the lock the guard again, the thread (`404`), the target (`400` for a status key that is unknown or retired - every
          *     reader can read the workflow, so it discloses nothing), the steward rule (`403`), an archived room (`409` of type
          *     `urn:adder:problem:room-archived`, the no-op included). A closed thread is NOT refused here: reopening it, or moving it between
@@ -1705,8 +1707,8 @@ export interface paths {
          *     a STEWARD: the thread's owner while a member, the room's OWNER or an `ADMIN` (`403` otherwise); a non-member is the uniform `404`.
          *     An ARCHIVED room refuses (`409`). Checked in this order: authentication (`401`), the per-USER `chat-write` bucket of 240 per
          *     minute (`429` beyond it; spent before any guard), visibility (`404`), the thread (`404`) on a lock-free read and, when it is
-         *     closed, the steward rule (`403`) BEFORE the header and the body, the `X-Expected-Revision` header (missing, repeated or malformed
-         *     is `400`), the body (`400`: more than 20 names, judged before any name is normalised; a name outside the tag grammar; a name
+         *     closed, the steward rule (`403`) BEFORE the headers and the body, the `X-Expected-Revision` header (missing, repeated or malformed
+         *     is `400`), the optional `X-Mutation-Id` header (`400` when repeated or malformed), the body (`400`: more than 20 names, judged before any name is normalised; a name outside the tag grammar; a name
          *     twice after normalising), then under the room lock the guard again (a caller removed while the write waited is refused), the
          *     thread (`404`), the steward rule again on the fresh row when it is closed (`403`), an archived room (`409` of type
          *     `urn:adder:problem:room-archived`), a stale revision (`409` of type `urn:adder:problem:revision-conflict`), and every name
@@ -1747,7 +1749,7 @@ export interface paths {
          * Pass a thread on to another member
          * @description A STEWARD: the thread's owner while a member, the room's OWNER or an `ADMIN` (a non-member is the uniform `404`, a member who is
          *     not a steward `403`). Checked in this order: visibility (`404`), the thread (`404`) and the steward rule (`403`) on a lock-free
-         *     read of its owner, the body (`400`), then under the room lock the guard, the thread and the steward rule again on the fresh
+         *     read of its owner, the optional mutation header and the body (`400`), then under the room lock the guard, the thread and the steward rule again on the fresh
          *     rows, an archived room (`409` of type `urn:adder:problem:room-archived`), a closed thread (`409` of type
          *     `urn:adder:problem:thread-closed`: reopen it first), and the new owner (`400` unless `ownerId` is an ACTIVE member of the room).
          *     A removed or deleted owner keeps the thread, inert, until a steward passes it on.
@@ -2957,7 +2959,7 @@ export interface components {
              * @description Present for the message kinds.
              */
             messageId?: number;
-            /** @description On message.posted, correlates a reply POST with its event for the writer's account only. */
+            /** @description On message.posted, message.reaction_changed, thread.updated, thread.status_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only. */
             mutationId?: components["schemas"]["LiveMutationId"];
         };
         /** @description The room is no longer readable by the caller (removed, or the room was deleted); the subscription is gone. */
@@ -7035,6 +7037,12 @@ export interface operations {
                  *     bumps the revision.
                  */
                 "X-Expected-Revision": components["parameters"]["ExpectedRevision"];
+                /**
+                 * @description Optional identifier for correlating this request with the writer's live thread.updated event. Supply at most one canonical
+                 *     lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events. Sending the same
+                 *     identifier again does not make the request idempotent.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
             };
             path: {
                 id: components["parameters"]["ResourceId"];
@@ -7133,7 +7141,14 @@ export interface operations {
     setThreadStatus: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional identifier for correlating this request with the writer's live thread.status_changed event. Supply at most one
+                 *     canonical lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events.
+                 *     Sending the same identifier again does not make the request idempotent.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
@@ -7321,6 +7336,12 @@ export interface operations {
                  *     bumps the revision.
                  */
                 "X-Expected-Revision": components["parameters"]["ExpectedRevision"];
+                /**
+                 * @description Optional identifier for correlating this request with the writer's live thread.updated event. Supply at most one canonical
+                 *     lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events. Sending the same
+                 *     identifier again does not make the request idempotent.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
             };
             path: {
                 id: components["parameters"]["ResourceId"];
@@ -7356,7 +7377,14 @@ export interface operations {
     setThreadOwner: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional identifier for correlating this request with the writer's live thread.owner_changed event. Supply at most one
+                 *     canonical lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events.
+                 *     Sending the same identifier again does not make the request idempotent.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */
@@ -7910,7 +7938,14 @@ export interface operations {
     setMessageReaction: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional identifier for correlating this request with the writer's live message.reaction_changed event. Supply at most one
+                 *     canonical lowercase UUIDv4. A malformed or repeated value returns `400`. This identifier only correlates events.
+                 *     Sending the same identifier again does not make the request idempotent.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A message id (int32; ids start at 1). */

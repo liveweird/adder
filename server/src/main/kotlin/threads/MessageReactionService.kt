@@ -84,7 +84,14 @@ class MessageReactionService internal constructor(
      * then the state it already has is null (nothing written, no hint), the limits `409 reaction-limit` (only ADDING is ever refused),
      * the write and ONE `message.reaction_changed` hint.
      */
-    suspend fun set(roomId: UInt, messageId: UInt, caller: CallerPrincipal, emoji: String, reacted: Boolean): ReactionChange? =
+    suspend fun set(
+        roomId: UInt,
+        messageId: UInt,
+        caller: CallerPrincipal,
+        emoji: String,
+        reacted: Boolean,
+        mutationId: String? = null,
+    ): ReactionChange? =
         database.withMessageWrite(roomId, messageId, caller, memberGuard, actGuard = { _, _, _ -> }) { write ->
             write.threadWrite.requireRoomActive()
             write.threadWrite.requireThreadOpen()
@@ -104,7 +111,16 @@ class MessageReactionService internal constructor(
             } else {
                 Reactions.deleteWhere { (Reactions.messageId eq messageId) and (Reactions.userId eq me) and (Reactions.emoji eq emoji) }
             }
-            notifyLive(LiveHint(LiveKind.MESSAGE_REACTION_CHANGED, roomId, threadNumber = write.thread.number, messageId = messageId))
+            notifyLive(
+                LiveHint(
+                    LiveKind.MESSAGE_REACTION_CHANGED,
+                    roomId,
+                    threadNumber = write.thread.number,
+                    messageId = messageId,
+                    mutationId = mutationId,
+                    originUserId = caller.userId.takeIf { mutationId != null },
+                ),
+            )
             val noticeOutcome = if (mine.none { it != emoji }) {
                 val ref = MessageRef(roomId, write.thread.id, write.thread.number, messageId, opening = false)
                 notifyReaction(ref, me, write.message.authorId, reacted)

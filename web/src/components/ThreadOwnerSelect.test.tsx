@@ -96,6 +96,8 @@ describe("ThreadOwnerSelect", () => {
     expect(puts()).toEqual([]);
     await user.click(screen.getByRole("button", { name: "Pass on" }));
     await waitFor(() => expect(puts()).toEqual([["/api/v1/rooms/12/threads/42/owner", { ownerId: 9 }]]));
+    const ownerPut = mockFetch.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT")![1] as RequestInit;
+    expect(new Headers(ownerPut.headers).get("X-Mutation-Id")).toMatch(/^[0-9a-f-]{36}$/);
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "threads", 12] }));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["rooms", "rail"] });
     // A hand-over moves no workflow count and changes no room header.

@@ -6,6 +6,7 @@ import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireRoomMember
 import ch.nokillswit.authz.requireThreadSteward
 import ch.nokillswit.infra.JsonInt
+import ch.nokillswit.infra.mutationId
 import ch.nokillswit.infra.db.EVENT_LOG_DEFAULT_SORT
 import ch.nokillswit.infra.db.EVENT_LOG_SORT_FIELDS
 import ch.nokillswit.infra.db.orVanished
@@ -255,10 +256,11 @@ private fun Route.threadDetails(roomService: RoomService, threadService: ThreadS
             val roomId = route.parent.parent.id
             roomService.visibleStanding(caller, roomId)
             val expected = call.expectedRevision()
+            val mutationId = call.mutationId()
             val request = sanitizedThreadUpdate(call.receive())
             validateThreadUpdate(request)
             val number = route.number.toInt()
-            val change = threadService.updateDetails(roomId, number, caller, expected, request)
+            val change = threadService.updateDetails(roomId, number, caller, expected, request, mutationId)
             if (change != null) {
                 audit(
                     "thread.updated",
@@ -277,7 +279,8 @@ private fun Route.threadDetails(roomService: RoomService, threadService: ThreadS
 }
 
 /**
- * The status PUT (`chat-write` bucket): visibility (404), the body (400), then everything else under the room lock - the one
+ * The status PUT (`chat-write` bucket): visibility (404), the optional mutation header and the body (400), then everything else under
+ * the room lock - the one
  * body-dependent guard, because whether a steward is needed depends on the target's CATEGORY, so the service resolves the target
  * (400), runs the steward rule (403) and the archived 409 on the fresh rows. Any reader may move a thread between OPEN statuses. The
  * audit line follows the commit, on a change.
@@ -288,9 +291,10 @@ private fun Route.threadStatus(roomService: RoomService, statusService: ThreadSt
             val caller = call.caller()
             val roomId = route.parent.parent.parent.id
             roomService.visibleStanding(caller, roomId)
+            val mutationId = call.mutationId()
             val request = call.receive<ThreadStatusRequest>()
             val number = route.parent.number.toInt()
-            val move = statusService.setStatus(roomId, number, caller, request.status)
+            val move = statusService.setStatus(roomId, number, caller, request.status, mutationId)
             if (move != null) {
                 audit(
                     "thread.status_changed",
@@ -322,8 +326,9 @@ private fun Route.threadOwner(roomService: RoomService, threadService: ThreadSer
             val standing = roomService.visibleStanding(caller, roomId)
             val number = route.parent.number.toInt()
             requireThreadSteward(caller, standing, threadService.ownerOf(roomId, number).orNotFound("Thread"))
+            val mutationId = call.mutationId()
             val request = call.receive<ThreadOwnerRequest>()
-            val move = statusService.setOwner(roomId, number, caller, request.ownerId)
+            val move = statusService.setOwner(roomId, number, caller, request.ownerId, mutationId)
             if (move != null) {
                 audit(
                     "thread.owner_changed",

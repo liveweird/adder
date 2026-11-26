@@ -2,9 +2,11 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Group, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
+import { API_BASE } from "../api/http";
 import type { RoomResponse } from "../api/rooms";
 import { setThreadOwner, type ThreadResponse } from "../api/threads";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { beginOwnerEcho, canCorrelateReply } from "../utils/liveReplyEcho";
+import { activeQueriesAreFresh, refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { isStaleWrite, threadOwnerErrorMessage } from "../utils/threadActions";
 import { threadEditBlock } from "../utils/threadAccess";
 import { showSuccessToast } from "../utils/toast";
@@ -56,9 +58,13 @@ export default function ThreadOwnerSelect({ room, thread, steward }: { room: Roo
     if (!picked || !changed) return;
     setError(null);
     setSaving(true);
+    const echo = canCorrelateReply(API_BASE, window.location.href)
+      ? beginOwnerEcho(queryClient, room.id, thread.number)
+      : undefined;
     try {
-      await setThreadOwner(room.id, thread.number, Number(picked.value));
+      await setThreadOwner(room.id, thread.number, Number(picked.value), echo?.id);
     } catch (err) {
+      echo?.cancel();
       setError(threadOwnerErrorMessage(err, t));
       if (isStaleWrite(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
       setSaving(false);
@@ -68,7 +74,13 @@ export default function ThreadOwnerSelect({ room, thread, steward }: { room: Roo
     // The thread (its owner), the list, the history and the rail; the pick goes back to the owner only once they are read, so the picker never
     // flashes the old owner. A hand-over moves no workflow count and changes no room header.
     // A new owner watches the thread (the caller, when they took it): the watched search lists are stale too.
-    await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail, ...WATCH_SEARCH_KEYS);
+    const refreshedKeys = [roomKeys.threads(room.id), roomKeys.rail, ...WATCH_SEARCH_KEYS] as const;
+    try {
+      await refreshQueriesAfterMutation(queryClient, ...refreshedKeys);
+      if (echo && activeQueriesAreFresh(queryClient, ...refreshedKeys)) echo.confirm();
+    } finally {
+      echo?.cancel();
+    }
     setChoice(undefined);
     setSaving(false);
   }

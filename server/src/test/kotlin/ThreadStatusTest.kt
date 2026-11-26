@@ -1,7 +1,9 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.RoomAccessType
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 import ch.nokillswit.infra.json.decodeParams
+import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
 import ch.nokillswit.threads.ThreadEventPageResponse
@@ -11,6 +13,7 @@ import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -70,9 +73,10 @@ class ThreadStatusTest {
         return Cast(owner, threadOwner, member, admin, room)
     }
 
-    private suspend fun HttpClient.putStatus(room: UInt, status: String): HttpResponse =
+    private suspend fun HttpClient.putStatus(room: UInt, status: String, mutationId: String? = null): HttpResponse =
         put("$rooms/$room/threads/1/status") {
             contentType(ContentType.Application.Json)
+            mutationId?.let { header(MUTATION_ID_HEADER, it) }
             setBody(ThreadStatusRequest(status))
         }
 
@@ -190,6 +194,26 @@ class ThreadStatusTest {
         assertEquals(before.lastActivityAt, TestThreads.raw(cast.room, 1)!!.lastActivityAt)
         assertEquals(activity, TestThreads.roomActivity(cast.room))
         assertEquals(listOf("CREATED"), eventTypes(before.id))
+    }
+
+    @Test
+    fun `a status move correlates only its status hint and validates the optional header`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("sts-correlation")
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        NotifyCapture().use { hints ->
+            val emitted = hints.during {
+                assertEquals(HttpStatusCode.NoContent, cast.member.client.putStatus(cast.room, "monitoring", mutationId).status)
+            }
+            val statusHint = emitted.single { it.kind == LiveKind.THREAD_STATUS_CHANGED }
+            assertEquals(listOf(mutationId, cast.member.id), listOf(statusHint.mutationId, statusHint.originUserId))
+            assertTrue(emitted.filter { it.kind == LiveKind.NOTIFICATION_CREATED }.all { it.mutationId == null })
+            val noOp = hints.during {
+                assertEquals(HttpStatusCode.NoContent, cast.member.client.putStatus(cast.room, "monitoring", mutationId).status)
+            }
+            assertTrue(noOp.none { it.kind == LiveKind.THREAD_STATUS_CHANGED })
+        }
+        assertEquals(HttpStatusCode.BadRequest, cast.member.client.putStatus(cast.room, "open", mutationId.uppercase()).status)
     }
 
     @Test

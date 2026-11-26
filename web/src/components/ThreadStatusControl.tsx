@@ -3,11 +3,13 @@ import { useTranslation } from "react-i18next";
 import { Button, Loader, Menu, Stack, Text } from "@mantine/core";
 import { IconArrowRight, IconArrowsExchange, IconChevronDown, IconLock, IconLockOpen } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { API_BASE } from "../api/http";
 import { getUserId } from "../api/session";
 import type { RoomResponse, RoomWorkflow } from "../api/rooms";
 import { setThreadStatus, type ThreadResponse } from "../api/threads";
 import { useAdmin } from "../auth";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { beginStatusEcho, canCorrelateReply } from "../utils/liveReplyEcho";
+import { activeQueriesAreFresh, refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { homeKey, roomKeys } from "../utils/roomKeys";
 import { isStaleWrite, threadStatusErrorMessage } from "../utils/threadActions";
 import { isThreadSteward, statusMoveBlock } from "../utils/threadAccess";
@@ -63,14 +65,23 @@ export default function ThreadStatusControl({
     if (saving) return;
     setError(null);
     setSaving(true);
+    const echo = canCorrelateReply(API_BASE, window.location.href)
+      ? beginStatusEcho(queryClient, room.id, thread.number)
+      : undefined;
     try {
-      await setThreadStatus(room.id, thread.number, key);
+      await setThreadStatus(room.id, thread.number, key, echo?.id);
       showSuccessToast(t("threads.toast.statusChanged"));
-      await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail, roomKeys.workflow(room.id), homeKey);
+      const refreshedKeys = [
+        roomKeys.threads(room.id), roomKeys.rail, roomKeys.workflow(room.id), roomKeys.workflowEdit(room.id), homeKey,
+      ] as const;
+      await refreshQueriesAfterMutation(queryClient, ...refreshedKeys);
+      if (echo && activeQueriesAreFresh(queryClient, ...refreshedKeys)) echo.confirm();
     } catch (err) {
+      echo?.cancel();
       setError(threadStatusErrorMessage(err, t));
       if (isStaleWrite(err)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
     } finally {
+      echo?.cancel();
       setClosing(null);
       setSaving(false);
     }

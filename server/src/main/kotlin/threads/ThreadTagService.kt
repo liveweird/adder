@@ -107,6 +107,7 @@ class ThreadTagService internal constructor(
         caller: CallerPrincipal,
         expectedRevision: Long,
         raw: ThreadTagsRequest,
+        mutationId: String? = null,
     ): ThreadTagChange? {
         val request = normalizedThreadTags(raw)
         validateThreadTags(request)
@@ -145,7 +146,15 @@ class ThreadTagService internal constructor(
                 it[updatedAt] = stamp
             }
             events.record(thread.id, caller.userId, threadTagsChangedEvent(diff.added, diff.removed), stamp)
-            notifyLive(LiveHint(LiveKind.THREAD_UPDATED, roomId, threadNumber = number))
+            notifyLive(
+                LiveHint(
+                    LiveKind.THREAD_UPDATED,
+                    roomId,
+                    threadNumber = number,
+                    mutationId = mutationId,
+                    originUserId = caller.userId.takeIf { mutationId != null },
+                ),
+            )
             ThreadTagChange(thread.id, revision, diff)
         }
     }

@@ -1,29 +1,44 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { LiveServerFrame } from "./liveProtocol";
 
-const MAX_TRACKED_REPLIES = 32;
-const REPLY_ECHO_LIFETIME_MS = 30_000;
+const MAX_TRACKED_MUTATIONS = 32;
+const MUTATION_ECHO_LIFETIME_MS = 30_000;
 
-interface ReplyEcho {
+export interface MutationEcho {
   id: string;
-  confirm(messageId: number): void;
+  confirm(messageId?: number): void;
   cancel(): void;
 }
 
 interface HeldEcho {
-  messageId: number;
+  messageId?: number;
   replay: () => void;
 }
 
-interface PendingReply {
-  roomId: number;
-  threadNumber: number;
+type MutationTarget =
+  | {
+      type: "message";
+      kind: "message.posted" | "message.reaction_changed";
+      roomId: number;
+      threadNumber: number;
+      expectedMessageId?: number;
+    }
+  | {
+      type: "thread";
+      kind: "thread.updated" | "thread.status_changed" | "thread.owner_changed";
+      roomId: number;
+      threadNumber: number;
+    };
+
+interface PendingMutation {
+  target: MutationTarget;
   timer: ReturnType<typeof setTimeout>;
+  confirmed: boolean;
   confirmedMessageId?: number;
   held?: HeldEcho;
 }
 
-const sessions = new WeakMap<QueryClient, Map<string, PendingReply>>();
+const sessions = new WeakMap<QueryClient, Map<string, PendingMutation>>();
 
 /** A cross-origin reply must also work with an older server's CORS header allowlist. */
 export function canCorrelateReply(apiBase: string, pageUrl: string): boolean {
@@ -34,53 +49,100 @@ export function canCorrelateReply(apiBase: string, pageUrl: string): boolean {
   }
 }
 
-export function beginReplyEcho(queryClient: QueryClient, roomId: number, threadNumber: number): ReplyEcho | undefined {
+function beginEcho(
+  queryClient: QueryClient,
+  target: MutationTarget,
+): MutationEcho | undefined {
   const id = globalThis.crypto?.randomUUID?.();
   if (id === undefined) return undefined;
-  const replies = sessions.get(queryClient) ?? new Map<string, PendingReply>();
-  if (replies.size >= MAX_TRACKED_REPLIES || replies.has(id)) return undefined;
-  sessions.set(queryClient, replies);
+  const mutations = sessions.get(queryClient) ?? new Map<string, PendingMutation>();
+  if (mutations.size >= MAX_TRACKED_MUTATIONS || mutations.has(id)) return undefined;
+  sessions.set(queryClient, mutations);
 
   const expire = () => {
-    if (replies.get(id) !== reply) return;
-    replies.delete(id);
-    reply.held?.replay();
+    if (mutations.get(id) !== mutation) return;
+    mutations.delete(id);
+    mutation.held?.replay();
   };
 
-  const reply: PendingReply = { roomId, threadNumber, timer: setTimeout(expire, REPLY_ECHO_LIFETIME_MS) };
-  replies.set(id, reply);
+  const mutation: PendingMutation = { target, timer: setTimeout(expire, MUTATION_ECHO_LIFETIME_MS), confirmed: false };
+  mutations.set(id, mutation);
   return {
     id,
     confirm(messageId) {
-      if (replies.get(id) !== reply || reply.confirmedMessageId !== undefined) return;
-      reply.confirmedMessageId = messageId;
-      const held = reply.held;
-      delete reply.held;
-      if (held && held.messageId !== messageId) held.replay();
+      if (sessions.get(queryClient)?.get(id) !== mutation || mutation.confirmed) return;
+      mutation.confirmed = true;
+      mutation.confirmedMessageId = messageId;
+      const held = mutation.held;
+      delete mutation.held;
+      if (held && target.type === "message" && target.expectedMessageId === undefined && held.messageId !== messageId) held.replay();
     },
     cancel() {
-      if (reply.confirmedMessageId !== undefined) return;
-      clearTimeout(reply.timer);
+      if (mutation.confirmed) return;
+      clearTimeout(mutation.timer);
       expire();
     },
   };
 }
 
-/** Only hold message-post echoes from one request in this session. Process every other frame as usual. */
+export function beginReplyEcho(queryClient: QueryClient, roomId: number, threadNumber: number): MutationEcho | undefined {
+  return beginEcho(queryClient, { type: "message", kind: "message.posted", roomId, threadNumber });
+}
+
+export function beginReactionEcho(queryClient: QueryClient, roomId: number, threadNumber: number, messageId: number) {
+  const echo = beginEcho(queryClient, {
+    type: "message", kind: "message.reaction_changed", roomId, threadNumber, expectedMessageId: messageId,
+  });
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(messageId), cancel: echo.cancel };
+}
+
+export function beginOwnerEcho(queryClient: QueryClient, roomId: number, threadNumber: number) {
+  const echo = beginEcho(queryClient, { type: "thread", kind: "thread.owner_changed", roomId, threadNumber });
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
+}
+
+export function beginStatusEcho(queryClient: QueryClient, roomId: number, threadNumber: number) {
+  const echo = beginEcho(queryClient, { type: "thread", kind: "thread.status_changed", roomId, threadNumber });
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
+}
+
+export function beginThreadUpdateEcho(queryClient: QueryClient, roomId: number, threadNumber: number) {
+  const echo = beginEcho(queryClient, { type: "thread", kind: "thread.updated", roomId, threadNumber });
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
+}
+
+function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { type: "event" }>): boolean {
+  const target = mutation.target;
+  if (target.kind !== frame.kind || target.roomId !== frame.roomId || target.threadNumber !== frame.threadNumber) return false;
+  if (target.type === "thread") return frame.messageId === undefined;
+  if (frame.messageId === undefined) return false;
+  const expected = target.expectedMessageId ?? mutation.confirmedMessageId;
+  return expected === undefined || expected === frame.messageId;
+}
+
+/** Only hold exact correlated echoes from one request in this session. Process every other frame as usual. */
 export function deferReplyEcho(queryClient: QueryClient, frame: LiveServerFrame, replay: () => void): boolean {
-  if (frame.type !== "event" || frame.kind !== "message.posted" || frame.mutationId === undefined || frame.messageId === undefined) return false;
-  const reply = sessions.get(queryClient)?.get(frame.mutationId);
-  if (!reply || reply.roomId !== frame.roomId || reply.threadNumber !== frame.threadNumber) return false;
-  if (reply.confirmedMessageId !== undefined) return reply.confirmedMessageId === frame.messageId;
-  if (reply.held) return reply.held.messageId === frame.messageId;
-  reply.held = { messageId: frame.messageId, replay };
+  if (
+    frame.type !== "event" ||
+    !["message.posted", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed"].includes(frame.kind) ||
+    frame.mutationId === undefined
+  ) return false;
+  const mutation = sessions.get(queryClient)?.get(frame.mutationId);
+  if (!mutation || !matches(mutation, frame)) return false;
+  if (mutation.confirmed) return true;
+  if (mutation.held) return mutation.held.messageId === frame.messageId;
+  mutation.held = { messageId: frame.messageId, replay };
   return true;
 }
 
 /** Discard echoes from an earlier logical session and invalidate its operation handles. */
 export function clearReplyEchoes(queryClient: QueryClient): void {
-  const replies = sessions.get(queryClient);
-  replies?.forEach((reply) => clearTimeout(reply.timer));
-  replies?.clear();
+  const mutations = sessions.get(queryClient);
+  mutations?.forEach((mutation) => clearTimeout(mutation.timer));
+  mutations?.clear();
   sessions.delete(queryClient);
 }

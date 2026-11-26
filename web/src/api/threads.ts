@@ -68,10 +68,13 @@ export async function createThread(roomId: number, body: ThreadCreateBody): Prom
  * keeps its value and `null` clears it, so a cleared field is always sent as `null`. A stale `expectedRevision` is a 409
  * `revision-conflict`; a closed thread a 409 `thread-closed`.
  */
-export async function updateThreadDetails(roomId: number, number: number, body: ThreadUpdateBody, expectedRevision: number): Promise<void> {
+export async function updateThreadDetails(roomId: number, number: number, body: ThreadUpdateBody, expectedRevision: number, mutationId?: string): Promise<void> {
   await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}`, {
     method: "PUT",
-    headers: { "X-Expected-Revision": String(expectedRevision) },
+    headers: {
+      "X-Expected-Revision": String(expectedRevision),
+      ...(mutationId === undefined ? {} : { "X-Mutation-Id": mutationId }),
+    },
     body: JSON.stringify(body),
   });
 }
@@ -81,22 +84,33 @@ export async function updateThreadDetails(roomId: number, number: number, body: 
  * tag in the set is a 400, so the picker never sends one). The save rides the thread's own revision, like the details: a stale
  * `expectedRevision` is a 409 `revision-conflict`. Any member while the thread is open, a steward once it is closed; an archived room is a 409.
  */
-export async function setThreadTags(roomId: number, number: number, tags: readonly string[], expectedRevision: number): Promise<void> {
+export async function setThreadTags(roomId: number, number: number, tags: readonly string[], expectedRevision: number, mutationId?: string): Promise<void> {
   await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/tags`, {
     method: "PUT",
-    headers: { "X-Expected-Revision": String(expectedRevision) },
+    headers: {
+      "X-Expected-Revision": String(expectedRevision),
+      ...(mutationId === undefined ? {} : { "X-Mutation-Id": mutationId }),
+    },
     body: JSON.stringify({ tags }),
   });
 }
 
 /** Moves the thread to the status with this KEY (204). Not revisioned: the last writer wins. Entering or leaving a CLOSED status needs a steward (403). */
-export async function setThreadStatus(roomId: number, number: number, status: string): Promise<void> {
-  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/status`, { method: "PUT", body: JSON.stringify({ status }) });
+export async function setThreadStatus(roomId: number, number: number, status: string, mutationId?: string): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/status`, {
+    method: "PUT",
+    headers: mutationId === undefined ? undefined : { "X-Mutation-Id": mutationId },
+    body: JSON.stringify({ status }),
+  });
 }
 
 /** Passes the thread on to an active member of the room (204); stewards only, and a closed thread refuses it (409 `thread-closed`). */
-export async function setThreadOwner(roomId: number, number: number, ownerId: number): Promise<void> {
-  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/owner`, { method: "PUT", body: JSON.stringify({ ownerId }) });
+export async function setThreadOwner(roomId: number, number: number, ownerId: number, mutationId?: string): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/owner`, {
+    method: "PUT",
+    headers: mutationId === undefined ? undefined : { "X-Mutation-Id": mutationId },
+    body: JSON.stringify({ ownerId }),
+  });
 }
 
 /**

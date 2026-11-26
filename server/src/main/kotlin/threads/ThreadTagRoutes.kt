@@ -4,6 +4,7 @@ import ch.nokillswit.audit.audit
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
 import ch.nokillswit.authz.requireThreadSteward
+import ch.nokillswit.infra.mutationId
 import ch.nokillswit.infra.revision.expectedRevision
 import ch.nokillswit.plugins.RateLimits
 import ch.nokillswit.rooms.RoomServiceKey
@@ -48,9 +49,10 @@ fun Application.configureThreadTagRoutes() {
                     val view = tagService.stewardView(roomId, number).orNotFound("Thread")
                     if (view.closed) requireThreadSteward(caller, standing, view.ownerId)
                     val expected = call.expectedRevision()
+                    val mutationId = call.mutationId()
                     val request = normalizedThreadTags(call.receive())
                     validateThreadTags(request)
-                    val change = tagService.replace(roomId, number, caller, expected, request)
+                    val change = tagService.replace(roomId, number, caller, expected, request, mutationId)
                     if (change != null) {
                         // The registry's tag names are an ADMIN-curated vocabulary (the status-label precedent, 1.2 A5), not user content.
                         audit(

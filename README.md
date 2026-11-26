@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Fewer duplicate reads after chat updates (1.33.0)
+
+When the app and API share an origin, a successful reaction, owner handover, status change, or edit to thread details or curated tags refreshes the sending tab once. Other tabs still receive the change live. Interrupted saves can recover through the live event.
+
 ### Optional two-instance deployment (1.32.0)
 
 The Kubernetes profile can run two app processes behind one ingress and one PostgreSQL service. Tickets, account limits, socket admission, lookup of foreground tabs, and notification pacing work across both processes. The local helper keeps a single app by default.

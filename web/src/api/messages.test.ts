@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, expectTypeOf, test, vi } from "vitest";
-import { deleteMessage, editMessage, listMessageRevisions, listMessages, postMessage, type MessageBody, type MessageEditBody, type MessageQuoteSummary, type MessageResponse, type MessageRevisionPage } from "./messages";
+import { deleteMessage, editMessage, listMessageRevisions, listMessages, postMessage, setMessageReaction, type MessageBody, type MessageEditBody, type MessageQuoteSummary, type MessageResponse, type MessageRevisionPage } from "./messages";
 import type { components } from "./schema";
 
 describe("messages API wrappers", () => {
@@ -60,6 +60,15 @@ describe("messages API wrappers", () => {
     const [, init] = lastCall();
     expect(new Headers(init.headers).get("X-Mutation-Id")).toBe(mutationId);
     expect(JSON.parse(init.body as string)).toEqual({ body: "reply" });
+  });
+
+  test("correlates a reaction by header without changing its body", async () => {
+    const mutationId = "14d7ed05-24c1-4374-b6eb-60b147595822";
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    await setMessageReaction(5, 9, "👍", true, mutationId);
+    const [, init] = lastCall();
+    expect(new Headers(init.headers).get("X-Mutation-Id")).toBe(mutationId);
+    expect(JSON.parse(init.body as string)).toEqual({ emoji: "👍", reacted: true });
   });
 
   test("listMessageRevisions reads earlier bodies newest first", async () => {

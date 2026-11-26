@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.33.0",
+    date: "2026-11-26",
+    en: `**Adder 1.33.0 — fewer duplicate reads after chat updates**
+
+- After adding or removing a reaction, handing over a thread, changing its status, or saving its details or curated tags, the sending tab skips redundant reads once its refresh succeeds.
+- Other tabs still see these changes live. The live event can also recover an interrupted save.`,
+    pl: `**Adder 1.33.0 — mniej powtórnych odświeżeń po zmianach w czacie**
+
+- Po dodaniu lub usunięciu reakcji, przekazaniu wątku, zmianie jego statusu lub zapisie jego szczegółów albo tagów aktywna karta pomija ponowne odświeżanie, gdy pierwsze odświeżenie się powiedzie.
+- Pozostałe karty nadal pokazują zmiany na żywo. Zdarzenie na żywo pomaga też odzyskać stan po przerwanym zapisie.`,
+  },
+  {
     version: "1.32.0",
     date: "2026-11-26",
     en: `**Adder 1.32.0 — optional two-instance deployment**

@@ -1,7 +1,9 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.RoomAccessType
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 import ch.nokillswit.infra.json.decodeParams
+import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.ROOM_ARCHIVED_PROBLEM_TYPE
 import ch.nokillswit.threads.THREAD_CLOSED_PROBLEM_TYPE
@@ -12,6 +14,7 @@ import ch.nokillswit.users.UserRole
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -77,9 +80,10 @@ class ThreadOwnerTest {
         return Cast(owner, threadOwner, member, outsider, admin, room)
     }
 
-    private suspend fun HttpClient.putOwner(room: UInt, userId: UInt, number: Int = 1): HttpResponse =
+    private suspend fun HttpClient.putOwner(room: UInt, userId: UInt, number: Int = 1, mutationId: String? = null): HttpResponse =
         put("$rooms/$room/threads/$number/owner") {
             contentType(ContentType.Application.Json)
+            mutationId?.let { header(MUTATION_ID_HEADER, it) }
             setBody(ThreadOwnerRequest(userId))
         }
 
@@ -195,6 +199,43 @@ class ThreadOwnerTest {
         assertEquals(before, TestThreads.raw(cast.room, 1))
         assertEquals(activity, TestThreads.roomActivity(cast.room))
         assertEquals(listOf("CREATED"), eventTypes(before.id))
+    }
+
+    @Test
+    fun `a hand-over correlates only its owner hint and validates the optional header`() = testApplication {
+        usePostgresTestcontainer()
+        val cast = cast("own-correlation")
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        NotifyCapture().use { hints ->
+            val emitted = hints.during {
+                val response = cast.threadOwner.client.putOwner(
+                    cast.room,
+                    cast.member.id,
+                    mutationId = mutationId,
+                )
+                assertEquals(HttpStatusCode.NoContent, response.status)
+            }
+            val ownerHint = emitted.single { it.kind == LiveKind.THREAD_OWNER_CHANGED }
+            assertEquals(listOf(mutationId, cast.threadOwner.id), listOf(ownerHint.mutationId, ownerHint.originUserId))
+            assertTrue(emitted.filter { it.kind == LiveKind.NOTIFICATION_CREATED }.all { it.mutationId == null })
+            val noOp = hints.during {
+                val response = cast.member.client.putOwner(
+                    cast.room,
+                    cast.member.id,
+                    mutationId = mutationId,
+                )
+                assertEquals(HttpStatusCode.NoContent, response.status)
+            }
+            assertTrue(noOp.none { it.kind == LiveKind.THREAD_OWNER_CHANGED })
+        }
+        for (invalid in listOf(mutationId.uppercase(), " $mutationId", "$mutationId ")) {
+            val response = cast.member.client.putOwner(
+                cast.room,
+                cast.threadOwner.id,
+                mutationId = invalid,
+            )
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+        }
     }
 
     @Test
