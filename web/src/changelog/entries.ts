@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.23.0",
+    date: "2026-11-26",
+    en: `**Adder 1.23.0 — fewer repeat reads after replying**
+
+- After you send a reply, your tab refreshes the conversation once when the reply and its matching live update both arrive. Other tabs still show the reply live.
+- A live update can still bring the reply into view if its response is lost.`,
+    pl: `**Adder 1.23.0 — mniej powtórnych odczytów po odpowiedzi**
+
+- Po wysłaniu odpowiedzi Twoja karta odświeża rozmowę raz, gdy otrzyma wynik zapisu i powiązane zdarzenie na żywo. W innych kartach odpowiedź nadal pojawia się na żywo.
+- Zdarzenie na żywo nadal może wyświetlić zapisaną wiadomość, jeśli odpowiedź serwera zaginie.`,
+  },
+  {
     version: "1.22.0",
     date: "2026-11-26",
     en: `**Adder 1.22.0 — faster live account updates**
