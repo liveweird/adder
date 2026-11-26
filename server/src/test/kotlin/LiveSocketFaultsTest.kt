@@ -4,6 +4,7 @@ import ch.nokillswit.auth.TokenBlocklistService
 import ch.nokillswit.live.LiveAudit
 import ch.nokillswit.live.LiveConfig
 import ch.nokillswit.live.LiveHub
+import ch.nokillswit.live.LIVE_TICKET_TTL_MILLIS
 import ch.nokillswit.live.LiveServerFrame
 import ch.nokillswit.live.LiveSessionDeps
 import ch.nokillswit.live.LiveTickets
@@ -77,7 +78,7 @@ class LiveSocketFaultsTest {
     ) = testApplication {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val tickets = LiveTickets(maxTickets = config.maxTickets)
+            val tickets = LiveTickets(LiveTicketMemoryStore(config.maxTickets, LIVE_TICKET_TTL_MILLIS))
             val hub = LiveHub(scope, config.maxSockets, config.maxSocketsPerUser, neverConnects)
             val deps = LiveSessionDeps(config, tickets, hub, blocklist, rooms, LiveAudit(), clock)
             application {

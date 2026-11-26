@@ -8,6 +8,7 @@ import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.isAdmin
 import ch.nokillswit.infra.backgroundScope
 import ch.nokillswit.infra.db.NotifyConnectionFactoryKey
+import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.maskedSecret
 import ch.nokillswit.infra.notify.LiveStats
 import ch.nokillswit.infra.notify.LiveStatsKey
@@ -34,6 +35,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import ch.nokillswit.infra.presence.ForegroundPresenceKey
+import org.slf4j.LoggerFactory
+
+private val routesLog = LoggerFactory.getLogger("ch.nokillswit.live.LiveRoutes")
 
 @Serializable
 @Resource("/api/v1/live/tickets")
@@ -71,7 +75,15 @@ data class LiveTicketResponse(val ticket: String, val expiresAt: Long) {
  */
 fun Application.configureLive() {
     val config = readLiveConfig()
-    val tickets = LiveTickets(maxTickets = config.maxTickets)
+    val sharedTicketStore = LiveTicketPostgresStore(attributes[R2dbcDatabaseKey], config.maxTickets)
+    // Resolve the override at the operation boundary: Ktor's test application modules run before test `application {}` blocks.
+    // Production never installs the internal key and therefore always uses PostgreSQL, without a process-local fallback.
+    val ticketStore = object : LiveTicketStore {
+        private fun current() = attributes.getOrNull(LiveTicketStoreOverrideKey) ?: sharedTicketStore
+        override suspend fun issue(digest: String, draft: LiveTicketDraft): Long = current().issue(digest, draft)
+        override suspend fun redeem(digest: String): LiveTicketBinding? = current().redeem(digest)
+    }
+    val tickets = LiveTickets(ticketStore)
     attributes.put(LiveTicketsKey, tickets)
     // The hub (actor, listener, hints, deaf watcher), the sweep and the recheck loop all run in this ONE scope. On ApplicationStopping it
     // is cancelled AND joined (bounded), after the hub closed the LISTEN connection and before the pool is disposed on ApplicationStopped.
@@ -131,7 +143,7 @@ fun Application.configureLive() {
                             credentialRevision = token.credentialRevision,
                             tokenExpiresAtMillis = token.expiresAtMillis,
                         )
-                    } catch (_: LiveTickets.CapacityExceededException) {
+                    } catch (_: LiveTicketCapacityExceededException) {
                         saturationAudit.admit("live.ticket_saturated:${caller.userId}")?.let { suppressed ->
                             audit("live.ticket_saturated", "byUserId" to caller.userId.toLong(), "suppressed" to suppressed)
                         }
@@ -140,6 +152,13 @@ fun Application.configureLive() {
                             "Too many live-update tickets are pending - try again later",
                             retryAfterSeconds = (LIVE_TICKET_TTL_MILLIS / 1000).toInt(),
                         )
+                    } catch (failure: LiveTicketStoreUnavailableException) {
+                        routesLog.warn(
+                            "Live ticket store unavailable ({})",
+                            failure.cause?.javaClass?.simpleName ?: failure.javaClass.simpleName,
+                        )
+                        call.respondLiveUnavailable()
+                        return@post
                     }
                     // The LISTEN connection starts with the first mint (idempotent): a socket follows within seconds.
                     hub.ensureStarted()
