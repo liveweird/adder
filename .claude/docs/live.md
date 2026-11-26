@@ -14,13 +14,13 @@ the existing REST endpoints, so authorization and OpenAPI conformance stay in on
 
 - **Delivery is at-most-once, with no replay.** The refetch is the backfill; `resync` covers every gap (a listener outage, an overflowing socket queue).
 - **A hint carries a kind and ids only**: never a title, body, name or field value (enforced by the `LiveHint` type).
-- **Single app deployment.** The supplied deployment runs one app. Tickets are shared through PostgreSQL. The socket hub, authenticated socket cap, foreground presence and admission remain local to each instance. The rollout checklist for a second replica remains in `BACKLOG.md`.
+- **Single app deployment.** The supplied deployment runs one app. PostgreSQL shares tickets, the authenticated per-user socket cap and foreground presence. Each app keeps its own socket hub and resource caps for its connections. The rollout checklist for a second replica remains in `BACKLOG.md`.
 
 ## Endpoints, handshake and Origin
 
 **`POST /api/v1/live/tickets`** (`mintLiveTicket`; bearer, any authenticated caller). Per-user bucket `live-ticket`, 60/min. Answers `200 {ticket, expiresAt}`
 (an exchange, like login and refresh, so not 201), `401`, `429` (the bucket; `urn:adder:problem:live-socket-limit`, the per-user cap; ticket-store
-saturation), `503 urn:adder:problem:live-unavailable` (stopping, the global socket cap, or a deaf channel: the listener has been down for more than 10 s, "The NOTIFY wire and the listener"), `500`.
+saturation), `503 urn:adder:problem:live-unavailable` (stopping, the global socket cap, or a deaf channel, or an unavailable ticket or socket lease store), `500`.
 
 **`GET /api/v1/live`** (`connectLive`; `security: []`, authenticated in-band by the first frame). The typed `@Resource` idiom with `webSocket {}` nested
 in it; a plain (non-Upgrade) GET answers 400 after admission (403 before 400).
@@ -36,8 +36,8 @@ in it; a plain (non-Upgrade) GET answers 400 after admission (403 before 400).
 the caller's address -> 503; global unauthenticated sockets -> 503; otherwise 101. **The bucket really is first** [changed in the 0.4.0 audit]: the route's
 `rateLimit` runs in the plugin phases and `installLiveAdmission` intercepts in the `Call` phase (it used to intercept in `Plugins`, before the bucket, so
 refused requests were never throttled; `LiveAdmissionTest` pins a foreign-Origin flood going 403 then 429). The caps are ADVISORY at admission (a few upgrades in flight
-can slip past) and authoritative afterwards: the hub's register enforces `maxSockets` and `maxSocketsPerUser`, and the session's own atomic claim (`PendingSlots`)
-enforces both pending caps when it starts. `RequestBodyLimit` is told the upgrade has no body (`Long.MAX_VALUE`; wrapping the request channel starves the test host's socket of client frames).
+can slip past) and authoritative afterwards: the hub enforces its process `maxSockets`, PostgreSQL enforces `maxSocketsPerUser` across instances, and the session's atomic claim
+(`PendingSlots`) enforces both local pending caps. `RequestBodyLimit` is told the upgrade has no body (`Long.MAX_VALUE`; wrapping the request channel starves the test host's socket of client frames).
 
 **Origin rule (CSWSH defence).** The header is required and its scheme must be `http` or `https`. It is allowed when its **scheme** equals the request's
 (`call.request.origin.scheme`) and its authority (case-insensitive, default ports dropped) equals `serverHost:serverPort` (`XForwardedHeaders` rewrites all
@@ -80,8 +80,9 @@ OpenAPI spec as components (`LiveClientFrame`, `LiveServerFrame`, `LiveEventKind
 equal to the spec enum and to the audit names.
 
 `foreground` is additive and capability-gated: a client sends it only after a `ready` carrying `presenceSupported: true`. A visible tab renews
-the frame on the normal 25-second ping cadence and sends `visible:false` as soon as it is hidden. The server keeps a 60-second process-local
-lease per authenticated socket; any fresh visible socket makes the user present, and shutdown clears the registry before sockets drain.
+the frame on the normal 25-second ping cadence and sends `visible:false` as soon as it is hidden. PostgreSQL keeps a 60-second
+foreground lease per authenticated socket. Any fresh visible tab can make an eligible room member present for `@here`. A hidden frame clears its
+lease and graceful closure releases it. A crashed app stops renewing and its leases expire within 60 seconds.
 
 | Code | When | Client |
 |---|---|---|
@@ -94,8 +95,8 @@ lease per authenticated socket; any fresh visible socket makes the user present,
 | 4001 | the minting access token's `exp` passed | re-mint after a random 0-1 s |
 | 4003 | the sweep verdict is not LIVE, or the token was revoked at redemption | re-mint after a random 0-1 s (`authedFetch` refreshes or signs out) |
 | 4401 | no ticket, or an unknown, expired or used one, by the deadline | backoff |
-| 4429 | per-user socket cap at redemption | "paused"; retry in 60 s |
-| 1013 | the global socket table filled between admission and redemption, or an unauthenticated-socket cap (total or per address) between admission and the session start (rare races; `live.maxSockets`, `live.maxPendingAuth`, `live.maxPendingPerAddress`); the notification listener has been down for more than 10 s (every open socket, and any that registers meanwhile) | backoff |
+| 4429 | shared per-user socket cap at redemption | "paused"; retry in 60 s |
+| 1013 | the global socket table filled between admission and redemption, or an unauthenticated-socket cap (total or per address) between admission and the session start (rare races; `live.maxSockets`, `live.maxPendingAuth`, `live.maxPendingPerAddress`); the notification listener has been down for more than 10 s, or an authenticated socket lease is unavailable or expires | backoff |
 
 If 4001 or 4003 arrives twice within 10 s, the client falls back to backoff. No exception escapes a session (StatusPages cannot answer after a 101): catch,
 log, close with 1011.
@@ -209,7 +210,7 @@ ACTIVE). Each socket has its own writer draining a `Channel<Frame>(64)`; the hub
 | unauthenticated sockets per client address | 8 (IPv6 by /64) | `live.maxPendingPerAddress` | 503 + `live.refused reason=capacity limit=pending-per-address` |
 | auth deadline | 2 s | `live.authTimeoutMillis` | 4401 |
 | sockets (global) | 1000 (hidden tabs hold slots too, 1.2 D9) | `live.maxSockets` | 503 (upgrade and mint) |
-| sockets per user | 16 (a hidden tab holds one for up to 8 h, 1.2 D9) | `live.maxSocketsPerUser` | mint 429 `live-socket-limit`; redeem 4429 |
+| sockets per user, shared by the deployment | 16 (a hidden tab holds one for up to 8 h, 1.2 D9) | `live.maxSocketsPerUser` | mint 429 `live-socket-limit`; redeem 4429 |
 | tickets held | 10,000 | `live.maxTickets` | 429 + `live.ticket_saturated` |
 | mints per user | 60/min | `RateLimits.LIVE_TICKET` | 429 |
 | ticket TTL | 30 s | constant | 4401 |

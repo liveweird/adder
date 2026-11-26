@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.25.0",
+    date: "2026-11-26",
+    en: `**Adder 1.25.0 — shared live socket limits and presence**
+
+- Your live tab limit is shared by application instances using the same database. Connections release their slots on close, and slots left by a stopped process expire automatically.
+- An eligible room member can receive an @here notice while a tab connected to another application instance is in the foreground.`,
+    pl: `**Adder 1.25.0 — wspólny limit połączeń i obecność na żywo**
+
+- Instancje aplikacji korzystające z tej samej bazy danych mają wspólny limit Twoich kart z połączeniem na żywo. Zamknięcie połączenia zwalnia miejsce, a miejsca po zatrzymanym procesie wygasają automatycznie.
+- Osoba należąca do pokoju może otrzymać powiadomienie @here, gdy jej aktywna karta jest połączona z inną instancją aplikacji.`,
+  },
+  {
     version: "1.24.0",
     date: "2026-11-26",
     en: `**Adder 1.24.0 — durable live connection tickets**
