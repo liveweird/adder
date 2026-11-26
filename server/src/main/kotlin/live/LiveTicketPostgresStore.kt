@@ -70,9 +70,8 @@ internal class LiveTicketPostgresStore(
         suspendTransaction(database) {
             // A statement takes its MVCC snapshot before waiting on a row lock. Lock in its own statement so the count below gets a
             // fresh snapshot after every earlier mint committed; otherwise concurrent issuers could all observe the same free slot.
-            TransactionManager.current().exec(LOCK_CAPACITY_GUARD, explicitStatementType = StatementType.SELECT) { row ->
-                row.get(0, Boolean::class.javaObjectType)!!
-            }?.firstOrNull() ?: error("Live ticket capacity guard is missing")
+            TransactionManager.current().exec(LOCK_CAPACITY_GUARD, explicitStatementType = StatementType.SELECT) { Unit }
+                ?.firstOrNull() ?: error("Live ticket capacity guard is missing")
             val arguments = listOf(
                 IntegerColumnType() to cleanupBatch,
                 TextColumnType() to digest,

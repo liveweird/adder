@@ -19,8 +19,10 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /** PostgreSQL contract for the cross-instance, one-use live ticket store introduced by V53. */
 class LiveTicketPostgresStoreTest {
@@ -59,6 +61,52 @@ class LiveTicketPostgresStoreTest {
         val issuer = service(ticket = raw)
         assertFailsWith<LiveTicketStoreUnavailableException> { issuer.mint(UInt.MAX_VALUE) }
         assertNull(service().redeem(raw))
+    }
+
+    @Test
+    fun `an absent capacity guard refuses a mint without creating a ticket`() = runBlocking {
+        val userId = user("missing-guard")
+        val raw = "missing-ticket-guard".padEnd(43, 'x')
+        capacityStatement("DELETE FROM live_ticket_capacity_guard")
+        try {
+            assertFailsWith<LiveTicketStoreUnavailableException> { service(ticket = raw).mint(userId) }
+            assertNull(service().redeem(raw))
+        } finally {
+            capacityStatement("INSERT INTO live_ticket_capacity_guard (singleton) VALUES (TRUE)")
+        }
+    }
+
+    @Test
+    fun `cancellation while waiting for the admission guard leaves no ticket`() = runBlocking {
+        val userId = user("cancelled-mint")
+        val raw = "cancelled-ticket-access".padEnd(43, 'x')
+        PostgresTestSupport.connect().use { blocker ->
+            blocker.autoCommit = false
+            blocker.createStatement().use { it.execute("SELECT singleton FROM live_ticket_capacity_guard FOR UPDATE") }
+            coroutineScope {
+                val mint = async(Dispatchers.Default) { service(ticket = raw).mint(userId) }
+                try {
+                    withTimeout(5_000) { while (!isMintWaiting()) delay(10) }
+                } finally {
+                    mint.cancel()
+                    blocker.rollback()
+                }
+                mint.join()
+            }
+        }
+        assertNull(service().redeem(raw))
+    }
+
+    private fun capacityStatement(sql: String) {
+        PostgresTestSupport.connect().use { connection ->
+            connection.createStatement().use { assertEquals(1, it.executeUpdate(sql)) }
+        }
+    }
+
+    private fun isMintWaiting(): Boolean = PostgresTestSupport.connect().use { connection ->
+        val query = "SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' " +
+            "AND query LIKE 'SELECT singleton FROM live_ticket_capacity_guard%'"
+        connection.createStatement().use { statement -> statement.executeQuery(query).use { it.next() } }
     }
 
     @Test
