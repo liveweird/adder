@@ -168,29 +168,41 @@ class SharedRateLimitsTest {
         withIsolatedTestDatabase { isolated ->
             testApplication {
                 configureIsolated(isolated)
-                val store = SharedRateLimitStore(application.attributes[R2dbcDatabaseKey], maxStoredKeys = 1)
-                val expired = "3".repeat(64)
+                val store = SharedRateLimitStore(application.attributes[R2dbcDatabaseKey], maxStoredKeys = 2)
+                val expired = listOf("3".repeat(64), "5".repeat(64))
                 val replacement = "4".repeat(64)
-                assertTrue(store.consume("test-capacity", expired, limit = 2).admitted)
-                expire("test-capacity", expired, isolated)
+                expired.forEach { key ->
+                    assertTrue(store.consume("test-capacity", key, limit = 2).admitted)
+                    expire("test-capacity", key, isolated)
+                }
 
                 isolated.connect().use { holder ->
                     holder.autoCommit = false
                     holder.prepareStatement(
                         "SELECT key_hash FROM http_rate_limit_buckets " +
-                            "WHERE bucket_name = 'test-capacity' AND key_hash = ? FOR UPDATE",
+                            "WHERE bucket_name = 'test-capacity' AND key_hash = ANY(?) ORDER BY key_hash FOR UPDATE",
                     ).use { statement ->
-                        statement.setString(1, expired)
-                        statement.executeQuery().use { rows -> assertTrue(rows.next()) }
+                        statement.setArray(1, holder.createArrayOf("text", expired.toTypedArray()))
+                        statement.executeQuery().use { rows ->
+                            assertTrue(rows.next())
+                            assertTrue(rows.next())
+                            assertFalse(rows.next())
+                        }
                     }
                     val refused = withTimeout(1_000) { store.consume("test-capacity", replacement, limit = 2) }
                     assertTrue(refused.capacityRefusal)
-                    assertEquals(1, physicalCount(isolated))
+                    assertEquals(
+                        refused.serverNowMillis + RATE_LIMIT_WINDOW_MILLIS,
+                        refused.refillAtMillis,
+                        "all known deadlines are expired, so capacity uses a fresh database-clock retry envelope",
+                    )
+                    assertEquals(2, physicalCount(isolated), "locked expired rows are never evicted early")
+                    assertEquals(2, storedCount(isolated))
                     holder.rollback()
                 }
 
                 assertTrue(store.consume("test-capacity", replacement, limit = 2).admitted)
-                assertEquals(1, physicalCount(isolated))
+                assertEquals(2, physicalCount(isolated))
                 assertEquals(physicalCount(isolated), storedCount(isolated))
             }
         }

@@ -4,6 +4,7 @@ import ch.nokillswit.auth.LoginRequest
 import ch.nokillswit.auth.LoginResponse
 import ch.nokillswit.infra.db.SEED_ADMIN_EMAIL
 import ch.nokillswit.plugins.RateLimitNamespaceOverrideKey
+import ch.nokillswit.plugins.RateLimits
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.DefaultRequest
@@ -15,8 +16,16 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.call
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
+import io.ktor.server.plugins.ratelimit.RateLimitName
+import io.ktor.server.plugins.ratelimit.rateLimit
+import io.ktor.server.response.header
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
 import io.ktor.util.AttributeKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -26,6 +35,41 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SharedRateLimitHttpTest {
+    @Test
+    fun `shared quota preserves compatible headers already supplied by middleware`() = withIsolatedTestDatabase { db ->
+        testApplication {
+            configureApp(
+                "postgres.jdbcUrl" to db.jdbcUrl,
+                "postgres.r2dbcUrl" to db.r2dbcUrl,
+                "security.rateLimit.loginPerMinute" to "3",
+            )
+            application {
+                attributes.remove(RateLimitNamespaceOverrideKey)
+                intercept(ApplicationCallPipeline.Setup) {
+                    if (call.request.local.uri == "/test/shared-rate-limit-headers") {
+                        call.response.header("X-RateLimit-Limit", "upstream-limit")
+                        call.response.header("X-RateLimit-Remaining", "upstream-remaining")
+                        call.response.header("X-RateLimit-Reset", "upstream-reset")
+                    }
+                }
+                routing {
+                    rateLimit(RateLimitName(RateLimits.LOGIN)) {
+                        get("/test/shared-rate-limit-headers") {
+                            call.respondText("ok")
+                        }
+                    }
+                }
+            }
+            startApplication()
+
+            val response = jsonClient().get("/test/shared-rate-limit-headers")
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals("upstream-limit", response.headers["X-RateLimit-Limit"])
+            assertEquals("upstream-remaining", response.headers["X-RateLimit-Remaining"])
+            assertEquals("upstream-reset", response.headers["X-RateLimit-Reset"])
+        }
+    }
+
     @Test
     fun `two application instances consume one shared login envelope without storing the address`() = withIsolatedTestDatabase { db ->
         testApplication {
