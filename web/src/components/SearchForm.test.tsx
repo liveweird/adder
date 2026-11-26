@@ -31,10 +31,10 @@ const STATUSES: RoomWorkflow["statuses"] = [
   { key: "resolved", label: "Resolved", colour: "TEAL", category: "CLOSED", initial: false, threadCount: 2 },
 ];
 
-function renderForm({ q = "", structured = false, onSubmit = vi.fn(), roomId, statuses }: {
+function renderForm({ q = "", syntax, onSubmit = vi.fn(), roomId, statuses }: {
   q?: string;
-  structured?: boolean;
-  onSubmit?: (q: string, structured: boolean) => void;
+  syntax?: "structured" | "unified";
+  onSubmit?: (q: string, syntax?: "structured" | "unified") => void;
   roomId?: number;
   statuses?: RoomWorkflow["statuses"];
 } = {}) {
@@ -46,7 +46,7 @@ function renderForm({ q = "", structured = false, onSubmit = vi.fn(), roomId, st
       watching={false}
       unread={false}
       threadTag={[]}
-      structured={structured}
+      syntax={syntax}
       onSubmit={onSubmit}
       onScope={vi.fn()}
       onWatching={vi.fn()}
@@ -68,7 +68,7 @@ afterEach(() => {
   searchUserDirectory.mockReset();
 });
 
-describe("SearchForm structured query assistant", () => {
+describe("SearchForm query assistant", () => {
   test("keeps assistant lookups outside the search-result invalidation prefix", () => {
     expect(SEARCH_ASSISTANT_KEY[0]).not.toBe("search");
   });
@@ -77,11 +77,12 @@ describe("SearchForm structured query assistant", () => {
     const onSubmit = renderForm();
     const box = screen.getByRole("searchbox", { name: "Search all your rooms" });
     await userEvent.type(box, "outage{Enter}");
-    expect(onSubmit).toHaveBeenCalledWith("outage", false);
+    expect(onSubmit).toHaveBeenCalledWith("outage", undefined);
     expect(screen.getByRole("button", { name: "Search syntax" })).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /structured mode/i })).not.toBeInTheDocument();
   });
 
-  test("inserts a format at the caret and submits it as structured", async () => {
+  test("inserts a format at the caret and submits it as unified", async () => {
     const onSubmit = renderForm();
     const user = userEvent.setup();
     const box = screen.getByRole("searchbox", { name: "Search all your rooms" });
@@ -91,11 +92,12 @@ describe("SearchForm structured query assistant", () => {
     expect(screen.getByRole("button", { name: /from:"Ada Lovelace" Messages written/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /status:investigating Threads in a workflow status/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /hashtag:incident Threads containing a hashtag/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /word:disk Match one whole word/ })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /in:"Night Shift" Search in one room/ }));
     expect(box).toHaveValue("disk in:");
     expect(box).toHaveFocus();
     await user.type(box, "Night{Enter}");
-    expect(onSubmit).toHaveBeenCalledWith("disk in:Night", true);
+    expect(onSubmit).toHaveBeenCalledWith("disk in:Night", "unified");
   });
 
   test("offers operator completion and moves to it with ArrowDown", async () => {
@@ -175,7 +177,7 @@ describe("SearchForm structured query assistant", () => {
     await user.click(await screen.findByRole("button", { name: /a 1\/2".*Hashtag/ }));
     expect(box).toHaveValue('replica hashtag:"a 1/2\\""');
     await user.keyboard("{Enter}");
-    expect(onSubmit).toHaveBeenCalledWith('replica hashtag:"a 1/2\\""', true);
+    expect(onSubmit).toHaveBeenCalledWith('replica hashtag:"a 1/2\\""', "unified");
   });
 
   test("global status and hashtag values ask for one room until in: resolves a joined room", async () => {
@@ -250,27 +252,24 @@ describe("SearchForm structured query assistant", () => {
     expect(await screen.findByRole("button", { name: /Bob Jones/ })).toBeVisible();
   });
 
-  test("keeps a structured URL draft in structured mode and reports its longer limit", async () => {
-    const onSubmit = renderForm({ q: "a".repeat(513), structured: true });
-    expect(screen.getByText("Use at most 512 characters in a structured query.")).toBeInTheDocument();
+  test("keeps a legacy structured URL draft under the syntax limit without exposing a mode", async () => {
+    const onSubmit = renderForm({ q: "a".repeat(513), syntax: "structured" });
+    expect(screen.getByText("Use at most 512 characters in a search with syntax.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole("switch", { name: "Structured mode" })).toBeChecked();
+    expect(screen.queryByRole("switch", { name: /structured mode/i })).not.toBeInTheDocument();
   });
 
-  test("structured mode can be selected for bare words and stays active while editing a shared query", async () => {
-    const onSubmit = renderForm({ q: "disk", structured: true });
+  test("new submissions derive their syntax from the query instead of a mode switch", async () => {
+    const onSubmit = renderForm({ q: "disk", syntax: "structured" });
     const user = userEvent.setup();
     const box = screen.getByRole("searchbox");
-    const mode = screen.getByRole("switch", { name: "Structured mode" });
-    await user.type(box, " alert{Enter}");
-    expect(onSubmit).toHaveBeenLastCalledWith("disk alert", true);
-    await user.click(mode);
     await user.type(box, "{Enter}");
-    expect(onSubmit).toHaveBeenLastCalledWith("disk alert", false);
-    await user.click(mode);
+    expect(onSubmit).toHaveBeenLastCalledWith("disk", "structured");
+    await user.type(box, " alert{Enter}");
+    expect(onSubmit).toHaveBeenLastCalledWith("disk alert", undefined);
     await user.clear(box);
-    await user.type(box, "x{Enter}");
-    expect(onSubmit).toHaveBeenLastCalledWith("x", true);
+    await user.type(box, "disk word:alert{Enter}");
+    expect(onSubmit).toHaveBeenLastCalledWith("disk word:alert", "unified");
   });
 });

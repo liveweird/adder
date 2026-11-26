@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.36.0",
+    date: "2026-11-27",
+    en: `**Adder 1.36.0 — one search box**
+
+- Combine keywords, phrases, and filters in one search. Typing the start of a word works the same way when you add a filter.
+- Use \`word:disk\` to match a whole word. The Search syntax guide helps you insert it and other clauses. Previously shared searches keep their matching behavior.`,
+    pl: `**Adder 1.36.0 — jedno pole wyszukiwania**
+
+- Łącz słowa, frazy i filtry w jednym wyszukiwaniu. Początek słowa działa tak samo po dodaniu filtra.
+- Wpisz \`word:dysk\`, aby dopasować całe słowo. Przewodnik po składni pomaga wstawiać tę i inne klauzule. Udostępnione wcześniej wyszukiwania zachowują swoje zasady dopasowania.`,
+  },
+  {
     version: "1.35.0",
     date: "2026-11-26",
     en: `**Adder 1.35.0 — fewer duplicate reads after message deletion**

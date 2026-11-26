@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### One search box (1.36.0)
+
+Use keywords and search clauses together across rooms, inside a room, or in a thread. Bare words of three or more characters match word starts. Use `word:disk` for a whole word or `"disk alert"` for an exact phrase. The **Search syntax** guide helps insert clauses.
+
 ### Fewer duplicate reads after message deletion (1.35.0)
 
 After a message is deleted, the deleting tab refreshes the timeline and pins once, whether confirmation arrives over the live connection or in the HTTP response. Other readers still see the deletion live, and the live event can recover a lost response.
@@ -169,7 +173,7 @@ Adder's repository started as an exact copy of [Flow](https://github.com/livewei
 
 - **Filters and sorts in the URL** — filter a room's threads by status, owner, hashtag and the room's choice and person fields, and sort by activity, newest, number or workflow order; the address bar carries the filter, so a link shows the same list to whoever opens it.
 - **#hashtags** — written in messages, each is a link to the room's threads that use it; the room's tag list is paged.
-- **Search** one room or all your joined rooms. Combine phrases and filters in a query such as `"disk alert" -test in:"On Call" during:2026-11 has:link`. Open the syntax guide to insert clauses and see examples. Turn on **Structured mode** to match whole words in a query with no operators. [Search syntax](.claude/docs/chat-model.md#structured-search-190).
+- **Search** across your joined rooms, inside one room, or in a thread. Combine phrases and filters in a query such as `"disk alert" -test in:"On Call" during:2026-11 has:link`. Open the syntax guide to insert clauses and see examples. Use `word:disk` for a whole word. [Search syntax](.claude/docs/chat-model.md#structured-search-190).
 - **Jump to a message** (`?message=`) from a search hit or a notice, and the **focus view** (the thread list hidden, the conversation at full width).
 
 0.4.0 made the rooms live:

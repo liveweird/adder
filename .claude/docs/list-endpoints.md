@@ -55,4 +55,4 @@ and boundary flags. The conversation list and the thread message search still re
 **Sub-collections and facets:** a record's own sub-collection is paged like any list, however small. Facet counts (`GET .../facets`) are not implemented — port Covenant's
 pattern with the first filterable list that needs them.
 
-**Ledger.** Search (`q`, `syntax=structured`, `timeZone`, and the `SearchPageSize` cap), pins, the keyset `id[lt]` on messages, the member, notification and thread-list filters and the repeated-key bounds: `chat-model.md` "List endpoint ledger".
+**Ledger.** Search (`q`, `syntax`, `timeZone`, and the `SearchPageSize` cap), pins, the keyset `id[lt]` on messages, the member, notification and thread-list filters and the repeated-key bounds: `chat-model.md` "List endpoint ledger".

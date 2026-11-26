@@ -1,7 +1,7 @@
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
-import { ActionIcon, Button, Code, Divider, Group, Paper, Popover, SimpleGrid, Stack, Switch, Text, ThemeIcon, UnstyledButton } from "@mantine/core";
+import { ActionIcon, Button, Code, Divider, Group, Paper, Popover, SimpleGrid, Stack, Text, ThemeIcon, UnstyledButton } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { useQuery } from "@tanstack/react-query";
 import { IconAdjustmentsHorizontal, IconArrowRight, IconBulb, IconInfoCircle } from "@tabler/icons-react";
@@ -30,8 +30,6 @@ type Suggestion = { id: string; insert: string; label: string; description: stri
 type Props = {
   query: string;
   caret: number;
-  structured: boolean;
-  onModeChange: (structured: boolean) => void;
   onInsert: (start: number, end: number, replacement: string) => void;
   roomId?: number;
   statuses?: RoomWorkflow["statuses"];
@@ -126,7 +124,7 @@ function makeSuggestions({
 }
 
 const SearchQueryAssistant = forwardRef<SearchQueryAssistantHandle, Props>(function SearchQueryAssistant(
-  { query, caret, structured, onModeChange, onInsert, roomId: fixedRoomId, statuses: fixedStatuses },
+  { query, caret, onInsert, roomId: fixedRoomId, statuses: fixedStatuses },
   ref,
 ) {
   const { t } = useTranslation();
@@ -225,11 +223,12 @@ const SearchQueryAssistant = forwardRef<SearchQueryAssistantHandle, Props>(funct
     onInsert(caret, caret, value);
   }
 
-  const helpItems = ["phrase", "exclude", "prefix", "in", "from", "with", "owner", "status", "hashtag", "on", "before", "after", "during", "pin", "link", "reactionAny"] as const;
+  const helpItems = ["phrase", "exclude", "prefix", "word", "in", "from", "with", "owner", "status", "hashtag", "on", "before", "after", "during", "pin", "link", "reactionAny"] as const;
   const inserts: Record<(typeof helpItems)[number], string> = {
     phrase: '"exact phrase"',
     exclude: "-word",
     prefix: "prefix*",
+    word: "word:disk",
     in: "in:",
     from: "from:",
     with: "with:",
@@ -310,12 +309,6 @@ const SearchQueryAssistant = forwardRef<SearchQueryAssistantHandle, Props>(funct
             </Stack>
           </Popover.Dropdown>
         </Popover>
-        <Switch
-          size="xs"
-          label={t("search.syntax.mode")}
-          checked={structured}
-          onChange={(event) => onModeChange(event.currentTarget.checked)}
-        />
         <Text size="xs" c="dimmed" className={classes.tip}>
           <IconInfoCircle size={14} aria-hidden /> {t("search.syntax.tip")}
         </Text>

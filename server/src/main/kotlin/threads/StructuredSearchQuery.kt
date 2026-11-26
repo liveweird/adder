@@ -3,6 +3,7 @@ package ch.nokillswit.threads
 import ch.nokillswit.infra.db.FTS_CONFIG
 import ch.nokillswit.infra.db.FTS_INT_ARRAY
 import ch.nokillswit.infra.db.ftsMatchSql
+import ch.nokillswit.infra.db.ftsQueryText
 import ch.nokillswit.infra.db.ftsRowVectorSql
 import ch.nokillswit.rooms.RoomSummary
 import kotlinx.coroutines.flow.toList
@@ -128,7 +129,7 @@ internal data class ResolvedStructuredSearch(
     private fun textSql(clause: SearchTextClause, value: String, vector: String): SearchSql {
         val positive = when (clause.kind) {
             SearchTextKind.PHRASE -> SearchSql("strpos(lower($value), lower(?)) > 0", listOf(TEXT_TYPE to clause.value))
-            SearchTextKind.WORD, SearchTextKind.PREFIX -> SearchSql(
+            SearchTextKind.WORD, SearchTextKind.PLAIN, SearchTextKind.PREFIX -> SearchSql(
                 ftsMatchSql(vector),
                 listOf(TEXT_TYPE to textQueries.getValue(clause)),
             )
@@ -213,6 +214,7 @@ private fun resolveUser(reference: SearchReference, users: List<CandidateUser>):
 }.mapTo(mutableSetOf()) { it.id }.ifEmpty { reference.id?.let { setOf(it.toLong()) }.orEmpty() }
 
 private suspend fun R2dbcTransaction.textQuery(clause: SearchTextClause): String {
+    if (clause.kind == SearchTextKind.PLAIN) return ftsQueryText(clause.value).orEmpty()
     val function = if (clause.kind == SearchTextKind.PREFIX) {
         "string_agg(quote_literal(lexeme) || ':*', ' & ')::tsquery"
     } else {

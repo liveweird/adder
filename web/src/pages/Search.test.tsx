@@ -91,7 +91,7 @@ describe("Search page (all your rooms)", () => {
     expect(searches).toEqual([]);
   });
 
-  test("submits a structured draft with its zone, then drops both when structured mode is switched off", async () => {
+  test("submits clauses with unified syntax and bare words through the plain endpoint", async () => {
     pinBrowserTimeZone("Europe/Warsaw");
     const searches = serve(() => jsonResponse(200, searchPage([])));
     const user = userEvent.setup();
@@ -101,14 +101,13 @@ describe("Search page (all your rooms)", () => {
     await user.type(input, q);
     expect(searches).toEqual([]);
     await user.click(screen.getByRole("button", { name: /^Search$/ }));
-    const expected = new URLSearchParams({ q, syntax: "structured", timeZone: "Europe/Warsaw" });
+    const expected = new URLSearchParams({ q, syntax: "unified", timeZone: "Europe/Warsaw" });
     await waitFor(() => expect(Object.fromEntries(new URLSearchParams(searches.at(-1)?.split("?")[1]))).toMatchObject({
-      q, syntax: "structured", timeZone: "Europe/Warsaw",
+      q, syntax: "unified", timeZone: "Europe/Warsaw",
     }));
     expect(screen.getByTestId("search")).toHaveTextContent(`?${expected}`);
     await user.clear(input);
     await user.type(input, "outage");
-    await user.click(screen.getByRole("switch", { name: "Structured mode" }));
     await user.click(screen.getByRole("button", { name: /^Search$/ }));
     await waitFor(() => expect(searches.at(-1)).toBe("/api/v1/search?q=outage&page=1&pageSize=20"));
     expect(screen.getByTestId("search")).toHaveTextContent("?q=outage");
@@ -120,6 +119,35 @@ describe("Search page (all your rooms)", () => {
     renderSearch(`/search?${params}`);
     expect(await screen.findByText(/check the search syntax/i)).toBeVisible();
     expect(Object.fromEntries(new URLSearchParams(searches[0].split("?")[1]))).toMatchObject(Object.fromEntries(params));
+  });
+
+  test("a plain bookmarked quote stays under plain validation and sends no request", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([])));
+    renderSearch("/search?q=%22");
+    expect(await screen.findByText("Type at least two characters, with a letter or a digit.")).toBeVisible();
+    expect(searches).toEqual([]);
+  });
+
+  test("retrying a legacy structured link preserves its implicit UTC zone", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([])));
+    const user = userEvent.setup();
+    renderSearch("/search?q=disk&syntax=structured");
+    await waitFor(() => expect(searches).toHaveLength(1));
+    await user.click(screen.getByRole("button", { name: /^Search$/ }));
+    await waitFor(() => expect(searches).toHaveLength(2));
+    expect(searches[1]).toBe("/api/v1/search?q=disk&page=1&pageSize=20&syntax=structured");
+    expect(screen.getByTestId("search")).toHaveTextContent("?q=disk&syntax=structured");
+  });
+
+  test("a legacy structured link keeps its syntax while paging", async () => {
+    const searches = serve(() => jsonResponse(200, searchPage([threadHit(5)], 25, 1)));
+    const user = userEvent.setup();
+    const params = new URLSearchParams({ q: "disk", syntax: "structured", timeZone: "UTC" });
+    renderSearch(`/search?${params}`);
+    await screen.findByRole("link", { name: "#5 Database outage" });
+    await user.click(screen.getByRole("button", { name: "2" }));
+    await waitFor(() => expect(searches.at(-1)).toContain("syntax=structured"));
+    expect(screen.getByTestId("search")).toHaveTextContent("syntax=structured");
   });
 
   test("submitting searches every room: hits carry the room, Open or Closed, Archived, and links into their own room", async () => {

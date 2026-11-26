@@ -9,7 +9,7 @@ import type { RoomWorkflow } from "../api/rooms";
 import { browserTimeZone, formatDateTime } from "../utils/formatDate";
 import { messageJumpPath } from "../utils/roomLinks";
 import { roomKeys } from "../utils/roomKeys";
-import { detectStructuredSearch, queryProblem, SEARCH_PAGE_SIZE, searchErrorMessage, type QueryProblem } from "../utils/searchParams";
+import { detectStructuredSearch, queryProblem, SEARCH_PAGE_SIZE, searchErrorMessage, type QueryProblem, type SearchSyntax } from "../utils/searchParams";
 import { insertSearchToken } from "../utils/searchQueryEditor";
 import FormErrorAlert from "./FormErrorAlert";
 import PaginationBar from "./PaginationBar";
@@ -29,7 +29,7 @@ type Props = {
   statuses?: RoomWorkflow["statuses"];
 };
 
-type Submitted = { q: string; structured: boolean; zone?: string; page: number };
+type Submitted = { q: string; syntax?: SearchSyntax; zone?: string; page: number };
 
 const plain = (segments: readonly { text: string }[]) => segments.map((segment) => segment.text).join("");
 
@@ -51,20 +51,19 @@ export default function ThreadMessageSearch({
   const [draft, setDraft] = useState("");
   const [caret, setCaret] = useState(0);
   const [asked, setAsked] = useState(false);
-  const [modeOverride, setModeOverride] = useState<boolean | null>(null);
   const [submitted, setSubmitted] = useState<Submitted | null>(null);
-  const structuredDraft = modeOverride ?? detectStructuredSearch(draft);
-  const problem: QueryProblem | null = asked ? queryProblem(draft, structuredDraft) : null;
+  const syntaxDraft = detectStructuredSearch(draft) ? "unified" as const : undefined;
+  const problem: QueryProblem | null = asked ? queryProblem(draft, syntaxDraft !== undefined) : null;
 
   useEffect(() => {
     if (open) queueMicrotask(() => inputRef.current?.focus());
   }, [open]);
 
   const results = useQuery({
-    queryKey: [...roomKeys.search(roomId), "thread-messages", threadNumber, submitted?.q, submitted?.structured, submitted?.zone, submitted?.page],
+    queryKey: [...roomKeys.search(roomId), "thread-messages", threadNumber, submitted?.q, submitted?.syntax, submitted?.zone, submitted?.page],
     queryFn: ({ signal }) => searchThreadMessages(roomId, threadNumber, {
       q: submitted!.q,
-      ...(submitted!.structured ? { syntax: "structured" as const, timeZone: submitted!.zone } : {}),
+      ...(submitted!.syntax !== undefined ? { syntax: submitted!.syntax, timeZone: submitted!.zone } : {}),
       page: submitted!.page,
       pageSize: SEARCH_PAGE_SIZE,
     }, signal),
@@ -79,17 +78,16 @@ export default function ThreadMessageSearch({
   function submit(event: FormEvent) {
     event.preventDefault();
     setAsked(true);
-    if (queryProblem(draft, structuredDraft) !== null) return;
+    if (queryProblem(draft, syntaxDraft !== undefined) !== null) return;
     const next: Submitted = {
       q: draft.trim(),
-      structured: structuredDraft,
-      ...(structuredDraft ? { zone: browserTimeZone() } : {}),
+      ...(syntaxDraft === undefined ? {} : { syntax: syntaxDraft, zone: browserTimeZone() }),
       page: 1,
     };
     if (
       submitted?.page === 1
       && submitted.q === next.q
-      && submitted.structured === next.structured
+      && submitted.syntax === next.syntax
       && submitted.zone === next.zone
     ) {
       void results.refetch();
@@ -106,7 +104,6 @@ export default function ThreadMessageSearch({
     const next = insertSearchToken(draft, start, end, replacement);
     setDraft(next.query);
     setCaret(next.caret);
-    setModeOverride(true);
     queueMicrotask(() => {
       inputRef.current?.focus();
       inputRef.current?.setSelectionRange(next.caret, next.caret);
@@ -178,8 +175,6 @@ export default function ThreadMessageSearch({
             ref={assistantRef}
             query={draft}
             caret={caret}
-            structured={structuredDraft}
-            onModeChange={setModeOverride}
             onInsert={insert}
             roomId={roomId}
             statuses={statuses}
@@ -191,7 +186,7 @@ export default function ThreadMessageSearch({
         <div className={classes.results}>
           {results.isError && (
             <FormErrorAlert title={t("threads.find.failed")}>
-              {searchErrorMessage(results.error, t, submitted.structured)}
+              {searchErrorMessage(results.error, t, submitted.syntax !== undefined)}
             </FormErrorAlert>
           )}
           {results.isFetching && <Loader size="sm" aria-label={t("common.loading")} />}

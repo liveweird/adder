@@ -131,7 +131,7 @@ describe("RoomSearch page", () => {
     expect(screen.getByText("Triage")).toBeInTheDocument();
   });
 
-  test("the Unread switch searches without a term and combines with structured clauses", async () => {
+  test("the Unread switch searches without a term and combines with unified clauses", async () => {
     const { searches } = serve(() => jsonResponse(200, searchPage([threadHit(3, { matchCount: 0, messages: [], status: "triage" })])));
     const user = userEvent.setup();
     renderSearch();
@@ -141,7 +141,7 @@ describe("RoomSearch page", () => {
     expect(screen.getByTestId("search")).toHaveTextContent("?unread=me");
     await user.type(screen.getByRole("searchbox"), "status:triage hashtag:incident{Enter}");
     await waitFor(() => expect(searches.at(-1)).toContain("unread=true"));
-    expect(searches.at(-1)).toContain("syntax=structured");
+    expect(searches.at(-1)).toContain("syntax=unified");
   });
 
   test("a watching key in the URL searches the room with the scope it names and no term", async () => {
@@ -174,6 +174,16 @@ describe("RoomSearch page", () => {
     await user.click(screen.getByRole("radio", { name: "All" }));
     await waitFor(() => expect(searches.at(-1)).toBe("/api/v1/rooms/12/search?q=outage&page=1&pageSize=20"));
     expect(screen.getByTestId("search")).toHaveTextContent(/^\?q=outage$/);
+  });
+
+  test("a legacy structured room link keeps its syntax and zone through refinements", async () => {
+    const { searches } = serve(() => jsonResponse(200, searchPage([threadHit(1)])));
+    const user = userEvent.setup();
+    renderSearch("/rooms/12/search?q=disk&syntax=structured&timeZone=UTC");
+    await screen.findByRole("link", { name: "#1 Database outage" });
+    await user.click(screen.getByRole("radio", { name: "Open" }));
+    await waitFor(() => expect(searches.at(-1)).toContain("syntax=structured&timeZone=UTC"));
+    expect(screen.getByTestId("search")).toHaveTextContent("syntax=structured");
   });
 
   test("a term the server would refuse is never sent: the box says why", async () => {

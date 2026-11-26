@@ -6,7 +6,9 @@
 
 import type { TFunction } from "i18next";
 import { ApiError, isTimeoutError } from "../api/http";
+import type { SearchSyntax } from "../api/search";
 import { PROBLEM_TYPES, isProblem } from "./problems";
+import { browserTimeZone } from "./formatDate";
 import { searchOperatorFor } from "./searchQueryEditor";
 import { SCOPE_FILTER, SCOPES, threadTagValues, type Scope } from "./threadListParams";
 
@@ -20,6 +22,7 @@ const MAX_STRUCTURED_QUERY_LENGTH = 512;
 const DEFAULT_SEARCH_SCOPE: Scope = "all";
 
 export type QueryProblem = "tooShort" | "tooLong" | "invalid" | "structuredTooLong" | "structuredInvalid";
+export type { SearchSyntax } from "../api/search";
 
 /** Detect operators in a newly submitted draft. Shared links keep the syntax stored in their URL. */
 export function detectStructuredSearch(raw: string): boolean {
@@ -47,7 +50,7 @@ export function queryProblem(raw: string, structured = false): QueryProblem | nu
 export interface SearchState {
   /** The term as the URL spells it (trimmed; "" when there is none). It may still be unsearchable: see [queryProblem]. */
   q: string;
-  syntax?: "structured";
+  syntax?: SearchSyntax;
   /** IANA zone of the submitted query, so date filters keep their meaning when shared. */
   timeZone?: string;
   scope: Scope;
@@ -71,11 +74,12 @@ export function parseSearchParams(search: URLSearchParams): SearchState {
   const scope = search.get("scope");
   const page = search.get("page");
   const q = (search.get("q") ?? "").trim();
-  const structured = q !== "" && search.get("syntax") === "structured";
+  const syntax = search.get("syntax");
+  const recognizedSyntax = q !== "" && (syntax === "structured" || syntax === "unified") ? syntax : undefined;
   const timeZone = search.get("timeZone");
   return {
     q,
-    ...(structured ? { syntax: "structured", ...(timeZone ? { timeZone } : {}) } : {}),
+    ...(recognizedSyntax ? { syntax: recognizedSyntax, ...(timeZone ? { timeZone } : {}) } : {}),
     scope: SCOPES.find((value) => value === scope) ?? DEFAULT_SEARCH_SCOPE,
     watching: search.get("watching") === "1",
     unread: search.get("unread") === "me",
@@ -94,7 +98,7 @@ export function writeSearchParams(base: URLSearchParams, patch: Partial<SearchSt
   const out = new URLSearchParams(base);
   for (const key of ["q", "syntax", "timeZone", "scope", "watching", "unread", "threadTag", "page"]) out.delete(key);
   if (next.q !== "") out.set("q", next.q);
-  if (next.q !== "" && next.syntax === "structured") {
+  if (next.q !== "" && next.syntax !== undefined) {
     out.set("syntax", next.syntax);
     if (next.timeZone) out.set("timeZone", next.timeZone);
   }
@@ -110,7 +114,15 @@ export function writeSearchParams(base: URLSearchParams, patch: Partial<SearchSt
 export const scopeToClosed = (scope: Scope): boolean | undefined => SCOPE_FILTER[scope];
 
 /** A link to a search page for `q` (the palette's "Search for ..." actions): `path` is `/search` or a room's search route. */
-export const searchResultsPath = (path: string, q: string) => `${path}?${writeSearchParams(new URLSearchParams(), { q: q.trim() })}`;
+export const searchResultsPath = (path: string, q: string, timeZone = browserTimeZone()) => {
+  const term = q.trim();
+  const syntax = detectStructuredSearch(term) ? "unified" as const : undefined;
+  return `${path}?${writeSearchParams(new URLSearchParams(), {
+    q: term,
+    syntax,
+    ...(syntax === undefined ? {} : { timeZone }),
+  })}`;
+};
 
 /** The palette's "Threads I watch" link: the search page with the toggle on and no term (`/search?watching=1`). */
 export const watchedThreadsPath = (path: string) => `${path}?${writeSearchParams(new URLSearchParams(), { watching: true })}`;
@@ -120,7 +132,7 @@ export const watchedThreadsPath = (path: string) => `${path}?${writeSearchParams
  * makes `q` optional ONLY with `watching=true`, `unread=true`, or a `threadTag`; a term that is given is validated as ever).
  */
 export const isSearchable = ({ q, syntax, watching, unread, threadTag }: Pick<SearchState, "q" | "syntax" | "watching" | "unread" | "threadTag">): boolean =>
-  q === "" ? watching || unread || threadTag.length > 0 : queryProblem(q, syntax === "structured") === null;
+  q === "" ? watching || unread || threadTag.length > 0 : queryProblem(q, syntax !== undefined) === null;
 
 /**
  * The words for a failed search: three different 429s each say what to do (the bucket: wait; `search-timeout`: narrow the search;

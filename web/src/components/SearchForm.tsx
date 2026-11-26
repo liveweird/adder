@@ -4,7 +4,7 @@ import { Button, Paper, SegmentedControl, Stack, Switch, Text, TextInput } from 
 import { IconSearch } from "@tabler/icons-react";
 import type { RoomWorkflow } from "../api/rooms";
 import { useTagCategories } from "../hooks/useTagCategories";
-import { detectStructuredSearch, queryProblem, type QueryProblem } from "../utils/searchParams";
+import { detectStructuredSearch, queryProblem, type QueryProblem, type SearchSyntax } from "../utils/searchParams";
 import { insertSearchToken } from "../utils/searchQueryEditor";
 import { tagOptionGroups } from "../utils/threadTags";
 import { SCOPES, type Scope } from "../utils/threadListParams";
@@ -28,7 +28,7 @@ export default function SearchForm({
   watching,
   unread,
   threadTag,
-  structured = false,
+  syntax,
   onSubmit,
   onScope,
   onWatching,
@@ -43,8 +43,8 @@ export default function SearchForm({
   watching: boolean;
   unread: boolean;
   threadTag: readonly string[];
-  structured?: boolean;
-  onSubmit: (q: string, structured: boolean) => void;
+  syntax?: SearchSyntax;
+  onSubmit: (q: string, syntax?: SearchSyntax) => void;
   onScope: (scope: Scope) => void;
   onWatching: (watching: boolean) => void;
   onUnread: (unread: boolean) => void;
@@ -59,30 +59,32 @@ export default function SearchForm({
   const listing = watching || unread || threadTag.length > 0;
   const [draft, setDraft] = useState(q);
   const [caret, setCaret] = useState(q.length);
-  const [modeOverride, setModeOverride] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const assistantRef = useRef<SearchQueryAssistantHandle>(null);
   // Say what is wrong only once the reader asked (a submit) or the URL already holds a term; an empty box on arrival is not an error.
   const [asked, setAsked] = useState(q !== "");
   // Derived during render (the guarded idiom): the box follows the URL's term, and keeps the reader's focus while it does.
-  const [seen, setSeen] = useState({ q, structured });
-  if (q !== seen.q || structured !== seen.structured) {
-    setSeen({ q, structured });
+  const [seen, setSeen] = useState({ q, syntax });
+  if (q !== seen.q || syntax !== seen.syntax) {
+    setSeen({ q, syntax });
     setDraft(q);
     setCaret(q.length);
     setAsked(q !== "");
-    setModeOverride(null);
   }
-  const structuredDraft = modeOverride ?? (structured || (draft !== q && detectStructuredSearch(draft)));
+  const draftValue = draft.trim();
+  const syntaxDraft = draftValue === q ? syntax : detectStructuredSearch(draft) ? "unified" : undefined;
   // What is wrong with the box, with the watched list and the tag view in mind: an empty box is fine while either is on.
-  const check = (raw: string): QueryProblem | null => (listing && raw.trim() === "" ? null : queryProblem(raw, structuredDraft));
+  const check = (raw: string): QueryProblem | null => (listing && raw.trim() === "" ? null : queryProblem(raw, syntaxDraft !== undefined));
   const problem = asked ? check(draft) : null;
 
   function submit(event: FormEvent) {
     event.preventDefault();
     setAsked(true);
-    const value = draft.trim();
-    if (check(draft) === null) onSubmit(value, value !== "" && structuredDraft);
+    const value = draftValue;
+    if (check(draft) === null) {
+      const nextSyntax = value === q ? syntax : value !== "" && detectStructuredSearch(value) ? "unified" : undefined;
+      onSubmit(value, nextSyntax);
+    }
   }
 
   function updateCaret(element: HTMLInputElement) {
@@ -93,7 +95,6 @@ export default function SearchForm({
     const next = insertSearchToken(draft, start, end, replacement);
     setDraft(next.query);
     setCaret(next.caret);
-    setModeOverride(true);
     queueMicrotask(() => {
       inputRef.current?.focus();
       inputRef.current?.setSelectionRange(next.caret, next.caret);
@@ -124,7 +125,7 @@ export default function SearchForm({
             onClick={(event) => updateCaret(event.currentTarget)}
             onSelect={(event) => updateCaret(event.currentTarget)}
             onKeyDown={inputKeyDown}
-            description={t(structuredDraft ? "search.syntax.hint" : watching ? "search.watching.hintOn" : threadTag.length > 0 ? "search.tags.hintOn" : unread ? "search.unread.hintOn" : "search.hint")}
+            description={t(watching ? "search.watching.hintOn" : threadTag.length > 0 ? "search.tags.hintOn" : unread ? "search.unread.hintOn" : "search.hint")}
             inputWrapperOrder={["label", "input", "error", "description"]}
             error={problem === null ? undefined : t(`search.error.${problem}`)}
             // Announced when it appears (a submit that was refused), not only found by a reader who goes back to the box.
@@ -142,8 +143,6 @@ export default function SearchForm({
           ref={assistantRef}
           query={draft}
           caret={caret}
-          structured={structuredDraft}
-          onModeChange={setModeOverride}
           onInsert={insert}
           roomId={assistantRoomId}
           statuses={assistantStatuses}

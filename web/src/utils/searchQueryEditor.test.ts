@@ -45,6 +45,7 @@ describe("structured search query editor", () => {
   });
 
   test("suggests operators by prefix and the has values in context", () => {
+    expect(searchOperatorSuggestions("wor").map((item) => item.insert)).toEqual(["word:"]);
     expect(searchOperatorSuggestions("ow").map((item) => item.insert)).toEqual(["owner:"]);
     expect(searchOperatorSuggestions("has:r").map((item) => item.insert)).toEqual(["has:reaction", "has:reaction:"]);
     expect(searchOperatorSuggestions("has:").map((item) => item.insert)).toEqual([

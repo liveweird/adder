@@ -54,7 +54,6 @@ export default function SearchBody({
   const { t } = useTranslation();
   const { state, submit, setScope, setWatching, setUnread, setThreadTag, setPage, resetPage } = useSearchUrl();
   const { q, syntax, timeZone, scope, watching, unread, threadTag, page } = state;
-  const structured = syntax === "structured";
   // A term the URL holds but the server would refuse (hand-edited, too short) is never sent; the form says why. With the "Threads I watch"
   // toggle on or a tag picked, no term at all is a search too: the threads the caller watches, or the ones that carry a chosen tag.
   const searchable = isSearchable(state);
@@ -69,7 +68,7 @@ export default function SearchBody({
         watching: watching || undefined,
         unread: unread || undefined,
         threadTag: threadTag.length > 0 ? threadTag : undefined,
-        ...(structured ? { syntax, timeZone } : {}),
+        ...(syntax !== undefined ? { syntax, timeZone } : {}),
       }),
     enabled: searchable,
     staleTime: SEARCH_STALE_MS,
@@ -97,8 +96,8 @@ export default function SearchBody({
         watching={watching}
         unread={unread}
         threadTag={threadTag}
-        structured={structured}
-        onSubmit={(next, nextStructured) => (next === q && nextStructured === structured ? void refetch() : submit(next, nextStructured))}
+        syntax={syntax}
+        onSubmit={(next, nextSyntax) => (next === q && nextSyntax === syntax ? void refetch() : submit(next, nextSyntax))}
         onScope={setScope}
         onWatching={setWatching}
         onUnread={setUnread}
@@ -107,7 +106,7 @@ export default function SearchBody({
         assistantStatuses={statuses}
       />
       {!searchable && initialLabel && <EmptyState icon={IconSearch} label={initialLabel} />}
-      {searchable && isError && <FormErrorAlert>{searchErrorMessage(error, t, structured)}</FormErrorAlert>}
+      {searchable && isError && <FormErrorAlert>{searchErrorMessage(error, t, syntax !== undefined)}</FormErrorAlert>}
       {searchable && isLoading && <LoadingBlock />}
       {/* A live region that is always there while a search is shown, so the count is announced when it changes. */}
       {searchable && (

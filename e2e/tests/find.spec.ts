@@ -540,6 +540,11 @@ test("structured search suggests clauses and combines them on one message", asyn
   await page.goto("/search");
   const input = page.getByRole("searchbox", { name: "Search all your rooms" });
   await page.getByRole("button", { name: "Search syntax", exact: true }).click();
+  await page.getByRole("button", { name: /^word:/ }).click();
+  await expect(input).toHaveValue(/^word:/);
+  await expect(input).toBeFocused();
+  await input.clear();
+  await page.getByRole("button", { name: "Search syntax", exact: true }).click();
   await page.getByRole("button", { name: /^has:link/ }).click();
   await expect(input).toHaveValue(/has:link/);
   await input.fill(`has:link "${phrase}" form:`);
@@ -562,7 +567,7 @@ test("structured search suggests clauses and combines them on one message", asyn
   ]);
   expect(result.status(), await result.text()).toBe(200);
   const params = new URL(page.url()).searchParams;
-  expect(params.get("syntax")).toBe("structured");
+  expect(params.get("syntax")).toBe("unified");
   expect(params.get("q")).toBe(q);
   expect(params.get("timeZone")).toBeTruthy();
   await expect(page.getByText("1 thread found")).toBeVisible();
@@ -693,7 +698,8 @@ test("status and hashtag clauses refine global, room and thread search", async (
   const api = await actingAs(owner);
   const roomId = await createRoom(api, uniqueText("e2e-find-filters"), "Incident");
   const tag = rareWord("replica");
-  const word = rareWord("handoff");
+  const prefix = rareWord("handoff");
+  const word = `${prefix}s`;
   const title = uniqueText("Replica recovery");
   const hit = await startThread(api, roomId, title, `${word} #${tag}`);
   await moveThread(api, roomId, hit, "investigating");
@@ -702,7 +708,8 @@ test("status and hashtag clauses refine global, room and thread search", async (
   const split = await startThread(api, roomId, uniqueText("Split across messages"), `Tagged #${tag}`);
   await moveThread(api, roomId, split, "investigating");
   await postMessage(api, roomId, split, `${word} in a separate reply`);
-  const query = `status:investigating hashtag:${tag} ${word}`;
+  const filters = `status:investigating hashtag:${tag}`;
+  const query = `${filters} ${prefix}`;
 
   for (const [path, label] of [["/search", "Search all your rooms"], [`/rooms/${roomId}/search`, "Keywords"]] as const) {
     await page.goto(path);
@@ -711,7 +718,27 @@ test("status and hashtag clauses refine global, room and thread search", async (
     await filter.press("Enter");
     await expect(page.getByText("1 thread found")).toBeVisible();
     await expect(page.getByRole("link", { name: `#${hit} ${title}` })).toHaveAttribute("href", `/rooms/${roomId}/threads/${hit}`);
+    await expect(page.getByRole("switch", { name: "Structured mode" })).toHaveCount(0);
+
+    await filter.fill(`${filters} word:${prefix}`);
+    await filter.press("Enter");
+    await expect(page.getByText(/^Nothing matches/)).toBeVisible();
+    await filter.fill(`${filters} word:${word}`);
+    await filter.press("Enter");
+    await expect(page.getByText("1 thread found")).toBeVisible();
   }
+
+  // A saved link that explicitly used the previous whole-word default keeps its results.
+  const saved = new URLSearchParams({ q: query, syntax: "structured", timeZone: "America/Toronto" });
+  await page.goto(`/search?${saved}`);
+  await expect(page.getByText(/^Nothing matches/)).toBeVisible();
+  const [retried] = await Promise.all([
+    page.waitForResponse((response) => new URL(response.url()).pathname === "/api/v1/search"),
+    page.getByRole("searchbox", { name: "Search all your rooms" }).press("Enter"),
+  ]);
+  const retryParams = new URL(retried.url()).searchParams;
+  expect(retryParams.get("syntax")).toBe("structured");
+  expect(retryParams.get("timeZone")).toBe("America/Toronto");
 
   await page.goto(`/rooms/${roomId}/threads/${hit}`);
   await page.getByRole("button", { name: "Find in thread" }).click();
@@ -720,4 +747,5 @@ test("status and hashtag clauses refine global, room and thread search", async (
   await input.press("Enter");
   await expect(page.getByText("1 message found")).toBeVisible();
   await expect(page.getByRole("list", { name: "Messages found" }).getByRole("link")).toHaveCount(1);
+  await expect(page.getByRole("switch", { name: "Structured mode" })).toHaveCount(0);
 });
