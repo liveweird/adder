@@ -56,6 +56,16 @@ object PostgresTestSupport {
      */
     fun connect(): java.sql.Connection = connectTo(jdbcUrl)
 
+    /** Brackets deadlines based on PostgreSQL time without comparing the database host's clock with the test JVM. */
+    fun nowMillis(): Long = connect().use { connection ->
+        connection.createStatement().use { statement ->
+            statement.executeQuery("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint").use { rows ->
+                check(rows.next())
+                rows.getLong(1)
+            }
+        }
+    }
+
     /** [connect] to another database of the same container (a scratch one a test created), with the same bounds. */
     fun connect(database: String): java.sql.Connection = connectTo(jdbcUrlFor(database))
 
