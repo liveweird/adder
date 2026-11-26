@@ -242,7 +242,8 @@ Four groups (D1 and D2 are the architect's recommendations, taken as assumptions
 Messages keep their existing Markdown body. The authenticated preview route reads an exact destination from a live message in the room.
 It returns a bounded page title, an optional verified raster, or an unavailable result. Preview work changes no thread or message state.
 Only the reader's Preview action requests this document. The confirmation opens the original address chosen by the reader, even when
-the preview followed an allowed redirect. See `security.md` for the outbound policy.
+the preview followed an allowed redirect. One preview per user is in flight across all application instances; its short lease holds no
+database connection during the outbound request and is checked after the existing post-fetch access checks. See `security.md` for the outbound policy.
 
 ### Field values
 

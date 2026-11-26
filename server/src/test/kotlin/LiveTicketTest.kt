@@ -107,9 +107,9 @@ class LiveTicketTest {
         assertNull(application.attributes[LiveStatsKey]().listenerUp, "the listener starts lazily on the first mint")
         for (role in listOf(UserRole.USER, UserRole.ADMIN)) {
             val caller = signedIn("live-ticket-$role", role)
-            val before = System.currentTimeMillis()
+            val before = PostgresTestSupport.nowMillis()
             val response = caller.mint()
-            val after = System.currentTimeMillis()
+            val after = PostgresTestSupport.nowMillis()
 
             assertEquals(HttpStatusCode.OK, response.status, "an exchange, not a creation")
             assertTrue(response.headers[HttpHeaders.CacheControl]?.contains("no-store") == true, "a credential is never cached")

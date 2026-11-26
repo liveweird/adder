@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.RoomAccessType
+import ch.nokillswit.infra.db.OperationLeaseService
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.rooms.RoomPageResponse
 import ch.nokillswit.rooms.RoomMemberService
@@ -584,7 +585,12 @@ class ThreadReadAllTest {
                 onChunk(after, limit)
         }
         val database = sharedDatabaseForTests()
-        return ThreadReadService(database, RoomMemberService(database, TeamService(database)), stub)
+        return ThreadReadService(
+            database,
+            RoomMemberService(database, TeamService(database)),
+            stub,
+            OperationLeaseService(database),
+        )
     }
 
     @Test
@@ -623,7 +629,12 @@ class ThreadReadAllTest {
             override suspend fun roomUnseenCeiling(roomId: UInt, userId: UInt): UInt? = error("the ceiling failed")
         }
         val database = sharedDatabaseForTests()
-        val failing = ThreadReadService(database, RoomMemberService(database, TeamService(database)), stub)
+        val failing = ThreadReadService(
+            database,
+            RoomMemberService(database, TeamService(database)),
+            stub,
+            OperationLeaseService(database),
+        )
         withAuditCapture { capture ->
             val failure = runCatching { failing.markRoomRead(cast.room, cast.bob.id) }.exceptionOrNull()
             assertTrue(failure is IllegalStateException, "the failure propagates untouched: $failure")

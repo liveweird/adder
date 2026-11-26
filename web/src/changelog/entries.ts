@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.31.0",
+    date: "2026-11-26",
+    en: `**Adder 1.31.0 — shared limits for parallel chat actions**
+
+- App instances coordinate Mark all as read and link previews so the same account keeps one in-flight request of each kind. Interrupted work releases its slot or expires.`,
+    pl: `**Adder 1.31.0 — wspólne limity równoległych operacji w czacie**
+
+- Instancje współdzielą limit jednego żądania na konto dla oznaczania wszystkich wiadomości jako przeczytane i dla podglądu linku. Przerwanie operacji zwalnia miejsce, a niezwolnione miejsce wygasa.`,
+  },
+  {
     version: "1.30.0",
     date: "2026-11-26",
     en: `**Adder 1.30.0 — shared digest delivery intervals**

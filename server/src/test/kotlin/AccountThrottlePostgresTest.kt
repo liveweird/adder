@@ -216,6 +216,49 @@ class AccountThrottlePostgresTest {
     }
 
     @Test
+    fun `new address owner moves their own failures while discarding the former owner's live lock`() = withIsolatedStore {
+        val formerAddress = "known-transfer-${UUID.randomUUID()}@test"
+        val newFormerAddress = "known-transfer-moved-${UUID.randomUUID()}@test"
+        val incomingOldAddress = "known-transfer-incoming-${UUID.randomUUID()}@test"
+        val formerId = seedUser(formerAddress)
+        val incomingId = seedUser(incomingOldAddress)
+        val throttle = login(threshold = 2, lockoutMillis = 60_000)
+
+        assertEquals(LoginThrottle.FailureResult.RECORDED, throttle.recordFailure(incomingOldAddress, incomingId).result)
+        assertEquals(LoginThrottle.FailureResult.RECORDED, throttle.recordFailure(formerAddress, formerId).result)
+        assertEquals(LoginThrottle.FailureResult.LOCKED_NOW, throttle.recordFailure(formerAddress, formerId).result)
+
+        renameUser(formerId, newFormerAddress)
+        renameUser(incomingId, formerAddress)
+
+        assertEquals(
+            LoginThrottle.Preflight.ALLOWED,
+            throttle.preflight(formerAddress, incomingId),
+            "the incoming account must not inherit the former owner's live lock",
+        )
+        assertEquals(
+            LoginThrottle.FailureResult.LOCKED_NOW,
+            throttle.recordFailure(formerAddress, incomingId).result,
+            "the incoming account's own prior failure still moves with its stable binding",
+        )
+        assertEquals(0, attemptRowCount(formerId))
+        assertEquals(1, attemptRowCount(incomingId))
+
+        connect().use { connection ->
+            connection.createStatement().use { statement ->
+                statement.executeQuery("SELECT identity_hash FROM account_login_attempts").use { rows ->
+                    assertTrue(rows.next())
+                    assertEquals(
+                        DeploymentKeyedDigest(secret, "adder.account-login-attempt.v1").ofCanonical(formerAddress),
+                        rows.getString(1).trim(),
+                    )
+                    assertFalse(rows.next())
+                }
+            }
+        }
+    }
+
+    @Test
     fun `proved account preserves the anonymous address window accumulated before proof`() = withIsolatedStore {
         val email = "known-anonymous-${UUID.randomUUID()}@test"
         val userId = seedUser(email)
@@ -332,5 +375,6 @@ class AccountThrottlePostgresTest {
                 }
             }
         }
+
     }
 }

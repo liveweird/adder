@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Shared limits for parallel chat actions (1.31.0)
+
+Mark all as read and link previews each keep one in-flight request per account across application instances. An abandoned slot expires. Preview fetching holds no database connection while it contacts the external site.
+
 ### Shared digest delivery intervals (1.30.0)
 
 Notification digest recipient intervals survive app restarts and apply across application instances. Adder reserves the recipient interval and sender pacing together before it contacts the email provider.

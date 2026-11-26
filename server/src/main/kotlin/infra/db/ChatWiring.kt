@@ -168,12 +168,11 @@ internal fun Application.publishChatServices(
         listOf(threadWatchService.replyFollower, PinCleanup()), reactionService, threadReadLimiter, messageRevisionService,
     )
     attributes.put(MessageServiceKey, messageService)
-    attributes.put(MessageLinkPreviewServiceKey, MessageLinkPreviewService(roomService, messageService))
+    publishOperationLeaseServices(database, roomService, messageService, roomMemberService, noticeWriter)
     attributes.put(PinServiceKey, PinService(database, messageService))
     // The thread's curated tags (V33): the list and the read put them on every thread; the PUT is a thread write under the room lock.
     val threadTagService = ThreadTagService(database, threadEventService)
     attributes.put(ThreadTagServiceKey, threadTagService)
-    attributes.put(ThreadReadServiceKey, ThreadReadService(database, roomMemberService, noticeWriter))
     attributes.put(
         ThreadServiceKey,
         ThreadService(
@@ -210,6 +209,19 @@ internal fun Application.publishChatServices(
     )
     // The workflow's thread-usage port (S6): rooms/ declares it and never imports threads/, so this root registers the implementation.
     attributes.put(WorkflowUsageKey, ThreadWorkflowUsage(roomWorkflowService, threadEventService))
+}
+
+/** Publishes the two per-user operations that share V60's deployment-wide lease store. */
+private fun Application.publishOperationLeaseServices(
+    database: R2dbcDatabase,
+    rooms: RoomService,
+    messages: MessageService,
+    members: RoomMemberService,
+    notices: NoticeWriter,
+) {
+    val leases = OperationLeaseService(database)
+    attributes.put(MessageLinkPreviewServiceKey, MessageLinkPreviewService(rooms, messages, leases))
+    attributes.put(ThreadReadServiceKey, ThreadReadService(database, members, notices, leases))
 }
 
 /** Publishes the saved-body service and the lifecycle writer that physically scrubs it. */

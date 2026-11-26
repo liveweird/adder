@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.30.0
+  version: 1.31.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -1506,8 +1506,9 @@ paths:
         instant of the request may be swallowed. The caller's per-thread read markers and everybody else's read state are untouched.
         Idempotent: the same answer when nothing was unread. An archived room is marked all the same. No room lock is taken and no
         live event is emitted (the caller's other tabs of the same browser re-read the bell count through a `BroadcastChannel`, the rest catches up on focus); ONE audit line (`room.read_all`: ids, the number of
-        notices settled and whether the work `complete`d) is written after the work. At most ONE call per person runs at a time: a second while the first is running
-        is `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`. If the work fails after the floor was raised (an error
+        notices settled and whether the work `complete`d) is written after the work. At most ONE call per person runs at a time across
+        every application instance, enforced by a short database-clock lease that is renewed and fenced in each write transaction: a
+        second while the first is running is `429` of type `urn:adder:problem:read-busy` with `Retry-After: 1`. If the work fails after the floor was raised (an error
         answer), the floor stays raised and calling again settles the rest of the notices. No request body.
       responses:
         '204':
@@ -2780,8 +2781,10 @@ paths:
 
         A syntactically valid link that the guarded fetcher does not support, or an unavailable upstream, returns `200` with
         `kind: UNAVAILABLE`. Invalid input or a URL absent from the current message is `400`. Calls ride a per-user bucket of 20 per
-        minute and one preview may be in flight for a caller (`429` beyond either bound). The response is generated on demand and
-        carries `Cache-Control: no-store`. The compact request has a 16 KiB transport ceiling (`413` beyond it).
+        minute and one preview may be in flight for a caller across every application instance (`429` beyond either bound). The
+        database-clock lease is held without keeping a database connection open during the bounded external fetch, rechecked before a
+        result is returned, and released on cancellation. The response is generated on demand and carries `Cache-Control: no-store`.
+        The compact request has a 16 KiB transport ceiling (`413` beyond it).
       requestBody:
         required: true
         content:

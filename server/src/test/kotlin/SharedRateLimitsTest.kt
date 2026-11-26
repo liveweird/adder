@@ -67,9 +67,9 @@ class SharedRateLimitsTest {
         assertEquals(first.refillAtMillis, refused.refillAtMillis, "rejections do not slide the fixed window")
 
         expire("test-envelope", key)
-        val before = databaseNow()
+        val before = PostgresTestSupport.nowMillis()
         val fresh = store.consume("test-envelope", key, limit = 3)
-        val after = databaseNow()
+        val after = PostgresTestSupport.nowMillis()
         assertTrue(fresh.admitted)
         assertEquals(2, fresh.remaining)
         assertTrue(fresh.serverNowMillis in before..after)
@@ -341,12 +341,6 @@ class SharedRateLimitsTest {
     private fun storedCount(isolated: IsolatedTestDatabase): Int = isolated.connect().use { connection ->
         connection.prepareStatement("SELECT stored_count FROM http_rate_limit_capacity_guard WHERE singleton").use { statement ->
             statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
-        }
-    }
-
-    private fun databaseNow(): Long = PostgresTestSupport.connect().use { connection ->
-        connection.prepareStatement("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint").use { statement ->
-            statement.executeQuery().use { rows -> rows.next(); rows.getLong(1) }
         }
     }
 
