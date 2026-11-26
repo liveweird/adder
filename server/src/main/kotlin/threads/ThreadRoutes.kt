@@ -256,10 +256,11 @@ private fun Route.threadDetails(roomService: RoomService, threadService: ThreadS
             val roomId = route.parent.parent.id
             roomService.visibleStanding(caller, roomId)
             val expected = call.expectedRevision()
+            val mutationId = call.mutationId()
             val request = sanitizedThreadUpdate(call.receive())
             validateThreadUpdate(request)
             val number = route.number.toInt()
-            val change = threadService.updateDetails(roomId, number, caller, expected, request)
+            val change = threadService.updateDetails(roomId, number, caller, expected, request, mutationId)
             if (change != null) {
                 audit(
                     "thread.updated",

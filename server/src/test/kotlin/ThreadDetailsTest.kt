@@ -1,6 +1,9 @@
 package ch.nokillswit
 
 import ch.nokillswit.infra.json.decodeParams
+import ch.nokillswit.infra.MUTATION_ID_HEADER
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.infra.revision.REVISION_CONFLICT_PROBLEM_TYPE
 import ch.nokillswit.plugins.ProblemDetail
@@ -70,9 +73,15 @@ class ThreadDetailsTest {
 
     private suspend fun HttpClient.thread(room: UInt): ThreadResponse = get("$rooms/$room/threads/1").body()
 
-    private suspend fun HttpClient.putThread(room: UInt, revision: Long?, body: ThreadUpdateRequest): HttpResponse =
+    private suspend fun HttpClient.putThread(
+        room: UInt,
+        revision: Long?,
+        body: ThreadUpdateRequest,
+        mutationId: String? = null,
+    ): HttpResponse =
         put("$rooms/$room/threads/1") {
             if (revision != null) header(EXPECTED_REVISION_HEADER, revision.toString())
+            mutationId?.let { header(MUTATION_ID_HEADER, it) }
             contentType(ContentType.Application.Json)
             setBody(body)
         }
@@ -282,6 +291,35 @@ class ThreadDetailsTest {
         assertEquals(before, TestThreads.raw(room, 1), "the row is untouched, updated_at included")
         assertEquals(activity, TestThreads.roomActivity(room))
         assertEquals(listOf("CREATED"), TestThreads.rawEvents(before.id).map { it.type })
+    }
+
+    @Test
+    fun `a details change correlates one thread updated hint while a no-op and refusal emit none`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("det-echo")
+        val room = room(owner)
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+
+        NotifyCapture().use { capture ->
+            val hints = capture.during {
+                owner.client.putThread(room, 1, update("Never"), mutationId.uppercase()).also {
+                    assertEquals(HttpStatusCode.BadRequest, it.status)
+                }
+                owner.client.putThread(room, 1, update("Changed"), mutationId).also {
+                    assertEquals(HttpStatusCode.NoContent, it.status)
+                }
+                owner.client.putThread(room, 2, update("Changed"), mutationId).also {
+                    assertEquals(HttpStatusCode.NoContent, it.status)
+                }
+                owner.client.putThread(room, 1, update("Refused"), mutationId).also {
+                    assertEquals(HttpStatusCode.Conflict, it.status)
+                }
+            }
+            assertEquals(
+                listOf(LiveHint(LiveKind.THREAD_UPDATED, room, threadNumber = 1, mutationId = mutationId, originUserId = owner.id)),
+                hints,
+            )
+        }
     }
 
     @Test

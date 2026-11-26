@@ -5,6 +5,7 @@ import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.infra.notify.LiveHint
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.infra.notify.notifyLive
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 import ch.nokillswit.infra.revision.EXPECTED_REVISION_HEADER
 import ch.nokillswit.rooms.RoomCreateRequest
 import ch.nokillswit.rooms.RoomFieldDef
@@ -87,8 +88,14 @@ class NotifyHintsTest {
     private fun hint(kind: LiveKind, room: UInt, thread: Int? = null, message: UInt? = null, targets: List<UInt>? = null) =
         LiveHint(kind, room, thread, message, targets)
 
-    private suspend fun HttpClient.putRevision(path: String, revision: Long, body: Any): HttpResponse = put(path) {
+    private suspend fun HttpClient.putRevision(
+        path: String,
+        revision: Long,
+        body: Any,
+        mutationId: String? = null,
+    ): HttpResponse = put(path) {
         header(EXPECTED_REVISION_HEADER, revision.toString())
+        mutationId?.let { header(MUTATION_ID_HEADER, it) }
         contentType(ContentType.Application.Json)
         setBody(body)
     }
@@ -250,17 +257,33 @@ class NotifyHintsTest {
         TestRooms.addMember(room, member.id)
         TestThreads.seed(room, owner.id)
         val tagsPath = "$rooms/$room/threads/1/tags"
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
         NotifyCapture().use { capture ->
             val hints = capture.during {
                 // The seeded Kind tag is live in every database (V32); no test touches the seeded categories.
-                member.client.putRevision(tagsPath, 1, ThreadTagsRequest(listOf("question"))).expect(HttpStatusCode.NoContent)
-                member.client.putRevision(tagsPath, 2, ThreadTagsRequest(listOf("question"))).expect(HttpStatusCode.NoContent) // same set
-                member.client.putRevision(tagsPath, 1, ThreadTagsRequest(emptyList())).expect(HttpStatusCode.Conflict) // stale
-                member.client.putRevision(tagsPath, 2, ThreadTagsRequest(listOf("no-such-tag"))).expect(HttpStatusCode.BadRequest)
-                owner.client.putRevision(tagsPath, 2, ThreadTagsRequest(emptyList())).expect(HttpStatusCode.NoContent)
+                member.client.putRevision(
+                    tagsPath, 1, ThreadTagsRequest(listOf("question")), mutationId.uppercase(),
+                ).expect(HttpStatusCode.BadRequest)
+                member.client.putRevision(
+                    tagsPath, 1, ThreadTagsRequest(listOf("question")), mutationId,
+                ).expect(HttpStatusCode.NoContent)
+                member.client.putRevision(
+                    tagsPath, 2, ThreadTagsRequest(listOf("question")), mutationId,
+                ).expect(HttpStatusCode.NoContent) // same set
+                member.client.putRevision(tagsPath, 1, ThreadTagsRequest(emptyList()), mutationId).expect(HttpStatusCode.Conflict) // stale
+                member.client.putRevision(
+                    tagsPath, 2, ThreadTagsRequest(listOf("no-such-tag")), mutationId,
+                ).expect(HttpStatusCode.BadRequest)
+                owner.client.putRevision(tagsPath, 2, ThreadTagsRequest(emptyList()), mutationId).expect(HttpStatusCode.NoContent)
             }
             // `thread.updated` only: a tag change is history, not activity, so no notice hint follows it (the pin rule, 1.2 A4).
-            assertEquals(listOf(hint(LiveKind.THREAD_UPDATED, room, thread = 1), hint(LiveKind.THREAD_UPDATED, room, thread = 1)), hints)
+            assertEquals(
+                listOf(
+                    LiveHint(LiveKind.THREAD_UPDATED, room, threadNumber = 1, mutationId = mutationId, originUserId = member.id),
+                    LiveHint(LiveKind.THREAD_UPDATED, room, threadNumber = 1, mutationId = mutationId, originUserId = owner.id),
+                ),
+                hints,
+            )
         }
     }
 

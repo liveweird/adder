@@ -4,7 +4,7 @@ import type { LiveServerFrame } from "./liveProtocol";
 const MAX_TRACKED_MUTATIONS = 32;
 const MUTATION_ECHO_LIFETIME_MS = 30_000;
 
-interface ReplyEcho {
+export interface MutationEcho {
   id: string;
   confirm(messageId?: number): void;
   cancel(): void;
@@ -25,7 +25,7 @@ type MutationTarget =
     }
   | {
       type: "thread";
-      kind: "thread.status_changed" | "thread.owner_changed";
+      kind: "thread.updated" | "thread.status_changed" | "thread.owner_changed";
       roomId: number;
       threadNumber: number;
     };
@@ -52,7 +52,7 @@ export function canCorrelateReply(apiBase: string, pageUrl: string): boolean {
 function beginEcho(
   queryClient: QueryClient,
   target: MutationTarget,
-): ReplyEcho | undefined {
+): MutationEcho | undefined {
   const id = globalThis.crypto?.randomUUID?.();
   if (id === undefined) return undefined;
   const mutations = sessions.get(queryClient) ?? new Map<string, PendingMutation>();
@@ -85,7 +85,7 @@ function beginEcho(
   };
 }
 
-export function beginReplyEcho(queryClient: QueryClient, roomId: number, threadNumber: number): ReplyEcho | undefined {
+export function beginReplyEcho(queryClient: QueryClient, roomId: number, threadNumber: number): MutationEcho | undefined {
   return beginEcho(queryClient, { type: "message", kind: "message.posted", roomId, threadNumber });
 }
 
@@ -109,6 +109,12 @@ export function beginStatusEcho(queryClient: QueryClient, roomId: number, thread
   return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
 }
 
+export function beginThreadUpdateEcho(queryClient: QueryClient, roomId: number, threadNumber: number) {
+  const echo = beginEcho(queryClient, { type: "thread", kind: "thread.updated", roomId, threadNumber });
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
+}
+
 function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { type: "event" }>): boolean {
   const target = mutation.target;
   if (target.kind !== frame.kind || target.roomId !== frame.roomId || target.threadNumber !== frame.threadNumber) return false;
@@ -122,7 +128,7 @@ function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { ty
 export function deferReplyEcho(queryClient: QueryClient, frame: LiveServerFrame, replay: () => void): boolean {
   if (
     frame.type !== "event" ||
-    !["message.posted", "message.reaction_changed", "thread.status_changed", "thread.owner_changed"].includes(frame.kind) ||
+    !["message.posted", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed"].includes(frame.kind) ||
     frame.mutationId === undefined
   ) return false;
   const mutation = sessions.get(queryClient)?.get(frame.mutationId);

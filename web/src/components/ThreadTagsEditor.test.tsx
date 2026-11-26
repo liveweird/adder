@@ -83,6 +83,7 @@ describe("the thread's Tags section (1.2 D1, 1.2 A6)", () => {
     const [[url, init]] = puts();
     expect(url).toBe("/api/v1/rooms/12/threads/42/tags");
     expect(new Headers((init as RequestInit).headers).get("X-Expected-Revision")).toBe("3");
+    expect(new Headers((init as RequestInit).headers).get("X-Mutation-Id")).toMatch(/^[0-9a-f-]{36}$/);
     expect(putBodies()).toEqual([{ tags: ["security", "question"] }]);
   });
 

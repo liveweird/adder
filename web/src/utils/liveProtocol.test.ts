@@ -87,6 +87,8 @@ describe("parseServerFrame", () => {
       .toEqual({ type: "event", kind: "thread.owner_changed", roomId: 7, threadNumber: 3, mutationId });
     expect(parse({ ...event, kind: "thread.status_changed", messageId: undefined, mutationId }))
       .toEqual({ type: "event", kind: "thread.status_changed", roomId: 7, threadNumber: 3, mutationId });
+    expect(parse({ ...event, kind: "thread.updated", messageId: undefined, mutationId }))
+      .toEqual({ type: "event", kind: "thread.updated", roomId: 7, threadNumber: 3, mutationId });
     expect(parse({ ...event, mutationId: mutationId.toUpperCase() })).toEqual(event);
     expect(parse({ ...event, mutationId, kind: "message.deleted" })).toEqual({ ...event, kind: "message.deleted" });
   });

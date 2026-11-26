@@ -43,15 +43,17 @@ describe("threads API wrappers", () => {
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/threads?page=1&pageSize=50");
   });
 
-  test("setThreadTags PUTs the whole set under X-Expected-Revision", async () => {
+  test("setThreadTags PUTs the whole set under X-Expected-Revision with optional correlation", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
-    await setThreadTags(5, 42, ["data", "security"], 7);
+    await setThreadTags(5, 42, ["data", "security"], 7, "14d7ed05-24c1-4374-b6eb-60b147595822");
     const [url, init] = lastCall();
     expect(url).toBe("/api/v1/rooms/5/threads/42/tags");
     expect(init.method).toBe("PUT");
     expect(new Headers(init.headers).get("X-Expected-Revision")).toBe("7");
+    expect(new Headers(init.headers).get("X-Mutation-Id")).toBe("14d7ed05-24c1-4374-b6eb-60b147595822");
     expect(JSON.parse(init.body as string)).toEqual({ tags: ["data", "security"] });
     await setThreadTags(5, 42, [], 8);
+    expect(new Headers(lastCall()[1].headers).has("X-Mutation-Id")).toBe(false);
     expect(JSON.parse(lastCall()[1].body as string)).toEqual({ tags: [] });
   });
 
@@ -99,13 +101,16 @@ describe("threads API wrappers", () => {
     expect(JSON.parse(init.body as string)).toEqual({ title: "T", body: "B", fields: { severity: "s1" } });
   });
 
-  test("updateThreadDetails PUTs the body under X-Expected-Revision (a cleared field travels as null)", async () => {
+  test("updateThreadDetails PUTs the body under X-Expected-Revision with optional correlation", async () => {
     mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
-    await updateThreadDetails(5, 42, { title: "T", fields: { severity: null, note: "x" } }, 3);
+    await updateThreadDetails(5, 42, { title: "T", fields: { severity: null, note: "x" } }, 3, "14d7ed05-24c1-4374-b6eb-60b147595822");
     const [url, init] = lastCall();
     expect([url, init.method]).toEqual(["/api/v1/rooms/5/threads/42", "PUT"]);
     expect(new Headers(init.headers).get("X-Expected-Revision")).toBe("3");
+    expect(new Headers(init.headers).get("X-Mutation-Id")).toBe("14d7ed05-24c1-4374-b6eb-60b147595822");
     expect(JSON.parse(init.body as string)).toEqual({ title: "T", fields: { severity: null, note: "x" } });
+    await updateThreadDetails(5, 42, { title: "T", fields: {} }, 4);
+    expect(new Headers(lastCall()[1].headers).has("X-Mutation-Id")).toBe(false);
   });
 
   test("setThreadStatus and setThreadOwner PUT their one value with optional correlation", async () => {

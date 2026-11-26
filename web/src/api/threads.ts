@@ -68,10 +68,13 @@ export async function createThread(roomId: number, body: ThreadCreateBody): Prom
  * keeps its value and `null` clears it, so a cleared field is always sent as `null`. A stale `expectedRevision` is a 409
  * `revision-conflict`; a closed thread a 409 `thread-closed`.
  */
-export async function updateThreadDetails(roomId: number, number: number, body: ThreadUpdateBody, expectedRevision: number): Promise<void> {
+export async function updateThreadDetails(roomId: number, number: number, body: ThreadUpdateBody, expectedRevision: number, mutationId?: string): Promise<void> {
   await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}`, {
     method: "PUT",
-    headers: { "X-Expected-Revision": String(expectedRevision) },
+    headers: {
+      "X-Expected-Revision": String(expectedRevision),
+      ...(mutationId === undefined ? {} : { "X-Mutation-Id": mutationId }),
+    },
     body: JSON.stringify(body),
   });
 }
@@ -81,10 +84,13 @@ export async function updateThreadDetails(roomId: number, number: number, body: 
  * tag in the set is a 400, so the picker never sends one). The save rides the thread's own revision, like the details: a stale
  * `expectedRevision` is a 409 `revision-conflict`. Any member while the thread is open, a steward once it is closed; an archived room is a 409.
  */
-export async function setThreadTags(roomId: number, number: number, tags: readonly string[], expectedRevision: number): Promise<void> {
+export async function setThreadTags(roomId: number, number: number, tags: readonly string[], expectedRevision: number, mutationId?: string): Promise<void> {
   await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/tags`, {
     method: "PUT",
-    headers: { "X-Expected-Revision": String(expectedRevision) },
+    headers: {
+      "X-Expected-Revision": String(expectedRevision),
+      ...(mutationId === undefined ? {} : { "X-Mutation-Id": mutationId }),
+    },
     body: JSON.stringify({ tags }),
   });
 }

@@ -17,6 +17,16 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.36.0",
+    date: "2026-11-26",
+    en: `**Adder 1.36.0 — faster thread detail and tag saves**
+
+- Editing a thread's title, fields or curated tags reuses the writer's complete successful refresh. Other tabs still receive the update live, and interrupted or uncertain saves retain the normal recovery path.`,
+    pl: `**Adder 1.36.0 — szybszy zapis szczegółów i tagów wątku**
+
+- Edycja tytułu, pól lub wybranych tagów wątku wykorzystuje pełne, udane odświeżenie po stronie osoby zapisującej. Inne karty nadal otrzymują zmianę na żywo, a przerwane lub niepewne zapisy zachowują zwykłą ścieżkę odzyskiwania.`,
+  },
+  {
     version: "1.35.0",
     date: "2026-11-26",
     en: `**Adder 1.35.0 — faster status transitions**

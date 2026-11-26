@@ -20,6 +20,7 @@ import FormErrorAlert from "./FormErrorAlert";
 import RevisionConflictAlert from "./RevisionConflictAlert";
 import ThreadFieldInput from "./ThreadFieldInput";
 import { roomKeys } from "../utils/roomKeys";
+import { beginThreadRevisionEcho, refreshThreadRevisionWrite } from "../utils/threadRevisionEcho";
 
 /** What the draft was seeded from: the values, the thread's revision (what the save names in `X-Expected-Revision`), and the workflow's fields and revision at that moment. */
 type Seed = { values: ThreadDetailsValues; revision: number; fields: readonly WorkflowField[]; workflowRevision: number };
@@ -99,9 +100,11 @@ export default function ThreadDetailsForm({
       return;
     }
     setSaving(true);
+    const echo = beginThreadRevisionEcho(queryClient, room.id, thread.number);
     try {
-      await updateThreadDetails(room.id, thread.number, toDetailsBody(draft, seed.values, seed.fields), seed.revision);
+      await updateThreadDetails(room.id, thread.number, toDetailsBody(draft, seed.values, seed.fields), seed.revision, echo?.id);
     } catch (err) {
+      echo?.cancel();
       if (isProblem(err, PROBLEM_TYPES.revisionConflict)) setConflict(true);
       else setError(threadDetailsErrorMessage(err, t));
       // The click on Save took the focus; the caret goes back to the form (a thread closed meanwhile disables it, and there is nothing to focus).
@@ -112,9 +115,8 @@ export default function ThreadDetailsForm({
       return;
     }
     showSuccessToast(t("threads.toast.detailsSaved"));
-    // The thread (its new revision and values), the list, the history and the rail; the editor ends once they are read. A details save moves
-    // no workflow count and changes no room header, so those stay as they are.
-    await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id), roomKeys.rail);
+    // Match thread.updated's complete scope before consuming the writer's echo. The editor ends once the thread tree, rail and Home are read.
+    await refreshThreadRevisionWrite(queryClient, room.id, echo);
     setSaving(false);
     onDone();
   }

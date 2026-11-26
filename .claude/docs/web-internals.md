@@ -406,7 +406,7 @@ One WebSocket per tab, opened by `useLiveUpdates` (`hooks/useLiveUpdates.ts`) in
 | Frame / kind | Invalidates |
 |---|---|
 | `thread.created` | threads list R, workflow R, workflow-edit R, rail |
-| `thread.updated`, `thread.owner_changed` | thread detail R/N, thread events R/N, threads list R, rail |
+| `thread.updated`, `thread.owner_changed` | thread detail R/N, thread events R/N, threads list R, rail, Home |
 | `thread.status_changed` | the above + workflow R, workflow-edit R |
 | `message.posted` | messages R/N, thread detail R/N, threads list R, rail |
 | `message.edited` | messages R/N, thread R/N (an edit can add or drop a hashtag the header shows), threads list R (the same on its rows), pins R (a pinned body shows in the panel) |
@@ -561,4 +561,4 @@ offers Reload, which re-seeds the draft only on the user's click. The shared pie
 
 ## Reusing a mutation refresh
 
-`liveReplyEcho` holds an exact matching `message.posted` or `message.reaction_changed` frame for up to 30 seconds, with at most 32 tracked mutations per query client. The writer confirms only after every active query covered by its standard refresh is successful, idle and fresh. Session changes discard earlier correlation state. When UUID generation is unavailable, tracking is full, or API origins differ, the write and live event follow their usual paths.
+`liveReplyEcho` holds an exact matching `message.posted`, `message.reaction_changed`, `thread.updated`, `thread.status_changed` or `thread.owner_changed` frame for up to 30 seconds, with at most 32 tracked mutations per query client. `threadRevisionEcho` gives both revisioned editors the same complete `thread.updated` refresh (`roomKeys.threads(roomId)`, `roomKeys.rail`, `homeKey`). The writer confirms only after every active query covered by its standard refresh is successful, idle and fresh. Session changes discard earlier correlation state. When UUID generation is unavailable, tracking is full, or API origins differ, the write and live event follow their usual paths.

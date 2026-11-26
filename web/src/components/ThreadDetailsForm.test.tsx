@@ -75,6 +75,7 @@ describe("ThreadDetailsForm", () => {
     const [[url, init]] = puts();
     expect(url).toBe("/api/v1/rooms/12/threads/42");
     expect(new Headers((init as RequestInit).headers).get("X-Expected-Revision")).toBe("3");
+    expect(new Headers((init as RequestInit).headers).get("X-Mutation-Id")).toMatch(/^[0-9a-f-]{36}$/);
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({ title: "Disk full on db-3", fields: { note: null } });
   });
 

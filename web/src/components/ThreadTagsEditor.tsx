@@ -17,6 +17,7 @@ import { threadTagsBlock } from "../utils/threadAccess";
 import { threadTagsErrorMessage } from "../utils/threadTagsErrors";
 import { liveTagNames, retiredTagNames, sameTagSet } from "../utils/threadTags";
 import { showSuccessToast } from "../utils/toast";
+import { beginThreadRevisionEcho, refreshThreadRevisionWrite } from "../utils/threadRevisionEcho";
 import ErrorAlert from "./ErrorAlert";
 import FormErrorAlert from "./FormErrorAlert";
 import RevisionConflictAlert from "./RevisionConflictAlert";
@@ -82,9 +83,11 @@ export default function ThreadTagsEditor({
     setError(null);
     setConflict(false);
     setSaving(true);
+    const echo = beginThreadRevisionEcho(queryClient, room.id, thread.number);
     try {
-      await setThreadTags(room.id, thread.number, value, seed.revision);
+      await setThreadTags(room.id, thread.number, value, seed.revision, echo?.id);
     } catch (err) {
+      echo?.cancel();
       if (isProblem(err, PROBLEM_TYPES.revisionConflict)) setConflict(true);
       else setError(threadTagsErrorMessage(err, t));
       // A 400 is a name that is no live tag (any more): the registry and the thread this editor seeded from may be stale, so read both again.
@@ -95,8 +98,8 @@ export default function ThreadTagsEditor({
       return;
     }
     showSuccessToast(t("threads.toast.tagsSaved"));
-    // The thread (its new revision and tags), the list's rows and filter and the history; a tag change is not activity, so the rail stays.
-    await refreshQueriesAfterMutation(queryClient, roomKeys.threads(room.id));
+    // Match thread.updated's complete scope before consuming the writer's echo. The tag write itself remains non-activity.
+    await refreshThreadRevisionWrite(queryClient, room.id, echo);
     setSaving(false);
     onClose();
   }

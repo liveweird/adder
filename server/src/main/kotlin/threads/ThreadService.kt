@@ -333,6 +333,7 @@ class ThreadService(
         caller: CallerPrincipal,
         expectedRevision: Long,
         raw: ThreadUpdateRequest,
+        mutationId: String? = null,
     ): ThreadChange? {
         val request = sanitizedThreadUpdate(raw)
         validateThreadUpdate(request)
@@ -362,7 +363,15 @@ class ThreadService(
                 events.record(thread.id, caller.userId, threadFieldChangedEvent(field, change, names), stamp)
             }
             rooms.touchActivity(roomId, stamp, caller.userId)
-            notifyLive(LiveHint(LiveKind.THREAD_UPDATED, roomId, threadNumber = number))
+            notifyLive(
+                LiveHint(
+                    LiveKind.THREAD_UPDATED,
+                    roomId,
+                    threadNumber = number,
+                    mutationId = mutationId,
+                    originUserId = caller.userId.takeIf { mutationId != null },
+                ),
+            )
             ThreadChange(thread.id, revision, titleChanged, fieldWrite.changes.map { it.key })
         }
     }
