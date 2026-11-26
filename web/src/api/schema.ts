@@ -2600,11 +2600,14 @@ export interface paths {
          *     `200`, not `201`. No request body.
          *
          *     Rides the per-USER `live-ticket` bucket of 60 per minute (`429` beyond it; spent before anything else). The server holds at most
-         *     `live.maxTickets` (10,000) unexpired tickets in memory; past that the mint is also a `429` with `Retry-After: 30` (audited `live.ticket_saturated`).
-         *     Tickets are per process: the deployment runs one replica. The caller may hold at most 16 sockets (one per tab): a mint beyond
+         *     `live.maxTickets` (10,000) unexpired tickets in the deployment database. When the shared store is full, minting returns
+         *     `429` with `Retry-After: 30` (audited `live.ticket_saturated`). The ticket can be redeemed by an instance using that database
+         *     and the same authorization settings. The supported deployment still runs one application instance.
+         *     The caller may hold at most 16 sockets per application instance (one per tab). A mint beyond
          *     that is a `429` of type `urn:adder:problem:live-socket-limit` with `Retry-After: 60` (nothing is minted). While the server is
          *     stopping, already holds its maximum of sockets, or its notification listener has been down for more than 10 seconds (hints would reach nobody; the
-         *     open sockets are closed 1013 too) the mint is a `503` of type `urn:adder:problem:live-unavailable` with `Retry-After`.
+         *     open sockets are closed 1013 too), or while the ticket store is unavailable, minting returns `503` of type
+         *     `urn:adder:problem:live-unavailable` with `Retry-After`.
          */
         post: operations["mintLiveTicket"];
         delete?: never;
@@ -2646,7 +2649,7 @@ export interface paths {
          *     changed (logout, deletion, password or role change), at redemption or within a minute after it (mint again; the client's refresh or
          *     sign-out follows); 4401 no ticket by the deadline, or an unknown, expired or used one; 4429 the per-user socket cap (16)
          *     was reached (pause, retry in 60 seconds); 1013 the server's socket table filled between the upgrade and the redemption, too many
-         *     unauthenticated sockets were open, or the server's notification listener has been down for more than 10 seconds (try again with backoff). A server ping every 25 seconds keeps the connection open through proxies; a visible, authenticated
+         *     unauthenticated sockets were open, the shared ticket store was unavailable, or the notification listener has been down for more than 10 seconds (try again with backoff). A server ping every 25 seconds keeps the connection open through proxies; a visible, authenticated
          *     socket is never closed for being quiet.
          *
          *     **Events** (`event.kind`, `LiveEventKind`; the wire name equals the audit event of the write): `room.created`, `room.updated`,
@@ -2667,7 +2670,7 @@ export interface paths {
          *     a real change (a no-op write emits nothing); a socket gets at most one frame per hint. A user may subscribe to the rooms they can read (an
          *     `ADMIN`: every existing room).
          *
-         *     One socket per tab, at most 16 per user. The server is a single replica: tickets and subscriptions are per process.
+         *     One socket per tab, at most 16 per user per app instance. Tickets use the shared database. Subscriptions and socket limits belong to the instance serving the connection.
          */
         get: operations["connectLive"];
         put?: never;

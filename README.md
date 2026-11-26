@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Durable live connection tickets (1.24.0)
+
+- The connection ticket survives an app restart until it expires or is redeemed. The app rechecks session access when the browser reconnects.
+
 ### Faster reply refreshes (1.23.0)
 
 - When the app and API share an origin, replying avoids a duplicate fetch cycle in the sending tab. Other tabs still see new replies live.

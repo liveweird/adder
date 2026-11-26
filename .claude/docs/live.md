@@ -14,8 +14,7 @@ the existing REST endpoints, so authorization and OpenAPI conformance stay in on
 
 - **Delivery is at-most-once, with no replay.** The refetch is the backfill; `resync` covers every gap (a listener outage, an overflowing socket queue).
 - **A hint carries a kind and ids only**: never a title, body, name or field value (enforced by the `LiveHint` type).
-- **Single replica.** Tickets and the hub live in memory, per process. A second replica needs sticky `/api/v1/live*` or a shared ticket table
-  (`BACKLOG.md`).
+- **Single app deployment.** The supplied deployment runs one app. Tickets are shared through PostgreSQL. The socket hub, authenticated socket cap, foreground presence and admission remain local to each instance. The rollout checklist for a second replica remains in `BACKLOG.md`.
 
 ## Endpoints, handshake and Origin
 
@@ -170,10 +169,7 @@ per process.
 
 ## Tickets
 
-`live/LiveTickets.kt`, ported from `auth/MfaChallenges.kt`. A ticket is 32 bytes from `SecureRandom`, base64url (43 characters), stored by its SHA-256 as
-`LiveTicketBinding(userId, isAdmin, roles, jti, credentialRevision, tokenExpiresAtMillis, expiresAtMillis)`. TTL 30 s; single use (redeeming is an atomic
-remove); expired entries are swept on every mint; capacity `live.maxTickets`, and when full it answers 429 and audits `live.ticket_saturated`. Masked
-`toString`, injectable clock. The ticket is never logged and never in a URL.
+`LiveTickets` mints a 32-byte random bearer encoded as 43 base64url characters. V53 stores only its SHA-256 digest and authorization binding in PostgreSQL. The binding expires within 30 seconds and before the minting access token expires. An atomic delete consumes the ticket once across instances. A store-wide guard enforces the active ticket cap, and each mint can remove a bounded batch of expired tickets. An unknown, used or expired ticket closes 4401. A shared store outage produces mint 503 or socket 1013. The bearer is sent only in the first socket frame and stays out of logs and URLs.
 
 The route needs the token's `jti`, `exp` and `credentialRevision`, which `CallerPrincipal` lacks: `plugins/Security.kt` `validate {}` puts an
 `AccessToken` into `call.attributes` (`authz/AccessToken.kt`). `CallerPrincipal` is unchanged.
