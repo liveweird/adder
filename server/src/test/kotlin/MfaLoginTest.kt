@@ -23,6 +23,7 @@ import java.net.ServerSocket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -33,11 +34,15 @@ import kotlin.test.assertTrue
  * The email-MFA login flow end to end: challenge instead of tokens for an MFA-enabled
  * account, the emailed 6-digit code (captured off the dev-default `log` transport, the
  * PasswordResetTest idiom), the POST /api/v1/login/mfa exchange, and the failure matrix —
- * uniform 401s and the fail-closed 503 on a mail-less deployment. The pure challenge-store
- * unit lives in MfaChallengesTest; the inverted-default flag semantics in
+ * uniform 401s and the fail-closed 503 on a mail-less deployment. The PostgreSQL store contract
+ * lives in MfaChallengesTest; the inverted-default flag semantics in
  * FeatureFlagsTest/AuditTest.
  */
 class MfaLoginTest {
+    private val challengeAccounts = mutableListOf<UInt>()
+
+    @AfterTest
+    fun cleanUpChallenges() = discardTestMfaChallenges(challengeAccounts)
 
     /** One-message SMTP sink used to prove recovery after a real transport failure. */
     private class SmtpSink(port: Int) : AutoCloseable {
@@ -156,6 +161,7 @@ class MfaLoginTest {
         TestUsers.seed(email = adminEmail, password = "pw-123456789")
         val admin = authedClient(adminEmail, "pw-123456789")
         val userId = TestUsers.seed(email = email, password = password, role = UserRole.USER, language = language)
+        challengeAccounts += userId
         assertEquals(HttpStatusCode.NoContent, admin.enableMfa(userId).status)
         return userId
     }
@@ -168,6 +174,31 @@ class MfaLoginTest {
         val code = Regex("""(?m)^\d{6}$""").find(message)?.value
         assertNotNull(code, "email should contain the 6-digit code on its own line")
         return code
+    }
+
+    @Test
+    fun `an emailed challenge can be used once after its issuing application stops`() {
+        val email = uniqueEmail("mfa-shared")
+        val password = "pw-123456789"
+        val mail = LogCapture("ch.nokillswit.mail")
+        lateinit var challenge: MfaChallengeResponse
+        lateinit var code: String
+        try {
+            testApplication {
+                usePostgresTestcontainer()
+                seedMfaUser(email, password)
+                challenge = jsonClient().login(email, password).body()
+                code = mail.codeFor(email)
+            }
+            testApplication {
+                usePostgresTestcontainer()
+                val client = jsonClient()
+                assertEquals(HttpStatusCode.OK, client.verify(challenge.challengeId, code).status)
+                assertEquals(HttpStatusCode.Unauthorized, client.verify(challenge.challengeId, code).status)
+            }
+        } finally {
+            mail.detach()
+        }
     }
 
     @Test

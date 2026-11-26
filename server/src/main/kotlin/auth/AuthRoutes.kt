@@ -5,6 +5,8 @@ import ch.nokillswit.authz.UnauthorizedException
 import ch.nokillswit.authz.caller
 import ch.nokillswit.infra.config.requireConfigInt
 import ch.nokillswit.infra.config.requireConfigLong
+import ch.nokillswit.infra.crypto.FieldCipherKey
+import ch.nokillswit.infra.db.R2dbcDatabaseKey
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.mail.mailer
 import ch.nokillswit.infra.outbound.PushSubscriptionRevokerKey
@@ -93,11 +95,8 @@ fun Application.configureAuthRoutes() {
     // Boot-validated through the shared requireConfigInt/requireConfigLong (Lettuce's ranges,
     // ported) below: a malformed or out-of-range value is a config error, not a runtime concern —
     // e.g. LOGIN_LOCKOUT_THRESHOLD=0 would lock out every account on its first attempt.
-    // codeTtlSeconds is validated with min = 0 ONLY in development mode (not Lettuce's min = 1): Adder's
-    // in-memory MfaChallenges (unlike Lettuce's DB-backed table) has no back-dating hook for
-    // `MfaLoginTest`'s "an expired challenge answers the same uniform 401" case, which mints a
-    // deliberately born-expired challenge via codeTtlSeconds=0. Outside development a zero TTL would
-    // silently make every MFA login fail, so it refuses startup. The upper bound guards the *1000 overflow.
+    // Tests use a deliberately born-expired challenge. A zero TTL in production would disable every MFA sign-in.
+    // The upper bound guards the *1000 overflow.
     val mfaTtlSeconds = requireConfigLong(
         environment.config, "security.mfa.codeTtlSeconds", min = if (developmentMode) 0 else 1, max = MAX_DURATION_SECONDS,
     )
@@ -110,11 +109,11 @@ fun Application.configureAuthRoutes() {
         // configureLoginThrottle (auth/AccountLockout.kt), which runs before the user routes that share it.
         loginThrottle = attributes[LoginThrottleKey],
         mailer = mailer(),
-        // Email MFA: pending challenges for MFA-enabled accounts mid-login. In-memory, per-instance,
-        // while account lockout is shared. The issuance helper lives beside the email content (auth/MfaEmail.kt).
         mfaChallenges = MfaChallenges(
+            database = attributes[R2dbcDatabaseKey],
+            cipher = attributes[FieldCipherKey],
             ttlMillis = mfaTtlSeconds * 1000,
-            maxAttempts = requireConfigInt(environment.config, "security.mfa.maxAttempts", min = 1, max = 100),
+            maxCodeAttempts = requireConfigInt(environment.config, "security.mfa.maxAttempts", min = 1, max = 100),
             maxTracked = requireConfigInt(environment.config, "security.mfa.maxTracked", min = 1, max = MAX_TRACKED_IDENTITIES),
         ),
         mfaTtlMinutes = (mfaTtlSeconds + 59) / 60,

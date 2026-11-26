@@ -77,7 +77,7 @@ internal class AccountGuess(
     private val knownUserId: UInt? = null,
     /** True where a failure is a wrong emailed code (the MFA step): a lock it trips is progressive, see [AccountThrottle]. */
     private val mfaCode: Boolean = false,
-    private val onLocked: () -> Unit = {},
+    private val onLocked: suspend () -> Unit = {},
 ) {
     constructor(
         throttle: LoginThrottle,
@@ -90,7 +90,7 @@ internal class AccountGuess(
         onLocked: () -> Unit = {},
     ) : this(
         InMemoryAccountThrottle(throttle), email, auditFields, lockedEvent, lockedFields,
-        if (knownAccount) 1u else null, mfaCode, onLocked,
+        if (knownAccount) 1u else null, mfaCode, { onLocked() },
     )
 
     private fun audited(event: String) = audit(event, *auditFields.toTypedArray())

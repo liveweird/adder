@@ -6,11 +6,14 @@ import ch.nokillswit.infra.mail.LocalizedText
 import ch.nokillswit.infra.mail.Mailer
 import ch.nokillswit.infra.mail.respondMailUnavailable
 import ch.nokillswit.users.User
+import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.log
 import io.ktor.server.response.respond
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Content of the email-MFA sign-in-code email, rendered in the recipient's language.
@@ -87,10 +90,10 @@ internal suspend fun issueMfaChallenge(
                 body = mfaEmailBody(user.name, challenge.code, codeTtlMinutes, user.language),
             )
         } catch (e: CancellationException) {
-            challenges.discard(challenge.challengeId)
+            withContext(NonCancellable) { app.discardUndeliveredMfaChallenge(challenges, challenge.challengeId) }
             throw e
         } catch (e: Exception) {
-            challenges.discard(challenge.challengeId)
+            app.discardUndeliveredMfaChallenge(challenges, challenge.challengeId)
             // errorType only — the class name, never e.message — the same rule the logout
             // debug lines follow (auth/AuthRoutes.kt): a mail transport's exception message may
             // embed server/recipient detail that does not belong in the audit trail.
@@ -106,4 +109,14 @@ internal suspend fun issueMfaChallenge(
             expiresAt = challenge.expiresAt,
         ),
     )
+}
+
+private suspend fun Application.discardUndeliveredMfaChallenge(challenges: MfaChallenges, id: String) {
+    try {
+        challenges.discard(id)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.warn("MFA delivery cleanup failed (errorType={})", e.javaClass.simpleName)
+    }
 }

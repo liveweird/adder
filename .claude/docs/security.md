@@ -493,14 +493,15 @@ omits `MFA` ENABLES it, including the "empty array re-enables everything" idiom)
 enabled, `POST /login` with correct credentials normally answers
 `200 MfaChallengeResponse {mfaRequired, challengeId, expiresAt}` instead of tokens (the branch runs
 AFTER `verifyPassword`, so nothing about enumeration changes; the lockout counter is checked but NOT cleared there, see "ONE counter"
-above; `login.success` is deliberately NOT emitted); a 6-digit code (`generateMfaCode`, `auth/Passwords.kt`) is held in the
-in-memory challenge store (config `security.mfa.codeTtlSeconds` default 300
-`$MFA_CODE_TTL_SECONDS`, `security.mfa.maxAttempts` default 5 `$MFA_MAX_ATTEMPTS`; per-instance
-while login lockout and reset cooldowns are shared across instances; a restart means signing in again) and emailed in the user's stored
-language (V1 `users.language`, EN fallback). Its hard `security.mfa.maxTracked` limit (default
-10,000, `$MFA_MAX_TRACKED`) first drops expired challenges, then rejects new issuance with an
-audited `429` at capacity; existing codes remain verifiable and no rejected code is emailed. A
-failed or cancelled delivery discards its challenge so a retry can use that slot. **An account holds at most 3 live
+above; `login.success` is deliberately NOT emitted). A 6-digit code (`generateMfaCode`, `auth/Passwords.kt`) is emailed in the user's
+stored language (EN fallback). V57 stores a digest of the opaque challenge ID and encrypted copies of the code and captured
+email identity. Instances with the same database and data encryption keys can verify a pending challenge across restarts.
+A PostgreSQL row lock serializes attempts, including successful consumption. PostgreSQL measures expiry (default 300 seconds,
+`MFA_CODE_TTL_SECONDS`), and attempts share the configured limit (default 5, `MFA_MAX_ATTEMPTS`). The deployment-wide
+`MFA_MAX_TRACKED` limit (default 10,000) counts active challenges. Issuance reclaims expired rows in batches and rejects new
+issuance with an audited `429` at capacity while existing codes remain verifiable. Failed or cancelled delivery attempts to
+discard the challenge, with expiry reclaiming it if cleanup fails. Keep the previous data encryption key available for the
+challenge lifetime during key rotation, alongside the existing browser-push key rotation requirements. **An account holds at most 3 live
 challenges** (`MfaChallenges.DEFAULT_MAX_PER_USER`, a constant, no config key): a further login REPLACES the oldest (refusing would
 let anyone holding the password stop the owner signing in; the replacement needs no spare capacity). **The accepted cost (L1):** a password holder can therefore evict the owner's pending code with three logins of their own; the owner signs in again (a fresh code), and the password reset ends the holder's access. Eviction is no guess: the per-account lockout still bounds every guess at a code ("ONE counter"). The per-challenge attempt cap bounds
 one code; **every wrong code also counts into the per-account lockout** (`auth/MfaRoutes.kt`, "ONE counter"), so the guesses across
@@ -518,7 +519,7 @@ invalidates the pending challenge. **Mail-less deployments fail closed**: on
 `MAIL_TRANSPORT=disabled` an MFA-enabled login answers `503` (`login.mfa_unavailable`) — don't
 enable MFA flags on the k8s default `disabled` transport; the features PUT keeps working, so an
 admin can always flip the flag back. SPA: the Login card's second step (`PinInput`, `auth.mfa*`
-keys). Tests: `MfaChallengesTest` (pure store) + `MfaLoginTest` (route matrix) + `MfaLockoutTest` (the lockout, the per-user cap, the audit `userId`); e2e `mfa.spec.ts`
+keys). Tests: `MfaChallengesTest` (shared PostgreSQL store) + `MfaLoginTest` (route matrix and restart) + `MfaLockoutTest` (the lockout, the per-user cap, the audit `userId`); e2e `mfa.spec.ts`
 drives the emailed code through Mailpit.
 
 **Swagger/OpenAPI gate** (`plugins/Routing.kt`): `/openapi` (UI + spec) is served only in development

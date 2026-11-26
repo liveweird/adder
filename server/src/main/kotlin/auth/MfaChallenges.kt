@@ -1,33 +1,54 @@
 package ch.nokillswit.auth
 
-import ch.nokillswit.infra.ExpiringIndex
-import ch.nokillswit.infra.db.nowMillis
+import ch.nokillswit.infra.crypto.FieldCipher
+import ch.nokillswit.infra.json.sha256Hex
 import ch.nokillswit.infra.maskedSecret
+import ch.nokillswit.users.UserService.Users
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.HexFormat
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.toList
+import org.jetbrains.exposed.v1.core.*
+import org.jetbrains.exposed.v1.core.dao.id.LongIdTable
+import org.jetbrains.exposed.v1.core.statements.StatementType
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
+import org.jetbrains.exposed.v1.r2dbc.R2dbcDatabase
+import org.jetbrains.exposed.v1.r2dbc.deleteWhere
+import org.jetbrains.exposed.v1.r2dbc.insert
+import org.jetbrains.exposed.v1.r2dbc.select
+import org.jetbrains.exposed.v1.r2dbc.selectAll
+import org.jetbrains.exposed.v1.r2dbc.transactions.TransactionManager
+import org.jetbrains.exposed.v1.r2dbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.r2dbc.update
+
+private object MfaChallengeCapacity : Table("mfa_challenge_capacity_guard") {
+    val singleton = bool("singleton")
+    override val primaryKey = PrimaryKey(singleton)
+}
+
+private object MfaChallengeRows : LongIdTable("mfa_challenges", "issue_order") {
+    val challengeHash = varchar("challenge_hash", 64)
+    val userId = reference("user_id", Users)
+    val encryptedEmail = text("encrypted_email")
+    val encryptedCode = text("encrypted_code")
+    val credentialRevision = long("credential_revision")
+    val expiresAt = long("expires_at")
+    val attempts = integer("attempts").default(0)
+}
 
 /**
- * In-memory store of pending email-MFA challenges (Lettuce's, ported): a login with correct
- * credentials by an MFA-enabled user mints a challenge — an opaque id handed to the client
- * plus a 6-digit code emailed to the account — and the pair must come back to
- * POST /api/v1/login/mfa within [ttlMillis] and [maxAttempts] guesses. A challenge is
- * single-use: consumed on success, dropped on expiry or when the attempt cap is exceeded.
- *
- * The challenge itself remains in-memory and per-instance at this stage. A restart only invalidates pending challenges — the user
- * simply signs
- * in again. An account holds at most [maxPerUser] live challenges: issuing one more REPLACES
- * the oldest (refusing would let anyone holding the password lock the owner out of signing
- * in, and every extra live code is another independent guess target). The per-challenge
- * attempt cap bounds one code; the ROUTE counts every wrong guess into the per-account
- * PostgreSQL-shared lockout (`PostgresAccountThrottle`, `auth/AccountLockout.kt`), which bounds the guesses across
- * challenges, so a fresh login never resets the budget.
+ * One shared pending email-MFA store. A row lock makes each code single-use and counts guesses across all instances.
+ * Only a digest of the secret challenge id and encrypted code and identity are persisted.
  */
 class MfaChallenges(
+    private val database: R2dbcDatabase,
+    private val cipher: FieldCipher,
     private val ttlMillis: Long,
-    private val maxAttempts: Int,
+    private val maxCodeAttempts: Int,
     private val maxTracked: Int = 10_000,
     private val maxPerUser: Int = DEFAULT_MAX_PER_USER,
-    private val clock: () -> Long = ::nowMillis,
 ) {
     init {
         require(maxTracked > 0) { "maxTracked must be positive" }
@@ -41,17 +62,13 @@ class MfaChallenges(
             "IssuedChallenge(challengeId=${maskedSecret(challengeId)}, code=${maskedSecret(code)}, expiresAt=$expiresAt)"
     }
 
-    /** The account a challenge was minted for; [email] is the lockout identity the password step verified. */
+    /** The account and lockout identity the password step verified. */
     data class Subject(val userId: UInt, val email: String)
 
     sealed interface Outcome {
         data class Success(val subject: Subject, val credentialRevision: Long) : Outcome
 
-        /**
-         * [reason] feeds the audit trail only — the HTTP answer stays a uniform 401. [subject] is set whenever the challenge was
-         * found (so the audit line can name the account); [wrongCode] marks a guess that must count into the account lockout, and
-         * [credentialRevision] is the revision the challenge was minted at (the route counts the guess only while it is still current).
-         */
+        /** Reasons are audit-only. A wrong code counts toward account lockout while its credential revision is current. */
         data class Failure(
             val reason: String,
             val subject: Subject? = null,
@@ -60,108 +77,117 @@ class MfaChallenges(
         ) : Outcome
     }
 
-    private data class Challenge(
-        val subject: Subject,
-        val credentialRevision: Long,
-        val code: String,
-        val expiresAt: Long,
-        val attempts: Int,
-    ) {
-        override fun toString(): String =
-            "Challenge(userId=${subject.userId}, credentialRevision=$credentialRevision, code=${maskedSecret(code)}, " +
-                "expiresAt=$expiresAt, attempts=$attempts)"
-    }
-
-    private val challenges = mutableMapOf<String, Challenge>()
-    private val expiries = ExpiringIndex<String>()
-
-    /** Each account's live challenge ids, oldest first (every challenge has the same TTL, so issue order is expiry order). */
-    private val byUser = mutableMapOf<UInt, ArrayDeque<String>>()
-    private val lock = Any()
-
-    /**
-     * Mints a challenge for [userId] ([email] is the lockout identity). At [maxPerUser] live challenges the oldest is replaced; the
-     * capacity check counts that replacement, so an account at its cap is never refused for capacity it is about to free.
-     */
-    fun issue(userId: UInt, email: String, credentialRevision: Long): IssuedChallenge = synchronized(lock) {
-        val now = clock()
-        pruneExpired(now)
-        val oldest = byUser[userId]?.takeIf { it.size >= maxPerUser }?.first()
-        if (oldest == null && challenges.size >= maxTracked) throw CapacityExceededException()
-        if (oldest != null) removeChallenge(oldest)
-        val id = generateChallengeId()
+    /** A new challenge replaces this account's oldest active challenge if its own slots are full. */
+    suspend fun issue(userId: UInt, email: String, credentialRevision: Long): IssuedChallenge {
+        val id = HexFormat.of().formatHex(ByteArray(CHALLENGE_ID_BYTES).also(random::nextBytes))
+        val hash = sha256Hex(id)
         val code = generateMfaCode()
-        val expiresAt = now + ttlMillis
-        challenges[id] = Challenge(Subject(userId, email), credentialRevision, code, expiresAt, attempts = 0)
-        expiries.add(expiresAt, id)
-        byUser.getOrPut(userId) { ArrayDeque() }.addLast(id)
-        IssuedChallenge(id, code, expiresAt)
+        val encryptedEmail = cipher.encrypt(email)
+        val encryptedCode = cipher.encrypt(code)
+        val deadline = suspendTransaction(database) {
+            // The separate lock statement lets a waiter count from a snapshot that sees the preceding mint's commit.
+            lockCapacity()
+            val now = databaseNow()
+            pruneExpired(now)
+            val rows = MfaChallengeRows
+            val active = rows.expiresAt greater now
+            val own = rows.select(rows.id).where { (rows.userId eq userId) and active }
+                .orderBy(rows.id).limit(maxPerUser).map { it[rows.id].value }.toList()
+            if (own.size == maxPerUser) {
+                rows.deleteWhere { rows.id eq own.first() }
+            } else if (rows.select(rows.id).where { active }.count() >= maxTracked) {
+                return@suspendTransaction null
+            }
+            val expiresAt = now + ttlMillis
+            rows.insert {
+                it[challengeHash] = hash
+                it[rows.userId] = userId
+                it[rows.encryptedEmail] = encryptedEmail
+                it[rows.encryptedCode] = encryptedCode
+                it[rows.credentialRevision] = credentialRevision
+                it[rows.expiresAt] = expiresAt
+            }
+            expiresAt
+        } ?: throw CapacityExceededException()
+        return IssuedChallenge(id, code, deadline)
     }
 
-    fun verify(challengeId: String, code: String): Outcome = synchronized(lock) {
-        val challenge = challenges[challengeId]
-            ?: return@synchronized Outcome.Failure("unknown_challenge")
-        if (challenge.expiresAt <= clock()) {
-            removeChallenge(challengeId)
-            return@synchronized Outcome.Failure("expired", challenge.subject)
+    suspend fun verify(challengeId: String, code: String): Outcome {
+        if (!challengeIdPattern.matches(challengeId)) return Outcome.Failure("unknown_challenge")
+        return suspendTransaction(database) {
+            val rows = MfaChallengeRows
+            val hash = sha256Hex(challengeId)
+            val row = rows.selectAll().where { rows.challengeHash eq hash }
+                .forUpdate(ForUpdateOption.PostgreSQL.ForUpdate()).firstOrNull()
+                ?: return@suspendTransaction Outcome.Failure("unknown_challenge")
+            val id = row[rows.id].value
+            val subject = Subject(row[rows.userId].value, cipher.decrypt(row[rows.encryptedEmail]))
+            val revision = row[rows.credentialRevision]
+            // Read the clock after locking the row, so a transaction that waited cannot accept an expired code.
+            if (row[rows.expiresAt] <= databaseNow()) {
+                rows.deleteWhere { rows.id eq id }
+                return@suspendTransaction Outcome.Failure("expired", subject)
+            }
+            if (MessageDigest.isEqual(cipher.decrypt(row[rows.encryptedCode]).toByteArray(), code.toByteArray())) {
+                rows.deleteWhere { rows.id eq id }
+                return@suspendTransaction Outcome.Success(subject, revision)
+            }
+            val attempts = row[rows.attempts] + 1
+            val reason = if (attempts >= maxCodeAttempts) {
+                rows.deleteWhere { rows.id eq id }
+                "too_many_attempts"
+            } else {
+                rows.update({ rows.id eq id }) { it[rows.attempts] = attempts }
+                "wrong_code"
+            }
+            Outcome.Failure(reason, subject, wrongCode = true, credentialRevision = revision)
         }
-        if (MessageDigest.isEqual(challenge.code.toByteArray(), code.toByteArray())) {
-            removeChallenge(challengeId)
-            return@synchronized Outcome.Success(challenge.subject, challenge.credentialRevision)
-        }
-        val attempts = challenge.attempts + 1
-        if (attempts >= maxAttempts) {
-            removeChallenge(challengeId)
-            Outcome.Failure("too_many_attempts", challenge.subject, wrongCode = true, credentialRevision = challenge.credentialRevision)
-        } else {
-            challenges[challengeId] = challenge.copy(attempts = attempts)
-            Outcome.Failure("wrong_code", challenge.subject, wrongCode = true, credentialRevision = challenge.credentialRevision)
+    }
+
+    /** Serialize account-wide removal with mints. Verification takes only a challenge row lock. */
+    suspend fun discardUser(userId: UInt) {
+        suspendTransaction(database) {
+            lockCapacity()
+            MfaChallengeRows.deleteWhere { MfaChallengeRows.userId eq userId }
         }
     }
 
-    /** Drops every pending challenge of [userId] (their account just locked: no pending code may finish a sign-in). */
-    fun discardUser(userId: UInt) = synchronized(lock) {
-        byUser[userId]?.toList()?.forEach { removeChallenge(it) }
-    }
-
-    /** Drops an issued challenge when its delivery fails, immediately releasing its slot. */
-    fun discard(challengeId: String) = synchronized(lock) {
-        removeChallenge(challengeId)
-    }
-
-    private fun pruneExpired(now: Long) {
-        expiries.pruneExpired(now) { id, expiresAt ->
-            // Not removeChallenge(): the index entry is already polled; only the maps are left to clear.
-            if (challenges[id]?.expiresAt == expiresAt) dropFromMaps(id)
+    /** Drops an undelivered or stale challenge by id. */
+    suspend fun discard(challengeId: String) {
+        if (!challengeIdPattern.matches(challengeId)) return
+        suspendTransaction(database) {
+            MfaChallengeRows.deleteWhere { challengeHash eq sha256Hex(challengeId) }
         }
     }
 
-    private fun removeChallenge(id: String): Boolean {
-        val removed = dropFromMaps(id) ?: return false
-        expiries.remove(removed.expiresAt, id)
-        return true
+    private suspend fun lockCapacity() {
+        val guard = MfaChallengeCapacity
+        check(guard.select(guard.singleton).where { guard.singleton eq true }
+            .forUpdate(ForUpdateOption.PostgreSQL.ForUpdate()).firstOrNull() != null) { "MFA capacity guard is missing" }
     }
 
-    private fun dropFromMaps(id: String): Challenge? {
-        val removed = challenges.remove(id) ?: return null
-        byUser[removed.subject.userId]?.let { ids ->
-            ids.remove(id)
-            if (ids.isEmpty()) byUser.remove(removed.subject.userId)
-        }
-        return removed
+    private suspend fun pruneExpired(now: Long) {
+        val rows = MfaChallengeRows
+        val expired = rows.select(rows.id).where { rows.expiresAt lessEq now }
+            .orderBy(rows.expiresAt to SortOrder.ASC, rows.id to SortOrder.ASC).limit(EXPIRY_CLEANUP_BATCH)
+            .forUpdate(ForUpdateOption.PostgreSQL.ForUpdate(ForUpdateOption.PostgreSQL.MODE.SKIP_LOCKED))
+            .map { it[rows.id].value }.toList()
+        if (expired.isNotEmpty()) rows.deleteWhere { rows.id inList expired }
     }
+
+    private suspend fun databaseNow(): Long = checkNotNull(
+        TransactionManager.current().exec(DATABASE_NOW, explicitStatementType = StatementType.SELECT) { row ->
+            row.get(0, Long::class.javaObjectType)!!
+        }?.firstOrNull(),
+    )
 
     companion object {
-        /** Live challenges one account may hold; one more replaces the oldest. A retry or a second tab needs two, three is slack. */
+        /** Holding a second code makes it possible to complete sign-in while a retry is in flight. */
         const val DEFAULT_MAX_PER_USER = 3
-
-        private val secureRandom = SecureRandom()
-
-        /** 128 bits of opaque, unguessable challenge identity. */
-        private fun generateChallengeId(): String {
-            val bytes = ByteArray(16)
-            secureRandom.nextBytes(bytes)
-            return bytes.joinToString("") { "%02x".format(it) }
-        }
+        private const val CHALLENGE_ID_BYTES = 16
+        private const val EXPIRY_CLEANUP_BATCH = 256
+        private const val DATABASE_NOW = "SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint"
+        private val random = SecureRandom()
+        private val challengeIdPattern = Regex("[0-9a-f]{32}")
     }
 }

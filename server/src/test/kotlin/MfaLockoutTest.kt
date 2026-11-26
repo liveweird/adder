@@ -14,6 +14,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.delay
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -22,10 +23,14 @@ import kotlin.test.assertTrue
 /**
  * The email-MFA code is a guess target like a password: the wrong codes of ALL of an account's challenges count into the per-account
  * lockout (the `/login` counter), a fresh login never resets that budget, an account holds a few live challenges at most, and every
- * `login.mfa_failure` for a known challenge names the account (C-SEC-3). The flow itself is `MfaLoginTest`; the pure store is
+ * `login.mfa_failure` for a known challenge names the account (C-SEC-3). The flow itself is `MfaLoginTest`; the PostgreSQL store is
  * `MfaChallengesTest`.
  */
 class MfaLockoutTest {
+    private val challengeAccounts = mutableListOf<UInt>()
+
+    @AfterTest
+    fun cleanUpChallenges() = discardTestMfaChallenges(challengeAccounts)
 
     private suspend fun HttpClient.login(email: String, password: String): HttpResponse =
         postJson("/api/v1/login", LoginRequest(email, password))
@@ -38,6 +43,7 @@ class MfaLockoutTest {
         TestUsers.seed(email = adminEmail, password = "pw-123456789")
         val admin = authedClient(adminEmail, "pw-123456789")
         val userId = TestUsers.seed(email = email, password = "pw-123456789", role = UserRole.USER)
+        challengeAccounts += userId
         // An empty disabled set removes the default MFA row, i.e. enables MFA.
         val enabled = admin.putJson("/api/v1/users/$userId/features", UserFeaturesUpdateRequest(emptyList()))
         assertEquals(HttpStatusCode.NoContent, enabled.status)

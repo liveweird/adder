@@ -135,7 +135,8 @@ paths:
         6-digit code is emailed to the account, and the client exchanges it together with the
         `challengeId` at `POST /api/v1/login/mfa` for the ordinary `LoginResponse`. On a
         deployment without outbound email (`MAIL_TRANSPORT=disabled`) an MFA-enabled login
-        fails closed with `503`. The pending challenge store admits at most
+        fails closed with `503`. Pending challenges are shared across application instances
+        using the same database and data encryption keys. The shared store admits at most
         `MFA_MAX_TRACKED` challenges (default 10,000); new issuance at capacity receives
         `429` without sending a code, while existing challenges remain verifiable.
       security: []
@@ -173,8 +174,10 @@ paths:
       summary: Exchange an MFA challenge and emailed code for a JWT pair
       description: |
         Second login step for MFA-enabled accounts. The `challengeId` comes from the login
-        response, the 6-digit `code` from the email. Challenges are single-use, expire after
-        a short TTL (default 5 min, `MFA_CODE_TTL_SECONDS`), and allow a few attempts
+        response, the 6-digit `code` from the email. Submit them to any instance that
+        shares the deployment database and data encryption keys. A challenge can succeed only
+        once across all instances. It expires on the database clock after a short TTL (default
+        5 min, `MFA_CODE_TTL_SECONDS`) and allows a few total attempts
         (default 5, `MFA_MAX_ATTEMPTS`); every failure mode — unknown challenge, expired,
         wrong code, attempts exhausted, user gone, password changed — answers the uniform `401`. Rate-limited
         per client IP.

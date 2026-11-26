@@ -1,233 +1,195 @@
 package ch.nokillswit
 
 import ch.nokillswit.auth.MfaChallenges
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
+import ch.nokillswit.auth.MfaChallenges.Outcome
+import ch.nokillswit.infra.crypto.FieldCipher
+import ch.nokillswit.infra.json.sha256Hex
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Unit tests for the in-memory email-MFA challenge store (deterministic via an injected clock). */
+/** The shared database is the authority for challenge limits, consumption, and expiry. */
 class MfaChallengesTest {
+    private val accounts = mutableListOf<UInt>()
+    private val key = strongEncryptionKey()
 
-    private var now = 1_000_000L
-    private fun store(ttlMillis: Long = 300_000, maxAttempts: Int = 5, maxTracked: Int = 10_000, maxPerUser: Int = 3) =
-        MfaChallenges(ttlMillis, maxAttempts, clock = { now }, maxTracked = maxTracked, maxPerUser = maxPerUser)
+    private fun store(maxAttempts: Int = 5, maxTracked: Int = 10_000, maxPerUser: Int = 3, cipher: FieldCipher = FieldCipher(key)) =
+        MfaChallenges(sharedDatabaseForTests(), cipher, ttlMillis = 300_000, maxAttempts, maxTracked, maxPerUser)
 
-    private companion object {
-        const val EMAIL = "someone@example.test"
+    private suspend fun user(): UInt = TestUsers.seed(uniqueEmail("mfa-challenges"), "pw").also(accounts::add)
+
+    @AfterTest
+    fun cleanUp() = runBlocking {
+        accounts.forEach { userId ->
+            store().discardUser(userId)
+            TestUsers.softDelete(userId)
+        }
     }
 
     @Test
-    fun `a correct code succeeds exactly once - the challenge is single-use`() {
-        val s = store()
-        val issued = s.issue(42u, EMAIL, credentialRevision = 7)
+    fun `a rotated key ring redeems the digest-only encrypted challenge`() = runBlocking<Unit> {
+        val user = user()
+        val issued = store().issue(user, EMAIL, credentialRevision = 7)
         assertEquals(6, issued.code.length)
         assertTrue(issued.code.all { it.isDigit() })
-        assertEquals(now + 300_000, issued.expiresAt)
-
-        val outcome = s.verify(issued.challengeId, issued.code)
-        assertIs<MfaChallenges.Outcome.Success>(outcome)
-        assertEquals(42u, outcome.subject.userId)
-        assertEquals(EMAIL, outcome.subject.email)
-        assertEquals(7L, outcome.credentialRevision)
-
-        // Replay of the consumed challenge is indistinguishable from an unknown one.
-        val replay = s.verify(issued.challengeId, issued.code)
-        assertIs<MfaChallenges.Outcome.Failure>(replay)
-        assertEquals("unknown_challenge", replay.reason)
-    }
-
-    @Test
-    fun `an expired challenge fails and is dropped`() {
-        val s = store(ttlMillis = 60_000)
-        val issued = s.issue(7u, EMAIL, credentialRevision = 0)
-        now += 60_000
-        val outcome = s.verify(issued.challengeId, issued.code)
-        assertIs<MfaChallenges.Outcome.Failure>(outcome)
-        assertEquals("expired", outcome.reason)
-        // The drop is permanent — a later attempt sees unknown, not expired.
-        assertEquals(
-            "unknown_challenge",
-            (s.verify(issued.challengeId, issued.code) as MfaChallenges.Outcome.Failure).reason,
-        )
-    }
-
-    @Test
-    fun `wrong codes count toward the attempt cap and exhausting it kills the challenge`() {
-        val s = store(maxAttempts = 3)
-        val issued = s.issue(7u, EMAIL, credentialRevision = 0)
-        assertEquals("wrong_code", (s.verify(issued.challengeId, "x") as MfaChallenges.Outcome.Failure).reason)
-        assertEquals("wrong_code", (s.verify(issued.challengeId, "x") as MfaChallenges.Outcome.Failure).reason)
-        assertEquals(
-            "too_many_attempts",
-            (s.verify(issued.challengeId, "x") as MfaChallenges.Outcome.Failure).reason,
-        )
-        // Even the correct code no longer works — the challenge is gone.
-        assertEquals(
-            "unknown_challenge",
-            (s.verify(issued.challengeId, issued.code) as MfaChallenges.Outcome.Failure).reason,
-        )
-    }
-
-    @Test
-    fun `an unknown challenge id fails uniformly`() {
-        val s = store()
-        val outcome = s.verify("no-such-challenge", "123456")
-        assertIs<MfaChallenges.Outcome.Failure>(outcome)
-        assertEquals("unknown_challenge", outcome.reason)
-    }
-
-    @Test
-    fun `challenge ids are unique and opaque`() {
-        val s = store()
-        val a = s.issue(1u, EMAIL, credentialRevision = 0)
-        val b = s.issue(1u, EMAIL, credentialRevision = 0)
-        assertNotEquals(a.challengeId, b.challengeId)
-        assertEquals(32, a.challengeId.length)
-        // Both stay independently verifiable (repeated logins may coexist within the TTL).
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(b.challengeId, b.code))
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(a.challengeId, a.code))
-    }
-
-    @Test
-    fun `the store prunes expired entries once oversized instead of growing without bound`() {
-        val s = store(ttlMillis = 1_000, maxTracked = 2)
-        val stale = (1..2).map { s.issue(it.toUInt(), EMAIL, credentialRevision = 0) }
-        assertFailsWith<MfaChallenges.CapacityExceededException> { s.issue(3u, EMAIL, credentialRevision = 0) }
-        now += 2_000
-        val fresh = s.issue(99u, EMAIL, credentialRevision = 0)
-        assertEquals(
-            "unknown_challenge",
-            (s.verify(stale.first().challengeId, stale.first().code) as MfaChallenges.Outcome.Failure).reason,
-        )
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(fresh.challengeId, fresh.code))
-    }
-
-    @Test
-    fun `capacity keeps existing challenges verifiable`() {
-        val s = store(maxTracked = 1)
-        val issued = s.issue(1u, EMAIL, credentialRevision = 9)
-        assertFailsWith<MfaChallenges.CapacityExceededException> { s.issue(2u, EMAIL, credentialRevision = 0) }
-        val outcome = assertIs<MfaChallenges.Outcome.Success>(s.verify(issued.challengeId, issued.code))
-        assertEquals(9L, outcome.credentialRevision)
-        assertTrue(s.issue(2u, EMAIL, credentialRevision = 0).challengeId.isNotBlank())
-    }
-
-    @Test
-    fun `discarding an undelivered challenge immediately releases its slot`() {
-        val s = store(maxTracked = 1)
-        val undelivered = s.issue(1u, EMAIL, credentialRevision = 0)
-        s.discard(undelivered.challengeId)
-        val replacement = s.issue(2u, EMAIL, credentialRevision = 0)
-        assertEquals(
-            "unknown_challenge",
-            (s.verify(undelivered.challengeId, undelivered.code) as MfaChallenges.Outcome.Failure).reason,
-        )
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(replacement.challengeId, replacement.code))
-    }
-
-    @Test
-    fun `concurrent issuance cannot exceed capacity`() {
-        val s = store(maxTracked = 1)
-        val ready = CountDownLatch(2)
-        val go = CountDownLatch(1)
-        val executor = Executors.newFixedThreadPool(2)
-        try {
-            val results = (1..2).map { userId ->
-                executor.submit<Boolean> {
-                    ready.countDown()
-                    go.await()
-                    runCatching { s.issue(userId.toUInt(), EMAIL, credentialRevision = 0) }.isSuccess
+        assertEquals(32, issued.challengeId.length)
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement(
+                "SELECT challenge_hash, encrypted_email, encrypted_code, expires_at FROM mfa_challenges WHERE user_id = ?",
+            ).use { statement ->
+                statement.setLong(1, user.toLong())
+                statement.executeQuery().use { rows ->
+                    assertTrue(rows.next())
+                    assertEquals(sha256Hex(issued.challengeId), rows.getString(1))
+                    assertTrue(rows.getString(2).startsWith(FieldCipher.PREFIX))
+                    assertTrue(rows.getString(3).startsWith(FieldCipher.PREFIX))
+                    assertNotEquals(EMAIL, rows.getString(2))
+                    assertNotEquals(issued.code, rows.getString(3))
+                    assertEquals(issued.expiresAt, rows.getLong(4))
                 }
             }
-            ready.await()
-            go.countDown()
-            assertEquals(listOf(false, true), results.map { it.get() }.sorted())
-        } finally {
-            executor.shutdownNow()
         }
+        val other = store(cipher = FieldCipher(strongEncryptionKey(), previousKeyHex = key))
+        val outcome = assertIs<Outcome.Success>(other.verify(issued.challengeId, issued.code))
+        assertEquals(MfaChallenges.Subject(user, EMAIL), outcome.subject)
+        assertEquals(7L, outcome.credentialRevision)
+        assertUnknown(store(), issued)
     }
 
     @Test
-    fun `an account holds at most maxPerUser live challenges - a new one replaces the oldest`() {
-        val s = store(maxPerUser = 2)
-        val first = s.issue(1u, EMAIL, credentialRevision = 0)
-        val second = s.issue(1u, EMAIL, credentialRevision = 0)
-        val third = s.issue(1u, EMAIL, credentialRevision = 0)
-        // The oldest is gone (not merely failing its attempts): its correct code is an unknown challenge now.
-        assertEquals(
-            "unknown_challenge",
-            (s.verify(first.challengeId, first.code) as MfaChallenges.Outcome.Failure).reason,
-        )
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(second.challengeId, second.code))
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(third.challengeId, third.code))
+    fun `concurrent redemptions from separate stores have one winner`() = runBlocking {
+        val issued = store().issue(user(), EMAIL, credentialRevision = 0)
+        val outcomes = coroutineScope {
+            List(8) { async { store().verify(issued.challengeId, issued.code) } }.awaitAll()
+        }
+        assertEquals(1, outcomes.count { it is Outcome.Success })
+        assertTrue(outcomes.filterIsInstance<Outcome.Failure>().all { it.reason == "unknown_challenge" })
     }
 
     @Test
-    fun `the per-user cap is per account and replacing never needs spare capacity`() {
-        val s = store(maxPerUser = 1, maxTracked = 2)
-        val a1 = s.issue(1u, EMAIL, credentialRevision = 0)
-        val b1 = s.issue(2u, "b@example.test", credentialRevision = 0)
-        // The store is full, but account 1's new challenge replaces its own: no capacity is consumed.
-        val a2 = s.issue(1u, EMAIL, credentialRevision = 0)
-        assertEquals(
-            "unknown_challenge",
-            (s.verify(a1.challengeId, a1.code) as MfaChallenges.Outcome.Failure).reason,
-        )
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(b1.challengeId, b1.code))
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(a2.challengeId, a2.code))
+    fun `an expired challenge is discarded and audited as expiry instead of a guess`() = runBlocking {
+        val user = user()
+        val issued = store().issue(user, EMAIL, credentialRevision = 0)
+        expire(issued)
+        val failure = assertIs<Outcome.Failure>(store().verify(issued.challengeId, issued.code))
+        assertEquals("expired", failure.reason)
+        assertEquals(user, failure.subject?.userId)
+        assertFalse(failure.wrongCode)
+        assertUnknown(store(), issued)
     }
 
     @Test
-    fun `a wrong code names the account and marks itself a guess, an unknown id names nobody`() {
-        val s = store(maxAttempts = 2)
-        val issued = s.issue(7u, EMAIL, credentialRevision = 0)
-        val wrong = assertIs<MfaChallenges.Outcome.Failure>(s.verify(issued.challengeId, "x"))
-        assertEquals(MfaChallenges.Subject(7u, EMAIL), wrong.subject)
+    fun `the account and revision of an incorrect code are counted until attempts are exhausted`() = runBlocking {
+        val user = user()
+        val first = store(maxAttempts = 2)
+        val second = store(maxAttempts = 2)
+        val issued = first.issue(user, EMAIL, credentialRevision = 8)
+        val wrong = assertIs<Outcome.Failure>(second.verify(issued.challengeId, "x"))
+        assertEquals("wrong_code", wrong.reason)
+        assertEquals(MfaChallenges.Subject(user, EMAIL), wrong.subject)
+        assertEquals(8L, wrong.credentialRevision)
         assertTrue(wrong.wrongCode)
-        val exhausted = assertIs<MfaChallenges.Outcome.Failure>(s.verify(issued.challengeId, "x"))
+        val exhausted = assertIs<Outcome.Failure>(first.verify(issued.challengeId, "x"))
         assertEquals("too_many_attempts", exhausted.reason)
         assertTrue(exhausted.wrongCode)
-        val unknown = assertIs<MfaChallenges.Outcome.Failure>(s.verify(issued.challengeId, "x"))
-        assertEquals(null, unknown.subject)
-        assertEquals(false, unknown.wrongCode)
+        assertUnknown(second, issued)
+        val malformed = assertIs<Outcome.Failure>(second.verify("not-a-challenge-id", "123456"))
+        assertEquals("unknown_challenge", malformed.reason)
+        assertNull(malformed.subject)
+        assertFalse(malformed.wrongCode)
     }
 
     @Test
-    fun `an expired challenge names its account but is not a guess`() {
-        val s = store(ttlMillis = 1_000)
-        val issued = s.issue(7u, EMAIL, credentialRevision = 0)
-        now += 1_000
-        val outcome = assertIs<MfaChallenges.Outcome.Failure>(s.verify(issued.challengeId, issued.code))
-        assertEquals("expired", outcome.reason)
-        assertEquals(7u, outcome.subject?.userId)
-        assertEquals(false, outcome.wrongCode)
-    }
-
-    @Test
-    fun `discardUser drops every pending challenge of that account only`() {
-        val s = store()
-        val mine = (1..2).map { s.issue(1u, EMAIL, credentialRevision = 0) }
-        val other = s.issue(2u, "b@example.test", credentialRevision = 0)
-        s.discardUser(1u)
-        mine.forEach {
-            assertEquals("unknown_challenge", (s.verify(it.challengeId, it.code) as MfaChallenges.Outcome.Failure).reason)
+    fun `concurrent issuance enforces capacity and leaves the first challenge active`() = runBlocking<Unit> {
+        val users = List(5) { user() }
+        val outcomes = coroutineScope {
+            users.map { id -> async { runCatching { store(maxTracked = 1).issue(id, EMAIL, 0) } } }.awaitAll()
         }
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(other.challengeId, other.code))
+        assertEquals(1, outcomes.count { it.isSuccess })
+        outcomes.filter { it.isFailure }.forEach { assertIs<MfaChallenges.CapacityExceededException>(it.exceptionOrNull()) }
+        val issued = outcomes.single { it.isSuccess }.getOrThrow()
+        assertIs<Outcome.Success>(store(maxTracked = 1).verify(issued.challengeId, issued.code))
     }
 
     @Test
-    fun `expiry releases the per-user slots too`() {
-        val s = store(ttlMillis = 1_000, maxPerUser = 1, maxTracked = 1)
-        s.issue(1u, EMAIL, credentialRevision = 0)
-        now += 1_000
-        // The expired challenge is pruned from every index, so account 2 gets the only slot and account 1 can come back later.
-        val other = s.issue(2u, "b@example.test", credentialRevision = 0)
-        assertIs<MfaChallenges.Outcome.Success>(s.verify(other.challengeId, other.code))
-        assertTrue(s.issue(1u, EMAIL, credentialRevision = 0).challengeId.isNotBlank())
+    fun `a full store lets the same account replace its oldest slot and preserves another account's challenge`() = runBlocking<Unit> {
+        val first = store(maxTracked = 2, maxPerUser = 1)
+        val second = store(maxTracked = 2, maxPerUser = 1)
+        val user = user()
+        val a = first.issue(user, EMAIL, credentialRevision = 0)
+        val b = first.issue(user(), EMAIL, credentialRevision = 0)
+        assertFailsWith<MfaChallenges.CapacityExceededException> { second.issue(user(), EMAIL, credentialRevision = 0) }
+        val replacement = second.issue(user, EMAIL, credentialRevision = 0)
+        assertNotEquals(a.challengeId, replacement.challengeId)
+        assertUnknown(second, a)
+        assertIs<Outcome.Success>(second.verify(b.challengeId, b.code))
+        assertIs<Outcome.Success>(first.verify(replacement.challengeId, replacement.code))
+    }
+
+    @Test
+    fun `the oldest of several live challenges is replaced using issue order`() = runBlocking<Unit> {
+        val first = store(maxPerUser = 2)
+        val second = store(maxPerUser = 2)
+        val user = user()
+        val a = first.issue(user, EMAIL, credentialRevision = 0)
+        val b = second.issue(user, EMAIL, credentialRevision = 0)
+        val c = first.issue(user, EMAIL, credentialRevision = 0)
+        assertUnknown(second, a)
+        assertIs<Outcome.Success>(second.verify(b.challengeId, b.code))
+        assertIs<Outcome.Success>(second.verify(c.challengeId, c.code))
+    }
+
+    @Test
+    fun `expiry and delivery cleanup release capacity for other accounts`() = runBlocking<Unit> {
+        val first = store(maxTracked = 1)
+        val second = store(maxTracked = 1)
+        val old = first.issue(user(), EMAIL, credentialRevision = 0)
+        expire(old)
+        val unsent = second.issue(user(), EMAIL, credentialRevision = 0)
+        assertUnknown(first, old)
+        first.discard("bad-format")
+        first.discard(unsent.challengeId)
+        val fresh = second.issue(user(), EMAIL, credentialRevision = 0)
+        assertUnknown(second, unsent)
+        assertIs<Outcome.Success>(first.verify(fresh.challengeId, fresh.code))
+    }
+
+    @Test
+    fun `a lock can discard just the affected account's pending challenges from another instance`() = runBlocking<Unit> {
+        val mine = user()
+        val first = store()
+        val second = store()
+        val issued = List(3) { first.issue(mine, EMAIL, credentialRevision = 0) }
+        val other = second.issue(user(), EMAIL, credentialRevision = 0)
+        second.discardUser(mine)
+        issued.forEach { assertUnknown(first, it) }
+        assertIs<Outcome.Success>(first.verify(other.challengeId, other.code))
+    }
+
+    private suspend fun assertUnknown(challenges: MfaChallenges, issued: MfaChallenges.IssuedChallenge) {
+        assertEquals("unknown_challenge", assertIs<Outcome.Failure>(challenges.verify(issued.challengeId, issued.code)).reason)
+    }
+
+    private fun expire(issued: MfaChallenges.IssuedChallenge) {
+        PostgresTestSupport.connect().use { connection ->
+            connection.prepareStatement("UPDATE mfa_challenges SET expires_at = 0 WHERE challenge_hash = ?").use { statement ->
+                statement.setString(1, sha256Hex(issued.challengeId))
+                assertEquals(1, statement.executeUpdate())
+            }
+        }
+    }
+
+    private companion object {
+        const val EMAIL = "mfa@example.test"
     }
 }
