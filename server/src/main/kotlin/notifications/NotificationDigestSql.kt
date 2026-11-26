@@ -17,8 +17,9 @@ private const val EMAIL_ON = """COALESCE(
         c.notification_type <> ALL(CAST(? AS varchar[])))"""
 
 /**
- * The notices a digest may mail, one fragment for the claim (alias `c`, four parameters: the delay cutoff, the day floor, the people
- * inside the interval, the actor-recipient pacing cutoff, the kinds off for email by default): unseen, unclaimed, older than the delay,
+ * The notices a digest may mail, one fragment for the claim (alias `c`, five parameters: the delay cutoff, the day floor, the people
+ * inside either persisted interval, the recipient and actor-recipient pacing cutoffs, the kinds off for email by default): unseen,
+ * unclaimed, older than the delay,
  * younger than a day (nothing older is
  * ever mailed), of an ACTIVE account, of a kind whose email switch is ON for the person ([EMAIL_ON]: an opt-in, since every kind is off by
  * default), and not of a person already mailed within the interval (their notices stay unclaimed and ride one later email). A notice
@@ -26,7 +27,10 @@ private const val EMAIL_ON = """COALESCE(
  */
 private const val DUE = """c.seen_at IS NULL AND c.emailed_at IS NULL
       AND c.created_at <= CAST(? AS int8) AND c.created_at > CAST(? AS int8)
-      AND c.recipient_id <> ALL(CAST(? AS int8[]))
+      AND NOT EXISTS (
+          SELECT 1 FROM notification_digest_recipient_pacing recipient_pacing
+          WHERE recipient_pacing.recipient_id = c.recipient_id
+            AND recipient_pacing.attempted_at > CAST(? AS int8))
       AND NOT EXISTS (
           SELECT 1 FROM notification_email_pacing pacing
           WHERE pacing.actor_id = c.actor_id AND pacing.recipient_id = c.recipient_id

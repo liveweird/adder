@@ -45,12 +45,8 @@ internal fun peopleToClaim(batchSize: Int, maxPerRun: Int): Int = minOf(batchSiz
 /** Mails one run sends at most when `notifications.email.maxPerRun` is not given (`security.md`: the digest shares the `Mailer`). */
 internal const val DIGEST_MAX_PER_RUN = 100
 
-/**
- * People remembered as "mailed within the interval". A run that finds the memory this full claims nothing and says so (fail closed: a
- * process that cannot remember whom it mailed must not mail again). Above what the default interval allows (15 ticks of at most
- * [DIGEST_BATCH] people is 7,500); a much longer interval at full batches can reach it, and the digest then pauses until entries expire.
- */
-internal const val DIGEST_MAX_REMEMBERED = 50_000
+/** Shared recipient reservations. The V59 fixed slot pool enforces this production ceiling across every app instance. */
+internal const val DIGEST_MAX_RECIPIENT_RESERVATIONS = 50_000
 
 /**
  * Failures in a row (a failed re-check or send) that end a run: with SMTP or the database down every further attempt is a certain failure
@@ -65,7 +61,9 @@ internal data class DigestBounds(
     /** Fixed production policy; this override lives on the existing test seam rather than widening the digest constructor. */
     val actorRecipientIntervalMillis: Long = ACTOR_RECIPIENT_INTERVAL_MILLIS,
     /** Fixed production safety cap; the override lets tests exercise fail-closed behavior without minting 50,000 accounts. */
-    val maxRemembered: Int = DIGEST_MAX_REMEMBERED,
+    val maxRecipientReservations: Int = DIGEST_MAX_RECIPIENT_RESERVATIONS,
+    /** Production uses PostgreSQL time. Tests may inject one stable shared clock without sleeping for the one-hour actor interval. */
+    val pacingClock: (() -> Long)? = null,
 )
 
 internal data class ClaimedNotice(
@@ -135,8 +133,8 @@ internal data class DigestRun(val claimed: Int, val sent: Int, val failed: Int, 
  *    outage does not silently settle notices nobody tried to mail. That is not a retry: nothing was sent. What can still be lost is a
  *    recipient attempted when the process dies or is cancelled MID-SEND (the send may or may not have left): at most once is the rule.
  *
- * "Mailed within the interval" ([minIntervalMillis]) lives in memory, per process, like the login throttle: a restart forgets it (at worst
- * one early email), and a person inside it is left unclaimed. A null [mailer] (mail disabled) does nothing and says so once. The text is
+ * The recipient interval ([minIntervalMillis]) and the one-hour actor/recipient interval are reserved atomically in PostgreSQL after the
+ * final access/preference re-check and before SMTP. A null [mailer] (mail disabled) does nothing and says so once. The text is
  * [notificationEmail]'s: who, the room, the thread number and a link, never a title or a body.
  */
 internal class NotificationDigest(
@@ -158,7 +156,6 @@ internal class NotificationDigest(
     private val afterClaim: suspend () -> Unit = {},
 ) {
     private val lock = Mutex()
-    private val mailedAt = HashMap<UInt, Long>()
     private var disabledLogged = false
     private val store = NotificationDigestStore(database, delayMillis, bounds)
     private val actorRecipientIntervalMillis = bounds.actorRecipientIntervalMillis
@@ -178,13 +175,8 @@ internal class NotificationDigest(
 
     private suspend fun runLocked(mailer: Mailer): DigestRun {
         val now = clock()
-        mailedAt.values.removeAll { now - it >= minIntervalMillis }
-        if (mailedAt.size >= bounds.maxRemembered) {
-            log.warn("notification email digest paused: {} recipients are inside the mail interval", mailedAt.size)
-            return DigestRun(0, 0, 0)
-        }
         val claim = try {
-            store.claim(now, mailedAt.keys, batchSize, maxPerRun, actorRecipientIntervalMillis)
+            store.claim(now, minIntervalMillis, batchSize, maxPerRun, actorRecipientIntervalMillis)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -203,14 +195,14 @@ internal class NotificationDigest(
         var failed = 0
         var inARow = 0
         var released = 0
+        var capacityFull = false
         try {
             afterClaim()
             while (queue.isNotEmpty() && inARow < DIGEST_MAX_CONSECUTIVE_FAILURES && sent + failed < maxPerRun) {
                 val (recipientId, notices) = queue.first()
                 val leave = { if (queue.firstOrNull()?.key == recipientId) queue.removeFirst() else null }
-                val result = delivery(mailer).deliver(recipientId, notices, now) { attemptedAt ->
+                val result = delivery(mailer).deliver(recipientId, notices, now) {
                     leave()
-                    mailedAt[recipientId] = attemptedAt
                 }
                 released += result.released
                 when (result.status) {
@@ -218,10 +210,12 @@ internal class NotificationDigest(
                     DigestDeliveryStatus.FAILED -> { failed++; inARow++ }
                     DigestDeliveryStatus.SKIPPED -> Unit
                     DigestDeliveryStatus.PACED -> leave()
+                    DigestDeliveryStatus.CAPACITY -> { leave(); capacityFull = true }
                 }
             }
         } finally {
             if (queue.isNotEmpty()) released += releaseSafely(queue.flatMap { it.value }.map { it.id }, now)
+            if (capacityFull) log.warn("notification email digest shared recipient-pacing capacity is full")
             log.info(
                 "notification email digest: {} notice(s) claimed, {} email(s) sent, {} failed, {} released",
                 claimed.size, sent, failed, released,
@@ -236,8 +230,8 @@ internal class NotificationDigest(
         mailer,
         appUrl,
         store,
+        minIntervalMillis,
         actorRecipientIntervalMillis,
-        clock,
         log,
     )
 
@@ -259,5 +253,5 @@ internal class NotificationDigest(
      * reported as null, while cancellation still stops the sweep. The caller may invoke it on the hourly retention pass.
      */
     suspend fun purgeExpiredPacing(batchSize: Int = PACING_PURGE_BATCH): Int =
-        store.purgeExpiredPacing(clock() - actorRecipientIntervalMillis, batchSize)
+        store.purgeExpiredPacing(minIntervalMillis, actorRecipientIntervalMillis, batchSize)
 }

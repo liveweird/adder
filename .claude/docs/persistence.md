@@ -894,6 +894,29 @@ The next sweeps drain the flagged recipients. Check the excess query above befor
 
 V52 stores the last digest SMTP attempt by actor and recipient. Claiming skips currently paced pairs. Just before send, the digest locks pairs in sorted order and timestamps eligible reservations after the locks are acquired. This transaction is separate from claim and delivery. A racing pair's notices stay pending. A failed or interrupted SMTP attempt consumes the interval. Expired pacing rows are cleared in bounded transactions on sweep ticks. Pacing begins with the first reservation made by 1.21 and remains durable across restarts. Stop older digest senders before upgrading. If an older sender runs during a rollback, its attempts are outside the V52 pacing history.
 
+### Shared digest recipient pacing (V59)
+
+V59 replaces the process-local recipient interval with a durable reservation shared by every app instance. A reservation transaction
+locks the recipient row first and the requested V52 actor/recipient rows in `(actor_id, recipient_id)` order. If the recipient is still
+inside `notifications.email.minIntervalSeconds`, no actor row changes. If every actor is still inside the V52 one-hour interval, the
+recipient row does not change and all of that digest's claims are released. Otherwise the transaction timestamps the recipient and only
+the eligible actor pairs together, commits, and releases paced actors' claims before SMTP. The database connection and every row lock are
+released before rendering or SMTP begins. Successful, failed and cancellation-outcome-unknown SMTP attempts consume both reservations;
+an access/preference re-check that skips the recipient consumes neither.
+
+`notification_digest_recipient_pacing` has one row per paced recipient and takes a unique slot from 50,000 pre-seeded
+`notification_digest_recipient_slots` rows. The fixed pool preserves the former fail-closed capacity: a new recipient at capacity is not
+claimed or mailed, while an existing recipient can still be checked without a global lock. Free-slot selection uses `SKIP LOCKED`; it is
+the only cross-recipient capacity decision. Sweep cleanup deletes at most 500 expired recipient rows and 500 expired V52 pair rows per
+tick in separate bounded statements. Claim-time pacing filters are only an optimization; the ordered reservation transaction is the
+authority for races and expiry and uses PostgreSQL time. Older digest senders do not write the V59 table, so stop them before upgrading.
+On rollback, leave V59 installed; an older app ignores it and returns to process-local recipient pacing.
+
+`notifications.email.maxPerRun` remains a per-process tick budget: each process owns its Mailer and sweep coroutine, while the shared
+reservations prevent overlap only for the same recipient. Distinct recipients can therefore start up to `instances * maxPerRun` sends
+per tick. This is an independent resource bound, not a recipient-pacing correctness gap. A provider-wide cluster quota or sweep lease
+would be a separate V60 change if a multi-instance deployment needs one.
+
 ### Shared live tickets (V53)
 
 The server stores ticket digests and their authorization binding in `live_tickets`. The raw bearer never reaches storage. Minting locks the fixed capacity guard, uses PostgreSQL time to bound the pending 30-second lease, removes at most 256 expired rows, and checks the shared active ticket limit. Redemption deletes the digest and returns its binding atomically. The server then rechecks the token and account. Rollback may leave V53 installed. Tickets minted by the old in-memory store naturally expire or trigger a new mint during the deployment change.

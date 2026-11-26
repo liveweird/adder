@@ -24,7 +24,7 @@ import org.slf4j.Logger
 
 private const val RECHECK_CHUNK = 1_000
 
-internal enum class DigestDeliveryStatus { SENT, FAILED, SKIPPED, PACED }
+internal enum class DigestDeliveryStatus { SENT, FAILED, SKIPPED, PACED, CAPACITY }
 internal data class DigestDeliveryResult(val status: DigestDeliveryStatus, val released: Int = 0)
 
 /** Final access/preference resolution, persisted pair reservation, rendering and SMTP. Scheduling stays in [NotificationDigest]. */
@@ -34,8 +34,8 @@ internal class NotificationDigestDelivery(
     private val mailer: Mailer,
     private val appUrl: String?,
     private val store: NotificationDigestStore,
+    private val recipientIntervalMillis: Long,
     private val actorRecipientIntervalMillis: Long,
-    private val clock: () -> Long,
     private val log: Logger,
 ) {
     /**
@@ -47,16 +47,15 @@ internal class NotificationDigestDelivery(
         recipientId: UInt,
         notices: List<ClaimedNotice>,
         claimStamp: Long,
-        attempted: (Long) -> Unit,
+        attempted: () -> Unit,
     ): DigestDeliveryResult {
         var blocked = emptyList<UInt>()
         var reserved = false
         var released = 0
-        var attemptAt: Long? = null
         var markedAttempted = false
         fun markAttempted() {
             if (!markedAttempted) {
-                attempted(attemptAt ?: clock())
+                attempted()
                 markedAttempted = true
             }
         }
@@ -66,17 +65,26 @@ internal class NotificationDigestDelivery(
                 markAttempted()
                 return DigestDeliveryResult(DigestDeliveryStatus.SKIPPED)
             }
-            val requested = candidate.notices.map { ActorRecipientPair(it.actorId, recipientId) }.toSet()
-            val admitted = store.reservePairs(requested, actorRecipientIntervalMillis, clock)
-            reserved = admitted.isNotEmpty()
-            blocked = candidate.notices.filter { ActorRecipientPair(it.actorId, recipientId) !in admitted }.map { it.id }.sorted()
-            val allowed = candidate.notices.filter { ActorRecipientPair(it.actorId, recipientId) in admitted }
-            if (allowed.isEmpty()) {
+            val reservation = store.reserveAttempt(
+                recipientId,
+                candidate.notices.mapTo(linkedSetOf()) { it.actorId },
+                recipientIntervalMillis,
+                actorRecipientIntervalMillis,
+            )
+            reserved = reservation.status == DigestAttemptStatus.RESERVED
+            if (!reserved) {
+                blocked = candidate.notices.map { it.id }.sorted()
                 released = releaseBlocked(blocked, claimStamp)
-                return DigestDeliveryResult(DigestDeliveryStatus.PACED, released)
+                val status = if (reservation.status == DigestAttemptStatus.CAPACITY) {
+                    DigestDeliveryStatus.CAPACITY
+                } else {
+                    DigestDeliveryStatus.PACED
+                }
+                return DigestDeliveryResult(status, released)
             }
+            blocked = candidate.notices.filter { it.actorId !in reservation.actorIds }.map { it.id }.sorted()
+            val allowed = candidate.notices.filter { it.actorId in reservation.actorIds }
             val mail = candidate.render(allowed)
-            attemptAt = clock()
             markAttempted()
             try {
                 mailer.send(mail.email, mail.subject, mail.body)
