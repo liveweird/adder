@@ -453,7 +453,7 @@ class GlobalSearchTest {
         }
     }
 
-    /** The page statement as a PREPARED statement's GENERIC plan with sequential scans off: the watches come through their index. */
+    /** Tests the person-and-room index on the emitted generic plan. The small fixture can otherwise prefer a primary-key merge join. */
     private fun assertWatchPlanUsesTheWatchIndex(sql: String) {
         PostgresTestSupport.connect().use { c ->
             c.autoCommit = false
@@ -461,6 +461,7 @@ class GlobalSearchTest {
                 c.createStatement().use { st ->
                     st.execute("SET LOCAL plan_cache_mode = force_generic_plan")
                     st.execute("SET LOCAL enable_seqscan = off")
+                    st.execute("ALTER TABLE thread_watches DROP CONSTRAINT thread_watches_pkey")
                     st.execute("PREPARE watch_plan(int4[], boolean, int8) AS $sql")
                     val plan = buildString {
                         st.executeQuery("EXPLAIN EXECUTE watch_plan('{1,2}', false, 1)").use { rs ->
