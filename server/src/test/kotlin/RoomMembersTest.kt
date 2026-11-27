@@ -121,6 +121,19 @@ class RoomMembersTest {
     private suspend fun HttpClient.setRole(room: UInt, userId: UInt, role: RoomRole): HttpResponse =
         putJson(member(room, userId), RoomMemberRoleRequest(role))
 
+    private suspend fun HttpClient.setRoleCorrelated(
+        room: UInt,
+        userId: UInt,
+        role: RoomRole,
+        mutationId: String,
+        repeatMutationId: Boolean = false,
+    ): HttpResponse = put(member(room, userId)) {
+        contentType(ContentType.Application.Json)
+        header(MUTATION_ID_HEADER, mutationId)
+        if (repeatMutationId) headers.append(MUTATION_ID_HEADER, mutationId)
+        setBody(RoomMemberRoleRequest(role))
+    }
+
     private suspend fun HttpResponse.problemType(): String = body<ProblemDetail>().type
 
     @Test
@@ -363,6 +376,72 @@ class RoomMembersTest {
         }
         assertEquals(HttpStatusCode.BadRequest, badRole.status)
         assertEquals(RoomRole.MEMBER, TestRooms.rawRole(room, ann.id))
+    }
+
+    @Test
+    fun `role correlation is lazy, omitted for self changes, and emitted only for another person's committed change`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("mem-role-echo-owner")
+        val coOwner = actor("mem-role-echo-coowner")
+        val member = actor("mem-role-echo-member")
+        val outsider = actor("mem-role-echo-outsider")
+        val admin = actor("mem-role-echo-admin", UserRole.ADMIN)
+        val room = room(owner)
+        val hiddenRoom = room(owner, RoomAccessType.RESTRICTED_HIDDEN)
+        TestRooms.addMember(room, coOwner.id, RoomRole.OWNER)
+        TestRooms.addMember(room, member.id)
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+
+        assertEquals(
+            HttpStatusCode.Forbidden,
+            member.client.setRoleCorrelated(room, coOwner.id, RoomRole.MEMBER, mutationId.uppercase()).status,
+        )
+        assertEquals(
+            HttpStatusCode.NotFound,
+            outsider.client.setRoleCorrelated(room, coOwner.id, RoomRole.MEMBER, mutationId.uppercase()).status,
+        )
+        assertEquals(
+            HttpStatusCode.NotFound,
+            admin.client.setRoleCorrelated(hiddenRoom, owner.id, RoomRole.MEMBER, mutationId.uppercase()).status,
+        )
+        assertEquals(
+            HttpStatusCode.NotFound,
+            owner.client.setRoleCorrelated(room, 999_999u, RoomRole.OWNER, mutationId.uppercase()).status,
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.setRoleCorrelated(room, member.id, RoomRole.MEMBER, mutationId.uppercase()).status,
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.setRoleCorrelated(room, member.id, RoomRole.MEMBER, mutationId, repeatMutationId = true).status,
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.setRoleCorrelated(room, owner.id, RoomRole.MEMBER, mutationId.uppercase()).status,
+        )
+        assertEquals(RoomRole.OWNER, TestRooms.rawRole(room, owner.id), "malformed metadata cannot step down the caller")
+
+        NotifyCapture().use { capture ->
+            val hints = capture.during {
+                assertEquals(HttpStatusCode.NoContent, owner.client.setRoleCorrelated(room, member.id, RoomRole.MEMBER, mutationId).status)
+                assertEquals(HttpStatusCode.NoContent, owner.client.setRoleCorrelated(room, owner.id, RoomRole.MEMBER, mutationId).status)
+                assertEquals(HttpStatusCode.NoContent, coOwner.client.setRoleCorrelated(room, member.id, RoomRole.OWNER, mutationId).status)
+            }
+            assertEquals(
+                listOf(
+                    LiveHint(LiveKind.ROOM_MEMBER_ROLE_CHANGED, room, targetUserIds = listOf(owner.id)),
+                    LiveHint(
+                        LiveKind.ROOM_MEMBER_ROLE_CHANGED,
+                        room,
+                        targetUserIds = listOf(member.id),
+                        mutationId = mutationId,
+                        originUserId = coOwner.id,
+                    ),
+                ),
+                hints,
+            )
+        }
     }
 
     @Test
@@ -646,6 +725,40 @@ class RoomMembersTest {
             }
         }
         assertNull(TestRooms.rawRole(room, ann.id), "the refused add wrote no membership")
+    }
+
+    @Test
+    fun `an owner demoted while a role change waits is refused before correlation validation`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("mem-role-race-owner")
+        val ann = actor("mem-role-race-ann")
+        val room = room(owner)
+        TestRooms.addMember(room, ann.id)
+        val malformedMutationId = "2C6C7F12-79A4-4F1A-8DC7-E9686608B20A"
+
+        PostgresTestSupport.connect().use { raw ->
+            raw.autoCommit = false
+            raw.prepareStatement("SELECT id FROM rooms WHERE id = ? FOR NO KEY UPDATE").use { st ->
+                st.setInt(1, room.toInt())
+                st.executeQuery().close()
+            }
+            raw.prepareStatement("UPDATE room_members SET role = 'MEMBER' WHERE room_id = ? AND user_id = ?").use { st ->
+                st.setInt(1, room.toInt())
+                st.setLong(2, owner.id.toLong())
+                st.executeUpdate()
+            }
+            try {
+                coroutineScope {
+                    val changing = async { owner.client.setRoleCorrelated(room, ann.id, RoomRole.OWNER, malformedMutationId) }
+                    awaitLockWait("FOR NO KEY UPDATE")
+                    raw.commit()
+                    assertEquals(HttpStatusCode.Forbidden, changing.await().status)
+                }
+            } finally {
+                raw.rollback()
+            }
+        }
+        assertEquals(RoomRole.MEMBER, TestRooms.rawRole(room, ann.id), "the refused role change wrote nothing")
     }
 
     @Test

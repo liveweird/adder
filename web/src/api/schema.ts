@@ -2993,8 +2993,9 @@ export interface components {
             messageId?: number;
             /**
              * @description Correlates the writer's HTTP request with an event on that account's sockets. Supported events are message.posted, message.edited,
-             *     message.reaction_changed, thread.updated, thread.status_changed, thread.owner_changed, thread.merged, room.member_added and
-             *     room.member_removed. A merge names the source thread. Correlated membership events name only the room alongside the identifier.
+             *     message.reaction_changed, thread.updated, thread.status_changed, thread.owner_changed, thread.merged, room.member_added,
+             *     room.member_role_changed and room.member_removed. A merge names the source thread. Correlated membership events name only the
+             *     room alongside the identifier.
              */
             mutationId?: components["schemas"]["LiveMutationId"];
         };
@@ -6734,7 +6735,14 @@ export interface operations {
     setRoomMemberRole: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Correlates a role change for another member with `room.member_role_changed` on the writer's account sockets.
+                 *     Supply at most one canonical lowercase UUIDv4. A malformed or repeated value returns `400` after authorization and target lookup.
+                 *     Changing one's own role never sends the identifier. The identifier has no effect on authorization or the last-owner rule.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A user id (int32; ids start at 1). */

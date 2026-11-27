@@ -725,6 +725,43 @@ function countRosterReads(page: Page, path: string) {
   return () => reads;
 }
 
+test("changing another member's role updates the reader and refreshes the writer once", async ({ page, browser }) => {
+  const room = await scene(page);
+  const manager = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  const memberPath = `/rooms/${room.roomId}/members`;
+  const apiPath = `/api/v1${memberPath}`;
+  const roleChanged = (seat: Seat) => seat.frames.find((frame) => frame.kind === "room.member_role_changed" && frame.roomId === room.roomId);
+  await manager.page.clock.install();
+  await openLive(manager, memberPath, room.roomId);
+  await openLive(reader, memberPath, room.roomId);
+  await expect(memberRow(reader.page, room.mate).getByText("Member", { exact: true })).toBeVisible();
+  await manager.page.clock.runFor(2_100);
+
+  const reads = countRosterReads(manager.page, apiPath);
+  const release = await holdCommittedResponse(manager, { path: `${apiPath}/${room.mate.id}`, method: "PUT", status: 204 });
+  let heldReads: number;
+  try {
+    await rowOperation(manager.page, room.mate.name, "Make owner");
+    await expect.poll(() => roleChanged(manager) !== undefined).toBe(true);
+    await manager.page.clock.runFor(1_100);
+    await expect(memberRow(reader.page, room.mate).getByText("Owner", { exact: true })).toBeVisible();
+    heldReads = reads();
+  } finally {
+    release();
+  }
+
+  await expect(manager.page.getByText("Role changed", { exact: true })).toBeVisible();
+  await expect(memberRow(manager.page, room.mate).getByText("Owner", { exact: true })).toBeVisible();
+  await manager.page.clock.runFor(3_200);
+  expect(reads()).toBe(1);
+  expect(heldReads).toBe(0);
+  expect(roleChanged(manager)?.mutationId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(roleChanged(reader)?.mutationId).toBeUndefined();
+  await expectNoReload(manager);
+  await expectNoReload(reader);
+});
+
 test("adding a room member updates another reader and refreshes the writer once", async ({ page, browser }) => {
   const room = await scene(page);
   const added = await throwawayUser(page, "E2E Live New Member", cleanup);
