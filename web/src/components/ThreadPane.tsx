@@ -92,7 +92,7 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
       if (mountedThreadRef.current === key) mountedThreadRef.current = null;
     };
   }, [room.id, number]);
-  const workflow = useRoomWorkflow(room.id);
+  const workflow = useRoomWorkflow(room.id, { refetchOnMount: false });
   // Whether THIS thread is pinned (the room's one pins query, shared with the pin button, the strip and the list's marks): a failed read marks nothing.
   const { threadNumbers: pinnedThreads } = useRoomPins(room.id);
   // The pin strip's expanded state is kept per person per browser.
@@ -240,7 +240,10 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
                 if (mountedThreadRef.current !== `${room.id}/${thread.number}`) return;
                 void navigate(withListParams(roomPath(room.id), liveUrl.params()), { replace: true });
               }}
-              onMerged={(target) => void navigate(withListParams(threadPath(room.id, target), location.search), { replace: true })}
+              onMerged={(target) => {
+                if (mountedThreadRef.current !== `${room.id}/${thread.number}`) return;
+                void navigate(withListParams(threadPath(room.id, target), liveUrl.params()), { replace: true });
+              }}
             />
             <span ref={findTriggerRef}>
               <HeaderIconButton

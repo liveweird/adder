@@ -7,6 +7,10 @@ import { roomKeys } from "../utils/roomKeys";
  * key for the thread list, the new-thread form and the thread pane, so a view mounted beside another shares the single read, and
  * any `["rooms"]` refresh (a thread started or moved changes each status's `threadCount`) re-reads it.
  */
-export function useRoomWorkflow(roomId: number) {
-  return useQuery({ queryKey: roomKeys.workflow(roomId), queryFn: () => getRoomWorkflow(roomId) });
+export function useRoomWorkflow(roomId: number, options: { refetchOnMount?: boolean } = {}) {
+  return useQuery({
+    queryKey: roomKeys.workflow(roomId),
+    queryFn: () => getRoomWorkflow(roomId),
+    refetchOnMount: options.refetchOnMount,
+  });
 }

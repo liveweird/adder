@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Fewer duplicate reads after merging threads (1.38.0)
+
+After a successful merge, the sending tab can reuse its refresh when the matching live event arrives. Other readers still see the merge live and can read the original conversation.
+
 ### Faster refresh after deleting a thread (1.37.0)
 
 The deleting tab refreshes the thread list and pins on the first confirmation. Other tabs still remove the thread, its merged conversations, and quoted excerpts live.

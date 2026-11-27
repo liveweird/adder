@@ -477,6 +477,110 @@ test("a lost thread deletion response still clears a cross-room quote", async ({
   await expectNoReload(reader);
 });
 
+async function openMergeDialog(page: Page, title: string) {
+  await page.getByRole("button", { name: "Thread actions" }).click();
+  await page.getByRole("menuitem", { name: "Merge duplicate", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Merge duplicate thread", exact: true });
+  await dialog.getByRole("textbox", { name: "Target thread number" }).fill("1");
+  await expect(dialog.getByText(`#1 ${title}`, { exact: true })).toBeVisible();
+  return dialog;
+}
+
+async function holdMergeResponse(author: Seat, sourcePath: string, loseResponse = false) {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await author.page.route((url) => url.pathname === `/api/v1${sourcePath}/merge`, async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    const response = await route.fetch();
+    expect(response.status()).toBe(204);
+    await held;
+    if (loseResponse) await route.abort();
+    else await route.fulfill({ response });
+  });
+  return release;
+}
+
+const mergeBanner = (page: Page) => page.getByText("This conversation was merged into #1. Its history remains available here.", { exact: true });
+
+test("a committed merge refreshes the writer once and updates the reader live", async ({ page, browser }) => {
+  const room = await scene(page);
+  const targetTitle = await seedThread(room, "Canonical conversation");
+  const sourceTitle = await seedThread(room, "Duplicate history stays readable");
+  const roomPath = `/rooms/${room.roomId}`;
+  const sourcePath = `${roomPath}/threads/2`;
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await author.page.clock.install();
+  await openLive(author, `${sourcePath}?scope=all`, room.roomId);
+  await openLive(reader, sourcePath, room.roomId);
+  await expect(threadListRow(reader.page, sourceTitle)).toBeVisible();
+  const dialog = await openMergeDialog(author.page, targetTitle);
+  await author.page.clock.runFor(2_100);
+
+  const reads = { list: 0, workflow: 0 };
+  author.page.on("request", (request) => {
+    if (request.method() !== "GET") return;
+    const path = new URL(request.url()).pathname;
+    if (path === `/api/v1${roomPath}/threads`) reads.list++;
+    if (path === `/api/v1${roomPath}/workflow`) reads.workflow++;
+  });
+  const release = await holdMergeResponse(author, sourcePath);
+  let heldReads: typeof reads;
+  try {
+    await dialog.getByRole("button", { name: "Merge into #1", exact: true }).click();
+    await expect.poll(() => author.frames.some((frame) => frame.kind === "thread.merged")).toBe(true);
+    await author.page.clock.runFor(1_100);
+    await expect(mergeBanner(reader.page)).toBeVisible();
+    await expect(threadListRow(reader.page, sourceTitle)).toHaveCount(0);
+    await expect(messageNamed(reader.page, "Duplicate history stays readable")).toBeVisible();
+    heldReads = { ...reads };
+  } finally {
+    release();
+  }
+
+  await expect(author.page).toHaveURL(new RegExp(`${roomPath}/threads/1\\?scope=all$`));
+  await expect(author.page.getByRole("heading", { name: `#1 ${targetTitle}`, exact: true })).toBeVisible();
+  await author.page.clock.runFor(3_200);
+  expect(reads).toEqual({ list: 1, workflow: 1 });
+  expect(heldReads).toEqual({ list: 0, workflow: 0 });
+  expect(author.frames.find((frame) => frame.kind === "thread.merged")?.mutationId).toMatch(/^[0-9a-f-]{36}$/);
+  const readerFrame = reader.frames.find((frame) => frame.kind === "thread.merged");
+  expect(readerFrame).toBeDefined();
+  expect(readerFrame?.mutationId).toBeUndefined();
+  await expectNoReload(author);
+  await expectNoReload(reader);
+});
+
+test("a lost merge response releases the writer's live refresh", async ({ page, browser }) => {
+  const room = await scene(page);
+  const targetTitle = await seedThread(room);
+  await seedThread(room, "Readable after a lost merge response");
+  const sourcePath = `/rooms/${room.roomId}/threads/2`;
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await author.page.clock.install();
+  await openLive(author, sourcePath, room.roomId);
+  await openLive(reader, sourcePath, room.roomId);
+  const dialog = await openMergeDialog(author.page, targetTitle);
+  await author.page.clock.runFor(2_100);
+  const release = await holdMergeResponse(author, sourcePath, true);
+  try {
+    await dialog.getByRole("button", { name: "Merge into #1", exact: true }).click();
+    await expect.poll(() => author.frames.some((frame) => frame.kind === "thread.merged")).toBe(true);
+    await expect(mergeBanner(reader.page)).toBeVisible();
+    await expect(mergeBanner(author.page)).toHaveCount(0);
+  } finally {
+    release();
+  }
+
+  await author.page.clock.runFor(1_100);
+  await expect(mergeBanner(author.page)).toBeVisible();
+  await expect(messageNamed(author.page, "Readable after a lost merge response")).toBeVisible();
+  await expect(author.page).toHaveURL(new RegExp(`${sourcePath}$`));
+  await expectNoReload(author);
+  await expectNoReload(reader);
+});
+
 test("a thread started by one member appears in another member's thread list", async ({ page, browser }) => {
   const room = await scene(page);
   const author = await signedIn(browser, room.owner);

@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.38.0",
+    date: "2026-11-27",
+    en: `**Adder 1.38.0 — fewer duplicate reads after merging threads**
+
+- Your tab can reuse its refresh after a successful merge. Other readers still see the merge live and can open the source's history.
+- If the response is lost, the live event can still update your tab.`,
+    pl: `**Adder 1.38.0 — mniej powtórnych odświeżeń po scaleniu wątków**
+
+- Po udanym scaleniu karta może wykorzystać wyniki wcześniejszego odświeżenia. Pozostałe osoby widzą scalenie na żywo i mogą otworzyć historię wątku źródłowego.
+- Jeśli odpowiedź zaginie, zdarzenie na żywo nadal może zaktualizować Twoją kartę.`,
+  },
+  {
     version: "1.37.0",
     date: "2026-11-27",
     en: `**Adder 1.37.0 — faster refresh after deleting a thread**

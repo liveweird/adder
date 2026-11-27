@@ -1,15 +1,18 @@
 import { useState } from "react";
 import { ActionIcon, Alert, Button, Group, List, Menu, Modal, NumberInput, Paper, Stack, Text, Tooltip } from "@mantine/core";
 import { IconDotsVertical, IconGitMerge, IconTrash } from "@tabler/icons-react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useAdmin } from "../auth";
+import { API_BASE } from "../api/http";
 import { deleteThread, getLifecycleThread, mergeThread, type LifecycleThread } from "../api/threadLifecycle";
 import type { RoomResponse } from "../api/rooms";
 import { getSessionSnapshot, getUserId, isSameSessionIdentity } from "../api/session";
 import { roomKeys } from "../utils/roomKeys";
 import { threadLifecycleKeys } from "../utils/threadLifecycleCache";
 import { beginThreadDeleteCommit } from "../utils/threadDeleteCommit";
+import { beginMergeEcho, canCorrelateReply } from "../utils/liveReplyEcho";
+import { activeQueriesAreFresh } from "../utils/queryRefresh";
 import { isThreadSteward } from "../utils/threadAccess";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
@@ -22,6 +25,19 @@ const MAX_ID = 2_147_483_647;
 function numberValue(value: string | number): number | null {
   const number = typeof value === "number" ? value : Number(value);
   return Number.isInteger(number) && number >= 1 && number <= MAX_ID ? number : null;
+}
+
+async function refreshMergedThread(
+  queryClient: QueryClient,
+  roomId: number,
+  session: ReturnType<typeof getSessionSnapshot>,
+): Promise<boolean> {
+  if (!isSameSessionIdentity(session, getSessionSnapshot())) return false;
+  const keys = threadLifecycleKeys(roomId, false);
+  await Promise.all(keys.map((queryKey) => queryClient.cancelQueries({ queryKey })));
+  if (!isSameSessionIdentity(session, getSessionSnapshot())) return false;
+  await Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
+  return isSameSessionIdentity(session, getSessionSnapshot()) && activeQueriesAreFresh(queryClient, ...keys);
 }
 
 export default function ThreadLifecycleActions({
@@ -64,12 +80,32 @@ export default function ThreadLifecycleActions({
   const targetReady = target !== undefined && targetIssue === null;
 
   const merge = useMutation({
-    mutationFn: (into: number) => mergeThread(room.id, thread.number, into),
-    onSuccess: async (_result, into) => {
+    mutationFn: async (into: number) => {
+      const session = getSessionSnapshot();
+      const echo = canCorrelateReply(API_BASE, window.location.href)
+        ? beginMergeEcho(queryClient, room.id, thread.number)
+        : undefined;
+      try {
+        await mergeThread(room.id, thread.number, into, echo?.id);
+      } catch (error) {
+        echo?.cancel();
+        throw error;
+      }
+      let fresh = false;
+      try {
+        fresh = await refreshMergedThread(queryClient, room.id, session);
+      } catch {
+        // HTTP committed the merge; the exact live hint must take the ordinary refresh path when this refresh cannot prove freshness.
+      }
+      if (fresh) echo?.confirm();
+      echo?.cancel();
+      return isSameSessionIdentity(session, getSessionSnapshot());
+    },
+    onSuccess: async (sameSession, into) => {
+      if (!sameSession) return;
       showSuccessToast(t("threadLifecycle.merge.success"));
       setMergeOpen(false);
       await onMerged(into);
-      await Promise.all(threadLifecycleKeys(room.id, false).map((queryKey) => queryClient.invalidateQueries({ queryKey })));
     },
   });
 
