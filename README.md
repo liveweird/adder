@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Fewer duplicate reads when joining a public room (1.44.0)
+
+If the room has already opened through live updates, the join response refreshes membership without fetching the displayed thread list, workflow and pins again.
+
 ### Fewer duplicate reads after approving room access (1.43.0)
 
 The owner’s browser can reuse its roster and request-queue refresh for the matching live update. The applicant can open the room as soon as the approval is saved.

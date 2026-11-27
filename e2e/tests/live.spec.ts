@@ -4,7 +4,7 @@
 // removed through the API in an `afterEach` (rooms first, then the users); the CSP test owns one throwaway user and no room. Every room is created by a throwaway user and only copies the
 // seeded Default template. Deletion scenarios act on their own messages and threads. The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket, and the file's own
 // administrator (`specAdmins`) spends its own bucket, never the seed administrator's.
-import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { type APIRequestContext, type Browser, type BrowserContext, type Page, type Request } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
 import { apiAsUser, conversation, deleteViaApi, expect, login, rail, rowOperation, specAdmins, test, threadList, threadListRow, throwawayUser, uniqueText } from "./helpers";
 
@@ -880,6 +880,65 @@ test("approving a join request grants access live and refreshes the owner once",
   expect(added(visitor)?.mutationId).toBeUndefined();
   await expectNoReload(approver);
   await expectNoReload(visitor);
+});
+
+test("joining a public room keeps content loaded while the successful response arrives", async ({ page, browser }) => {
+  const room = await scene(page);
+  const name = uniqueText("e2e-live-public");
+  const created = await room.api.post("/api/v1/rooms", { data: { name, templateId: room.templateId, accessType: "PUBLIC" } });
+  expect(created.status()).toBe(201);
+  const { id } = (await created.json()) as { id: number };
+  const roomPath = `/rooms/${id}`;
+  const apiPath = `/api/v1${roomPath}`;
+  cleanup.unshift(apiPath);
+  const title = uniqueText("Earlier public discussion");
+  const thread = await room.api.post(`${apiPath}/threads`, { data: { title, body: "A discussion started before joining." } });
+  expect(thread.status()).toBe(201);
+
+  const visitor = await signedIn(browser, room.mate);
+  const subscribed = () => visitor.frames.some((frame) => frame.type === "subscribed" && frame.roomIds?.includes(id));
+  await visitor.page.clock.install();
+  await visitor.page.goto(roomPath);
+  const join = visitor.page.getByRole("button", { name: "Join room", exact: true });
+  const discussion = visitor.page.getByRole("link", { name: new RegExp(title) });
+  await expect(join).toBeVisible();
+  await expect.poll(() => visitor.frames.some((frame) => frame.type === "ready")).toBe(true);
+  await visitor.page.clock.runFor(2_100);
+
+  const paths = ["pins", "workflow", "threads"].map((part) => `${apiPath}/${part}`);
+  const contentReads = paths.map((path) => countReadsAt(visitor.page, path));
+  const pendingReads = new Set<Request>();
+  let threadReadsAfterSubscribe = 0;
+  visitor.page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() !== "GET" || !paths.includes(path)) return;
+    pendingReads.add(request);
+    if (path === `${apiPath}/threads` && subscribed()) threadReadsAfterSubscribe++;
+  });
+  visitor.page.on("requestfinished", (request) => pendingReads.delete(request));
+  visitor.page.on("requestfailed", (request) => pendingReads.delete(request));
+  const joinPath = `${apiPath}/join`;
+  const release = await holdCommittedResponse(visitor, { path: joinPath, method: "POST", status: 204 });
+  const write = visitor.page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname === joinPath);
+  let loadedReads: number[];
+  try {
+    await join.click();
+    expect((await write).headers()["x-mutation-id"]).toBeUndefined();
+    await expect(discussion).toBeVisible();
+    await expect.poll(subscribed).toBe(true);
+    await visitor.page.clock.runFor(3_200);
+    await expect.poll(() => pendingReads.size).toBe(0);
+    expect(threadReadsAfterSubscribe).toBeGreaterThan(0);
+    await expect(rail(visitor.page).getByRole("link", { name, exact: true })).toBeVisible();
+    loadedReads = contentReads.map((count) => count());
+  } finally {
+    release();
+  }
+
+  await expect(visitor.page.getByText("You joined the room", { exact: true })).toBeVisible();
+  await visitor.page.clock.runFor(3_200);
+  expect(contentReads.map((count) => count())).toEqual(loadedReads);
+  await expect(discussion).toBeVisible();
 });
 
 test("a member removed from a room loses it from the rail and the open room", async ({ page, browser }) => {

@@ -136,6 +136,14 @@ change can only arrive by being pushed, and marks the document, so "without a re
 3. The response arrives.
    - *Expected*: the roster and request queue each read once. Only the owner’s event carries the request identifier. Neither page reloads.
 
+## Scenario: joining a public room keeps content loaded while the successful response arrives
+
+1. A signed-in visitor opens the preview of a public room with an existing thread.
+2. The visitor chooses **Join room**, and the browser holds the successful response. It waits for the room subscription and reads the existing thread list.
+   - *Expected*: the earlier discussion and the room’s rail entry appear through live recovery. The join uses the ordinary request without a mutation identifier.
+3. The response arrives.
+   - *Expected*: the join is confirmed. The thread list, workflow and pins make no additional requests and the discussion stays visible.
+
 ## Scenario: a member removed from a room loses it from the rail and the open room
 
 1. The same setup with an API-seeded thread; the owner opens the room's **Members** page and the teammate opens the thread.

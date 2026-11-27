@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.44.0",
+    date: "2026-11-27",
+    en: `**Adder 1.44.0 — fewer duplicate reads when joining a public room**
+
+- If a public room already opened through live updates, the join response reuses its loaded thread list, workflow and pins.
+- The join response can also open the room when the live update is missed.`,
+    pl: `**Adder 1.44.0 — mniej powtórnych odświeżeń przy dołączaniu do publicznego pokoju**
+
+- Jeśli publiczny pokój otworzył się już dzięki zdarzeniu na żywo, potwierdzenie wykorzystuje wczytaną listę wątków, przepływ pracy i przypięcia.
+- Jeśli zdarzenie na żywo nie dotarło, pokój może się otworzyć po otrzymaniu potwierdzenia.`,
+  },
+  {
     version: "1.43.0",
     date: "2026-11-27",
     en: `**Adder 1.43.0 — fewer duplicate reads after approving room access**

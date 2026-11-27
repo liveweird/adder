@@ -1,17 +1,15 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { Alert, Badge, Button, Group, Paper, Stack, Text } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconDoorEnter, IconSend } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import {
-  joinPublicRoom,
   requestRoomMembership,
   type RoomAccessPreview as RoomAccessPreviewData,
 } from "../api/rooms";
+import type { PublicRoomEnrollment } from "../hooks/usePublicRoomEnrollment";
 import { FORM_MAX_WIDTH } from "../utils/layout";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
-import { roomPath, roomsPath } from "../utils/roomLinks";
+import { roomsPath } from "../utils/roomLinks";
 import { roomKeys } from "../utils/roomKeys";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
@@ -20,23 +18,23 @@ import PageHeader from "./PageHeader";
 import RoomAccessBadge from "./RoomAccessBadge";
 
 /** The one viable enrollment action and its current state, shared by the safe preview and an outside admin's content view. */
-export function RoomEnrollmentAction({ room, compact = false }: { room: RoomAccessPreviewData; compact?: boolean }) {
+export function RoomEnrollmentAction({
+  room,
+  compact = false,
+  publicEnrollment,
+}: {
+  room: RoomAccessPreviewData;
+  compact?: boolean;
+  publicEnrollment: PublicRoomEnrollment;
+}) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [failure, setFailure] = useState<unknown>(null);
   const publicRoom = room.accessType === "PUBLIC";
   const enrollment = useMutation({
-    mutationFn: () => (publicRoom ? joinPublicRoom(room.id) : requestRoomMembership(room.id)),
+    mutationFn: () => requestRoomMembership(room.id),
     onSuccess: async () => {
       setFailure(null);
-      if (publicRoom) {
-        showSuccessToast(t("rooms.access.joined"));
-        queryClient.removeQueries({ queryKey: roomKeys.access(room.id) });
-        navigate(roomPath(room.id), { replace: true });
-        await refreshQueriesAfterMutation(queryClient, ["rooms"]);
-        return;
-      }
       showSuccessToast(t("rooms.access.requested"));
       await queryClient.invalidateQueries({ queryKey: roomKeys.access(room.id) });
     },
@@ -52,9 +50,10 @@ export function RoomEnrollmentAction({ room, compact = false }: { room: RoomAcce
     ? t(pending ? "rooms.access.pending" : "rooms.access.rejected")
     : t(`rooms.access.${room.accessType}.description`);
 
-  const error = failure !== null && (
+  const actionFailure = publicRoom ? publicEnrollment.failure : failure;
+  const error = actionFailure !== null && (
     <FormErrorAlert title={t(publicRoom ? "rooms.access.joinFailed" : "rooms.access.requestFailed")}>
-      {saveErrorMessage(failure, t, {
+      {saveErrorMessage(actionFailure, t, {
         retryAfter: true,
         forbidden: publicRoom ? "rooms.access.joinFailed" : "rooms.access.requestFailed",
         notFound: "rooms.notFound",
@@ -69,8 +68,8 @@ export function RoomEnrollmentAction({ room, compact = false }: { room: RoomAcce
       style={compact ? undefined : { alignSelf: "flex-start" }}
       size={compact ? "xs" : undefined}
       leftSection={publicRoom ? <IconDoorEnter size={16} aria-hidden="true" /> : <IconSend size={16} aria-hidden="true" />}
-      loading={enrollment.isPending}
-      onClick={() => enrollment.mutate()}
+      loading={publicRoom ? publicEnrollment.pending : enrollment.isPending}
+      onClick={() => publicRoom ? publicEnrollment.join() : enrollment.mutate()}
     >
       {actionLabel}
     </Button>
@@ -105,8 +104,7 @@ export function RoomEnrollmentAction({ room, compact = false }: { room: RoomAcce
   );
 }
 
-/** The safe room landing shown before membership. It exposes metadata and the one viable enrollment action, never room content. */
-export default function RoomAccessPreview({ room }: { room: RoomAccessPreviewData }) {
+function RoomAccessPreviewView({ room, publicEnrollment }: { room: RoomAccessPreviewData; publicEnrollment: PublicRoomEnrollment }) {
   const { t } = useTranslation();
 
   return (
@@ -127,9 +125,14 @@ export default function RoomAccessPreview({ room }: { room: RoomAccessPreviewDat
           <Text size="sm" c="dimmed">
             {t(`rooms.access.${room.accessType}.description`)}
           </Text>
-          <RoomEnrollmentAction room={room} />
+          <RoomEnrollmentAction room={room} publicEnrollment={publicEnrollment} />
         </Stack>
       </Paper>
     </Stack>
   );
+}
+
+/** The safe room landing shown before membership. It exposes metadata and the one viable enrollment action, never room content. */
+export default function RoomAccessPreview({ room, publicEnrollment }: { room: RoomAccessPreviewData; publicEnrollment: PublicRoomEnrollment }) {
+  return <RoomAccessPreviewView room={room} publicEnrollment={publicEnrollment} />;
 }
