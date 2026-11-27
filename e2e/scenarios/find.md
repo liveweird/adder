@@ -72,8 +72,8 @@ The data of each scenario is seeded through the API (threads, replies, status mo
    - *Expected*: the message holds exactly one link named `#<Target's number>`; the repeat in code is code, not a link.
 3. The owner clicks the link.
    - *Expected*: the address is Target's thread of the same room and still holds `scope=all`; the pane's heading reads `#<number> <Target>`.
-4. The owner goes back and clicks the link for the number no thread has.
-   - *Expected*: the address names that number and the pane says "This thread does not exist."
+4. The owner goes back to Origin.
+   - *Expected*: the message still shows the missing number as plain text. The original thread and list filter stay open.
 
 ## Scenario: a room search finds a Polish word typed without accents and opens the message
 

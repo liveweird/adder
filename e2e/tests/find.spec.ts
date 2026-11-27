@@ -322,11 +322,11 @@ test("a thread number in a message links to that thread", async ({ page }) => {
   await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/${targetNumber}\\?.*scope=all`));
   await expect(page.getByRole("heading", { level: 3, name: `#${targetNumber} ${target}` })).toBeVisible();
 
-  // Nothing checks that a number exists: one with no thread opens the pane's "does not exist".
+  // The missing number is still visible in the original message when the reader returns.
   await page.goBack();
-  await page.getByRole("link", { name: `#${missing}`, exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/${missing}`));
-  await expect(page.getByText("This thread does not exist.")).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/rooms/${roomId}/threads/${originNumber}\\?.*scope=all`));
+  await expect(message).toContainText(`#${missing}`);
+  await expect(message.getByRole("link", { name: `#${missing}`, exact: true })).toHaveCount(0);
 });
 
 test("a room search finds a Polish word typed without accents and opens the message", async ({ page }) => {
