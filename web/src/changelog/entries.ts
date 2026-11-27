@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.42.0",
+    date: "2026-11-27",
+    en: `**Adder 1.42.0 — fewer duplicate reads after changing a room role**
+
+- When you change another member’s role, your tab can refresh the roster once for the successful response and its matching live update.
+- The affected member and other readers still see the role change live.`,
+    pl: `**Adder 1.42.0 — mniej powtórnych odświeżeń po zmianie roli w pokoju**
+
+- Gdy zmieniasz rolę innej osoby, karta może raz odświeżyć listę członków po potwierdzeniu zapisu i pasującym zdarzeniu na żywo.
+- Osoba, której rola się zmienia, oraz pozostali członkowie widzą zmianę na żywo.`,
+  },
+  {
     version: "1.41.0",
     date: "2026-11-27",
     en: `**Adder 1.41.0 — return to Rooms after leaving a room**

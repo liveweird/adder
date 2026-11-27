@@ -156,8 +156,12 @@ export async function addRoomMembers(roomId: number, body: RoomMembersAddBody, m
 }
 
 /** 409 `last-owner` when it would leave the room without an active owner. */
-export async function setRoomMemberRole(roomId: number, userId: number, role: RoomRole): Promise<void> {
-  await voidRequest(`/api/v1/rooms/${roomId}/members/${userId}`, { method: "PUT", body: JSON.stringify({ role }) });
+export async function setRoomMemberRole(roomId: number, userId: number, role: RoomRole, mutationId?: string): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/members/${userId}`, {
+    method: "PUT",
+    ...(mutationId === undefined ? {} : { headers: { "X-Mutation-Id": mutationId } }),
+    body: JSON.stringify({ role }),
+  });
 }
 
 /** A member removes themselves (a leave) or the room's manager removes someone; 409 `last-owner` for the last active owner either way. */

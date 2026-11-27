@@ -387,6 +387,10 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
         void resetThreadReferences(queryClient, frame.roomId);
       }
       if (!quiet) newlyReadableReferenceKeys(queryClient, frame).forEach((key) => queue(key, false, false));
+      // Role history is permission-sensitive: clear it before a writer's exact echo can be held until the HTTP response settles.
+      if (frame.type === "event" && frame.kind === "room.member_role_changed") {
+        clearRoomMessageRevisions(queryClient, frame.roomId);
+      }
       if (deferReplyEcho(queryClient, frame, () => active.get(queryClient)?.handle(frame))) {
         // The edit writer's own refresh covers every source-room thread read and the source room's pins. Quotes rendered in another room are
         // independent reads, so keep their ordinary invalidation even while the exact correlated event waits for the write response.
@@ -403,9 +407,6 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       if (roomLost && frame.type !== "revoked") {
         resetRoomReads(queryClient, frame.roomId, false);
         clearRoomLinkPreviews(queryClient, frame.roomId);
-      }
-      if (frame.type === "event" && frame.kind === "room.member_role_changed") {
-        clearRoomMessageRevisions(queryClient, frame.roomId);
       }
       if (frame.type === "event" && frame.kind === "message.deleted" && frame.threadNumber !== undefined) {
         clearMessageRevisions(queryClient, frame.roomId, frame.threadNumber, frame.messageId);

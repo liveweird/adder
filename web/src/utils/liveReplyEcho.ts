@@ -31,7 +31,7 @@ type MutationTarget =
     }
   | {
       type: "room";
-      kind: "room.member_added" | "room.member_removed";
+      kind: "room.member_added" | "room.member_role_changed" | "room.member_removed";
       roomId: number;
     };
 
@@ -134,7 +134,11 @@ export function beginMergeEcho(queryClient: QueryClient, roomId: number, sourceT
   return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
 }
 
-export function beginRoomMemberEcho(queryClient: QueryClient, roomId: number, kind: "room.member_added" | "room.member_removed") {
+export function beginRoomMemberEcho(
+  queryClient: QueryClient,
+  roomId: number,
+  kind: "room.member_added" | "room.member_role_changed" | "room.member_removed",
+) {
   const echo = beginEcho(queryClient, { type: "room", kind, roomId });
   if (!echo) return undefined;
   return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
@@ -155,7 +159,7 @@ function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { ty
 export function deferReplyEcho(queryClient: QueryClient, frame: LiveServerFrame, replay: () => void): boolean {
   if (
     frame.type !== "event" ||
-    !["message.posted", "message.edited", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed", "thread.merged", "room.member_added", "room.member_removed"].includes(frame.kind) ||
+    !["message.posted", "message.edited", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed", "thread.merged", "room.member_added", "room.member_role_changed", "room.member_removed"].includes(frame.kind) ||
     frame.mutationId === undefined
   ) return false;
   const mutation = sessions.get(queryClient)?.get(frame.mutationId);

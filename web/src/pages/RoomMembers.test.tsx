@@ -446,6 +446,7 @@ describe("RoomMembers page", () => {
       await waitFor(() => expect(calls(mockFetch, "PUT")).toHaveLength(1));
       expect(calls(mockFetch, "PUT")[0].url).toBe("/api/v1/rooms/12/members/7");
       expect(JSON.parse(calls(mockFetch, "PUT")[0].body as string)).toEqual({ role: "MEMBER" });
+      expect(new Headers(mockFetch.mock.calls.find(([url]) => url === "/api/v1/rooms/12/members/7")![1].headers).get("X-Mutation-Id")).toBeNull();
     });
 
     test("the sole owner is not offered the step-down action", async () => {
@@ -466,6 +467,8 @@ describe("RoomMembers page", () => {
       await waitFor(() => expect(detailGets(mockFetch)).toBeGreaterThan(detailBefore));
       expect(calls(mockFetch, "PUT")[0].url).toBe("/api/v1/rooms/12/members/8");
       expect(JSON.parse(calls(mockFetch, "PUT")[0].body as string)).toEqual({ role: "OWNER" });
+      expect(new Headers(mockFetch.mock.calls.find(([url]) => url === "/api/v1/rooms/12/members/8")![1].headers).get("X-Mutation-Id"))
+        .toMatch(/^[0-9a-f-]{36}$/);
       const row = () => screen.getByRole("row", { name: /Max Member/ });
       await waitFor(() => expect(within(row()).getByText("Owner")).toBeInTheDocument());
       await openRowMenu(user, "Max Member");
@@ -798,6 +801,89 @@ describe("RoomMembers page: stale removal callbacks", () => {
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Remove" })).toBeEnabled());
     expect(dialog).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("RoomMembers page: correlated role changes", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    signIn(7);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  async function startHeldRole(queryClient: QueryClient) {
+    let release: () => void = () => {};
+    serve(mockFetch, { holdRole: new Promise<void>((resolve) => { release = resolve; }) });
+    const user = userEvent.setup();
+    renderMembers(queryClient);
+    await openRowMenu(user, "Max Member");
+    await user.click(await screen.findByRole("menuitem", { name: "Make owner" }));
+    await waitFor(() => expect(calls(mockFetch, "PUT")).toHaveLength(1));
+    const request = mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/members/8" && init?.method === "PUT")!;
+    return { release, mutationId: new Headers(request[1].headers).get("X-Mutation-Id")! };
+  }
+
+  test("an early exact event clears revisions immediately and the HTTP refresh reads the roster only once", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const revisionKey = [...roomKeys.messageRevisions(12, 3, 41), 1];
+    queryClient.setQueryData(revisionKey, { items: [{ body: "old permission" }] });
+    const clock = new FakeClock();
+    const invalidator = createLiveInvalidator(queryClient, clock);
+    const { release, mutationId } = await startHeldRole(queryClient);
+
+    invalidator.handle({ type: "event", kind: "room.member_role_changed", roomId: 12, mutationId });
+    expect(queryClient.getQueryData(revisionKey)).toBeUndefined();
+    clock.advanceBy(300);
+    expect(memberCalls(mockFetch)).toHaveLength(1);
+
+    release();
+    await waitFor(() => expect(memberCalls(mockFetch)).toHaveLength(2));
+    clock.advanceBy(5_000);
+    expect(memberCalls(mockFetch)).toHaveLength(2);
+    invalidator.dispose();
+  });
+
+  test("HTTP success clears revisions when no live event arrives", async () => {
+    serve(mockFetch);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const revisionKey = [...roomKeys.messageRevisions(12, 3, 41), 1];
+    queryClient.setQueryData(revisionKey, { items: [{ body: "old permission" }] });
+    const user = userEvent.setup();
+    renderMembers(queryClient);
+    await openRowMenu(user, "Max Member");
+    await user.click(await screen.findByRole("menuitem", { name: "Make owner" }));
+    await waitFor(() => expect(queryClient.getQueryData(revisionKey)).toBeUndefined());
+  });
+
+  test("a response from an old logical session neither refreshes nor clears replacement-session caches", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const revisionKey = [...roomKeys.messageRevisions(12, 3, 41), 1];
+    queryClient.setQueryData(revisionKey, { items: [{ body: "replacement session" }] });
+    const clock = new FakeClock();
+    const invalidator = createLiveInvalidator(queryClient, clock);
+    const { release, mutationId } = await startHeldRole(queryClient);
+    invalidator.handle({ type: "event", kind: "room.member_role_changed", roomId: 12, mutationId });
+    expect(queryClient.getQueryData(revisionKey)).toBeUndefined();
+    const memberReads = memberCalls(mockFetch).length;
+    clearSession();
+    signIn(99);
+    queryClient.setQueryData(revisionKey, { items: [{ body: "replacement session" }] });
+
+    release();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Operations for Max Member" })).toBeEnabled());
+    expect(memberCalls(mockFetch)).toHaveLength(memberReads);
+    expect(queryClient.getQueryData(revisionKey)).toEqual({ items: [{ body: "replacement session" }] });
+    expect(screen.queryByText("Could not change the role")).not.toBeInTheDocument();
+    clock.advanceBy(5_000);
+    expect(queryClient.getQueryData(revisionKey)).toEqual({ items: [{ body: "replacement session" }] });
+    invalidator.dispose();
   });
 });
 

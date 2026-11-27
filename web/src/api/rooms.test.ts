@@ -77,9 +77,10 @@ describe("rooms API wrappers", () => {
 
   test("setRoomMemberRole PUTs the role and removeRoomMember DELETEs the member", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
-    await setRoomMemberRole(5, 7, "OWNER");
-    expect([lastCall()[0], lastCall()[1].method, JSON.parse(lastCall()[1].body as string)]).toEqual(["/api/v1/rooms/5/members/7", "PUT", { role: "OWNER" }]);
     const mutationId = "14d7ed05-24c1-4374-b6eb-60b147595822";
+    await setRoomMemberRole(5, 7, "OWNER", mutationId);
+    expect([lastCall()[0], lastCall()[1].method, JSON.parse(lastCall()[1].body as string)]).toEqual(["/api/v1/rooms/5/members/7", "PUT", { role: "OWNER" }]);
+    expect(new Headers(lastCall()[1].headers).get("X-Mutation-Id")).toBe(mutationId);
     await removeRoomMember(5, 7, mutationId);
     expect([lastCall()[0], lastCall()[1].method]).toEqual(["/api/v1/rooms/5/members/7", "DELETE"]);
     expect(new Headers(lastCall()[1].headers).get("X-Mutation-Id")).toBe(mutationId);
