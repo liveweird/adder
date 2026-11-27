@@ -3,15 +3,22 @@ import { useTranslation } from "react-i18next";
 import { searchRooms } from "../api/search";
 import PageHeader from "../components/PageHeader";
 import SearchBody from "../components/SearchBody";
+import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { searchAllKey } from "../utils/roomKeys";
 
 /** `/search`: search the threads and messages of every room the caller is a member of (an ADMIN's too: membership is the scope). */
 export default function Search() {
   const { t } = useTranslation();
   return (
-    <Stack gap="md">
+    <Stack gap="lg" maw={CONTENT_MAX_WIDTH}>
       <PageHeader title={t("appShell.nav.search")} />
-      <SearchBody label={t("search.all.label")} baseKey={searchAllKey} fetchPage={searchRooms} showRoom />
+      <SearchBody
+        label={t("search.all.label")}
+        initialLabel={t("search.all.start")}
+        baseKey={searchAllKey}
+        fetchPage={searchRooms}
+        showRoom
+      />
     </Stack>
   );
 }

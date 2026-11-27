@@ -120,6 +120,7 @@
     "notices_other": "{{count}} unseen notifications"
   },
   "create": {
+    "details": "Room details",
     "template": "Workflow template",
     "templateHint": "The room copies its statuses and fields from it; later changes to the template do not touch the room.",
     "templatePlaceholder": "Pick a template",

@@ -124,6 +124,7 @@
     "notices_other": "{{count}} nieprzeczytanego powiadomienia"
   },
   "create": {
+    "details": "Szczegóły pokoju",
     "template": "Szablon przepływu pracy",
     "templateHint": "Pokój kopiuje z niego statusy i pola; późniejsze zmiany szablonu nie dotyczą pokoju.",
     "templatePlaceholder": "Wybierz szablon",

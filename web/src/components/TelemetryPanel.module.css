@@ -1,0 +1,91 @@
+.header {
+  padding: var(--mantine-spacing-md);
+  border-block-end: 1px solid var(--mantine-color-default-border);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-8));
+}
+
+.mark {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  place-items: center;
+  border-radius: var(--mantine-radius-sm);
+  color: var(--adder-accent-ink);
+  background: light-dark(var(--mantine-color-adder-0), color-mix(in srgb, var(--mantine-color-adder-8) 18%, transparent));
+}
+
+.title {
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+
+.sampled {
+  overflow-wrap: break-word;
+}
+
+.range {
+  max-width: 24rem;
+}
+
+.scroller {
+  background: light-dark(var(--adder-canvas), var(--mantine-color-dark-8));
+}
+
+.body {
+  container: telemetry-panel / inline-size;
+  padding: var(--mantine-spacing-md);
+  padding-block-end: max(var(--mantine-spacing-md), env(safe-area-inset-bottom, 0px));
+}
+
+.sections {
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+.section {
+  border-block-end: 1px solid var(--mantine-color-default-border);
+  background: transparent;
+}
+
+.section:last-child {
+  border-block-end: 0;
+}
+
+.sectionControl {
+  min-height: 3.25rem;
+  padding-inline: var(--mantine-spacing-md);
+  font-weight: 600;
+}
+
+.sectionControl:hover {
+  background: var(--adder-surface-tint);
+}
+
+.sectionControl:focus-visible {
+  outline: 2px solid var(--adder-accent-ink);
+  outline-offset: -2px;
+}
+
+.sectionPanel {
+  padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-md);
+}
+
+@container telemetry-panel (max-width: 22rem) {
+  .sectionControl {
+    padding-inline: var(--mantine-spacing-sm);
+  }
+
+  .sectionPanel {
+    padding: 0 var(--mantine-spacing-sm) var(--mantine-spacing-sm);
+  }
+}
+
+@media (pointer: coarse) {
+  .header button,
+  .sectionControl {
+    min-height: 2.75rem;
+  }
+}

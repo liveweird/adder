@@ -1,0 +1,57 @@
+.identity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--mantine-spacing-sm);
+  overflow-wrap: anywhere;
+}
+
+.sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: var(--mantine-spacing-md);
+  align-items: start;
+}
+
+.section {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.sectionHeading {
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  background: var(--adder-surface-tint);
+  border-radius: var(--mantine-radius-default) var(--mantine-radius-default) 0 0;
+}
+
+.sectionHeading > svg {
+  color: var(--adder-accent-ink);
+  flex: none;
+}
+
+.sectionNote {
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+}
+
+.membership {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.membership li {
+  padding-inline: var(--mantine-spacing-md);
+  border-block-start: 1px solid var(--mantine-color-default-border);
+}
+
+.membershipLink {
+  display: flex;
+  min-inline-size: 0;
+  min-block-size: 2.75rem;
+  align-items: center;
+  padding-block: var(--mantine-spacing-xs);
+}
+
+.archived {
+  flex-shrink: 0;
+}

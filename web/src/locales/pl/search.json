@@ -14,7 +14,8 @@
     "start": "Wpisz słowa kluczowe lub użyj filtrów, aby znaleźć wątek."
   },
   "all": {
-    "label": "Szukaj we wszystkich swoich pokojach"
+    "label": "Szukaj we wszystkich swoich pokojach",
+    "start": "Wpisz słowo kluczowe albo przeglądaj według tagów, obserwowanych wątków lub nieprzeczytanej aktywności."
   },
   "hint": "Od 3 znaków pasuje początek słowa; wielkość liter i znaki diakrytyczne nie mają znaczenia.",
   "syntax": {

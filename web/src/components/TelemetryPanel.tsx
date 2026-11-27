@@ -2,7 +2,7 @@ import { useState, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { Accordion, ActionIcon, Alert, AppShell, Group, ScrollArea, SegmentedControl, Stack, Text, Title } from "@mantine/core";
-import { IconX } from "@tabler/icons-react";
+import { IconActivityHeartbeat, IconX } from "@tabler/icons-react";
 import { getTelemetryCurrent, type TelemetryCurrent, type TelemetryRange } from "../api/telemetry";
 import { isOneOf, useStoredState } from "../hooks/useStoredState";
 import { formatDateTime } from "../utils/formatDate";
@@ -14,6 +14,7 @@ import TelemetryJvmSection from "./TelemetryJvmSection";
 import TelemetryMemorySection from "./TelemetryMemorySection";
 import TelemetryRequestsSection from "./TelemetryRequestsSection";
 import TelemetryStorageSection from "./TelemetryStorageSection";
+import classes from "./TelemetryPanel.module.css";
 
 const SECTION_IDS = ["memory", "storage", "requests", "jvm"] as const;
 type SectionId = (typeof SECTION_IDS)[number];
@@ -58,26 +59,32 @@ export default function TelemetryPanel({ onClose }: { onClose: () => void }) {
   const sampled = data?.processes.reduce<number | null>((newest, p) => (p.sampledAt == null ? newest : Math.max(newest ?? 0, p.sampledAt)), null);
   return (
     <>
-      <AppShell.Section p="md" pb="xs" style={{ borderBottom: "1px solid var(--mantine-color-default-border)" }}>
-        <Stack gap="xs">
+      <AppShell.Section className={classes.header}>
+        <Stack gap="sm">
           <Group justify="space-between" wrap="nowrap">
-            <Stack gap={0}>
-              <Title order={2} size="h4">
-                {t("telemetry.title")}
-              </Title>
-              {sampled != null && (
-                <Text size="xs" c="dimmed">
-                  {t("telemetry.sampledAt", { time: formatDateTime(sampled) })}
-                </Text>
-              )}
-            </Stack>
-            <ActionIcon aria-label={t("common.action.close")} onClick={onClose}>
-              <IconX size={18} />
+            <Group gap="sm" wrap="nowrap" miw={0}>
+              <div className={classes.mark} aria-hidden="true">
+                <IconActivityHeartbeat size={18} />
+              </div>
+              <Stack gap={1} miw={0}>
+                <Title order={2} size="h4" className={classes.title}>
+                  {t("telemetry.title")}
+                </Title>
+                {sampled != null && (
+                  <Text size="xs" c="dimmed" className={classes.sampled}>
+                    {t("telemetry.sampledAt", { time: formatDateTime(sampled) })}
+                  </Text>
+                )}
+              </Stack>
+            </Group>
+            <ActionIcon variant="subtle" color="gray" aria-label={t("common.action.close")} onClick={onClose}>
+              <IconX size={18} aria-hidden="true" />
             </ActionIcon>
           </Group>
           <SegmentedControl
             size="xs"
             fullWidth
+            className={classes.range}
             aria-label={t("telemetry.range.label")}
             value={range}
             onChange={(value) => setRange(value as TelemetryRange)}
@@ -85,8 +92,8 @@ export default function TelemetryPanel({ onClose }: { onClose: () => void }) {
           />
         </Stack>
       </AppShell.Section>
-      <AppShell.Section grow component={ScrollArea} type="hover" scrollbarSize={6}>
-        <Stack p="md" gap="sm">
+      <AppShell.Section grow component={ScrollArea} type="hover" scrollbarSize={6} className={classes.scroller}>
+        <Stack className={classes.body} gap="sm">
           {current.isError && data === undefined && <ErrorAlert error={current.error} />}
           {current.isError && data !== undefined && <ErrorAlert error={current.error} title={t("telemetry.refreshFailed")} />}
           {data === undefined && !current.isError && <LoadingBlock />}
@@ -102,7 +109,9 @@ export default function TelemetryPanel({ onClose }: { onClose: () => void }) {
               multiple
               order={3}
               value={expanded}
-              variant="separated"
+              variant="default"
+              className={classes.sections}
+              classNames={{ item: classes.section, control: classes.sectionControl, panel: classes.sectionPanel }}
               onChange={(value) => {
                 setExpanded(value as SectionId[]);
                 setOpened((previous) => new Set([...previous, ...(value as SectionId[])]));
