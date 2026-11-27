@@ -65,14 +65,14 @@ export default function NoticeRow({ n, zone, onOpen }: { n: NotificationFeedItem
   const before = at < 0 ? "" : sentence.slice(0, at);
   const after = at < 0 ? sentence : sentence.slice(at + marker.length);
   return (
-    <Box component="li" py="sm" px={4} className={classes.row}>
+    <Box component="li" className={classes.row} data-unseen={!n.seen || undefined}>
       <Group align="flex-start" wrap="nowrap" gap="sm">
         {/* The dot is a shape for sighted users; the link's name carries "unseen" for the rest. */}
         <Box w={8} pt={6} style={{ flex: "none" }}>
           {!n.seen && <UnreadCue />}
         </Box>
-        <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
-          <Text size="sm" fw={n.seen ? 400 : 600} c={n.seen ? "dimmed" : undefined} style={{ overflowWrap: "anywhere" }}>
+        <Stack gap={4} className={classes.copy}>
+          <Text size="sm" fw={n.seen ? 400 : 600} c={n.seen ? "dimmed" : undefined} className={classes.sentence}>
             {before}
             {at >= 0 && <PersonLink id={n.actorId} name={n.actorName} inherit />}
             <Anchor
@@ -91,7 +91,7 @@ export default function NoticeRow({ n, zone, onOpen }: { n: NotificationFeedItem
               {roomNotice && <> · <span className={classes.roomAction}>{t("notifications.openRoom")}</span></>}
             </Anchor>
           </Text>
-          <Text size="xs" c="dimmed" style={{ overflowWrap: "anywhere" }}>
+          <Text size="xs" c="dimmed" className={classes.meta}>
             {fillSlots(t("notifications.inRoom", { room: slot("room"), when }), {
               room: roomNotice ? <span>{n.roomName}</span> : <RoomLink id={n.roomId} name={n.roomName} inherit />,
             })}

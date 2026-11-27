@@ -204,7 +204,7 @@ function ComposerForm({ room, thread, onPosted, quoteRequest = null }: ComposerP
         )}
         <MentionTextarea
           roomId={room.id}
-          label={t("threads.composer.label")}
+          aria-label={t("threads.composer.label")}
           attributes={{ input: { "aria-describedby": `${hintId} ${hintId}-count` } }}
           classNames={{ input: classes.input }}
           counter="none"

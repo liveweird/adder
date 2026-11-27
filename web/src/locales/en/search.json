@@ -14,7 +14,8 @@
     "start": "Enter keywords or use the filters to find a thread."
   },
   "all": {
-    "label": "Search all your rooms"
+    "label": "Search all your rooms",
+    "start": "Enter a keyword, or browse by tag, watched threads, or unread activity."
   },
   "hint": "3 or more characters match the start of a word; case and accents are ignored.",
   "syntax": {

@@ -1,0 +1,7 @@
+.panel {
+  max-inline-size: 32rem;
+  padding: clamp(1rem, 4vw, 2rem);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}

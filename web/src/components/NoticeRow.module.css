@@ -6,11 +6,38 @@
  */
 .row {
   position: relative;
-  border-top: 1px solid var(--mantine-color-default-border);
+  padding: var(--mantine-spacing-md);
+  border-block-end: 1px solid var(--mantine-color-default-border);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-8));
+  transition: background-color 120ms ease;
+}
+
+.row[data-unseen] {
+  box-shadow: inset 3px 0 0 var(--adder-unread-fill);
+  background: light-dark(
+    color-mix(in srgb, var(--adder-unread-fill) 4%, var(--mantine-color-white)),
+    color-mix(in srgb, var(--adder-unread-fill) 7%, var(--mantine-color-dark-8))
+  );
 }
 
 .row:hover {
-  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+  background: var(--adder-surface-tint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}
+
+.copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.sentence,
+.meta {
+  overflow-wrap: anywhere;
 }
 
 .open::after {
@@ -25,7 +52,8 @@
 
 .open:focus-visible::after {
   outline: 2px solid var(--adder-accent-ink);
-  outline-offset: -2px;
+  outline-offset: -3px;
+  border-radius: var(--mantine-radius-sm);
 }
 
 .roomAction {
@@ -37,4 +65,10 @@
 .row a:not(.open) {
   position: relative;
   z-index: 1;
+}
+
+@media (pointer: coarse) {
+  .row {
+    min-height: 4.5rem;
+  }
 }

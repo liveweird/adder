@@ -79,11 +79,12 @@ describe("NotificationPreferences page", () => {
     expect(headingOutline()).toEqual([
       [2, "Notification preferences"],
       [3, "Browser notifications"],
-      [3, "Mentions"],
-      [3, "Reactions"],
-      [3, "Threads you watch"],
-      [3, "Threads handed to you"],
-      [3, "Rooms"],
+      [3, "Notification delivery"],
+      [4, "Mentions"],
+      [4, "Reactions"],
+      [4, "Threads you watch"],
+      [4, "Threads handed to you"],
+      [4, "Rooms"],
     ]);
     // Every kind of the contract is drawn once per column, in a named table.
     expect(screen.getAllByRole("switch")).toHaveLength((KINDS.length + 1) * 2);

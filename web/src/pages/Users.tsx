@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink } from "react-router-dom";
-import { Badge, Button, Group, Menu, Select, Stack, Table, Text } from "@mantine/core";
+import { Badge, Box, Button, Group, Menu, Select, Stack, Table, Text } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconKey, IconPencil, IconPlus, IconToggleLeft, IconTrash, IconUsers } from "@tabler/icons-react";
@@ -27,6 +27,8 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { MAX_EMAIL_LENGTH, MAX_USER_NAME_LENGTH } from "../utils/userForm";
 import { editUserPath, newUserPath, userFeaturesPath } from "../utils/userLinks";
 import ErrorAlert from "../components/ErrorAlert";
+import ScrollRegion from "../components/ScrollRegion";
+import classes from "../components/ManagementSurface.module.css";
 
 const SORT_FIELDS = ["name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -82,7 +84,7 @@ export default function Users() {
   const columnCount = 4;
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader
         title={t("users.title")}
         actions={
@@ -94,157 +96,165 @@ export default function Users() {
         }
       />
 
-      <FilterPanel activeFilterCount={activeFilterCount} storageKey={SETTINGS_KEY}>
-        <ClearableTextInput
-          label={t("common.field.name")}
-          value={nameFilter}
-          onChange={setNameFilter}
-          clearLabel={t("common.filter.clearName")}
-          maxLength={MAX_USER_NAME_LENGTH}
-        />
-        <ClearableTextInput
-          label={t("common.field.email")}
-          value={emailFilter}
-          onChange={setEmailFilter}
-          clearLabel={t("users.clearEmailFilter")}
-          maxLength={MAX_EMAIL_LENGTH}
-        />
-        <Select
-          label={t("common.field.role")}
-          placeholder={t("common.state.any")}
-          data={[
-            { value: "ADMIN", label: t("common.role.ADMIN") },
-            { value: "USER", label: t("users.rolePlain") },
-          ]}
-          value={roleFilter || null}
-          onChange={(v) => setRoleFilter(v ?? "")}
-          clearable
-          clearButtonProps={{ "aria-label": t("users.clearRoleFilter") }}
-        />
-      </FilterPanel>
+      <Box className={classes.filterSurface}>
+        <FilterPanel activeFilterCount={activeFilterCount} storageKey={SETTINGS_KEY}>
+          <ClearableTextInput
+            label={t("common.field.name")}
+            value={nameFilter}
+            onChange={setNameFilter}
+            clearLabel={t("common.filter.clearName")}
+            maxLength={MAX_USER_NAME_LENGTH}
+          />
+          <ClearableTextInput
+            label={t("common.field.email")}
+            value={emailFilter}
+            onChange={setEmailFilter}
+            clearLabel={t("users.clearEmailFilter")}
+            maxLength={MAX_EMAIL_LENGTH}
+          />
+          <Select
+            label={t("common.field.role")}
+            placeholder={t("common.state.any")}
+            data={[
+              { value: "ADMIN", label: t("common.role.ADMIN") },
+              { value: "USER", label: t("users.rolePlain") },
+            ]}
+            value={roleFilter || null}
+            onChange={(v) => setRoleFilter(v ?? "")}
+            clearable
+            clearButtonProps={{ "aria-label": t("users.clearRoleFilter") }}
+          />
+        </FilterPanel>
+      </Box>
 
       {isError && <ErrorAlert error={error} title={t("users.loadFailed")} />}
 
-      <Table aria-label={t("users.title")}>
-        <Table.Thead>
-          <Table.Tr>
-            <SortHeader
-              field="name"
-              label={t("common.field.name")}
-              activeField={sortField}
-              activeDir={sortDir}
-              onToggle={toggleSort}
-            />
-            <SortHeader
-              field="email"
-              label={t("common.field.email")}
-              activeField={sortField}
-              activeDir={sortDir}
-              onToggle={toggleSort}
-            />
-            <Table.Th>{t("common.field.role")}</Table.Th>
-            <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {isLoading && !data ? (
-            <TableLoadingRow colSpan={columnCount} />
-          ) : data && data.items.length > 0 ? (
-            data.items.map((user) => {
-              const self = user.id === currentUserId;
-              return (
-                <Table.Tr key={user.id}>
-                  <Table.Td>
-                    <Group gap={6} wrap="nowrap">
-                      <Text size="sm" fw={500}>
-                        {user.name}
-                      </Text>
-                      {self && (
-                        <Badge size="xs">
-                          {t("users.youBadge")}
-                        </Badge>
-                      )}
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm">{user.email}</Text>
-                  </Table.Td>
-                  <Table.Td>
-                    {user.roles.includes("ADMIN") ? (
-                      <Badge variant="outline" color="gray" size="sm">
-                        {t("common.role.ADMIN")}
-                      </Badge>
-                    ) : (
-                      <Text size="sm" c="dimmed">
-                        —
-                      </Text>
-                    )}
-                  </Table.Td>
-                  <Table.Td style={{ width: 1 }} ta="right">
-                    <RowActionsMenu label={t("common.table.operationsAria", { name: user.name })}>
-                      <Menu.Item
-                        component={RouterLink}
-                        to={editUserPath(user.id)}
-                        leftSection={<IconPencil size={14} />}
-                        aria-label={t("common.action.editAria", { name: user.name })}
-                      >
-                        {t("common.action.edit")}
-                      </Menu.Item>
-                      <Menu.Item
-                        component={RouterLink}
-                        to={userFeaturesPath(user.id)}
-                        leftSection={<IconToggleLeft size={14} />}
-                        aria-label={t("users.featuresAria", { name: user.name })}
-                      >
-                        {t("users.featuresAction")}
-                      </Menu.Item>
-                      {/* Own row: no reset (self-change needs the current password — the
-                          Change password page) and no delete (the server 403s it anyway). */}
-                      {!self && (
-                        <>
-                          <Menu.Divider />
+      <Box className={classes.registrySurface}>
+        <ScrollRegion label={t("users.title")} minWidth={680}>
+          <Table aria-label={t("users.title")}>
+            <Table.Thead>
+              <Table.Tr>
+                <SortHeader
+                  field="name"
+                  label={t("common.field.name")}
+                  activeField={sortField}
+                  activeDir={sortDir}
+                  onToggle={toggleSort}
+                />
+                <SortHeader
+                  field="email"
+                  label={t("common.field.email")}
+                  activeField={sortField}
+                  activeDir={sortDir}
+                  onToggle={toggleSort}
+                />
+                <Table.Th>{t("common.field.role")}</Table.Th>
+                <Table.Th aria-label={t("common.table.operations")} className={classes.actionCell} />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {isLoading && !data ? (
+                <TableLoadingRow colSpan={columnCount} />
+              ) : data && data.items.length > 0 ? (
+                data.items.map((user) => {
+                  const self = user.id === currentUserId;
+                  return (
+                    <Table.Tr key={user.id}>
+                      <Table.Td>
+                        <Group gap={6}>
+                          <Text size="sm" fw={500}>
+                            {user.name}
+                          </Text>
+                          {self && (
+                            <Badge size="xs">
+                              {t("users.youBadge")}
+                            </Badge>
+                          )}
+                        </Group>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="sm">{user.email}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        {user.roles.includes("ADMIN") ? (
+                          <Badge variant="outline" color="gray" size="sm">
+                            {t("common.role.ADMIN")}
+                          </Badge>
+                        ) : (
+                          <Text size="sm" c="dimmed">
+                            —
+                          </Text>
+                        )}
+                      </Table.Td>
+                      <Table.Td ta="right" className={classes.actionCell}>
+                        <RowActionsMenu label={t("common.table.operationsAria", { name: user.name })}>
                           <Menu.Item
-                            leftSection={<IconKey size={14} />}
-                            onClick={() => reset.request(user)}
-                            aria-label={t("users.resetPasswordAria", { name: user.name })}
+                            component={RouterLink}
+                            to={editUserPath(user.id)}
+                            leftSection={<IconPencil size={14} />}
+                            aria-label={t("common.action.editAria", { name: user.name })}
                           >
-                            {t("users.resetPassword")}
+                            {t("common.action.edit")}
                           </Menu.Item>
                           <Menu.Item
-                            color="red"
-                            leftSection={<IconTrash size={14} />}
-                            onClick={() => deleteConfirm.requestDelete(user)}
-                            aria-label={t("common.action.deleteAria", { name: user.name })}
+                            component={RouterLink}
+                            to={userFeaturesPath(user.id)}
+                            leftSection={<IconToggleLeft size={14} />}
+                            aria-label={t("users.featuresAria", { name: user.name })}
                           >
-                            {t("common.action.delete")}
+                            {t("users.featuresAction")}
                           </Menu.Item>
-                        </>
-                      )}
-                    </RowActionsMenu>
+                          {/* Own row: no reset (self-change needs the current password — the
+                              Change password page) and no delete (the server 403s it anyway). */}
+                          {!self && (
+                            <>
+                              <Menu.Divider />
+                              <Menu.Item
+                                leftSection={<IconKey size={14} />}
+                                onClick={() => reset.request(user)}
+                                aria-label={t("users.resetPasswordAria", { name: user.name })}
+                              >
+                                {t("users.resetPassword")}
+                              </Menu.Item>
+                              <Menu.Item
+                                color="red"
+                                leftSection={<IconTrash size={14} />}
+                                onClick={() => deleteConfirm.requestDelete(user)}
+                                aria-label={t("common.action.deleteAria", { name: user.name })}
+                              >
+                                {t("common.action.delete")}
+                              </Menu.Item>
+                            </>
+                          )}
+                        </RowActionsMenu>
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })
+              ) : !isError ? (
+                <Table.Tr>
+                  <Table.Td colSpan={columnCount}>
+                    <EmptyState
+                      icon={IconUsers}
+                      label={t("users.noUsers")}
+                    />
                   </Table.Td>
                 </Table.Tr>
-              );
-            })
-          ) : !isError ? (
-            <Table.Tr>
-              <Table.Td colSpan={columnCount}>
-                <EmptyState
-                  icon={IconUsers}
-                  label={t("users.noUsers")}
-                />
-              </Table.Td>
-            </Table.Tr>
-          ) : null}
-        </Table.Tbody>
-      </Table>
+              ) : null}
+            </Table.Tbody>
+          </Table>
+        </ScrollRegion>
 
-      <PaginationBar
-        total={total}
-        page={page}
-        pageSize={pageSize}
-        onPageChange={setPage}
-        onPageSizeChange={setPageSize}
-      />
+        <Box className={classes.registryFooter}>
+          <PaginationBar
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
+        </Box>
+      </Box>
 
       <ConfirmDeleteModal
         confirm={deleteConfirm}

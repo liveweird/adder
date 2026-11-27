@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Menu, Stack, Table, Text } from "@mantine/core";
+import { Box, Button, Menu, Stack, Table, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconPlus, IconTags, IconTrash } from "@tabler/icons-react";
 import { deleteTagCategory, type TagCategory } from "../api/tagCategories";
@@ -17,6 +17,8 @@ import { useTagCategories } from "../hooks/useTagCategories";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { tagCategoryDeleteErrorMessage } from "../utils/tagCategoryForm";
+import ScrollRegion from "../components/ScrollRegion";
+import classes from "../components/ManagementSurface.module.css";
 
 /**
  * The tag registry (`/tags`, ADMIN-only: the nav entry and the route are - UX only, the server's `requireAdmin` is the rule, and reading the
@@ -44,7 +46,7 @@ export default function Tags() {
   const items = categories.data ?? [];
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader
         title={t("tags.title")}
         description={t("tags.intro")}
@@ -56,65 +58,69 @@ export default function Tags() {
       />
 
       {categories.isError && <ErrorAlert error={categories.error} title={t("tags.loadFailed")} />}
-      <Table aria-label={t("tags.title")}>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>{t("tags.column.name")}</Table.Th>
-            <Table.Th>{t("tags.column.description")}</Table.Th>
-            <Table.Th>{t("tags.column.tags")}</Table.Th>
-            <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {categories.isLoading ? (
-            <TableLoadingRow colSpan={4} />
-          ) : items.length > 0 ? (
-            items.map((category) => (
-              <Table.Tr key={category.id}>
-                <Table.Td>
-                  <Text size="sm" fw={500}>
-                    {category.name}
-                  </Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c={category.description ? undefined : "dimmed"}>
-                    {category.description ?? "—"}
-                  </Text>
-                </Table.Td>
-                <Table.Td>
-                  <TagPills tags={category.tags.map((name) => ({ name, retired: false }))} />
-                </Table.Td>
-                <Table.Td style={{ width: 1 }} ta="right">
-                  <RowActionsMenu label={t("common.table.operationsAria", { name: category.name })}>
-                    <Menu.Item
-                      leftSection={<IconPencil size={14} />}
-                      onClick={() => setEditorTarget(category)}
-                      aria-label={t("common.action.editAria", { name: category.name })}
-                    >
-                      {t("common.action.edit")}
-                    </Menu.Item>
-                    <Menu.Divider />
-                    <Menu.Item
-                      color="red"
-                      leftSection={<IconTrash size={14} />}
-                      onClick={() => remove.requestDelete(category)}
-                      aria-label={t("common.action.deleteAria", { name: category.name })}
-                    >
-                      {t("common.action.delete")}
-                    </Menu.Item>
-                  </RowActionsMenu>
-                </Table.Td>
+      <Box className={classes.registrySurface}>
+        <ScrollRegion label={t("tags.title")} minWidth={760}>
+          <Table aria-label={t("tags.title")}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>{t("tags.column.name")}</Table.Th>
+                <Table.Th>{t("tags.column.description")}</Table.Th>
+                <Table.Th>{t("tags.column.tags")}</Table.Th>
+                <Table.Th aria-label={t("common.table.operations")} className={classes.actionCell} />
               </Table.Tr>
-            ))
-          ) : !categories.isError ? (
-            <Table.Tr>
-              <Table.Td colSpan={4}>
-                <EmptyState icon={IconTags} label={t("tags.empty")} />
-              </Table.Td>
-            </Table.Tr>
-          ) : null}
-        </Table.Tbody>
-      </Table>
+            </Table.Thead>
+            <Table.Tbody>
+              {categories.isLoading ? (
+                <TableLoadingRow colSpan={4} />
+              ) : items.length > 0 ? (
+                items.map((category) => (
+                  <Table.Tr key={category.id}>
+                    <Table.Td>
+                      <Text size="sm" fw={500}>
+                        {category.name}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="sm" c={category.description ? undefined : "dimmed"}>
+                        {category.description ?? "—"}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <TagPills tags={category.tags.map((name) => ({ name, retired: false }))} />
+                    </Table.Td>
+                    <Table.Td ta="right" className={classes.actionCell}>
+                      <RowActionsMenu label={t("common.table.operationsAria", { name: category.name })}>
+                        <Menu.Item
+                          leftSection={<IconPencil size={14} />}
+                          onClick={() => setEditorTarget(category)}
+                          aria-label={t("common.action.editAria", { name: category.name })}
+                        >
+                          {t("common.action.edit")}
+                        </Menu.Item>
+                        <Menu.Divider />
+                        <Menu.Item
+                          color="red"
+                          leftSection={<IconTrash size={14} />}
+                          onClick={() => remove.requestDelete(category)}
+                          aria-label={t("common.action.deleteAria", { name: category.name })}
+                        >
+                          {t("common.action.delete")}
+                        </Menu.Item>
+                      </RowActionsMenu>
+                    </Table.Td>
+                  </Table.Tr>
+                ))
+              ) : !categories.isError ? (
+                <Table.Tr>
+                  <Table.Td colSpan={4}>
+                    <EmptyState icon={IconTags} label={t("tags.empty")} />
+                  </Table.Td>
+                </Table.Tr>
+              ) : null}
+            </Table.Tbody>
+          </Table>
+        </ScrollRegion>
+      </Box>
 
       {editorTarget !== null && (
         <TagCategoryEditorModal

@@ -258,8 +258,12 @@ describe("NotificationsButton", () => {
     await user.click(await bell());
     await screen.findByRole("link", { name: /Ada mentioned you in #42 Awaria bazy/ });
     expect(calls).toContain("GET /api/v1/notifications/feed?page=1&pageSize=20&groupReplies=true");
+    const feed = screen.getByRole("region", { name: "Notification feed" });
+    expect(feed).toHaveAttribute("tabindex", "0");
+    feed.scrollTop = 100;
     await user.click(screen.getByRole("button", { name: "3" }));
     expect(await screen.findByRole("link", { name: /Second page/ })).toBeInTheDocument();
+    expect(feed.scrollTop).toBe(0);
     expect(calls).toContain("GET /api/v1/notifications/feed?page=3&pageSize=20&groupReplies=true");
   });
 
@@ -459,6 +463,9 @@ describe("NotificationsButton", () => {
     expect(within(drawer).getByRole("link", { name: /Ada wspomina o Twoim zespole w #42 Awaria bazy/ })).toBeInTheDocument();
   });
 
+});
+
+describe("Notification drawer filters and keyboard", () => {
   test("the All / Mentions switch asks the server for the addressed kinds only, and back", async () => {
     const user = userEvent.setup();
     renderBell();

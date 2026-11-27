@@ -202,6 +202,7 @@ describe("ThreadPane", () => {
       expect.stringContaining("second"),
     ]);
     expect(screen.getByRole("textbox", { name: "Reply" })).toBeInTheDocument();
+    expect(screen.queryByText("Reply", { exact: true })).not.toBeInTheDocument();
     // The messages add no heading: the outline is the pane's h3 and the side panel's four h4s.
     expect(headingOutline().map(([level]) => level)).toEqual([3, 4, 4, 4, 4]);
   });

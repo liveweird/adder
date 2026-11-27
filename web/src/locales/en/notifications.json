@@ -1,5 +1,6 @@
 {
   "title": "Notifications",
+  "feed": "Notification feed",
   "empty": "You have no notifications.",
   "markAllSeen": "Mark all as seen",
   "markAllFailed": "Could not mark the notifications as seen.",
@@ -29,6 +30,7 @@
   "preferences": {
     "title": "Notification preferences",
     "description": "Choose which notifications show in the app and which are also sent to you by email.",
+    "deliveryTitle": "Notification delivery",
     "typeColumn": "Notify me when",
     "columnInApp": "In-app",
     "columnEmail": "Email",

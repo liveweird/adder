@@ -1,0 +1,139 @@
+.page {
+  inline-size: 100%;
+  max-inline-size: 76rem;
+  container: notification-preferences / inline-size;
+}
+
+.delivery {
+  inline-size: min(100%, 70rem);
+  padding: clamp(1rem, 3vw, var(--mantine-spacing-xl));
+  border-color: var(--adder-border-strong);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+.group {
+  padding-block-start: var(--mantine-spacing-sm);
+  border-block-start: 1px solid var(--mantine-color-default-border);
+}
+
+.groupHeader {
+  min-block-size: 2rem;
+}
+
+.bulkActions {
+  justify-content: flex-end;
+}
+
+.preferenceTable {
+  table-layout: fixed;
+}
+
+.preferenceTable :global(th:first-child) {
+  inline-size: auto;
+}
+
+.preferenceTable :global(th:nth-child(2)),
+.preferenceTable :global(th:nth-child(3)) {
+  inline-size: 6.5rem;
+  text-align: center;
+}
+
+.channelCell {
+  text-align: center;
+}
+
+.kindCell {
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+
+.channelSwitch {
+  display: inline-flex;
+}
+
+.channelInput {
+  inset: 0;
+  z-index: 1;
+  cursor: pointer;
+}
+
+.channelInput:disabled {
+  cursor: not-allowed;
+}
+
+.mobileChannel {
+  display: none;
+}
+
+.saveBar {
+  padding-block-start: var(--mantine-spacing-sm);
+  border-block-start: 1px solid var(--mantine-color-default-border);
+}
+
+@container notification-preferences (max-width: 42rem) {
+  .groupHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .bulkActions {
+    justify-content: flex-start;
+    gap: 0.25rem var(--mantine-spacing-sm);
+  }
+
+  .preferenceTable,
+  .preferenceTable :global(tbody) {
+    display: grid;
+    gap: var(--mantine-spacing-xs);
+  }
+
+  .preferenceTable :global(thead) {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .preferenceTable :global(tbody tr) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--mantine-spacing-sm);
+    padding: var(--mantine-spacing-sm);
+    border: 1px solid var(--mantine-color-default-border);
+    border-radius: var(--mantine-radius-sm);
+    background: var(--adder-surface-tint);
+  }
+
+  .preferenceTable :global(tbody :is(td, th)) {
+    padding: 0;
+    border: 0;
+  }
+
+  .channelCell {
+    display: grid;
+    justify-items: center;
+    gap: 0.25rem;
+    min-inline-size: 3.25rem;
+  }
+
+  .mobileChannel {
+    display: inline;
+  }
+
+  .saveBar > button {
+    inline-size: 100%;
+  }
+}
+
+@container notification-preferences (max-width: 25rem) {
+  .preferenceTable :global(tbody tr) {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .kindCell {
+    grid-column: 1 / -1;
+  }
+}

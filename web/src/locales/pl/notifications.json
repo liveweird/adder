@@ -1,5 +1,6 @@
 {
   "title": "Powiadomienia",
+  "feed": "Lista powiadomień",
   "empty": "Nie masz powiadomień.",
   "markAllSeen": "Oznacz wszystkie jako przeczytane",
   "markAllFailed": "Nie udało się oznaczyć powiadomień jako przeczytanych.",
@@ -33,6 +34,7 @@
   "preferences": {
     "title": "Ustawienia powiadomień",
     "description": "Wybierz, które powiadomienia widzisz w aplikacji, a które dostajesz też e-mailem.",
+    "deliveryTitle": "Sposób powiadamiania",
     "typeColumn": "Powiadom mnie, gdy",
     "columnInApp": "W aplikacji",
     "columnEmail": "E-mail",

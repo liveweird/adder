@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { Alert, Group, Paper, Select, Stack, Text } from "@mantine/core";
+import { Alert, Group, Paper, Select, Stack, Text, Title } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "../api/http";
@@ -16,7 +16,7 @@ import RoomAccessTypePicker from "../components/RoomAccessTypePicker";
 import StatusPill from "../components/StatusPill";
 import { useDiscardGuard } from "../hooks/useDiscardGuard";
 import { asSupportedLanguage } from "../i18n";
-import { FORM_MAX_WIDTH } from "../utils/layout";
+import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import {
   EMPTY_ROOM_FORM,
@@ -32,6 +32,7 @@ import { roomPath, roomsPath } from "../utils/roomLinks";
 import { showSuccessToast } from "../utils/toast";
 import { statusHue } from "../utils/workflowColours";
 import { resolvedLabels } from "../utils/workflowLabels";
+import classes from "./CreateRoom.module.css";
 
 /** The statuses the picked template would give the room, as pills in the language the room will be created in. */
 function TemplatePreview({ templateId }: { templateId: number }) {
@@ -43,7 +44,7 @@ function TemplatePreview({ templateId }: { templateId: number }) {
   // What the room would call them: the server's per-list resolution (a collision in the mix puts the whole list back to EN).
   const labels = resolvedLabels(data.statuses.map((status) => status.label), language);
   return (
-    <Stack gap={4}>
+    <Stack gap="xs" className={classes.preview}>
       <Text size="sm" fw={500}>
         {t("rooms.create.previewTitle")}
       </Text>
@@ -102,11 +103,12 @@ export default function CreateRoom() {
   }
 
   return (
-    <Stack gap="md">
+    <Stack gap="lg" maw={CONTENT_MAX_WIDTH} className={classes.page}>
       <PageHeader title={t("rooms.createTitle")} backTo={{ to: roomsPath, label: t("rooms.backToRooms") }} />
-      <form onSubmit={form.onSubmit(submit)} noValidate>
-        <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
-          <Stack>
+      <form className={classes.form} onSubmit={form.onSubmit(submit)} noValidate>
+        <Paper component="section" withBorder className={classes.section}>
+          <Stack gap="lg">
+            <Title order={3} size="h4">{t("rooms.create.details")}</Title>
             <RegistryMetadataFields
               nameMaxLength={MAX_ROOM_NAME_LENGTH}
               descriptionMaxLength={MAX_ROOM_DESCRIPTION_LENGTH}
@@ -115,6 +117,11 @@ export default function CreateRoom() {
               descriptionInputProps={form.getInputProps("description")}
             />
             <RoomAccessTypePicker value={form.values.accessType} onChange={(value) => form.setFieldValue("accessType", value)} />
+          </Stack>
+        </Paper>
+        <Paper component="section" withBorder className={classes.section}>
+          <Stack gap="md">
+            <Title order={3} size="h4">{t("rooms.tabs.workflow")}</Title>
             {templates.isError && <ErrorAlert error={templates.error} title={t("rooms.create.templatesFailed")} />}
             {noTemplates && (
               <Alert color="gray" variant="light" role="note">
@@ -130,9 +137,11 @@ export default function CreateRoom() {
               {...form.getInputProps("templateId")}
             />
             {form.values.templateId !== null && <TemplatePreview templateId={Number(form.values.templateId)} />}
-            <RegistryEditorActions error={error} submitting={submitting} isEdit={false} onClose={guard.requestCancel} gap="sm" submitDisabled={noTemplates} />
           </Stack>
         </Paper>
+        <Stack gap="sm" className={classes.footer}>
+          <RegistryEditorActions error={error} submitting={submitting} isEdit={false} onClose={guard.requestCancel} gap="sm" submitDisabled={noTemplates} />
+        </Stack>
       </form>
       <ConfirmActionModal {...guard.confirmProps} />
     </Stack>

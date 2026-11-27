@@ -1,0 +1,32 @@
+.page {
+  container: room-creation / inline-size;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-md);
+  align-items: start;
+}
+
+.section {
+  padding: clamp(0.875rem, 3vw, 1.5rem);
+}
+
+.preview {
+  padding: var(--mantine-spacing-sm);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--adder-surface-tint);
+}
+
+.footer {
+  grid-column: 1 / -1;
+  border-block-start: 1px solid var(--mantine-color-default-border);
+  padding-block-start: var(--mantine-spacing-md);
+}
+
+@container room-creation (min-width: 47rem) {
+  .form {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}

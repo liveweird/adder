@@ -27,6 +27,11 @@
 1. A visitor submits the login form with the admin's email and a wrong password.
    - *Expected*: the "Invalid email or password" rejection is shown.
 
+## Scenario: sign-in and password reset fit a narrow phone
+
+1. A visitor opens sign-in and password reset at 320px wide.
+   - *Expected*: each primary action is in view, and neither page scrolls horizontally.
+
 ## Scenario: a deep link is guarded and lands back after signing in
 
 1. An anonymous visitor opens `/some/deep/path?tab=history#details`.

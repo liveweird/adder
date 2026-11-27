@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
-import { Button, Stack, Text } from "@mantine/core";
+import { Box, Button, Stack, Text } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPencil } from "@tabler/icons-react";
 import { ApiError } from "../api/http";
@@ -17,6 +17,7 @@ import { loadErrorMessage } from "../utils/saveError";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { teamsPath } from "../utils/teamLinks";
 import { fillSlots, slot } from "../utils/slots";
+import classes from "../components/ManagementSurface.module.css";
 
 /**
  * One team (`/teams/:id`): its name, description, manager and roster. Everyone reads it, its manager included; an ADMIN
@@ -53,7 +54,7 @@ export default function TeamDetails() {
   const canManageRoster = admin || (data.managerId !== null && data.managerId === getUserId());
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader
         title={data.name}
         description={
@@ -85,7 +86,9 @@ export default function TeamDetails() {
         }
       />
 
-      <TeamMembers team={data} canManage={canManageRoster} />
+      <Box className={classes.detailSurface}>
+        <TeamMembers team={data} canManage={canManageRoster} />
+      </Box>
 
       {editing && (
         <TeamEditorModal

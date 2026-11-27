@@ -10,6 +10,7 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { showSuccessToast } from "../utils/toast";
 import { blankTemplateSeed } from "../utils/workflowTemplateForm";
 import { workflowTemplatesPath } from "../utils/workflowTemplateLinks";
+import classes from "../components/ManagementSurface.module.css";
 
 /** `/workflow-templates/new` (ADMIN): a name, a description and a workflow, starting from a valid two-status skeleton. */
 export default function CreateWorkflowTemplate() {
@@ -20,7 +21,7 @@ export default function CreateWorkflowTemplate() {
   const [seed] = useState(blankTemplateSeed);
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader
         title={t("workflows.templates.createTitle")}
         backTo={{ to: workflowTemplatesPath, label: t("workflows.templates.backToList") }}
