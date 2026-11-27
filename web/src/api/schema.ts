@@ -1333,6 +1333,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/rooms/{id}/thread-references": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Find readable thread numbers in one room
+         * @description Returns the requested numbers that identify active threads in this room. Readable merged source conversations are included at their
+         *     original numbers. Missing and deleted threads are omitted. Authorized readers may use this in archived rooms.
+         *
+         *     Requires ordinary access to the room's content. An unknown or unreadable room returns the same `404` before query validation.
+         *     The read is scoped to current room access. The only filter and sortable field is `number`, with ascending number order by default.
+         *     Rides the per-user `chat-read` bucket and the shared thread-list read budget.
+         */
+        get: operations["listThreadReferences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/rooms/{id}/threads": {
         parameters: {
             query?: never;
@@ -3822,6 +3849,19 @@ export interface components {
          *     keys, alphabetical, at most 20. Each is a valid `tag` filter value of the thread list. A deleted message's hashtags are gone; an edit adds or drops them.
          */
         ThreadHashtags: string[];
+        ThreadReference: {
+            /**
+             * Format: int32
+             * @description A readable thread's original per-room number.
+             */
+            number: number;
+        };
+        ThreadReferencePage: {
+            items: components["schemas"]["ThreadReference"][];
+            page: number;
+            pageSize: number;
+            total: number;
+        };
         ThreadListItem: {
             /** Format: int32 */
             id: number;
@@ -6919,6 +6959,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ThreadSearchPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+        };
+    };
+    listThreadReferences: {
+        parameters: {
+            query: {
+                /** @description Thread numbers in this room. Supply 1 to 100 distinct positive numbers by repeating the parameter. Duplicates are collapsed. */
+                number: number[];
+                /** @description 1-based page index. Defaults to 1. */
+                page?: components["parameters"]["Page"];
+                /** @description Rows per page. Defaults to 20, maximum 100. */
+                pageSize?: components["parameters"]["PageSize"];
+                /**
+                 * @description Sort spec. Format: `field` (ascending) or `-field` (descending). Multiple fields are
+                 *     comma-separated, leftmost wins: `sort=-updatedAt,name`. The endpoint declares its
+                 *     sortable-field whitelist; unknown fields are rejected with `400`, and so is a field named
+                 *     twice (with or without `-`) or a list longer than the whitelist. `id` ascending is
+                 *     always appended as a deterministic tiebreaker.
+                 */
+                sort?: components["parameters"]["Sort"];
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["ResourceId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of readable thread numbers */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ThreadReferencePage"];
                 };
             };
             400: components["responses"]["BadRequest"];

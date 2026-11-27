@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { getSessionSnapshot, persistRefreshedSession, persistSession } from "../api/session";
 import type { components } from "../api/schema";
 import { bindSessionQueryCache } from "./sessionQueryCache";
+import { threadReferenceKey } from "./threadReferenceCache";
 
 type LoginSuccess = components["schemas"]["LoginResponse"];
 
@@ -43,6 +44,7 @@ describe("session query cache", () => {
     persistSession(session(1, "token-a"));
     queryClient.setQueryData(["notifications", "unread"], { total: 3 });
     queryClient.setQueryData(["notifications", "list", 1], { items: [{ id: 41 }], total: 1 });
+    queryClient.setQueryData(threadReferenceKey(5, 42), true);
     const unreadObserver = new QueryObserver(queryClient, {
       queryKey: ["notifications", "unread"],
       queryFn: async () => ({ total: 0 }),
@@ -54,6 +56,7 @@ describe("session query cache", () => {
 
     expect(queryClient.getQueryData(["notifications", "unread"])).toBeUndefined();
     expect(queryClient.getQueryData(["notifications", "list", 1])).toBeUndefined();
+    expect(queryClient.getQueryData(threadReferenceKey(5, 42))).toBeUndefined();
     expect(unreadObserver.getCurrentResult().data).toBeUndefined();
     unsubscribe();
   });

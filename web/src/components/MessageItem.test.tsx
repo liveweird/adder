@@ -92,6 +92,18 @@ describe("MessageItem", () => {
     expect(screen.getByRole("link", { name: "#outage-3" })).toHaveAttribute("href", "/rooms/12/threads/42?scope=all&tag=outage-3");
   });
 
+  test("numeric references validate in the message's actual room before becoming links", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.startsWith("/api/v1/rooms/12/thread-references?")) {
+        return Promise.resolve(jsonResponse(200, { items: [{ number: 3 }], page: 1, pageSize: 100, total: 1 }));
+      }
+      return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+    });
+    renderItem(makeMessage({ body: "Follow #3" }), { edit: false, remove: null });
+    expect(await screen.findByRole("link", { name: "#3" })).toHaveAttribute("href", "/rooms/12/threads/3");
+    expect(mockFetch.mock.calls.some(([url]) => String(url).startsWith("/api/v1/rooms/12/thread-references?number=3"))).toBe(true);
+  });
+
   test("clicking a hashtag navigates inside the app, to the thread with the filter in the URL", async () => {
     const Where = () => <output aria-label="where">{useLocation().pathname + useLocation().search}</output>;
     renderWithProviders(

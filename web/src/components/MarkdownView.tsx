@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, type ComponentProps } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, type ComponentProps } from "react";
 import { Typography } from "@mantine/core";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,6 +6,7 @@ import remarkGemoji from "remark-gemoji";
 import { Link as RouterLink } from "react-router-dom";
 import type { MessageLinkSource } from "../api/linkPreviews";
 import { getUserId } from "../api/session";
+import { useThreadRefHref } from "../hooks/useThreadRefHref";
 import { useKnownNames } from "../utils/knownNames";
 import { personPath } from "../utils/personLinks";
 import { focusThreadPaneState } from "../utils/roomLinks";
@@ -13,6 +14,7 @@ import { teamPath } from "../utils/teamLinks";
 import remarkHashtags from "../utils/remarkHashtags";
 import remarkMentions from "../utils/remarkMentions";
 import remarkThreadRefs from "../utils/remarkThreadRefs";
+import { useThreadReference } from "../utils/threadReferenceCache";
 import ExternalMessageLink from "./ExternalMessageLink";
 import classes from "./MarkdownView.module.css";
 
@@ -29,9 +31,8 @@ import classes from "./MarkdownView.module.css";
 //   Neither variant renders raw HTML (react-markdown's default; there is no rehype-raw).
 //   A message variant given `tagHref` also turns each #hashtag (`remarkHashtags`) into an in-app router link (no `target`, the tag as
 //   plain text inside it) to `tagHref(tag)`; the document variant never does, and without `tagHref` a tag stays text.
-//   A message variant given `threadHref` also turns each `#42` (`remarkThreadRefs`, 1.2 A9) into a router link to `threadHref(42)`, the thread of
-//   that number in the SAME room (the caller says which room); nothing checks that the thread exists, so a number with none opens the pane's "does
-//   not exist". Hashtags and thread numbers never overlap (a hashtag holds a letter), and both skip code and links.
+//   A message variant given `threadRoomId` validates each `#42` (`remarkThreadRefs`) through the bounded room batch read and links only readable
+//   threads in that room. Missing, deleted, inaccessible and failed references stay text. Hashtags and thread numbers never overlap, and both skip code and links.
 //   A message variant given a non-empty `mentions` also reads each `<@id>` token (`remarkMentions`): an id the list names reads `@Name` (marked
 //   when it is the reader), any other id stays the raw token, because the server's list is the verdict. The name is a React text child, never Markdown or HTML.
 //   `groupMentions` does the same for `<@team:id>` (read as `@handle` when the list names the team), `<@watchers>`, `<@here>` and `<@everyone>` (read as
@@ -49,10 +50,10 @@ const boldParagraph = ({ node: _node, ...props }: WithNode<"h1">) => (
 
 const BASE_PLUGINS = [remarkGfm, remarkGemoji];
 
-// The message variant's `tagHref` and `threadHref`, handed to its `a` renderer through context so the components map can stay ONE module constant: a map
+// The message variant's tag and validated-thread destinations, handed to its `a` renderer through context so the components map can stay ONE module constant: a map
 // built per render is a new component type each time, which remounts every link and heading of every message (a keyboard user's focus
 // on a #tag link would drop to <body> on any re-render, such as a live refetch).
-type LinkHrefs = { tag?: (tag: string) => string; thread?: (number: number) => string };
+type LinkHrefs = { tag?: (tag: string) => string; threadRoomId?: number };
 const LinkHrefsContext = createContext<LinkHrefs>({});
 const MessageSourceContext = createContext<MessageLinkSource | undefined>(undefined);
 const LinkLabelContext = createContext<string | null>(null);
@@ -68,7 +69,7 @@ function MessageDestination({ href, title, children }: Pick<ComponentProps<"a">,
 }
 
 function MessageLink({ node: _node, ...props }: WithNode<"a">) {
-  const { tag: tagHref, thread: threadHref } = useContext(LinkHrefsContext);
+  const { tag: tagHref, threadRoomId } = useContext(LinkHrefsContext);
   // `data-hashtag` and `data-thread-number` are set only by `remarkHashtags` and `remarkThreadRefs` (a user cannot write them: raw HTML is not
   // rendered), so they mark the plugins' links.
   const marks = props as { "data-hashtag"?: string; "data-thread-number"?: string };
@@ -76,16 +77,44 @@ function MessageLink({ node: _node, ...props }: WithNode<"a">) {
   const threadNumber = marks["data-thread-number"];
   if (tagHref !== undefined && tag !== undefined) return <RouterLink to={tagHref(tag)}>{props.children}</RouterLink>;
   // The pane takes focus after the jump, as it does for a list row: the link is left behind in the conversation.
-  return threadHref !== undefined && threadNumber !== undefined ? (
-    <RouterLink to={threadHref(Number(threadNumber))} state={focusThreadPaneState}>
+  return threadRoomId !== undefined && threadNumber !== undefined ? (
+    <ValidatedThreadReference roomId={threadRoomId} number={Number(threadNumber)}>
       {props.children}
-    </RouterLink>
+    </ValidatedThreadReference>
   ) : (
     <MessageDestination href={props.href} title={props.title}>
       <LinkLabelContext.Provider value={props.href ?? ""}>
         {typeof props.children === "string" && !props.children.trim() ? props.href : props.children ?? props.href}
       </LinkLabelContext.Provider>
     </MessageDestination>
+  );
+}
+
+function ValidatedThreadReference({
+  roomId,
+  number,
+  children,
+}: {
+  roomId: number;
+  number: number;
+  children: React.ReactNode;
+}) {
+  const readable = useThreadReference(roomId, number);
+  const href = useThreadRefHref(roomId);
+  const container = useRef<HTMLSpanElement>(null);
+  const heldFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (!readable && heldFocus.current) container.current?.focus({ preventScroll: true });
+  }, [readable]);
+  return (
+    <span
+      ref={container}
+      tabIndex={-1}
+      onFocusCapture={() => { heldFocus.current = true; }}
+      onBlurCapture={() => { heldFocus.current = false; }}
+    >
+      {readable ? <RouterLink to={href(number)} state={focusThreadPaneState}>{children}</RouterLink> : children}
+    </span>
   );
 }
 
@@ -170,7 +199,7 @@ export default function MarkdownView({
   children,
   variant = "document",
   tagHref,
-  threadHref,
+  threadRoomId,
   mentions,
   groupMentions,
   linkSource,
@@ -179,8 +208,8 @@ export default function MarkdownView({
   variant?: MarkdownVariant;
   /** The message variant's hashtag links: where a tag leads (a router path; the tag is the typed spelling, not yet encoded). Needs a router. */
   tagHref?: (tag: string) => string;
-  /** The message variant's `#42` links: where a thread number of the SAME room leads (a router path). Needs a router. */
-  threadHref?: (number: number) => string;
+  /** The room whose numeric references may become links after the authorization-aware batch read. */
+  threadRoomId?: number;
   /** The message variant's mentioned people (`MessageResponse.mentions`): only an id listed here reads as a name. */
   mentions?: readonly { userId: number; name: string }[];
   /** The message variant's group mentions (`MessageResponse.groupMentions`): only a team or group keyword listed here reads as one. */
@@ -206,13 +235,16 @@ export default function MarkdownView({
     [people, groups],
   );
   const withTags = message && tagHref !== undefined;
-  const withRefs = message && threadHref !== undefined;
+  const withRefs = message && threadRoomId !== undefined;
   const withNames = named !== undefined;
   const plugins = useMemo(
     () => [...BASE_PLUGINS, ...(withTags ? [remarkHashtags] : []), ...(withNames ? [remarkMentions] : []), ...(withRefs ? [remarkThreadRefs] : [])],
     [withTags, withNames, withRefs],
   );
-  const hrefs: LinkHrefs = { tag: message ? tagHref : undefined, thread: message ? threadHref : undefined };
+  const hrefs: LinkHrefs = {
+    tag: message ? tagHref : undefined,
+    threadRoomId: message ? threadRoomId : undefined,
+  };
   return (
     <Typography className={message ? classes.message : classes.document}>
       <LinkHrefsContext.Provider value={hrefs}>

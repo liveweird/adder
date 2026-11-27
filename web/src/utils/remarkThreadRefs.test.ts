@@ -61,4 +61,24 @@ describe("remarkThreadRefs", () => {
     const email = { type: "link", url: "mailto:a@b.com", children: [text("a@b.com")] };
     expect(run(email, text("#42 then #43")) as unknown).toEqual([email, text("#42 then "), ref(43)]);
   });
+
+  test("shares a fixed link budget across eligible text nodes and keeps the remainder intact", () => {
+    const excluded = { type: "inlineCode", value: "#42" };
+    const strong = { type: "strong", children: [text("#8 #9")] };
+    const later = text(" and #10");
+    const nodes = run(excluded, text("#7 ".repeat(19)), strong, later) as unknown as Tree[];
+
+    expect(nodes[0]).toBe(excluded);
+    expect(nodes.filter(({ type }) => type === "link")).toHaveLength(19);
+    expect(strong.children).toEqual([ref(8), text(" #9")]);
+    expect(nodes.at(-1)).toBe(later);
+  });
+
+  test("a full-length message of repeated numbers still creates only twenty candidates", () => {
+    const body = "#7 ".repeat(2_666);
+    const nodes = run(text(body)) as unknown as Tree[];
+
+    expect(nodes.filter(({ type }) => type === "link")).toHaveLength(20);
+    expect(nodes.map((node) => node.value ?? node.children?.[0]?.value).join("")).toBe(body);
+  });
 });

@@ -20,6 +20,7 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { focusThreadPaneState, roomPath, threadPath, withListParams } from "../utils/roomLinks";
 import { threadStartBlock } from "../utils/threadAccess";
+import { threadReferenceKey } from "../utils/threadReferenceCache";
 import {
   MAX_MESSAGE_BODY_LENGTH,
   MAX_THREAD_TITLE_LENGTH,
@@ -94,6 +95,9 @@ function ThreadFormBody({ room, fields }: { room: RoomResponse; fields: readonly
     setSubmitting(true);
     try {
       const created = await createThread(room.id, toThreadCreateBody(values, fields));
+      // A cached absence for this number predates the successful creation. Revalidate it independently;
+      // composer completion must never wait on an on-render reference batch.
+      void refreshQueriesAfterMutation(queryClient, threadReferenceKey(room.id, created.number));
       drafts.set(room.id, null);
       showSuccessToast(t("threads.toast.started"));
       navigate(withListParams(threadPath(room.id, created.number), search), { state: focusThreadPaneState });

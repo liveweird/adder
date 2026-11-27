@@ -13,6 +13,7 @@ import ch.nokillswit.infra.db.orVanished
 import ch.nokillswit.infra.paging.optionalBoolean
 import ch.nokillswit.infra.paging.optionalBoundedString
 import ch.nokillswit.infra.paging.parsePaging
+import ch.nokillswit.infra.paging.positiveId
 import ch.nokillswit.infra.paging.singleValue
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.infra.revision.expectedRevision
@@ -77,12 +78,18 @@ class RoomTagsRoute(val parent: RoomsRoute.Id)
 @Resource("hashtags")
 class RoomHashtagsRoute(val parent: RoomsRoute.Id)
 
+/** `/api/v1/rooms/{id}/thread-references`: validates a bounded set of thread numbers without exposing thread data. */
+@Serializable
+@Resource("thread-references")
+class ThreadReferencesRoute(val parent: RoomsRoute.Id)
+
 fun Application.configureThreadRoutes() {
     val roomService = attributes[RoomServiceKey]
     val threadService = attributes[ThreadServiceKey]
     val statusService = attributes[ThreadStatusServiceKey]
     val tagService = attributes[MessageTagServiceKey]
     val lifecycle = attributes[ThreadLifecycleServiceKey]
+    val references = attributes[ThreadReferenceServiceKey]
 
     routing {
         authenticate {
@@ -92,6 +99,7 @@ fun Application.configureThreadRoutes() {
             // 404 for a missing room and a non-member alike, audited `room.access_denied`); the pre-check (member: 403); the body
             // (400); then the service re-runs the guard under the room lock.
             threadReads(roomService, threadService)
+            threadReferences(roomService, references)
             roomTags(roomService, tagService)
             threadCreate(roomService, threadService)
             threadDetails(roomService, threadService)
@@ -100,6 +108,33 @@ fun Application.configureThreadRoutes() {
             threadLifecycle(roomService, threadService, lifecycle)
         }
     }
+}
+
+private fun Route.threadReferences(roomService: RoomService, references: ThreadReferenceService) {
+    rateLimit(RateLimitName(RateLimits.CHAT_READ)) {
+        get<ThreadReferencesRoute> { route ->
+            val caller = call.caller()
+            val roomId = route.parent.id
+            roomService.visibleStanding(caller, roomId)
+            val params = call.request.queryParameters
+            val numbers = params.requiredThreadReferenceNumbers()
+            val paging = call.parsePaging(THREAD_REFERENCE_SORT_FIELDS, THREAD_REFERENCE_DEFAULT_SORT)
+            val result = references.list(caller.userId, roomId, numbers, paging)
+            call.respond(HttpStatusCode.OK, paging.toPage(result.items, result.total))
+        }
+    }
+}
+
+private fun Parameters.requiredThreadReferenceNumbers(): List<Int> {
+    val raw = getAll("number") ?: throw BadRequestException("Parameter 'number' is required")
+    val numbers = raw.map { value ->
+        positiveId(value)?.toInt() ?: throw BadRequestException("Invalid number")
+    }.distinct()
+    if (numbers.isEmpty()) throw BadRequestException("Parameter 'number' is required")
+    if (numbers.size > MAX_THREAD_REFERENCE_NUMBERS) {
+        throw BadRequestException("Parameter 'number' takes at most $MAX_THREAD_REFERENCE_NUMBERS values")
+    }
+    return numbers
 }
 
 @Serializable

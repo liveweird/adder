@@ -69,6 +69,10 @@ describe("PinnedPanel", () => {
       if (init?.method === "PUT") return Promise.resolve(put ? put() : new Response(null, { status: 204 }));
       if (url.startsWith("/api/v1/rooms/12/pins?")) return Promise.resolve(jsonResponse(200, page(pins)));
       if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, SIDE_WORKFLOW));
+      if (url.startsWith("/api/v1/rooms/12/thread-references?")) {
+        const numbers = new URL(url, "https://adder.test").searchParams.getAll("number").map(Number);
+        return Promise.resolve(jsonResponse(200, { items: numbers.map((number) => ({ number })), page: 1, pageSize: 100, total: numbers.length }));
+      }
       return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
     });
   }
@@ -128,6 +132,16 @@ describe("PinnedPanel", () => {
     await user.click(link);
     expect(screen.getByLabelText("where")).toHaveTextContent("/rooms/12/threads/42");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("a full pinned message validates numeric references in the pin's room", async () => {
+    pins = [{ ...MESSAGE_PIN, message: makeMessage({ id: 991, threadNumber: 7, body: "See #3" }) }];
+    const user = userEvent.setup();
+    serve();
+    renderPanel();
+    const dialog = await openPanel(user);
+    expect(await within(dialog).findByRole("link", { name: "#3" })).toHaveAttribute("href", "/rooms/12/threads/3");
+    expect(mockFetch.mock.calls.some(([url]) => String(url).startsWith("/api/v1/rooms/12/thread-references?number=3"))).toBe(true);
   });
 
   test("on the Threads tab a thread link keeps the list's URL keys, the message link too", async () => {

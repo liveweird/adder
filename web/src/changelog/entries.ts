@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.40.0",
+    date: "2026-11-27",
+    en: `**Adder 1.40.0 — links to readable threads**
+
+- A reference like #42 links to a readable thread in the same room. Missing or deleted thread numbers stay plain text. Up to 20 references per message can become links.
+- A merged thread’s number opens its original conversation. Links update live as threads are created or deleted.`,
+    pl: `**Adder 1.40.0 — odnośniki do dostępnych wątków**
+
+- Odwołanie takie jak #42 prowadzi do dostępnego wątku w tym samym pokoju. Numery brakujących lub usuniętych wątków są zwykłym tekstem. W jednej wiadomości może pojawić się do 20 takich odnośników.
+- Numer scalonego wątku otwiera jego pierwotną rozmowę. Odnośniki aktualizują się na żywo, gdy wątki powstają lub są usuwane.`,
+  },
+  {
     version: "1.39.0",
     date: "2026-11-27",
     en: `**Adder 1.39.0 — fewer duplicate reads after changing room membership**

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Link, Route, Routes, useLocation } from "react-router-dom";
@@ -8,6 +9,7 @@ import type { RoomResponse } from "../api/rooms";
 import { jsonResponse } from "../test/http";
 import { renderWithProviders } from "../test/render";
 import { createKnownNames, KnownNamesContext } from "../utils/knownNames";
+import { threadReferenceKey } from "../utils/threadReferenceCache";
 
 const ROOM: RoomResponse = {
   id: 12,
@@ -47,7 +49,7 @@ function Where() {
   );
 }
 
-function renderForm(room: RoomResponse = ROOM, route = "/rooms/12/threads/new") {
+function renderForm(room: RoomResponse = ROOM, route = "/rooms/12/threads/new", queryClient?: QueryClient) {
   const names = createKnownNames();
   return renderWithProviders(
     <KnownNamesContext.Provider value={names}><Routes>
@@ -55,7 +57,7 @@ function renderForm(room: RoomResponse = ROOM, route = "/rooms/12/threads/new") 
       <Route path="/rooms/:id" element={<Where />} />
       <Route path="/rooms/:id/threads/:number" element={<Where />} />
     </Routes></KnownNamesContext.Provider>,
-    { route },
+    { route, queryClient },
   );
 }
 
@@ -78,6 +80,32 @@ function serveTags(mockFetch: ReturnType<typeof vi.fn>, fallback: (url: string, 
   mockFetch.mockImplementation((url: string, init?: RequestInit) => url.startsWith("/api/v1/tag-categories?")
     ? Promise.resolve(jsonResponse(200, { items: [{ id: 2, name: "Area", tags, revision: 1 }], page: 1, pageSize: 100, total: 1 }))
     : fallback(url, init));
+}
+
+async function holdReference(queryClient: QueryClient, number = 99) {
+  let aborted = false;
+  let resolveOld!: (value: boolean) => void;
+  const query = vi.fn()
+    .mockImplementationOnce(({ signal }: { signal: AbortSignal }) => new Promise<boolean>((resolve) => {
+      resolveOld = resolve;
+      signal.addEventListener("abort", () => { aborted = true; }, { once: true });
+    }))
+    .mockResolvedValue(true);
+  const observer = new QueryObserver(queryClient, { queryKey: threadReferenceKey(12, number), queryFn: query, staleTime: Infinity });
+  const stop = observer.subscribe(() => undefined);
+  await waitFor(() => expect(query).toHaveBeenCalledOnce());
+  return { query, resolveOld, result: () => observer.getCurrentResult(), wasAborted: () => aborted, stop };
+}
+
+function expectReferenceHeld(reference: Awaited<ReturnType<typeof holdReference>>) {
+  expect(reference.wasAborted()).toBe(false);
+  expect(reference.query).toHaveBeenCalledOnce();
+}
+
+function clientWithMissingReference(roomId: number, number: number) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(threadReferenceKey(roomId, number), false);
+  return queryClient;
 }
 
 describe("NewThreadForm", () => {
@@ -111,7 +139,8 @@ describe("NewThreadForm", () => {
   test("a required field leads, the others sit behind More fields, and a start posts the typed body and lands on the new thread", async () => {
     serve();
     const user = userEvent.setup();
-    renderForm();
+    const queryClient = clientWithMissingReference(12, CREATED.number);
+    renderForm(ROOM, "/rooms/12/threads/new", queryClient);
     expect(await screen.findByRole("heading", { level: 3, name: "New thread" })).toBeInTheDocument();
     expect(await screen.findByRole("combobox", { name: /Severity/ })).toBeRequired();
     const more = screen.getByRole("button", { name: "More fields" });
@@ -132,6 +161,7 @@ describe("NewThreadForm", () => {
       body: "db-3 is at 100%",
       fields: { severity: "s2", component: "db" },
     });
+    expect(queryClient.getQueryState(threadReferenceKey(12, CREATED.number))?.isInvalidated).toBe(true);
   });
 
   test("registry tags can be picked before the thread is started", async () => {
@@ -181,7 +211,9 @@ describe("NewThreadForm", () => {
       return defaults(url, init);
     });
     const user = userEvent.setup();
-    renderForm({ ...ROOM, role: "OWNER" });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const heldReference = await holdReference(queryClient);
+    renderForm({ ...ROOM, role: "OWNER" }, "/rooms/12/threads/new", queryClient);
     await fillRequired(user);
     await user.click(screen.getByRole("combobox", { name: /Severity/ }));
     await user.click(await screen.findByRole("option", { name: "S2" }));
@@ -199,10 +231,12 @@ describe("NewThreadForm", () => {
     expect(draft).toHaveValue("db-3 is at 100%");
     completeAdd(jsonResponse(200, { added: 1, alreadyMembers: 0 }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: /First message/ })).toHaveValue("db-3 is at 100% @New Person "));
+    expectReferenceHeld(heldReference);
     await user.click(screen.getByRole("button", { name: "Start thread" }));
     await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/rooms/12/threads/7"));
     expect(posts().map(([url]) => url)).toEqual(["/api/v1/rooms/12/members", "/api/v1/rooms/12/threads"]);
     expect(JSON.parse((posts()[1][1] as RequestInit).body as string).body).toBe("db-3 is at 100% <@91>");
+    heldReference.stop();
   });
 
   test("an owner can promote an unmatched opening-message term into an added mention", async () => {
@@ -460,5 +494,41 @@ describe("NewThreadForm", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("The thread could not be started: one or more fields are invalid (Title must be 1-200 characters)");
     expect(alert).not.toHaveTextContent("fields may have changed");
+  });
+});
+
+describe("NewThreadForm reference refresh", () => {
+  beforeEach(() => {
+    localStorage.setItem("adder.auth.token", "fake-token");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  test("a successful creation cancels a pre-create verdict and publishes the fresh answer without a live event", async () => {
+    const mockFetch = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+      if (url === "/api/v1/rooms/12/threads" && init?.method === "POST") return Promise.resolve(jsonResponse(201, CREATED));
+      if (url.startsWith("/api/v1/tag-categories?")) return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 100, total: 0 }));
+      return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
+    });
+    vi.stubGlobal("fetch", mockFetch);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const held = await holdReference(queryClient, CREATED.number);
+    const user = userEvent.setup();
+    renderForm(ROOM, "/rooms/12/threads/new", queryClient);
+    await user.type(await screen.findByRole("textbox", { name: /Title/ }), "Disk full");
+    await user.type(screen.getByRole("textbox", { name: /First message/ }), "db-3 is at 100%");
+    await user.click(screen.getByRole("combobox", { name: /Severity/ }));
+    await user.click(await screen.findByRole("option", { name: "S1" }));
+    await user.click(screen.getByRole("button", { name: "Start thread" }));
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/rooms/12/threads/7"));
+    expect(held.wasAborted()).toBe(true);
+    await waitFor(() => expect(held.query).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(held.result().data).toBe(true));
+    held.resolveOld(false);
+    expect(held.result().data).toBe(true);
+    held.stop();
   });
 });

@@ -53,6 +53,8 @@ import ch.nokillswit.threads.ThreadLifecycleServiceKey
 import ch.nokillswit.threads.ThreadReadLimiters
 import ch.nokillswit.threads.ThreadReadService
 import ch.nokillswit.threads.ThreadReadServiceKey
+import ch.nokillswit.threads.ThreadReferenceService
+import ch.nokillswit.threads.ThreadReferenceServiceKey
 import ch.nokillswit.threads.ThreadSearchService
 import ch.nokillswit.threads.ThreadSearchServiceKey
 import ch.nokillswit.threads.ThreadService
@@ -114,6 +116,7 @@ internal fun Application.publishChatServices(
     )
     val messageTagService = MessageTagService(database, readLimiter)
     attributes.put(MessageTagServiceKey, messageTagService)
+    attributes.put(ThreadReferenceServiceKey, ThreadReferenceService(database, readLimiter))
     // The notices (V18) are made inside the chat's own writes through the `ThreadNotices` port `threads/` declares: this root hands the
     // implementation (`NoticeWriter`) to the services that call it (`notifications/` imports `threads/`, never the reverse).
     // The per-actor digest budget (V24, boot-validated): the most distinct people one actor's mentions and hand-overs can make eligible for

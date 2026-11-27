@@ -11,7 +11,7 @@ at first, passable like a Jira assignee); a thread in a CLOSED-category status i
 or an ADMIN reopens it. Room content is filterable, sortable and searchable; the usual chat affordances apply (pins, @mentions, reactions, emoji,
 #hashtags). Updates reach open browsers live over a WebSocket.
 
-**Roadmap:** **1.39.0 (current: fewer duplicate reads after room membership changes)**. The complete version chain, scope and decisions live in `.claude/docs/product.md`.
+**Roadmap:** **1.40.0 (current: links to readable threads)**. The complete version chain, scope and decisions live in `.claude/docs/product.md`.
 The domain sketch: `.claude/docs/chat-model.md`; the live protocol: `.claude/docs/live.md`. Open items: `BACKLOG.md`.
 
 Brand: olive / venom chartreuse (the `adder` colour tuple in `web/src/theme.ts`, `primaryShade: { light: 8, dark: 9 }`). The logo "Strike" shows

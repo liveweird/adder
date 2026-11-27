@@ -329,6 +329,10 @@ Thread numbers are never reused. In the deleting tab, HTTP `204` or the exact `t
 
 The live event names the deleted thread. Deleting a canonical thread can also remove its merged source conversations, so clients clear affected cached content for the source room and quotes that depend on that room. Pending content reads are canceled so a late response cannot restore a deleted excerpt. List, pins, workflow, rail, Home and notices still refresh. Room revocation and personal notice events retain their own handling.
 
+## Numeric thread references (1.40.0)
+
+A `thread.created` event refreshes the unresolved reference for the new number. A room-wide fallback covers a creation event without a number. A committed deletion clears the room’s cached reference results immediately and reloads the visible references, since deleting a canonical thread can also delete its merged sources. A merge preserves the source’s readable history. Room access loss and account replacement clear the affected reference results and cancel pending reads. Reconnect and wake-up catch-up recheck cached references so a missed deletion does not leave a stale link. Numeric lookups have their own cache keys, so a pending lookup cannot delay a room write’s refresh.
+
 ## Mutation refresh measurements
 
 In a warm two-tab Chromium rehearsal, a reply produced two timeline, detail, thread-list and rail reads in the writer before correlation, and one of each afterward. The observer still read each once. Holding the POST response after the observer received the event caused no writer reads until the response arrived. Aborting that held response released the event and the committed reply appeared in both tabs.

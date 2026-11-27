@@ -64,6 +64,15 @@ change can only arrive by being pushed, and marks the document, so "without a re
 3. The test discards the response.
    - *Expected*: the owner returns to the room with their list filter intact, and neither page reloads.
 
+## Scenario: numeric thread references link readable targets and update after creation or deletion
+
+1. A member opens a conversation with repeated references to a merged source, a deleted number, and a number that has yet to be created.
+   - *Expected*: the browser batches the distinct numbers. The source links to its original history with the list filters intact. The deleted and future numbers and the reference in inline code stay text.
+2. The owner creates the future thread and then deletes the canonical thread and its merged sources.
+   - *Expected*: the future number becomes a link. The merged source becomes plain text. The message stays in the conversation.
+3. The owner posts another future number. The browser holds the first lookup after the server sees no match, then receives the thread’s creation event.
+   - *Expected*: after the held response is released, the new reference becomes a link. The reader’s page does not reload.
+
 ## Scenario: a committed merge refreshes the writer once and updates the reader live
 
 1. The owner and a teammate open the duplicate thread. The owner chooses a target and confirms the merge while the browser holds the successful response.
@@ -124,14 +133,14 @@ change can only arrive by being pushed, and marks the document, so "without a re
 
 ## Scenario: the header says it is reconnecting while the browser is offline
 
-1. The same setup with an API-seeded thread; the teammate opens it.
-   - *Expected*: no "Reconnecting…" badge is in the header.
+1. The teammate opens an API-seeded thread whose message refers to another thread.
+   - *Expected*: the reference is a link and no "Reconnecting…" badge is in the header.
 2. The teammate's browser goes offline (`context.setOffline`).
    - *Expected*: within 15 seconds (the client's 5-second grace period, then the badge) the header shows "Reconnecting…".
-3. While it is offline the owner posts a message through the API.
+3. While it is offline the owner posts a message and deletes the referenced thread through the API.
    - *Expected*: the offline page does not show it.
 4. The teammate's browser comes back online.
-   - *Expected*: the badge goes within 15 seconds and the missed message appears in the conversation, still with no reload.
+   - *Expected*: the badge goes within 15 seconds. The missed message appears and the deleted reference becomes plain text, with no reload.
 
 ## Scenario: the live socket opens under the production content security policy
 

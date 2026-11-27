@@ -6,7 +6,9 @@ import { createLiveInvalidator, keysForFrame } from "./liveKeys";
 import { LIVE_EVENT_KINDS, type LiveServerFrame } from "./liveProtocol";
 import { notificationKeys } from "./notificationKeys";
 import { markThreadReadInCaches } from "./readCache";
-import { homeKey, notificationsKey, roomKeys, roomOrganizationKey, searchAllKey } from "./roomKeys";
+import { homeKey, notificationsKey, roomKeys, roomOrganizationKey, searchAllKey, threadReferenceKeys } from "./roomKeys";
+import { beginThreadDeleteCommit } from "./threadDeleteCommit";
+import { threadReferenceKey } from "./threadReferenceCache";
 
 const event = (kind: string, roomId: number, threadNumber?: number, messageId?: number): LiveServerFrame => ({
   type: "event",
@@ -34,7 +36,13 @@ const gone = (r: number): QueryKey[] => [
 
 describe("keysForFrame: the key map", () => {
   test("thread.created re-reads the room's thread list, its workflow counts (both reads) and the rail", () => {
-    expect(keysForFrame(event("thread.created", 5, 7))).toEqual([["rooms", "threads", 5, "list"], ["rooms", "workflow", 5], ["rooms", "workflow-edit", 5], RAIL, HOME]);
+    expect(keysForFrame(event("thread.created", 5, 7))).toEqual([
+      ["rooms", "threads", 5, "list"],
+      ["rooms", "workflow", 5],
+      ["rooms", "workflow-edit", 5],
+      RAIL,
+      HOME,
+    ]);
   });
 
   test("thread.updated and thread.owner_changed re-read the thread, its history, the room's thread list and the rail", () => {
@@ -171,7 +179,12 @@ describe("keysForFrame: the key map", () => {
   });
 
   test("ready re-reads the rail, the rooms list and the notices, resync all of ['rooms'] and the notices, pong nothing", () => {
-    expect(keysForFrame({ type: "ready", protocol: 1, maxSubscriptions: 128 })).toEqual([RAIL, LIST, ["notifications"], HOME]);
+    expect(keysForFrame({ type: "ready", protocol: 1, maxSubscriptions: 128 })).toEqual([
+      RAIL,
+      LIST,
+      ["notifications"],
+      HOME,
+    ]);
     expect(keysForFrame({ type: "resync" })).toEqual([["rooms"], ["notifications"], HOME, ["room-organization"]]);
     expect(keysForFrame({ type: "pong" })).toEqual([]);
   });
@@ -213,6 +226,7 @@ describe("the keys and the readers cannot drift apart", () => {
     roomKeys.threadDetail(5, 7),
     [...roomKeys.threadEvents(5, 7), 1],
     roomKeys.messages(5, 7),
+    [...threadReferenceKeys.room(5), 7],
     [...roomKeys.messageRevisions(5, 7, 99), 1],
     [...roomKeys.search(5), "term", "all", 1],
     [...searchAllKey, "term", "all", 1],
@@ -238,6 +252,11 @@ describe("the keys and the readers cannot drift apart", () => {
     expect(startsWith(roomKeys.search(5), roomKeys.threads(5))).toBe(false);
     expect(startsWith(roomKeys.search(5), roomKeys.all)).toBe(false);
     expect(startsWith(roomKeys.search(5), searchAllKey)).toBe(true);
+  });
+
+  test("numeric-reference verdicts sit outside broad room refreshes", () => {
+    expect(startsWith(threadReferenceKeys.room(5), roomKeys.all)).toBe(false);
+    expect(startsWith(threadReferenceKey(5, 42), threadReferenceKeys.room(5))).toBe(true);
   });
 
   test("every key a hint names is a prefix of a key some reader uses", () => {
@@ -444,6 +463,7 @@ describe("createLiveInvalidator", () => {
     t.clock.advanceBy(1);
     expect(t.flushed()).toHaveLength(9);
   });
+
 
   test("a hint that arrives while a spread flush waits brings it forward to the settle", () => {
     const t = setup();
@@ -722,6 +742,215 @@ describe("message revision permissions", () => {
       queryClient.clear();
     }
   });
+});
+
+function referenceInvalidatorSetup() {
+  const queryClient = new QueryClient();
+  const clock = new FakeClock();
+  const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+  const invalidator = createLiveInvalidator(queryClient, clock);
+  const flushed = () => invalidate.mock.calls.map(([filters]) => filters?.queryKey);
+  return { queryClient, clock, invalidator, flushed };
+}
+
+async function heldReferenceRefresh(frame: LiveServerFrame, primeReconnect = false) {
+  const queryClient = new QueryClient();
+  const clock = new FakeClock();
+  clock.randomValue = 0;
+  const invalidator = createLiveInvalidator(queryClient, clock);
+  if (primeReconnect) invalidator.handle({ type: "ready", protocol: 1, maxSubscriptions: 128 });
+  let resolveFirst!: (value: boolean) => void;
+  const queryFn = vi.fn()
+    .mockImplementationOnce(() => new Promise<boolean>((resolve) => { resolveFirst = resolve; }))
+    .mockResolvedValueOnce(true);
+  const observer = new QueryObserver(queryClient, { queryKey: threadReferenceKey(5, 42), queryFn, staleTime: Infinity });
+  const unsubscribe = observer.subscribe(() => undefined);
+  await vi.waitFor(() => expect(queryFn).toHaveBeenCalledOnce());
+  invalidator.handle(frame);
+  clock.advanceBy(300);
+  expect(queryFn).toHaveBeenCalledOnce();
+  resolveFirst(false);
+  await vi.waitFor(() => expect(queryClient.isFetching({ queryKey: threadReferenceKey(5, 42) })).toBe(0));
+  clock.advanceBy(300);
+  await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2));
+  unsubscribe();
+  invalidator.dispose();
+}
+
+describe("thread reference catch-up", () => {
+  test.each([
+    { type: "ready", protocol: 1, maxSubscriptions: 128 } satisfies LiveServerFrame,
+    { type: "subscribed", roomIds: [5], refused: [], capped: [] } satisfies LiveServerFrame,
+    { type: "resync" } satisfies LiveServerFrame,
+  ])("$type fails cached positive references closed before its delayed re-read", (frame) => {
+    const t = referenceInvalidatorSetup();
+    t.queryClient.setQueryData(threadReferenceKey(5, 42), true);
+    t.clock.randomValue = 0.5;
+    t.invalidator.handle(frame);
+    expect(t.queryClient.getQueryData(threadReferenceKey(5, 42))).toBeUndefined();
+    t.clock.advanceBy(999);
+    expect(t.flushed()).not.toContainEqual(threadReferenceKey(5, 42));
+    t.clock.advanceBy(1);
+    expect(t.flushed()).toContainEqual(threadReferenceKey(5, 42));
+    t.invalidator.dispose();
+  });
+
+  test("initial ready and subscribed do not abort or repeat a first reference batch in flight", async () => {
+    const t = referenceInvalidatorSetup();
+    let resolve!: (value: boolean) => void;
+    let aborted = false;
+    const observer = new QueryObserver(t.queryClient, {
+      queryKey: threadReferenceKey(5, 42),
+      queryFn: ({ signal }) => new Promise<boolean>((done) => {
+        resolve = done;
+        signal.addEventListener("abort", () => { aborted = true; }, { once: true });
+      }),
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    await vi.waitFor(() => expect(observer.getCurrentResult().fetchStatus).toBe("fetching"));
+    t.clock.randomValue = 0.5;
+    t.invalidator.handle({ type: "ready", protocol: 1, maxSubscriptions: 128 });
+    t.invalidator.handle({ type: "subscribed", roomIds: [5], refused: [], capped: [] });
+    t.clock.advanceBy(1_000);
+    expect(aborted).toBe(false);
+    expect(t.flushed().some((key) => startsWith(key as QueryKey, threadReferenceKeys.room(5)))).toBe(false);
+    resolve(false);
+    unsubscribe();
+    t.invalidator.dispose();
+  });
+
+  test.each(["thread.created", "room.member_added"])("a held absence is re-read after an explicit %s event", (kind) =>
+    heldReferenceRefresh(event(kind, 5, 42)));
+
+  test.each(["resync", "reconnect"])("a held verdict is re-read after explicit %s catch-up", (kind) =>
+    heldReferenceRefresh(kind === "resync" ? { type: "resync" } : { type: "ready", protocol: 1, maxSubscriptions: 128 }, kind === "reconnect"));
+
+  test("thread.created revalidates only its exact unresolved verdict", () => {
+    const t = referenceInvalidatorSetup();
+    t.queryClient.setQueryData(threadReferenceKey(5, 42), false);
+    t.queryClient.setQueryData(threadReferenceKey(5, 7), false);
+    t.queryClient.setQueryData(threadReferenceKey(5, 8), true);
+    t.invalidator.handle(event("thread.created", 5, 7));
+    t.clock.advanceBy(300);
+    expect(t.flushed()).toContainEqual(threadReferenceKey(5, 7));
+    expect(t.flushed()).not.toContainEqual(threadReferenceKey(5, 42));
+    expect(t.flushed()).not.toContainEqual(threadReferenceKey(5, 8));
+    t.invalidator.dispose();
+  });
+
+  test.each([event("thread.created", 5), event("room.member_added", 5)])("$kind without an exact creation number revalidates every unresolved verdict", (frame) => {
+    const t = referenceInvalidatorSetup();
+    t.queryClient.setQueryData(threadReferenceKey(5, 42), false);
+    t.queryClient.setQueryData(threadReferenceKey(5, 7), true);
+    t.invalidator.handle(frame);
+    t.clock.advanceBy(300);
+    expect(t.flushed()).toContainEqual(threadReferenceKey(5, 42));
+    expect(t.flushed()).not.toContainEqual(threadReferenceKey(5, 7));
+    t.invalidator.dispose();
+  });
+
+  test("quiet catch-up clears positives but schedules no reference reads", () => {
+    const t = referenceInvalidatorSetup();
+    t.queryClient.setQueryData(threadReferenceKey(5, 42), true);
+    t.invalidator.setQuiet(true);
+    t.invalidator.handle({ type: "ready", protocol: 1, maxSubscriptions: 128 });
+    expect(t.queryClient.getQueryData(threadReferenceKey(5, 42))).toBeUndefined();
+    t.clock.advanceBy(60_000);
+    expect(t.flushed().some((key) => startsWith(key as QueryKey, threadReferenceKeys.room(5)))).toBe(false);
+    t.queryClient.setQueryData(threadReferenceKey(5, 42), false);
+    t.invalidator.handle(event("room.member_added", 5));
+    t.clock.advanceBy(60_000);
+    expect(t.queryClient.getQueryData(threadReferenceKey(5, 42))).toBe(false);
+    expect(t.flushed().some((key) => startsWith(key as QueryKey, threadReferenceKeys.room(5)))).toBe(false);
+    t.invalidator.dispose();
+  });
+});
+
+describe("thread reference lifecycle", () => {
+  test("thread deletion synchronously clears every cached reference in its room, including a merged source", () => {
+    const queryClient = new QueryClient();
+    const invalidator = createLiveInvalidator(queryClient, new FakeClock());
+    queryClient.setQueryData(threadReferenceKey(5, 7), true);
+    queryClient.setQueryData(threadReferenceKey(5, 3), true);
+    invalidator.handle(event("thread.deleted", 5, 7));
+    expect(queryClient.getQueryData(threadReferenceKey(5, 7))).toBeUndefined();
+    expect(queryClient.getQueryData(threadReferenceKey(5, 3))).toBeUndefined();
+    invalidator.dispose();
+  });
+
+  test("a writer-consumed deletion still synchronously clears source-room references", () => {
+    const queryClient = new QueryClient();
+    const invalidator = createLiveInvalidator(queryClient, new FakeClock());
+    queryClient.setQueryData(threadReferenceKey(5, 7), true);
+    queryClient.setQueryData(threadReferenceKey(5, 3), true);
+    beginThreadDeleteCommit(queryClient, { roomId: 5, threadNumber: 7 });
+    invalidator.handle(event("thread.deleted", 5, 7));
+    expect(queryClient.getQueryData(threadReferenceKey(5, 7))).toBeUndefined();
+    expect(queryClient.getQueryData(threadReferenceKey(5, 3))).toBeUndefined();
+    invalidator.dispose();
+  });
+
+  test("deletion cancels an older pending verdict and restores a still-readable mounted reference", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(threadReferenceKey(5, 5), true);
+    let resolveOld!: (value: boolean) => void;
+    let oldAborted = false;
+    const queryFn = vi.fn()
+      .mockImplementationOnce(({ signal }: { signal: AbortSignal }) => new Promise<boolean>((resolve) => {
+        resolveOld = resolve;
+        signal.addEventListener("abort", () => { oldAborted = true; }, { once: true });
+      }))
+      .mockResolvedValueOnce(true);
+    const observer = new QueryObserver(queryClient, { queryKey: threadReferenceKey(5, 5), queryFn, staleTime: Infinity });
+    const unsubscribe = observer.subscribe(() => undefined);
+    void queryClient.refetchQueries({ queryKey: threadReferenceKey(5, 5) });
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledOnce());
+    const invalidator = createLiveInvalidator(queryClient, new FakeClock());
+    invalidator.handle(event("thread.deleted", 5, 7));
+    expect(observer.getCurrentResult().data).toBeUndefined();
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(observer.getCurrentResult().data).toBe(true));
+    expect(oldAborted).toBe(true);
+    resolveOld(false);
+    expect(observer.getCurrentResult().data).toBe(true);
+    unsubscribe();
+    invalidator.dispose();
+  });
+
+  test("quiet deletion clears a mounted positive and visible resync restores it", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(threadReferenceKey(5, 5), true);
+    const queryFn = vi.fn().mockResolvedValue(true);
+    const observer = new QueryObserver(queryClient, { queryKey: threadReferenceKey(5, 5), queryFn, staleTime: Infinity });
+    const unsubscribe = observer.subscribe(() => undefined);
+    const clock = new FakeClock();
+    clock.randomValue = 0;
+    const invalidator = createLiveInvalidator(queryClient, clock);
+    invalidator.setQuiet(true);
+    invalidator.handle(event("thread.deleted", 5, 7));
+    expect(observer.getCurrentResult().data).toBeUndefined();
+    clock.advanceBy(60_000);
+    expect(queryFn).not.toHaveBeenCalled();
+    invalidator.setQuiet(false);
+    invalidator.handle({ type: "resync" });
+    clock.advanceBy(0);
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(observer.getCurrentResult().data).toBe(true));
+    unsubscribe();
+    invalidator.dispose();
+  });
+
+  test.each([event("room.deleted", 5), { type: "revoked", roomId: 5 } satisfies LiveServerFrame])(
+    "room loss clears reference verdicts immediately",
+    (frame) => {
+      const queryClient = new QueryClient();
+      const invalidator = createLiveInvalidator(queryClient, new FakeClock());
+      queryClient.setQueryData(threadReferenceKey(5, 7), true);
+      invalidator.handle(frame);
+      expect(queryClient.getQueryData(threadReferenceKey(5, 7))).toBeUndefined();
+      invalidator.dispose();
+    },
+  );
 });
 
 describe("correlated reply recovery", () => {
