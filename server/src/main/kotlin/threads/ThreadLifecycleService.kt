@@ -65,12 +65,19 @@ internal class ThreadLifecycleService(
             write.thread.id
         }
 
-    suspend fun merge(roomId: UInt, number: Int, targetNumber: Int, caller: CallerPrincipal): UInt? {
+    suspend fun merge(
+        roomId: UInt,
+        number: Int,
+        targetNumber: Int,
+        caller: CallerPrincipal,
+        readMutationId: () -> String?,
+    ): UInt? {
         requireDistinctMergeTarget(number, targetNumber)
         return database.withThreadWrite(roomId, number, caller, readerGuard, steward, allowMerged = true) { write ->
             write.requireRoomActive()
             val target = threadRow(roomId, targetNumber)
             requireThreadSteward(write.caller, write.standing, target.ownerId)
+            val mutationId = readMutationId()
             target.requireUnmerged()
             if (write.thread.mergedIntoThreadNumber == targetNumber) return@withThreadWrite null
             write.thread.requireUnmerged()
@@ -84,7 +91,15 @@ internal class ThreadLifecycleService(
             }
             events.record(write.thread.id, write.caller.userId, mergeEvent(ThreadEventType.MERGED_INTO, targetNumber), stamp)
             events.record(target.id, write.caller.userId, mergeEvent(ThreadEventType.MERGED_FROM, number), stamp)
-            notifyLive(LiveHint(LiveKind.THREAD_MERGED, roomId, threadNumber = number))
+            notifyLive(
+                LiveHint(
+                    LiveKind.THREAD_MERGED,
+                    roomId,
+                    threadNumber = number,
+                    mutationId = mutationId,
+                    originUserId = caller.userId.takeIf { mutationId != null },
+                ),
+            )
             write.thread.id
         }
     }

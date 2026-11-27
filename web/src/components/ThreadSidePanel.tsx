@@ -38,7 +38,7 @@ function Section({ title, anchor, children }: { title: string; anchor?: string; 
 export default function ThreadSidePanel({ room, thread, showHistory = true }: { room: RoomResponse; thread: ThreadResponse; showHistory?: boolean }) {
   const { t } = useTranslation();
   const admin = useAdmin();
-  const workflow = useRoomWorkflow(room.id);
+  const workflow = useRoomWorkflow(room.id, { refetchOnMount: false });
   const steward = isThreadSteward({ room, thread, userId: getUserId(), admin });
   const zone = browserTimeZone();
   const waiting = workflow.data ? null : workflow.isError ? (

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.37.0
+  version: 1.38.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -2154,8 +2154,19 @@ paths:
       description: |
         Requires stewardship of both threads in one active room. The destination must be canonical. The source conversation stays
         readable with its original links, and it no longer accepts new activity. The destination retains its workflow and metadata.
-        Repeating the same merge is a no-op. Merging a source that already points to a different destination returns a conflict.
+        A repeated identical merge is a no-op and emits no new live event. A source that already points to a different destination returns a conflict.
+        The API checks source access and stewardship before reading the request body. It checks destination stewardship before validating
+        the optional `X-Mutation-Id` header.
         The room write lock serializes the merge. The per-user chat-write bucket applies.
+      parameters:
+        - name: X-Mutation-Id
+          in: header
+          required: false
+          description: |
+            Correlates this request with the `thread.merged` event on the writer's account sockets. The event names the source thread.
+            Supply at most one canonical lowercase UUIDv4. A malformed or repeated value returns `400`.
+            The identifier is correlation metadata. The result of repeating a merge is determined by the threads' current state.
+          schema: { $ref: '#/components/schemas/LiveMutationId' }
       requestBody:
         required: true
         content:
@@ -4330,7 +4341,9 @@ components:
         messageId: { type: integer, format: int64, minimum: 1, maximum: 4294967295, description: Present for the message kinds. }
         mutationId:
           allOf: [{ $ref: '#/components/schemas/LiveMutationId' }]
-          description: On message.posted, message.edited, message.reaction_changed, thread.updated, thread.status_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only.
+          description: |
+            On message.posted, message.edited, message.reaction_changed, thread.updated, thread.status_changed, thread.owner_changed or
+            thread.merged, correlates the writer's HTTP request with its event for that account only. A merge names the source thread.
     LiveRevokedFrame:
       type: object
       required: [type, roomId]

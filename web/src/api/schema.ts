@@ -1499,7 +1499,9 @@ export interface paths {
          * Merge a duplicate thread into another thread
          * @description Requires stewardship of both threads in one active room. The destination must be canonical. The source conversation stays
          *     readable with its original links, and it no longer accepts new activity. The destination retains its workflow and metadata.
-         *     Repeating the same merge is a no-op. Merging a source that already points to a different destination returns a conflict.
+         *     A repeated identical merge is a no-op and emits no new live event. A source that already points to a different destination returns a conflict.
+         *     The API checks source access and stewardship before reading the request body. It checks destination stewardship before validating
+         *     the optional `X-Mutation-Id` header.
          *     The room write lock serializes the merge. The per-user chat-write bucket applies.
          */
         put: operations["mergeThread"];
@@ -2961,7 +2963,10 @@ export interface components {
              * @description Present for the message kinds.
              */
             messageId?: number;
-            /** @description On message.posted, message.edited, message.reaction_changed, thread.updated, thread.status_changed or thread.owner_changed, correlates the writer's HTTP request with its event for that account only. */
+            /**
+             * @description On message.posted, message.edited, message.reaction_changed, thread.updated, thread.status_changed, thread.owner_changed or
+             *     thread.merged, correlates the writer's HTTP request with its event for that account only. A merge names the source thread.
+             */
             mutationId?: components["schemas"]["LiveMutationId"];
         };
         /** @description The room is no longer readable by the caller (removed, or the room was deleted); the subscription is gone. */
@@ -7114,7 +7119,14 @@ export interface operations {
     mergeThread: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Correlates this request with the `thread.merged` event on the writer's account sockets. The event names the source thread.
+                 *     Supply at most one canonical lowercase UUIDv4. A malformed or repeated value returns `400`.
+                 *     The identifier is correlation metadata. The result of repeating a merge is determined by the threads' current state.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A thread's per-room number (`#42`; int32, numbering starts at 1 in every room). */

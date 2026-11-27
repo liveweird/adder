@@ -1,6 +1,9 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.RoomAccessType
+import ch.nokillswit.infra.MUTATION_ID_HEADER
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.notifications.NotificationPageResponse
 import ch.nokillswit.threads.MessagePostRequest
 import ch.nokillswit.threads.ThreadPageResponse
@@ -10,6 +13,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
@@ -83,6 +87,85 @@ class ThreadLifecycleTest {
     }
 
     @Test
+    fun `merge validates correlation after access and echoes it only for the actual change`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = seedActor("merge-echo-owner").also { users += it.id }
+        val member = seedActor("merge-echo-member").also { users += it.id }
+        val outsider = seedActor("merge-echo-outsider").also { users += it.id }
+        val room = room(owner.id)
+        TestRooms.addMember(room, member.id)
+        val source = TestThreads.seed(room, owner.id, title = "Duplicate")
+        val target = TestThreads.seed(room, owner.id, title = "Canonical")
+        val competing = TestThreads.seed(room, owner.id, title = "Competing")
+        val sourceOnly = TestThreads.seed(room, member.id, title = "Source steward only")
+        val path = "/api/v1/rooms/$room/threads/${source.number}/merge"
+        val sourceOnlyPath = "/api/v1/rooms/$room/threads/${sourceOnly.number}/merge"
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        val brokenBody = "{ not json"
+
+        assertEquals(
+            HttpStatusCode.NotFound,
+            outsider.client.mergeRaw(path, brokenBody, mutationId.uppercase()).status,
+            "visibility precedes correlation and body parsing",
+        )
+        assertEquals(
+            HttpStatusCode.Forbidden,
+            member.client.mergeRaw(path, brokenBody, mutationId.uppercase()).status,
+            "stewardship precedes correlation and body parsing",
+        )
+        assertEquals(
+            HttpStatusCode.Forbidden,
+            member.client.mergeRaw(
+                sourceOnlyPath,
+                """{"targetNumber":${target.number}}""",
+                mutationId.uppercase(),
+            ).status,
+            "destination stewardship precedes correlation validation",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.mergeRaw(path, """{"targetNumber":${target.number}}""", mutationId.uppercase()).status,
+            "an authorised merge validates canonical correlation metadata",
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.mergeRaw(path, """{"targetNumber":${target.number}}""", mutationId, repeatMutationId = true).status,
+            "exactly one correlation header is accepted",
+        )
+
+        NotifyCapture().use { capture ->
+            val hints = capture.during {
+                assertEquals(
+                    HttpStatusCode.NoContent,
+                    owner.client.mergeRaw(path, """{"targetNumber":${target.number}}""", mutationId).status,
+                )
+                assertEquals(
+                    HttpStatusCode.NoContent,
+                    owner.client.mergeRaw(path, """{"targetNumber":${target.number}}""", mutationId).status,
+                    "an identical retry stays a no-op",
+                )
+                assertEquals(
+                    HttpStatusCode.Conflict,
+                    owner.client.mergeRaw(path, """{"targetNumber":${competing.number}}""", mutationId).status,
+                    "a competing target stays a conflict",
+                )
+            }
+            assertEquals(
+                listOf(
+                    LiveHint(
+                        LiveKind.THREAD_MERGED,
+                        room,
+                        threadNumber = source.number,
+                        mutationId = mutationId,
+                        originUserId = owner.id,
+                    ),
+                ),
+                hints,
+            )
+        }
+    }
+
+    @Test
     fun `deleting a canonical thread hides it and merged conversations from reader routes and search`() = testApplication {
         usePostgresTestcontainer()
         val owner = seedActor("delete-owner").also { users += it.id }
@@ -122,4 +205,16 @@ class ThreadLifecycleTest {
         contentType(ContentType.Application.Json)
         setBody("""{"targetNumber":$target}""")
     }.status
+
+    private suspend fun HttpClient.mergeRaw(
+        path: String,
+        body: String,
+        mutationId: String,
+        repeatMutationId: Boolean = false,
+    ) = put(path) {
+        contentType(ContentType.Application.Json)
+        header(MUTATION_ID_HEADER, mutationId)
+        if (repeatMutationId) headers.append(MUTATION_ID_HEADER, mutationId)
+        setBody(body)
+    }
 }

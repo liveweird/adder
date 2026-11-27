@@ -64,6 +64,21 @@ change can only arrive by being pushed, and marks the document, so "without a re
 3. The test discards the response.
    - *Expected*: the owner returns to the room with their list filter intact, and neither page reloads.
 
+## Scenario: a committed merge refreshes the writer once and updates the reader live
+
+1. The owner and a teammate open the duplicate thread. The owner chooses a target and confirms the merge while the browser holds the successful response.
+   - *Expected*: the teammate sees the merged banner, and the duplicate leaves the primary thread list. Its original history remains readable.
+   - *Expected*: the event carries the request identifier only on the owner's socket. The writer has yet to reread the thread list or workflow.
+2. The successful response arrives.
+   - *Expected*: the writer opens the target and retains the list filter. The list and workflow each read once, and neither page reloads.
+
+## Scenario: a lost merge response releases the writer's live refresh
+
+1. The owner and teammate open a duplicate thread. The owner merges it, and the server commits while the browser holds the response.
+   - *Expected*: the teammate sees the merged banner live.
+2. The test discards the successful response.
+   - *Expected*: the writer catches up through the live event and can still read the source's history. The writer stays on the original route, and neither page reloads.
+
 ## Scenario: a thread started by one member appears in another member's thread list
 
 1. The same setup, without a thread: both members open the room's **Threads** view.

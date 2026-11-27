@@ -586,6 +586,114 @@ test("a held deletion returns to the room with the latest list filters", async (
   }
 });
 
+test("a merge completed after switching threads cannot navigate away from the new pane", async () => {
+  let finishMerge!: (response: Response) => void;
+  const pendingMerge = new Promise<Response>((resolve) => { finishMerge = resolve; });
+  const second = { ...THREAD, id: 2, number: 43, title: "Second thread" };
+  const target = { ...THREAD, id: 3, number: 7, title: "Canonical thread" };
+  const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url === "/api/v1/rooms/12/threads/42/merge" && init?.method === "PUT") return pendingMerge;
+    if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, THREAD));
+    if (url === "/api/v1/rooms/12/threads/43") return Promise.resolve(jsonResponse(200, second));
+    if (url === "/api/v1/rooms/12/threads/7") return Promise.resolve(jsonResponse(200, target));
+    if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+    if (url.includes("/messages?") || url.includes("/events?")) {
+      return Promise.resolve(url.includes("/events?")
+        ? jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 })
+        : jsonResponse(200, messagePage(MESSAGES)));
+    }
+    return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+  });
+  function Harness() {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const numberParam = location.pathname.match(/\/threads\/(\d+)$/)?.[1];
+    return (
+      <>
+        <button onClick={() => navigate("/rooms/12/threads/43?scope=closed")}>switch thread</button>
+        <ThreadPane room={ROOM} numberParam={numberParam} />
+        <output aria-label="location">{`${location.pathname}${location.search}`}</output>
+      </>
+    );
+  }
+  vi.stubGlobal("fetch", fetch);
+  localStorage.setItem("adder.auth.token", "fake-token");
+  localStorage.setItem("adder.auth.userId", "5");
+  const user = userEvent.setup();
+  try {
+    renderWithProviders(<Harness />, { route: "/rooms/12/threads/42?scope=all" });
+    await screen.findByRole("region", { name: "#42 Disk full on db-3" });
+    await user.click(screen.getByRole("button", { name: "Thread actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Merge duplicate" }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge duplicate thread" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Target thread number" }), "7");
+    await user.click(await within(dialog).findByRole("button", { name: "Merge into #7" }));
+
+    await user.click(screen.getByRole("button", { name: "switch thread" }));
+    await screen.findByRole("region", { name: "#43 Second thread" });
+    finishMerge(new Response(null, { status: 204 }));
+
+    await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url === "/api/v1/rooms/12/threads/43").length).toBeGreaterThan(1));
+    expect(screen.getByLabelText("location")).toHaveTextContent("/rooms/12/threads/43?scope=closed");
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  }
+});
+
+test("a held merge opens the destination with the latest list filters", async () => {
+  let finishMerge!: (response: Response) => void;
+  const pendingMerge = new Promise<Response>((resolve) => { finishMerge = resolve; });
+  const target = { ...THREAD, id: 3, number: 7, title: "Canonical thread" };
+  const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url === "/api/v1/rooms/12/threads/42/merge" && init?.method === "PUT") return pendingMerge;
+    if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, THREAD));
+    if (url === "/api/v1/rooms/12/threads/7") return Promise.resolve(jsonResponse(200, target));
+    if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+    if (url.includes("/messages?") || url.includes("/events?")) {
+      return Promise.resolve(url.includes("/events?")
+        ? jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 })
+        : jsonResponse(200, messagePage(MESSAGES)));
+    }
+    return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+  });
+  function Harness() {
+    const location = useLocation();
+    const navigate = useNavigate();
+    return (
+      <>
+        <button onClick={() => navigate({ search: "?scope=closed&order=number" })}>change filters</button>
+        <ThreadPane room={ROOM} numberParam="42" />
+        <output aria-label="location">{`${location.pathname}${location.search}`}</output>
+      </>
+    );
+  }
+  vi.stubGlobal("fetch", fetch);
+  localStorage.setItem("adder.auth.token", "fake-token");
+  localStorage.setItem("adder.auth.userId", "5");
+  const user = userEvent.setup();
+  try {
+    renderWithProviders(<Harness />, { route: "/rooms/12/threads/42?scope=all" });
+    await screen.findByRole("region", { name: "#42 Disk full on db-3" });
+    await user.click(screen.getByRole("button", { name: "Thread actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Merge duplicate" }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge duplicate thread" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Target thread number" }), "7");
+    await user.click(await within(dialog).findByRole("button", { name: "Merge into #7" }));
+    await user.click(screen.getByRole("button", { name: "change filters" }));
+
+    finishMerge(new Response(null, { status: 204 }));
+
+    await waitFor(() => expect(screen.getByLabelText("location"))
+      .toHaveTextContent("/rooms/12/threads/7?scope=closed&order=number"));
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  }
+});
+
 test("a post completed after switching threads cannot clear the new thread's message anchor", async () => {
   let finishPost!: (response: Response) => void;
   const pendingPost = new Promise<Response>((resolve) => { finishPost = resolve; });

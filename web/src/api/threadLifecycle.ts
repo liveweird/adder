@@ -12,9 +12,10 @@ export async function deleteThread(roomId: number, number: number): Promise<void
   await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}`, { method: "DELETE" });
 }
 
-export async function mergeThread(roomId: number, number: number, targetNumber: number): Promise<void> {
+export async function mergeThread(roomId: number, number: number, targetNumber: number, mutationId?: string): Promise<void> {
   await voidRequest(`/api/v1/rooms/${roomId}/threads/${number}/merge`, {
     method: "PUT",
+    headers: mutationId === undefined ? undefined : { "X-Mutation-Id": mutationId },
     body: JSON.stringify({ targetNumber }),
   });
 }

@@ -125,7 +125,7 @@ private fun Route.threadLifecycle(roomService: RoomService, threads: ThreadServi
             requireThreadSteward(caller, standing, threads.ownerOf(roomId, number).orNotFound("Thread"))
             val request = call.receive<ThreadMergeRequest>()
             requireDistinctMergeTarget(number, request.targetNumber)
-            val threadId = lifecycle.merge(roomId, number, request.targetNumber, caller)
+            val threadId = lifecycle.merge(roomId, number, request.targetNumber, caller) { call.mutationId() }
             if (threadId != null) {
                 audit(
                     "thread.merged",

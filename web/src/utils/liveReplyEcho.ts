@@ -25,7 +25,7 @@ type MutationTarget =
     }
   | {
       type: "thread";
-      kind: "thread.updated" | "thread.status_changed" | "thread.owner_changed";
+      kind: "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "thread.merged";
       roomId: number;
       threadNumber: number;
     };
@@ -123,6 +123,12 @@ export function beginThreadUpdateEcho(queryClient: QueryClient, roomId: number, 
   return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
 }
 
+export function beginMergeEcho(queryClient: QueryClient, roomId: number, sourceThreadNumber: number) {
+  const echo = beginEcho(queryClient, { type: "thread", kind: "thread.merged", roomId, threadNumber: sourceThreadNumber });
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
+}
+
 function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { type: "event" }>): boolean {
   const target = mutation.target;
   if (target.kind !== frame.kind || target.roomId !== frame.roomId || target.threadNumber !== frame.threadNumber) return false;
@@ -136,7 +142,7 @@ function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { ty
 export function deferReplyEcho(queryClient: QueryClient, frame: LiveServerFrame, replay: () => void): boolean {
   if (
     frame.type !== "event" ||
-    !["message.posted", "message.edited", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed"].includes(frame.kind) ||
+    !["message.posted", "message.edited", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed", "thread.merged"].includes(frame.kind) ||
     frame.mutationId === undefined
   ) return false;
   const mutation = sessions.get(queryClient)?.get(frame.mutationId);

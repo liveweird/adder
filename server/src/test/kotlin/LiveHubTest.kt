@@ -240,6 +240,16 @@ class LiveHubTest {
             otherUser.drain(),
         )
 
+        deliver(LiveHint(LiveKind.THREAD_MERGED, 7u, threadNumber = 3, mutationId = mutationId, originUserId = 1u))
+        barrier(writerTabOne)
+        val merged = LiveServerFrame.Event(LiveKind.THREAD_MERGED, 7u, 3, mutationId = mutationId)
+        assertEquals(listOf<LiveServerFrame>(merged), writerTabOne.drain())
+        assertEquals(listOf<LiveServerFrame>(merged), writerTabTwo.drain())
+        assertEquals(
+            listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.THREAD_MERGED, 7u, 3)),
+            otherUser.drain(),
+        )
+
         deliver(LiveHint(LiveKind.ROOM_UPDATED, 7u, mutationId = mutationId, originUserId = 1u))
         barrier(writerTabOne)
         val ordinary = listOf<LiveServerFrame>(LiveServerFrame.Event(LiveKind.ROOM_UPDATED, 7u))

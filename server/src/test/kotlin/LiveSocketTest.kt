@@ -1,6 +1,7 @@
 package ch.nokillswit
 
 import ch.nokillswit.authz.RoomAccessType
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.live.LiveHubKey
 import ch.nokillswit.live.LiveServerFrame
@@ -16,8 +17,13 @@ import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
 import io.ktor.client.call.body
 import io.ktor.client.request.post
+import io.ktor.client.request.header
+import io.ktor.client.request.put
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.application.ApplicationStopPreparing
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
@@ -235,6 +241,42 @@ class LiveSocketTest {
             socket.nextNonResync(),
         )
         socket.close()
+    }
+
+    @Test
+    fun `a merge correlation reaches the writer sockets but not another subscriber`() = testApplication {
+        usePostgresTestcontainer()
+        val hub = application.attributes[LiveHubKey]
+        val owner = actor("live-merge-own")
+        val member = actor("live-merge-mem")
+        val room = room(owner, member)
+        val source = TestThreads.seed(room, owner.id, title = "Duplicate")
+        val target = TestThreads.seed(room, owner.id, title = "Canonical")
+        val writerSocket = openAuthenticatedLive(liveClient(), owner)
+        val otherSocket = openAuthenticatedLive(liveClient(), member)
+        for (socket in listOf(writerSocket, otherSocket)) {
+            socket.subscribe(room)
+            assertTrue(socket.nextNonResync() is LiveServerFrame.Subscribed)
+        }
+        awaitListenerUp(hub)
+
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        val response = owner.client.put("$rooms/$room/threads/${source.number}/merge") {
+            header(MUTATION_ID_HEADER, mutationId)
+            contentType(ContentType.Application.Json)
+            setBody("""{"targetNumber":${target.number}}""")
+        }
+        assertEquals(HttpStatusCode.NoContent, response.status)
+        assertEquals(
+            LiveServerFrame.Event(LiveKind.THREAD_MERGED, room, threadNumber = source.number, mutationId = mutationId),
+            writerSocket.nextNonResync(),
+        )
+        assertEquals(
+            LiveServerFrame.Event(LiveKind.THREAD_MERGED, room, threadNumber = source.number),
+            otherSocket.nextNonResync(),
+        )
+        writerSocket.close()
+        otherSocket.close()
     }
 
     @Test

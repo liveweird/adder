@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { beginMessageEditEcho, beginOwnerEcho, beginReactionEcho, beginReplyEcho, beginStatusEcho, beginThreadUpdateEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
+import { beginMergeEcho, beginMessageEditEcho, beginOwnerEcho, beginReactionEcho, beginReplyEcho, beginStatusEcho, beginThreadUpdateEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
 import type { LiveServerFrame } from "./liveProtocol";
 
 const firstId = "14d7ed05-24c1-4374-b6eb-60b147595822";
@@ -27,6 +27,10 @@ function statusChanged(mutationId: string, roomId = 7, threadNumber = 3): LiveSe
 
 function threadUpdated(mutationId: string, roomId = 7, threadNumber = 3): LiveServerFrame {
   return { type: "event", kind: "thread.updated", roomId, threadNumber, mutationId };
+}
+
+function merged(mutationId: string, roomId = 7, threadNumber = 3): LiveServerFrame {
+  return { type: "event", kind: "thread.merged", roomId, threadNumber, mutationId };
 }
 
 describe("reply echo correlation", () => {
@@ -381,6 +385,57 @@ describe("thread revision echo correlation", () => {
   test("falls back when another operation holds the correlation ID", () => {
     const reply = beginReplyEcho(client, 7, 3)!;
     expect(beginThreadUpdateEcho(client, 7, 3)).toBeUndefined();
+    reply.cancel();
+  });
+});
+
+describe("thread merge echo correlation", () => {
+  let client: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    client = new QueryClient();
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(firstId);
+  });
+
+  afterEach(() => {
+    clearReplyEchoes(client);
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  test("holds only the exact source merge until its authoritative refresh is confirmed", () => {
+    const operation = beginMergeEcho(client, 7, 3)!;
+    const replay = vi.fn();
+    const otherTab = new QueryClient();
+    expect(deferReplyEcho(client, merged(operation.id), replay)).toBe(true);
+    expect(deferReplyEcho(otherTab, merged(operation.id), replay)).toBe(false);
+    expect(deferReplyEcho(client, merged("81bcad5d-18ab-4b70-bac7-37b549702d42"), replay)).toBe(false);
+    expect(deferReplyEcho(client, merged(operation.id, 8), replay)).toBe(false);
+    expect(deferReplyEcho(client, merged(operation.id, 7, 4), replay)).toBe(false);
+    expect(deferReplyEcho(client, {
+      type: "event", kind: "thread.merged", roomId: 7, threadNumber: 3, messageId: 41, mutationId: operation.id,
+    }, replay)).toBe(false);
+    expect(deferReplyEcho(client, threadUpdated(operation.id), replay)).toBe(false);
+    operation.confirm();
+    expect(replay).not.toHaveBeenCalled();
+    expect(deferReplyEcho(client, merged(operation.id), replay)).toBe(true);
+  });
+
+  test("a failed merge or refresh replays its held event once", () => {
+    const operation = beginMergeEcho(client, 7, 3)!;
+    const replay = vi.fn();
+    deferReplyEcho(client, merged(operation.id), replay);
+    operation.cancel();
+    operation.cancel();
+    expect(replay).toHaveBeenCalledOnce();
+    expect(deferReplyEcho(client, merged(operation.id), replay)).toBe(false);
+  });
+
+  test("a merge falls back when a competing operation owns the correlation ID", () => {
+    const reply = beginReplyEcho(client, 7, 3)!;
+    expect(beginMergeEcho(client, 7, 3)).toBeUndefined();
+    expect(deferReplyEcho(client, merged(reply.id), vi.fn())).toBe(false);
     reply.cancel();
   });
 });

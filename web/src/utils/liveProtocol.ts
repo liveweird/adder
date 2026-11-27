@@ -103,7 +103,7 @@ function parseEvent(frame: Record<string, unknown>): LiveServerFrame | null {
     roomId: frame.roomId,
     ...(threadNumber === undefined ? {} : { threadNumber }),
     ...(messageId === undefined ? {} : { messageId }),
-    ...(["message.posted", "message.edited", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed"].includes(frame.kind) &&
+    ...(["message.posted", "message.edited", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed", "thread.merged"].includes(frame.kind) &&
       typeof frame.mutationId === "string" && MUTATION_ID.test(frame.mutationId)
       ? { mutationId: frame.mutationId } : {}),
   };
