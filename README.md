@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Clearer account and administration views (1.45.0)
+
+Sign-in and settings fit narrow screens. Registry row actions stay visible while their tables scroll, and notification switches keep their delivery-channel labels on phones. Profiles, room creation, global search, the changelog and telemetry have clearer layouts. The thread composer takes up less space and keeps its accessible Reply name.
+
 ### Fewer duplicate reads when joining a public room (1.44.0)
 
 If the room has already opened through live updates, the join response refreshes membership without fetching the displayed thread list, workflow and pins again.

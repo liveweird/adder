@@ -17,6 +17,22 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.45.0",
+    date: "2026-11-27",
+    en: `**Adder 1.45.0 — clearer account and administration views**
+
+- Sign-in, password recovery and account settings fit narrow screens. Notification settings keep each delivery channel beside its switch, and you can scroll the notification feed while its filters stay in view.
+- User, team, tag and workflow administration use clearer forms and tables. Row actions stay in reach when a table scrolls horizontally.
+- Profiles, room creation, global search, release notes and telemetry have clearer layouts.
+- The thread composer takes up less space. Its reply field still has an accessible name.`,
+    pl: `**Adder 1.45.0 — czytelniejsze widoki konta i administracji**
+
+- Logowanie, odzyskiwanie hasła i ustawienia konta mieszczą się na wąskich ekranach. Przełączniki powiadomień mają obok nazwy kanałów, a filtry pozostają widoczne podczas przewijania listy powiadomień.
+- Zarządzanie użytkownikami i użytkowniczkami, zespołami, tagami i przepływami pracy ma czytelniejsze formularze i tabele. Działania w wierszach pozostają dostępne podczas przewijania w poziomie.
+- Profile, tworzenie pokoju, wyszukiwanie globalne, historia zmian i telemetria mają czytelniejszy układ.
+- Pole odpowiedzi w wątku zajmuje mniej miejsca i zachowuje nazwę dla czytników ekranu.`,
+  },
+  {
     version: "1.44.0",
     date: "2026-11-27",
     en: `**Adder 1.44.0 — fewer duplicate reads when joining a public room**
