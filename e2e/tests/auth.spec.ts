@@ -65,6 +65,17 @@ test("invalid credentials are rejected", async ({ page }) => {
   await expect(page.getByText("Invalid email or password")).toBeVisible();
 });
 
+test("sign-in and password reset fit a narrow phone", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto("/login");
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeInViewport();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+
+  await page.goto("/reset-password");
+  await expect(page.getByRole("button", { name: "Send reset link" })).toBeInViewport();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
+});
+
 test("a deep link is guarded and lands back after signing in", async ({ page }) => {
   await page.goto("/some/deep/path?tab=history#details");
   // Anonymous → bounced to the sign-in form.

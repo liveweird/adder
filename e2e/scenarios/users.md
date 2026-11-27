@@ -6,6 +6,11 @@
 - **Owns** (exclusive server-side state): its throwaway user, deleted at the end; the seed
   admin is never mutated — its row is only read (the own-row assertions)
 
+## Scenario: user operations stay visible on a narrow phone
+
+1. The admin opens Users at 320px wide and opens their row menu.
+   - *Expected*: the operations button and Edit action are reachable without scrolling the table horizontally.
+
 ## Scenario: admin creates a user who signs in, changes their password, and is finally deleted
 
 1. The admin signs in, opens `/users` and filters the Users list to their own row.

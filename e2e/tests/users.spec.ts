@@ -1,6 +1,19 @@
 import { BASE_URL } from "../playwright.config";
 import { createUserViaUi, deleteUserRow, expect, login, loginViaForm, openFilters, signOut, test, uniqueText } from "./helpers";
 
+test("user operations stay visible on a narrow phone", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await login(page, undefined, undefined, "/users");
+  const registry = page.getByRole("region", { name: "Users", exact: true });
+  const adminRow = registry.getByRole("row").filter({ hasText: "admin@adder.local" });
+  const operations = adminRow.getByRole("button", { name: /^Operations for / });
+
+  await expect(operations).toBeInViewport({ ratio: 1 });
+  await operations.click();
+  await expect(page.getByRole("menuitem", { name: /^Edit / })).toBeVisible();
+  expect(await registry.evaluate((element) => element.scrollLeft)).toBe(0);
+});
+
 // The whole account lifecycle on a throwaway user (its email carries the e2e marker):
 // create via the one-time reveal → the new user's limited view → self password change →
 // promotion → deletion → the dead login.

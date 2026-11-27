@@ -97,8 +97,8 @@ shell is the precedent) — plus, since 0.2.0, the ADMIN workflow-template pages
   The Search, Members, Workflow and Settings room tabs use `RoomTabHeader` for their h3 and any primary
   actions under the shared room navigation. Sections within those tabs use h4.
   No `Container` and no page-wrapping `Paper`; widths come from
-  `utils/layout.ts`: full-bleed lists, `Box maw={CONTENT_MAX_WIDTH}` for registry tables and the
-  changelog, `Paper withBorder p="xl" maw={FORM_MAX_WIDTH}` (left-aligned) for the simple field
+  `utils/layout.ts`: full-bleed lists, `CONTENT_MAX_WIDTH` for capped registry views,
+  `Paper withBorder maw={FORM_MAX_WIDTH}` (left-aligned) for the simple field
   forms. The one spinner is `components/LoadingBlock.tsx` (`TableLoadingRow` wraps it);
   `components/EditPageLoadState.tsx` is the edit pages' shared load-failure triage (centered
   loader, else a back-to-list alert); `EmptyState` takes the Tabler icon COMPONENT and sizes it
@@ -106,6 +106,13 @@ shell is the precedent) — plus, since 0.2.0, the ADMIN workflow-template pages
   (`<Title order={3} size="h4">` keeps the look), their inner blocks h4; and every `Table` has an accessible
   name (`aria-label` — the words of the heading above it, or a `<area>.tableAria` key). Page tests pin the
   outline with `test/headings.ts`'s `headingOutline()`.
+- **Secondary views** share the workspace typography and accent. Registry views use
+  `ManagementSurface.module.css` for filters, table frames, and form actions, and `ScrollRegion`
+  for tables that overflow. Signed-out routes share a viewport-sized `AuthCard`. Room creation
+  groups room access and workflow setup side by side when the content area fits both. Profiles group
+  room and team links in labelled lists. The changelog places version and date beside the notes.
+  Notification preferences keep channel captions by their switches on narrow screens and preserve
+  the semantic table. The notification drawer scrolls its feed between filters and pagination.
 
 ## The typed API layer (`src/api/`)
 
