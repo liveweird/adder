@@ -667,6 +667,7 @@ describe("createLiveInvalidator", () => {
 
   test.each([
     ["search", [...roomKeys.search(5), "thread-messages", 7, "decision"]],
+    ["global search", [...searchAllKey, "decision"]],
     ["message context", roomKeys.messageContext(5, 7, 44)],
   ])("a revoked room cannot restore data from an in-flight %s response", async (_label, key) => {
     const queryClient = new QueryClient();
@@ -855,6 +856,12 @@ describe("thread reference catch-up", () => {
     t.queryClient.setQueryData(threadReferenceKey(5, 42), true);
     t.invalidator.setQuiet(true);
     t.invalidator.handle({ type: "ready", protocol: 1, maxSubscriptions: 128 });
+    expect(t.queryClient.getQueryData(threadReferenceKey(5, 42))).toBeUndefined();
+    t.clock.advanceBy(60_000);
+    expect(t.flushed().some((key) => startsWith(key as QueryKey, threadReferenceKeys.room(5)))).toBe(false);
+    // A subscription acknowledgment already on its way can arrive after the tab goes quiet.
+    t.queryClient.setQueryData(threadReferenceKey(5, 42), true);
+    t.invalidator.handle({ type: "subscribed", roomIds: [5], refused: [], capped: [] });
     expect(t.queryClient.getQueryData(threadReferenceKey(5, 42))).toBeUndefined();
     t.clock.advanceBy(60_000);
     expect(t.flushed().some((key) => startsWith(key as QueryKey, threadReferenceKeys.room(5)))).toBe(false);
