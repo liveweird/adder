@@ -20,8 +20,19 @@ const { rail: RAIL, list: ROOM_LIST, detail, access, joinRequests, members, work
 
 const isKnownKind = (kind: string): kind is LiveEventKind => (LIVE_EVENT_KINDS as readonly string[]).includes(kind);
 
+/** Protected content owned by one room, separate from caller-wide projections that also change when access is lost. */
+const roomContentKeys = (r: number): QueryKey[] => [
+  access(r),
+  threads(r),
+  members(r),
+  joinRequests(r),
+  workflow(r),
+  workflowEdit(r),
+  pins(r),
+];
+
 /** What a room's loss (or an unknown change to it) makes stale: everything the room's pages read, so each turns to its not-found or its new truth. */
-const roomGone = (r: number): QueryKey[] => [detail(r), access(r), threads(r), members(r), workflow(r), workflowEdit(r), pins(r), RAIL, ROOM_LIST, homeKey];
+const roomGone = (r: number): QueryKey[] => [detail(r), ...roomContentKeys(r), RAIL, ROOM_LIST, homeKey];
 
 /** Discard replies issued under the old room permissions, including a first request that has no cache data yet. */
 function resetRoomReads(queryClient: QueryClient, roomId: number, includeGlobalSearch: boolean) {
@@ -251,6 +262,46 @@ function newlyReadableReferenceKeys(queryClient: QueryClient, frame: LiveServerF
 }
 
 /**
+ * Applies the cache side of losing access to one room.
+ *
+ * A live `revoked` frame keeps the invalidator's existing cadence: sensitive reads are reset immediately while the ordinary room and aggregate
+ * keys are queued by `handle`. A successful self-leave has no guaranteed socket, so it removes every source-room read without refetching the
+ * now-forbidden endpoints and immediately resets the surviving projections that may still expose that room.
+ */
+export function applyRoomRevocation(queryClient: QueryClient, roomId: number, sourceRoom: "reset" | "remove" = "reset"): void {
+  const frame = { type: "revoked", roomId } as const;
+  void resetThreadReferences(queryClient, roomId);
+  if (sourceRoom === "reset") {
+    resetSensitiveSourceReads(queryClient, frame, true, () => undefined, false);
+    resetRoomReads(queryClient, roomId, true);
+    clearRoomLinkPreviews(queryClient, roomId);
+    return;
+  }
+
+  // Discover cross-room quote dependencies before removing the source room's thread tree. Resetting them cancels any old render and refetches
+  // only an active destination; the late source response cannot repopulate its destroyed query.
+  const quoteDependencies = quoteDependencyKeys(queryClient, frame);
+  const detailKey = detail(roomId);
+  const detailIsActive = queryClient.getQueryCache().findAll({ queryKey: detailKey, exact: true, type: "active" }).length > 0;
+  clearRoomMessageRevisions(queryClient, roomId);
+  clearRoomLinkPreviews(queryClient, roomId);
+  for (const key of roomContentKeys(roomId)) queryClient.removeQueries({ queryKey: key });
+  // A replacement route already showing this room gets the one authoritative 404/preview recheck; an inactive detail is dropped without I/O.
+  if (detailIsActive) void queryClient.resetQueries({ queryKey: detailKey, exact: true });
+  else queryClient.removeQueries({ queryKey: detailKey, exact: true });
+  queryClient.removeQueries({ queryKey: roomKeys.search(roomId) });
+
+  for (const key of quoteDependencies) void queryClient.resetQueries({ queryKey: key, exact: true });
+  void queryClient.resetQueries({
+    queryKey: searchAllKey,
+    predicate: ({ queryKey }) => queryKey[1] !== "room",
+  });
+  for (const key of [RAIL, ROOM_LIST, homeKey, notificationsKey, roomOrganizationKey]) {
+    void queryClient.resetQueries({ queryKey: key });
+  }
+}
+
+/**
  * Turns frames into invalidations, coalesced (a burst of hints is one re-read per key) and spaced (a list at most every three seconds).
  * It NEVER cancels: while a key is being fetched it waits and tries again, because cancelling a fetch would drop a "Load older messages" click
  * and leave the scroll anchor armed. `invalidateQueries` refetches the ACTIVE queries only; the rest are just marked stale.
@@ -332,7 +383,7 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
         resetPositiveThreadReferences(queryClient, roomId);
         if (!quiet) keys.forEach((key) => queue(key, true, false));
       });
-      if (frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted")) {
+      if (frame.type === "event" && frame.kind === "room.deleted") {
         void resetThreadReferences(queryClient, frame.roomId);
       }
       if (!quiet) newlyReadableReferenceKeys(queryClient, frame).forEach((key) => queue(key, false, false));
@@ -347,9 +398,10 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       if (commitTrackedThreadDelete(queryClient, frame, () => active.get(queryClient)?.handle(frame))) return;
       const roomLost = frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted");
       const threadDeleted = frame.type === "event" && frame.kind === "thread.deleted";
-      resetSensitiveSourceReads(queryClient, frame, roomLost, queue, quiet);
-      if (roomLost) {
-        resetRoomReads(queryClient, frame.roomId, frame.type === "revoked");
+      if (frame.type === "revoked") applyRoomRevocation(queryClient, frame.roomId);
+      else resetSensitiveSourceReads(queryClient, frame, roomLost, queue, quiet);
+      if (roomLost && frame.type !== "revoked") {
+        resetRoomReads(queryClient, frame.roomId, false);
         clearRoomLinkPreviews(queryClient, frame.roomId);
       }
       if (frame.type === "event" && frame.kind === "room.member_role_changed") {

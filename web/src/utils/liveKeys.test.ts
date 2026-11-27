@@ -26,6 +26,7 @@ const gone = (r: number): QueryKey[] => [
   ["rooms", "access", r],
   ["rooms", "threads", r],
   ["rooms", "members", r],
+  ["rooms", "join-requests", r],
   ["rooms", "workflow", r],
   ["rooms", "workflow-edit", r],
   ["rooms", "pins", r],

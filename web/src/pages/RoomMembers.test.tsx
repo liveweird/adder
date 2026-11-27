@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { screen, waitFor, within } from "@testing-library/react";
-import { Route, Routes } from "react-router-dom";
-import { QueryClient } from "@tanstack/react-query";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { Link, Route, Routes } from "react-router-dom";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import RoomMembers from "./RoomMembers";
 import { headingOutline } from "../test/headings";
 import { jsonResponse } from "../test/http";
@@ -10,7 +10,9 @@ import { renderWithProviders } from "../test/render";
 import { pinBrowserTimeZone } from "../test/timeZone";
 import { FakeClock } from "../test/socket";
 import { createLiveInvalidator } from "../utils/liveKeys";
-import { clearSession } from "../api/session";
+import { clearSession, TOKEN_KEY } from "../api/session";
+import { homeKey, notificationsKey, roomKeys, roomOrganizationKey, searchAllKey } from "../utils/roomKeys";
+import { threadReferenceKey } from "../utils/threadReferenceCache";
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
@@ -65,6 +67,7 @@ const team = (id: number, name: string, count: number) => ({
 
 type ServeOptions = {
   room?: Record<string, unknown>;
+  access?: Record<string, unknown>;
   fail?: Record<string, Response>;
   add?: unknown;
   /** The members list claims this many members in total and answers an empty second page (a page emptied under the reader). */
@@ -90,6 +93,7 @@ function serve(mockFetch: FetchMock, opts: ServeOptions = {}) {
     if (method === "GET" && url.startsWith("/api/v1/rooms/12/members?")) opts.onMembers?.();
     if (opts.fail?.[key]) return Promise.resolve(opts.fail[key]);
     if (key === "GET /api/v1/rooms/12") return Promise.resolve(room ? jsonResponse(200, { ...room, memberCount: roster.length }) : problem(404));
+    if (key === "GET /api/v1/rooms/12/access") return Promise.resolve(opts.access ? jsonResponse(200, opts.access) : problem(404));
     if (method === "GET" && url.startsWith("/api/v1/rooms/12/pins?")) {
       return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
     }
@@ -148,7 +152,11 @@ function renderMembers(queryClient?: QueryClient) {
   return renderWithProviders(
     <Routes>
       <Route path="/rooms/:id/members" element={<RoomMembers />} />
-      <Route path="/rooms" element={<p>the rooms list</p>} />
+      <Route
+        path="/rooms"
+        element={<><p>the rooms list</p><Link to="/rooms/12/members">Return to members</Link><Link to="/rooms/13/threads/4">Open quoted reply</Link></>}
+      />
+      <Route path="/rooms/13/threads/4" element={<p>the quoted reply</p>} />
     </Routes>,
     { route: "/rooms/12/members", queryClient },
   );
@@ -537,7 +545,7 @@ describe("RoomMembers page", () => {
     test("Leave room asks first, DELETEs the caller's own membership, goes to the rooms list, drops the room's queries and re-reads the rest", async () => {
       serve(mockFetch);
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      // A rail query the room list (not mounted here) would hold: it must be marked stale by the leave.
+      // A rail query the room list (not mounted here) would hold: the leave must discard its old membership projection.
       queryClient.setQueryData(["rooms", "rail", "active"], { items: [], page: 1, pageSize: 100, total: 0 });
       const user = userEvent.setup();
       renderMembers(queryClient);
@@ -556,7 +564,7 @@ describe("RoomMembers page", () => {
       await waitFor(() => expect(queryClient.getQueryCache().findAll({ queryKey: ["rooms", "detail", 12] })).toEqual([]));
       expect(queryClient.getQueryCache().findAll({ queryKey: ["rooms", "members", 12] })).toEqual([]);
       expect(queryClient.getQueryCache().findAll({ queryKey: ["rooms", "workflow", 12] })).toEqual([]);
-      await waitFor(() => expect(queryClient.getQueryState(["rooms", "rail", "active"])?.isInvalidated).toBe(true));
+      await waitFor(() => expect(queryClient.getQueryData(["rooms", "rail", "active"])).toBeUndefined());
       const after = mockFetch.mock.calls.slice(readsBefore).map(([url]) => url as string);
       expect(after.filter((url) => url.startsWith("/api/v1/rooms/12"))).toEqual(["/api/v1/rooms/12/members/7"]);
     });
@@ -573,6 +581,7 @@ describe("RoomMembers page", () => {
       expect(screen.queryByText("the rooms list")).not.toBeInTheDocument();
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     });
+
   });
 });
 
@@ -979,6 +988,44 @@ describe("RoomMembers page: the caller's own leave and the live `revoked` frame"
     localStorage.clear();
   });
 
+  async function startHeldLeave() {
+    const server = serve(mockFetch);
+    const base = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    let finishLeave: () => void = () => {};
+    let markFinished: () => void = () => {};
+    const leaveHeld = new Promise<void>((resolve) => (finishLeave = resolve));
+    const responseFinished = new Promise<void>((resolve) => (markFinished = resolve));
+    mockFetch.mockImplementation((url: string, init?: RequestInit) =>
+      init?.method === "DELETE"
+        ? leaveHeld.then(() => base(url, init)).then((response) => {
+          markFinished();
+          return response;
+        })
+        : base(url, init),
+    );
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderMembers(queryClient);
+    await user.click(await screen.findByRole("button", { name: "Leave room" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Leave room" }));
+    await waitFor(() => expect(calls(mockFetch, "DELETE")).toHaveLength(1));
+    return { dialog, finishLeave, responseFinished, queryClient, server };
+  }
+
+  test("starting a role action clears an earlier leave error", async () => {
+    serve(mockFetch, { fail: { "DELETE /api/v1/rooms/12/members/7": problem(409, "urn:adder:problem:last-owner") } });
+    const user = userEvent.setup();
+    renderMembers();
+    await user.click(await screen.findByRole("button", { name: "Leave room" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Leave room" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not leave the room");
+
+    await openRowMenu(user, "Max Member");
+    await user.click(await screen.findByRole("menuitem", { name: "Make owner" }));
+    expect(screen.queryByText("Could not leave the room")).not.toBeInTheDocument();
+  });
+
   test("a revoked that arrives before the Leave DELETE resolves shows no not-found flash", async () => {
     serve(mockFetch);
     const base = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
@@ -1011,5 +1058,132 @@ describe("RoomMembers page: the caller's own leave and the live `revoked` frame"
     expect(memberCalls(mockFetch)).toHaveLength(1);
     expect(screen.queryByText("This room does not exist, or you are not a member of it.")).not.toBeInTheDocument();
     invalidator.dispose();
+  });
+
+  test("a held successful Leave response still navigates after revoked replaces the members body", async () => {
+    const server = serve(mockFetch, {
+      room: { ...ROOM, accessType: "PUBLIC" },
+      access: { id: 12, name: "Night Shift", description: null, accessType: "PUBLIC", archived: false, requestStatus: null },
+    });
+    const base = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    let finishLeave: () => void = () => {};
+    const leaveHeld = new Promise<void>((resolve) => (finishLeave = resolve));
+    mockFetch.mockImplementation((url: string, init?: RequestInit) =>
+      init?.method === "DELETE" ? leaveHeld.then(() => base(url, init)) : base(url, init),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const clock = new FakeClock();
+    const invalidator = createLiveInvalidator(queryClient, clock);
+    const user = userEvent.setup();
+    renderMembers(queryClient);
+    await user.click(await screen.findByRole("button", { name: "Leave room" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Leave room" }));
+    await waitFor(() => expect(calls(mockFetch, "DELETE")).toHaveLength(1));
+
+    server.setRoom(null);
+    invalidator.handle({ type: "revoked", roomId: 12 });
+    clock.advanceBy(300);
+    expect(await screen.findByRole("button", { name: "Join room" })).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Members" })).not.toBeInTheDocument();
+
+    finishLeave();
+    expect(await screen.findByText("the rooms list")).toBeInTheDocument();
+    invalidator.dispose();
+  });
+
+  test("a Leave response from a previous route instance cannot redirect after leaving and returning", async () => {
+    const { finishLeave, responseFinished, queryClient, server } = await startHeldLeave();
+    fireEvent.click(screen.getByRole("link", { name: "Back to rooms" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Return to members" }));
+    expect(await screen.findByRole("button", { name: "Leave room" })).toBeInTheDocument();
+
+    server.setRoom(null);
+    finishLeave();
+    await responseFinished;
+    expect(screen.queryByText("the rooms list")).not.toBeInTheDocument();
+    expect(await screen.findByText("This room does not exist, or you are not a member of it.")).toBeInTheDocument();
+    expect(queryClient.getQueryData(["rooms", "detail", 12])).toBeUndefined();
+    expect(queryClient.getQueryCache().findAll({ queryKey: ["rooms", "members", 12] })).toEqual([]);
+  });
+
+  test("an HTTP-only Leave clears late source reads and active cross-room projections after navigating away", async () => {
+    const { finishLeave, responseFinished, queryClient } = await startHeldLeave();
+    fireEvent.click(screen.getByRole("link", { name: "Back to rooms" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Open quoted reply" }));
+    expect(await screen.findByText("the quoted reply")).toBeInTheDocument();
+
+    const sourceKey = roomKeys.quoteSource(12, 99);
+    let finishSource: (value: { id: number; body: string }) => void = () => {};
+    const sourceQuery = vi.fn(() => new Promise<{ id: number; body: string }>((resolve) => { finishSource = resolve; }));
+    const source = new QueryObserver(queryClient, { queryKey: sourceKey, queryFn: sourceQuery });
+    const detachSource = source.subscribe(() => undefined);
+
+    const destinationKey = roomKeys.messages(13, 4);
+    const quoted = { pages: [{ items: [{ id: 8, quote: { roomId: 12, threadNumber: 7, messageId: 99 } }] }] };
+    const cleanDestination = { pages: [{ items: [{ id: 8, quote: null }] }] };
+    let finishDestination: (value: typeof quoted) => void = () => {};
+    const destinationQuery = vi.fn()
+      .mockImplementationOnce(() => new Promise<typeof quoted>((resolve) => { finishDestination = resolve; }))
+      .mockResolvedValueOnce(cleanDestination);
+    const destination = new QueryObserver(queryClient, { queryKey: destinationKey, queryFn: destinationQuery, staleTime: Infinity });
+    const detachDestination = destination.subscribe(() => undefined);
+
+    const searchKey = [...searchAllKey, "quoted decision"] as const;
+    queryClient.setQueryData(searchKey, { items: [{ roomId: 12, body: "private result" }] });
+    const cleanSearch = { items: [] };
+    const searchQuery = vi.fn().mockResolvedValue(cleanSearch);
+    const search = new QueryObserver(queryClient, { queryKey: searchKey, queryFn: searchQuery, staleTime: Infinity });
+    const detachSearch = search.subscribe(() => undefined);
+    queryClient.setQueryData(homeKey, { quotedReplies: [{ roomId: 12, body: "private reply" }] });
+    queryClient.setQueryData(notificationsKey, { items: [{ roomId: 12 }] });
+    queryClient.setQueryData(roomOrganizationKey, { groups: [{ roomIds: [12] }] });
+    queryClient.setQueryData([...roomKeys.joinRequests(12), 1], { items: [{ userId: 21 }] });
+    const leftReference = threadReferenceKey(12, 7);
+    const unrelatedReference = threadReferenceKey(13, 7);
+    queryClient.setQueryData(leftReference, true);
+    queryClient.setQueryData(unrelatedReference, true);
+    await waitFor(() => expect(sourceQuery).toHaveBeenCalledOnce());
+    await waitFor(() => expect(destinationQuery).toHaveBeenCalledOnce());
+
+    finishLeave();
+    await responseFinished;
+    await waitFor(() => expect(destinationQuery).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(searchQuery).toHaveBeenCalledOnce());
+    expect(queryClient.getQueryData(destinationKey)).toEqual(cleanDestination);
+    expect(queryClient.getQueryData(searchKey)).toEqual(cleanSearch);
+    expect(queryClient.getQueryData(homeKey)).toBeUndefined();
+    expect(queryClient.getQueryData(notificationsKey)).toBeUndefined();
+    expect(queryClient.getQueryData(roomOrganizationKey)).toBeUndefined();
+    expect(queryClient.getQueryData(sourceKey)).toBeUndefined();
+    expect(queryClient.getQueryCache().findAll({ queryKey: roomKeys.joinRequests(12) })).toEqual([]);
+    expect(queryClient.getQueryData(leftReference)).toBeUndefined();
+    expect(queryClient.getQueryData(unrelatedReference)).toBe(true);
+
+    finishSource({ id: 99, body: "late private excerpt" });
+    finishDestination(quoted);
+    await Promise.resolve();
+    expect(queryClient.getQueryData(sourceKey)).toBeUndefined();
+    expect(queryClient.getQueryData(destinationKey)).toEqual(cleanDestination);
+    detachSource();
+    detachDestination();
+    detachSearch();
+  });
+
+  test("a Leave response from a replaced logical session cannot redirect", async () => {
+    const { dialog, finishLeave, responseFinished } = await startHeldLeave();
+    clearSession();
+    signIn(99);
+    finishLeave();
+
+    await responseFinished;
+    expect(screen.queryByText("the rooms list")).not.toBeInTheDocument();
+    expect(dialog).toBeInTheDocument();
+  });
+
+  test("token renewal during Leave keeps the logical session and still navigates", async () => {
+    const { finishLeave } = await startHeldLeave();
+    localStorage.setItem(TOKEN_KEY, "renewed-token");
+    finishLeave();
+    expect(await screen.findByText("the rooms list")).toBeInTheDocument();
   });
 });
