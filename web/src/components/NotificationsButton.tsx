@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore, type MouseEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ActionIcon, Box, Button, Drawer, Group, SegmentedControl, Stack } from "@mantine/core";
@@ -22,6 +22,7 @@ import LoadingBlock from "./LoadingBlock";
 import NoticeRow from "./NoticeRow";
 import Pager from "./Pager";
 import { UnreadAnchor } from "./UnreadCue";
+import classes from "./NotificationsButton.module.css";
 
 const PAGE_SIZE = 20;
 
@@ -47,6 +48,7 @@ export default function NotificationsButton() {
   const [returnFocus, setReturnFocus] = useState(true);
   const [page, setPage] = useState(1);
   const [view, setView] = useState<NoticeView>("all");
+  const feed = useRef<HTMLDivElement>(null);
   // The bell outlives a sign-out until the route guard unmounts the shell: meanwhile it keeps no drawer open and reads nothing without a token.
   const signedIn = useSyncExternalStore(subscribeLogicalSession, () => getToken() !== null, () => false);
   // The drawer is a modal over the page: a change of page under it (the actor's or the room's link in a row, 1.2 D6) closes it and the main region
@@ -57,6 +59,9 @@ export default function NotificationsButton() {
   });
   const drawerOpen = opened && signedIn;
   const unseen = useUnseenNotifications();
+  useEffect(() => {
+    if (feed.current) feed.current.scrollTop = 0;
+  }, [drawerOpen, page, view]);
 
   const listQuery = useQuery({
     queryKey: notificationKeys.list(page, view),
@@ -136,47 +141,67 @@ export default function NotificationsButton() {
         onClose={() => setOpened(false)}
         returnFocus={returnFocus}
         position="right"
-        size="md"
+        size="min(28rem, 100vw)"
         title={t("notifications.title")}
         closeButtonProps={{ "aria-label": t("common.action.close") }}
+        classNames={{
+          content: classes.content,
+          header: classes.header,
+          title: classes.title,
+          body: classes.body,
+        }}
       >
-        <Stack gap="sm">
-          <Group justify="space-between" wrap="wrap" gap="xs">
-            <SegmentedControl
-              size="xs"
-              aria-label={t("notifications.view.label")}
-              value={view}
-              onChange={(next) => {
-                setView(next as NoticeView);
-                setPage(1);
-              }}
-              data={[
-                { value: "all", label: t("notifications.view.all") },
-                { value: "mentions", label: t("notifications.view.mentions") },
-              ]}
-            />
-            {anyUnseen && (
-              <Button size="xs" variant="light" leftSection={<IconChecks size={14} />} onClick={() => markAll.mutate()} loading={markAll.isPending}>
-                {t("notifications.markAllSeen")}
-              </Button>
+        <Stack gap={0} className={classes.layout}>
+          <div className={classes.toolbar}>
+            <Group justify="space-between" wrap="wrap" gap="xs" className={classes.toolbarRow}>
+              <SegmentedControl
+                size="xs"
+                className={classes.views}
+                aria-label={t("notifications.view.label")}
+                value={view}
+                onChange={(next) => {
+                  setView(next as NoticeView);
+                  setPage(1);
+                }}
+                data={[
+                  { value: "all", label: t("notifications.view.all") },
+                  { value: "mentions", label: t("notifications.view.mentions") },
+                ]}
+              />
+              {anyUnseen && (
+                <Button size="xs" variant="light" leftSection={<IconChecks size={14} />} onClick={() => markAll.mutate()} loading={markAll.isPending}>
+                  {t("notifications.markAllSeen")}
+                </Button>
+              )}
+            </Group>
+          </div>
+          <div className={classes.feedback}>
+            {markAll.isError && <FormErrorAlert>{t("notifications.markAllFailed")}</FormErrorAlert>}
+          </div>
+          <div
+            ref={feed}
+            className={classes.feed}
+            tabIndex={0}
+            role="region"
+            aria-label={t("notifications.feed")}
+            aria-busy={listQuery.isLoading || listQuery.isPlaceholderData}
+          >
+            {listQuery.isLoading ? (
+              <LoadingBlock />
+            ) : listQuery.isError && !listQuery.data ? (
+              <ErrorAlert error={listQuery.error} title={t("notifications.loadFailed")} />
+            ) : items.length === 0 ? (
+              <EmptyState icon={IconBellOff} label={view === "mentions" ? t("notifications.emptyMentions") : t("notifications.empty")} />
+            ) : (
+              <Box component="ul" role="list" m={0} p={0} className={classes.list}>
+                {items.map((n) => (
+                  <NoticeRow key={n.id} n={n} zone={zone} onOpen={open} />
+                ))}
+              </Box>
             )}
-          </Group>
-          {markAll.isError && <FormErrorAlert>{t("notifications.markAllFailed")}</FormErrorAlert>}
-          {listQuery.isLoading ? (
-            <LoadingBlock />
-          ) : listQuery.isError && !listQuery.data ? (
-            <ErrorAlert error={listQuery.error} title={t("notifications.loadFailed")} />
-          ) : items.length === 0 ? (
-            <EmptyState icon={IconBellOff} label={view === "mentions" ? t("notifications.emptyMentions") : t("notifications.empty")} />
-          ) : (
-            <Box component="ul" m={0} p={0} style={{ listStyle: "none" }}>
-              {items.map((n) => (
-                <NoticeRow key={n.id} n={n} zone={zone} onOpen={open} />
-              ))}
-            </Box>
-          )}
+          </div>
           {total > PAGE_SIZE && (
-            <Group justify="center">
+            <Group justify="center" className={classes.pagination}>
               <Pager size="sm" page={page} pages={Math.ceil(total / PAGE_SIZE)} onChange={setPage} />
             </Group>
           )}

@@ -18,6 +18,7 @@ import PageHeader from "../components/PageHeader";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
+import classes from "./NotificationPreferences.module.css";
 
 type Channel = NotificationPreferencePair["channel"];
 type PreferenceType = NotificationType | "ROOM_ADDED";
@@ -108,16 +109,19 @@ export default function NotificationPreferences() {
   }
 
   return (
-    <Stack gap="md">
+    <Stack gap="lg" className={classes.page}>
       <PageHeader title={t("notifications.preferences.title")} description={t("notifications.preferences.description")} />
       <BrowserPushCard />
-      <Paper withBorder p="xl" maw={CONTENT_MAX_WIDTH}>
+      <Paper withBorder maw={CONTENT_MAX_WIDTH} className={classes.delivery}>
         {query.isLoading ? (
           <LoadingBlock />
         ) : query.isError || query.data === undefined ? (
           <ErrorAlert error={query.error} />
         ) : (
-          <Stack>
+          <Stack gap="lg">
+            <Title order={3} size="h4">
+              {t("notifications.preferences.deliveryTitle")}
+            </Title>
             {!emailAvailable && (
               <Alert color="gray" variant="light">
                 {t("notifications.preferences.emailOff")}
@@ -131,12 +135,12 @@ export default function NotificationPreferences() {
               if (rows.length === 0) return null;
               const groupName = t(`notifications.preferences.group.${group.key}`);
               return (
-                <Stack key={group.key} gap="xs">
-                  <Group justify="space-between" wrap="wrap" gap="xs">
-                    <Title order={3} size="h4">
+                <Stack key={group.key} gap="xs" component="section" className={classes.group}>
+                  <Group justify="space-between" align="flex-end" wrap="wrap" gap="xs" className={classes.groupHeader}>
+                    <Title order={4} size="h5">
                       {groupName}
                     </Title>
-                    <Group gap="md" wrap="wrap">
+                    <Group gap="md" wrap="wrap" className={classes.bulkActions}>
                       {CHANNELS.map((channel) => {
                         const column = t(channel.label);
                         const muted = channel.channel === "EMAIL" && !emailAvailable;
@@ -168,26 +172,32 @@ export default function NotificationPreferences() {
                       })}
                     </Group>
                   </Group>
-                  <Table aria-label={groupName}>
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th>{t("notifications.preferences.typeColumn")}</Table.Th>
+                  <Table role="table" aria-label={groupName} className={classes.preferenceTable}>
+                    <Table.Thead role="rowgroup">
+                      <Table.Tr role="row">
+                        <Table.Th scope="col" role="columnheader">{t("notifications.preferences.typeColumn")}</Table.Th>
                         {CHANNELS.map((channel) => (
-                          <Table.Th key={channel.channel}>{t(channel.label)}</Table.Th>
+                          <Table.Th key={channel.channel} scope="col" role="columnheader">{t(channel.label)}</Table.Th>
                         ))}
                       </Table.Tr>
                     </Table.Thead>
-                    <Table.Tbody>
+                    <Table.Tbody role="rowgroup">
                       {rows.map((kind) => {
                         const label = t(`notifications.preferences.kind.${kind.type}`);
                         return (
-                          <Table.Tr key={kind.type}>
-                            <Table.Td>{label}</Table.Td>
+                          <Table.Tr key={kind.type} role="row">
+                            <Table.Th scope="row" role="rowheader" className={classes.kindCell}>{label}</Table.Th>
                             {CHANNELS.map((channel) => {
                               const column = t(channel.label);
                               return (
-                                <Table.Td key={channel.channel}>
+                                <Table.Td key={channel.channel} role="cell" className={classes.channelCell}>
+                                  <Text component="span" size="xs" c="dimmed" className={classes.mobileChannel} aria-hidden="true">
+                                    {column}
+                                  </Text>
                                   <Switch
+                                    className={classes.channelSwitch}
+                                    classNames={{ input: classes.channelInput }}
+                                    size="md"
                                     aria-label={t("notifications.preferences.switchAria", { label, column })}
                                     checked={isOn(kind, channel)}
                                     disabled={channel.channel === "EMAIL" && !emailAvailable}
@@ -205,7 +215,7 @@ export default function NotificationPreferences() {
               );
             })}
             {error && <FormErrorAlert>{error}</FormErrorAlert>}
-            <Group justify="flex-end" gap="sm">
+            <Group justify="flex-end" gap="sm" className={classes.saveBar}>
               <Button onClick={() => save.mutate()} loading={save.isPending} disabled={!dirty}>
                 {t("common.action.save")}
               </Button>

@@ -4,42 +4,33 @@ import { Center, Group, Paper, Stack, Title } from "@mantine/core";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import BrandLogo from "./BrandLogo";
 import VersionStamp from "./VersionStamp";
+import classes from "./AuthCard.module.css";
 
 interface Props {
-  /** The dimmed sub-heading under the brand block (e.g. "Sign in"). */
+  /** The current task (e.g. "Sign in"). */
   title: string;
   children: ReactNode;
 }
 
 /**
- * The shared scaffold of the unauthenticated pages (Login): a soft brand-tinted canvas
- * (scheme-aware — a faint radial olive wash, from the brand tuple's tokens only) holding a lifted card with the brand lockup,
- * a dimmed page title, and the VersionStamp underneath. The child structure and all text
- * are pinned by tests; only the frame is decorative.
+ * The shared scaffold of the unauthenticated pages: a quiet brand-tinted canvas and one
+ * responsive task card. The compact lockup identifies the product without competing with
+ * the page title, while the version stays outside the form surface.
  */
 export default function AuthCard({ title, children }: Props) {
   const { t } = useTranslation();
   useDocumentTitle(title);
 
   return (
-    <Center
-      h="100vh"
-      p="md"
-      style={{
-        background:
-          "radial-gradient(80rem 40rem at 50% -10%, " +
-          "light-dark(var(--mantine-color-adder-0), color-mix(in srgb, var(--mantine-color-adder-9) 14%, transparent)) 0%, " +
-          "light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-8)) 70%)",
-      }}
-    >
-      <Stack gap="sm">
-        <Paper shadow="lg" p="xl" radius="lg" w={384} withBorder>
-          <Stack>
-            <Stack align="center" gap="xs">
-              <BrandLogo size={48} />
-              <Title order={2}>{t("appShell.brand")}</Title>
-            </Stack>
-            <Title order={3} ta="center" c="dimmed" fw={500} size="h4">
+    <Center component="main" className={classes.canvas}>
+      <Stack gap="sm" className={classes.shell}>
+        <Paper className={classes.card} withBorder>
+          <Stack gap="lg">
+            <Group gap="sm" className={classes.brand}>
+              <BrandLogo size={38} />
+              <Title order={2} size="h3" fw={650}>{t("appShell.brand")}</Title>
+            </Group>
+            <Title order={3} className={classes.title}>
               {title}
             </Title>
             {children}

@@ -3,6 +3,7 @@
   "createUser": "New user",
   "editUser": "Edit user",
   "changePasswordTitle": "Change password",
+  "changePasswordDescription": "Choose a new password for your account. You will sign in again when the change is complete.",
   "noUsers": "No users",
   "clearEmailFilter": "Clear email filter",
   "clearRoleFilter": "Clear role filter",

@@ -96,10 +96,11 @@ test("the explicit browser action registers a device and disabling removes that 
 });
 
 test("server configuration and browser permission both gate the enable control", async () => {
-  const unavailable = browser();
+  const unavailable = browser("denied");
   api(false);
   const view = renderWithProviders(<BrowserPushCard />);
   expect(await screen.findByText("Browser notifications are unavailable on this server.")).toBeVisible();
+  expect(screen.queryByText(/Allow notifications in this browser/)).not.toBeInTheDocument();
   expect(unavailable.serviceWorker.register).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "Enable on this browser" })).toBeNull();
   view.unmount();
@@ -107,7 +108,7 @@ test("server configuration and browser permission both gate the enable control",
   const denied = browser("denied");
   api();
   renderWithProviders(<BrowserPushCard />);
-  expect(screen.getByText(/Allow notifications in this browser/)).toBeVisible();
+  expect(await screen.findByText(/Allow notifications in this browser/)).toBeVisible();
   expect(screen.queryByRole("button", { name: "Enable on this browser" })).toBeNull();
   expect(denied.requestPermission).not.toHaveBeenCalled();
 });

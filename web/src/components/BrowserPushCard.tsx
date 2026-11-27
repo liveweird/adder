@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { Button, Group, Paper, Stack, Text, ThemeIcon, Title } from "@mantine/core";
 import { IconBell, IconBellOff } from "@tabler/icons-react";
 import { browserPushSupported, currentBrowserPushId, disableBrowserPush, enableBrowserPush, getBrowserPushConfig } from "../api/browserPush";
 import { CONTENT_MAX_WIDTH } from "../utils/layout";
 import FormErrorAlert from "./FormErrorAlert";
+import classes from "./BrowserPushCard.module.css";
 
 export default function BrowserPushCard() {
   const { t } = useTranslation();
@@ -34,13 +35,18 @@ export default function BrowserPushCard() {
   }
 
   return (
-    <Paper withBorder p="xl" maw={CONTENT_MAX_WIDTH}>
-      <Stack gap="sm">
-        <Group justify="space-between" align="flex-start" gap="sm">
-          <Stack gap={4}>
-            <Title order={3} size="h4">{t("notifications.browserPush.title")}</Title>
-            <Text size="sm" c="dimmed">{t("notifications.browserPush.description")}</Text>
-          </Stack>
+    <Paper withBorder maw={CONTENT_MAX_WIDTH} className={classes.card}>
+      <Stack gap="md">
+        <Group justify="space-between" align="flex-start" gap="md" className={classes.header}>
+          <Group align="flex-start" gap="sm" wrap="nowrap" className={classes.identity}>
+            <ThemeIcon variant="light" color="adder" size="lg" radius="md" className={classes.icon}>
+              <IconBell size={19} aria-hidden="true" />
+            </ThemeIcon>
+            <Stack gap={4}>
+              <Title order={3} size="h4">{t("notifications.browserPush.title")}</Title>
+              <Text size="sm" c="dimmed">{t("notifications.browserPush.description")}</Text>
+            </Stack>
+          </Group>
           {id !== null && <Button variant="default" leftSection={<IconBellOff size={16} />} loading={disable.isPending}
             onClick={() => disable.mutate(id)}>{t("notifications.browserPush.disable")}</Button>}
           {id === null && key && !denied && <Button leftSection={<IconBell size={16} />} loading={enable.isPending}
@@ -48,7 +54,7 @@ export default function BrowserPushCard() {
         </Group>
         {!supported && <Text size="sm">{t("notifications.browserPush.unsupported")}</Text>}
         {unavailable && <Text size="sm">{t("notifications.browserPush.unavailable")}</Text>}
-        {denied && <Text size="sm">{t("notifications.browserPush.denied")}</Text>}
+        {denied && key && <Text size="sm">{t("notifications.browserPush.denied")}</Text>}
         {error && <FormErrorAlert>{t("notifications.browserPush.failed")}</FormErrorAlert>}
       </Stack>
     </Paper>

@@ -12,6 +12,7 @@ import { newPasswordValidation } from "../utils/userForm";
 import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
 import FormErrorAlert from "../components/FormErrorAlert";
+import classes from "./ChangePassword.module.css";
 
 type Values = { currentPassword: string; password: string; confirm: string };
 
@@ -64,9 +65,9 @@ export default function ChangePassword() {
   }
 
   return (
-    <Stack gap="md">
-      <PageHeader title={t("users.changePasswordTitle")} />
-      <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
+    <Stack gap="lg" className={classes.page}>
+      <PageHeader title={t("users.changePasswordTitle")} description={t("users.changePasswordDescription")} />
+      <Paper withBorder maw={FORM_MAX_WIDTH} className={classes.panel}>
         <form onSubmit={form.onSubmit(onSubmit)} noValidate>
           <Stack>
             <PasswordInput
@@ -92,7 +93,7 @@ export default function ChangePassword() {
                 {error}
               </FormErrorAlert>
             )}
-            <Group justify="flex-end">
+            <Group justify="flex-end" className={classes.actions}>
               <Button type="submit" loading={submitting}>
                 {t("common.action.save")}
               </Button>

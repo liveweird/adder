@@ -1,0 +1,26 @@
+.card {
+  inline-size: min(100%, 70rem);
+  padding: clamp(1rem, 3vw, var(--mantine-spacing-xl));
+  border-color: var(--adder-border-strong);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+.identity {
+  min-inline-size: 0;
+  max-inline-size: 46rem;
+}
+
+.icon {
+  flex: none;
+}
+
+@media (max-width: 36rem) {
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .header > button {
+    inline-size: 100%;
+  }
+}

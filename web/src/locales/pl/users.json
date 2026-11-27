@@ -3,6 +3,7 @@
   "createUser": "Nowe konto",
   "editUser": "Edytuj konto",
   "changePasswordTitle": "Zmiana hasła",
+  "changePasswordDescription": "Ustaw nowe hasło do swojego konta. Po zmianie zalogujesz się ponownie.",
   "noUsers": "Brak kont",
   "clearEmailFilter": "Wyczyść filtr e-maila",
   "clearRoleFilter": "Wyczyść filtr roli",
