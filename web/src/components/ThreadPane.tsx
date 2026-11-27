@@ -236,7 +236,10 @@ export default function ThreadPane({ room, numberParam }: { room: RoomResponse; 
               key={thread.id}
               room={room}
               thread={thread}
-              onDeleted={() => void navigate(withListParams(roomPath(room.id), location.search), { replace: true })}
+              onDeleted={() => {
+                if (mountedThreadRef.current !== `${room.id}/${thread.number}`) return;
+                void navigate(withListParams(roomPath(room.id), liveUrl.params()), { replace: true });
+              }}
               onMerged={(target) => void navigate(withListParams(threadPath(room.id, target), location.search), { replace: true })}
             />
             <span ref={findTriggerRef}>

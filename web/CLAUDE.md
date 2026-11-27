@@ -136,8 +136,9 @@ scratch, use `npm install --legacy-peer-deps`.
 ## Error handling
 
 - **ErrorBoundary** (`components/ErrorBoundary.tsx`): a page render crash must never white-screen
-  the app. `RouteErrorBoundary` wraps the `<Outlet />` inside `AppShell.Main` (header/nav survive;
-  keyed by `location.pathname`, so navigating anywhere recovers), and a plain `ErrorBoundary` in
+  the app. `RouteErrorBoundary` wraps the `<Outlet />` inside `AppShell.Main`. The header and nav survive, and pathname changes recover the page.
+  The room list and its numeric thread routes share a boundary key so the room header and thread list remain mounted. Each thread pane has its own key.
+  Other routes use the pathname as the boundary key. A plain `ErrorBoundary` in
   `main.tsx` is the last resort for shell crashes. Don't add per-page boundaries — the two mounts
   are the model.
 - **Catch-all 404**: `pages/NotFound.tsx` is the LAST `path="*"` child of the Shell route. New

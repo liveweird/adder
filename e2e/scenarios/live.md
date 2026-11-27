@@ -7,7 +7,7 @@
   and its users, removed through the API in an `afterEach` (rooms first, then the users, so a failing step leaves nothing behind). The seeded
   Default template is shared and read-only: rooms only copy it. Every room is created by a throwaway user, so the seed administrator is never a
   member of one. The last scenario owns one throwaway user and no room (the socket under test is that user's own, so its ticket bucket is untouched).
-  The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket. Deletion scenarios act on their own messages. Room cleanup hides the remaining conversations.
+  The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket. Deletion scenarios act on their own messages and threads. Room cleanup hides the remaining conversations.
 
 Every scenario that watches a change first waits until the page's own socket has been acknowledged for the room (the `subscribed` frame), so the
 change can only arrive by being pushed, and marks the document, so "without a reload" is checked rather than assumed.
@@ -47,6 +47,22 @@ change can only arrive by being pushed, and marks the document, so "without a re
 1. The owner writes a message and quotes it in another room. The teammate opens the thread with the quote and subscribes to both rooms.
 2. The owner deletes the original. The server commits and the test discards the HTTP response.
    - *Expected*: the owner sees a tombstone without a lingering error. The teammate sees the quote's deleted notice and the quoting reply remains visible. Neither page reloads.
+
+## Scenario: thread deletion clears a merged conversation live and refreshes the writer once
+
+1. The owner opens a pinned canonical thread. The teammate opens the conversation that was merged into it.
+2. The owner confirms deletion and the browser holds the successful response.
+   - *Expected*: the owner's thread list and pins lose the canonical thread. The teammate's pane removes the deleted history.
+3. The response arrives.
+   - *Expected*: the owner is back in the room and its thread list and pins each read once. Neither page reloads.
+
+## Scenario: a lost thread deletion response still clears a cross-room quote
+
+1. The owner posts in one room and quotes the message in another. The teammate opens the quoting reply and subscribes to both rooms.
+2. The owner deletes the source thread. The server commits and sends the live event while the browser is holding the response.
+   - *Expected*: the thread leaves the owner's list. The reader's reply stays visible and loses the source excerpt.
+3. The test discards the response.
+   - *Expected*: the owner returns to the room with their list filter intact, and neither page reloads.
 
 ## Scenario: a thread started by one member appears in another member's thread list
 

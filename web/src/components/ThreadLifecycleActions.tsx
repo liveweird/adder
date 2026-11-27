@@ -6,9 +6,10 @@ import { useTranslation } from "react-i18next";
 import { useAdmin } from "../auth";
 import { deleteThread, getLifecycleThread, mergeThread, type LifecycleThread } from "../api/threadLifecycle";
 import type { RoomResponse } from "../api/rooms";
-import { getUserId } from "../api/session";
+import { getSessionSnapshot, getUserId, isSameSessionIdentity } from "../api/session";
 import { roomKeys } from "../utils/roomKeys";
-import { resetDeletedThreadContent, threadLifecycleKeys } from "../utils/threadLifecycleCache";
+import { threadLifecycleKeys } from "../utils/threadLifecycleCache";
+import { beginThreadDeleteCommit } from "../utils/threadDeleteCommit";
 import { isThreadSteward } from "../utils/threadAccess";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
@@ -73,15 +74,22 @@ export default function ThreadLifecycleActions({
   });
 
   const remove = useMutation({
-    mutationFn: () => deleteThread(room.id, thread.number),
-    onSuccess: async () => {
+    mutationFn: async () => {
+      const session = getSessionSnapshot();
+      const commit = beginThreadDeleteCommit(queryClient, { roomId: room.id, threadNumber: thread.number });
+      try {
+        await deleteThread(room.id, thread.number);
+        await commit.confirm();
+      } catch (error) {
+        if (!await commit.reject()) throw error;
+      }
+      return isSameSessionIdentity(session, getSessionSnapshot());
+    },
+    onSuccess: async (sameSession) => {
+      if (!sameSession) return;
       showSuccessToast(t("threadLifecycle.delete.success"));
       setDeleteOpen(false);
       await onDeleted();
-      await Promise.all([
-        resetDeletedThreadContent(queryClient, room.id),
-        ...threadLifecycleKeys(room.id, true).map((queryKey) => queryClient.invalidateQueries({ queryKey })),
-      ]);
     },
   });
 

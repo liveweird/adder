@@ -319,6 +319,12 @@ Clearing cached edit history and quote excerpts never waits for the HTTP respons
 
 In Chromium, holding a committed DELETE response reproduced two timeline reads and two pin reads in the writer on 1.34.0. Sharing the refresh cut that to one of each. A separate scenario discards the response and verifies that the tombstone and deleted quote update live.
 
+## Thread deletion
+
+Thread numbers are never reused. In the deleting tab, HTTP `204` or the exact `thread.deleted` room and thread number can start the same refresh. A matching event can complete the local deletion even if the response is lost. Other tabs still process the ordinary event. The DELETE endpoint and live frame keep their existing shapes.
+
+The live event names the deleted thread. Deleting a canonical thread can also remove its merged source conversations, so clients clear affected cached content for the source room and quotes that depend on that room. Pending content reads are canceled so a late response cannot restore a deleted excerpt. List, pins, workflow, rail, Home and notices still refresh. Room revocation and personal notice events retain their own handling.
+
 ## Mutation refresh measurements
 
 In a warm two-tab Chromium rehearsal, a reply produced two timeline, detail, thread-list and rail reads in the writer before correlation, and one of each afterward. The observer still read each once. Holding the POST response after the observer received the event caused no writer reads until the response arrived. Aborting that held response released the event and the committed reply appeared in both tabs.

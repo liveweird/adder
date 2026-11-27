@@ -16,7 +16,7 @@ import classes from "./RoomHome.module.css";
 function PaneBody({ room, isNew, numberParam }: { room: RoomResponse; isNew: boolean; numberParam: string | undefined }) {
   const { t } = useTranslation();
   if (isNew) return <NewThreadForm room={room} />;
-  if (numberParam !== undefined) return <ThreadPane room={room} numberParam={numberParam} />;
+  if (numberParam !== undefined) return <ThreadPane key={numberParam} room={room} numberParam={numberParam} />;
   return <EmptyState icon={IconMessages} label={t("threads.pane.none")} hint={t("threads.pane.noneHint")} />;
 }
 

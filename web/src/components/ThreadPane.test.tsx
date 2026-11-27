@@ -483,6 +483,109 @@ test("Find in thread opens a focused submitted search and returns focus to the h
   }
 });
 
+test("a deletion completed after switching threads cannot navigate away from the new pane", async () => {
+  let finishDelete!: (response: Response) => void;
+  const pendingDelete = new Promise<Response>((resolve) => { finishDelete = resolve; });
+  const second = { ...THREAD, id: 2, number: 43, title: "Second thread" };
+  const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url === "/api/v1/rooms/12/threads/42" && init?.method === "DELETE") return pendingDelete;
+    if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, THREAD));
+    if (url === "/api/v1/rooms/12/threads/43") return Promise.resolve(jsonResponse(200, second));
+    if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+    if (url.includes("/messages?") || url.includes("/events?")) {
+      return Promise.resolve(url.includes("/events?")
+        ? jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 })
+        : jsonResponse(200, messagePage(MESSAGES)));
+    }
+    return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+  });
+  function Harness() {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const numberParam = location.pathname.split("/").at(-1);
+    return (
+      <>
+        <button onClick={() => navigate("/rooms/12/threads/43?scope=closed")}>switch thread</button>
+        <ThreadPane room={ROOM} numberParam={numberParam} />
+        <output aria-label="location">{`${location.pathname}${location.search}`}</output>
+      </>
+    );
+  }
+  vi.stubGlobal("fetch", fetch);
+  localStorage.setItem("adder.auth.token", "fake-token");
+  localStorage.setItem("adder.auth.userId", "5");
+  const user = userEvent.setup();
+  try {
+    renderWithProviders(<Harness />, { route: "/rooms/12/threads/42?scope=all" });
+    await screen.findByRole("region", { name: "#42 Disk full on db-3" });
+    await user.click(screen.getByRole("button", { name: "Thread actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete thread" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Delete #42?" })).getByRole("button", { name: "Delete thread" }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/rooms/12/threads/42",
+      expect.objectContaining({ method: "DELETE" }),
+    ));
+
+    await user.click(screen.getByRole("button", { name: "switch thread" }));
+    await screen.findByRole("region", { name: "#43 Second thread" });
+    finishDelete(new Response(null, { status: 204 }));
+
+    await waitFor(() => expect(fetch.mock.calls.filter(([url]) => url === "/api/v1/rooms/12/threads/43").length).toBeGreaterThan(1));
+    expect(screen.getByLabelText("location")).toHaveTextContent("/rooms/12/threads/43?scope=closed");
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  }
+});
+
+test("a held deletion returns to the room with the latest list filters", async () => {
+  let finishDelete!: (response: Response) => void;
+  const pendingDelete = new Promise<Response>((resolve) => { finishDelete = resolve; });
+  const fetch = vi.fn((url: string, init?: RequestInit) => {
+    if (url === "/api/v1/rooms/12/threads/42" && init?.method === "DELETE") return pendingDelete;
+    if (url === "/api/v1/rooms/12/threads/42") return Promise.resolve(jsonResponse(200, THREAD));
+    if (url === "/api/v1/rooms/12/workflow") return Promise.resolve(jsonResponse(200, WORKFLOW));
+    if (url.includes("/messages?") || url.includes("/events?")) {
+      return Promise.resolve(url.includes("/events?")
+        ? jsonResponse(200, { items: [], page: 1, pageSize: 10, total: 0 })
+        : jsonResponse(200, messagePage(MESSAGES)));
+    }
+    return Promise.resolve(jsonResponse(404, { title: "Not found", status: 404 }));
+  });
+  function Harness() {
+    const location = useLocation();
+    const navigate = useNavigate();
+    return (
+      <>
+        <button onClick={() => navigate("?scope=closed&order=number")}>change filters</button>
+        <ThreadPane room={ROOM} numberParam="42" />
+        <output aria-label="location">{`${location.pathname}${location.search}`}</output>
+      </>
+    );
+  }
+  vi.stubGlobal("fetch", fetch);
+  localStorage.setItem("adder.auth.token", "fake-token");
+  localStorage.setItem("adder.auth.userId", "5");
+  const user = userEvent.setup();
+  try {
+    renderWithProviders(<Harness />, { route: "/rooms/12/threads/42?scope=all" });
+    await screen.findByRole("region", { name: "#42 Disk full on db-3" });
+    await user.click(screen.getByRole("button", { name: "Thread actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete thread" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "Delete #42?" })).getByRole("button", { name: "Delete thread" }));
+    await user.click(screen.getByRole("button", { name: "change filters" }));
+
+    finishDelete(new Response(null, { status: 204 }));
+
+    await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("/rooms/12?scope=closed&order=number"));
+  } finally {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  }
+});
+
 test("a post completed after switching threads cannot clear the new thread's message anchor", async () => {
   let finishPost!: (response: Response) => void;
   const pendingPost = new Promise<Response>((resolve) => { finishPost = resolve; });

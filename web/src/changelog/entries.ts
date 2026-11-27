@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.37.0",
+    date: "2026-11-27",
+    en: `**Adder 1.37.0 — faster refresh after deleting a thread**
+
+- When you delete a thread, your tab refreshes the thread list and pins on the first confirmation.
+- Other readers see the deletion live. Merged conversations and excerpts quoted in other rooms disappear as soon as the deletion is known.`,
+    pl: `**Adder 1.37.0 — szybsze odświeżanie po usunięciu wątku**
+
+- Gdy usuwasz wątek, Twoja karta odświeża listę wątków i przypięcia po pierwszym potwierdzeniu.
+- Pozostałe osoby widzą usunięcie na żywo. Scalone rozmowy i fragmenty cytowane w innych pokojach znikają po potwierdzeniu usunięcia.`,
+  },
+  {
     version: "1.36.0",
     date: "2026-11-27",
     en: `**Adder 1.36.0 — one search box**

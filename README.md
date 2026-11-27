@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Faster refresh after deleting a thread (1.37.0)
+
+The deleting tab refreshes the thread list and pins on the first confirmation. Other tabs still remove the thread, its merged conversations, and quoted excerpts live.
+
 ### One search box (1.36.0)
 
 Use keywords and search clauses together across rooms, inside a room, or in a thread. Bare words of three or more characters match word starts. Use `word:disk` for a whole word or `"disk alert"` for an exact phrase. The **Search syntax** guide helps insert clauses.

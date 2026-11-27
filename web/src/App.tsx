@@ -207,7 +207,7 @@ function Shell() {
 
       <AppShell.Main id="main-content" tabIndex={-1}>
         {/* A page crash stays inside the main area — header/nav keep working, and navigating
-            anywhere remounts the boundary (see components/ErrorBoundary.tsx). The inner
+            clears the failure (see components/ErrorBoundary.tsx). The inner
             Suspense keeps the shell mounted while a lazy page chunk loads. */}
         <KnownNamesContext.Provider value={knownNames}>
           <ThreadDraftsProvider>
