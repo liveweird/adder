@@ -317,6 +317,8 @@ The explicit member-add POST and member-remove DELETE accept the same optional m
 
 The room-role PUT also accepts the optional identifier. A change to another member carries it only on the writer’s account sockets. A change to the caller’s own role carries no identifier, and a no-op emits no event. The client clears cached edit histories on `room.member_role_changed` before deferring any matching refresh.
 
+The join-request decision PUT can correlate an approval that creates a membership with the owner’s `room.member_added` event. The applicant still receives the membership event and notices independently, so their preview updates and the socket can subscribe before the owner receives the response. Rejection and approvals without a new membership emit no correlated event.
+
 ## Single-message deletion
 
 A message ID can be deleted only once. In the deleting tab, an HTTP `204` or the existing `message.deleted` hint for the exact room, thread and message can start the same refresh. The hint can arrive while the HTTP response is held or lost. Other tabs still process the ordinary event. The DELETE endpoint and the live frame keep their existing shapes.

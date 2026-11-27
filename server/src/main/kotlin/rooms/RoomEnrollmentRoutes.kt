@@ -6,6 +6,7 @@ import ch.nokillswit.authz.RoomRole
 import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.orNotFound
+import ch.nokillswit.infra.mutationId
 import ch.nokillswit.infra.paging.parsePaging
 import ch.nokillswit.infra.paging.toPage
 import ch.nokillswit.plugins.RateLimits
@@ -89,7 +90,7 @@ private fun Route.roomJoinRequests(rooms: RoomService, enrollment: RoomEnrollmen
             val roomId = route.parent.parent.id
             requireRequestOwner(rooms.visibleStanding(caller, roomId))
             val request = call.receive<RoomJoinDecisionRequest>()
-            val outcome = enrollment.decide(roomId, route.requestId, caller, request)
+            val outcome = enrollment.decide(roomId, route.requestId, caller, request) { call.mutationId() }
             val event = if (outcome.decision == RoomJoinDecision.APPROVE) "room.join_request_approved" else "room.join_request_rejected"
             audit(
                 event,

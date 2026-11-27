@@ -717,7 +717,7 @@ async function pickMemberToAdd(page: Page, person: Person) {
   await page.getByRole("option", { name: `${person.name} (${person.email})`, exact: true }).click();
 }
 
-function countRosterReads(page: Page, path: string) {
+function countReadsAt(page: Page, path: string) {
   let reads = 0;
   page.on("request", (request) => {
     if (request.method() === "GET" && new URL(request.url()).pathname === path) reads++;
@@ -738,7 +738,7 @@ test("changing another member's role updates the reader and refreshes the writer
   await expect(memberRow(reader.page, room.mate).getByText("Member", { exact: true })).toBeVisible();
   await manager.page.clock.runFor(2_100);
 
-  const reads = countRosterReads(manager.page, apiPath);
+  const reads = countReadsAt(manager.page, apiPath);
   const release = await holdCommittedResponse(manager, { path: `${apiPath}/${room.mate.id}`, method: "PUT", status: 204 });
   let heldReads: number;
   try {
@@ -776,7 +776,7 @@ test("adding a room member updates another reader and refreshes the writer once"
   await pickMemberToAdd(manager.page, added);
   await manager.page.clock.runFor(2_100);
 
-  const reads = countRosterReads(manager.page, apiPath);
+  const reads = countReadsAt(manager.page, apiPath);
   const release = await holdCommittedResponse(manager, { path: apiPath, method: "POST", status: 200 });
   let heldReads: number;
   try {
@@ -829,6 +829,59 @@ test("a lost add-member response releases the writer's roster refresh", async ({
   await expectNoReload(reader);
 });
 
+test("approving a join request grants access live and refreshes the owner once", async ({ page, browser }) => {
+  const room = await scene(page);
+  const applicant = await throwawayUser(page, "E2E Live Applicant", cleanup);
+  const visitor = await signedIn(browser, applicant);
+  const roomPath = `/rooms/${room.roomId}`;
+  await visitor.page.goto(roomPath);
+  await visitor.page.getByRole("button", { name: "Request to join", exact: true }).click();
+  await expect(visitor.page.getByText("Request pending", { exact: true })).toBeVisible();
+  await visitor.page.evaluate(() => {
+    Object.assign(window, { e2eLiveMarker: true });
+  });
+
+  const queuePath = `/api/v1${roomPath}/join-requests`;
+  const pending = await room.api.get(queuePath);
+  expect(pending.status()).toBe(200);
+  const queue = (await pending.json()) as { items: { id: number; userId: number }[] };
+  const requestId = queue.items.find(({ userId }) => userId === applicant.id)?.id;
+  expect(requestId).toBeDefined();
+
+  const approver = await signedIn(browser, room.owner);
+  const added = (seat: Seat) => seat.frames.find((frame) => frame.kind === "room.member_added" && frame.roomId === room.roomId);
+  await approver.page.clock.install();
+  await openLive(approver, `${roomPath}/members`, room.roomId);
+  const approve = approver.page.getByRole("button", { name: /^Approve/ });
+  await expect(approve).toBeVisible();
+  await approver.page.clock.runFor(2_100);
+
+  const readRoster = countReadsAt(approver.page, `/api/v1${roomPath}/members`);
+  const readQueue = countReadsAt(approver.page, queuePath);
+  const release = await holdCommittedResponse(approver, { path: `${queuePath}/${requestId}`, method: "PUT", status: 204 });
+  let heldReads: number[];
+  try {
+    await approve.click();
+    await expect.poll(() => added(approver) !== undefined && added(visitor) !== undefined).toBe(true);
+    await approver.page.clock.runFor(1_100);
+    await expect(visitor.page.getByRole("link", { name: "Threads", exact: true })).toBeVisible();
+    heldReads = [readRoster(), readQueue()];
+  } finally {
+    release();
+  }
+
+  await expect(approver.page.getByText("Request approved", { exact: true })).toBeVisible();
+  await expect(memberRow(approver.page, applicant)).toBeVisible();
+  await expect(approve).toHaveCount(0);
+  await approver.page.clock.runFor(3_200);
+  expect([readRoster(), readQueue()]).toEqual([1, 1]);
+  expect(heldReads).toEqual([0, 0]);
+  expect(added(approver)?.mutationId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(added(visitor)?.mutationId).toBeUndefined();
+  await expectNoReload(approver);
+  await expectNoReload(visitor);
+});
+
 test("a member removed from a room loses it from the rail and the open room", async ({ page, browser }) => {
   const room = await scene(page);
   await seedThread(room);
@@ -848,7 +901,7 @@ test("a member removed from a room loses it from the rail and the open room", as
 
   await rowOperation(manager.page, room.mate.name, "Remove");
   await manager.page.clock.runFor(2_100);
-  const reads = countRosterReads(manager.page, apiPath);
+  const reads = countReadsAt(manager.page, apiPath);
   const release = await holdCommittedResponse(manager, { path: `${apiPath}/${room.mate.id}`, method: "DELETE", status: 204 });
   let heldReads: number;
   const dialog = manager.page.getByRole("dialog", { name: "Remove from the room?" });

@@ -6447,7 +6447,14 @@ export interface operations {
     decideRoomJoinRequest: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Correlates an approval that creates a membership with `room.member_added` on the approver's account sockets.
+                 *     Supply at most one canonical lowercase UUIDv4. A malformed or repeated value returns `400` after authorization and lookup of the pending request.
+                 *     Rejection, approval without a new membership, and the applicant's events never carry the identifier.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 requestId: number;
