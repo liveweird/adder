@@ -343,6 +343,12 @@ Live revocation removes access immediately, even while the request to leave is p
 
 A successful response for the current session also clears the room’s protected reads. It cancels stale reference, quote and search results, refreshes affected projections and rechecks the room’s detail if another active route still displays it. This protects the same content when the live update is missed.
 
+## Joining a public room (1.44.0)
+
+The join response refreshes the caller’s membership projections. Content still loads when the room opens and catches up after the socket confirms its subscription. A response after those reads leaves the already-loaded pins, workflow and thread list in place. An administrator who could already read the room also refreshes the thread queries whose results depend on membership.
+
+The original room visit owns navigation and feedback. A late response cannot redirect a later visit or a replacement session. The client rechecks access through REST, so immediate removal still wins when it follows a join.
+
 ## Mutation refresh measurements
 
 In a warm two-tab Chromium rehearsal, a reply produced two timeline, detail, thread-list and rail reads in the writer before correlation, and one of each afterward. The observer still read each once. Holding the POST response after the observer received the event caused no writer reads until the response arrived. Aborting that held response released the event and the committed reply appeared in both tabs.

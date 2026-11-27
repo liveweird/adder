@@ -1,10 +1,12 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Badge, Box, Group, Stack, Text } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../api/http";
 import { getRoom, getRoomAccess, type RoomResponse } from "../api/rooms";
 import { useRoomSeen } from "../hooks/useRoomSeen";
+import { usePublicRoomEnrollment } from "../hooks/usePublicRoomEnrollment";
 import { parseRoomId, roomsPath } from "../utils/roomLinks";
 import { loadErrorMessage } from "../utils/saveError";
 import EditPageLoadState from "./EditPageLoadState";
@@ -25,9 +27,27 @@ export default function RoomPage({ idParam, tab, fill = false, children }: { idP
   const { t } = useTranslation();
   // An id that is not a plain positive number names no room: the not-found state, without a request.
   const id = parseRoomId(idParam);
+  const location = useLocation();
+  const routeToken = useMemo(
+    () => Symbol(`room-route:${id}:${location.key}:${location.pathname}:${location.search}:${location.hash}`),
+    [id, location.hash, location.key, location.pathname, location.search],
+  );
+  const activeRouteToken = useRef<symbol | null>(null);
+  useLayoutEffect(() => {
+    activeRouteToken.current = routeToken;
+    return () => {
+      if (activeRouteToken.current === routeToken) activeRouteToken.current = null;
+    };
+  }, [routeToken]);
   const { data: room, isLoading, error } = useQuery({ queryKey: roomKeys.detail(id), queryFn: () => getRoom(id!), enabled: id !== null });
   const contentDenied = error instanceof ApiError && error.status === 404;
   const readableOutsideMembership = room?.role === null && room.accessType !== "RESTRICTED_HIDDEN";
+  const publicEnrollment = usePublicRoomEnrollment(
+    id ?? 0,
+    readableOutsideMembership === true,
+    routeToken,
+    () => activeRouteToken.current,
+  );
   const access = useQuery({
     queryKey: roomKeys.access(id),
     queryFn: () => getRoomAccess(id!),
@@ -39,7 +59,7 @@ export default function RoomPage({ idParam, tab, fill = false, children }: { idP
   if (contentDenied) {
     const accessNotFound = access.error instanceof ApiError && access.error.status === 404;
     // TanStack Query retains the last good data when a refetch fails. The fresh error must win or a deleted preview leaks from the cache.
-    if (!access.error && access.data) return <RoomAccessPreview room={access.data} />;
+    if (!access.error && access.data) return <RoomAccessPreview room={access.data} publicEnrollment={publicEnrollment} />;
     return (
       <EditPageLoadState
         isLoading={access.isLoading}
@@ -93,7 +113,9 @@ export default function RoomPage({ idParam, tab, fill = false, children }: { idP
           />
           {!threads && navigation}
         </Box>
-        {readableOutsideMembership && access.data && <RoomEnrollmentAction room={access.data} compact />}
+        {readableOutsideMembership && access.data && (
+          <RoomEnrollmentAction room={access.data} compact publicEnrollment={publicEnrollment} />
+        )}
         {children(room)}
       </Stack>
     </Box>
