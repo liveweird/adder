@@ -1,6 +1,6 @@
 # Product backlog
 
-Updated 2026-11-26. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
+Updated 2026-11-27. This file tracks **outstanding work only**. Implemented behaviour and release history belong elsewhere:
 - [README.md](README.md);
 - the [application changelog](web/src/changelog/entries.ts);
 - the topic guides under `.claude/docs/` (the roadmap: `.claude/docs/product.md`).
@@ -26,8 +26,9 @@ The `backlog` mod (`liveweird/claude-mods`) summarises the tags on the status li
 - [new] **Find: facet counts in the filter panel.** 0.5.0 labels only the status options with the workflow's `threadCount`. Counts per owner, tag and field value would port Covenant's lifted-predicate facets (`ContractService.kt`).
 - [new] **Find: search over field values, and Markdown stripped from snippets.** 0.5.0 searches message bodies and thread titles; a snippet is a fragment of the Markdown source as plain text, so from 0.6.0 a hit near a mention shows the raw `<@id>` token; show the member's name instead.
 - [new] **Find: ticket keys.** `PROD-123` indexes as `prod` and `-123`, so `123` alone does not find it. Index the key whole, or add a second configuration for it.
-- [new] **Hashtags: `#42` links only to a thread that exists.** 1.2.0 links every `#<number>` in a message body to that thread of the same room and checks nothing (1.2 A9: no request per token), so a number with no thread opens the pane's "does not exist". Knowing would take the room's highest thread number on the wire (one more field on the room or the thread list) so the SPA could leave a number above it as text (it would also stop "issue #1"-style false positives: a number that means something else still links to thread 1, 1.2 A9); threads are never deleted and numbers never reused, so every number up to it is real.
-- [todo] **Live: extend shared refreshes to thread deletion, merges and access changes.** Match query coverage and preserve immediate redaction, access checks and personal-notification handling before reusing the writer’s refresh for these actions.
+- [new] **Link `#42` only to a readable thread in the same room.** Leave missing or deleted targets as plain text. Keep links to readable merged source conversations pointing to their original history. Thread numbers are never reused, so deletions can leave gaps below the highest number.
+  Resolve distinct references from visible messages and pins in bounded batches under the usual thread-read access rules. Reuse the results within the room and refresh them on thread creation, deletion, and room access changes. Check that deleting a merge destination also removes links to its deleted sources. Keep the existing Markdown rules and test that a number shared by two rooms resolves only within the room displaying it.
+- [todo] **Live: extend shared refreshes to thread merges and access changes.** Match query coverage and preserve access checks, immediate redaction, and personal notifications before reusing the writer’s refresh.
 - [blocked] **Account reactivation receipt.** Adder now sends password-change email. A reactivation receipt depends on an account reactivation workflow. Adder currently supports soft deletion and has no reactivation transition.
 - [new] **Tags: a per-room subset of the registry.** The registry is global (1.2 D1 to 1.2 D3, 1.2 A19): every room offers every live tag. A room could pick the categories or tags it uses, which would also let the picker stay short in a big registry.
 - [new] **Tags: facet counts in the filter panel.** The `threadTag` filter lists the registry without counts (1.2 A19); counts per tag in the room (and across rooms) belong with the Covenant facet pattern in "Find: facet counts" above.

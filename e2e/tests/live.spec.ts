@@ -2,7 +2,7 @@
 // page through the shell's WebSocket. The header says "Reconnecting…" while the browser is offline and the page
 // catches up when it is back; the socket opens under the stack's own Content-Security-Policy. Owns: its throwaway `e2e-live-*` rooms and users,
 // removed through the API in an `afterEach` (rooms first, then the users); the CSP test owns one throwaway user and no room. Every room is created by a throwaway user and only copies the
-// seeded Default template. Deletion scenarios act on their own messages. The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket, and the file's own
+// seeded Default template. Deletion scenarios act on their own messages and threads. The per-user `live-ticket` bucket (60 a minute) is far from reached: a sign-in or a page load mints one ticket, and the file's own
 // administrator (`specAdmins`) spends its own bucket, never the seed administrator's.
 import { type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { BASE_URL } from "../playwright.config";
@@ -359,6 +359,120 @@ test("a lost deletion response still removes the message and its quote live", as
   await expect(replyInOtherThread.getByRole("link", { name: /The quoted message was deleted/ })).toBeVisible();
   await expect(replyInOtherThread).not.toContainText(original);
   await expect(tombstone.getByRole("alert")).toHaveCount(0);
+  await expectNoReload(author);
+  await expectNoReload(reader);
+});
+
+test("thread deletion clears a merged conversation live and refreshes the writer once", async ({ page, browser }) => {
+  const room = await scene(page);
+  const sourceBody = "History from the merged source";
+  const targetTitle = await seedThread(room, "Canonical conversation");
+  await seedThread(room, sourceBody);
+  const roomPath = `/rooms/${room.roomId}`;
+  const targetPath = `${roomPath}/threads/1`;
+  const sourcePath = `${roomPath}/threads/2`;
+  const merged = await room.api.put(`/api/v1${sourcePath}/merge`, { data: { targetNumber: 1 } });
+  expect(merged.status(), await merged.text()).toBe(204);
+  const pinned = await room.api.put(`/api/v1${targetPath}/pin`, { data: { pinned: true } });
+  expect(pinned.status()).toBe(204);
+
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await author.page.clock.install();
+  await openLive(author, targetPath, room.roomId);
+  await openLive(reader, sourcePath, room.roomId);
+  await expect(messageNamed(reader.page, sourceBody)).toBeVisible();
+  await expect(threadListRow(author.page, targetTitle)).toBeVisible();
+  await expect(author.page.getByRole("button", { name: "Pinned (1)", exact: true })).toBeVisible();
+  await author.page.getByRole("button", { name: "Thread actions" }).click();
+  await author.page.getByRole("menuitem", { name: "Delete thread", exact: true }).click();
+  const confirmation = author.page.getByRole("dialog", { name: "Delete #1?", exact: true });
+  await author.page.clock.runFor(2_100);
+
+  const reads = { list: 0, pins: 0 };
+  author.page.on("request", (request) => {
+    if (request.method() !== "GET") return;
+    const path = new URL(request.url()).pathname;
+    if (path === `/api/v1${roomPath}/threads`) reads.list++;
+    if (path === `/api/v1${roomPath}/pins`) reads.pins++;
+  });
+
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await author.page.route((url) => url.pathname === `/api/v1${targetPath}`, async (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    const response = await route.fetch();
+    expect(response.status()).toBe(204);
+    await held;
+    await route.fulfill({ response });
+  });
+
+  try {
+    await confirmation.getByRole("button", { name: "Delete thread", exact: true }).click();
+    await expect.poll(() => author.frames.some((frame) => frame.kind === "thread.deleted")).toBe(true);
+    await author.page.clock.runFor(1_100);
+    await expect(threadListRow(author.page, targetTitle)).toHaveCount(0);
+    await expect(author.page.getByRole("button", { name: "Pinned (0)", exact: true })).toBeVisible();
+    await expect(reader.page.getByText("This thread does not exist.")).toBeVisible();
+    await expect(reader.page.getByText(sourceBody)).toHaveCount(0);
+  } finally {
+    release();
+  }
+
+  await expect(author.page).toHaveURL(new RegExp(`${roomPath}$`));
+  await author.page.clock.runFor(3_200);
+  expect(reads).toEqual({ list: 1, pins: 1 });
+  await expectNoReload(author);
+  await expectNoReload(reader);
+});
+
+test("a lost thread deletion response still clears a cross-room quote", async ({ page, browser }) => {
+  const room = await scene(page);
+  const sourceTitle = await seedThread(room);
+  const destinationRoom = await createSharedRoom(room.api, room.templateId, room.mate.id);
+  await seedThread({ ...room, roomId: destinationRoom });
+  const roomPath = `/rooms/${room.roomId}`;
+  const sourcePath = `${roomPath}/threads/1`;
+  const destinationPath = `/rooms/${destinationRoom}/threads/1`;
+  const original = "Quote from the thread being deleted";
+  const posted = await room.api.post(`/api/v1${sourcePath}/messages`, { data: { body: original } });
+  expect(posted.status()).toBe(201);
+  const { id } = await posted.json() as { id: number };
+  const quoted = await room.api.post(`/api/v1${destinationPath}/messages`, { data: { body: "Reply in the other room", quotedMessageId: id } });
+  expect(quoted.status()).toBe(201);
+
+  const author = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  await openLive(author, `${sourcePath}?scope=all`, room.roomId);
+  await openLive(reader, destinationPath, destinationRoom);
+  await expect.poll(() => reader.frames.some((frame) => frame.type === "subscribed" && frame.roomIds?.includes(room.roomId))).toBe(true);
+  const replyInOtherRoom = messageNamed(reader.page, "Reply in the other room");
+  await expect(replyInOtherRoom.getByRole("link", { name: new RegExp(original) })).toBeVisible();
+
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  await author.page.route((url) => url.pathname === `/api/v1${sourcePath}`, async (route) => {
+    if (route.request().method() !== "DELETE") return route.continue();
+    const response = await route.fetch();
+    expect(response.status()).toBe(204);
+    await held;
+    await route.abort();
+  });
+  await author.page.getByRole("button", { name: "Thread actions" }).click();
+  await author.page.getByRole("menuitem", { name: "Delete thread", exact: true }).click();
+  const confirmation = author.page.getByRole("dialog", { name: "Delete #1?", exact: true });
+  try {
+    await confirmation.getByRole("button", { name: "Delete thread", exact: true }).click();
+    await expect.poll(() => author.frames.some((frame) => frame.kind === "thread.deleted")).toBe(true);
+    await expect(threadListRow(author.page, sourceTitle)).toHaveCount(0);
+    await expect(replyInOtherRoom).toBeVisible();
+    await expect(replyInOtherRoom).not.toContainText(original);
+  } finally {
+    release();
+  }
+
+  await expect(author.page).toHaveURL(new RegExp(`${roomPath}\\?scope=all$`));
+  await expect(confirmation).toHaveCount(0);
   await expectNoReload(author);
   await expectNoReload(reader);
 });

@@ -10,9 +10,10 @@ import { deferReplyEcho } from "./liveReplyEcho";
 import { lookingAt } from "./lookingAt";
 import { clearRoomLinkPreviews } from "./linkPreviewCache";
 import { quoteDependencyKeys } from "./quoteCacheDependencies";
-import { resetDeletedThreadContent, threadLifecycleKeys } from "./threadLifecycleCache";
+import { deletedThreadDependencies, resetDeletedThreadContent, threadLifecycleKeys } from "./threadLifecycleCache";
 import { clearMessageRevisions, clearRoomMessageRevisions } from "./messageRevisionCache";
 import { commitTrackedMessageDelete } from "./messageDeleteCommit";
+import { commitTrackedThreadDelete } from "./threadDeleteCommit";
 
 const { rail: RAIL, list: ROOM_LIST, detail, access, joinRequests, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
 
@@ -214,6 +215,32 @@ function queueCorrelatedEditQuotes(
     .forEach((key) => queue(key, false, false));
 }
 
+function resetSensitiveSourceReads(
+  queryClient: QueryClient,
+  frame: LiveServerFrame,
+  roomLost: boolean,
+  queue: (key: QueryKey, spread: boolean, slow: boolean) => void,
+): void {
+  if (frame.type === "event" && frame.kind === "thread.deleted") {
+    void resetDeletedThreadContent(queryClient, frame.roomId, deletedThreadDependencies(queryClient, frame));
+    return;
+  }
+  const quoteDependencies = quoteDependencyKeys(queryClient, frame);
+  const quoteSourceChanged = frame.type === "event" &&
+    ["message.edited", "message.deleted", "room.deleted"].includes(frame.kind);
+  const quoteRoomId = frame.type === "event" || frame.type === "revoked" ? frame.roomId : null;
+  const quoteSourcePrefix = quoteRoomId === null ? null : [...threads(quoteRoomId), "quote-source"] as const;
+  const hasQuoteSourceReads = quoteSourcePrefix !== null && queryClient.getQueryCache().findAll({ queryKey: quoteSourcePrefix }).length > 0;
+  if (quoteSourcePrefix !== null && (roomLost || (frame.type === "event" && frame.kind === "message.deleted"))) {
+    // Security/lifecycle losses clear excerpts immediately and cancel replies issued under the old source permission.
+    if (hasQuoteSourceReads) void queryClient.resetQueries({ queryKey: quoteSourcePrefix });
+    for (const key of quoteDependencies) void queryClient.resetQueries({ queryKey: key, exact: true });
+  } else if (quoteSourcePrefix !== null && quoteSourceChanged) {
+    if (hasQuoteSourceReads) void queryClient.invalidateQueries({ queryKey: quoteSourcePrefix });
+    for (const key of quoteDependencies) queue(key, false, false);
+  }
+}
+
 /**
  * Turns frames into invalidations, coalesced (a burst of hints is one re-read per key) and spaced (a list at most every three seconds).
  * It NEVER cancels: while a key is being fetched it waits and tries again, because cancelling a fetch would drop a "Load older messages" click
@@ -290,27 +317,13 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
         return;
       }
       if (commitTrackedMessageDelete(queryClient, frame, () => active.get(queryClient)?.handle(frame))) return;
+      if (commitTrackedThreadDelete(queryClient, frame, () => active.get(queryClient)?.handle(frame))) return;
       const roomLost = frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted");
-      const quoteDependencies = quoteDependencyKeys(queryClient, frame);
-      const quoteSourceChanged = frame.type === "event" &&
-        ["message.edited", "message.deleted", "thread.deleted", "room.deleted"].includes(frame.kind);
-      const quoteRoomId = frame.type === "event" || frame.type === "revoked" ? frame.roomId : null;
-      const quoteSourcePrefix = quoteRoomId === null ? null : [...threads(quoteRoomId), "quote-source"] as const;
-      const hasQuoteSourceReads = quoteSourcePrefix !== null && queryClient.getQueryCache().findAll({ queryKey: quoteSourcePrefix }).length > 0;
-      if (quoteSourcePrefix !== null && (roomLost || (frame.type === "event" && ["message.deleted", "thread.deleted"].includes(frame.kind)))) {
-        // Security/lifecycle losses clear excerpts immediately and cancel replies issued under the old source permission.
-        if (hasQuoteSourceReads) void queryClient.resetQueries({ queryKey: quoteSourcePrefix });
-        for (const key of quoteDependencies) void queryClient.resetQueries({ queryKey: key, exact: true });
-      } else if (quoteSourcePrefix !== null && quoteSourceChanged) {
-        if (hasQuoteSourceReads) void queryClient.invalidateQueries({ queryKey: quoteSourcePrefix });
-        for (const key of quoteDependencies) queue(key, false, false);
-      }
+      const threadDeleted = frame.type === "event" && frame.kind === "thread.deleted";
+      resetSensitiveSourceReads(queryClient, frame, roomLost, queue);
       if (roomLost) {
         resetRoomReads(queryClient, frame.roomId, frame.type === "revoked");
         clearRoomLinkPreviews(queryClient, frame.roomId);
-      }
-      if (frame.type === "event" && frame.kind === "thread.deleted") {
-        void resetDeletedThreadContent(queryClient, frame.roomId);
       }
       if (frame.type === "event" && frame.kind === "room.member_role_changed") {
         clearRoomMessageRevisions(queryClient, frame.roomId);
@@ -337,6 +350,7 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       const slow = isSlowFrame(frame);
       for (const key of keysForFrame(frame)) {
         if (roomLost && key[0] === searchAllKey[0]) continue;
+        if (threadDeleted && key[0] === "rooms" && key[1] === "pins" && key[2] === frame.roomId) continue;
         if (!quiet || isBellKey(key)) queue(key, spread, slow);
       }
       arm();

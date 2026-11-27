@@ -4,32 +4,10 @@ import { quoteDependencyKeys } from "./quoteCacheDependencies";
 import { homeKey, notificationsKey, roomKeys } from "./roomKeys";
 import type { LiveServerFrame } from "./liveProtocol";
 import { activeQueriesAreFresh } from "./queryRefresh";
+import { createDeleteCommitTracker, type DeleteCommit } from "./deleteCommitTracker";
 
 type DeleteTarget = { roomId: number; threadNumber: number; messageId: number };
-type Replay = () => void;
-
-interface TrackedDelete extends DeleteTarget {
-  refresh: Promise<boolean> | null;
-  committed: boolean;
-  session: { valid: boolean };
-  expires: ReturnType<typeof setTimeout>;
-}
-
-interface DeleteRegistry {
-  operations: Map<string, TrackedDelete>;
-  session: { valid: boolean };
-}
-
-export interface MessageDeleteCommit {
-  /** HTTP 204 is authoritative even when the matching live hint has not arrived yet. */
-  confirm(): Promise<void>;
-  /** Whether the failed response is already settled by a live commit, or belongs to an ended logical session. */
-  reject(): Promise<boolean>;
-}
-
-const tracked = new WeakMap<QueryClient, DeleteRegistry>();
-const RETAIN_MS = 30_000;
-const MAX_TRACKED = 32;
+export type MessageDeleteCommit = DeleteCommit;
 const idOf = ({ roomId, threadNumber, messageId }: DeleteTarget) => `${roomId}:${threadNumber}:${messageId}`;
 
 function deleteFrameTarget(frame: LiveServerFrame): DeleteTarget | null {
@@ -88,11 +66,12 @@ function pendingMessageOrPinKeys(queryClient: QueryClient): QueryKey[] {
     .map(({ queryKey }) => queryKey);
 }
 
-function startRefresh(queryClient: QueryClient, operation: TrackedDelete, frame: LiveServerFrame): Promise<boolean> {
-  if (operation.refresh !== null) return operation.refresh;
-  if (!operation.session.valid) return Promise.resolve(false);
-  operation.committed = true;
-  const target: DeleteTarget = operation;
+function refreshMessageDelete(
+  queryClient: QueryClient,
+  target: DeleteTarget,
+  frame: LiveServerFrame,
+  sessionIsValid: () => boolean,
+): Promise<boolean> {
   const dependencies = quoteDependencyKeys(queryClient, frame);
   const keys = operationKeys(target, [...dependencies, ...pendingMessageOrPinKeys(queryClient)]);
 
@@ -104,81 +83,31 @@ function startRefresh(queryClient: QueryClient, operation: TrackedDelete, frame:
   });
   void queryClient.resetQueries({ queryKey: [...roomKeys.threads(target.roomId), "quote-source"] });
 
-  operation.refresh = Promise.all(cancellations)
-    .then(() => operation.session.valid
+  return Promise.all(cancellations)
+    .then(() => sessionIsValid()
       ? Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })))
       : [])
-    .then(() => {
-      return operation.session.valid && activeQueriesAreFresh(queryClient, ...keys);
-    });
-  return operation.refresh;
+    .then(() => sessionIsValid() && activeQueriesAreFresh(queryClient, ...keys));
 }
 
-function remove(queryClient: QueryClient, operation: TrackedDelete): void {
-  const registry = tracked.get(queryClient);
-  if (registry?.operations.get(idOf(operation)) !== operation) return;
-  clearTimeout(operation.expires);
-  registry.operations.delete(idOf(operation));
-}
+const tracker = createDeleteCommitTracker<DeleteTarget>({
+  idOf,
+  targetFromFrame: deleteFrameTarget,
+  frameFromTarget: (target) => ({ type: "event", kind: "message.deleted", ...target }),
+  refresh: refreshMessageDelete,
+});
 
 /** Register before DELETE starts; registration alone never changes cached content. */
 export function beginMessageDeleteCommit(queryClient: QueryClient, target: DeleteTarget): MessageDeleteCommit {
-  let registry = tracked.get(queryClient);
-  if (registry === undefined) {
-    registry = { operations: new Map(), session: { valid: true } };
-    tracked.set(queryClient, registry);
-  }
-  const operations = registry.operations;
-  const previous = operations.get(idOf(target));
-  if (previous !== undefined) remove(queryClient, previous);
-  if (operations.size >= MAX_TRACKED) {
-    // The size guard makes the map's first value non-null.
-    remove(queryClient, operations.values().next().value as TrackedDelete);
-  }
-  const operation: TrackedDelete = {
-    ...target,
-    refresh: null,
-    committed: false,
-    session: registry.session,
-    expires: setTimeout(() => remove(queryClient, operation), RETAIN_MS),
-  };
-  operations.set(idOf(target), operation);
-  const syntheticFrame: LiveServerFrame = { type: "event", kind: "message.deleted", ...target };
-  return {
-    confirm: () => startRefresh(queryClient, operation, syntheticFrame).then(() => undefined),
-    async reject() {
-      if (!operation.session.valid) return true;
-      if (!operation.committed) {
-        remove(queryClient, operation);
-        return false;
-      }
-      await operation.refresh;
-      return operation.committed;
-    },
-  };
+  return tracker.begin(queryClient, target);
 }
 
 /** Consume only an exact, terminal hint for a delete begun in this QueryClient. */
-export function commitTrackedMessageDelete(queryClient: QueryClient, frame: LiveServerFrame, replay: Replay): boolean {
-  const target = deleteFrameTarget(frame);
-  if (target === null) return false;
-  const operation = tracked.get(queryClient)?.operations.get(idOf(target));
-  if (operation === undefined) return false;
-  void startRefresh(queryClient, operation, frame).then((reliable) => {
-    if (!reliable && operation.session.valid) {
-      remove(queryClient, operation);
-      replay();
-    }
-  });
-  return true;
+export function commitTrackedMessageDelete(queryClient: QueryClient, frame: LiveServerFrame, replay: () => void): boolean {
+  return tracker.commit(queryClient, frame, replay);
 }
 
 /** A logical session boundary must not retain proof from the previous caller. */
 export function clearMessageDeleteCommits(queryClient: QueryClient): void {
-  const registry = tracked.get(queryClient);
-  registry?.operations.forEach((operation) => {
-    clearTimeout(operation.expires);
-  });
-  if (registry !== undefined) registry.session.valid = false;
-  tracked.delete(queryClient);
+  tracker.clear(queryClient);
 }
