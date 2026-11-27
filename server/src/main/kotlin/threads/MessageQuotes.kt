@@ -123,7 +123,7 @@ internal suspend fun checkedQuote(roomId: UInt, quotedId: UInt, viewerId: UInt):
         .select(Messages.id, Messages.threadId, Messages.authorId, Messages.editedAt, threads.number, head)
         .where {
             (Messages.id eq quotedId) and (threads.roomId eq roomId) and Messages.active() and threads.active() and rooms.active() and
-                quoteRoomReadable(threads.roomId, viewerId)
+                roomContentReadable(threads.roomId, viewerId)
         }
         .toList().singleOrNull() ?: throw quoteUnavailable()
     return QuotedMessage(
@@ -132,7 +132,7 @@ internal suspend fun checkedQuote(roomId: UInt, quotedId: UInt, viewerId: UInt):
     )
 }
 
-private fun quoteRoomReadable(roomId: Column<EntityID<UInt>>, viewerId: UInt): Op<Boolean> {
+internal fun roomContentReadable(roomId: Column<EntityID<UInt>>, viewerId: UInt): Op<Boolean> {
     val users = UserService.Users
     val members = RoomService.RoomMembers
     val rooms = RoomService.Rooms
@@ -172,7 +172,10 @@ internal suspend fun quotedMessagesOf(
                 Messages.id, Messages.threadId, Messages.authorId, Messages.markedAsDeleted, Messages.editedAt,
                 threads.roomId, threads.number, head,
             )
-            .where { (Messages.id inList missing) and threads.active() and rooms.active() and quoteRoomReadable(threads.roomId, viewerId) }
+            .where {
+                (Messages.id inList missing) and threads.active() and rooms.active() and
+                    roomContentReadable(threads.roomId, viewerId)
+            }
             .toList().map { it.toQuoted(it[threads.roomId].value, it[threads.number], head) }.forEach { known[it.id] = it }
     }
     return asking.mapNotNull { row ->

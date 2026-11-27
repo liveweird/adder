@@ -22,6 +22,12 @@ export const homeKey = ["home"] as const;
 /** The caller's saved groups and room positions, shared by the organizer and the navigation. */
 export const roomOrganizationKey = ["room-organization"] as const;
 
+/** Authorization-aware numeric-reference verdicts, outside room projections so broad room refreshes never await content lookups. */
+export const threadReferenceKeys = {
+  all: ["thread-references"] as const,
+  room: (room: number) => ["thread-references", room] as const,
+};
+
 export const roomKeys = {
   /** Everything about rooms: the blunt refresh after a refusal, and a live `resync`. */
   all: ["rooms"] as const,

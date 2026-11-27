@@ -14,6 +14,7 @@ import { deletedThreadDependencies, resetDeletedThreadContent, threadLifecycleKe
 import { clearMessageRevisions, clearRoomMessageRevisions } from "./messageRevisionCache";
 import { commitTrackedMessageDelete } from "./messageDeleteCommit";
 import { commitTrackedThreadDelete } from "./threadDeleteCommit";
+import { allThreadReferenceKeys, resetPositiveThreadReferences, resetThreadReferences, settledThreadReferenceKeys, unresolvedThreadReferenceKeys } from "./threadReferenceCache";
 
 const { rail: RAIL, list: ROOM_LIST, detail, access, joinRequests, members, workflow, workflowEdit, pins, threads, threadList, threadDetail, threadEvents, messages } = roomKeys;
 
@@ -220,9 +221,10 @@ function resetSensitiveSourceReads(
   frame: LiveServerFrame,
   roomLost: boolean,
   queue: (key: QueryKey, spread: boolean, slow: boolean) => void,
+  quiet: boolean,
 ): void {
   if (frame.type === "event" && frame.kind === "thread.deleted") {
-    void resetDeletedThreadContent(queryClient, frame.roomId, deletedThreadDependencies(queryClient, frame));
+    void resetDeletedThreadContent(queryClient, frame.roomId, deletedThreadDependencies(queryClient, frame), !quiet);
     return;
   }
   const quoteDependencies = quoteDependencyKeys(queryClient, frame);
@@ -241,6 +243,13 @@ function resetSensitiveSourceReads(
   }
 }
 
+function newlyReadableReferenceKeys(queryClient: QueryClient, frame: LiveServerFrame): QueryKey[] {
+  if (frame.type !== "event") return [];
+  if (frame.kind === "thread.created") return unresolvedThreadReferenceKeys(queryClient, frame.roomId, frame.threadNumber);
+  if (frame.kind === "room.member_added") return unresolvedThreadReferenceKeys(queryClient, frame.roomId);
+  return [];
+}
+
 /**
  * Turns frames into invalidations, coalesced (a burst of hints is one re-read per key) and spaced (a list at most every three seconds).
  * It NEVER cancels: while a key is being fetched it waits and tries again, because cancelling a fetch would drop a "Load older messages" click
@@ -252,6 +261,7 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
   let timer: unknown = null;
   let timerDueAt = 0;
   let quiet = false;
+  let connected = false;
   const isBellKey = (key: QueryKey) => key[0] === notificationsKey[0];
 
   function arm(): void {
@@ -268,7 +278,8 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
     const now = clock.now();
     for (const [id, entry] of [...pending]) {
       if (entry.dueAt > now) continue;
-      if (queryClient.isFetching({ queryKey: entry.key }) > 0) {
+      const filters = { queryKey: entry.key };
+      if (queryClient.isFetching(filters) > 0) {
         entry.dueAt = now + SETTLE_MS;
         continue;
       }
@@ -277,7 +288,7 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       // must still hold a reaction right after it to the 3 s gap. A wider re-read stamps the aggregates it covers (the 3 s guarantee holds).
       lastFlushedAt.set(id, now);
       for (const covered of coveredAggregates(entry.key)) lastFlushedAt.set(covered, now);
-      void queryClient.invalidateQueries({ queryKey: entry.key });
+      void queryClient.invalidateQueries(filters);
     }
     arm();
   }
@@ -309,6 +320,22 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       quiet = next;
     },
     handle(frame) {
+      if (frame.type === "ready" || frame.type === "resync") {
+        const includePending = frame.type === "resync" || connected;
+        const keys = includePending ? allThreadReferenceKeys(queryClient) : settledThreadReferenceKeys(queryClient);
+        resetPositiveThreadReferences(queryClient);
+        if (!quiet) keys.forEach((key) => queue(key, true, false));
+        if (frame.type === "ready") connected = true;
+      }
+      if (frame.type === "subscribed") frame.roomIds.forEach((roomId) => {
+        const keys = settledThreadReferenceKeys(queryClient, roomId);
+        resetPositiveThreadReferences(queryClient, roomId);
+        if (!quiet) keys.forEach((key) => queue(key, true, false));
+      });
+      if (frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted")) {
+        void resetThreadReferences(queryClient, frame.roomId);
+      }
+      if (!quiet) newlyReadableReferenceKeys(queryClient, frame).forEach((key) => queue(key, false, false));
       if (deferReplyEcho(queryClient, frame, () => active.get(queryClient)?.handle(frame))) {
         // The edit writer's own refresh covers every source-room thread read and the source room's pins. Quotes rendered in another room are
         // independent reads, so keep their ordinary invalidation even while the exact correlated event waits for the write response.
@@ -320,7 +347,7 @@ export function createLiveInvalidator(queryClient: QueryClient, clock: LiveClock
       if (commitTrackedThreadDelete(queryClient, frame, () => active.get(queryClient)?.handle(frame))) return;
       const roomLost = frame.type === "revoked" || (frame.type === "event" && frame.kind === "room.deleted");
       const threadDeleted = frame.type === "event" && frame.kind === "thread.deleted";
-      resetSensitiveSourceReads(queryClient, frame, roomLost, queue);
+      resetSensitiveSourceReads(queryClient, frame, roomLost, queue, quiet);
       if (roomLost) {
         resetRoomReads(queryClient, frame.roomId, frame.type === "revoked");
         clearRoomLinkPreviews(queryClient, frame.roomId);

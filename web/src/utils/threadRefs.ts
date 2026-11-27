@@ -19,19 +19,21 @@ export type ThreadRefSegment = { text: string; number?: undefined } | { text: st
 /**
  * `value` cut into text and reference segments, in order, or null when it holds no reference (the text is left exactly as it is: only a node
  * that holds one is NFC-normalised). `before` is the character that sits just before `value` in the document when a neighbouring node
- * carries it (the lookbehind needs it), "" by default.
+ * carries it (the lookbehind needs it), "" by default. With a positive limit, the unsplit remainder stays text.
  */
-export function threadRefSegments(value: string, before = ""): ThreadRefSegment[] | null {
+export function threadRefSegments(value: string, before = "", limit = Infinity): ThreadRefSegment[] | null {
   if (!value.includes("#")) return null;
   const text = value.normalize("NFC");
   const lead = before.length;
   const segments: ThreadRefSegment[] = [];
   let from = 0;
+  let remaining = limit;
   for (const match of (before + text).matchAll(THREAD_REF)) {
     const start = match.index - lead;
     if (start > from) segments.push({ text: text.slice(from, start) });
     segments.push({ text: `#${match[1]}`, number: Number(match[1]) });
     from = start + match[1].length + 1;
+    if (--remaining === 0) break;
   }
   if (segments.length === 0) return null;
   if (from < text.length) segments.push({ text: text.slice(from) });

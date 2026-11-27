@@ -5,7 +5,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { IconArrowRight, IconHistory, IconPencil, IconPinFilled, IconQuote, IconTrash } from "@tabler/icons-react";
 import { deleteMessage, type MessageResponse } from "../api/messages";
 import type { RoomResponse } from "../api/rooms";
-import { useThreadRefHref } from "../hooks/useThreadRefHref";
 import { formatDateTime } from "../utils/formatDate";
 import type { MessageActions } from "../utils/messageAccess";
 import { messageErrorMessage } from "../utils/messageForm";
@@ -95,7 +94,6 @@ export default function MessageItem({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const threadHref = useThreadRefHref(roomId);
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [historyOpened, setHistoryOpened] = useState(false);
@@ -265,7 +263,7 @@ export default function MessageItem({
               <MarkdownView
                 variant="message"
                 tagHref={(tag) => tagFilterPath(roomId, message.threadNumber, tag)}
-                threadHref={threadHref}
+                threadRoomId={roomId}
                 mentions={message.mentions}
                 groupMentions={message.groupMentions}
                 linkSource={{ roomId, messageId: message.id, editedAt: message.editedAt }}

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.39.0
+  version: 1.40.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -1920,6 +1920,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ThreadSearchPage'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/rooms/{id}/thread-references:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [threads]
+      operationId: listThreadReferences
+      summary: Find readable thread numbers in one room
+      description: |
+        Returns the requested numbers that identify active threads in this room. Readable merged source conversations are included at their
+        original numbers. Missing and deleted threads are omitted. Authorized readers may use this in archived rooms.
+
+        Requires ordinary access to the room's content. An unknown or unreadable room returns the same `404` before query validation.
+        The read is scoped to current room access. The only filter and sortable field is `number`, with ascending number order by default.
+        Rides the per-user `chat-read` bucket and the shared thread-list read budget.
+      parameters:
+        - name: number
+          in: query
+          required: true
+          description: Thread numbers in this room. Supply 1 to 100 distinct positive numbers by repeating the parameter. Duplicates are collapsed.
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items: { type: integer, format: int32, minimum: 1, maximum: 2147483647 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Sort'
+      responses:
+        '200':
+          description: Page of readable thread numbers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadReferencePage'
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -5429,6 +5470,22 @@ components:
         The thread's HASHTAGS (the `#word`s of its live messages, 0.5.0): the distinct stored (case- and accent-folded)
         keys, alphabetical, at most 20. Each is a valid `tag` filter value of the thread list. A deleted message's hashtags are gone; an edit adds or drops them.
       items: { type: string, minLength: 1, maxLength: 150 }
+    ThreadReference:
+      type: object
+      required: [number]
+      properties:
+        number: { type: integer, format: int32, minimum: 1, description: A readable thread's original per-room number. }
+    ThreadReferencePage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThreadReference'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0, maximum: 100 }
     ThreadListItem:
       type: object
       required: [id, number, title, status, closed, ownerId, ownerName, messageCount, lastActivityAt, createdAt, unreadCount, watching, hashtags, tags]

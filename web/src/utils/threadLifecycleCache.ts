@@ -4,6 +4,7 @@ import { clearRoomMessageRevisions } from "./messageRevisionCache";
 import { quoteDependencyKeys } from "./quoteCacheDependencies";
 import { homeKey, notificationsKey, roomKeys, searchAllKey } from "./roomKeys";
 import type { LiveServerFrame } from "./liveProtocol";
+import { refreshThreadReferencesAfterDeletion, resetThreadReferences } from "./threadReferenceCache";
 
 /** Shared invalidation for a local lifecycle mutation or a live hint from another writer. */
 export function threadLifecycleKeys(roomId: number, deleted: boolean): QueryKey[] {
@@ -56,10 +57,12 @@ export async function resetDeletedThreadContent(
   queryClient: QueryClient,
   roomId: number,
   dependencies: readonly QueryKey[] = [],
+  refreshReferences = true,
 ): Promise<void> {
   clearRoomLinkPreviews(queryClient, roomId);
   clearRoomMessageRevisions(queryClient, roomId);
   await Promise.all([
+    refreshReferences ? refreshThreadReferencesAfterDeletion(queryClient, roomId) : resetThreadReferences(queryClient, roomId),
     queryClient.resetQueries({ queryKey: searchAllKey, predicate: ({ queryKey }) => isAffectedSearch(queryKey, roomId) }),
     queryClient.resetQueries({
       queryKey: roomKeys.threads(roomId),

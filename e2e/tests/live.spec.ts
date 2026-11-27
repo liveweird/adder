@@ -38,6 +38,7 @@ interface Frame {
   roomId?: number;
   roomIds?: number[];
   kind?: string;
+  threadNumber?: number;
   messageId?: number;
   mutationId?: string;
 }
@@ -477,6 +478,73 @@ test("a lost thread deletion response still clears a cross-room quote", async ({
   await expectNoReload(reader);
 });
 
+test("numeric thread references link readable targets and update after creation or deletion", async ({ page, browser }) => {
+  const room = await scene(page);
+  const path = `/rooms/${room.roomId}`;
+  await seedThread(room, "Merge destination");
+  await seedThread(room, "Original source history");
+  await seedThread(room, "Thread that leaves a gap");
+  await seedThread(room, "Conversation with references");
+  const merged = await room.api.put(`/api/v1${path}/threads/2/merge`, { data: { targetNumber: 1 } });
+  expect(merged.status()).toBe(204);
+  const gap = await room.api.delete(`/api/v1${path}/threads/3`);
+  expect(gap.status()).toBe(204);
+  const body = "Reference examples: #2 and again #2. Missing #3, future #5, inline code `#2`.";
+  const reply = await room.api.post(`/api/v1${path}/threads/4/messages`, { data: { body } });
+  expect(reply.status()).toBe(201);
+
+  const reader = await signedIn(browser, room.mate);
+  const lookups: URL[] = [];
+  reader.page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (request.method() === "GET" && url.pathname === `/api/v1${path}/thread-references`) lookups.push(url);
+  });
+  await openLive(reader, `${path}/threads/4?scope=all`, room.roomId);
+  const message = messageNamed(reader.page, "Reference examples");
+  await expect(message).toBeVisible();
+  const link = (number: number) => message.getByRole("link", { name: `#${number}`, exact: true });
+  await expect(link(2)).toHaveCount(2);
+  await expect(link(2).first()).toHaveAttribute("href", `${path}/threads/2?scope=all`);
+  await expect(link(3)).toHaveCount(0);
+  await expect(link(5)).toHaveCount(0);
+  await expect(message.locator("code")).toHaveText("#2");
+  expect(lookups.some((url) => url.searchParams.getAll("number").sort().join(",") === "2,3,5")).toBe(true);
+  expect(lookups.every((url) => new Set(url.searchParams.getAll("number")).size === url.searchParams.getAll("number").length)).toBe(true);
+
+  await seedThread(room, "Newly available thread");
+  await expect(link(5)).toHaveAttribute("href", `${path}/threads/5?scope=all`);
+  const removed = await room.api.delete(`/api/v1${path}/threads/1`);
+  expect(removed.status()).toBe(204);
+  await expect(link(2)).toHaveCount(0);
+  await expect(message).toContainText("#2 and again #2");
+  await expect(link(5)).toBeVisible();
+  await expect(link(2)).toHaveCount(0);
+
+  let releaseLookup!: () => void;
+  let lookupCaptured = false;
+  const heldLookup = new Promise<void>((resolve) => { releaseLookup = resolve; });
+  await reader.page.route((url) => url.pathname === `/api/v1${path}/thread-references` && url.searchParams.getAll("number").includes("6"), async (route) => {
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    expect(await response.json()).toMatchObject({ items: [] });
+    lookupCaptured = true;
+    await heldLookup;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  const lateReference = messageNamed(reader.page, "One more future reference").getByRole("link", { name: "#6", exact: true });
+  try {
+    const posted = await room.api.post(`/api/v1${path}/threads/4/messages`, { data: { body: "One more future reference: #6." } });
+    expect(posted.status()).toBe(201);
+    await expect.poll(() => lookupCaptured).toBe(true);
+    await seedThread(room, "Thread created during lookup");
+    await expect.poll(() => reader.frames.some((frame) => frame.kind === "thread.created" && frame.threadNumber === 6)).toBe(true);
+  } finally {
+    releaseLookup();
+  }
+  await expect(lateReference).toHaveAttribute("href", `${path}/threads/6?scope=all`);
+  await expectNoReload(reader);
+});
+
 async function openMergeDialog(page: Page, title: string) {
   await page.getByRole("button", { name: "Thread actions" }).click();
   await page.getByRole("menuitem", { name: "Merge duplicate", exact: true }).click();
@@ -776,10 +844,14 @@ test("a member removed from a room loses it from the rail and the open room", as
 
 test("the header says it is reconnecting while the browser is offline", async ({ page, browser }) => {
   const room = await scene(page);
-  const title = await seedThread(room);
+  const title = await seedThread(room, "The second conversation is #2.");
+  await seedThread(room);
   const offline = await signedIn(browser, room.mate);
   await openLive(offline, `/rooms/${room.roomId}/threads/1`, room.roomId);
   await expect(offline.page.getByRole("heading", { level: 3, name: `#1 ${title}` })).toBeVisible();
+  const original = messageNamed(offline.page, "The second conversation");
+  const reference = original.getByRole("link", { name: "#2", exact: true });
+  await expect(reference).toBeVisible();
   const badge = offline.page.getByText("Reconnecting…", { exact: true });
   await expect(badge).toHaveCount(0);
 
@@ -788,12 +860,17 @@ test("the header says it is reconnecting while the browser is offline", async ({
   await expect(badge).toBeVisible({ timeout: 15_000 });
   const posted = await room.api.post(`/api/v1/rooms/${room.roomId}/threads/1/messages`, { data: { body: "Posted while you were away." } });
   expect(posted.status(), await posted.text()).toBe(201);
+  const removed = await room.api.delete(`/api/v1/rooms/${room.roomId}/threads/2`);
+  expect(removed.status()).toBe(204);
   await expect(messageNamed(offline.page, "Posted while you were away.")).toHaveCount(0);
 
   // Back online: the socket reconnects at once, the badge goes and the page catches up on what it missed.
   await offline.context.setOffline(false);
   await expect(badge).toHaveCount(0, { timeout: 15_000 });
   await expect(messageNamed(offline.page, "Posted while you were away.")).toBeVisible();
+  await expect(reference).toHaveCount(0);
+  await expect(original).toContainText("The second conversation is #2.");
+  await expectNoReload(offline);
 });
 
 test("the live socket opens under the production content security policy", async ({ page, browser }) => {
