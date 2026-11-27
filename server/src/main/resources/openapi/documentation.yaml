@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.42.0
+  version: 1.43.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -1444,6 +1444,15 @@ paths:
         A room owner decides a request. Approval grants membership in the same transaction. Rejection leaves the applicant outside the
         room and records the outcome in their access preview. A later request has a new id. The room-members bucket permits 60 writes
         per user per minute.
+      parameters:
+        - name: X-Mutation-Id
+          in: header
+          required: false
+          description: |
+            Correlates an approval that creates a membership with `room.member_added` on the approver's account sockets.
+            Supply at most one canonical lowercase UUIDv4. A malformed or repeated value returns `400` after authorization and lookup of the pending request.
+            Rejection, approval without a new membership, and the applicant's events never carry the identifier.
+          schema: { $ref: '#/components/schemas/LiveMutationId' }
       requestBody:
         required: true
         content:

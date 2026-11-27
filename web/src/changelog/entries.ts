@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.43.0",
+    date: "2026-11-27",
+    en: `**Adder 1.43.0 — fewer duplicate reads after approving room access**
+
+- When you approve a join request, your tab can refresh the roster and request queue once for the successful response and its matching live update.
+- The applicant can open the room as soon as the approval is saved.`,
+    pl: `**Adder 1.43.0 — mniej powtórnych odświeżeń po zatwierdzeniu dostępu do pokoju**
+
+- Po zatwierdzeniu prośby o dołączenie karta może raz odświeżyć listę członków i kolejkę próśb po potwierdzeniu zapisu i pasującym zdarzeniu na żywo.
+- Osoba składająca prośbę może otworzyć pokój od razu po zatwierdzeniu.`,
+  },
+  {
     version: "1.42.0",
     date: "2026-11-27",
     en: `**Adder 1.42.0 — fewer duplicate reads after changing a room role**

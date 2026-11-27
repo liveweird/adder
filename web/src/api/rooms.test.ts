@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { addRoomMembers, archiveRoom, createRoom, deleteRoom, getRoom, getRoomWorkflow, listRoomMembers, listRooms, markRoomRead, markRoomSeen, removeRoomMember, setRoomMemberRole, unarchiveRoom, updateRoom } from "./rooms";
+import { addRoomMembers, archiveRoom, createRoom, decideRoomJoinRequest, deleteRoom, getRoom, getRoomWorkflow, listRoomMembers, listRooms, markRoomRead, markRoomSeen, removeRoomMember, setRoomMemberRole, unarchiveRoom, updateRoom } from "./rooms";
 
 describe("rooms API wrappers", () => {
   let mockFetch: ReturnType<typeof vi.fn>;
@@ -73,6 +73,19 @@ describe("rooms API wrappers", () => {
     expect([url, init.method]).toEqual(["/api/v1/rooms/5/members", "POST"]);
     expect(JSON.parse(init.body as string)).toEqual({ userIds: [3, 4], teamId: 9 });
     expect(new Headers(init.headers).get("X-Mutation-Id")).toBe(mutationId);
+  });
+
+  test("join-request approval carries optional correlation while rejection omits it", async () => {
+    mockFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    const mutationId = "14d7ed05-24c1-4374-b6eb-60b147595822";
+    await decideRoomJoinRequest(5, 17, "APPROVE", mutationId);
+    expect([lastCall()[0], lastCall()[1].method, JSON.parse(lastCall()[1].body as string)])
+      .toEqual(["/api/v1/rooms/5/join-requests/17", "PUT", { decision: "APPROVE" }]);
+    expect(new Headers(lastCall()[1].headers).get("X-Mutation-Id")).toBe(mutationId);
+
+    await decideRoomJoinRequest(5, 18, "REJECT");
+    expect(JSON.parse(lastCall()[1].body as string)).toEqual({ decision: "REJECT" });
+    expect(new Headers(lastCall()[1].headers).get("X-Mutation-Id")).toBeNull();
   });
 
   test("setRoomMemberRole PUTs the role and removeRoomMember DELETEs the member", async () => {

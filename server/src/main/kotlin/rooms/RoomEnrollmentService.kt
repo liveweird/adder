@@ -118,6 +118,7 @@ class RoomEnrollmentService(private val database: R2dbcDatabase, private val not
         requestId: UInt,
         caller: CallerPrincipal,
         request: RoomJoinDecisionRequest,
+        readMutationId: () -> String?,
     ): RoomJoinDecisionOutcome = database.withRoomWrite(roomId, caller, ownerGuard) { fresh, standing ->
         if (standing.accessType != RoomAccessType.RESTRICTED_VISIBLE) throw ForbiddenException()
         val users = UserService.Users
@@ -129,6 +130,7 @@ class RoomEnrollmentService(private val database: R2dbcDatabase, private val not
             .toList()
             .singleOrNull() ?: throw NotFoundException("Join request not found")
         val userId = requestRow[RoomJoinRequests.userId].value
+        val mutationId = readMutationId()
         if (request.decision == RoomJoinDecision.REJECT) {
             RoomJoinRequests.update({ RoomJoinRequests.id eq requestId }) {
                 it[status] = RoomJoinRequestStatus.REJECTED.name
@@ -139,12 +141,12 @@ class RoomEnrollmentService(private val database: R2dbcDatabase, private val not
             clearRequest(roomId, userId)
             return@withRoomWrite RoomJoinDecisionOutcome(request.decision, userId)
         }
-        addMember(roomId, userId)
+        addMember(roomId, userId, mutationId, fresh.userId)
         val created = notices.membersAdded(roomId, fresh.userId, listOf(userId), setOf(userId))
         RoomJoinDecisionOutcome(request.decision, userId, created)
     }
 
-    private suspend fun addMember(roomId: UInt, userId: UInt) {
+    private suspend fun addMember(roomId: UInt, userId: UInt, mutationId: String? = null, originUserId: UInt? = null) {
         val members = RoomService.RoomMembers
         val activeCount = members.innerJoin(UserService.Users).select(members.userId)
             .where { (members.roomId eq roomId) and UserService.Users.active() }
@@ -158,7 +160,15 @@ class RoomEnrollmentService(private val database: R2dbcDatabase, private val not
             it[addedAt] = stamp
         }
         clearRequest(roomId, userId)
-        notifyLive(LiveHint(LiveKind.ROOM_MEMBER_ADDED, roomId, targetUserIds = listOf(userId)))
+        notifyLive(
+            LiveHint(
+                LiveKind.ROOM_MEMBER_ADDED,
+                roomId,
+                targetUserIds = listOf(userId),
+                mutationId = mutationId,
+                originUserId = originUserId.takeIf { mutationId != null },
+            ),
+        )
     }
 
     private suspend fun activeRole(roomId: UInt, userId: UInt): RoomRole? {

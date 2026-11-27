@@ -29,6 +29,7 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
 - **Joining.** Owners decide pending requests in Members. Approval grants membership immediately. Rejection is visible to the applicant,
   who may send another request with a new id. Direct additions clear outstanding requests. A new member can read earlier threads and messages.
   The join date sets the start of unread tracking. An OWNER can promote any member to OWNER or step down to MEMBER while another active OWNER remains.
+  The decision PUT accepts optional `X-Mutation-Id` after the locked owner check and pending-request lookup. Only an approval that inserts membership can correlate the owner’s live event.
 - **Deleted users.** Their membership rows stay inert. Lists and the last-OWNER count resolve through active users. Account deletion retains its
   separate rules. If it removes the last active owner of a hidden room, recovery through the app requires an existing ADMIN member.
 - **Room names** may not contain invisible formatting characters (Unicode category Cf, U+2028/U+2029): a `400`, applied to room names only (`rooms/Room.kt`), so two rooms never look identical and a bidi override cannot reorder a name.

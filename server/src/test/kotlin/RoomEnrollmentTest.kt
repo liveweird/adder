@@ -2,6 +2,9 @@ package ch.nokillswit
 
 import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.infra.MUTATION_ID_HEADER
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.rooms.RoomAccessResponse
 import ch.nokillswit.rooms.RoomJoinDecision
 import ch.nokillswit.rooms.RoomJoinDecisionRequest
@@ -12,9 +15,16 @@ import ch.nokillswit.rooms.RoomPageResponse
 import ch.nokillswit.rooms.RoomResponse
 import ch.nokillswit.users.UserRole
 import io.ktor.client.call.body
+import io.ktor.client.HttpClient
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import java.util.UUID
@@ -24,6 +34,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /** V36 room discovery, self-enrollment and owner-reviewed requests. */
 class RoomEnrollmentTest {
@@ -53,6 +65,19 @@ class RoomEnrollmentTest {
     private fun access(roomId: UInt) = "$rooms/$roomId/access"
     private fun join(roomId: UInt) = "$rooms/$roomId/join"
     private fun requests(roomId: UInt) = "$rooms/$roomId/join-requests"
+
+    private suspend fun HttpClient.decideCorrelated(
+        roomId: UInt,
+        requestId: UInt,
+        decision: RoomJoinDecision,
+        mutationId: String,
+        repeatMutationId: Boolean = false,
+    ): HttpResponse = put("${requests(roomId)}/$requestId") {
+        contentType(ContentType.Application.Json)
+        header(MUTATION_ID_HEADER, mutationId)
+        if (repeatMutationId) headers.append(MUTATION_ID_HEADER, mutationId)
+        setBody(RoomJoinDecisionRequest(decision))
+    }
 
     @Test
     fun `visible rooms are discoverable, hidden rooms stay private, and anyone may join a public room`() = testApplication {
@@ -139,6 +164,150 @@ class RoomEnrollmentTest {
         assertEquals(RoomRole.MEMBER, joined.role)
         assertEquals(2, joined.ownerCount)
         assertEquals(0L, owner.client.get(requests(room)).body<RoomJoinRequestPageResponse>().total)
+    }
+
+    @Test
+    fun `approval correlation is emitted only for a real membership`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("enroll-echo-owner")
+        val approved = actor("enroll-echo-approved")
+        val rejected = actor("enroll-echo-rejected")
+        val publicJoiner = actor("enroll-echo-public")
+        val room = room(owner, RoomAccessType.RESTRICTED_VISIBLE)
+        val publicRoom = room(owner, RoomAccessType.PUBLIC)
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        assertEquals(HttpStatusCode.NoContent, approved.client.post(requests(room)).status)
+        assertEquals(HttpStatusCode.NoContent, rejected.client.post(requests(room)).status)
+        val pending = owner.client.get(requests(room)).body<RoomJoinRequestPageResponse>().items.associateBy { it.userId }
+
+        NotifyCapture().use { capture ->
+            val approvalHints = capture.during {
+                assertEquals(
+                    HttpStatusCode.NoContent,
+                    owner.client.decideCorrelated(room, pending.getValue(approved.id).id, RoomJoinDecision.APPROVE, mutationId).status,
+                )
+            }
+            assertEquals(
+                listOf(
+                    LiveHint(
+                        LiveKind.ROOM_MEMBER_ADDED,
+                        room,
+                        targetUserIds = listOf(approved.id),
+                        mutationId = mutationId,
+                        originUserId = owner.id,
+                    ),
+                    LiveHint(LiveKind.NOTIFICATION_CREATED, room, targetUserIds = listOf(approved.id)),
+                ),
+                approvalHints,
+            )
+            val rejectionHints = capture.during {
+                assertEquals(
+                    HttpStatusCode.NoContent,
+                    owner.client.decideCorrelated(room, pending.getValue(rejected.id).id, RoomJoinDecision.REJECT, mutationId).status,
+                )
+            }
+            assertEquals(emptyList(), rejectionHints)
+            val publicHints = capture.during {
+                assertEquals(HttpStatusCode.NoContent, publicJoiner.client.post(join(publicRoom)) {
+                    header(MUTATION_ID_HEADER, mutationId)
+                }.status)
+            }
+            assertEquals(
+                listOf(LiveHint(LiveKind.ROOM_MEMBER_ADDED, publicRoom, targetUserIds = listOf(publicJoiner.id))),
+                publicHints,
+            )
+        }
+        assertEquals(RoomRole.MEMBER, approved.client.get("$rooms/$room").body<RoomResponse>().role)
+        assertEquals(HttpStatusCode.NotFound, rejected.client.get("$rooms/$room").status)
+    }
+
+    @Test
+    fun `decision correlation is lazy and validates no-membership outcomes`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("enroll-echo-order-owner")
+        val member = actor("enroll-echo-order-member")
+        val requester = actor("enroll-echo-order-requester")
+        val alreadyMember = actor("enroll-echo-order-existing")
+        val room = room(owner, RoomAccessType.RESTRICTED_VISIBLE)
+        TestRooms.addMember(room, member.id)
+        assertEquals(HttpStatusCode.NoContent, requester.client.post(requests(room)).status)
+        assertEquals(HttpStatusCode.NoContent, alreadyMember.client.post(requests(room)).status)
+        val pending = owner.client.get(requests(room)).body<RoomJoinRequestPageResponse>().items.associateBy { it.userId }
+        TestRooms.addMember(room, alreadyMember.id)
+        val malformed = "2C6C7F12-79A4-4F1A-8DC7-E9686608B20A"
+        val valid = malformed.lowercase()
+
+        assertEquals(
+            HttpStatusCode.Forbidden,
+            member.client.decideCorrelated(room, pending.getValue(requester.id).id, RoomJoinDecision.APPROVE, malformed).status,
+        )
+        assertEquals(HttpStatusCode.NotFound, owner.client.decideCorrelated(room, 999_999u, RoomJoinDecision.APPROVE, malformed).status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.decideCorrelated(room, pending.getValue(requester.id).id, RoomJoinDecision.REJECT, malformed).status,
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.decideCorrelated(
+                room,
+                pending.getValue(requester.id).id,
+                RoomJoinDecision.REJECT,
+                valid,
+                repeatMutationId = true,
+            ).status,
+        )
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.decideCorrelated(room, pending.getValue(alreadyMember.id).id, RoomJoinDecision.APPROVE, malformed).status,
+        )
+        NotifyCapture().use { capture ->
+            val hints = capture.during {
+                assertEquals(
+                    HttpStatusCode.NoContent,
+                    owner.client.decideCorrelated(room, pending.getValue(alreadyMember.id).id, RoomJoinDecision.APPROVE, valid).status,
+                )
+            }
+            assertEquals(emptyList(), hints)
+        }
+        assertEquals(1L, owner.client.get(requests(room)).body<RoomJoinRequestPageResponse>().total)
+        assertEquals(RoomJoinRequestStatus.PENDING, requester.client.get(access(room)).body<RoomAccessResponse>().requestStatus)
+    }
+
+    @Test
+    fun `an owner demoted while an approval waits is refused before correlation validation`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("enroll-echo-race-owner")
+        val requester = actor("enroll-echo-race-requester")
+        val room = room(owner, RoomAccessType.RESTRICTED_VISIBLE)
+        assertEquals(HttpStatusCode.NoContent, requester.client.post(requests(room)).status)
+        val requestId = owner.client.get(requests(room)).body<RoomJoinRequestPageResponse>().items.single().id
+        val malformed = "2C6C7F12-79A4-4F1A-8DC7-E9686608B20A"
+
+        PostgresTestSupport.connect().use { raw ->
+            raw.autoCommit = false
+            raw.prepareStatement("SELECT id FROM rooms WHERE id = ? FOR NO KEY UPDATE").use { st ->
+                st.setInt(1, room.toInt())
+                st.executeQuery().close()
+            }
+            raw.prepareStatement("UPDATE room_members SET role = 'MEMBER' WHERE room_id = ? AND user_id = ?").use { st ->
+                st.setInt(1, room.toInt())
+                st.setLong(2, owner.id.toLong())
+                st.executeUpdate()
+            }
+            try {
+                coroutineScope {
+                    val deciding = async {
+                        owner.client.decideCorrelated(room, requestId, RoomJoinDecision.APPROVE, malformed)
+                    }
+                    awaitLockWait("FOR NO KEY UPDATE")
+                    raw.commit()
+                    assertEquals(HttpStatusCode.Forbidden, deciding.await().status)
+                }
+            } finally {
+                raw.rollback()
+            }
+        }
+        assertEquals(RoomJoinRequestStatus.PENDING, requester.client.get(access(room)).body<RoomAccessResponse>().requestStatus)
     }
 
     @Test

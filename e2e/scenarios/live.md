@@ -128,6 +128,14 @@ change can only arrive by being pushed, and marks the document, so "without a re
 2. The test discards the response.
    - *Expected*: the writer's live event runs its usual roster refresh. The new member appears, and neither page reloads.
 
+## Scenario: approving a join request grants access live and refreshes the owner once
+
+1. An applicant requests access to a restricted visible room. The room owner opens the request queue in Members.
+2. The owner approves the request, and the browser holds the successful response.
+   - *Expected*: the applicant can open the room. The owner has yet to reread the roster or request queue.
+3. The response arrives.
+   - *Expected*: the roster and request queue each read once. Only the owner’s event carries the request identifier. Neither page reloads.
+
 ## Scenario: a member removed from a room loses it from the rail and the open room
 
 1. The same setup with an API-seeded thread; the owner opens the room's **Members** page and the teammate opens the thread.

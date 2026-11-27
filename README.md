@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Fewer duplicate reads after approving room access (1.43.0)
+
+The owner’s browser can reuse its roster and request-queue refresh for the matching live update. The applicant can open the room as soon as the approval is saved.
+
 ### Fewer duplicate reads after changing a room role (1.42.0)
 
 When you change another member’s role, the app can reuse the roster refresh for the matching live update. The affected member and other readers still see the role change live.

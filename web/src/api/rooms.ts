@@ -69,9 +69,15 @@ export async function listRoomJoinRequests(id: number, q: { page: number; pageSi
   return jsonRequest<RoomJoinRequestPage>(`/api/v1/rooms/${id}/join-requests?${params}`);
 }
 
-export async function decideRoomJoinRequest(id: number, requestId: number, decision: "APPROVE" | "REJECT"): Promise<void> {
+export async function decideRoomJoinRequest(
+  id: number,
+  requestId: number,
+  decision: "APPROVE" | "REJECT",
+  mutationId?: string,
+): Promise<void> {
   await voidRequest(`/api/v1/rooms/${id}/join-requests/${requestId}`, {
     method: "PUT",
+    ...(mutationId === undefined ? {} : { headers: { "X-Mutation-Id": mutationId } }),
     body: JSON.stringify({ decision }),
   });
 }
