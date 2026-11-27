@@ -99,15 +99,28 @@ change can only arrive by being pushed, and marks the document, so "without a re
 3. The teammate does nothing.
    - *Expected*: their list row and current-status badge now say "In progress", the header menu offers **Move to Open** and **Move to Waiting**, and their document was not reloaded.
 
+## Scenario: adding a room member updates another reader and refreshes the writer once
+
+1. The owner and a teammate open the Members page. The owner adds a third person from the directory, and the browser holds the successful response.
+   - *Expected*: the teammate sees the new member. Only the writer's account may see its request identifier, and the writer has yet to reread the roster.
+2. The response arrives.
+   - *Expected*: the writer sees the new member after one roster read, and neither page reloads.
+
+## Scenario: a lost add-member response releases the writer's roster refresh
+
+1. The owner adds a person while the browser holds the successful response. The other reader sees the new member live.
+2. The test discards the response.
+   - *Expected*: the writer's live event runs its usual roster refresh. The new member appears, and neither page reloads.
+
 ## Scenario: a member removed from a room loses it from the rail and the open room
 
 1. The same setup with an API-seeded thread; the owner opens the room's **Members** page and the teammate opens the thread.
    - *Expected*: the teammate's sidebar lists the room and the pane shows the thread.
-2. The owner opens the teammate's row menu, chooses **Remove** and confirms in the "Remove from the room?" dialog.
-   - *Expected*: the delete answers 204.
-3. The teammate does nothing.
+2. The owner opens the teammate's row menu, chooses **Remove** and confirms in the "Remove from the room?" dialog. The browser holds the 204 response.
    - *Expected*: the room leaves their rail and the open conversation is replaced by a restricted visible access preview with **Request to join**.
-     Their document was not reloaded.
+     The revocation carries no mutation identifier. The owner's other tab removes the teammate from its roster live.
+3. The response arrives.
+   - *Expected*: the writer's roster refreshes once. None of the pages reload.
 
 ## Scenario: the header says it is reconnecting while the browser is offline
 

@@ -2,6 +2,9 @@ package ch.nokillswit
 
 import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.infra.MUTATION_ID_HEADER
+import ch.nokillswit.infra.notify.LiveHint
+import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.plugins.ProblemDetail
 import ch.nokillswit.rooms.LAST_OWNER_PROBLEM_TYPE
 import ch.nokillswit.rooms.MAX_ROOM_MEMBERS
@@ -17,6 +20,7 @@ import io.ktor.client.call.body
 import io.ktor.client.request.delete
 import io.ktor.client.request.post
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -68,9 +72,9 @@ class RoomMembersTest {
         seedActor(prefix, role, name).also { mintedUsers += it.id }
 
     /** A room owned by [owner], seeded through the service (the real create path). */
-    private suspend fun room(owner: RoomActor): UInt {
+    private suspend fun room(owner: RoomActor, accessType: RoomAccessType = RoomAccessType.PUBLIC): UInt {
         val template = templateId ?: TestTemplates.seed("mem").also { templateId = it }
-        return TestRooms.seed(owner.id, template, "Members ${marker()}", accessType = RoomAccessType.PUBLIC).also { mintedRooms += it }
+        return TestRooms.seed(owner.id, template, "Members ${marker()}", accessType = accessType).also { mintedRooms += it }
     }
 
     private suspend fun team(vararg users: RoomActor): UInt {
@@ -82,6 +86,28 @@ class RoomMembersTest {
 
     private suspend fun HttpClient.add(room: UInt, userIds: List<UInt>? = null, teamId: UInt? = null): HttpResponse =
         postJson(members(room), RoomMembersAddRequest(userIds, teamId))
+
+    private suspend fun HttpClient.addCorrelated(
+        room: UInt,
+        request: RoomMembersAddRequest,
+        mutationId: String,
+        repeatMutationId: Boolean = false,
+    ): HttpResponse = post(members(room)) {
+        contentType(ContentType.Application.Json)
+        header(MUTATION_ID_HEADER, mutationId)
+        if (repeatMutationId) headers.append(MUTATION_ID_HEADER, mutationId)
+        setBody(request)
+    }
+
+    private suspend fun HttpClient.removeCorrelated(
+        room: UInt,
+        userId: UInt,
+        mutationId: String,
+        repeatMutationId: Boolean = false,
+    ): HttpResponse = delete(member(room, userId)) {
+        header(MUTATION_ID_HEADER, mutationId)
+        if (repeatMutationId) headers.append(MUTATION_ID_HEADER, mutationId)
+    }
 
     private suspend fun HttpClient.page(room: UInt, query: String = ""): RoomMemberPageResponse {
         val response = get(members(room) + query)
@@ -125,6 +151,51 @@ class RoomMembersTest {
             assertTrue(line.hasKeyValue("targetUserId", ann.id.toLong()))
             assertTrue(line.keyValuePairs.none { it.key == "viaTeamId" && it.value != null }, "added directly, not through a team")
             assertEquals(1, capture.events.count { it.message == "room.member_added" && it.hasKeyValue("roomId", room.toLong()) })
+        }
+    }
+
+    @Test
+    fun `member addition validates correlation after manager access and emits it only for an actual addition`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("mem-add-echo-owner")
+        val member = actor("mem-add-echo-member")
+        val outsider = actor("mem-add-echo-outsider")
+        val admin = actor("mem-add-echo-admin", UserRole.ADMIN)
+        val ann = actor("mem-add-echo-ann")
+        val publicRoom = room(owner)
+        val hiddenRoom = room(owner, RoomAccessType.RESTRICTED_HIDDEN)
+        TestRooms.addMember(publicRoom, member.id)
+        val request = RoomMembersAddRequest(userIds = listOf(ann.id))
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+
+        assertEquals(HttpStatusCode.Forbidden, member.client.addCorrelated(publicRoom, request, mutationId.uppercase()).status)
+        assertEquals(HttpStatusCode.NotFound, outsider.client.addCorrelated(publicRoom, request, mutationId.uppercase()).status)
+        assertEquals(HttpStatusCode.NotFound, admin.client.addCorrelated(hiddenRoom, request, mutationId.uppercase()).status)
+        assertEquals(HttpStatusCode.BadRequest, owner.client.addCorrelated(publicRoom, request, mutationId.uppercase()).status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.addCorrelated(publicRoom, request, mutationId, repeatMutationId = true).status,
+        )
+
+        NotifyCapture().use { capture ->
+            val hints = capture.during {
+                assertEquals(HttpStatusCode.OK, owner.client.addCorrelated(publicRoom, request, mutationId).status)
+                val noOp = owner.client.addCorrelated(publicRoom, request, mutationId)
+                assertEquals(RoomMembersAddResponse(added = 0, alreadyMembers = 1), noOp.body())
+            }
+            assertEquals(
+                listOf(
+                    LiveHint(
+                        LiveKind.ROOM_MEMBER_ADDED,
+                        publicRoom,
+                        targetUserIds = listOf(ann.id),
+                        mutationId = mutationId,
+                        originUserId = owner.id,
+                    ),
+                    LiveHint(LiveKind.NOTIFICATION_CREATED, publicRoom, targetUserIds = listOf(ann.id)),
+                ),
+                hints,
+            )
         }
     }
 
@@ -346,6 +417,53 @@ class RoomMembersTest {
         }
 
     @Test
+    fun `member removal validates correlation after authoritative access and never correlates a self leave`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("mem-rm-echo-owner")
+        val member = actor("mem-rm-echo-member")
+        val ann = actor("mem-rm-echo-ann")
+        val admin = actor("mem-rm-echo-admin", UserRole.ADMIN)
+        val room = room(owner)
+        val hiddenRoom = room(owner, RoomAccessType.RESTRICTED_HIDDEN)
+        TestRooms.addMember(room, member.id)
+        TestRooms.addMember(room, ann.id)
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+
+        assertEquals(HttpStatusCode.Forbidden, member.client.removeCorrelated(room, ann.id, mutationId.uppercase()).status)
+        assertEquals(HttpStatusCode.NotFound, admin.client.removeCorrelated(hiddenRoom, admin.id, mutationId.uppercase()).status)
+        assertEquals(
+            HttpStatusCode.NotFound,
+            admin.client.removeCorrelated(room, admin.id, mutationId.uppercase()).status,
+            "a visible-room administrator still cannot leave a room they have not joined",
+        )
+        assertEquals(HttpStatusCode.BadRequest, owner.client.removeCorrelated(room, ann.id, mutationId.uppercase()).status)
+        assertEquals(
+            HttpStatusCode.BadRequest,
+            owner.client.removeCorrelated(room, ann.id, mutationId, repeatMutationId = true).status,
+        )
+
+        NotifyCapture().use { capture ->
+            val hints = capture.during {
+                assertEquals(HttpStatusCode.NoContent, owner.client.removeCorrelated(room, ann.id, mutationId).status)
+                assertEquals(HttpStatusCode.NoContent, member.client.removeCorrelated(room, member.id, mutationId).status)
+            }
+            assertEquals(
+                listOf(
+                    LiveHint(
+                        LiveKind.ROOM_MEMBER_REMOVED,
+                        room,
+                        targetUserIds = listOf(ann.id),
+                        mutationId = mutationId,
+                        originUserId = owner.id,
+                    ),
+                    LiveHint(LiveKind.ROOM_MEMBER_REMOVED, room, targetUserIds = listOf(member.id)),
+                ),
+                hints,
+            )
+        }
+    }
+
+    @Test
     fun `an administrator who is not a member cannot leave - 404 - but a member administrator can`() = testApplication {
         usePostgresTestcontainer()
         val owner = actor("mem-adm-owner")
@@ -493,6 +611,41 @@ class RoomMembersTest {
             }
         }
         assertEquals(RoomRole.OWNER, TestRooms.rawRole(room, bea.id), "the refused leave wrote nothing")
+    }
+
+    @Test
+    fun `an owner demoted while an add waits is refused before correlation validation`() = testApplication {
+        usePostgresTestcontainer()
+        val owner = actor("mem-add-race-owner")
+        val ann = actor("mem-add-race-ann")
+        val room = room(owner)
+        val request = RoomMembersAddRequest(userIds = listOf(ann.id))
+        val malformedMutationId = "2C6C7F12-79A4-4F1A-8DC7-E9686608B20A"
+
+        PostgresTestSupport.connect().use { raw ->
+            raw.autoCommit = false
+            raw.prepareStatement("SELECT id FROM rooms WHERE id = ? FOR NO KEY UPDATE").use { st ->
+                st.setInt(1, room.toInt())
+                st.executeQuery().close()
+            }
+            raw.prepareStatement("UPDATE room_members SET role = 'MEMBER' WHERE room_id = ? AND user_id = ?").use { st ->
+                st.setInt(1, room.toInt())
+                st.setLong(2, owner.id.toLong())
+                st.executeUpdate()
+            }
+            try {
+                coroutineScope {
+                    // The route sees the still-committed OWNER. Header validation must wait behind the authoritative locked re-check.
+                    val adding = async { owner.client.addCorrelated(room, request, malformedMutationId) }
+                    awaitLockWait("FOR NO KEY UPDATE")
+                    raw.commit()
+                    assertEquals(HttpStatusCode.Forbidden, adding.await().status)
+                }
+            } finally {
+                raw.rollback()
+            }
+        }
+        assertNull(TestRooms.rawRole(room, ann.id), "the refused add wrote no membership")
     }
 
     @Test

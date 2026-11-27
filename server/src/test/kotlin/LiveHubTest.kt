@@ -259,6 +259,47 @@ class LiveHubTest {
     }
 
     @Test
+    fun `membership mutation ids reach only writer subscribers while removal targets receive an id-free revocation`() = withHub {
+        val writer = socket(1u)
+        val target = socket(2u)
+        val subscriber = socket(3u)
+        listOf(writer, target, subscriber).forEach { register(it) }
+        subscribe(writer, 7u)
+        subscribe(subscriber, 7u)
+        listOf(writer, target, subscriber).forEach { it.drain() }
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+
+        deliver(
+            LiveHint(
+                LiveKind.ROOM_MEMBER_ADDED,
+                7u,
+                targetUserIds = listOf(2u),
+                mutationId = mutationId,
+                originUserId = 1u,
+            ),
+        )
+        barrier(writer)
+        assertEquals(listOf(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ADDED, 7u, mutationId = mutationId)), writer.drain())
+        assertEquals(listOf(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ADDED, 7u)), target.drain())
+        assertEquals(listOf(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ADDED, 7u)), subscriber.drain())
+
+        deliver(
+            LiveHint(
+                LiveKind.ROOM_MEMBER_REMOVED,
+                7u,
+                targetUserIds = listOf(2u),
+                mutationId = mutationId,
+                originUserId = 1u,
+                requiresMembership = true,
+            ),
+        )
+        barrier(writer)
+        assertEquals(listOf(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_REMOVED, 7u, mutationId = mutationId)), writer.drain())
+        assertEquals(listOf(LiveServerFrame.Revoked(7u)), target.drain())
+        assertEquals(listOf(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_REMOVED, 7u)), subscriber.drain())
+    }
+
+    @Test
     fun `an ack lists what was subscribed, refused and capped, and a room dropped while pending is refused`() = withHub {
         val s = socket()
         register(s)

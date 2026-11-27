@@ -1147,7 +1147,8 @@ export interface paths {
         put?: never;
         /**
          * Add people to a room, one by one and/or a whole team
-         * @description The room's OWNER or an `ADMIN` (visibility `404`, role `403`, then the body `400`, then under the room lock the guard again).
+         * @description The room's OWNER or an `ADMIN` (visibility `404`, role `403`, then the body `400`). The guard is checked again under the room lock
+         *     before the optional mutation header is validated.
          *     Allowed on an archived room. At least one of `userIds` (at most 200) and `teamId` is required. A team is a SNAPSHOT: its
          *     ACTIVE roster at this moment becomes members, and a later roster edit never follows. Everyone is added as `MEMBER`; promotion
          *     is a separate step (`PUT .../members/{userId}`).
@@ -2964,8 +2965,9 @@ export interface components {
              */
             messageId?: number;
             /**
-             * @description On message.posted, message.edited, message.reaction_changed, thread.updated, thread.status_changed, thread.owner_changed or
-             *     thread.merged, correlates the writer's HTTP request with its event for that account only. A merge names the source thread.
+             * @description Correlates the writer's HTTP request with an event on that account's sockets. Supported events are message.posted, message.edited,
+             *     message.reaction_changed, thread.updated, thread.status_changed, thread.owner_changed, thread.merged, room.member_added and
+             *     room.member_removed. A merge names the source thread. Correlated membership events name only the room alongside the identifier.
              */
             mutationId?: components["schemas"]["LiveMutationId"];
         };
@@ -6650,7 +6652,14 @@ export interface operations {
     addRoomMembers: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Correlates an actual addition with the `room.member_added` event on the writer's account sockets. A no-op emits no event.
+                 *     Supply at most one canonical lowercase UUIDv4. A malformed or repeated value returns `400` after authorization.
+                 *     The identifier has no effect on the result of the operation or on personal notifications.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
             };
@@ -6720,7 +6729,14 @@ export interface operations {
     removeRoomMember: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Correlates the removal of another member with the `room.member_removed` event on the writer's account sockets.
+                 *     Supply at most one canonical lowercase UUIDv4. A malformed or repeated value returns `400` after authorization.
+                 *     Self-leave and `revoked` frames never carry the identifier. The identifier has no effect on access decisions.
+                 */
+                "X-Mutation-Id"?: components["schemas"]["LiveMutationId"];
+            };
             path: {
                 id: components["parameters"]["ResourceId"];
                 /** @description A user id (int32; ids start at 1). */

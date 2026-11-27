@@ -391,7 +391,7 @@ options, not the user's decisions**, and can be changed on request. Detail and t
 
 ## Roadmap
 
-Each increment gets its own plan (architect) before implementation. **Current version: 1.38.0** (fewer duplicate reads after merging threads), on 1.37.0 (faster refresh after deleting a thread), on 1.36.0 (one search box), on 1.35.0 (fewer duplicate reads after message deletion), on 1.34.0 (fewer duplicate reads after message edits), on 1.33.0 (fewer duplicate reads after chat updates), on 1.32.0 (optional two-instance deployment), on 1.31.0 (shared chat operation limits), on 1.30.0 (shared digest delivery intervals), on 1.29.0 (shared request limits), on 1.28.0 (shared email sign-in codes), on 1.27.0 (shared sign-in protection), on 1.26.0 (shared session refresh and logout), on 1.25.0 (shared live socket limits and presence), on 1.24.0 (durable live tickets), on 1.23.0 (faster reply refreshes), on 1.22.0 (live account updates), on 1.21.0 (notification retention and email pacing), on 1.20.0 (thread tags and message edit history), on 1.19.0 (thread workflow and conversation), on 1.18.0 (chat and notification controls), on 1.17.0 (grouped reply notifications), on 1.16.0 (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
+Each increment gets its own plan (architect) before implementation. **Current version: 1.39.0** (fewer duplicate reads after room membership changes), on 1.38.0 (fewer duplicate reads after merging threads), on 1.37.0 (faster refresh after deleting a thread), on 1.36.0 (one search box), on 1.35.0 (fewer duplicate reads after message deletion), on 1.34.0 (fewer duplicate reads after message edits), on 1.33.0 (fewer duplicate reads after chat updates), on 1.32.0 (optional two-instance deployment), on 1.31.0 (shared chat operation limits), on 1.30.0 (shared digest delivery intervals), on 1.29.0 (shared request limits), on 1.28.0 (shared email sign-in codes), on 1.27.0 (shared sign-in protection), on 1.26.0 (shared session refresh and logout), on 1.25.0 (shared live socket limits and presence), on 1.24.0 (durable live tickets), on 1.23.0 (faster reply refreshes), on 1.22.0 (live account updates), on 1.21.0 (notification retention and email pacing), on 1.20.0 (thread tags and message edit history), on 1.19.0 (thread workflow and conversation), on 1.18.0 (chat and notification controls), on 1.17.0 (grouped reply notifications), on 1.16.0 (search unread threads), on 1.15.0 (return to a quoting reply), on 1.14.0 (room membership notifications), on 1.13.0 (external links and previews), on 1.12.0 (room organizer), on 1.11.0 (search by status and hashtag), on 1.10.0 (find in thread), on 1.9.0 (structured search), on 1.8.0 (personal room groups), 1.7.0 (personal Home), 1.6.0 (room access), 1.5.0 (clearer room tabs), 1.4.1 (thread status actions and refreshed Strike logo) and 1.4.0 (clearer workspace). 1.3.0 added quotes. 1.2.0 (room view, tags, unread) is tagged `v1.2.0` at 6018f17 (2026-11-22). 1.1.0 (watching, group mentions, notice kinds) is tagged `v1.1.0` at ec9531e (2026-11-21). 1.0.0 (the checkup) shipped 2026-11-21.
 
 | Ver | Scope |
 |---|---|
@@ -441,6 +441,7 @@ Each increment gets its own plan (architect) before implementation. **Current ve
 | **1.36.0 One search box** | Combine bare keyword prefixes with query clauses. The syntax guide offers whole-word matching with `word:`. |
 | **1.37.0 Faster refresh after deleting a thread** | The deleting tab can reuse its first refresh when the second commit signal arrives. Readers still lose access to deleted conversations and quoted excerpts live. |
 | **1.38.0 Fewer duplicate reads after merging threads** | A successful merge reuses the writer’s room refresh for its matching live hint. Other readers still see the merge live. |
+| **1.39.0 Fewer duplicate reads after room membership changes** | The adding or removing tab reuses its successful roster refresh for the matching live event. Other viewers and losing members still update live. |
 
 ## Donors
 
@@ -466,6 +467,10 @@ Left in Flow on purpose: `ingest/`, `fetch/`, `jira/`, `gitlab/`, `norm/`, `iden
 Greenfield (no sibling has it): WebSocket push, @mention parsing and autocomplete, reactions (one-emoji grapheme check included), pins, read markers, a per-user notification-preferences table outside Lettuce, Postgres full-text search (confirmed 2026-11-19: no sibling has a `tsvector`, a hashtag parser or server-side highlighting; every one stops at `containsNormalized`).
 
 ## Release history
+
+### v1.39.0 — fewer duplicate reads after room membership changes (2026-11-27)
+
+An explicit member addition or removal can carry a mutation identifier. The writer reuses its refresh for the exact matching room event. Other readers, membership recipients, and revocations continue to be handled according to their access.
 
 ### v1.38.0 — fewer duplicate reads after merging threads (2026-11-27)
 

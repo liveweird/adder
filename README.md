@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Fewer duplicate reads after changing room membership (1.39.0)
+
+When adding or removing another person, the writer can reuse its roster refresh for the matching live event. Other readers and people who gain or lose access still see the change live.
+
 ### Fewer duplicate reads after merging threads (1.38.0)
 
 After a successful merge, the sending tab can reuse its refresh when the matching live event arrives. Other readers still see the merge live and can read the original conversation.

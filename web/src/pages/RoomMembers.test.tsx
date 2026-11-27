@@ -10,6 +10,7 @@ import { renderWithProviders } from "../test/render";
 import { pinBrowserTimeZone } from "../test/timeZone";
 import { FakeClock } from "../test/socket";
 import { createLiveInvalidator } from "../utils/liveKeys";
+import { clearSession } from "../api/session";
 
 type FetchMock = ReturnType<typeof vi.fn>;
 
@@ -89,6 +90,9 @@ function serve(mockFetch: FetchMock, opts: ServeOptions = {}) {
     if (method === "GET" && url.startsWith("/api/v1/rooms/12/members?")) opts.onMembers?.();
     if (opts.fail?.[key]) return Promise.resolve(opts.fail[key]);
     if (key === "GET /api/v1/rooms/12") return Promise.resolve(room ? jsonResponse(200, { ...room, memberCount: roster.length }) : problem(404));
+    if (method === "GET" && url.startsWith("/api/v1/rooms/12/pins?")) {
+      return Promise.resolve(jsonResponse(200, { items: [], page: 1, pageSize: 50, total: 0 }));
+    }
     if (method === "GET" && url.startsWith("/api/v1/rooms/12/members?")) {
       const params = new URL(url, "http://x").searchParams;
       if (opts.total !== undefined && params.get("page") === "2") return Promise.resolve(jsonResponse(200, { items: [], page: 2, pageSize: 20, total: opts.total }));
@@ -316,6 +320,8 @@ describe("RoomMembers page", () => {
       await waitFor(() => expect(calls(mockFetch, "POST")).toHaveLength(1));
       expect(calls(mockFetch, "POST")[0].url).toBe("/api/v1/rooms/12/members");
       expect(JSON.parse(calls(mockFetch, "POST")[0].body as string)).toEqual({ userIds: [20] });
+      const addRequest = mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/members" && (init as RequestInit).method === "POST")!;
+      expect(new Headers((addRequest[1] as RequestInit).headers).get("X-Mutation-Id")).toMatch(/^[0-9a-f-]{36}$/);
       await waitFor(() => expect(memberCalls(mockFetch).length).toBeGreaterThan(before));
       // The room's own read (its member count) refreshed with the list.
       await waitFor(() => expect(detailGets(mockFetch)).toBeGreaterThan(detailBefore));
@@ -493,6 +499,8 @@ describe("RoomMembers page", () => {
       await user.click(within(dialog).getByRole("button", { name: "Remove" }));
       await waitFor(() => expect(calls(mockFetch, "DELETE")).toHaveLength(1));
       expect(calls(mockFetch, "DELETE")[0].url).toBe("/api/v1/rooms/12/members/8");
+      const removal = mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/members/8" && (init as RequestInit).method === "DELETE")!;
+      expect(new Headers((removal[1] as RequestInit).headers).get("X-Mutation-Id")).toMatch(/^[0-9a-f-]{36}$/);
       await waitFor(() => expect(screen.queryByText("max@example.test")).not.toBeInTheDocument());
       // The room's own read (its member count) refreshed with the list.
       await waitFor(() => expect(detailGets(mockFetch)).toBeGreaterThan(detailBefore));
@@ -541,6 +549,8 @@ describe("RoomMembers page", () => {
       await user.click(within(dialog).getByRole("button", { name: "Leave room" }));
       await waitFor(() => expect(calls(mockFetch, "DELETE")).toHaveLength(1));
       expect(calls(mockFetch, "DELETE")[0].url).toBe("/api/v1/rooms/12/members/7");
+      const leave = mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/members/7" && (init as RequestInit).method === "DELETE")!;
+      expect(new Headers((leave[1] as RequestInit).headers).get("X-Mutation-Id")).toBeNull();
       expect(await screen.findByText("the rooms list")).toBeInTheDocument();
       // The room's own queries are gone and nothing re-read them while the page was still there (they would only answer 404).
       await waitFor(() => expect(queryClient.getQueryCache().findAll({ queryKey: ["rooms", "detail", 12] })).toEqual([]));
@@ -563,6 +573,222 @@ describe("RoomMembers page", () => {
       expect(screen.queryByText("the rooms list")).not.toBeInTheDocument();
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     });
+  });
+});
+
+describe("RoomMembers page: correlated member additions", () => {
+  let mockFetch: FetchMock;
+
+  function holdAdd() {
+    const base = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    let resolveAdd: (response: Response) => void = () => {};
+    let rejectAdd: (error: Error) => void = () => {};
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return new Promise<Response>((resolve, reject) => { resolveAdd = resolve; rejectAdd = reject; });
+      }
+      return base(url, init);
+    });
+    return {
+      resolve: (body = { added: 1, alreadyMembers: 0 }) => resolveAdd(jsonResponse(200, body)),
+      reject: () => rejectAdd(new Error("connection lost")),
+    };
+  }
+
+  async function startPersonAdd(user: ReturnType<typeof userEvent.setup>) {
+    const picker = await screen.findByRole("combobox", { name: "Add a person" });
+    await user.type(picker, "el");
+    await user.click(await screen.findByRole("option", { name: "Eli Newcomer (eli@example.test)" }));
+    await user.click(screen.getByRole("button", { name: "Add person" }));
+    await waitFor(() => expect(calls(mockFetch, "POST")).toHaveLength(1));
+    return picker;
+  }
+
+  async function startTeamAdd(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole("combobox", { name: "Add a whole team" }));
+    await user.click(await screen.findByRole("option", { name: "Backend" }));
+    await user.click(screen.getByRole("button", { name: "Add team" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add the team?" });
+    await user.click(within(dialog).getByRole("button", { name: "Add team" }));
+    await waitFor(() => expect(calls(mockFetch, "POST")).toHaveLength(1));
+    return dialog;
+  }
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    signIn(7);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  test("an early exact live echo waits for the successful authoritative refresh", async () => {
+    serve(mockFetch);
+    const base = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    let finishAdd: () => void = () => {};
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return new Promise<Response>((resolve) => { finishAdd = () => void base(url, init).then(resolve); });
+      }
+      return base(url, init);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const clock = new FakeClock();
+    const invalidator = createLiveInvalidator(queryClient, clock);
+    const user = userEvent.setup();
+    renderMembers(queryClient);
+    await user.type(await screen.findByRole("combobox", { name: "Add a person" }), "el");
+    await user.click(await screen.findByRole("option", { name: "Eli Newcomer (eli@example.test)" }));
+    const before = memberCalls(mockFetch).length;
+    await user.click(screen.getByRole("button", { name: "Add person" }));
+    await waitFor(() => expect(calls(mockFetch, "POST")).toHaveLength(1));
+    const add = mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/members" && (init as RequestInit).method === "POST")!;
+    const mutationId = new Headers((add[1] as RequestInit).headers).get("X-Mutation-Id")!;
+    invalidator.handle({ type: "event", kind: "room.member_added", roomId: 12, mutationId });
+    clock.advanceBy(5_000);
+    expect(memberCalls(mockFetch)).toHaveLength(before);
+
+    finishAdd();
+    await waitFor(() => expect(memberCalls(mockFetch)).toHaveLength(before + 1));
+    clock.advanceBy(5_000);
+    expect(memberCalls(mockFetch)).toHaveLength(before + 1);
+    invalidator.dispose();
+  });
+
+  test("a lost add response releases its early live hint without claiming success", async () => {
+    serve(mockFetch);
+    const base = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    let loseAdd: (error: Error) => void = () => {};
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return new Promise<Response>((_resolve, reject) => { loseAdd = reject; });
+      }
+      return base(url, init);
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const clock = new FakeClock();
+    const invalidator = createLiveInvalidator(queryClient, clock);
+    const user = userEvent.setup();
+    renderMembers(queryClient);
+    const picker = await screen.findByRole("combobox", { name: "Add a person" });
+    await user.type(picker, "el");
+    await user.click(await screen.findByRole("option", { name: "Eli Newcomer (eli@example.test)" }));
+    const before = memberCalls(mockFetch).length;
+    await user.click(screen.getByRole("button", { name: "Add person" }));
+    await waitFor(() => expect(calls(mockFetch, "POST")).toHaveLength(1));
+    const add = mockFetch.mock.calls.find(([url, init]) => url === "/api/v1/rooms/12/members" && (init as RequestInit).method === "POST")!;
+    const mutationId = new Headers((add[1] as RequestInit).headers).get("X-Mutation-Id")!;
+    invalidator.handle({ type: "event", kind: "room.member_added", roomId: 12, mutationId });
+    loseAdd(new Error("connection lost"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Action failed");
+    expect(picker).toHaveValue("Eli Newcomer (eli@example.test)");
+    clock.advanceBy(300);
+    await waitFor(() => expect(memberCalls(mockFetch)).toHaveLength(before + 1));
+    invalidator.dispose();
+  });
+
+  test("a person success from a replaced session does not clear the current selection", async () => {
+    serve(mockFetch);
+    const held = holdAdd();
+    const user = userEvent.setup();
+    renderMembers();
+    const picker = await startPersonAdd(user);
+    clearSession();
+    held.resolve();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add person" })).toBeEnabled());
+    expect(picker).toHaveValue("Eli Newcomer (eli@example.test)");
+  });
+
+  test("a person error from a replaced session shows no stale feedback", async () => {
+    serve(mockFetch);
+    const held = holdAdd();
+    const user = userEvent.setup();
+    renderMembers();
+    await startPersonAdd(user);
+    clearSession();
+    held.reject();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add person" })).toBeEnabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  test("a team success from a replaced session does not close the current confirmation", async () => {
+    serve(mockFetch);
+    const held = holdAdd();
+    const user = userEvent.setup();
+    renderMembers();
+    const dialog = await startTeamAdd(user);
+    clearSession();
+    held.resolve({ added: 2, alreadyMembers: 0 });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Add team" })).toBeEnabled());
+    expect(dialog).toBeInTheDocument();
+  });
+
+  test("a team error from a replaced session leaves no stale feedback", async () => {
+    serve(mockFetch);
+    const held = holdAdd();
+    const user = userEvent.setup();
+    renderMembers();
+    const dialog = await startTeamAdd(user);
+    clearSession();
+    held.reject();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Add team" })).toBeEnabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("RoomMembers page: stale removal callbacks", () => {
+  let mockFetch: FetchMock;
+
+  beforeEach(() => {
+    mockFetch = vi.fn();
+    vi.stubGlobal("fetch", mockFetch);
+    signIn(7);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+
+  async function startHeldRemoval() {
+    serve(mockFetch);
+    const base = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    let resolveRemoval: (response: Response) => void = () => {};
+    let rejectRemoval: (error: Error) => void = () => {};
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/rooms/12/members/8" && init?.method === "DELETE") {
+        return new Promise<Response>((resolve, reject) => { resolveRemoval = resolve; rejectRemoval = reject; });
+      }
+      return base(url, init);
+    });
+    const user = userEvent.setup();
+    renderMembers();
+    await openRowMenu(user, "Max Member");
+    await user.click(await screen.findByRole("menuitem", { name: "Remove" }));
+    const dialog = await screen.findByRole("dialog", { name: "Remove from the room?" });
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(calls(mockFetch, "DELETE")).toHaveLength(1));
+    return { dialog, resolveRemoval, rejectRemoval };
+  }
+
+  test("a late success cannot close a replacement session's confirmation", async () => {
+    const { dialog, resolveRemoval } = await startHeldRemoval();
+    clearSession();
+    resolveRemoval(new Response(null, { status: 204 }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Remove" })).toBeEnabled());
+    expect(dialog).toBeInTheDocument();
+  });
+
+  test("a late error cannot close or show feedback in a replacement session", async () => {
+    const { dialog, rejectRemoval } = await startHeldRemoval();
+    clearSession();
+    rejectRemoval(new Error("connection lost"));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Remove" })).toBeEnabled());
+    expect(dialog).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: adder-api
-  version: 1.38.0
+  version: 1.39.0
   description: |
     JWT-authenticated REST API for Adder — a team chat with workflow threads. It serves the Adder web app and is
     versioned by its `/api/v1` path prefix. This foundation exposes the accounts, teams, feature-flag and operational
@@ -1670,7 +1670,8 @@ paths:
       operationId: addRoomMembers
       summary: Add people to a room, one by one and/or a whole team
       description: |
-        The room's OWNER or an `ADMIN` (visibility `404`, role `403`, then the body `400`, then under the room lock the guard again).
+        The room's OWNER or an `ADMIN` (visibility `404`, role `403`, then the body `400`). The guard is checked again under the room lock
+        before the optional mutation header is validated.
         Allowed on an archived room. At least one of `userIds` (at most 200) and `teamId` is required. A team is a SNAPSHOT: its
         ACTIVE roster at this moment becomes members, and a later roster edit never follows. Everyone is added as `MEMBER`; promotion
         is a separate step (`PUT .../members/{userId}`).
@@ -1680,6 +1681,15 @@ paths:
         exceed it is a plain `409` and nothing is added. A team whose roster holds no active member adds nobody: `200` with
         `{added: 0, alreadyMembers: 0}`. One `room.member_added` audit line per person actually added. The body is limited to 16 KiB (`413`
         beyond it, before it is decoded) and the call rides a per-USER `room-members` bucket of 60 per minute (`429` beyond it).
+      parameters:
+        - name: X-Mutation-Id
+          in: header
+          required: false
+          description: |
+            Correlates an actual addition with the `room.member_added` event on the writer's account sockets. A no-op emits no event.
+            Supply at most one canonical lowercase UUIDv4. A malformed or repeated value returns `400` after authorization.
+            The identifier has no effect on the result of the operation or on personal notifications.
+          schema: { $ref: '#/components/schemas/LiveMutationId' }
       requestBody:
         required: true
         content:
@@ -1743,6 +1753,15 @@ paths:
         `404` for a user who is not an active member. Removing the room's last `OWNER` whose user is active - a leave included - is a
         `409` of type `urn:adder:problem:last-owner`. Audited `room.member_removed` (with `self`). A hard delete: the person can be added
         again. Rides the per-USER `chat-write` bucket of 240 per minute (`429` beyond it; spent before any guard, so a refused write costs a token).
+      parameters:
+        - name: X-Mutation-Id
+          in: header
+          required: false
+          description: |
+            Correlates the removal of another member with the `room.member_removed` event on the writer's account sockets.
+            Supply at most one canonical lowercase UUIDv4. A malformed or repeated value returns `400` after authorization.
+            Self-leave and `revoked` frames never carry the identifier. The identifier has no effect on access decisions.
+          schema: { $ref: '#/components/schemas/LiveMutationId' }
       responses:
         '204':
           description: Removed
@@ -4342,8 +4361,9 @@ components:
         mutationId:
           allOf: [{ $ref: '#/components/schemas/LiveMutationId' }]
           description: |
-            On message.posted, message.edited, message.reaction_changed, thread.updated, thread.status_changed, thread.owner_changed or
-            thread.merged, correlates the writer's HTTP request with its event for that account only. A merge names the source thread.
+            Correlates the writer's HTTP request with an event on that account's sockets. Supported events are message.posted, message.edited,
+            message.reaction_changed, thread.updated, thread.status_changed, thread.owner_changed, thread.merged, room.member_added and
+            room.member_removed. A merge names the source thread. Correlated membership events name only the room alongside the identifier.
     LiveRevokedFrame:
       type: object
       required: [type, roomId]

@@ -5,6 +5,7 @@ import ch.nokillswit.authz.NotFoundException
 import ch.nokillswit.authz.caller
 import ch.nokillswit.authz.requireRoomManager
 import ch.nokillswit.authz.requireRoomMember
+import ch.nokillswit.infra.mutationId
 import ch.nokillswit.infra.db.nowMillis
 import ch.nokillswit.infra.paging.optionalEnum
 import ch.nokillswit.infra.paging.optionalBoundedString
@@ -83,7 +84,7 @@ private fun Route.memberAdd(roomService: RoomService, memberService: RoomMemberS
             requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
             val request = call.receive<RoomMembersAddRequest>()
             validateRoomMembersAdd(request)
-            val outcome = memberService.add(roomId, caller, managerGuard, request)
+            val outcome = memberService.add(roomId, caller, managerGuard, request) { call.mutationId() }
             // One line per person actually added; a person already in the room is counted in the response and audited nowhere.
             for (userId in outcome.addedUserIds) {
                 audit(
@@ -135,7 +136,7 @@ private fun Route.memberRemove(roomService: RoomService, memberService: RoomMemb
             val standing = roomService.visibleStanding(caller, roomId)
             // Leaving needs only the reader's standing (a plain member may leave); removing someone else is a manager's act.
             if (!self) requireRoomManager(caller, standing)
-            memberService.remove(roomId, route.userId, caller, if (self) readerGuard else managerGuard)
+            memberService.remove(roomId, route.userId, caller, if (self) readerGuard else managerGuard) { call.mutationId() }
             audit(
                 "room.member_removed",
                 "byUserId" to caller.userId.toLong(),

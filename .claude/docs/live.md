@@ -313,6 +313,8 @@ An edit refreshes the source room’s thread tree, including message revisions a
 
 A merge event names the original source conversation. The writer can hold only the echo carrying its request identifier. A successful response and fresh reads of the room’s thread tree, workflow and Home make that echo redundant. Identical retry requests that do no work emit no merge event. If the response or refresh fails, the event follows ordinary live handling. Source history remains readable after the merge.
 
+The explicit member-add POST and member-remove DELETE accept the same optional mutation identifier. The addition event is sent only when membership changes. Removal correlation applies to the manager’s event for removing another person. A separate revocation still closes the losing tabs immediately. Room events match the room without thread or message fields. Personal notifications and subscription recovery are handled independently.
+
 ## Single-message deletion
 
 A message ID can be deleted only once. In the deleting tab, an HTTP `204` or the existing `message.deleted` hint for the exact room, thread and message can start the same refresh. The hint can arrive while the HTTP response is held or lost. Other tabs still process the ordinary event. The DELETE endpoint and the live frame keep their existing shapes.
