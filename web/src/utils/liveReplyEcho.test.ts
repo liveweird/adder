@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { beginMergeEcho, beginMessageEditEcho, beginOwnerEcho, beginReactionEcho, beginReplyEcho, beginStatusEcho, beginThreadUpdateEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
+import { beginMergeEcho, beginMessageEditEcho, beginOwnerEcho, beginReactionEcho, beginReplyEcho, beginRoomMemberEcho, beginStatusEcho, beginThreadUpdateEcho, canCorrelateReply, clearReplyEchoes, deferReplyEcho } from "./liveReplyEcho";
 import type { LiveServerFrame } from "./liveProtocol";
 
 const firstId = "14d7ed05-24c1-4374-b6eb-60b147595822";
@@ -31,6 +31,14 @@ function threadUpdated(mutationId: string, roomId = 7, threadNumber = 3): LiveSe
 
 function merged(mutationId: string, roomId = 7, threadNumber = 3): LiveServerFrame {
   return { type: "event", kind: "thread.merged", roomId, threadNumber, mutationId };
+}
+
+function roomMember(
+  kind: "room.member_added" | "room.member_removed",
+  mutationId: string,
+  roomId = 7,
+): Extract<LiveServerFrame, { type: "event" }> {
+  return { type: "event", kind, roomId, mutationId };
 }
 
 describe("reply echo correlation", () => {
@@ -437,5 +445,45 @@ describe("thread merge echo correlation", () => {
     expect(beginMergeEcho(client, 7, 3)).toBeUndefined();
     expect(deferReplyEcho(client, merged(reply.id), vi.fn())).toBe(false);
     reply.cancel();
+  });
+});
+
+describe("room membership echo correlation", () => {
+  let client: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    client = new QueryClient();
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(firstId);
+  });
+
+  afterEach(() => {
+    clearReplyEchoes(client);
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  test.each(["room.member_added", "room.member_removed"] as const)("holds only an exact message-less %s event", (kind) => {
+    const operation = beginRoomMemberEcho(client, 7, kind)!;
+    const replay = vi.fn();
+    expect(deferReplyEcho(client, roomMember(kind, operation.id), replay)).toBe(true);
+    expect(deferReplyEcho(new QueryClient(), roomMember(kind, operation.id), replay)).toBe(false);
+    expect(deferReplyEcho(client, roomMember(kind, operation.id, 8), replay)).toBe(false);
+    expect(deferReplyEcho(client, roomMember(kind === "room.member_added" ? "room.member_removed" : "room.member_added", operation.id), replay)).toBe(false);
+    expect(deferReplyEcho(client, { ...roomMember(kind, operation.id), threadNumber: 3 }, replay)).toBe(false);
+    expect(deferReplyEcho(client, { ...roomMember(kind, operation.id), messageId: 41 }, replay)).toBe(false);
+    expect(deferReplyEcho(client, { type: "event", kind: "room.member_role_changed", roomId: 7, mutationId: operation.id }, replay)).toBe(false);
+    expect(deferReplyEcho(client, { type: "revoked", roomId: 7 }, replay)).toBe(false);
+    operation.confirm();
+    expect(replay).not.toHaveBeenCalled();
+  });
+
+  test("a failed membership refresh replays its held event once", () => {
+    const operation = beginRoomMemberEcho(client, 7, "room.member_added")!;
+    const replay = vi.fn();
+    deferReplyEcho(client, roomMember("room.member_added", operation.id), replay);
+    operation.cancel();
+    operation.cancel();
+    expect(replay).toHaveBeenCalledOnce();
   });
 });

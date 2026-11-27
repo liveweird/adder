@@ -127,7 +127,9 @@ internal fun eventOf(hint: LiveHint, recipient: HubSocket) = LiveServerFrame.Eve
                 hint.kind == LiveKind.THREAD_UPDATED ||
                 hint.kind == LiveKind.THREAD_STATUS_CHANGED ||
                 hint.kind == LiveKind.THREAD_OWNER_CHANGED ||
-                hint.kind == LiveKind.THREAD_MERGED
+                hint.kind == LiveKind.THREAD_MERGED ||
+                hint.kind == LiveKind.ROOM_MEMBER_ADDED ||
+                hint.kind == LiveKind.ROOM_MEMBER_REMOVED
             ) && hint.originUserId == recipient.userId
     },
 )

@@ -160,9 +160,11 @@ class RoomMemberService(
         caller: CallerPrincipal,
         guard: RoomGuard,
         request: RoomMembersAddRequest,
+        readMutationId: () -> String?,
     ): RoomMembersAddOutcome {
         validateRoomMembersAdd(request) // re-checked service-side so direct callers stay guarded
         return database.withRoomWrite(roomId, caller, guard) { fresh, _ ->
+            val mutationId = readMutationId()
             val named = request.userIds.orEmpty().distinct()
             val roster = request.teamId?.let { teamId ->
                 teams.activeRosterIds(teamId) ?: throw BadRequestException("Unknown or deleted team id: $teamId")
@@ -189,7 +191,17 @@ class RoomMemberService(
                 }
             }
             // Only when someone joined: an add of people who all belong already is a no-op and announces nothing.
-            if (toAdd.isNotEmpty()) notifyLive(LiveHint(LiveKind.ROOM_MEMBER_ADDED, roomId, targetUserIds = toAdd))
+            if (toAdd.isNotEmpty()) {
+                notifyLive(
+                    LiveHint(
+                        LiveKind.ROOM_MEMBER_ADDED,
+                        roomId,
+                        targetUserIds = toAdd,
+                        mutationId = mutationId,
+                        originUserId = fresh.userId.takeIf { mutationId != null },
+                    ),
+                )
+            }
             RoomMembersAddOutcome(
                 addedUserIds = toAdd,
                 viaTeamUserIds = viaTeam.filter { it in toAdd }.toSet(),
@@ -218,12 +230,20 @@ class RoomMemberService(
      * Removes [userId]'s membership under the room lock (a leave or a removal: the route's guard tells them apart); 404 for a
      * non-member, `409` `last-owner` for the last active OWNER.
      */
-    suspend fun remove(roomId: UInt, userId: UInt, caller: CallerPrincipal, guard: RoomGuard) {
-        database.withRoomWrite(roomId, caller, guard) { _, standing ->
+    suspend fun remove(
+        roomId: UInt,
+        userId: UInt,
+        caller: CallerPrincipal,
+        guard: RoomGuard,
+        readMutationId: () -> String?,
+    ) {
+        database.withRoomWrite(roomId, caller, guard) { fresh, standing ->
             // A read marker locks this row before touching notice rows. Match that order before taking the recipient guard so removal
             // cannot hold the guard (or delete notices) while waiting for the reader's membership lock.
             if (!lockMembershipForRemoval(roomId, userId)) throw NotFoundException("Member not found")
             val current = activeRole(roomId, userId) ?: throw NotFoundException("Member not found")
+            val requestedMutationId = readMutationId()
+            val mutationId = requestedMutationId.takeIf { userId != fresh.userId }
             if (current == RoomRole.OWNER) requireOtherActiveOwner(roomId, userId)
             notices.prepareMemberRemoval(roomId, userId)
             members.deleteWhere { (RoomService.RoomMembers.roomId eq roomId) and (RoomService.RoomMembers.userId eq userId) }
@@ -232,6 +252,8 @@ class RoomMemberService(
                     LiveKind.ROOM_MEMBER_REMOVED,
                     roomId,
                     targetUserIds = listOf(userId),
+                    mutationId = mutationId,
+                    originUserId = fresh.userId.takeIf { mutationId != null },
                     requiresMembership = standing.accessType == RoomAccessType.RESTRICTED_HIDDEN,
                 ),
             )

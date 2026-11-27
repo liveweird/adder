@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Group, Modal, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,7 +7,7 @@ import { useAdmin } from "../auth";
 import { addRoomMembers, type RoomResponse } from "../api/rooms";
 import { getSessionSnapshot, isSameSessionIdentity } from "../api/session";
 import { useKnownNames } from "../utils/knownNames";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { beginRoomMembershipEcho, refreshRoomMembership, settleRoomMembershipRefresh } from "../utils/roomMembershipRefresh";
 import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { saveErrorMessage } from "../utils/saveError";
 import type { MentionReplacementRequest } from "../utils/mentionText";
@@ -40,6 +40,8 @@ export default function AddAndMention({
   const admin = useAdmin();
   const knownNames = useKnownNames();
   const queryClient = useQueryClient();
+  const currentRoomId = useRef(room.id);
+  useLayoutEffect(() => { currentRoomId.current = room.id; }, [room.id]);
   const [explicitlyOpened, setExplicitlyOpened] = useState(false);
   const [person, setPerson] = useState<PickedOption | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,21 +69,25 @@ export default function AddAndMention({
     // UserDirectorySelect's option contract is always `Name (email)`; the final delimiter keeps parentheses inside a name intact.
     const name = person.label.slice(0, person.label.lastIndexOf(" ("));
     const session = getSessionSnapshot();
+    const roomId = room.id;
+    const echo = beginRoomMembershipEcho(queryClient, roomId, "room.member_added");
     setAdding(true);
     onBusyChange?.(true);
     setError(null);
     try {
-      await addRoomMembers(room.id, { userIds: [userId] });
+      await addRoomMembers(roomId, { userIds: [userId] }, echo?.id);
       // A sign-out or replacement login while the request travelled must not modify the next person's draft or known-name store.
-      if (!isSameSessionIdentity(session, getSessionSnapshot())) return;
+      const current = await settleRoomMembershipRefresh(queryClient, session, echo);
+      if (!current || currentRoomId.current !== roomId) return;
       knownNames.remember([{ userId, name }]);
       onMention({ userId, name, token: `<@${userId}>` }, request);
       setFocusComposerOnExit(true);
       setExplicitlyOpened(false);
       onRequestClose?.();
       setPerson(null);
-      await refreshQueriesAfterMutation(queryClient, ["rooms"]);
     } catch (failure) {
+      echo?.cancel();
+      if (!isSameSessionIdentity(session, getSessionSnapshot()) || currentRoomId.current !== roomId) return;
       setError(saveErrorMessage(failure, t, {
         forbidden: "rooms.members.addForbidden",
         notFound: "rooms.members.addGone",
@@ -91,7 +97,7 @@ export default function AddAndMention({
         failedStatus: "common.error.actionFailedStatus",
         failed: "common.error.actionFailed",
       }));
-      if (isAccessRefusal(failure)) await refreshQueriesAfterMutation(queryClient, ["rooms"]);
+      if (isAccessRefusal(failure)) await refreshRoomMembership(queryClient, session);
     } finally {
       setAdding(false);
       onBusyChange?.(false);

@@ -147,8 +147,12 @@ export async function listRoomMembers(roomId: number, q: RoomMemberListQuery): P
 }
 
 /** Idempotent: a person who already belongs is skipped and counted in `alreadyMembers`. A team is a snapshot of its roster now. */
-export async function addRoomMembers(roomId: number, body: RoomMembersAddBody): Promise<RoomMembersAddResult> {
-  return jsonRequest<RoomMembersAddResult>(`/api/v1/rooms/${roomId}/members`, { method: "POST", body: JSON.stringify(body) });
+export async function addRoomMembers(roomId: number, body: RoomMembersAddBody, mutationId?: string): Promise<RoomMembersAddResult> {
+  return jsonRequest<RoomMembersAddResult>(`/api/v1/rooms/${roomId}/members`, {
+    method: "POST",
+    ...(mutationId === undefined ? {} : { headers: { "X-Mutation-Id": mutationId } }),
+    body: JSON.stringify(body),
+  });
 }
 
 /** 409 `last-owner` when it would leave the room without an active owner. */
@@ -157,6 +161,9 @@ export async function setRoomMemberRole(roomId: number, userId: number, role: Ro
 }
 
 /** A member removes themselves (a leave) or the room's manager removes someone; 409 `last-owner` for the last active owner either way. */
-export async function removeRoomMember(roomId: number, userId: number): Promise<void> {
-  await voidRequest(`/api/v1/rooms/${roomId}/members/${userId}`, { method: "DELETE" });
+export async function removeRoomMember(roomId: number, userId: number, mutationId?: string): Promise<void> {
+  await voidRequest(`/api/v1/rooms/${roomId}/members/${userId}`, {
+    method: "DELETE",
+    ...(mutationId === undefined ? {} : { headers: { "X-Mutation-Id": mutationId } }),
+  });
 }

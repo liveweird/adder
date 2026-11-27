@@ -28,6 +28,11 @@ type MutationTarget =
       kind: "thread.updated" | "thread.status_changed" | "thread.owner_changed" | "thread.merged";
       roomId: number;
       threadNumber: number;
+    }
+  | {
+      type: "room";
+      kind: "room.member_added" | "room.member_removed";
+      roomId: number;
     };
 
 interface PendingMutation {
@@ -129,9 +134,17 @@ export function beginMergeEcho(queryClient: QueryClient, roomId: number, sourceT
   return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
 }
 
+export function beginRoomMemberEcho(queryClient: QueryClient, roomId: number, kind: "room.member_added" | "room.member_removed") {
+  const echo = beginEcho(queryClient, { type: "room", kind, roomId });
+  if (!echo) return undefined;
+  return { id: echo.id, confirm: () => echo.confirm(), cancel: echo.cancel };
+}
+
 function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { type: "event" }>): boolean {
   const target = mutation.target;
-  if (target.kind !== frame.kind || target.roomId !== frame.roomId || target.threadNumber !== frame.threadNumber) return false;
+  if (target.kind !== frame.kind || target.roomId !== frame.roomId) return false;
+  if (target.type === "room") return frame.threadNumber === undefined && frame.messageId === undefined;
+  if (target.threadNumber !== frame.threadNumber) return false;
   if (target.type === "thread") return frame.messageId === undefined;
   if (frame.messageId === undefined) return false;
   const expected = target.expectedMessageId ?? mutation.confirmedMessageId;
@@ -142,7 +155,7 @@ function matches(mutation: PendingMutation, frame: Extract<LiveServerFrame, { ty
 export function deferReplyEcho(queryClient: QueryClient, frame: LiveServerFrame, replay: () => void): boolean {
   if (
     frame.type !== "event" ||
-    !["message.posted", "message.edited", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed", "thread.merged"].includes(frame.kind) ||
+    !["message.posted", "message.edited", "message.reaction_changed", "thread.updated", "thread.status_changed", "thread.owner_changed", "thread.merged", "room.member_added", "room.member_removed"].includes(frame.kind) ||
     frame.mutationId === undefined
   ) return false;
   const mutation = sessions.get(queryClient)?.get(frame.mutationId);

@@ -206,6 +206,46 @@ describe("MessageComposer add and mention", () => {
     expect(screen.getByRole("dialog", { name: "Add someone to this room" })).toBeInTheDocument();
   });
 
+  test("an add that finishes after the composer changes rooms never modifies the new room's draft", async () => {
+    let answer!: (response: Response) => void;
+    directory(200, { added: 1, alreadyMembers: 0 });
+    const implementation = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") return new Promise<Response>((resolve) => (answer = resolve));
+      return implementation(url, init);
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<RoomChangeHarness />);
+    await user.type(box(), "Old room draft");
+    await pick(user);
+    fireEvent.click(screen.getByRole("button", { name: "change room" }));
+    expect(box()).toHaveValue("");
+    answer(jsonResponse(200, { added: 1, alreadyMembers: 0 }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
+    expect(box()).toHaveValue("");
+  });
+
+  test("a failed add from a replaced session shows no stale composer feedback", async () => {
+    let rejectAdd!: (error: Error) => void;
+    directory(200, { added: 1, alreadyMembers: 0 });
+    const implementation = mockFetch.getMockImplementation() as (url: string, init?: RequestInit) => Promise<Response>;
+    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/api/v1/rooms/12/members" && init?.method === "POST") {
+        return new Promise<Response>((_resolve, reject) => (rejectAdd = reject));
+      }
+      return implementation(url, init);
+    });
+    const user = userEvent.setup();
+    renderComposer();
+    await user.type(box(), "Belongs to the old session");
+    await pick(user);
+    clearSession();
+    rejectAdd(new Error("connection lost"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
+    expect(box()).toHaveValue("Belongs to the old session");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   test("the action is available only to room owners and administrators", () => {
     const member = renderWithProviders(
       <ThreadDraftsProvider><MessageComposer room={makeRoom()} thread={makeThread()} onPosted={vi.fn()} /></ThreadDraftsProvider>,
@@ -229,6 +269,16 @@ function NavigationHarness() {
         <button onClick={() => setShown(!shown)}>toggle pane</button>
         {shown && <MessageComposer room={makeRoom({ role: "OWNER" })} thread={makeThread()} onPosted={vi.fn()} />}
       </KnownNamesContext.Provider>
+    </ThreadDraftsProvider>
+  );
+}
+
+function RoomChangeHarness() {
+  const [roomId, setRoomId] = useState(12);
+  return (
+    <ThreadDraftsProvider>
+      <button onClick={() => setRoomId(13)}>change room</button>
+      <MessageComposer room={makeRoom({ id: roomId, role: "OWNER" })} thread={makeThread()} onPosted={vi.fn()} />
     </ThreadDraftsProvider>
   );
 }

@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.39.0",
+    date: "2026-11-27",
+    en: `**Adder 1.39.0 — fewer duplicate reads after changing room membership**
+
+- Adding or removing someone refreshes your roster once when the saved change and its live event match.
+- Other members still see changes live. A person who loses access sees the room close before the removal response reaches the writer.`,
+    pl: `**Adder 1.39.0 — mniej powtórnych odświeżeń listy członków pokoju**
+
+- Po dodaniu lub usunięciu osoby karta odświeża listę członków raz, gdy potwierdzenie zapisu i zdarzenie na żywo dotyczą tej samej zmiany.
+- Pozostałe osoby widzą zmiany na żywo. Osoba, która traci dostęp, przestaje widzieć pokój już wtedy, gdy osoba usuwająca czeka jeszcze na odpowiedź.`,
+  },
+  {
     version: "1.38.0",
     date: "2026-11-27",
     en: `**Adder 1.38.0 — fewer duplicate reads after merging threads**

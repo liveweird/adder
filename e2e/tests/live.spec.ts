@@ -24,7 +24,6 @@ test.afterEach(async () => {
 const MESSAGES_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/messages$/;
 const STATUS_API = /\/api\/v1\/rooms\/\d+\/threads\/\d+\/status$/;
 const THREADS_API = /\/api\/v1\/rooms\/\d+\/threads$/;
-const MEMBER_API = /\/api\/v1\/rooms\/\d+\/members\/\d+$/;
 
 interface Person {
   id: number;
@@ -36,6 +35,7 @@ interface Person {
 /** A server frame as far as the specs read it (`LiveServerFrame` in the OpenAPI spec). */
 interface Frame {
   type: string;
+  roomId?: number;
   roomIds?: number[];
   kind?: string;
   messageId?: number;
@@ -486,13 +486,16 @@ async function openMergeDialog(page: Page, title: string) {
   return dialog;
 }
 
-async function holdMergeResponse(author: Seat, sourcePath: string, loseResponse = false) {
+async function holdCommittedResponse(
+  author: Seat,
+  { path, method, status, loseResponse = false }: { path: string; method: string; status: number; loseResponse?: boolean },
+) {
   let release!: () => void;
   const held = new Promise<void>((resolve) => { release = resolve; });
-  await author.page.route((url) => url.pathname === `/api/v1${sourcePath}/merge`, async (route) => {
-    if (route.request().method() !== "PUT") return route.continue();
+  await author.page.route((url) => url.pathname === path, async (route) => {
+    if (route.request().method() !== method) return route.continue();
     const response = await route.fetch();
-    expect(response.status()).toBe(204);
+    expect(response.status()).toBe(status);
     await held;
     if (loseResponse) await route.abort();
     else await route.fulfill({ response });
@@ -524,7 +527,7 @@ test("a committed merge refreshes the writer once and updates the reader live", 
     if (path === `/api/v1${roomPath}/threads`) reads.list++;
     if (path === `/api/v1${roomPath}/workflow`) reads.workflow++;
   });
-  const release = await holdMergeResponse(author, sourcePath);
+  const release = await holdCommittedResponse(author, { path: `/api/v1${sourcePath}/merge`, method: "PUT", status: 204 });
   let heldReads: typeof reads;
   try {
     await dialog.getByRole("button", { name: "Merge into #1", exact: true }).click();
@@ -563,7 +566,7 @@ test("a lost merge response releases the writer's live refresh", async ({ page, 
   await openLive(reader, sourcePath, room.roomId);
   const dialog = await openMergeDialog(author.page, targetTitle);
   await author.page.clock.runFor(2_100);
-  const release = await holdMergeResponse(author, sourcePath, true);
+  const release = await holdCommittedResponse(author, { path: `/api/v1${sourcePath}/merge`, method: "PUT", status: 204, loseResponse: true });
   try {
     await dialog.getByRole("button", { name: "Merge into #1", exact: true }).click();
     await expect.poll(() => author.frames.some((frame) => frame.kind === "thread.merged")).toBe(true);
@@ -637,28 +640,138 @@ test("a status change made by one member shows in another member's open thread",
   await expectNoReload(watcher);
 });
 
+const memberRow = (page: Page, person: Person) => page.getByRole("row").filter({ hasText: person.email });
+
+async function pickMemberToAdd(page: Page, person: Person) {
+  const picker = page.getByRole("combobox", { name: "Add a person" });
+  await picker.click();
+  await picker.fill(person.name);
+  await page.getByRole("option", { name: `${person.name} (${person.email})`, exact: true }).click();
+}
+
+function countRosterReads(page: Page, path: string) {
+  let reads = 0;
+  page.on("request", (request) => {
+    if (request.method() === "GET" && new URL(request.url()).pathname === path) reads++;
+  });
+  return () => reads;
+}
+
+test("adding a room member updates another reader and refreshes the writer once", async ({ page, browser }) => {
+  const room = await scene(page);
+  const added = await throwawayUser(page, "E2E Live New Member", cleanup);
+  const manager = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  const memberPath = `/rooms/${room.roomId}/members`;
+  const apiPath = `/api/v1${memberPath}`;
+  await manager.page.clock.install();
+  await openLive(manager, memberPath, room.roomId);
+  await openLive(reader, memberPath, room.roomId);
+  await expect(memberRow(reader.page, room.owner)).toBeVisible();
+  await pickMemberToAdd(manager.page, added);
+  await manager.page.clock.runFor(2_100);
+
+  const reads = countRosterReads(manager.page, apiPath);
+  const release = await holdCommittedResponse(manager, { path: apiPath, method: "POST", status: 200 });
+  let heldReads: number;
+  try {
+    await manager.page.getByRole("button", { name: "Add person", exact: true }).click();
+    await expect.poll(() => manager.frames.some((frame) => frame.kind === "room.member_added" && frame.roomId === room.roomId)).toBe(true);
+    await manager.page.clock.runFor(1_100);
+    await expect(memberRow(reader.page, added)).toBeVisible();
+    heldReads = reads();
+  } finally {
+    release();
+  }
+
+  await expect(memberRow(manager.page, added)).toBeVisible();
+  await expect(manager.page.getByRole("button", { name: "Add person", exact: true })).toBeDisabled();
+  await manager.page.clock.runFor(3_200);
+  expect(reads()).toBe(1);
+  expect(heldReads).toBe(0);
+  expect(manager.frames.find((frame) => frame.kind === "room.member_added" && frame.roomId === room.roomId)?.mutationId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(reader.frames.find((frame) => frame.kind === "room.member_added" && frame.roomId === room.roomId)?.mutationId).toBeUndefined();
+  await expectNoReload(manager);
+  await expectNoReload(reader);
+});
+
+test("a lost add-member response releases the writer's roster refresh", async ({ page, browser }) => {
+  const room = await scene(page);
+  const added = await throwawayUser(page, "E2E Live New Member", cleanup);
+  const manager = await signedIn(browser, room.owner);
+  const reader = await signedIn(browser, room.mate);
+  const memberPath = `/rooms/${room.roomId}/members`;
+  await manager.page.clock.install();
+  await openLive(manager, memberPath, room.roomId);
+  await openLive(reader, memberPath, room.roomId);
+  await expect(memberRow(reader.page, room.owner)).toBeVisible();
+  await pickMemberToAdd(manager.page, added);
+  await manager.page.clock.runFor(2_100);
+
+  const release = await holdCommittedResponse(manager, { path: `/api/v1${memberPath}`, method: "POST", status: 200, loseResponse: true });
+  try {
+    await manager.page.getByRole("button", { name: "Add person", exact: true }).click();
+    await expect.poll(() => manager.frames.some((frame) => frame.kind === "room.member_added" && frame.roomId === room.roomId)).toBe(true);
+    await manager.page.clock.runFor(1_100);
+    await expect(memberRow(reader.page, added)).toBeVisible();
+    await expect(memberRow(manager.page, added)).toHaveCount(0);
+  } finally {
+    release();
+  }
+
+  await expect(memberRow(manager.page, added)).toBeVisible();
+  await expectNoReload(manager);
+  await expectNoReload(reader);
+});
+
 test("a member removed from a room loses it from the rail and the open room", async ({ page, browser }) => {
   const room = await scene(page);
   await seedThread(room);
   const manager = await signedIn(browser, room.owner);
   const removed = await signedIn(browser, room.mate);
-  await openLive(manager, `/rooms/${room.roomId}/members`, room.roomId);
+  const observer = await signedIn(browser, room.owner);
+  const memberPath = `/rooms/${room.roomId}/members`;
+  const apiPath = `/api/v1${memberPath}`;
+  await manager.page.clock.install();
+  await openLive(manager, memberPath, room.roomId);
   await openLive(removed, `/rooms/${room.roomId}/threads/1`, room.roomId);
+  await openLive(observer, memberPath, room.roomId);
+  await expect(memberRow(observer.page, room.mate)).toBeVisible();
   const roomLink = rail(removed.page).getByRole("link", { name: /^e2e-live-/ });
   await expect(roomLink).toHaveCount(1);
   await expect(removed.page.getByRole("heading", { level: 3, name: /^#1 / })).toBeVisible();
 
-  // The owner removes the teammate from the Members page.
   await rowOperation(manager.page, room.mate.name, "Remove");
-  await Promise.all([
-    manager.page.waitForResponse((r) => r.request().method() === "DELETE" && MEMBER_API.test(r.url()) && r.status() === 204),
-    manager.page.getByRole("dialog", { name: "Remove from the room?" }).getByRole("button", { name: "Remove", exact: true }).click(),
-  ]);
+  await manager.page.clock.runFor(2_100);
+  const reads = countRosterReads(manager.page, apiPath);
+  const release = await holdCommittedResponse(manager, { path: `${apiPath}/${room.mate.id}`, method: "DELETE", status: 204 });
+  let heldReads: number;
+  const dialog = manager.page.getByRole("dialog", { name: "Remove from the room?" });
+  try {
+    await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+    await expect.poll(() => manager.frames.some((frame) => frame.kind === "room.member_removed" && frame.roomId === room.roomId)).toBe(true);
+    await manager.page.clock.runFor(1_100);
+    // The losing socket is revoked and the owner's other tab refreshes before the writer receives the DELETE response.
+    await expect(roomLink).toHaveCount(0);
+    await expect(removed.page.getByRole("button", { name: "Request to join", exact: true })).toBeVisible();
+    await expect(memberRow(observer.page, room.mate)).toHaveCount(0);
+    heldReads = reads();
+  } finally {
+    release();
+  }
 
-  // The removed member's rail drops the room and only the restricted visible access preview remains.
-  await expect(roomLink).toHaveCount(0);
-  await expect(removed.page.getByRole("button", { name: "Request to join", exact: true })).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  await expect(memberRow(manager.page, room.mate)).toHaveCount(0);
+  await manager.page.clock.runFor(3_200);
+  expect(reads()).toBe(1);
+  expect(heldReads).toBe(0);
+  expect(manager.frames.find((frame) => frame.kind === "room.member_removed" && frame.roomId === room.roomId)?.mutationId).toMatch(/^[0-9a-f-]{36}$/);
+  const revoked = removed.frames.find((frame) => frame.type === "revoked" && frame.roomId === room.roomId);
+  expect(revoked).toBeDefined();
+  expect(revoked?.mutationId).toBeUndefined();
+  await expectNoReload(manager);
   await expectNoReload(removed);
+  await expectNoReload(observer);
 });
 
 test("the header says it is reconnecting while the browser is offline", async ({ page, browser }) => {

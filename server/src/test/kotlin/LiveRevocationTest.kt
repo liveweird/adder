@@ -2,6 +2,7 @@ package ch.nokillswit
 
 import ch.nokillswit.authz.RoomAccessType
 import ch.nokillswit.authz.RoomRole
+import ch.nokillswit.infra.MUTATION_ID_HEADER
 import ch.nokillswit.infra.notify.LiveKind
 import ch.nokillswit.live.LiveHubKey
 import ch.nokillswit.live.LiveServerFrame
@@ -15,8 +16,12 @@ import ch.nokillswit.rooms.RoomMemberRoleRequest
 import ch.nokillswit.threads.MessageRequest
 import ch.nokillswit.users.UserRole
 import io.ktor.client.request.delete
+import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.CoroutineScope
@@ -104,11 +109,19 @@ class LiveRevocationTest {
         val memberTwo = subscribed(member, room) // a second tab of the same person
         awaitListenerUp(hub)
 
-        assertEquals(HttpStatusCode.NoContent, owner.client.delete("$rooms/$room/members/${member.id}").status)
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        val removed = owner.client.delete("$rooms/$room/members/${member.id}") {
+            header(MUTATION_ID_HEADER, mutationId)
+        }
+        assertEquals(HttpStatusCode.NoContent, removed.status)
         assertEquals(LiveServerFrame.Revoked(room), memberSocket.nextNonResync())
         assertEquals(LiveServerFrame.Revoked(room), memberTwo.nextNonResync())
         val heard = ownerSocket.nextNonResync()
-        assertEquals(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_REMOVED, room), heard, "the others hear it as an event")
+        assertEquals(
+            LiveServerFrame.Event(LiveKind.ROOM_MEMBER_REMOVED, room, mutationId = mutationId),
+            heard,
+            "the writer hears correlation while the target's revocation stays id-free",
+        )
 
         // The marker: when the owner's socket has the post, the hub has already decided who else gets it.
         val posted = owner.client.postJson("$rooms/$room/threads/${thread.number}/messages", MessageRequest("After the removal"))
@@ -127,13 +140,24 @@ class LiveRevocationTest {
         val admin = actor("rev-adm", UserRole.ADMIN)
         val room = room(owner, admin, accessType = RoomAccessType.RESTRICTED_VISIBLE)
         val thread = TestThreads.seed(room, owner.id)
+        val ownerSocket = subscribed(owner, room)
         val adminSocket = subscribed(admin, room)
         awaitListenerUp(hub)
 
-        assertEquals(HttpStatusCode.NoContent, owner.client.delete("$rooms/$room/members/${admin.id}").status)
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        val removed = owner.client.delete("$rooms/$room/members/${admin.id}") {
+            header(MUTATION_ID_HEADER, mutationId)
+        }
+        assertEquals(HttpStatusCode.NoContent, removed.status)
+        assertEquals(
+            LiveServerFrame.Event(LiveKind.ROOM_MEMBER_REMOVED, room, mutationId = mutationId),
+            ownerSocket.nextNonResync(),
+        )
         assertEquals(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_REMOVED, room), adminSocket.nextNonResync())
         owner.client.postJson("$rooms/$room/threads/${thread.number}/messages", MessageRequest("Still here"))
+        assertEquals(LiveKind.MESSAGE_POSTED, (ownerSocket.nextNonResync() as LiveServerFrame.Event).kind)
         assertEquals(LiveKind.MESSAGE_POSTED, (adminSocket.nextNonResync() as LiveServerFrame.Event).kind)
+        ownerSocket.close()
         adminSocket.close()
     }
 
@@ -185,12 +209,19 @@ class LiveRevocationTest {
         val first = openAuthenticatedLive(liveClient(), newcomer)
         val second = openAuthenticatedLive(liveClient(), newcomer)
         val other = openAuthenticatedLive(liveClient(), bystander)
+        val writer = subscribed(owner, room)
         awaitListenerUp(hub)
         other.settle() // the first LISTEN's resync may have reached it: the silence below is about the hint
 
-        val added = owner.client.postJson("$rooms/$room/members", RoomMembersAddRequest(userIds = listOf(newcomer.id)))
+        val mutationId = "2c6c7f12-79a4-4f1a-8dc7-e9686608b20a"
+        val added = owner.client.post("$rooms/$room/members") {
+            header(MUTATION_ID_HEADER, mutationId)
+            contentType(ContentType.Application.Json)
+            setBody(RoomMembersAddRequest(userIds = listOf(newcomer.id)))
+        }
         assertEquals(HttpStatusCode.OK, added.status)
         val expected = LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ADDED, room)
+        assertEquals(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ADDED, room, mutationId = mutationId), writer.nextNonResync())
         assertEquals(expected, first.nextNonResync())
         assertEquals(expected, second.nextNonResync(), "every socket of the person")
         val notice = LiveServerFrame.Event(LiveKind.NOTIFICATION_CREATED, room)
@@ -202,7 +233,7 @@ class LiveRevocationTest {
         val promoted = owner.client.putJson("$rooms/$room/members/${newcomer.id}", RoomMemberRoleRequest(RoomRole.OWNER))
         assertEquals(HttpStatusCode.NoContent, promoted.status)
         assertEquals(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ROLE_CHANGED, room), first.nextNonResync())
-        listOf(first, second, other).forEach { it.close() }
+        listOf(first, second, other, writer).forEach { it.close() }
     }
 
     @Test

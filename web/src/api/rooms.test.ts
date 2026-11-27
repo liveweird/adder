@@ -65,20 +65,24 @@ describe("rooms API wrappers", () => {
     expect(lastCall()[0]).toBe("/api/v1/rooms/5/members?page=1&pageSize=20");
   });
 
-  test("addRoomMembers POSTs the ids and/or the team and returns the counts", async () => {
+  test("addRoomMembers POSTs the ids and/or the team with optional correlation and returns the counts", async () => {
     mockFetch.mockResolvedValue(json(200, { added: 2, alreadyMembers: 1 }));
-    await expect(addRoomMembers(5, { userIds: [3, 4], teamId: 9 })).resolves.toEqual({ added: 2, alreadyMembers: 1 });
+    const mutationId = "14d7ed05-24c1-4374-b6eb-60b147595822";
+    await expect(addRoomMembers(5, { userIds: [3, 4], teamId: 9 }, mutationId)).resolves.toEqual({ added: 2, alreadyMembers: 1 });
     const [url, init] = lastCall();
     expect([url, init.method]).toEqual(["/api/v1/rooms/5/members", "POST"]);
     expect(JSON.parse(init.body as string)).toEqual({ userIds: [3, 4], teamId: 9 });
+    expect(new Headers(init.headers).get("X-Mutation-Id")).toBe(mutationId);
   });
 
   test("setRoomMemberRole PUTs the role and removeRoomMember DELETEs the member", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(new Response(null, { status: 204 })));
     await setRoomMemberRole(5, 7, "OWNER");
     expect([lastCall()[0], lastCall()[1].method, JSON.parse(lastCall()[1].body as string)]).toEqual(["/api/v1/rooms/5/members/7", "PUT", { role: "OWNER" }]);
-    await removeRoomMember(5, 7);
+    const mutationId = "14d7ed05-24c1-4374-b6eb-60b147595822";
+    await removeRoomMember(5, 7, mutationId);
     expect([lastCall()[0], lastCall()[1].method]).toEqual(["/api/v1/rooms/5/members/7", "DELETE"]);
+    expect(new Headers(lastCall()[1].headers).get("X-Mutation-Id")).toBe(mutationId);
   });
 
   test("markRoomSeen POSTs with no body (204)", async () => {

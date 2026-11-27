@@ -92,6 +92,10 @@ describe("parseServerFrame", () => {
       .toEqual({ type: "event", kind: "thread.updated", roomId: 7, threadNumber: 3, mutationId });
     expect(parse({ ...event, kind: "thread.merged", messageId: undefined, mutationId }))
       .toEqual({ type: "event", kind: "thread.merged", roomId: 7, threadNumber: 3, mutationId });
+    expect(parse({ ...event, kind: "room.member_added", threadNumber: undefined, messageId: undefined, mutationId }))
+      .toEqual({ type: "event", kind: "room.member_added", roomId: 7, mutationId });
+    expect(parse({ ...event, kind: "room.member_removed", threadNumber: undefined, messageId: undefined, mutationId }))
+      .toEqual({ type: "event", kind: "room.member_removed", roomId: 7, mutationId });
     expect(parse({ ...event, mutationId: mutationId.toUpperCase() })).toEqual(event);
     expect(parse({ ...event, mutationId, kind: "message.deleted" })).toEqual({ ...event, kind: "message.deleted" });
   });

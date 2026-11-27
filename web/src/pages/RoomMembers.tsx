@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { Badge, Button, Group, Menu, Select, Stack, Table, Text } from "@mantine/core";
@@ -7,7 +7,7 @@ import { IconLogout, IconShieldCheck, IconUserMinus, IconUserPlus, IconUsers } f
 import type { TFunction } from "i18next";
 import { useAdmin } from "../auth";
 import { ApiError } from "../api/http";
-import { getUserId } from "../api/session";
+import { getSessionSnapshot, getUserId, isSameSessionIdentity, type SessionSnapshot } from "../api/session";
 import { listRoomMembers, removeRoomMember, setRoomMemberRole, type RoomResponse, type RoomRole } from "../api/rooms";
 import ClearableTextInput from "../components/ClearableTextInput";
 import ConfirmActionModal from "../components/ConfirmActionModal";
@@ -33,6 +33,7 @@ import { showSuccessToast } from "../utils/toast";
 import { MAX_USER_NAME_LENGTH } from "../utils/userForm";
 import { homeKey, roomKeys } from "../utils/roomKeys";
 import { clearRoomMessageRevisions } from "../utils/messageRevisionCache";
+import { beginRoomMembershipEcho, refreshRoomMembership, settleRoomMembershipRefresh } from "../utils/roomMembershipRefresh";
 import classes from "./RoomMembers.module.css";
 
 const SORT_FIELDS = ["name", "role", "addedAt"] as const;
@@ -56,6 +57,7 @@ function memberErrorMessage(error: unknown, t: TFunction, self: boolean): string
 
 /** Who is leaving or being removed: the row's user (the leave is the caller's own id). */
 type Departing = { userId: number; name: string };
+type RemovalInput = { member: Departing; roomId: number; session: SessionSnapshot };
 
 /** The page body of one loaded room: the add controls (its OWNER or an ADMIN), then the members as a paged table. */
 function MembersBody({ room }: { room: RoomResponse }) {
@@ -76,6 +78,11 @@ function MembersBody({ room }: { room: RoomResponse }) {
   const leaving = removing !== null && removing.userId === me;
   // A failed add's words live here, not in the add controls: a 403 takes those away and the user must still see why.
   const [addFailure, setAddFailure] = useState<string | null>(null);
+  const activeRoom = useRef<number | null>(room.id);
+  useLayoutEffect(() => {
+    activeRoom.current = room.id;
+    return () => { activeRoom.current = null; };
+  }, [room.id]);
 
   // Under the ["rooms"] prefix: any room refresh (the header's member count included) re-reads the page.
   const { data, isLoading, isError, error } = useQuery({
@@ -119,8 +126,23 @@ function MembersBody({ room }: { room: RoomResponse }) {
     onError: refreshOnRefusal,
   });
   const remove = useMutation({
-    mutationFn: (member: Departing) => removeRoomMember(room.id, member.userId),
-    onSuccess: async (_none, member) => {
+    mutationFn: async ({ member, roomId, session }: RemovalInput) => {
+      // Leaving revokes this room and follows its existing navigation/cleanup path; it is never correlated.
+      if (member.userId === me) {
+        await removeRoomMember(roomId, member.userId);
+        return { member, roomId, current: isSameSessionIdentity(session, getSessionSnapshot()) };
+      }
+      const echo = beginRoomMembershipEcho(queryClient, roomId, "room.member_removed");
+      try {
+        await removeRoomMember(roomId, member.userId, echo?.id);
+      } catch (error) {
+        echo?.cancel();
+        throw error;
+      }
+      return { member, roomId, current: await settleRoomMembershipRefresh(queryClient, session, echo) };
+    },
+    onSuccess: async ({ member, roomId, current }) => {
+      if (!current || activeRoom.current !== roomId) return;
       setConfirming(false);
       if (member.userId === me) {
         // A leave: go, and let the unmount clean up (above).
@@ -130,12 +152,12 @@ function MembersBody({ room }: { room: RoomResponse }) {
         return;
       }
       showSuccessToast(t("rooms.members.toast.removed"));
-      await refresh();
     },
     // The failure shows inline above the table, not inside the closed dialog.
-    onError: async (failure) => {
+    onError: async (failure, input) => {
+      if (activeRoom.current !== input.roomId || !isSameSessionIdentity(input.session, getSessionSnapshot())) return;
       setConfirming(false);
-      await refreshOnRefusal(failure);
+      if (isAccessRefusal(failure)) await refreshRoomMembership(queryClient, input.session);
     },
   });
 
@@ -204,7 +226,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
         {changeRole.isError && (
           <FormErrorAlert title={t("rooms.members.roleFailed")}>{memberErrorMessage(changeRole.error, t, false)}</FormErrorAlert>
         )}
-        {remove.isError && (
+        {remove.isError && remove.variables?.roomId === room.id && isSameSessionIdentity(remove.variables.session, getSessionSnapshot()) && (
           <FormErrorAlert title={t(leaving ? "rooms.members.leaveFailed" : "rooms.members.removeFailed")}>
             {memberErrorMessage(remove.error, t, leaving)}
           </FormErrorAlert>
@@ -326,7 +348,7 @@ function MembersBody({ room }: { room: RoomResponse }) {
         }
         cancelLabel={t("common.action.cancel")}
         confirmLabel={t(leaving ? "rooms.members.leave" : "rooms.members.remove")}
-        onConfirm={() => removing && remove.mutate(removing)}
+        onConfirm={() => removing && remove.mutate({ member: removing, roomId: room.id, session: getSessionSnapshot() })}
         loading={remove.isPending}
       />
     </Stack>

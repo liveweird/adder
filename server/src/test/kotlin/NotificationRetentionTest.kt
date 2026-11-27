@@ -387,7 +387,7 @@ class NotificationRetentionTest {
                 assertEquals(1, statement.executeUpdate())
             }
             val removal = async {
-                members.remove(scene.room, scene.recipient, caller) { _, _ -> guardPassed.complete(Unit) }
+                members.remove(scene.room, scene.recipient, caller, { _, _ -> guardPassed.complete(Unit) }) { null }
             }
             var committed = false
             try {

@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Box, Button, Group, Stack, ThemeIcon, Title } from "@mantine/core";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { IconUserPlus, IconUsersGroup } from "@tabler/icons-react";
 import { addRoomMembers, type RoomResponse } from "../api/rooms";
+import { getSessionSnapshot, isSameSessionIdentity, type SessionSnapshot } from "../api/session";
 import { getTeam } from "../api/teams";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import { beginRoomMembershipEcho, refreshRoomMembership, settleRoomMembershipRefresh } from "../utils/roomMembershipRefresh";
 import { isAccessRefusal } from "../utils/roomAccess";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
@@ -34,6 +35,7 @@ const TEAM_READ_ERRORS = {
 
 /** A team about to be added: what the confirm states (its active roster as of the read just made). */
 type TeamPlan = { id: number; name: string; count: number };
+type AddInput = { roomId: number; session: SessionSnapshot; body: Parameters<typeof addRoomMembers>[1] };
 
 /**
  * The room's add controls (shown to its OWNER or an ADMIN; the server guards): one person from the user directory, or a whole team
@@ -53,7 +55,11 @@ export default function RoomMembersAdd({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const refresh = () => refreshQueriesAfterMutation(queryClient, ["rooms"]);
+  const activeRoom = useRef<number | null>(room.id);
+  useLayoutEffect(() => {
+    activeRoom.current = room.id;
+    return () => { activeRoom.current = null; };
+  }, [room.id]);
   const [person, setPerson] = useState<PickedOption | null>(null);
   const [team, setTeam] = useState<PickedOption | null>(null);
   // `plan` outlives the dialog (its text stays put through the close transition); `confirming` is what opens it.
@@ -61,17 +67,30 @@ export default function RoomMembersAdd({
   const [confirming, setConfirming] = useState(false);
   const [emptyTeam, setEmptyTeam] = useState(false);
 
+  const addMembers = async ({ roomId, session, body }: AddInput) => {
+    const echo = beginRoomMembershipEcho(queryClient, roomId, "room.member_added");
+    let result: Awaited<ReturnType<typeof addRoomMembers>>;
+    try {
+      result = await addRoomMembers(roomId, body, echo?.id);
+    } catch (error) {
+      echo?.cancel();
+      throw error;
+    }
+    const current = await settleRoomMembershipRefresh(queryClient, session, echo);
+    return { result, roomId, current };
+  };
   const addPerson = useMutation({
-    mutationFn: (userId: number) => addRoomMembers(room.id, { userIds: [userId] }),
-    onSuccess: async (result) => {
+    mutationFn: addMembers,
+    onSuccess: ({ result, roomId, current }) => {
+      if (!current || activeRoom.current !== roomId) return;
       setPerson(null);
       showSuccessToast(t(result.added > 0 ? "rooms.members.toast.added" : "rooms.members.toast.alreadyMember"));
-      await refresh();
     },
     // A 403, 404 or 409 says the caller's standing moved (demoted, removed): re-read the room so the controls follow.
-    onError: async (failure) => {
+    onError: async (failure, input) => {
+      if (activeRoom.current !== input.roomId || !isSameSessionIdentity(input.session, getSessionSnapshot())) return;
       onAddFailure(saveErrorMessage(failure, t, ADD_ERRORS));
-      if (isAccessRefusal(failure)) await refresh();
+      if (isAccessRefusal(failure)) await refreshRoomMembership(queryClient, input.session);
     },
   });
   // Reads the team's roster for the confirm's count (the registry is open to every signed-in user).
@@ -87,18 +106,19 @@ export default function RoomMembersAdd({
     },
   });
   const addTeam = useMutation({
-    mutationFn: (teamId: number) => addRoomMembers(room.id, { teamId }),
-    onSuccess: async (result) => {
+    mutationFn: addMembers,
+    onSuccess: ({ result, roomId, current }) => {
+      if (!current || activeRoom.current !== roomId) return;
       setConfirming(false);
       setTeam(null);
       showSuccessToast(t("rooms.members.toast.teamAdded", { added: result.added, already: result.alreadyMembers }));
-      await refresh();
     },
     // The failure shows inline under the controls, not inside the closed dialog.
-    onError: async (failure) => {
+    onError: async (failure, input) => {
+      if (activeRoom.current !== input.roomId || !isSameSessionIdentity(input.session, getSessionSnapshot())) return;
       setConfirming(false);
       onAddFailure(saveErrorMessage(failure, t, ADD_ERRORS));
-      if (isAccessRefusal(failure)) await refresh();
+      if (isAccessRefusal(failure)) await refreshRoomMembership(queryClient, input.session);
     },
   });
 
@@ -128,7 +148,7 @@ export default function RoomMembersAdd({
           onSubmit={(event) => {
             event.preventDefault();
             clearFeedback();
-            if (person) addPerson.mutate(Number(person.value));
+            if (person) addPerson.mutate({ roomId: room.id, session: getSessionSnapshot(), body: { userIds: [Number(person.value)] } });
           }}
         >
           <Stack gap="sm">
@@ -183,7 +203,7 @@ export default function RoomMembersAdd({
         cancelLabel={t("common.action.cancel")}
         confirmLabel={t("rooms.members.addTeam")}
         confirmColor="adder"
-        onConfirm={() => plan && addTeam.mutate(plan.id)}
+        onConfirm={() => plan && addTeam.mutate({ roomId: room.id, session: getSessionSnapshot(), body: { teamId: plan.id } })}
         loading={addTeam.isPending}
       />
     </Stack>
