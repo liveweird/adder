@@ -17,6 +17,18 @@ interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: "1.41.0",
+    date: "2026-11-27",
+    en: `**Adder 1.41.0 — return to Rooms after leaving a room**
+
+- Leaving takes you back to Rooms even if the Members page has already changed to an access preview.
+- A successful response clears cached room content when the browser misses the live update.`,
+    pl: `**Adder 1.41.0 — powrót do listy po opuszczeniu pokoju**
+
+- Po opuszczeniu pokoju wrócisz do listy pokoi, nawet jeśli widok członków został już zastąpiony podglądem dostępu.
+- Jeśli zdarzenie na żywo nie dotarło, potwierdzenie usuwa z pamięci przeglądarki dane opuszczonego pokoju.`,
+  },
+  {
     version: "1.40.0",
     date: "2026-11-27",
     en: `**Adder 1.40.0 — links to readable threads**
