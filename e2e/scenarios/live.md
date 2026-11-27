@@ -131,6 +131,14 @@ change can only arrive by being pushed, and marks the document, so "without a re
 3. The response arrives.
    - *Expected*: the writer's roster refreshes once. None of the pages reload.
 
+## Scenario: a self-leave finishes after live revocation has already replaced the room
+
+1. A member and the owner each open the room’s Members page.
+2. The member confirms **Leave room**. The server commits the removal, and the browser holds the successful response.
+   - *Expected*: the leaving browser shows the access preview at its current URL and removes the room from its rail. The owner’s roster loses the member.
+3. The browser receives the response.
+   - *Expected*: the leaving browser navigates to Rooms. Neither page reloads.
+
 ## Scenario: the header says it is reconnecting while the browser is offline
 
 1. The teammate opens an API-seeded thread whose message refers to another thread.

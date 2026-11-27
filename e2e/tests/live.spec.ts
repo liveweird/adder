@@ -842,6 +842,38 @@ test("a member removed from a room loses it from the rail and the open room", as
   await expectNoReload(observer);
 });
 
+test("a self-leave finishes after live revocation has already replaced the room", async ({ page, browser }) => {
+  const room = await scene(page);
+  const leaving = await signedIn(browser, room.mate);
+  const observer = await signedIn(browser, room.owner);
+  const membersPath = `/rooms/${room.roomId}/members`;
+  await leaving.page.clock.install();
+  await openLive(leaving, membersPath, room.roomId);
+  await openLive(observer, membersPath, room.roomId);
+  await expect(memberRow(observer.page, room.mate)).toBeVisible();
+  await leaving.page.clock.runFor(2_100);
+
+  const path = `/api/v1${membersPath}/${room.mate.id}`;
+  const release = await holdCommittedResponse(leaving, { path, method: "DELETE", status: 204 });
+  try {
+    await leaving.page.getByRole("button", { name: "Leave room", exact: true }).click();
+    const confirmation = leaving.page.getByRole("dialog", { name: "Leave this room?", exact: true });
+    await confirmation.getByRole("button", { name: "Leave room", exact: true }).click();
+    await expect.poll(() => leaving.frames.some((frame) => frame.type === "revoked" && frame.roomId === room.roomId)).toBe(true);
+    await leaving.page.clock.runFor(1_100);
+    await expect(leaving.page.getByRole("button", { name: "Request to join", exact: true })).toBeVisible();
+    await expect(leaving.page).toHaveURL(new RegExp(`${membersPath}$`));
+    await expect(rail(leaving.page).getByRole("link", { name: /^e2e-live-/ })).toHaveCount(0);
+    await expect(memberRow(observer.page, room.mate)).toHaveCount(0);
+  } finally {
+    release();
+  }
+
+  await expect(leaving.page).toHaveURL(/\/rooms$/);
+  await expectNoReload(leaving);
+  await expectNoReload(observer);
+});
+
 test("the header says it is reconnecting while the browser is offline", async ({ page, browser }) => {
   const room = await scene(page);
   const title = await seedThread(room, "The second conversation is #2.");

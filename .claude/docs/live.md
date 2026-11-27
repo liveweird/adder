@@ -333,6 +333,12 @@ The live event names the deleted thread. Deleting a canonical thread can also re
 
 A `thread.created` event refreshes the unresolved reference for the new number. A room-wide fallback covers a creation event without a number. A committed deletion clears the room’s cached reference results immediately and reloads the visible references, since deleting a canonical thread can also delete its merged sources. A merge preserves the source’s readable history. Room access loss and account replacement clear the affected reference results and cancel pending reads. Reconnect and wake-up catch-up recheck cached references so a missed deletion does not leave a stale link. Numeric lookups have their own cache keys, so a pending lookup cannot delay a room write’s refresh.
 
+## Leaving a room (1.41.0)
+
+Live revocation removes access immediately, even while the request to leave is pending. The Members route owns completion, so it can return to Rooms when a successful response arrives after the room has been replaced by its access preview. A response from an earlier route or session does not redirect the user.
+
+A successful response for the current session also clears the room’s protected reads. It cancels stale reference, quote and search results, refreshes affected projections and rechecks the room’s detail if another active route still displays it. This protects the same content when the live update is missed.
+
 ## Mutation refresh measurements
 
 In a warm two-tab Chromium rehearsal, a reply produced two timeline, detail, thread-list and rail reads in the writer before correlation, and one of each afterward. The observer still read each once. Holding the POST response after the observer received the event caused no writer reads until the response arrived. Aborting that held response released the event and the committed reply appeared in both tabs.

@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Leaving a room returns to Rooms (1.41.0)
+
+After you leave a room, the browser returns to Rooms even if a live update has already replaced the Members page with an access preview. A successful response clears cached content for the room when the live update is missed.
+
 ### Thread links that lead to readable conversations (1.40.0)
 
 References such as `#42` in messages and expanded pins link to readable threads in the same room. A missing or deleted target stays plain text. A merged thread’s number still opens its original conversation. References update live when a thread is created or deleted. Up to 20 references per message can become links.

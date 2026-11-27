@@ -40,6 +40,9 @@ export function quoteDependencyKeys(queryClient: QueryClient, frame: LiveServerF
     return true;
   };
   return queryClient.getQueryCache().getAll()
-    .filter((query) => isMessageOrPinKey(query.queryKey) && containsSource(query.state.data, matches))
+    .filter((query) => isMessageOrPinKey(query.queryKey) && (
+      containsSource(query.state.data, matches) ||
+      (frame.type === "revoked" && query.state.fetchStatus === "fetching" && query.queryKey[2] !== frame.roomId)
+    ))
     .map((query) => query.queryKey);
 }

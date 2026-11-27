@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { quoteDependencyKeys } from "./quoteCacheDependencies";
 import type { LiveServerFrame } from "./liveProtocol";
 
@@ -22,5 +22,20 @@ describe("quote cache dependencies", () => {
     expect(quoteDependencyKeys(client, event("message.edited", 5, 7, 99))).toEqual([first, pins]);
     expect(quoteDependencyKeys(client, event("thread.deleted", 5, 7))).toEqual([first, second, pins]);
     expect(quoteDependencyKeys(client, { type: "revoked", roomId: 5 })).toEqual([first, second, pins]);
+  });
+
+  test("revocation includes pending foreign message and pin reads whose first body cannot be inspected yet", () => {
+    const client = new QueryClient();
+    const message = ["rooms", "threads", 12, "messages", 42] as const;
+    const pins = ["rooms", "pins", 14] as const;
+    const sourcePins = ["rooms", "pins", 5] as const;
+    const pending = () => new Promise<never>(() => undefined);
+    const observers = [message, pins, sourcePins].map((queryKey) => new QueryObserver(client, { queryKey, queryFn: pending }));
+    const detach = observers.map((observer) => observer.subscribe(() => undefined));
+
+    expect(quoteDependencyKeys(client, { type: "revoked", roomId: 5 })).toEqual([message, pins]);
+
+    detach.forEach((unsubscribe) => unsubscribe());
+    client.clear();
   });
 });
