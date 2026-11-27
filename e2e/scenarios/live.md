@@ -108,6 +108,13 @@ change can only arrive by being pushed, and marks the document, so "without a re
 3. The teammate does nothing.
    - *Expected*: their list row and current-status badge now say "In progress", the header menu offers **Move to Open** and **Move to Waiting**, and their document was not reloaded.
 
+## Scenario: changing another member's role updates the reader and refreshes the writer once
+
+1. The owner and a teammate open the Members page. The owner chooses **Make owner** for the teammate, and the browser holds the successful response.
+   - *Expected*: the teammate sees the Owner role live. The writer has yet to reread the roster.
+2. The response arrives.
+   - *Expected*: the writer’s roster refreshes once. Only the writer’s event carries the request identifier. Neither page reloads.
+
 ## Scenario: adding a room member updates another reader and refreshes the writer once
 
 1. The owner and a teammate open the Members page. The owner adds a third person from the directory, and the browser holds the successful response.

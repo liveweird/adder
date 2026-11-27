@@ -34,7 +34,7 @@ function merged(mutationId: string, roomId = 7, threadNumber = 3): LiveServerFra
 }
 
 function roomMember(
-  kind: "room.member_added" | "room.member_removed",
+  kind: "room.member_added" | "room.member_role_changed" | "room.member_removed",
   mutationId: string,
   roomId = 7,
 ): Extract<LiveServerFrame, { type: "event" }> {
@@ -463,7 +463,7 @@ describe("room membership echo correlation", () => {
     vi.useRealTimers();
   });
 
-  test.each(["room.member_added", "room.member_removed"] as const)("holds only an exact message-less %s event", (kind) => {
+  test.each(["room.member_added", "room.member_role_changed", "room.member_removed"] as const)("holds only an exact message-less %s event", (kind) => {
     const operation = beginRoomMemberEcho(client, 7, kind)!;
     const replay = vi.fn();
     expect(deferReplyEcho(client, roomMember(kind, operation.id), replay)).toBe(true);
@@ -472,7 +472,6 @@ describe("room membership echo correlation", () => {
     expect(deferReplyEcho(client, roomMember(kind === "room.member_added" ? "room.member_removed" : "room.member_added", operation.id), replay)).toBe(false);
     expect(deferReplyEcho(client, { ...roomMember(kind, operation.id), threadNumber: 3 }, replay)).toBe(false);
     expect(deferReplyEcho(client, { ...roomMember(kind, operation.id), messageId: 41 }, replay)).toBe(false);
-    expect(deferReplyEcho(client, { type: "event", kind: "room.member_role_changed", roomId: 7, mutationId: operation.id }, replay)).toBe(false);
     expect(deferReplyEcho(client, { type: "revoked", roomId: 7 }, replay)).toBe(false);
     operation.confirm();
     expect(replay).not.toHaveBeenCalled();

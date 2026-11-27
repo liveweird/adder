@@ -285,6 +285,20 @@ class LiveHubTest {
 
         deliver(
             LiveHint(
+                LiveKind.ROOM_MEMBER_ROLE_CHANGED,
+                7u,
+                targetUserIds = listOf(2u),
+                mutationId = mutationId,
+                originUserId = 1u,
+            ),
+        )
+        barrier(writer)
+        assertEquals(listOf(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ROLE_CHANGED, 7u, mutationId = mutationId)), writer.drain())
+        assertEquals(listOf(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ROLE_CHANGED, 7u)), target.drain())
+        assertEquals(listOf(LiveServerFrame.Event(LiveKind.ROOM_MEMBER_ROLE_CHANGED, 7u)), subscriber.drain())
+
+        deliver(
+            LiveHint(
                 LiveKind.ROOM_MEMBER_REMOVED,
                 7u,
                 targetUserIds = listOf(2u),

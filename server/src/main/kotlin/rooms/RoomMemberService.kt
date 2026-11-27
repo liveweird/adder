@@ -216,13 +216,30 @@ class RoomMemberService(
      * when the member already has [role], else the role they had, so the route audits only a change. Demoting the last active OWNER
      * is the typed `409` `last-owner`.
      */
-    suspend fun setRole(roomId: UInt, userId: UInt, caller: CallerPrincipal, guard: RoomGuard, role: RoomRole): RoomRole? =
-        database.withRoomWrite(roomId, caller, guard) { _, _ ->
+    suspend fun setRole(
+        roomId: UInt,
+        userId: UInt,
+        caller: CallerPrincipal,
+        guard: RoomGuard,
+        role: RoomRole,
+        readMutationId: () -> String?,
+    ): RoomRole? =
+        database.withRoomWrite(roomId, caller, guard) { fresh, _ ->
             val current = activeRole(roomId, userId) ?: throw NotFoundException("Member not found")
+            val requestedMutationId = readMutationId()
+            val mutationId = requestedMutationId.takeIf { userId != fresh.userId }
             if (current == role) return@withRoomWrite null
             if (current == RoomRole.OWNER) requireOtherActiveOwner(roomId, userId)
             members.update({ (members.roomId eq roomId) and (members.userId eq userId) }) { it[members.role] = role.name }
-            notifyLive(LiveHint(LiveKind.ROOM_MEMBER_ROLE_CHANGED, roomId, targetUserIds = listOf(userId)))
+            notifyLive(
+                LiveHint(
+                    LiveKind.ROOM_MEMBER_ROLE_CHANGED,
+                    roomId,
+                    targetUserIds = listOf(userId),
+                    mutationId = mutationId,
+                    originUserId = fresh.userId.takeIf { mutationId != null },
+                ),
+            )
             current
         }
 

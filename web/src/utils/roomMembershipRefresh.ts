@@ -11,7 +11,7 @@ const MEMBERSHIP_KEYS = [roomKeys.all, homeKey] as const;
 export function beginRoomMembershipEcho(
   queryClient: QueryClient,
   roomId: number,
-  kind: "room.member_added" | "room.member_removed",
+  kind: "room.member_added" | "room.member_role_changed" | "room.member_removed",
   apiBase = API_BASE,
   pageUrl = window.location.href,
 ): MutationEcho | undefined {
@@ -39,7 +39,9 @@ export async function settleRoomMembershipRefresh(
   } catch {
     // The HTTP write committed. Replaying a held hint is the safe recovery when its refresh failed.
   }
-  if (fresh) echo?.confirm();
+  const current = isSameSessionIdentity(session, getSessionSnapshot());
+  // A replacement session must neither receive the old refresh nor replay an old held frame into its caches.
+  if (fresh || !current) echo?.confirm();
   echo?.cancel();
-  return isSameSessionIdentity(session, getSessionSnapshot());
+  return current;
 }

@@ -25,13 +25,12 @@ import { useRegistryListControls } from "../hooks/useRegistryListControls";
 import { isOneOfOrNull, useStoredState } from "../hooks/useStoredState";
 import { browserTimeZone, formatDate } from "../utils/formatDate";
 import { PROBLEM_TYPES, isProblem } from "../utils/problems";
-import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { canManageRoom, isAccessRefusal } from "../utils/roomAccess";
 import { roomsPath } from "../utils/roomLinks";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import { MAX_USER_NAME_LENGTH } from "../utils/userForm";
-import { homeKey, roomKeys } from "../utils/roomKeys";
+import { roomKeys } from "../utils/roomKeys";
 import { clearRoomMessageRevisions } from "../utils/messageRevisionCache";
 import { beginRoomMembershipEcho, refreshRoomMembership, settleRoomMembershipRefresh } from "../utils/roomMembershipRefresh";
 import { applyRoomRevocation } from "../utils/liveKeys";
@@ -58,6 +57,7 @@ function memberErrorMessage(error: unknown, t: TFunction, self: boolean): string
 
 /** Who is leaving or being removed: the row's user (the leave is the caller's own id). */
 type Departing = { userId: number; name: string };
+type RoleInput = { userId: number; to: RoomRole; roomId: number; session: SessionSnapshot; self: boolean };
 type RemovalInput = { member: Departing; roomId: number; session: SessionSnapshot };
 type LeaveInput = { roomId: number; userId: number; session: SessionSnapshot };
 type LeaveMutation = UseMutationResult<LeaveInput, Error, LeaveInput>;
@@ -70,7 +70,6 @@ function MembersBody({ room, leave }: { room: RoomResponse; leave: LeaveMutation
   const canManage = canManageRoom(room, admin);
   const me = getUserId();
   const settingsKey = `${SETTINGS_KEY}.${room.id}`;
-  const refresh = () => refreshQueriesAfterMutation(queryClient, ["rooms"], homeKey);
   const [role, setRole] = useStoredState<RoomRole | null>(`${settingsKey}.filter.role`, null, isOneOfOrNull(ROLES));
   const { nameFilter, setNameFilter, debouncedName, nameFilterActive, page, setPage, pageSize, setPageSize, sortField, sortDir, sortParam, toggleSort } =
     useRegistryListControls<SortField>({ settingsKey, sortFields: SORT_FIELDS, initialSortField: "name", extraFilterDeps: [role] });
@@ -102,17 +101,28 @@ function MembersBody({ room, leave }: { room: RoomResponse; leave: LeaveMutation
   }, [membersGone, queryClient, room.id]);
 
   // A 403, 404 or 409 says the caller's standing or the roster moved (demoted, removed, someone else acted first): show the truth.
-  const refreshOnRefusal = async (failure: unknown) => {
-    if (isAccessRefusal(failure)) await refresh();
-  };
   const changeRole = useMutation({
-    mutationFn: ({ userId, to }: { userId: number; to: RoomRole }) => setRoomMemberRole(room.id, userId, to),
-    onSuccess: async (_none, { userId, to }) => {
-      clearRoomMessageRevisions(queryClient, room.id);
-      showSuccessToast(t(userId === me && to === "MEMBER" ? "rooms.members.toast.steppedDown" : "rooms.members.toast.roleChanged"));
-      await refresh();
+    mutationFn: async (input: RoleInput) => {
+      const echo = input.self ? undefined : beginRoomMembershipEcho(queryClient, input.roomId, "room.member_role_changed");
+      try {
+        await setRoomMemberRole(input.roomId, input.userId, input.to, echo?.id);
+      } catch (error) {
+        echo?.cancel();
+        throw error;
+      }
+      if (isSameSessionIdentity(input.session, getSessionSnapshot())) {
+        clearRoomMessageRevisions(queryClient, input.roomId);
+      }
+      return { ...input, current: await settleRoomMembershipRefresh(queryClient, input.session, echo) };
     },
-    onError: refreshOnRefusal,
+    onSuccess: ({ current }, { userId, to, roomId }) => {
+      if (!current || activeRoom.current !== roomId) return;
+      showSuccessToast(t(userId === me && to === "MEMBER" ? "rooms.members.toast.steppedDown" : "rooms.members.toast.roleChanged"));
+    },
+    onError: async (failure, input) => {
+      if (activeRoom.current !== input.roomId || !isSameSessionIdentity(input.session, getSessionSnapshot())) return;
+      if (isAccessRefusal(failure)) await refreshRoomMembership(queryClient, input.session);
+    },
   });
   const remove = useMutation({
     mutationFn: async ({ member, roomId, session }: RemovalInput) => {
@@ -170,7 +180,7 @@ function MembersBody({ room, leave }: { room: RoomResponse; leave: LeaveMutation
                 onClick={() => {
                   remove.reset();
                   leave.reset();
-                  changeRole.mutate({ userId: me, to: "MEMBER" });
+                  changeRole.mutate({ userId: me, to: "MEMBER", roomId: room.id, session: getSessionSnapshot(), self: true });
                 }}
               >
                 {t("rooms.members.stepDown")}
@@ -202,7 +212,8 @@ function MembersBody({ room, leave }: { room: RoomResponse; leave: LeaveMutation
             data={ROLES.map((value) => ({ value, label: t(`rooms.role.${value}`) }))}
           />
         </FilterPanel>
-        {changeRole.isError && (
+        {changeRole.isError && changeRole.variables?.roomId === room.id &&
+          isSameSessionIdentity(changeRole.variables.session, getSessionSnapshot()) && (
           <FormErrorAlert title={t("rooms.members.roleFailed")}>{memberErrorMessage(changeRole.error, t, false)}</FormErrorAlert>
         )}
         {((leaving && leave.isError && leave.variables?.roomId === room.id &&
@@ -282,7 +293,13 @@ function MembersBody({ room, leave }: { room: RoomResponse; leave: LeaveMutation
                           onClick={() => {
                             remove.reset();
                             leave.reset();
-                            changeRole.mutate({ userId: member.userId, to: promote ? "OWNER" : "MEMBER" });
+                            changeRole.mutate({
+                              userId: member.userId,
+                              to: promote ? "OWNER" : "MEMBER",
+                              roomId: room.id,
+                              session: getSessionSnapshot(),
+                              self: false,
+                            });
                           }}
                         >
                           {t(promote ? "rooms.members.makeOwner" : "rooms.members.makeMember")}

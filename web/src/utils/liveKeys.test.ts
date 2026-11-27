@@ -1,4 +1,4 @@
-import { beginMessageEditEcho, beginReplyEcho, clearReplyEchoes } from "./liveReplyEcho";
+import { beginMessageEditEcho, beginReplyEcho, beginRoomMemberEcho, clearReplyEchoes } from "./liveReplyEcho";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { QueryClient, QueryObserver, type QueryKey } from "@tanstack/react-query";
 import { FakeClock } from "../test/socket";
@@ -722,6 +722,21 @@ describe("createLiveInvalidator", () => {
 
 
 describe("message revision permissions", () => {
+  test("a correlated role event clears revision bodies before its held echo returns", () => {
+    const queryClient = new QueryClient();
+    const invalidator = createLiveInvalidator(queryClient, new FakeClock());
+    const operation = beginRoomMemberEcho(queryClient, 5, "room.member_role_changed")!;
+    const key = [...roomKeys.messageRevisions(5, 7, 99), 1];
+    queryClient.setQueryData(key, { items: [{ body: "saved draft" }] });
+
+    invalidator.handle({ type: "event", kind: "room.member_role_changed", roomId: 5, mutationId: operation.id });
+
+    expect(queryClient.getQueryData(key)).toBeUndefined();
+    clearReplyEchoes(queryClient);
+    invalidator.dispose();
+    queryClient.clear();
+  });
+
   test.each([
     event("room.member_role_changed", 5),
     event("message.deleted", 5, 7, 99),

@@ -7,6 +7,10 @@ Adder is **a chat tool crossed with an issue tracker** (rooms and threads, each 
 
 ## What's here today
 
+### Fewer duplicate reads after changing a room role (1.42.0)
+
+When you change another member’s role, the app can reuse the roster refresh for the matching live update. The affected member and other readers still see the role change live.
+
 ### Leaving a room returns to Rooms (1.41.0)
 
 After you leave a room, the browser returns to Rooms even if a live update has already replaced the Members page with an access preview. A successful response clears cached content for the room when the live update is missed.

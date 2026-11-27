@@ -110,7 +110,7 @@ private fun Route.memberRole(roomService: RoomService, memberService: RoomMember
             requireRoomManager(caller, roomService.visibleStanding(caller, roomId))
             val request = call.receive<RoomMemberRoleRequest>()
             // Idempotent: the same role again is a 204 with no write and no audit line.
-            val roleFrom = memberService.setRole(roomId, route.userId, caller, managerGuard, request.role)
+            val roleFrom = memberService.setRole(roomId, route.userId, caller, managerGuard, request.role) { call.mutationId() }
             if (roleFrom != null) {
                 audit(
                     "room.member_role_changed",

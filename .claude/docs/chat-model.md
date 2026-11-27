@@ -25,7 +25,7 @@ decisions and the defaults taken without asking are in `product.md` ("Decisions"
   (a live link would eject people mid-incident and break per-member roles and the last-OWNER rule). Add is idempotent (existing members are
   skipped and counted) and always adds as MEMBER; promotion is a separate audited step. The last OWNER cannot leave, be demoted or be removed
   (`409`, `urn:adder:problem:last-owner`): after the write the room keeps at least one OWNER whose user is active. A member leaves by deleting their
-  own membership; an OWNER or authorized ADMIN removes others.
+  own membership; an OWNER or authorized ADMIN removes others. The role PUT accepts an optional `X-Mutation-Id` after the locked authorization and active-target lookup. It correlates a change to another member only with the writer’s live event.
 - **Joining.** Owners decide pending requests in Members. Approval grants membership immediately. Rejection is visible to the applicant,
   who may send another request with a new id. Direct additions clear outstanding requests. A new member can read earlier threads and messages.
   The join date sets the start of unread tracking. An OWNER can promote any member to OWNER or step down to MEMBER while another active OWNER remains.

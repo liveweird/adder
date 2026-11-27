@@ -315,6 +315,8 @@ A merge event names the original source conversation. The writer can hold only t
 
 The explicit member-add POST and member-remove DELETE accept the same optional mutation identifier. The addition event is sent only when membership changes. Removal correlation applies to the manager’s event for removing another person. A separate revocation still closes the losing tabs immediately. Room events match the room without thread or message fields. Personal notifications and subscription recovery are handled independently.
 
+The room-role PUT also accepts the optional identifier. A change to another member carries it only on the writer’s account sockets. A change to the caller’s own role carries no identifier, and a no-op emits no event. The client clears cached edit histories on `room.member_role_changed` before deferring any matching refresh.
+
 ## Single-message deletion
 
 A message ID can be deleted only once. In the deleting tab, an HTTP `204` or the existing `message.deleted` hint for the exact room, thread and message can start the same refresh. The hint can arrive while the HTTP response is held or lost. Other tabs still process the ordinary event. The DELETE endpoint and the live frame keep their existing shapes.

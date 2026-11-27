@@ -27,6 +27,7 @@ describe("room membership refresh", () => {
   test("omits correlation for cross-origin APIs and unavailable UUID generation", () => {
     const client = new QueryClient();
     expect(beginRoomMembershipEcho(client, 7, "room.member_added", "https://api.example.test", "https://app.example.test/rooms/7")).toBeUndefined();
+    expect(beginRoomMembershipEcho(client, 7, "room.member_role_changed", "https://api.example.test", "https://app.example.test/rooms/7")).toBeUndefined();
     vi.stubGlobal("crypto", {});
     expect(beginRoomMembershipEcho(client, 7, "room.member_removed", "", "https://app.example.test/rooms/7")).toBeUndefined();
     vi.unstubAllGlobals();
