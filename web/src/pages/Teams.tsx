@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { Anchor, Button, Menu, Stack, Table, Text } from "@mantine/core";
+import { Anchor, Box, Button, Menu, Stack, Table, Text } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconPencil, IconPlus, IconTrash, IconUsersGroup } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
@@ -21,6 +21,7 @@ import { saveErrorMessage } from "../utils/saveError";
 import { MAX_TEAM_NAME_LENGTH } from "../utils/teamForm";
 import { teamPath } from "../utils/teamLinks";
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
+import classes from "../components/ManagementSurface.module.css";
 
 const SORT_FIELDS = ["name", "handle", "updatedAt"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -64,7 +65,7 @@ export default function Teams() {
   const columnCount = 6;
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader
         title={t("teams.title")}
         description={t("teams.intro")}
@@ -77,17 +78,20 @@ export default function Teams() {
         }
       />
 
-      <FilterPanel activeFilterCount={nameFilterActive ? 1 : 0} storageKey={SETTINGS_KEY}>
-        <ClearableTextInput
-          label={t("common.field.name")}
-          value={nameFilter}
-          onChange={setNameFilter}
-          clearLabel={t("common.filter.clearName")}
-          maxLength={MAX_TEAM_NAME_LENGTH}
-        />
-      </FilterPanel>
+      <Box className={classes.filterSurface}>
+        <FilterPanel activeFilterCount={nameFilterActive ? 1 : 0} storageKey={SETTINGS_KEY}>
+          <ClearableTextInput
+            label={t("common.field.name")}
+            value={nameFilter}
+            onChange={setNameFilter}
+            clearLabel={t("common.filter.clearName")}
+            maxLength={MAX_TEAM_NAME_LENGTH}
+          />
+        </FilterPanel>
+      </Box>
 
       <RegistryListTable
+        managementSurface
         label={t("teams.title")}
         errorTitle={t("teams.loadFailed")}
         error={error}
@@ -105,62 +109,62 @@ export default function Teams() {
             <Table.Th>{t("common.field.description")}</Table.Th>
             <Table.Th>{t("teams.column.manager")}</Table.Th>
             <Table.Th>{t("teams.column.members")}</Table.Th>
-            <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
+            <Table.Th aria-label={t("common.table.operations")} className={classes.actionCell} />
           </Table.Tr>
         }
         rows={data?.items.map((team) => {
           return (
             <Table.Tr key={team.id}>
-                <Table.Td>
-                  {/* The name is the way into the team page — a real link (the detail-link rule). */}
-                  <Anchor component={RouterLink} to={teamPath(team.id)} fw={500} size="sm" aria-label={t("teams.openAria", { name: team.name })}>
-                    {team.name}
-                  </Anchor>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c={team.handle ? undefined : "dimmed"}>
-                    {team.handle ? `@${team.handle}` : "—"}
+              <Table.Td>
+                {/* The name is the way into the team page — a real link (the detail-link rule). */}
+                <Anchor component={RouterLink} to={teamPath(team.id)} fw={500} size="sm" aria-label={t("teams.openAria", { name: team.name })}>
+                  {team.name}
+                </Anchor>
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm" c={team.handle ? undefined : "dimmed"}>
+                  {team.handle ? `@${team.handle}` : "—"}
+                </Text>
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm" c={team.description ? undefined : "dimmed"} lineClamp={1}>
+                  {team.description ?? "—"}
+                </Text>
+              </Table.Td>
+              <Table.Td>
+                {team.managerId !== null && team.managerName ? (
+                  <PersonLink id={team.managerId} name={team.managerName} size="sm" />
+                ) : (
+                  <Text size="sm" c="dimmed">
+                    {team.managerName ?? "—"}
                   </Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c={team.description ? undefined : "dimmed"} lineClamp={1}>
-                    {team.description ?? "—"}
-                  </Text>
-                </Table.Td>
-                <Table.Td>
-                  {team.managerId !== null && team.managerName ? (
-                    <PersonLink id={team.managerId} name={team.managerName} size="sm" />
-                  ) : (
-                    <Text size="sm" c="dimmed">
-                      {team.managerName ?? "—"}
-                    </Text>
-                  )}
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm">{team.memberCount}</Text>
-                </Table.Td>
-                <Table.Td style={{ width: 1 }} ta="right">
-                  {admin && (
-                    <RowActionsMenu label={t("common.table.operationsAria", { name: team.name })}>
-                      <Menu.Item
-                        leftSection={<IconPencil size={14} />}
-                        onClick={() => void openEditor(team)}
-                        aria-label={t("common.action.editAria", { name: team.name })}
-                      >
-                        {t("common.action.edit")}
-                      </Menu.Item>
-                      <Menu.Divider />
-                      <Menu.Item
-                        color="red"
-                        leftSection={<IconTrash size={14} />}
-                        onClick={() => remove.requestDelete(team)}
-                        aria-label={t("common.action.deleteAria", { name: team.name })}
-                      >
-                        {t("common.action.delete")}
-                      </Menu.Item>
-                    </RowActionsMenu>
-                  )}
-                </Table.Td>
+                )}
+              </Table.Td>
+              <Table.Td>
+                <Text size="sm">{team.memberCount}</Text>
+              </Table.Td>
+              <Table.Td ta="right" className={classes.actionCell}>
+                {admin && (
+                  <RowActionsMenu label={t("common.table.operationsAria", { name: team.name })}>
+                    <Menu.Item
+                      leftSection={<IconPencil size={14} />}
+                      onClick={() => void openEditor(team)}
+                      aria-label={t("common.action.editAria", { name: team.name })}
+                    >
+                      {t("common.action.edit")}
+                    </Menu.Item>
+                    <Menu.Divider />
+                    <Menu.Item
+                      color="red"
+                      leftSection={<IconTrash size={14} />}
+                      onClick={() => remove.requestDelete(team)}
+                      aria-label={t("common.action.deleteAria", { name: team.name })}
+                    >
+                      {t("common.action.delete")}
+                    </Menu.Item>
+                  </RowActionsMenu>
+                )}
+              </Table.Td>
             </Table.Tr>
           );
         })}

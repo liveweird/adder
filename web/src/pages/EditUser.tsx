@@ -18,6 +18,7 @@ import PageHeader from "../components/PageHeader";
 import { FORM_MAX_WIDTH } from "../utils/layout";
 import { usersPath } from "../utils/userLinks";
 import FormErrorAlert from "../components/FormErrorAlert";
+import classes from "../components/ManagementSurface.module.css";
 
 export default function EditUser() {
   const { t } = useTranslation();
@@ -95,9 +96,9 @@ export default function EditUser() {
   const notFound = isError && fetchError instanceof ApiError && fetchError.status === 404;
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader title={t("users.editUser")} backTo={{ to: usersPath, label: t("users.title") }} />
-      <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
+      <Paper withBorder maw={FORM_MAX_WIDTH} className={classes.formCard}>
         <Stack>
           {isLoading || isError ? (
             <EditPageLoadState
@@ -115,7 +116,7 @@ export default function EditUser() {
                     {error}
                   </FormErrorAlert>
                 )}
-                <Group justify="flex-end" gap="sm">
+                <Group justify="flex-end" gap="sm" className={classes.formFooter}>
                   <Button component={RouterLink} to={usersPath} variant="default">
                     {t("common.action.cancel")}
                   </Button>

@@ -1,0 +1,147 @@
+.page {
+  width: 100%;
+}
+
+.filterSurface {
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--adder-surface-tint);
+}
+
+.registrySurface {
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+.registrySurface :global(.mantine-Table-table) {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.registrySurface > [role="region"]:focus-visible {
+  outline-offset: -2px;
+}
+
+.registryFooter {
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border-top: 1px solid var(--mantine-color-default-border);
+  background: var(--adder-surface-tint);
+}
+
+.formCard {
+  padding: var(--mantine-spacing-xl);
+  border-radius: var(--mantine-radius-md);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+.actionCell {
+  position: sticky;
+  inset-inline-end: 0;
+  z-index: 1;
+  min-width: 3rem;
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+  box-shadow: -1px 0 0 var(--mantine-color-default-border);
+}
+
+thead .actionCell {
+  z-index: 2;
+  background: light-dark(var(--mantine-color-gray-0), var(--mantine-color-dark-6));
+}
+
+@media (hover: hover) {
+  tbody tr:hover .actionCell {
+    background: var(--table-highlight-on-hover-color, var(--table-hover-color));
+  }
+}
+
+@media (hover: none) {
+  tbody tr:active .actionCell {
+    background: var(--table-highlight-on-hover-color, var(--table-hover-color));
+  }
+}
+
+.identityGrid {
+  align-items: start;
+}
+
+.permissionField {
+  align-self: stretch;
+  padding: 0.75rem;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--adder-surface-tint);
+}
+
+.subjectIdentity {
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border-inline-start: 3px solid var(--adder-accent-ink);
+  border-radius: 0 var(--mantine-radius-sm) var(--mantine-radius-sm) 0;
+  background: var(--adder-surface-tint);
+}
+
+.featureList {
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+}
+
+.featureRow {
+  padding: var(--mantine-spacing-md);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+.featureRow + .featureRow {
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.formFooter {
+  margin-inline: calc(var(--mantine-spacing-xl) * -1);
+  margin-block-end: calc(var(--mantine-spacing-xl) * -1);
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-xl);
+  border-top: 1px solid var(--mantine-color-default-border);
+  border-radius: 0 0 var(--mantine-radius-md) var(--mantine-radius-md);
+  background: var(--adder-surface-tint);
+}
+
+.workflowCard {
+  border-inline-start: 3px solid var(--adder-accent-ink);
+}
+
+.workflowFooter {
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--adder-surface-tint);
+}
+
+.detailSurface {
+  padding: var(--mantine-spacing-lg);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: light-dark(var(--mantine-color-white), var(--mantine-color-dark-7));
+}
+
+@media (max-width: 36rem) {
+  .filterSurface,
+  .detailSurface {
+    padding: var(--mantine-spacing-sm);
+  }
+
+  .formCard {
+    padding: var(--mantine-spacing-md);
+  }
+
+  .formFooter {
+    margin-inline: calc(var(--mantine-spacing-md) * -1);
+    margin-block-end: calc(var(--mantine-spacing-md) * -1);
+    padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  }
+
+  .registryFooter {
+    padding-inline: var(--mantine-spacing-sm);
+  }
+}

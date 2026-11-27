@@ -13,6 +13,7 @@ import { loadErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
 import { templateSeedOf, type TemplateSeed } from "../utils/workflowTemplateForm";
 import { workflowTemplatesPath } from "../utils/workflowTemplateLinks";
+import classes from "../components/ManagementSurface.module.css";
 
 /** A seed paired with the revision it was read at (the `X-Expected-Revision` of the save) and a generation that re-keys the form. */
 type LoadedSeed = { seed: TemplateSeed; revision: number; generation: number };
@@ -65,7 +66,7 @@ function EditTemplatePage({ id }: { id: number }) {
   }
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader
         title={t("workflows.templates.editTitle")}
         backTo={{ to: workflowTemplatesPath, label: t("workflows.templates.backToList") }}

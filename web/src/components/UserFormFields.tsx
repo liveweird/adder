@@ -1,14 +1,15 @@
-import { Checkbox, Select, Stack, TextInput } from "@mantine/core";
+import { Checkbox, Select, SimpleGrid, TextInput } from "@mantine/core";
 import { type UseFormReturnType } from "@mantine/form";
 import { useTranslation } from "react-i18next";
 import { NATIVE_LANGUAGE_NAMES, SUPPORTED_LANGUAGES } from "../i18n";
 import { MAX_EMAIL_LENGTH, MAX_USER_NAME_LENGTH, type UserFormValues } from "../utils/userForm";
+import classes from "./ManagementSurface.module.css";
 
 /** The field block shared by the create and edit user pages (which own submit/error handling). */
 export default function UserFormFields({ form }: { form: UseFormReturnType<UserFormValues> }) {
   const { t } = useTranslation();
   return (
-    <Stack gap="sm">
+    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md" verticalSpacing="sm" className={classes.identityGrid}>
       <TextInput
         label={t("common.field.name")}
         autoFocus
@@ -30,10 +31,11 @@ export default function UserFormFields({ form }: { form: UseFormReturnType<UserF
         {...form.getInputProps("language")}
       />
       <Checkbox
+        className={classes.permissionField}
         label={t("users.adminCheckbox")}
         description={t("users.adminCheckboxHint")}
         {...form.getInputProps("admin", { type: "checkbox" })}
       />
-    </Stack>
+    </SimpleGrid>
   );
 }

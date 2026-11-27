@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import type { Icon } from "@tabler/icons-react";
-import { Table } from "@mantine/core";
+import { Box, Table } from "@mantine/core";
 import EmptyState from "./EmptyState";
 import PaginationBar from "./PaginationBar";
 import TableLoadingRow from "./TableLoadingRow";
 import ErrorAlert from "./ErrorAlert";
+import ScrollRegion from "./ScrollRegion";
+import classes from "./ManagementSurface.module.css";
 
 /** Common load/error/empty/pagination shell for the small registry tables. */
 export default function RegistryListTable({
@@ -25,6 +27,7 @@ export default function RegistryListTable({
   pageSize,
   onPageChange,
   onPageSizeChange,
+  managementSurface = false,
 }: {
   /** The table's accessible name — the same words as the page or section heading above it. */
   label: string;
@@ -44,33 +47,50 @@ export default function RegistryListTable({
   pageSize: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
+  /** Administration pages opt into the framed, horizontally scrollable registry treatment. */
+  managementSurface?: boolean;
 }) {
+  const table = (
+    <Table role="table" aria-label={label}>
+      <Table.Thead role="rowgroup">{header}</Table.Thead>
+      <Table.Tbody role="rowgroup">
+        {isLoading && !hasData ? (
+          <TableLoadingRow colSpan={columnCount} />
+        ) : rowCount > 0 ? (
+          rows
+        ) : !isError ? (
+          <Table.Tr>
+            <Table.Td colSpan={columnCount}>
+              <EmptyState icon={emptyIcon} label={emptyLabel} />
+            </Table.Td>
+          </Table.Tr>
+        ) : null}
+      </Table.Tbody>
+    </Table>
+  );
+  const pagination = (
+    <PaginationBar
+      total={total}
+      page={page}
+      pageSize={pageSize}
+      onPageChange={onPageChange}
+      onPageSizeChange={onPageSizeChange}
+    />
+  );
   return (
     <>
       {isError && <ErrorAlert error={error} title={errorTitle} />}
-      <Table role="table" aria-label={label}>
-        <Table.Thead role="rowgroup">{header}</Table.Thead>
-        <Table.Tbody role="rowgroup">
-          {isLoading && !hasData ? (
-            <TableLoadingRow colSpan={columnCount} />
-          ) : rowCount > 0 ? (
-            rows
-          ) : !isError ? (
-            <Table.Tr>
-              <Table.Td colSpan={columnCount}>
-                <EmptyState icon={emptyIcon} label={emptyLabel} />
-              </Table.Td>
-            </Table.Tr>
-          ) : null}
-        </Table.Tbody>
-      </Table>
-      <PaginationBar
-        total={total}
-        page={page}
-        pageSize={pageSize}
-        onPageChange={onPageChange}
-        onPageSizeChange={onPageSizeChange}
-      />
+      {managementSurface ? (
+        <Box className={classes.registrySurface}>
+          <ScrollRegion label={label} minWidth={640}>{table}</ScrollRegion>
+          <Box className={classes.registryFooter}>{pagination}</Box>
+        </Box>
+      ) : (
+        <>
+          {table}
+          {pagination}
+        </>
+      )}
     </>
   );
 }

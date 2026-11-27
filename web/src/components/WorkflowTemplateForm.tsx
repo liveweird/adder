@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Paper, Stack, Text } from "@mantine/core";
+import { Box, Paper, Stack, Text } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { ApiError } from "../api/http";
 import { useDiscardGuard } from "../hooks/useDiscardGuard";
@@ -22,6 +22,7 @@ import RegistryEditorActions from "./RegistryEditorActions";
 import RegistryMetadataFields from "./RegistryMetadataFields";
 import RevisionConflictAlert from "./RevisionConflictAlert";
 import WorkflowEditor from "./WorkflowEditor";
+import classes from "./ManagementSurface.module.css";
 
 /**
  * The create and edit form of a workflow template: the registry text plus the two-language workflow editor. It owns the draft
@@ -99,7 +100,7 @@ export default function WorkflowTemplateForm({
     <>
       <form onSubmit={form.onSubmit(save, showInvalid)} noValidate>
         <Stack gap="lg">
-          <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
+          <Paper withBorder maw={FORM_MAX_WIDTH} className={classes.formCard}>
             <Stack>
               <RegistryMetadataFields
                 nameMaxLength={MAX_TEMPLATE_NAME_LENGTH}
@@ -110,8 +111,9 @@ export default function WorkflowTemplateForm({
               />
             </Stack>
           </Paper>
-          <Paper withBorder p="xl" role="group" aria-label={t("workflows.templates.workflowGroup")} aria-describedby={hintId}>
+          <Paper withBorder role="group" aria-label={t("workflows.templates.workflowGroup")} aria-describedby={hintId} className={`${classes.formCard} ${classes.workflowCard}`}>
             <Stack gap="lg">
+              <Text fw={600}>{t("workflows.templates.workflowGroup")}</Text>
               <Text size="sm" c="dimmed" id={hintId}>
                 {t("workflows.templates.labelsHint")}
               </Text>
@@ -119,14 +121,16 @@ export default function WorkflowTemplateForm({
             </Stack>
           </Paper>
           {conflictReload && <RevisionConflictAlert onReload={() => void reload(conflictReload.run)} reloading={reloading} />}
-          <RegistryEditorActions
-            error={error}
-            submitting={submitting}
-            isEdit={isEdit}
-            onClose={guard.requestCancel}
-            gap="sm"
-            submitDisabled={isEdit && !dirty}
-          />
+          <Box className={classes.workflowFooter}>
+            <RegistryEditorActions
+              error={error}
+              submitting={submitting}
+              isEdit={isEdit}
+              onClose={guard.requestCancel}
+              gap="sm"
+              submitDisabled={isEdit && !dirty}
+            />
+          </Box>
         </Stack>
       </form>
       <ConfirmActionModal {...guard.confirmProps} />

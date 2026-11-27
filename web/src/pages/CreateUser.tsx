@@ -16,6 +16,7 @@ import { FORM_MAX_WIDTH } from "../utils/layout";
 import { mailtoHref as mailtoTo } from "../utils/mailto";
 import { usersPath } from "../utils/userLinks";
 import FormErrorAlert from "../components/FormErrorAlert";
+import classes from "../components/ManagementSurface.module.css";
 
 export default function CreateUser() {
   const { t } = useTranslation();
@@ -82,9 +83,9 @@ export default function CreateUser() {
     : undefined;
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader title={t("users.createUser")} backTo={{ to: usersPath, label: t("users.title") }} />
-      <Paper withBorder p="xl" maw={FORM_MAX_WIDTH}>
+      <Paper withBorder maw={FORM_MAX_WIDTH} className={classes.formCard}>
         <form onSubmit={form.onSubmit(onSubmit)} noValidate>
           <Stack>
             {/* No password field: it is generated on submit and revealed exactly once. */}
@@ -94,7 +95,7 @@ export default function CreateUser() {
                 {error}
               </FormErrorAlert>
             )}
-            <Group justify="flex-end" gap="sm">
+            <Group justify="flex-end" gap="sm" className={classes.formFooter}>
               <Button component={RouterLink} to={usersPath} variant="default">
                 {t("common.action.cancel")}
               </Button>

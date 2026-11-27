@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
-import { Anchor, Button, Menu, Stack, Table, Text } from "@mantine/core";
+import { Anchor, Box, Button, Menu, Stack, Table, Text } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconListCheck, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import { useAdmin } from "../auth";
@@ -19,6 +19,7 @@ import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { saveErrorMessage } from "../utils/saveError";
 import { MAX_TEMPLATE_NAME_LENGTH } from "../utils/workflowTemplateForm";
 import { editWorkflowTemplatePath, newWorkflowTemplatePath } from "../utils/workflowTemplateLinks";
+import classes from "../components/ManagementSurface.module.css";
 
 const SORT_FIELDS = ["name", "updatedAt"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -52,7 +53,7 @@ export default function WorkflowTemplates() {
   });
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader
         title={t("workflows.templates.title")}
         description={t("workflows.templates.intro")}
@@ -63,17 +64,20 @@ export default function WorkflowTemplates() {
         }
       />
 
-      <FilterPanel activeFilterCount={nameFilterActive ? 1 : 0} storageKey={SETTINGS_KEY}>
-        <ClearableTextInput
-          label={t("common.field.name")}
-          value={nameFilter}
-          onChange={setNameFilter}
-          clearLabel={t("common.filter.clearName")}
-          maxLength={MAX_TEMPLATE_NAME_LENGTH}
-        />
-      </FilterPanel>
+      <Box className={classes.filterSurface}>
+        <FilterPanel activeFilterCount={nameFilterActive ? 1 : 0} storageKey={SETTINGS_KEY}>
+          <ClearableTextInput
+            label={t("common.field.name")}
+            value={nameFilter}
+            onChange={setNameFilter}
+            clearLabel={t("common.filter.clearName")}
+            maxLength={MAX_TEMPLATE_NAME_LENGTH}
+          />
+        </FilterPanel>
+      </Box>
 
       <RegistryListTable
+        managementSurface
         label={t("workflows.templates.title")}
         errorTitle={t("workflows.templates.loadFailed")}
         error={error}
@@ -91,7 +95,7 @@ export default function WorkflowTemplates() {
             <Table.Th>{t("workflows.templates.column.statuses")}</Table.Th>
             <Table.Th>{t("workflows.templates.column.fields")}</Table.Th>
             <SortHeader field="updatedAt" label={t("workflows.templates.column.updated")} activeField={sortField} activeDir={sortDir} onToggle={toggleSort} />
-            <Table.Th aria-label={t("common.table.operations")} style={{ width: 1 }} />
+            <Table.Th aria-label={t("common.table.operations")} className={classes.actionCell} />
           </Table.Tr>
         }
         rows={data?.items.map((template) => (
@@ -122,7 +126,7 @@ export default function WorkflowTemplates() {
             <Table.Td>
               <Text size="sm">{formatDate(template.updatedAt, "—", browserTimeZone())}</Text>
             </Table.Td>
-            <Table.Td style={{ width: 1 }} ta="right">
+            <Table.Td ta="right" className={classes.actionCell}>
               <RowActionsMenu label={t("common.table.operationsAria", { name: template.name })}>
                 <Menu.Item
                   leftSection={<IconPencil size={14} />}

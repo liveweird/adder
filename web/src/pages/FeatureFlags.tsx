@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Stack, Table } from "@mantine/core";
+import { Box, Stack, Table } from "@mantine/core";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { IconUsers } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
@@ -22,6 +22,8 @@ import { isFeatureEnabled, withFeatureEnabled, type UserRow } from "../utils/fea
 import { refreshQueriesAfterMutation } from "../utils/queryRefresh";
 import { saveErrorMessage } from "../utils/saveError";
 import { showSuccessToast } from "../utils/toast";
+import ScrollRegion from "../components/ScrollRegion";
+import classes from "../components/ManagementSurface.module.css";
 
 const SORT_FIELDS = ["id", "name", "email"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
@@ -108,60 +110,68 @@ export default function FeatureFlags() {
   const sortProps = { activeField: sortField, activeDir: sortDir, onToggle: toggleSort };
 
   return (
-    <Stack gap="md">
+    <Stack gap="md" className={classes.page}>
       <PageHeader
         title={t("users.featureFlags.title")}
         actions={
           <FeatureFlagBulkButtons state={bulkState} disabled={total === 0} onStart={startBulk} />
         }
       />
-      <FeatureFlagFilters filters={filters} />
+      <Box className={classes.filterSurface}>
+        <FeatureFlagFilters filters={filters} />
+      </Box>
 
       {isError && <ErrorAlert error={loadError} title={t("users.loadFailed")} />}
       {error && <FormErrorAlert>{error}</FormErrorAlert>}
       <FeatureFlagBulkFeedback state={bulkState} featureLabel={featureLabel} />
 
-      <Table aria-label={t("users.featureFlags.title")}>
-        <Table.Thead>
-          <Table.Tr>
-            <SortHeader field="name" label={t("common.field.name")} {...sortProps} />
-            <SortHeader field="email" label={t("common.field.email")} {...sortProps} />
-            <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>
-              {t("users.featureFlags.enabledHeader")}
-            </Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {isLoading && !data ? (
-            <TableLoadingRow colSpan={columnCount} />
-          ) : data && data.items.length > 0 ? (
-            data.items.map((u) => (
-              <FeatureFlagRow
-                key={u.id}
-                user={u}
-                feature={feature}
-                featureLabel={featureLabel}
-                pending={pendingId === u.id}
-                onToggle={() => void toggle(u)}
-              />
-            ))
-          ) : !isError ? (
-            <Table.Tr>
-              <Table.Td colSpan={columnCount}>
-                <EmptyState icon={IconUsers} label={t("users.noUsers")} />
-              </Table.Td>
-            </Table.Tr>
-          ) : null}
-        </Table.Tbody>
-      </Table>
+      <Box className={classes.registrySurface}>
+        <ScrollRegion label={t("users.featureFlags.title")} minWidth={620}>
+          <Table aria-label={t("users.featureFlags.title")}>
+            <Table.Thead>
+              <Table.Tr>
+                <SortHeader field="name" label={t("common.field.name")} {...sortProps} />
+                <SortHeader field="email" label={t("common.field.email")} {...sortProps} />
+                <Table.Th style={{ width: 1, whiteSpace: "nowrap" }}>
+                  {t("users.featureFlags.enabledHeader")}
+                </Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {isLoading && !data ? (
+                <TableLoadingRow colSpan={columnCount} />
+              ) : data && data.items.length > 0 ? (
+                data.items.map((u) => (
+                  <FeatureFlagRow
+                    key={u.id}
+                    user={u}
+                    feature={feature}
+                    featureLabel={featureLabel}
+                    pending={pendingId === u.id}
+                    onToggle={() => void toggle(u)}
+                  />
+                ))
+              ) : !isError ? (
+                <Table.Tr>
+                  <Table.Td colSpan={columnCount}>
+                    <EmptyState icon={IconUsers} label={t("users.noUsers")} />
+                  </Table.Td>
+                </Table.Tr>
+              ) : null}
+            </Table.Tbody>
+          </Table>
+        </ScrollRegion>
 
-      <PaginationBar
-        total={total}
-        page={page}
-        pageSize={pageSize}
-        onPageChange={setPage}
-        onPageSizeChange={setPageSize}
-      />
+        <Box className={classes.registryFooter}>
+          <PaginationBar
+            total={total}
+            page={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+          />
+        </Box>
+      </Box>
     </Stack>
   );
 }
